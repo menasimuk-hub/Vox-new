@@ -63,6 +63,12 @@ export function getPostLoginTargets() {
   const dashboardFromEnv = import.meta?.env?.VITE_POST_LOGIN_DASHBOARD_URL
   if (!adminFromEnv && !dashboardFromEnv && typeof window !== 'undefined') {
     const host = window.location.hostname
+    if (host === 'voxbulk.com' || host === 'www.voxbulk.com' || host.endsWith('.voxbulk.com')) {
+      return {
+        adminUrl: 'https://admin.voxbulk.com',
+        dashboardUrl: 'https://dashboard.voxbulk.com',
+      }
+    }
     if (host === 'microgreenia.com' || host === 'www.microgreenia.com' || host.endsWith('.microgreenia.com')) {
       return {
         adminUrl: 'https://admin.microgreenia.com',

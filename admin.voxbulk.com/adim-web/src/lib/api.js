@@ -327,6 +327,9 @@ const DEV_PUBLIC_MARKETING = 'http://localhost:5173'
 function defaultPublicAppOrigin() {
   if (typeof window !== 'undefined') {
     const host = window.location.hostname
+    if (host === 'admin.voxbulk.com' || host === 'dashboard.voxbulk.com' || host.endsWith('.voxbulk.com')) {
+      return 'https://voxbulk.com'
+    }
     if (host === 'admin.microgreenia.com' || host === 'dashboard.microgreenia.com' || host.endsWith('.microgreenia.com')) {
       return 'https://microgreenia.com'
     }

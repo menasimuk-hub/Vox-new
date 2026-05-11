@@ -93,6 +93,7 @@ export function getPublicSignInUrl() {
   if (typeof window !== 'undefined') {
     const h = window.location.hostname
     if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return 'http://localhost:5173/signin'
+    if (h === 'dashboard.voxbulk.com') return 'https://voxbulk.com/signin'
   }
   return '/signin'
 }
@@ -102,7 +103,11 @@ const DEV_PUBLIC_MARKETING = 'http://localhost:5173'
 const DEV_NON_MARKETING_PORTS = new Set(['5174', '5175'])
 
 function marketingOriginAfterLogout() {
-  const raw = String(import.meta?.env?.VITE_PUBLIC_APP_URL || DEV_PUBLIC_MARKETING)
+  const productionDefault =
+    typeof window !== 'undefined' && window.location.hostname === 'dashboard.voxbulk.com'
+      ? 'https://voxbulk.com'
+      : DEV_PUBLIC_MARKETING
+  const raw = String(import.meta?.env?.VITE_PUBLIC_APP_URL || productionDefault)
     .trim()
     .replace(/\/+$/, '')
   try {
