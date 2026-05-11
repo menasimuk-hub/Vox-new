@@ -13,5 +13,6 @@ export default defineConfig({
     host: true,
     port: 5175,
     strictPort: true,
+    allowedHosts: ['dashboard.voxbulk.com'],
   },
 })

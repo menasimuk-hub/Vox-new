@@ -6,4 +6,10 @@
 // You can pass additional config via defineConfig({ vite: { ... } }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-export default defineConfig();
+export default defineConfig({
+  vite: {
+    preview: {
+      allowedHosts: ["voxbulk.com", "www.voxbulk.com", "452f9ed0.voxbulk.com"],
+    },
+  },
+});

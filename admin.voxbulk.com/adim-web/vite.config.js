@@ -83,6 +83,7 @@ export default defineConfig(({ mode }) => {
       host: true,
       port: 5174,
       strictPort: true,
+      allowedHosts: ['admin.voxbulk.com'],
       proxy,
     },
   }
