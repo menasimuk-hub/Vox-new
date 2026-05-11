@@ -1,0 +1,1247 @@
+import React, { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { apiFetch } from '../lib/api'
+
+const SOCIAL_PROVIDERS = [
+  { key: 'google', label: 'Google' },
+  { key: 'facebook', label: 'Facebook' },
+  { key: 'linkedin', label: 'LinkedIn' },
+]
+
+const PROVIDERS = [
+  { key: 'dentally', label: 'Dentally' },
+  { key: 'telnyx', label: 'Telnyx' },
+  { key: 'azure_speech', label: 'Azure Speech' },
+  { key: 'openai', label: 'OpenAI' },
+  { key: 'deepseek', label: 'DeepSeek' },
+  { key: 'elevenlabs', label: 'ElevenLabs' },
+  { key: 'twilio', label: 'Twilio' },
+  { key: 'vapi', label: 'Vapi' },
+  { key: 'gocardless', label: 'GoCardless' },
+]
+
+const DEFAULT_WEBHOOK_BASE = 'https://localhost'
+
+function joinMissingFields(x) {
+  const arr = Array.isArray(x) ? x : []
+  if (!arr.length) return ''
+  return arr.join(', ')
+}
+
+function statusPill(summary) {
+  if (!summary) return { cls: 'p-amber', text: 'Loading' }
+  if (summary.error) return { cls: 'p-red', text: 'Auth / error' }
+  if (!summary.exists) return { cls: 'p-amber', text: 'Not set' }
+  if (!summary.is_enabled) return { cls: 'p-amber', text: 'Disabled' }
+  if (summary.configured) return { cls: 'p-green', text: 'Configured' }
+  return { cls: 'p-amber', text: 'Incomplete' }
+}
+
+function openAIValidation(config, draft, summary) {
+  const errors = {}
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  const defaultModel = String(config?.default_model || config?.model || '').trim()
+  const realtimeModel = String(config?.realtime_model || '').trim()
+  const temperatureRaw = String(config?.temperature ?? '').trim()
+  const maxTokensRaw = String(config?.max_output_tokens ?? '').trim()
+  const temperature = Number(temperatureRaw)
+  const maxTokens = Number(maxTokensRaw)
+
+  if (!hasApiKey) errors.api_key = 'API key is required.'
+  if (!defaultModel) errors.default_model = 'Default model is required.'
+  if (!realtimeModel) errors.realtime_model = 'Realtime / response model is required.'
+  if (!temperatureRaw || Number.isNaN(temperature) || temperature < 0 || temperature > 1) {
+    errors.temperature = 'Temperature must be between 0.0 and 1.0.'
+  }
+  if (!maxTokensRaw || !Number.isInteger(maxTokens) || maxTokens <= 0) {
+    errors.max_output_tokens = 'Max output tokens must be a positive integer.'
+  }
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function azureSpeechValidation(config, draft, summary) {
+  const errors = {}
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  const region = String(config?.region || '').trim()
+  const ttsEnabled = config?.tts_enabled == null ? true : Boolean(config.tts_enabled)
+  const defaultVoiceId = String(config?.default_voice_id == null ? 'en-GB-AbbiNeural' : config.default_voice_id).trim()
+
+  if (!hasApiKey) errors.api_key = 'API key is required.'
+  if (!region) errors.region = 'Region is required.'
+  if (ttsEnabled && !defaultVoiceId) errors.default_voice_id = 'Default voice ID is required when TTS is enabled.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function deepSeekValidation(config, draft, summary) {
+  const errors = {}
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  if (!hasApiKey) errors.api_key = 'API key is required.'
+  if (!String(config?.base_url || '').trim()) errors.base_url = 'Base URL is required.'
+  if (!String(config?.model || config?.default_model || '').trim()) errors.model = 'Model is required.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function vapiValidation(config, draft, summary) {
+  const errors = {}
+  if (!String(config?.public_key || '').trim()) errors.public_key = 'Public key is required for browser calls.'
+  if (!String(config?.assistant_id || '').trim()) errors.assistant_id = 'Assistant ID is required for browser calls.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function elevenLabsValidation(config, draft, summary) {
+  const errors = {}
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  const voiceId = String(config?.default_voice_id || config?.voice_id || '').trim()
+  const numberFields = [
+    ['stability', 0, 1],
+    ['similarity_boost', 0, 1],
+    ['style', 0, 1],
+    ['speed', 0.7, 1.2],
+  ]
+  if (!hasApiKey) errors.api_key = 'API key is required.'
+  if (!voiceId) errors.default_voice_id = 'Default voice ID is required.'
+  numberFields.forEach(([field, min, max]) => {
+    const raw = String(config?.[field] ?? '').trim()
+    if (!raw) return
+    const value = Number(raw)
+    if (Number.isNaN(value) || value < min || value > max) errors[field] = `${field.replace('_', ' ')} must be between ${min} and ${max}.`
+  })
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function telnyxValidation(config, draft, summary) {
+  const errors = {}
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  if (!hasApiKey) errors.api_key = 'API key is required.'
+  if (!String(config?.connection_id || config?.voice_api_application_id || '').trim()) errors.connection_id = 'Voice API application / connection ID is required.'
+  if (!String(config?.default_outbound_number || config?.from_phone_number || '').trim()) errors.default_outbound_number = 'From phone number is required.'
+  if (!String(config?.outbound_voice_profile_id || '').trim()) errors.outbound_voice_profile_id = 'Outbound voice profile ID is required.'
+  if (!String(config?.voice_webhook_url || '').trim()) errors.voice_webhook_url = 'Webhook URL is required.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function copyText(value) {
+  const text = String(value || '')
+  if (!text) return
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {})
+  }
+}
+
+const invalidInputStyle = { borderColor: 'rgba(220,38,38,0.85)' }
+
+function SocialLoginSettings() {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [providers, setProviders] = useState(() =>
+    Object.fromEntries(
+      SOCIAL_PROVIDERS.map((p) => [
+        p.key,
+        {
+          provider: p.key,
+          exists: false,
+          is_enabled: false,
+          configured: false,
+          updated_at: null,
+          missing_fields: ['client_id', 'client_secret', 'redirect_uri'],
+          config: { client_id: '', redirect_uri: '' },
+          secret_set: { client_secret: false },
+        },
+      ])
+    )
+  )
+
+  const load = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const rows = await apiFetch('/admin/social-login/providers')
+      const next = { ...providers }
+      if (Array.isArray(rows)) {
+        for (const r of rows) {
+          if (r?.provider && next[r.provider]) next[r.provider] = r
+        }
+      }
+      setProviders(next)
+    } catch (e) {
+      setError(e?.message || 'Failed to load')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const setField = (providerKey, field, value) => {
+    setProviders((s) => ({
+      ...s,
+      [providerKey]: {
+        ...s[providerKey],
+        config: { ...(s[providerKey].config || {}), [field]: value },
+      },
+    }))
+  }
+
+  const setEnabled = (providerKey, enabled) => {
+    setProviders((s) => ({
+      ...s,
+      [providerKey]: { ...s[providerKey], is_enabled: Boolean(enabled) },
+    }))
+  }
+
+  const saveProvider = async (providerKey) => {
+    setSaving(true)
+    setError('')
+    try {
+      const p = providers[providerKey]
+      const config = { ...(p?.config || {}) }
+      // allow empty secret (means "keep existing") unless none exists yet
+      const secretKey = `${providerKey}_client_secret_draft`
+      const draft = (p && p[secretKey] != null) ? String(p[secretKey]) : ''
+      if (draft.trim()) config.client_secret = draft.trim()
+
+      const updated = await apiFetch(`/admin/social-login/${providerKey}`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_enabled: Boolean(p?.is_enabled), config }),
+      })
+      setProviders((s) => ({ ...s, [providerKey]: updated }))
+    } catch (e) {
+      setError(e?.message || 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateSecretDraft = (providerKey, value) => {
+    const secretKey = `${providerKey}_client_secret_draft`
+    setProviders((s) => ({
+      ...s,
+      [providerKey]: { ...s[providerKey], [secretKey]: value },
+    }))
+  }
+
+  return (
+    <div className='card'>
+      <div className='cardHead'>
+        <h3>Providers</h3>
+        <span className='pill p-cyan'>Google · Facebook · LinkedIn</span>
+      </div>
+      <div className='cardBody'>
+        {error && (
+          <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>
+            {error}
+          </div>
+        )}
+        {loading ? <div className='note'>Loading…</div> : null}
+        {!loading && (
+          <div className='stack' style={{ gap: 16 }}>
+            {SOCIAL_PROVIDERS.map((sp) => {
+              const row = providers[sp.key]
+              const pill = statusPill(row)
+              const last = row?.updated_at ? new Date(row.updated_at).toLocaleString() : '-'
+              const missing = joinMissingFields(row?.missing_fields)
+              const secretIsSet = Boolean(row?.secret_set?.client_secret)
+              return (
+                <div key={sp.key} className='card' style={{ margin: 0 }}>
+                  <div className='cardHead'>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <h3 style={{ fontSize: 15 }}>{sp.label}</h3>
+                      <span className={`pill ${pill.cls}`}>{pill.text}</span>
+                    </div>
+                    <span className='muted' style={{ fontSize: 12 }}>
+                      Updated: {last}
+                    </span>
+                  </div>
+                  <div className='cardBody' style={{ paddingTop: 16 }}>
+                    <div className='miniGrid'>
+                      <div className='mini'>
+                        <label>Status</label>
+                        <strong>
+                          {row?.exists
+                            ? row?.is_enabled
+                              ? row?.configured
+                                ? 'Configured'
+                                : 'Incomplete'
+                              : 'Disabled'
+                            : 'Not configured'}
+                        </strong>
+                      </div>
+                      <div className='mini'>
+                        <label>Last update</label>
+                        <strong>{last}</strong>
+                      </div>
+                      <div className='mini'>
+                        <label>Missing</label>
+                        <strong>{missing || '-'}</strong>
+                      </div>
+                      <div className='mini'>
+                        <label>Client secret</label>
+                        <strong>{secretIsSet ? 'Set' : 'Not set'}</strong>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                          <label className='label' style={{ margin: 0 }}>
+                            Enabled
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                            <input
+                              type='checkbox'
+                              checked={Boolean(row?.is_enabled)}
+                              onChange={(e) => setEnabled(sp.key, e.target.checked)}
+                            />
+                            <span className='muted' style={{ fontSize: 12 }}>
+                              Show on sign-in page
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        <label className='label'>Client ID</label>
+                        <input
+                          className='input'
+                          style={{ width: '100%', minWidth: 0 }}
+                          value={String(row?.config?.client_id || '')}
+                          onChange={(e) => setField(sp.key, 'client_id', e.target.value)}
+                          placeholder='Client ID'
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        <label className='label'>Client secret</label>
+                        <input
+                          className='input'
+                          style={{ width: '100%', minWidth: 0 }}
+                          type='password'
+                          value={String(row?.[`${sp.key}_client_secret_draft`] || '')}
+                          onChange={(e) => updateSecretDraft(sp.key, e.target.value)}
+                          placeholder={secretIsSet ? 'Leave blank to keep current' : 'Required'}
+                        />
+                        <div className='muted' style={{ fontSize: 12 }}>
+                          Existing secrets are never shown. Leave blank to keep the current one.
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        <label className='label'>Redirect / callback URL</label>
+                        <input
+                          className='input'
+                          style={{ width: '100%', minWidth: 0 }}
+                          value={String(row?.config?.redirect_uri || '')}
+                          onChange={(e) => setField(sp.key, 'redirect_uri', e.target.value)}
+                          placeholder='Redirect URL'
+                        />
+                      </div>
+                    </div>
+
+                    <div className='actions' style={{ marginTop: 12 }}>
+                      <button className='btn soft' onClick={load} disabled={saving}>
+                        Reload
+                      </button>
+                      <button className='btn primary' onClick={() => saveProvider(sp.key)} disabled={saving}>
+                        {saving ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default function Integrations() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const activeProvider = useMemo(() => {
+    const m = location.pathname.match(/^\/integrations\/([^/]+)\/?$/)
+    const key = (m?.[1] || '').toLowerCase()
+    return PROVIDERS.some((p) => p.key === key) ? key : null
+  }, [location.pathname])
+
+  const isSocialLoginRoute = useMemo(() => {
+    return /\/integrations\/social-login$/.test(location.pathname)
+  }, [location.pathname])
+
+  const [summaries, setSummaries] = useState(() =>
+    Object.fromEntries(PROVIDERS.map((p) => [p.key, null]))
+  )
+  const [providerDrafts, setProviderDrafts] = useState({})
+  const [providerSaving, setProviderSaving] = useState(false)
+  const [providerError, setProviderError] = useState('')
+  const [azureTestResult, setAzureTestResult] = useState('')
+  const [openAITestResult, setOpenAITestResult] = useState('')
+  const [deepSeekTestResult, setDeepSeekTestResult] = useState('')
+  const [vapiTestResult, setVapiTestResult] = useState('')
+  const [elevenLabsTestResult, setElevenLabsTestResult] = useState('')
+  const [telnyxTestResult, setTelnyxTestResult] = useState('')
+  const [telnyxTestNumber, setTelnyxTestNumber] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function run() {
+      const next = {}
+      await Promise.all(
+        PROVIDERS.map(async (p) => {
+          try {
+            const data = await apiFetch(`/admin/integrations/${p.key}`)
+            next[p.key] = data
+          } catch (e) {
+            next[p.key] = { error: true, message: e?.message || 'Error' }
+          }
+        })
+      )
+      if (!cancelled) setSummaries((s) => ({ ...s, ...next }))
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const setProviderField = (providerKey, field, value) => {
+    setProviderDrafts((s) => ({
+      ...s,
+      [providerKey]: {
+        ...(s[providerKey] || {}),
+        config: { ...((s[providerKey] || {}).config || {}), [field]: value },
+      },
+    }))
+  }
+
+  const setProviderEnabled = (providerKey, value) => {
+    setProviderDrafts((s) => ({
+      ...s,
+      [providerKey]: { ...(s[providerKey] || {}), is_enabled: Boolean(value) },
+    }))
+  }
+
+  const saveIntegrationProvider = async (providerKey) => {
+    setProviderSaving(true)
+    setProviderError('')
+    try {
+      const existing = summaries[providerKey] || {}
+      const draft = providerDrafts[providerKey] || {}
+      const config = { ...(existing.config || {}), ...(draft.config || {}) }
+      if (providerKey === 'gocardless') {
+        const token = String(draft.access_token_draft || '').trim()
+        if (token) config.access_token = token
+        const webhookSecret = String(draft.webhook_secret_draft || '').trim()
+        if (webhookSecret) config.webhook_secret = webhookSecret
+      }
+      if (providerKey === 'twilio') {
+        const token = String(draft.auth_token_draft || '').trim()
+        if (token) config.auth_token = token
+      }
+      if (providerKey === 'telnyx') {
+        if (config.default_outbound_number && !config.from_phone_number) config.from_phone_number = config.default_outbound_number
+        if (config.from_phone_number && !config.default_outbound_number) config.default_outbound_number = config.from_phone_number
+        if (config.connection_id && !config.voice_api_application_id) config.voice_api_application_id = config.connection_id
+        if (config.voice_api_application_id && !config.connection_id) config.connection_id = config.voice_api_application_id
+        const webhookBase = String(config.webhook_base_url || DEFAULT_WEBHOOK_BASE).replace(/\/+$/, '')
+        if (!config.webhook_base_url) config.webhook_base_url = webhookBase
+        if (!config.voice_webhook_url) config.voice_webhook_url = `${webhookBase}/telnyx/webhooks/voice`
+        if (!config.status_callback_url) config.status_callback_url = `${webhookBase}/telnyx/webhooks/status`
+        if (!config.verified_number_webhook_url) config.verified_number_webhook_url = `${webhookBase}/telnyx/webhooks/verified-numbers`
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+      }
+      if (providerKey === 'azure_speech') {
+        if (config.default_voice_id == null || String(config.default_voice_id).trim() === '') config.default_voice_id = 'en-GB-AbbiNeural'
+        if (config.tts_enabled == null) config.tts_enabled = true
+        if (config.stt_enabled == null) config.stt_enabled = false
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+      }
+      if (providerKey === 'openai') {
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+      }
+      if (providerKey === 'deepseek') {
+        if (!config.base_url) config.base_url = 'https://api.deepseek.com'
+        if (!config.model) config.model = 'deepseek-chat'
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+      }
+      if (providerKey === 'vapi') {
+        if (!config.base_url) config.base_url = 'https://api.vapi.ai'
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+      }
+      if (providerKey === 'elevenlabs') {
+        if (!config.base_url) config.base_url = 'https://api.elevenlabs.io'
+        if (!config.model_id) config.model_id = 'eleven_multilingual_v2'
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+        if (!config.default_voice_id && config.voice_id) config.default_voice_id = config.voice_id
+        if (!config.voice_id && config.default_voice_id) config.voice_id = config.default_voice_id
+      }
+      const updated = await apiFetch(`/admin/integrations/${providerKey}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          is_enabled: draft.is_enabled == null ? Boolean(existing.is_enabled) : Boolean(draft.is_enabled),
+          config,
+        }),
+      })
+      setSummaries((s) => ({ ...s, [providerKey]: updated }))
+      setProviderDrafts((s) => ({ ...s, [providerKey]: {} }))
+      if (providerKey === 'azure_speech') setAzureTestResult('')
+      if (providerKey === 'openai') setOpenAITestResult('')
+      if (providerKey === 'deepseek') setDeepSeekTestResult('')
+      if (providerKey === 'vapi') setVapiTestResult('')
+      if (providerKey === 'elevenlabs') setElevenLabsTestResult('')
+      if (providerKey === 'telnyx') setTelnyxTestResult('')
+    } catch (e) {
+      setProviderError(e?.message || 'Could not save provider')
+    } finally {
+      setProviderSaving(false)
+    }
+  }
+
+  const activeSummary = activeProvider ? summaries[activeProvider] || {} : {}
+  const activeDraft = activeProvider ? providerDrafts[activeProvider] || {} : {}
+  const activeConfig = { ...(activeSummary.config || {}), ...(activeDraft.config || {}) }
+  const activeEnabled = activeDraft.is_enabled == null ? Boolean(activeSummary.is_enabled) : Boolean(activeDraft.is_enabled)
+  const openAIStatus = activeProvider === 'openai' ? openAIValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const azureStatus = activeProvider === 'azure_speech' ? azureSpeechValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const deepSeekStatus = activeProvider === 'deepseek' ? deepSeekValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const vapiStatus = activeProvider === 'vapi' ? vapiValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const elevenLabsStatus = activeProvider === 'elevenlabs' ? elevenLabsValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const telnyxStatus = activeProvider === 'telnyx' ? telnyxValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const telnyxWebhookUrl = activeConfig.voice_webhook_url || `${activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE}/telnyx/webhooks/voice`
+
+  const testAzureSpeechTts = async () => {
+    setProviderError('')
+    setAzureTestResult('Testing Azure TTS…')
+    try {
+      const result = await apiFetch('/admin/integrations/azure_speech/test-tts', { method: 'POST' })
+      setAzureTestResult(`Azure TTS OK. Generated ${result.audio_bytes || 0} transient audio bytes.`)
+    } catch (e) {
+      setAzureTestResult('')
+      setProviderError(e?.message || 'Azure TTS test failed')
+    }
+  }
+
+  const testOpenAI = async () => {
+    setProviderError('')
+    setOpenAITestResult('Testing OpenAI…')
+    try {
+      const result = await apiFetch('/admin/integrations/openai/test', { method: 'POST' })
+      if (!result.ok) {
+        const payload = result.openai_payload ? JSON.stringify(result.openai_payload) : `HTTP ${result.status_code || 'error'}`
+        setOpenAITestResult(`OpenAI failed: ${payload}`)
+        return
+      }
+      setOpenAITestResult(`OpenAI OK: ${result.assistant_text || '(empty response)'}`)
+    } catch (e) {
+      setOpenAITestResult('')
+      setProviderError(e?.message || 'OpenAI test failed')
+    }
+  }
+
+  const testDeepSeek = async () => {
+    setProviderError('')
+    setDeepSeekTestResult('Testing DeepSeek…')
+    try {
+      const result = await apiFetch('/admin/integrations/deepseek/test', { method: 'POST' })
+      if (!result.ok) {
+        const payload = result.openai_payload ? JSON.stringify(result.openai_payload) : `HTTP ${result.status_code || 'error'}`
+        setDeepSeekTestResult(`DeepSeek failed: ${payload}`)
+        return
+      }
+      setDeepSeekTestResult(`DeepSeek OK: ${result.assistant_text || '(empty response)'}`)
+    } catch (e) {
+      setDeepSeekTestResult('')
+      setProviderError(e?.message || 'DeepSeek test failed')
+    }
+  }
+
+  const testVapi = async () => {
+    setProviderError('')
+    setVapiTestResult('Testing Vapi…')
+    try {
+      const result = await apiFetch('/admin/integrations/vapi/test', { method: 'POST' })
+      setVapiTestResult(result.verified ? `Vapi OK: ${result.assistant_name || result.assistant_id || 'assistant reachable'}` : result.message || 'Vapi browser config is present.')
+    } catch (e) {
+      setVapiTestResult('')
+      setProviderError(e?.message || 'Vapi test failed')
+    }
+  }
+
+  const testElevenLabs = async () => {
+    setProviderError('')
+    setElevenLabsTestResult('Testing ElevenLabs TTS…')
+    try {
+      const result = await apiFetch('/admin/integrations/elevenlabs/test-tts', {
+        method: 'POST',
+        body: JSON.stringify({ voice_id: activeConfig.default_voice_id || activeConfig.voice_id }),
+      })
+      setElevenLabsTestResult(`ElevenLabs OK. Voice ${result.voice_id || 'default'} generated ${result.audio_bytes || 0} audio bytes.`)
+    } catch (e) {
+      setElevenLabsTestResult('')
+      setProviderError(e?.message || 'ElevenLabs test failed')
+    }
+  }
+
+  const testTelnyx = async () => {
+    setProviderError('')
+    setTelnyxTestResult('Testing Telnyx connection…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/test', { method: 'POST' })
+      setTelnyxTestResult(result.message || 'Telnyx settings look complete.')
+    } catch (e) {
+      setTelnyxTestResult('')
+      setProviderError(e?.message || 'Telnyx connection test failed')
+    }
+  }
+
+  const testTelnyxCall = async () => {
+    const toNumber = telnyxTestNumber.trim()
+    if (!toNumber) {
+      window.alert('Enter a destination number for the test call.')
+      return
+    }
+    setProviderError('')
+    setTelnyxTestResult('Starting Telnyx test call…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/test-call', {
+        method: 'POST',
+        body: JSON.stringify({ to_number: toNumber }),
+      })
+      setTelnyxTestResult(`${result.message || 'Test call accepted'} ${result.external_id ? `(${result.external_id})` : ''}`)
+    } catch (e) {
+      setTelnyxTestResult('')
+      setProviderError(e?.message || 'Telnyx test call failed')
+    }
+  }
+
+  return (
+    <>
+      <div className='pageTop'>
+        <div>
+          <h1>{isSocialLoginRoute ? 'Social Login' : 'Integrations'}</h1>
+          {isSocialLoginRoute ? (
+            <p>Configure social login providers and control their availability on the public sign-in page.</p>
+          ) : (
+            <p>
+              Central place for Dentally, Twilio, Vapi, GoCardless, Webhooks, and Social Login configuration, status, and
+              credentials management.
+            </p>
+          )}
+        </div>
+        <div className='actions'>
+          <button className='btn' onClick={() => window.location.reload()}>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {isSocialLoginRoute ? (
+        <div className='pageShell' style={{ margin: '0 auto', width: '100%', maxWidth: 980 }}>
+          <div className='stack'>
+            <SocialLoginSettings />
+            <div className='card'>
+              <div className='cardHead'>
+                <h3>Security</h3>
+                <span className='pill p-cyan'>Secrets</span>
+              </div>
+              <div className='cardBody'>
+                <div className='note'>
+                  Client secrets are accepted when saving but are never returned to the browser. Leave the secret field
+                  blank to keep the current one.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className='grid-12'>
+          <div className='span-7 stack'>
+            <div className='card'>
+              <div className='cardHead'>
+                <h3>Provider summaries</h3>
+                <span className='pill p-cyan'>API-backed</span>
+              </div>
+              <div className='cardBody'>
+                <div className='tableWrap'>
+                  <table className='table'>
+                    <thead>
+                      <tr>
+                        <th>Provider</th>
+                        <th>Status</th>
+                        <th>Last update</th>
+                        <th>Note</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {PROVIDERS.map((p) => {
+                        const s = summaries[p.key]
+                        const pill = statusPill(s)
+                        return (
+                          <tr key={p.key}>
+                            <td>{p.label}</td>
+                            <td>
+                              <span className={`pill ${pill.cls}`}>{pill.text}</span>
+                            </td>
+                            <td>{s?.updated_at ? new Date(s.updated_at).toLocaleString() : '-'}</td>
+                            <td className='muted' style={{ maxWidth: 360 }}>
+                              {s?.error
+                                ? 'No admin session.'
+                                : s?.exists
+                                  ? s?.is_enabled
+                                    ? s?.configured
+                                      ? 'Ready'
+                                      : 'Missing required fields'
+                                    : 'Disabled'
+                                  : 'Not configured'}
+                            </td>
+                            <td>
+                              <button className='btn soft' onClick={() => navigate(`/integrations/${p.key}`)}>
+                                Open
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      <tr>
+                        <td>Social Login</td>
+                        <td>
+                          <span className='pill p-cyan'>Config</span>
+                        </td>
+                        <td>-</td>
+                        <td className='muted'>Provider credentials + availability for the sign-in page.</td>
+                        <td>
+                          <button className='btn soft' onClick={() => navigate('/integrations/social-login')}>
+                            Open
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className='span-5 stack'>
+            {activeProvider === 'telnyx' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Telnyx active voice setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('telnyx', e.target.checked)} />
+                      <span>Enable Telnyx voice agent</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Telnyx API key</label>
+                      <input className='input' style={telnyxStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, telnyx: { ...(s.telnyx || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste Telnyx API key'} />
+                      {telnyxStatus.errors.api_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{telnyxStatus.errors.api_key}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Voice API application / connection ID</label>
+                      <input className='input' style={telnyxStatus.errors.connection_id ? invalidInputStyle : undefined} value={String(activeConfig.connection_id || activeConfig.voice_api_application_id || '')} onChange={(e) => { setProviderField('telnyx', 'connection_id', e.target.value); setProviderField('telnyx', 'voice_api_application_id', e.target.value) }} placeholder='Telnyx Call Control connection ID' />
+                      {telnyxStatus.errors.connection_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{telnyxStatus.errors.connection_id}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>From phone number</label>
+                      <input className='input' style={telnyxStatus.errors.default_outbound_number ? invalidInputStyle : undefined} value={String(activeConfig.default_outbound_number || activeConfig.from_phone_number || '')} onChange={(e) => { setProviderField('telnyx', 'default_outbound_number', e.target.value); setProviderField('telnyx', 'from_phone_number', e.target.value) }} placeholder='+44...' />
+                      {telnyxStatus.errors.default_outbound_number ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{telnyxStatus.errors.default_outbound_number}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Outbound voice profile ID</label>
+                      <input className='input' style={telnyxStatus.errors.outbound_voice_profile_id ? invalidInputStyle : undefined} value={String(activeConfig.outbound_voice_profile_id || '')} onChange={(e) => setProviderField('telnyx', 'outbound_voice_profile_id', e.target.value)} placeholder='Telnyx outbound voice profile ID' />
+                      {telnyxStatus.errors.outbound_voice_profile_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{telnyxStatus.errors.outbound_voice_profile_id}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Webhook base URL</label>
+                      <input className='input' value={String(activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE)} onChange={(e) => setProviderField('telnyx', 'webhook_base_url', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Webhook URL for Telnyx portal</label>
+                      <div className='actions' style={{ alignItems: 'center' }}>
+                        <input className='input' style={telnyxStatus.errors.voice_webhook_url ? invalidInputStyle : undefined} value={String(telnyxWebhookUrl)} onChange={(e) => setProviderField('telnyx', 'voice_webhook_url', e.target.value)} />
+                        <button className='btn soft' type='button' onClick={() => copyText(telnyxWebhookUrl)}>Copy</button>
+                      </div>
+                      {telnyxStatus.errors.voice_webhook_url ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{telnyxStatus.errors.voice_webhook_url}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Status callback URL</label>
+                      <input className='input' value={String(activeConfig.status_callback_url || `${DEFAULT_WEBHOOK_BASE}/telnyx/webhooks/status`)} onChange={(e) => setProviderField('telnyx', 'status_callback_url', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Verified-number webhook URL</label>
+                      <input className='input' value={String(activeConfig.verified_number_webhook_url || `${DEFAULT_WEBHOOK_BASE}/telnyx/webhooks/verified-numbers`)} onChange={(e) => setProviderField('telnyx', 'verified_number_webhook_url', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Media stream WebSocket URL</label>
+                      <input className='input' value={String(activeConfig.media_stream_url || 'wss://localhost/telnyx/media-stream')} onChange={(e) => setProviderField('telnyx', 'media_stream_url', e.target.value)} />
+                    </div>
+                    <div className='note'>
+                      <strong>Telnyx setup steps</strong>
+                      <ol style={{ margin: '8px 0 0 18px', padding: 0 }}>
+                        <li>Create an API key in the Telnyx portal.</li>
+                        <li>Create a Voice API application / call control connection.</li>
+                        <li>Set the webhook URL shown above in Telnyx.</li>
+                        <li>Buy or assign a phone number to the voice profile/application.</li>
+                        <li>Save the credentials in VOXBULK, then run the connection test.</li>
+                      </ol>
+                    </div>
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('telnyx')} disabled={providerSaving}>
+                        {providerSaving ? 'Saving…' : 'Save Telnyx'}
+                      </button>
+                      <button className='btn soft' onClick={testTelnyx} disabled={providerSaving || !activeSummary?.exists}>
+                        Test connection
+                      </button>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Test call destination</label>
+                      <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+44...' />
+                      <button className='btn soft' onClick={testTelnyxCall} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
+                        Test call
+                      </button>
+                    </div>
+                    <div className='note'>
+                      Connection status: {statusPill(activeSummary).text}
+                      {activeSummary?.missing_fields?.length ? ` · Missing ${joinMissingFields(activeSummary.missing_fields)}` : ''}
+                    </div>
+                    {telnyxTestResult ? <div className='note'>{telnyxTestResult}</div> : null}
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'azure_speech' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Azure Speech setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('azure_speech', e.target.checked)} />
+                      <span>Enable Azure Speech STT/TTS</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>API key</label>
+                      <input className='input' style={azureStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, azure_speech: { ...(s.azure_speech || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste Azure Speech key'} />
+                      {azureStatus.errors.api_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{azureStatus.errors.api_key}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Region</label>
+                      <input className='input' style={azureStatus.errors.region ? invalidInputStyle : undefined} value={String(activeConfig.region || '')} onChange={(e) => setProviderField('azure_speech', 'region', e.target.value)} placeholder='uksouth' />
+                      {azureStatus.errors.region ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{azureStatus.errors.region}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>British female voice ID</label>
+                      <input className='input' style={azureStatus.errors.default_voice_id ? invalidInputStyle : undefined} value={String(activeConfig.default_voice_id == null ? 'en-GB-AbbiNeural' : activeConfig.default_voice_id)} onChange={(e) => setProviderField('azure_speech', 'default_voice_id', e.target.value)} />
+                      {azureStatus.errors.default_voice_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{azureStatus.errors.default_voice_id}</div> : null}
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeConfig.stt_enabled === true} onChange={(e) => setProviderField('azure_speech', 'stt_enabled', e.target.checked)} />
+                      <span>Enable Azure speech-to-text</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeConfig.tts_enabled !== false} onChange={(e) => setProviderField('azure_speech', 'tts_enabled', e.target.checked)} />
+                      <span>Enable Azure text-to-speech</span>
+                    </label>
+                    {!azureStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete the required Azure Speech fields before saving.</div> : null}
+                    {azureTestResult ? <div className='note'>{azureTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('azure_speech')} disabled={providerSaving || !azureStatus.valid}>
+                        {providerSaving ? 'Saving…' : 'Save Azure Speech'}
+                      </button>
+                      <button className='btn soft' onClick={testAzureSpeechTts} disabled={providerSaving || !activeSummary.configured}>
+                        Test Azure TTS
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'openai' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>OpenAI live call setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('openai', e.target.checked)} />
+                      <span>Enable OpenAI call reasoning</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>API key</label>
+                      <input className='input' style={openAIStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, openai: { ...(s.openai || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste OpenAI API key'} />
+                      {openAIStatus.errors.api_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{openAIStatus.errors.api_key}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Default model</label>
+                      <input className='input' style={openAIStatus.errors.default_model ? invalidInputStyle : undefined} value={String(activeConfig.default_model || activeConfig.model || '')} onChange={(e) => { setProviderField('openai', 'default_model', e.target.value); setProviderField('openai', 'model', e.target.value) }} placeholder='gpt-realtime-1.5' />
+                      {openAIStatus.errors.default_model ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{openAIStatus.errors.default_model}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Realtime / response model</label>
+                      <input className='input' style={openAIStatus.errors.realtime_model ? invalidInputStyle : undefined} value={String(activeConfig.realtime_model || '')} onChange={(e) => setProviderField('openai', 'realtime_model', e.target.value)} placeholder='gpt-realtime-1.5' />
+                      {openAIStatus.errors.realtime_model ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{openAIStatus.errors.realtime_model}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Base URL</label>
+                      <input className='input' value={String(activeConfig.base_url || 'https://api.openai.com')} onChange={(e) => setProviderField('openai', 'base_url', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Temperature</label>
+                      <input className='input' style={openAIStatus.errors.temperature ? invalidInputStyle : undefined} value={String(activeConfig.temperature ?? '')} onChange={(e) => setProviderField('openai', 'temperature', e.target.value)} placeholder='0.4' />
+                      {openAIStatus.errors.temperature ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{openAIStatus.errors.temperature}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Max output tokens</label>
+                      <input className='input' style={openAIStatus.errors.max_output_tokens ? invalidInputStyle : undefined} value={String(activeConfig.max_output_tokens || '')} onChange={(e) => setProviderField('openai', 'max_output_tokens', e.target.value)} placeholder='500' />
+                      {openAIStatus.errors.max_output_tokens ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{openAIStatus.errors.max_output_tokens}</div> : null}
+                    </div>
+                    {!openAIStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete all required OpenAI fields before saving.</div> : null}
+                    {openAITestResult ? <div className='note'>{openAITestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('openai')} disabled={providerSaving || !openAIStatus.valid}>
+                        {providerSaving ? 'Saving…' : 'Save OpenAI'}
+                      </button>
+                      <button className='btn soft' onClick={testOpenAI} disabled={providerSaving || !activeSummary.configured}>
+                        Test OpenAI
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'deepseek' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>DeepSeek demo setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('deepseek', e.target.checked)} />
+                      <span>Enable DeepSeek for demo comparison</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>API key</label>
+                      <input className='input' style={deepSeekStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, deepseek: { ...(s.deepseek || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste DeepSeek API key'} />
+                      {deepSeekStatus.errors.api_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{deepSeekStatus.errors.api_key}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Base URL</label>
+                      <input className='input' style={deepSeekStatus.errors.base_url ? invalidInputStyle : undefined} value={String(activeConfig.base_url || 'https://api.deepseek.com')} onChange={(e) => setProviderField('deepseek', 'base_url', e.target.value)} />
+                      {deepSeekStatus.errors.base_url ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{deepSeekStatus.errors.base_url}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Model</label>
+                      <input className='input' style={deepSeekStatus.errors.model ? invalidInputStyle : undefined} value={String(activeConfig.model || activeConfig.default_model || 'deepseek-chat')} onChange={(e) => { setProviderField('deepseek', 'model', e.target.value); setProviderField('deepseek', 'default_model', e.target.value) }} />
+                      {deepSeekStatus.errors.model ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{deepSeekStatus.errors.model}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Temperature</label>
+                      <input className='input' value={String(activeConfig.temperature ?? '0.45')} onChange={(e) => setProviderField('deepseek', 'temperature', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Max output tokens</label>
+                      <input className='input' value={String(activeConfig.max_output_tokens || '120')} onChange={(e) => setProviderField('deepseek', 'max_output_tokens', e.target.value)} />
+                    </div>
+                    {!deepSeekStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete the required DeepSeek fields before saving.</div> : null}
+                    {deepSeekTestResult ? <div className='note'>{deepSeekTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('deepseek')} disabled={providerSaving || !deepSeekStatus.valid}>
+                        {providerSaving ? 'Saving…' : 'Save DeepSeek'}
+                      </button>
+                      <button className='btn soft' onClick={testDeepSeek} disabled={providerSaving || !activeSummary.configured}>
+                        Test DeepSeek
+                      </button>
+                    </div>
+                    <div className='note'>Use this in `/ai/agent-demo` by selecting DeepSeek. Voice still uses Azure Speech for fair LLM comparison.</div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'vapi' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Vapi browser-call setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('vapi', e.target.checked)} />
+                      <span>Enable Vapi browser demo mode</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Public key</label>
+                      <input className='input' style={vapiStatus.errors.public_key ? invalidInputStyle : undefined} value={String(activeConfig.public_key || '')} onChange={(e) => setProviderField('vapi', 'public_key', e.target.value)} placeholder='Public key from Vapi dashboard' />
+                      {vapiStatus.errors.public_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{vapiStatus.errors.public_key}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Assistant ID</label>
+                      <input className='input' style={vapiStatus.errors.assistant_id ? invalidInputStyle : undefined} value={String(activeConfig.assistant_id || '')} onChange={(e) => setProviderField('vapi', 'assistant_id', e.target.value)} placeholder='Vapi assistant ID for Vox Sales' />
+                      {vapiStatus.errors.assistant_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{vapiStatus.errors.assistant_id}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Server API key (optional)</label>
+                      <input className='input' type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, vapi: { ...(s.vapi || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Optional server key'} />
+                      <div className='muted' style={{ fontSize: 12 }}>Browser calls need the public key and assistant ID. Server API key is stored for later backend tests.</div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Base URL</label>
+                      <input className='input' value={String(activeConfig.base_url || 'https://api.vapi.ai')} onChange={(e) => setProviderField('vapi', 'base_url', e.target.value)} />
+                    </div>
+                    {!vapiStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete Public key and Assistant ID before saving.</div> : null}
+                    {vapiTestResult ? <div className='note'>{vapiTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('vapi')} disabled={providerSaving || !vapiStatus.valid}>
+                        {providerSaving ? 'Saving…' : 'Save Vapi'}
+                      </button>
+                      <button className='btn soft' onClick={testVapi} disabled={providerSaving || !activeSummary.configured}>
+                        Test Vapi
+                      </button>
+                    </div>
+                    <div className='note'>Use this in `/ai/agent-demo` by selecting Vapi. Vapi handles its own voice and latency, separate from Azure Speech.</div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'elevenlabs' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>ElevenLabs text-to-speech setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('elevenlabs', e.target.checked)} />
+                      <span>Enable ElevenLabs TTS</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>API key</label>
+                      <input className='input' style={elevenLabsStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, elevenlabs: { ...(s.elevenlabs || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste ElevenLabs API key'} />
+                      {elevenLabsStatus.errors.api_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{elevenLabsStatus.errors.api_key}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Default voice ID</label>
+                      <input className='input' style={elevenLabsStatus.errors.default_voice_id ? invalidInputStyle : undefined} value={String(activeConfig.default_voice_id || activeConfig.voice_id || '')} onChange={(e) => { setProviderField('elevenlabs', 'default_voice_id', e.target.value); setProviderField('elevenlabs', 'voice_id', e.target.value) }} placeholder='Paste ElevenLabs voice_id' />
+                      {elevenLabsStatus.errors.default_voice_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{elevenLabsStatus.errors.default_voice_id}</div> : null}
+                      <div className='muted' style={{ fontSize: 12 }}>ElevenLabs uses this voice_id directly in `/v1/text-to-speech/:voice_id`.</div>
+                    </div>
+                    <details>
+                      <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Advanced voice settings</summary>
+                      <div className='stack' style={{ gap: 12, marginTop: 12 }}>
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          <label className='label'>Model ID</label>
+                          <input className='input' value={String(activeConfig.model_id || 'eleven_multilingual_v2')} onChange={(e) => setProviderField('elevenlabs', 'model_id', e.target.value)} />
+                        </div>
+                        {[
+                          ['stability', 'Stability (0-1)', '0.5'],
+                          ['similarity_boost', 'Similarity boost (0-1)', '0.75'],
+                          ['style', 'Style (0-1)', '0'],
+                          ['speed', 'Speed (0.7-1.2)', '1.0'],
+                        ].map(([field, label, placeholder]) => (
+                          <div key={field} style={{ display: 'grid', gap: 6 }}>
+                            <label className='label'>{label}</label>
+                            <input className='input' style={elevenLabsStatus.errors[field] ? invalidInputStyle : undefined} value={String(activeConfig[field] ?? '')} onChange={(e) => setProviderField('elevenlabs', field, e.target.value)} placeholder={placeholder} />
+                            {elevenLabsStatus.errors[field] ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{elevenLabsStatus.errors[field]}</div> : null}
+                          </div>
+                        ))}
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <input type='checkbox' checked={activeConfig.speaker_boost !== false} onChange={(e) => setProviderField('elevenlabs', 'speaker_boost', e.target.checked)} />
+                          <span>Use speaker boost</span>
+                        </label>
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          <label className='label'>Base URL</label>
+                          <input className='input' value={String(activeConfig.base_url || 'https://api.elevenlabs.io')} onChange={(e) => setProviderField('elevenlabs', 'base_url', e.target.value)} />
+                        </div>
+                      </div>
+                    </details>
+                    {!elevenLabsStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete the required ElevenLabs fields before saving.</div> : null}
+                    {elevenLabsTestResult ? <div className='note'>{elevenLabsTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('elevenlabs')} disabled={providerSaving || !elevenLabsStatus.valid}>
+                        {providerSaving ? 'Saving…' : 'Save ElevenLabs'}
+                      </button>
+                      <button className='btn soft' onClick={testElevenLabs} disabled={providerSaving || !activeSummary.configured}>
+                        Test ElevenLabs TTS
+                      </button>
+                    </div>
+                    <div className='note'>Use this from `/ai/agent-demo` by choosing ElevenLabs in the Text-to-speech card. You can override the voice ID per test.</div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'twilio' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Twilio sandbox/test setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('twilio', e.target.checked)} />
+                      <span>Enable Twilio testing (legacy/inactive voice path)</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Account SID</label>
+                      <input className='input' value={String(activeConfig.account_sid || '')} onChange={(e) => setProviderField('twilio', 'account_sid', e.target.value)} placeholder='AC...' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Auth token</label>
+                      <input className='input' type='password' value={String(activeDraft.auth_token_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, twilio: { ...(s.twilio || {}), auth_token_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.auth_token ? 'Leave blank to keep current token' : 'Paste Twilio auth token'} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>WhatsApp sandbox number</label>
+                      <input className='input' value={String(activeConfig.whatsapp_from || 'whatsapp:+14155238886')} onChange={(e) => setProviderField('twilio', 'whatsapp_from', e.target.value)} placeholder='whatsapp:+14155238886' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Test voice / phone number</label>
+                      <input className='input' value={String(activeConfig.from_number || '')} onChange={(e) => setProviderField('twilio', 'from_number', e.target.value)} placeholder='+44...' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>TwiML URL</label>
+                      <input className='input' value={String(activeConfig.twiml_url || '')} onChange={(e) => setProviderField('twilio', 'twiml_url', e.target.value)} placeholder='https://.../twiml.xml' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Voice status callback URL</label>
+                      <input className='input' value={String(activeConfig.status_callback_url || 'http://localhost:8000/twilio/webhooks/calls')} onChange={(e) => setProviderField('twilio', 'status_callback_url', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Voice webhook URL</label>
+                      <input className='input' value={String(activeConfig.voice_webhook_url || 'http://localhost:8000/twilio/webhooks/calls')} onChange={(e) => setProviderField('twilio', 'voice_webhook_url', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Caller ID verification callback URL</label>
+                      <input className='input' value={String(activeConfig.caller_id_status_callback_url || 'http://localhost:8000/twilio/webhooks/caller-id')} onChange={(e) => setProviderField('twilio', 'caller_id_status_callback_url', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>WhatsApp sandbox webhook URL</label>
+                      <input className='input' value={String(activeConfig.whatsapp_webhook_url || 'http://localhost:8000/twilio/webhooks/whatsapp')} onChange={(e) => setProviderField('twilio', 'whatsapp_webhook_url', e.target.value)} />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeConfig.sandbox_mode !== false} onChange={(e) => setProviderField('twilio', 'sandbox_mode', e.target.checked)} />
+                      <span>Sandbox/test mode</span>
+                    </label>
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('twilio')} disabled={providerSaving}>
+                        {providerSaving ? 'Saving…' : 'Save Twilio'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'gocardless' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>GoCardless sandbox setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('gocardless', e.target.checked)} />
+                      <span>Enable GoCardless billing</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Environment</label>
+                      <select className='input' value={String(activeConfig.environment || 'sandbox')} onChange={(e) => setProviderField('gocardless', 'environment', e.target.value)}>
+                        <option value='sandbox'>Sandbox</option>
+                        <option value='live'>Live</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Access token</label>
+                      <input className='input' type='password' value={String(activeDraft.access_token_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, gocardless: { ...(s.gocardless || {}), access_token_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.access_token ? 'Leave blank to keep current token' : 'Paste sandbox access token'} />
+                      <div className='muted' style={{ fontSize: 12 }}>Token is encrypted in the backend and never returned to the browser.</div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Webhook endpoint URL</label>
+                      <input className='input' value={String(activeConfig.webhook_url || 'http://localhost:8000/webhooks/gocardless')} onChange={(e) => setProviderField('gocardless', 'webhook_url', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Webhook secret</label>
+                      <input className='input' type='password' value={String(activeDraft.webhook_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, gocardless: { ...(s.gocardless || {}), webhook_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.webhook_secret ? 'Leave blank to keep current secret' : 'Paste webhook secret'} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Success redirect URL</label>
+                      <input className='input' value={String(activeConfig.success_redirect_url || 'http://localhost:5175/packages?billing=success')} onChange={(e) => setProviderField('gocardless', 'success_redirect_url', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Cancel / retry URL</label>
+                      <input className='input' value={String(activeConfig.cancel_redirect_url || 'http://localhost:5175/packages?billing=cancelled')} onChange={(e) => setProviderField('gocardless', 'cancel_redirect_url', e.target.value)} />
+                    </div>
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('gocardless')} disabled={providerSaving}>
+                        {providerSaving ? 'Saving…' : 'Save GoCardless'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider ? (
+              <div className='card'>
+                <div className='cardHead'><h3>{PROVIDERS.find((p) => p.key === activeProvider)?.label} settings</h3></div>
+                <div className='cardBody'><div className='note'>Credential editor for this provider is not expanded in this phase.</div></div>
+              </div>
+            ) : null}
+            <div className='card'>
+              <div className='cardHead'>
+                <h3>Quick access</h3>
+                <span className='pill p-cyan'>Shortcuts</span>
+              </div>
+              <div className='cardBody'>
+                <div className='note'>
+                  Open Telnyx, Azure Speech, and OpenAI for the active voice-agent path. Twilio and Vapi remain available as legacy settings only.
+                </div>
+                <div className='actions' style={{ marginTop: 12 }}>
+                  <button className='btn primary' onClick={() => navigate('/integrations/telnyx')}>
+                    Telnyx voice settings
+                  </button>
+                  <button className='btn soft' onClick={() => navigate('/integrations/azure_speech')}>
+                    Azure Speech settings
+                  </button>
+                  <button className='btn soft' onClick={() => navigate('/integrations/openai')}>
+                    OpenAI settings
+                  </button>
+                  <button className='btn soft' onClick={() => navigate('/integrations/elevenlabs')}>
+                    ElevenLabs TTS
+                  </button>
+                  <button className='btn soft' onClick={() => navigate('/integrations/gocardless')}>
+                    GoCardless settings
+                  </button>
+                  <button className='btn soft' onClick={() => navigate('/integrations/social-login')}>
+                    Social Login settings
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}

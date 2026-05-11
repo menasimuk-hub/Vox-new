@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
+
+
+class OrganisationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    created_at: datetime
+    is_suspended: bool = False
+    profile_notes: str | None = None
+    category_id: str | None = None
+    onboarding_state: str = "account_created"
+    onboarding_completed_at: datetime | None = None
+    onboarding_version: str | None = None
+    booking_software_slug: str | None = None
+    address_line1: str | None = None
+    address_line2: str | None = None
+    city: str | None = None
+    county_state: str | None = None
+    postcode: str | None = None
+    country: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    website: str | None = None
+
+
+class OrganisationUpdate(BaseModel):
+    name: str | None = None
+    address_line1: str | None = None
+    address_line2: str | None = None
+    city: str | None = None
+    county_state: str | None = None
+    postcode: str | None = None
+    country: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    website: str | None = None
+
+
+class OrganisationCreate(BaseModel):
+    name: str
+

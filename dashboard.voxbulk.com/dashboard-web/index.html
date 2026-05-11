@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VOXBULK User Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Runs before any ES module so localStorage is filled before React (localStorage is not shared across ports). -->
+    <script>
+      (function () {
+        try {
+          var raw = window.location.hash;
+          if (!raw || raw.length <= 1) return;
+          var q = raw.charAt(0) === '#' ? raw.slice(1) : raw;
+          var params = new URLSearchParams(q);
+          var token = params.get('access_token');
+          if (!token) return;
+          localStorage.setItem('retover_access_token', token);
+          localStorage.setItem('access_token', token);
+          var oid = params.get('org_id');
+          var uid = params.get('user_id');
+          if (oid) localStorage.setItem('retover_org_id', oid);
+          if (uid) localStorage.setItem('retover_user_id', uid);
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

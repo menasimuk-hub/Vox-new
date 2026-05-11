@@ -1,0 +1,16 @@
+{
+  "name": "voxbulk-local-stack",
+  "private": true,
+  "description": "One command to run API + public app + admin for local VOXBULK development",
+  "scripts": {
+    "dev:api": "node scripts/dev-api.mjs",
+    "dev:public": "npm run dev --prefix voxbulk.com/frontend",
+    "dev:admin": "npm run dev --prefix admin.voxbulk.com/adim-web",
+    "dev": "concurrently -k -n api,public,admin -c blue,green,magenta \"node scripts/dev-api.mjs\" \"wait-on -t 120000 http-get://127.0.0.1:8000/health && npm run dev --prefix voxbulk.com/frontend\" \"wait-on -t 120000 http-get://127.0.0.1:8000/health && npm run dev --prefix admin.voxbulk.com/adim-web\"",
+    "smoke:frontend": "node scripts/frontend-smoke.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "wait-on": "^8.0.1"
+  }
+}

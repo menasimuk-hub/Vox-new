@@ -1,0 +1,27 @@
+{
+  "name": "voxbulk-admin-hifi",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "node ../../scripts/dev-api.mjs",
+    "dev:full": "concurrently -k -n api,admin -c blue,magenta \"npm run dev:api\" \"wait-on -t 120000 http-get://127.0.0.1:8000/health && vite\"",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vapi-ai/web": "^2.5.2",
+    "lucide-react": "^0.395.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.1",
+    "recharts": "^2.12.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.1.2",
+    "vite": "^5.4.0",
+    "wait-on": "^8.0.1"
+  }
+}

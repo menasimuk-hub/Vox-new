@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from sqlalchemy import select
+
+from app.core.config import get_settings
+from app.core.database import get_sessionmaker, init_db
+from app.core.logging import configure_logging, get_logger
+from app.core.security import hash_password
+from app.models.membership import OrganisationMembership
+from app.models.organisation import Organisation
+from app.models.user import User
+
+from app.routers.admin import router as admin_router
+from app.routers.admin_email import router as admin_email_router
+from app.routers.admin_support import router as admin_support_router
+from app.routers.agents import router as agents_router
+from app.routers.appointments import router as appointments_router
+from app.routers.auth import router as auth_router
+from app.routers.billing import router as billing_router
+from app.routers.branches import router as branches_router
+from app.routers.calls import router as calls_router
+from app.routers.dashboard import router as dashboard_router
+from app.routers.demo import admin_router as admin_demo_router
+from app.routers.demo import router as demo_router
+from app.routers.faq import router as faq_router
+from app.routers.notifications import router as notifications_router
+from app.routers.onboarding import router as onboarding_router
+from app.routers.organisations import router as organisations_router
+from app.routers.support import router as support_router
+from app.routers.telnyx import router as telnyx_router
+from app.routers.twilio import router as twilio_router
+from app.routers.users import router as users_router
+from app.routers.webhooks import router as webhooks_router
+from app.routers.whatsapp import router as whatsapp_router
+
+
+def _ensure_local_demo_admin() -> None:
+    with get_sessionmaker()() as db:
+        email = "zaghlolno@gmail.com"
+        user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+
+        # If a previous run created this user as a normal user, "upgrade" it so
+        # local dev always has a working superuser for routing/admin testing.
+        if user is None:
+            user = User(
+                email=email,
+                password_hash=hash_password("testtest1"),
+                is_active=True,
+                is_superuser=True,
+            )
+            db.add(user)
+            db.flush()
+        else:
+            changed = False
+            if not user.is_active:
+                user.is_active = True
+                changed = True
+            if not user.is_superuser:
+                user.is_superuser = True
+                changed = True
+            if not user.password_hash:
+                user.password_hash = hash_password("testtest1")
+                changed = True
+            if changed:
+                db.add(user)
+                db.flush()
+
+        mem = db.execute(
+            select(OrganisationMembership).where(OrganisationMembership.user_id == user.id)
+        ).scalar_one_or_none()
+        if mem is None:
+            org = Organisation(name="VOXBULK Local Admin")
+            db.add(org)
+            db.flush()
+            db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
+
+        db.commit()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    configure_logging(settings)
+    logger = get_logger(__name__)
+    if str(settings.env).lower() in {"dev", "development", "local"}:
+        try:
+            init_db()
+        except Exception:
+            logger.exception("init_db failed — fix DATABASE_URL/migrations; /health still works")
+        try:
+            _ensure_local_demo_admin()
+        except Exception:
+            logger.exception("local demo admin bootstrap failed — create a superuser manually")
+    logger.info("app_starting", extra={"env": settings.env, "app_name": settings.app_name})
+    yield
+    logger.info("app_stopped", extra={"env": settings.env, "app_name": settings.app_name})
+
+
+settings = get_settings()
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=settings.trusted_hosts,
+)
+
+_origins = settings.cors_allow_origins
+_cors_kw = dict(
+    allow_origins=_origins,
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+_reg = settings.cors_allow_origin_regex
+if _reg:
+    _cors_kw["allow_origin_regex"] = _reg
+app.add_middleware(CORSMiddleware, **_cors_kw)
+
+
+@app.get("/health", tags=["health"])
+def health():
+    return {"status": "ok"}
+
+
+app.include_router(auth_router)
+app.include_router(organisations_router)
+app.include_router(branches_router)
+app.include_router(users_router)
+app.include_router(appointments_router)
+app.include_router(calls_router)
+app.include_router(whatsapp_router)
+app.include_router(webhooks_router)
+app.include_router(dashboard_router)
+app.include_router(demo_router)
+app.include_router(admin_demo_router)
+app.include_router(billing_router)
+app.include_router(support_router)
+app.include_router(telnyx_router)
+app.include_router(twilio_router)
+app.include_router(faq_router)
+app.include_router(notifications_router)
+app.include_router(onboarding_router)
+app.include_router(admin_router)
+app.include_router(agents_router)
+app.include_router(admin_email_router)
+app.include_router(admin_support_router)
