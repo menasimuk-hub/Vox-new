@@ -35,17 +35,17 @@ from app.models.payment_event import PaymentEvent
 from app.models.webhook_event import WebhookEvent
 from app.models.appointment import Appointment
 from app.models.category import Category
-from app.schemas.onboarding import SupportedServiceAPIIn, SupportedServiceAPIOut, SupportedServiceAPIUpdate
 from app.services.admin_billing_service import AdminBillingService
 from app.services.admin_ops_service import AdminOperationsService
 from app.services.admin_org_service import AdminOrganisationService
-from app.services.onboarding_service import SupportedServiceAPIService
 from app.services.billing_event_email_service import BillingEventEmailService
 from app.services.provider_settings import ProviderSettingsService, ProviderUnknown
 from app.services.providers.azure_speech import AzureSpeechProviderService, VoiceAgentConfigError
+from app.services.providers.cartesia_service import CartesiaProviderService
+from app.services.providers.deepgram_service import DeepgramProviderService
 from app.services.providers.elevenlabs_service import ElevenLabsProviderService
+from app.services.providers.groq_service import GroqProviderService
 from app.services.providers.openai_service import OpenAIProviderService
-from app.services.telnyx_voice_service import TelnyxVoiceAdapter
 from app.services.dentally import DentallyAdapter, DentallyError
 from app.models.admin_user import AdminUser
 from app.workers.call_tasks import process_recovery_job
@@ -187,13 +187,12 @@ def test_elevenlabs_tts(payload: dict | None = None, db: Session = Depends(get_d
     try:
         result = ElevenLabsProviderService.test_tts(
             db,
-            text=str(payload.get("text") or ElevenLabsProviderService.TEST_PHRASE),
             voice_id=str(payload.get("voice_id") or "").strip() or None,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"ElevenLabs test failed: {e}") from e
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"ElevenLabs TTS test failed: {e}") from e
     if not result.get("ok"):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result)
     return result
@@ -229,77 +228,41 @@ def test_deepseek_completion(db: Session = Depends(get_db), _admin=Depends(requi
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"DeepSeek test failed: {e}") from e
 
 
-@router.post("/integrations/telnyx/test")
-def test_telnyx_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-    config = cfg or {}
-    if not enabled:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Telnyx integration is disabled")
-    missing = ProviderSettingsService._missing_fields("telnyx", config)
-    if missing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Telnyx settings incomplete: missing {', '.join(missing)}")
-
-    api_key = str(config.get("api_key") or "").strip()
-    outbound_voice_profile_id = str(config.get("outbound_voice_profile_id") or "").strip()
-    profile_verified = False
-    profile_status_code = None
-    profile_name = None
-    if outbound_voice_profile_id:
-        try:
-            response = httpx.get(
-                f"https://api.telnyx.com/v2/outbound_voice_profiles/{outbound_voice_profile_id}",
-                headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-                timeout=15.0,
-            )
-            profile_status_code = response.status_code
-            if response.is_success:
-                body = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-                data = body.get("data") if isinstance(body, dict) else {}
-                profile_name = data.get("name") if isinstance(data, dict) else None
-                profile_verified = True
-        except Exception as e:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx API check failed: {e}") from e
-
-    return {
-        "ok": True,
-        "verified": profile_verified,
-        "message": "Telnyx settings are present." + (" Outbound voice profile is reachable." if profile_verified else " API key saved; outbound voice profile was not verified."),
-        "from_phone_number": config.get("default_outbound_number") or config.get("from_phone_number"),
-        "connection_id": config.get("connection_id"),
-        "outbound_voice_profile_id": outbound_voice_profile_id,
-        "outbound_voice_profile_status_code": profile_status_code,
-        "outbound_voice_profile_name": profile_name,
-        "voice_webhook_url": config.get("voice_webhook_url"),
-    }
+@router.post("/integrations/groq/test")
+def test_groq_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    try:
+        diagnostics = GroqProviderService.diagnostics(db)
+        return {"ok": True, "message": "Groq configuration is present for Whisper STT and Orpheus TTS.", **diagnostics}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Groq test failed: {e}") from e
 
 
-@router.post("/integrations/telnyx/test-call")
-def test_telnyx_call(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    to_number = str((payload or {}).get("to_number") or "").strip()
-    if not to_number:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
-    cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-    config = cfg or {}
-    if not enabled:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Telnyx integration is disabled")
-    missing = ProviderSettingsService._missing_fields("telnyx", config)
-    if missing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Telnyx settings incomplete: missing {', '.join(missing)}")
-    from_number = str(config.get("default_outbound_number") or config.get("from_phone_number") or "").strip()
-    result = TelnyxVoiceAdapter.start_outbound_call(
-        to_number=to_number,
-        from_number=from_number,
-        config=config,
-        client_state={"source": "admin_telnyx_test_call"},
-    )
-    if not result.ok:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result.detail or "Telnyx test call failed")
-    return {
-        "ok": True,
-        "message": "Telnyx test call request was accepted.",
-        "external_id": result.external_id,
-        "status": result.status,
-    }
+@router.post("/integrations/deepgram/test")
+def test_deepgram_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    try:
+        result = DeepgramProviderService.test_connection(db)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Deepgram test failed: {e}") from e
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result)
+    return result
+
+
+@router.post("/integrations/cartesia/test")
+def test_cartesia_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    try:
+        result = CartesiaProviderService.test_connection(db)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Cartesia test failed: {e}") from e
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result)
+    return result
 
 
 @router.post("/integrations/vapi/test")
@@ -841,7 +804,6 @@ def admin_create_organisation(payload: dict, db: Session = Depends(get_db), _adm
 
 @router.get("/categories")
 def admin_list_categories(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
-    SupportedServiceAPIService.ensure_defaults(db)
     rows = list(db.execute(select(Category).order_by(Category.name.asc())).scalars())
     return [
         {
@@ -915,91 +877,6 @@ def admin_delete_category(category_id: str, db: Session = Depends(get_db), _admi
     db.delete(obj)
     db.commit()
     return {"ok": True}
-
-
-def _service_api_out(db: Session, row) -> dict:
-    return {
-        "id": row.id,
-        "slug": row.slug,
-        "display_name": row.display_name,
-        "category_slug": row.category_slug,
-        "short_description": row.short_description,
-        "status": row.status,
-        "is_active": bool(row.is_active),
-        "is_recommended": bool(row.is_recommended),
-        "api_difficulty": row.api_difficulty,
-        "docs_text": row.docs_text,
-        "sort_order": row.sort_order,
-        "api_setup_exists": SupportedServiceAPIService.api_setup_exists(db, row.slug),
-        "created_at": row.created_at,
-        "updated_at": row.updated_at,
-    }
-
-
-@router.get("/services-api", response_model=list[SupportedServiceAPIOut])
-def admin_list_services_api(
-    category: str | None = None,
-    status_filter: str | None = None,
-    active_only: bool = False,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    rows = SupportedServiceAPIService.list(db, category_slug=category, status=status_filter, active_only=active_only)
-    return [_service_api_out(db, row) for row in rows]
-
-
-@router.post("/services-api", response_model=SupportedServiceAPIOut)
-def admin_create_service_api(
-    payload: SupportedServiceAPIIn,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    try:
-        row = SupportedServiceAPIService.create(db, payload.model_dump())
-        return _service_api_out(db, row)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-
-
-@router.patch("/services-api/{slug}", response_model=SupportedServiceAPIOut)
-def admin_update_service_api(
-    slug: str,
-    payload: SupportedServiceAPIUpdate,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    try:
-        row = SupportedServiceAPIService.update(db, slug, payload.model_dump(exclude_unset=True))
-        return _service_api_out(db, row)
-    except ValueError as e:
-        code = status.HTTP_404_NOT_FOUND if "not found" in str(e).lower() else status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=code, detail=str(e)) from e
-
-
-@router.post("/services-api/{slug}/enable", response_model=SupportedServiceAPIOut)
-def admin_enable_service_api(
-    slug: str,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    try:
-        row = SupportedServiceAPIService.set_enabled(db, slug, True)
-        return _service_api_out(db, row)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-
-
-@router.post("/services-api/{slug}/disable", response_model=SupportedServiceAPIOut)
-def admin_disable_service_api(
-    slug: str,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    try:
-        row = SupportedServiceAPIService.set_enabled(db, slug, False)
-        return _service_api_out(db, row)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.get("/onboarding/requests")

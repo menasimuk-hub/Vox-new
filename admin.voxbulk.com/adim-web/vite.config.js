@@ -18,6 +18,7 @@ function buildApiProxy(target) {
     target,
     changeOrigin: true,
     secure: false,
+    ws: true,
     configure(proxy) {
       proxy.on('error', (err, req, res) => {
         const code = /** @type {NodeJS.ErrnoException} */ (err)?.code || ''

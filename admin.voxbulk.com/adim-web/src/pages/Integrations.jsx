@@ -14,6 +14,9 @@ const PROVIDERS = [
   { key: 'azure_speech', label: 'Azure Speech' },
   { key: 'openai', label: 'OpenAI' },
   { key: 'deepseek', label: 'DeepSeek' },
+  { key: 'groq', label: 'Groq' },
+  { key: 'deepgram', label: 'Deepgram' },
+  { key: 'cartesia', label: 'Cartesia' },
   { key: 'elevenlabs', label: 'ElevenLabs' },
   { key: 'twilio', label: 'Twilio' },
   { key: 'vapi', label: 'Vapi' },
@@ -85,6 +88,44 @@ function vapiValidation(config, draft, summary) {
   const errors = {}
   if (!String(config?.public_key || '').trim()) errors.public_key = 'Public key is required for browser calls.'
   if (!String(config?.assistant_id || '').trim()) errors.assistant_id = 'Assistant ID is required for browser calls.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function groqValidation(config, draft, summary) {
+  const errors = {}
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  const voice = String(config?.tts_voice || 'austin').trim().toLowerCase()
+  if (!hasApiKey) errors.api_key = 'API key is required.'
+  if (!String(config?.base_url || '').trim()) errors.base_url = 'Base URL is required.'
+  if (String(config?.llm_model || 'llama-3.3-70b-versatile').trim() !== 'llama-3.3-70b-versatile') errors.llm_model = 'Groq LLM must use llama-3.3-70b-versatile.'
+  if (String(config?.stt_model || 'whisper-large-v3-turbo').trim() !== 'whisper-large-v3-turbo') errors.stt_model = 'Groq STT must use whisper-large-v3-turbo.'
+  if (!['austin', 'hannah', 'diana', 'daniel', 'autumn', 'troy'].includes(voice)) errors.tts_voice = 'Choose an available Orpheus voice.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+
+function deepgramValidation(config, draft, summary) {
+  const errors = {}
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  const endpointing = Number(config?.endpointing ?? 250)
+  if (!hasApiKey) errors.api_key = 'API key is required.'
+  if (!String(config?.base_url || '').trim()) errors.base_url = 'Base URL is required.'
+  if (!String(config?.ws_url || '').trim()) errors.ws_url = 'WebSocket URL is required.'
+  if (!String(config?.model || '').trim()) errors.model = 'Model is required.'
+  if (!String(config?.language || '').trim()) errors.language = 'Language is required.'
+  if (Number.isNaN(endpointing) || endpointing < 10 || endpointing > 2000) errors.endpointing = 'Endpointing must be between 10 and 2000 ms.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function cartesiaValidation(config, draft, summary) {
+  const errors = {}
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  const sampleRate = Number(config?.sample_rate ?? 44100)
+  if (!hasApiKey) errors.api_key = 'API key is required.'
+  if (!String(config?.base_url || '').trim()) errors.base_url = 'Base URL is required.'
+  if (!String(config?.model_id || '').trim()) errors.model_id = 'Model ID is required.'
+  if (!String(config?.voice_id || '').trim()) errors.voice_id = 'Voice ID is required.'
+  if (Number.isNaN(sampleRate) || sampleRate < 8000 || sampleRate > 48000) errors.sample_rate = 'Sample rate must be between 8000 and 48000.'
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
@@ -382,6 +423,9 @@ export default function Integrations() {
   const [azureTestResult, setAzureTestResult] = useState('')
   const [openAITestResult, setOpenAITestResult] = useState('')
   const [deepSeekTestResult, setDeepSeekTestResult] = useState('')
+  const [groqTestResult, setGroqTestResult] = useState('')
+  const [deepgramTestResult, setDeepgramTestResult] = useState('')
+  const [cartesiaTestResult, setCartesiaTestResult] = useState('')
   const [vapiTestResult, setVapiTestResult] = useState('')
   const [elevenLabsTestResult, setElevenLabsTestResult] = useState('')
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
@@ -473,6 +517,39 @@ export default function Integrations() {
         const token = String(draft.api_key_draft || '').trim()
         if (token) config.api_key = token
       }
+      if (providerKey === 'groq') {
+        if (!config.base_url) config.base_url = 'https://api.groq.com/openai'
+        config.llm_model = 'llama-3.3-70b-versatile'
+        config.default_llm_model = 'llama-3.3-70b-versatile'
+        config.stt_model = 'whisper-large-v3-turbo'
+        config.default_stt_model = 'whisper-large-v3-turbo'
+        if (!config.tts_model) config.tts_model = 'canopylabs/orpheus-v1-english'
+        config.default_tts_model = config.tts_model
+        config.tts_voice = ['austin', 'hannah', 'diana', 'daniel', 'autumn', 'troy'].includes(String(config.tts_voice || '').toLowerCase()) ? String(config.tts_voice).toLowerCase() : 'austin'
+        config.default_tts_voice = config.tts_voice
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+      }
+      if (providerKey === 'deepgram') {
+        if (!config.base_url) config.base_url = 'https://api.deepgram.com'
+        if (!config.ws_url) config.ws_url = 'wss://api.deepgram.com'
+        if (!config.model) config.model = 'nova-3'
+        if (!config.language) config.language = 'en'
+        if (!config.endpointing) config.endpointing = 250
+        if (config.interim_results == null) config.interim_results = true
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+      }
+      if (providerKey === 'cartesia') {
+        if (!config.base_url) config.base_url = 'https://api.cartesia.ai'
+        if (!config.model_id) config.model_id = 'sonic-2'
+        if (!config.voice_id) config.voice_id = 'a0e99841-438c-4a64-b679-ae501e7d6091'
+        if (!config.container) config.container = 'mp3'
+        if (!config.encoding) config.encoding = 'mp3'
+        if (!config.sample_rate) config.sample_rate = 44100
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+      }
       if (providerKey === 'vapi') {
         if (!config.base_url) config.base_url = 'https://api.vapi.ai'
         const token = String(draft.api_key_draft || '').trim()
@@ -498,6 +575,9 @@ export default function Integrations() {
       if (providerKey === 'azure_speech') setAzureTestResult('')
       if (providerKey === 'openai') setOpenAITestResult('')
       if (providerKey === 'deepseek') setDeepSeekTestResult('')
+      if (providerKey === 'groq') setGroqTestResult('')
+      if (providerKey === 'deepgram') setDeepgramTestResult('')
+      if (providerKey === 'cartesia') setCartesiaTestResult('')
       if (providerKey === 'vapi') setVapiTestResult('')
       if (providerKey === 'elevenlabs') setElevenLabsTestResult('')
       if (providerKey === 'telnyx') setTelnyxTestResult('')
@@ -515,6 +595,9 @@ export default function Integrations() {
   const openAIStatus = activeProvider === 'openai' ? openAIValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const azureStatus = activeProvider === 'azure_speech' ? azureSpeechValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepSeekStatus = activeProvider === 'deepseek' ? deepSeekValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const groqStatus = activeProvider === 'groq' ? groqValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const deepgramStatus = activeProvider === 'deepgram' ? deepgramValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const cartesiaStatus = activeProvider === 'cartesia' ? cartesiaValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const vapiStatus = activeProvider === 'vapi' ? vapiValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const elevenLabsStatus = activeProvider === 'elevenlabs' ? elevenLabsValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const telnyxStatus = activeProvider === 'telnyx' ? telnyxValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -563,6 +646,43 @@ export default function Integrations() {
     } catch (e) {
       setDeepSeekTestResult('')
       setProviderError(e?.message || 'DeepSeek test failed')
+    }
+  }
+
+  const testGroq = async () => {
+    setProviderError('')
+    setGroqTestResult('Testing Groq?')
+    try {
+      const result = await apiFetch('/admin/integrations/groq/test', { method: 'POST' })
+      setGroqTestResult(`Groq OK: LLM ${result.llm_model || 'llama-3.3-70b-versatile'}, STT ${result.stt_model || 'whisper-large-v3-turbo'}, voice ${result.tts_voice || 'austin'}`)
+    } catch (e) {
+      setGroqTestResult('')
+      setProviderError(e?.message || 'Groq test failed')
+    }
+  }
+
+
+  const testDeepgram = async () => {
+    setProviderError('')
+    setDeepgramTestResult('Testing Deepgram...')
+    try {
+      const result = await apiFetch('/admin/integrations/deepgram/test', { method: 'POST' })
+      setDeepgramTestResult(`Deepgram OK: ${result.model || 'nova-3'} ${result.language || 'en'} partials ${result.interim_results ? 'on' : 'off'}`)
+    } catch (e) {
+      setDeepgramTestResult('')
+      setProviderError(e?.message || 'Deepgram test failed')
+    }
+  }
+
+  const testCartesia = async () => {
+    setProviderError('')
+    setCartesiaTestResult('Testing Cartesia...')
+    try {
+      const result = await apiFetch('/admin/integrations/cartesia/test', { method: 'POST' })
+      setCartesiaTestResult(`Cartesia OK. Voice ${result.voice_id || 'default'} generated ${result.audio_bytes || 0} audio bytes.`)
+    } catch (e) {
+      setCartesiaTestResult('')
+      setProviderError(e?.message || 'Cartesia test failed')
     }
   }
 
@@ -976,6 +1096,129 @@ export default function Integrations() {
                       </button>
                     </div>
                     <div className='note'>Use this in `/ai/agent-demo` by selecting DeepSeek. Voice still uses Azure Speech for fair LLM comparison.</div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'groq' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Groq voice setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('groq', e.target.checked)} />
+                      <span>Enable Groq for STT, LLM, and Orpheus TTS</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Groq API key</label>
+                      <input className='input' style={groqStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, groq: { ...(s.groq || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste Groq API key'} />
+                      {groqStatus.errors.api_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{groqStatus.errors.api_key}</div> : null}
+                    </div>
+                    <label className='label'>Base URL</label>
+                    <input className='input' style={groqStatus.errors.base_url ? invalidInputStyle : undefined} value={String(activeConfig.base_url || 'https://api.groq.com/openai')} onChange={(e) => setProviderField('groq', 'base_url', e.target.value)} />
+                    <label className='label'>LLM model</label>
+                    <input className='input' readOnly value='llama-3.3-70b-versatile' />
+                    <label className='label'>Whisper STT model</label>
+                    <input className='input' readOnly value='whisper-large-v3-turbo' />
+                    <div className='muted' style={{ fontSize: 12 }}>Groq STT requests force language=&quot;en&quot;.</div>
+                    <label className='label'>Orpheus TTS model</label>
+                    <input className='input' value={String(activeConfig.tts_model || 'canopylabs/orpheus-v1-english')} onChange={(e) => setProviderField('groq', 'tts_model', e.target.value)} />
+                    <label className='label'>Default Orpheus voice</label>
+                    <select className='input' value={String(activeConfig.tts_voice || 'austin')} onChange={(e) => setProviderField('groq', 'tts_voice', e.target.value)}>
+                      {['austin', 'hannah', 'diana', 'daniel', 'autumn', 'troy'].map((voice) => (
+                        <option key={voice} value={voice}>{voice}</option>
+                      ))}
+                    </select>
+                    {!groqStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete the required Groq fields before saving.</div> : null}
+                    {groqTestResult ? <div className='note'>{groqTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('groq')} disabled={providerSaving || !groqStatus.valid}>
+                        {providerSaving ? 'Saving?' : 'Save Groq'}
+                      </button>
+                      <button className='btn soft' onClick={testGroq} disabled={providerSaving || !activeSummary.configured}>
+                        Test Groq
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            ) : activeProvider === 'deepgram' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Deepgram realtime STT setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('deepgram', e.target.checked)} />
+                      <span>Enable Deepgram streaming speech-to-text</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Deepgram API key</label>
+                      <input className='input' style={deepgramStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, deepgram: { ...(s.deepgram || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste Deepgram API key'} />
+                    </div>
+                    <label className='label'>REST base URL</label>
+                    <input className='input' style={deepgramStatus.errors.base_url ? invalidInputStyle : undefined} value={String(activeConfig.base_url || 'https://api.deepgram.com')} onChange={(e) => setProviderField('deepgram', 'base_url', e.target.value)} />
+                    <label className='label'>WebSocket URL</label>
+                    <input className='input' style={deepgramStatus.errors.ws_url ? invalidInputStyle : undefined} value={String(activeConfig.ws_url || 'wss://api.deepgram.com')} onChange={(e) => setProviderField('deepgram', 'ws_url', e.target.value)} />
+                    <label className='label'>Model</label>
+                    <input className='input' style={deepgramStatus.errors.model ? invalidInputStyle : undefined} value={String(activeConfig.model || 'nova-3')} onChange={(e) => setProviderField('deepgram', 'model', e.target.value)} />
+                    <label className='label'>Language</label>
+                    <input className='input' style={deepgramStatus.errors.language ? invalidInputStyle : undefined} value={String(activeConfig.language || 'en')} onChange={(e) => setProviderField('deepgram', 'language', e.target.value)} />
+                    <label className='label'>Endpointing (ms)</label>
+                    <input className='input' style={deepgramStatus.errors.endpointing ? invalidInputStyle : undefined} value={String(activeConfig.endpointing || '250')} onChange={(e) => setProviderField('deepgram', 'endpointing', e.target.value)} />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeConfig.interim_results !== false} onChange={(e) => setProviderField('deepgram', 'interim_results', e.target.checked)} />
+                      <span>Stream partial transcripts</span>
+                    </label>
+                    {!deepgramStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete the required Deepgram fields before saving.</div> : null}
+                    {deepgramTestResult ? <div className='note'>{deepgramTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('deepgram')} disabled={providerSaving || !deepgramStatus.valid}>{providerSaving ? 'Saving...' : 'Save Deepgram'}</button>
+                      <button className='btn soft' onClick={testDeepgram} disabled={providerSaving || !activeSummary.configured}>Test connection</button>
+                    </div>
+                    <div className='note'>The demo backend exposes a WebSocket proxy at `/admin/demo/stt/deepgram/stream` so API keys stay server-side while the browser receives partial/final transcript events.</div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'cartesia' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Cartesia realtime TTS setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('cartesia', e.target.checked)} />
+                      <span>Enable Cartesia streaming text-to-speech</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Cartesia API key</label>
+                      <input className='input' style={cartesiaStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, cartesia: { ...(s.cartesia || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste Cartesia API key'} />
+                    </div>
+                    <label className='label'>Base URL</label>
+                    <input className='input' style={cartesiaStatus.errors.base_url ? invalidInputStyle : undefined} value={String(activeConfig.base_url || 'https://api.cartesia.ai')} onChange={(e) => setProviderField('cartesia', 'base_url', e.target.value)} />
+                    <label className='label'>Model ID</label>
+                    <input className='input' style={cartesiaStatus.errors.model_id ? invalidInputStyle : undefined} value={String(activeConfig.model_id || 'sonic-2')} onChange={(e) => setProviderField('cartesia', 'model_id', e.target.value)} />
+                    <label className='label'>Voice ID</label>
+                    <input className='input' style={cartesiaStatus.errors.voice_id ? invalidInputStyle : undefined} value={String(activeConfig.voice_id || 'a0e99841-438c-4a64-b679-ae501e7d6091')} onChange={(e) => setProviderField('cartesia', 'voice_id', e.target.value)} />
+                    <label className='label'>Sample rate</label>
+                    <input className='input' style={cartesiaStatus.errors.sample_rate ? invalidInputStyle : undefined} value={String(activeConfig.sample_rate || '44100')} onChange={(e) => setProviderField('cartesia', 'sample_rate', e.target.value)} />
+                    {!cartesiaStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete the required Cartesia fields before saving.</div> : null}
+                    {cartesiaTestResult ? <div className='note'>{cartesiaTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('cartesia')} disabled={providerSaving || !cartesiaStatus.valid}>{providerSaving ? 'Saving...' : 'Save Cartesia'}</button>
+                      <button className='btn soft' onClick={testCartesia} disabled={providerSaving || !activeSummary.configured}>Test connection</button>
+                    </div>
+                    <div className='note'>Cartesia is used by the demo stream as soon as each Groq LLM sentence chunk is ready, minimizing time to first audio.</div>
                   </div>
                 </div>
               </div>

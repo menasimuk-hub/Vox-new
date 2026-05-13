@@ -19,6 +19,8 @@ from app.services.provider_settings import ProviderSettingsService
 logger = logging.getLogger(__name__)
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
 DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
+GROQ_DEFAULT_BASE_URL = "https://api.groq.com/openai"
+GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 
 @dataclass(frozen=True)
@@ -180,11 +182,39 @@ class OpenAIProviderService:
         }
 
     @staticmethod
+    def _groq_config_from_db_or_env(db: Session) -> dict[str, Any]:
+        cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="groq")
+        if enabled and cfg:
+            config = ProviderSettingsService._validate_groq_config(cfg)
+            return {
+                "api_key": str(config.get("api_key") or "").strip(),
+                "default_model": str(config.get("llm_model") or config.get("default_llm_model") or GROQ_DEFAULT_MODEL).strip(),
+                "realtime_model": "",
+                "temperature": float(config.get("temperature") or 0.45),
+                "max_output_tokens": int(config.get("max_output_tokens") or 120),
+                "base_url": OpenAIProviderService._normalize_base_url(config.get("base_url") or GROQ_DEFAULT_BASE_URL),
+            }
+        api_key = str(os.getenv("GROQ_API_KEY") or "").strip()
+        if not api_key:
+            raise ValueError("Groq is not configured. Set GROQ_API_KEY or configure it in Integrations.")
+        return {
+            "api_key": api_key,
+            "default_model": str(os.getenv("GROQ_LLM_MODEL") or GROQ_DEFAULT_MODEL).strip(),
+            "realtime_model": "",
+            "temperature": float(os.getenv("GROQ_TEMPERATURE") or 0.45),
+            "max_output_tokens": int(os.getenv("GROQ_MAX_OUTPUT_TOKENS") or 120),
+            "base_url": OpenAIProviderService._normalize_base_url(os.getenv("GROQ_BASE_URL") or GROQ_DEFAULT_BASE_URL),
+        }
+
+    @staticmethod
     def _config_for_provider(db: Session, provider: str | None = None) -> dict[str, Any]:
         selected = str(provider or "openai").strip().lower()
         if selected == "deepseek":
             config = OpenAIProviderService._deepseek_config_from_db_or_env(db)
             return {**config, "provider": "deepseek"}
+        if selected == "groq":
+            config = OpenAIProviderService._groq_config_from_db_or_env(db)
+            return {**config, "provider": "groq"}
         config = OpenAIProviderService._config(db)
         return {**config, "provider": "openai"}
 
@@ -208,10 +238,12 @@ class OpenAIProviderService:
         endpoint_path = "/v1/chat/completions"
         selected_max_tokens = max(1, min(int(max_tokens or config["max_output_tokens"]), config["max_output_tokens"]))
         selected_temperature = config["temperature"] if temperature is None else max(0.0, min(float(temperature), 1.0))
+        request_messages = [{"role": m.role, "content": m.content} for m in messages]
+        if str(system_prompt or "").strip():
+            request_messages.insert(0, {"role": "system", "content": system_prompt})
         payload: dict[str, Any] = {
             "model": text_model,
-            "messages": [{"role": "system", "content": system_prompt}]
-            + [{"role": m.role, "content": m.content} for m in messages],
+            "messages": request_messages,
             "temperature": selected_temperature,
             "max_tokens": selected_max_tokens,
         }
@@ -299,10 +331,12 @@ class OpenAIProviderService:
         endpoint_path = "/v1/chat/completions"
         selected_max_tokens = max(1, min(int(max_tokens or config["max_output_tokens"]), config["max_output_tokens"]))
         selected_temperature = config["temperature"] if temperature is None else max(0.0, min(float(temperature), 1.0))
+        request_messages = [{"role": m.role, "content": m.content} for m in messages]
+        if str(system_prompt or "").strip():
+            request_messages.insert(0, {"role": "system", "content": system_prompt})
         payload: dict[str, Any] = {
             "model": text_model,
-            "messages": [{"role": "system", "content": system_prompt}]
-            + [{"role": m.role, "content": m.content} for m in messages],
+            "messages": request_messages,
             "temperature": selected_temperature,
             "max_tokens": selected_max_tokens,
             "stream": True,

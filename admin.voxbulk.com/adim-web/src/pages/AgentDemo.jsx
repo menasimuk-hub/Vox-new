@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import Vapi from '@vapi-ai/web'
-import { apiFetch, getApiBaseUrl } from '../lib/api'
+import { apiFetch, getApiBaseUrl, getEmbeddedViteProxyTarget } from '../lib/api'
 
 const DEFAULT_AGENT_SLUG = 'vox-sales'
 const FINAL_SEND_DELAY_MS = 150
+const EARLY_PARTIAL_DELAY_MS = 350
+const EARLY_PARTIAL_MIN_WORDS = 5
+const BARGE_IN_MIN_WORDS = 2
 const TEST_PHRASES = [
   'What does Vox Sales do?',
   'We are a 200 person company with manual operations.',
@@ -11,20 +14,22 @@ const TEST_PHRASES = [
   'Tell me briefly how you help businesses.',
 ]
 const PROVIDERS = [
-  { id: 'openai', label: 'OpenAI', voiceMode: 'Azure Speech chunks' },
-  { id: 'deepseek', label: 'DeepSeek', voiceMode: 'Azure Speech chunks' },
+  { id: 'groq', label: 'Groq', voiceMode: 'Groq LLM' },
+  { id: 'deepseek', label: 'DeepSeek', voiceMode: 'DeepSeek LLM' },
   { id: 'vapi', label: 'Vapi', voiceMode: 'Vapi voice call' },
-  { id: 'telnyx', label: 'Telnyx', voiceMode: 'Outbound phone call' },
 ]
 const STT_PROVIDERS = [
-  { id: 'browser', label: 'Browser Web Speech' },
-  { id: 'azure_speech', label: 'Azure Speech (settings)' },
+  { id: 'deepgram', label: 'Deepgram realtime' },
   { id: 'elevenlabs', label: 'ElevenLabs Scribe' },
+  { id: 'groq', label: 'Groq Whisper' },
 ]
 const TTS_PROVIDERS = [
-  { id: 'azure_speech', label: 'Azure Speech' },
+  { id: 'cartesia', label: 'Cartesia' },
   { id: 'elevenlabs', label: 'ElevenLabs' },
+  { id: 'groq_orpheus', label: 'Groq Orpheus' },
 ]
+const GROQ_ORPHEUS_VOICES = ['austin', 'hannah', 'diana', 'daniel', 'autumn', 'troy']
+
 const DEFAULT_VOX_CALL_PROMPT = `You are Vox, a friendly, professional British sales representative for VOXBULK.
 
 You are speaking on a live browser voice call, so keep replies short, natural, and easy to listen to.
@@ -111,8 +116,13 @@ function providerLabel(providerId) {
 export default function AgentDemo() {
   const recognitionRef = useRef(null)
   const audioRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const audioUnlockedRef = useRef(false)
   const finalTranscriptRef = useRef('')
   const pendingFinalRef = useRef('')
+  const partialSendTimerRef = useRef(null)
+  const earlySentRef = useRef(false)
+  const bargeInTranscriptRef = useRef('')
   const callActiveRef = useRef(false)
   const processingRef = useRef(false)
   const sendTimerRef = useRef(null)
@@ -133,6 +143,13 @@ export default function AgentDemo() {
   const sttRecorderRef = useRef(null)
   const sttRecorderChunksRef = useRef([])
   const sttRecorderStreamRef = useRef(null)
+  const deepgramSocketRef = useRef(null)
+  const deepgramRecorderRef = useRef(null)
+  const deepgramStreamRef = useRef(null)
+  const realtimeSocketRef = useRef(null)
+  const realtimeRecorderRef = useRef(null)
+  const realtimeStreamRef = useRef(null)
+  const realtimePlaybackRequestIdRef = useRef(0)
   const statusRef = useRef('idle')
   const micReadyAtRef = useRef(0)
   const recoveryStartedAtRef = useRef(0)
@@ -144,6 +161,7 @@ export default function AgentDemo() {
   const [latestAudioSrc, setLatestAudioSrc] = useState('')
   const [latestAudioBytes, setLatestAudioBytes] = useState(0)
   const [playbackBlocked, setPlaybackBlocked] = useState(false)
+  const [audioUnlocked, setAudioUnlocked] = useState(false)
   const [error, setError] = useState('')
   const [agentSlug, setAgentSlug] = useState(DEFAULT_AGENT_SLUG)
   const [agentLabel, setAgentLabel] = useState('Vox Sales')
@@ -159,9 +177,12 @@ export default function AgentDemo() {
   const [demoVoice, setDemoVoice] = useState('en-GB-RyanNeural')
   const [speechSpeed, setSpeechSpeed] = useState('normal')
   const [turnTakingMetrics, setTurnTakingMetrics] = useState({})
-  const [sttProvider, setSttProvider] = useState('browser')
-  const [selectedProvider, setSelectedProvider] = useState('openai')
-  const [ttsProvider, setTtsProvider] = useState('azure_speech')
+  const [voiceMode, setVoiceMode] = useState('streaming')
+  const [sttProvider, setSttProvider] = useState('deepgram')
+  const [selectedProvider, setSelectedProvider] = useState('groq')
+  const [ttsProvider, setTtsProvider] = useState('cartesia')
+  const [groqTtsVoice, setGroqTtsVoice] = useState('austin')
+  const [cartesiaVoiceId, setCartesiaVoiceId] = useState('')
   const [elevenLabsVoiceId, setElevenLabsVoiceId] = useState('')
   const [elevenLabsSettings, setElevenLabsSettings] = useState({
     stability: '',
@@ -202,6 +223,61 @@ export default function AgentDemo() {
     setStatus(next)
   }
 
+  const logAudio = (stage, details = {}) => {
+    console.info('vox_audio_playback', {
+      stage,
+      status: statusRef.current,
+      queue_length: audioQueueRef.current.length,
+      audio_unlocked: audioUnlockedRef.current,
+      ...details,
+    })
+  }
+
+  const logRealtime = (stage, details = {}) => {
+    console.info('vox_realtime_pipeline', {
+      stage,
+      status: statusRef.current,
+      processing: processingRef.current,
+      audio_playing: audioPlayingRef.current,
+      ...details,
+    })
+  }
+
+  const unlockAudioPlayback = async (source = 'user-gesture') => {
+    if (typeof window === 'undefined') return false
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext
+    try {
+      if (AudioContextCtor && !audioContextRef.current) {
+        audioContextRef.current = new AudioContextCtor()
+      }
+      if (audioContextRef.current?.state === 'suspended') {
+        await audioContextRef.current.resume()
+      }
+    } catch (e) {
+      logAudio('audio_context_resume_failed', { source, message: e?.message || String(e) })
+    }
+
+    try {
+      const silent = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQQAAAAAAA==')
+      silent.muted = true
+      silent.volume = 0
+      silent.playsInline = true
+      await silent.play()
+      silent.pause()
+      audioUnlockedRef.current = true
+      setAudioUnlocked(true)
+      setPlaybackBlocked(false)
+      logAudio('unlocked', { source, audio_context_state: audioContextRef.current?.state || 'none' })
+      return true
+    } catch (e) {
+      const unlockedByContext = audioContextRef.current?.state === 'running'
+      audioUnlockedRef.current = unlockedByContext
+      setAudioUnlocked(unlockedByContext)
+      logAudio('unlock_failed', { source, message: e?.message || String(e), audio_context_state: audioContextRef.current?.state || 'none' })
+      return unlockedByContext
+    }
+  }
+
   const resetIdleTimer = () => {
     if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current)
     if (!callActiveRef.current) return
@@ -222,7 +298,55 @@ export default function AgentDemo() {
     recognitionRestartTimerRef.current = null
   }
 
+  const stopDeepgramStream = () => {
+    if (partialSendTimerRef.current) window.clearTimeout(partialSendTimerRef.current)
+    partialSendTimerRef.current = null
+    try {
+      deepgramRecorderRef.current?.stop?.()
+    } catch {
+      // ignore recorder cleanup races
+    }
+    try {
+      deepgramSocketRef.current?.send?.('close')
+      deepgramSocketRef.current?.close?.()
+    } catch {
+      // ignore websocket cleanup races
+    }
+    try {
+      deepgramStreamRef.current?.getTracks?.().forEach((track) => track.stop())
+    } catch {
+      // ignore stream cleanup races
+    }
+    deepgramRecorderRef.current = null
+    deepgramSocketRef.current = null
+    deepgramStreamRef.current = null
+  }
+
+  const stopRealtimeVoiceStream = () => {
+    try {
+      realtimeRecorderRef.current?.stop?.()
+    } catch {
+      // ignore recorder cleanup races
+    }
+    try {
+      realtimeSocketRef.current?.send?.(JSON.stringify({ type: 'close' }))
+      realtimeSocketRef.current?.close?.()
+    } catch {
+      // ignore websocket cleanup races
+    }
+    try {
+      realtimeStreamRef.current?.getTracks?.().forEach((track) => track.stop())
+    } catch {
+      // ignore stream cleanup races
+    }
+    realtimeRecorderRef.current = null
+    realtimeSocketRef.current = null
+    realtimeStreamRef.current = null
+  }
+
   const stopRecognition = () => {
+    stopDeepgramStream()
+    stopRealtimeVoiceStream()
     recognitionSessionRef.current += 1
     recognitionStartingRef.current = false
     recognitionActiveRef.current = false
@@ -270,7 +394,8 @@ export default function AgentDemo() {
     recognitionRestartTimerRef.current = window.setTimeout(() => {
       recognitionRestartTimerRef.current = null
       if (callActiveRef.current && !processingRef.current && !audioPlayingRef.current) {
-        startRecognitionLoop({ reason })
+        if (sttProvider === 'deepgram') startDeepgramRecognitionLoop({ reason })
+        else startRecognitionLoop({ reason })
       }
     }, delayMs)
   }
@@ -284,10 +409,13 @@ export default function AgentDemo() {
 
   const stopStreamingAndAudio = ({ measureInterrupt = false } = {}) => {
     const stopStartedAt = performance.now()
+    logAudio('stop_requested', { measure_interrupt: measureInterrupt })
     activeRequestIdRef.current += 1
     if (sendTimerRef.current) window.clearTimeout(sendTimerRef.current)
+    if (partialSendTimerRef.current) window.clearTimeout(partialSendTimerRef.current)
     if (recognitionRestartTimerRef.current) window.clearTimeout(recognitionRestartTimerRef.current)
     sendTimerRef.current = null
+    partialSendTimerRef.current = null
     recognitionRestartTimerRef.current = null
     try {
       streamAbortRef.current?.abort()
@@ -297,6 +425,7 @@ export default function AgentDemo() {
     streamAbortRef.current = null
     audioQueueRef.current = []
     audioPlayingRef.current = false
+    logAudio('audio_stopped', { measure_interrupt: measureInterrupt })
     setAudioQueueLength(0)
     setStreamConnected(false)
     try {
@@ -315,13 +444,21 @@ export default function AgentDemo() {
   }
 
   const playNextAudioSegment = (requestId) => {
-    if (requestId !== activeRequestIdRef.current) return
-    if (audioPlayingRef.current) return
+    if (requestId !== activeRequestIdRef.current) {
+      logAudio('skip_stale_request', { request_id: requestId, active_request_id: activeRequestIdRef.current })
+      return
+    }
+    if (audioPlayingRef.current) {
+      logAudio('already_playing', { request_id: requestId })
+      return
+    }
     const next = audioQueueRef.current.shift()
     setAudioQueueLength(audioQueueRef.current.length)
     if (!next) {
       audioPlayingRef.current = false
-      if (callActiveRef.current && !processingRef.current) scheduleMicRecovery('playback-ended', 30)
+      logAudio('queue_empty', { request_id: requestId })
+      if (callActiveRef.current && !processingRef.current && deepgramSocketRef.current) setCallState('listening')
+      else if (callActiveRef.current && !processingRef.current) scheduleMicRecovery('playback-ended', 30)
       else setCallState('done')
       return
     }
@@ -329,8 +466,29 @@ export default function AgentDemo() {
     setPlaybackBlocked(false)
     setCallState('speaking')
     const audio = new Audio(next.src)
+    audio.preload = 'auto'
+    audio.playsInline = true
     audioRef.current = audio
+    logAudio('playback_attempt', {
+      request_id: requestId,
+      index: next.index,
+      provider: next.tts_provider,
+      mime: next.audio_mime,
+      bytes: next.audio_bytes,
+    })
+    audio.onloadeddata = () => {
+      logAudio('audio_decoded', { request_id: requestId, index: next.index, ready_state: audio.readyState, duration: audio.duration })
+    }
     audio.onplaying = () => {
+      logAudio('playback_started', { request_id: requestId, index: next.index, current_time: audio.currentTime })
+      if (next.turn_id && realtimeSocketRef.current?.readyState === WebSocket.OPEN) {
+        realtimeSocketRef.current.send(JSON.stringify({
+          type: 'audio_playing',
+          turn_id: next.turn_id,
+          index: next.index,
+          at_ms: Math.round(performance.now()),
+        }))
+      }
       const now = performance.now()
       const pending = playbackTimingRef.current
       if (pending && pending.browser_audio_playback_start_ms == null) {
@@ -343,6 +501,7 @@ export default function AgentDemo() {
     }
     audio.onended = () => {
       if (requestId !== activeRequestIdRef.current) return
+      logAudio('playback_ended', { request_id: requestId, index: next.index })
       audioPlayingRef.current = false
       playNextAudioSegment(requestId)
     }
@@ -350,24 +509,40 @@ export default function AgentDemo() {
       if (requestId !== activeRequestIdRef.current) return
       audioPlayingRef.current = false
       setPlaybackBlocked(true)
-      setError('Browser could not play one returned audio segment.')
+      const mediaError = audio.error ? `${audio.error.code}:${audio.error.message || 'media error'}` : 'unknown media error'
+      logAudio('playback_error', { request_id: requestId, index: next.index, media_error: mediaError })
+      setError(`Browser could not play one returned audio segment (${mediaError}).`)
       playNextAudioSegment(requestId)
     }
     audio.play().catch(() => {
       if (requestId !== activeRequestIdRef.current) return
       audioPlayingRef.current = false
       setPlaybackBlocked(true)
-      setError('Chrome blocked autoplay. Press “Play Vox Reply” to hear the latest segment.')
+      audioQueueRef.current.unshift(next)
+      setAudioQueueLength(audioQueueRef.current.length)
+      logAudio('autoplay_blocked', { request_id: requestId, index: next.index })
+      setError('Browser blocked audio autoplay. Click Enable audio / Play latest reply once, then the queue can continue.')
     })
   }
 
   const enqueueAudioSegment = (segment, requestId) => {
-    if (!segment?.audio_b64 || requestId !== activeRequestIdRef.current) return
+    if (!segment?.audio_b64 || requestId !== activeRequestIdRef.current) {
+      logAudio('chunk_ignored', { request_id: requestId, active_request_id: activeRequestIdRef.current, has_audio: Boolean(segment?.audio_b64) })
+      return
+    }
     const src = dataUrlFromAudio(segment.audio_b64, segment.audio_mime || 'audio/mpeg')
+    logAudio('chunk_received', {
+      request_id: requestId,
+      index: segment.index,
+      provider: segment.tts_provider,
+      mime: segment.audio_mime,
+      bytes: segment.audio_bytes,
+    })
     audioQueueRef.current.push({ ...segment, src })
     setAudioQueueLength(audioQueueRef.current.length)
     setLatestAudioSrc(src)
     setLatestAudioBytes(segment.audio_bytes || Math.floor((String(segment.audio_b64 || '').length * 3) / 4))
+    logAudio('chunk_queued', { request_id: requestId, index: segment.index, queue_length: audioQueueRef.current.length })
     playNextAudioSegment(requestId)
   }
 
@@ -378,12 +553,17 @@ export default function AgentDemo() {
       else setCallState('idle')
       return
     }
+    await unlockAudioPlayback('manual-play-latest')
     setPlaybackBlocked(false)
     setCallState('speaking')
     const audio = new Audio(src)
+    audio.preload = 'auto'
+    audio.playsInline = true
     audioRef.current = audio
     audio.onended = resumeListeningAfterAudio
+    audio.onloadeddata = () => logAudio('manual_audio_decoded', { ready_state: audio.readyState, duration: audio.duration })
     audio.onplaying = () => {
+      logAudio('manual_playback_started', {})
       const now = performance.now()
       const pending = playbackTimingRef.current
       if (pending) {
@@ -401,7 +581,9 @@ export default function AgentDemo() {
     }
     audio.onerror = () => {
       setPlaybackBlocked(true)
-      setError('Browser could not play the returned audio. Try the Play Vox Reply button or check Azure audio output.')
+      const mediaError = audio.error ? `${audio.error.code}:${audio.error.message || 'media error'}` : 'unknown media error'
+      logAudio('manual_playback_error', { media_error: mediaError })
+      setError(`Browser could not play the returned audio (${mediaError}).`)
       processingRef.current = false
       if (callActiveRef.current) scheduleMicRecovery('manual-audio-error', 80)
       else setCallState('idle')
@@ -410,11 +592,18 @@ export default function AgentDemo() {
       await audio.play()
     } catch {
       setPlaybackBlocked(true)
-      setError('Chrome blocked autoplay. Press “Play Vox Reply” to hear the agent, then the call will continue.')
+      logAudio('manual_playback_blocked', {})
+      setError('Browser blocked audio playback. Click Enable audio, then Play latest reply.')
       processingRef.current = false
       if (callActiveRef.current) scheduleMicRecovery('manual-audio-blocked', 80)
       else setCallState('idle')
     }
+  }
+
+  const resumeQueuedAudio = async () => {
+    await unlockAudioPlayback('resume-queued-audio')
+    setPlaybackBlocked(false)
+    playNextAudioSegment(activeRequestIdRef.current)
   }
 
   useEffect(() => {
@@ -428,6 +617,11 @@ export default function AgentDemo() {
           setAgentSlug(found.slug)
           setAgentLabel(`${found.name || 'Vox Sales'} (${found.slug})`)
           setCallPrompt(found.system_prompt || '')
+        } else if (agents[0]?.slug) {
+          setCurrentAgent(agents[0])
+          setAgentSlug(agents[0].slug)
+          setAgentLabel(`${agents[0].name || 'Selected agent'} (${agents[0].slug})`)
+          setCallPrompt(agents[0].system_prompt || '')
         }
       })
       .catch(() => {
@@ -437,6 +631,7 @@ export default function AgentDemo() {
       .then((rows) => {
         const providers = rows?.providers || null
         setProviderConfig(providers)
+        if (providers?.cartesia?.voice_id) setCartesiaVoiceId(providers.cartesia.voice_id)
         if (providers?.elevenlabs?.default_voice_id) setElevenLabsVoiceId(providers.elevenlabs.default_voice_id)
         if (providers?.elevenlabs?.config) {
           const cfg = providers.elevenlabs.config
@@ -650,6 +845,303 @@ export default function AgentDemo() {
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, liveTranscript])
 
+  const isDgcRealtime = () => voiceMode === 'streaming' && sttProvider === 'deepgram' && selectedProvider === 'groq' && ttsProvider === 'cartesia'
+
+  const startRealtimeVoiceCall = async () => {
+    setError('')
+    stopStreamingAndAudio()
+    stopRecognition()
+    await unlockAudioPlayback('realtime-start-call')
+    try {
+      const token = adminToken()
+      if (!token) throw new Error('No admin session token available for realtime voice.')
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+      realtimeStreamRef.current = stream
+      const base = getApiBaseUrl() || getEmbeddedViteProxyTarget() || window.location.origin
+      const wsBase = base.replace(/^http/i, 'ws')
+      const ws = new WebSocket(`${wsBase}/admin/demo/voice/realtime?token=${encodeURIComponent(token)}`)
+      realtimeSocketRef.current = ws
+      const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' })
+      realtimeRecorderRef.current = recorder
+      callActiveRef.current = true
+      setCallActive(true)
+      setCallState('preparing_mic')
+      setStreamConnected(false)
+      setMessages((rows) => rows)
+      setLatestTimings({
+        turn_start_at: performance.now(),
+        selected_provider: 'groq',
+        stt_provider: 'deepgram',
+        tts_provider: 'cartesia',
+        voice_mode: 'realtime_websocket',
+        backend: {},
+      })
+      playbackTimingRef.current = {
+        turn_start_at: performance.now(),
+        selected_provider: 'groq',
+        stt_provider: 'deepgram',
+        tts_provider: 'cartesia',
+        voice_mode: 'realtime_websocket',
+        backend: {},
+      }
+
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size && ws.readyState === WebSocket.OPEN) ws.send(event.data)
+      }
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          type: 'start',
+          agent_slug: agentSlug,
+          provider: 'groq',
+          tts_provider: 'cartesia',
+          cartesia_voice_id: cartesiaVoiceId,
+          voice_id: cartesiaVoiceId,
+          history: messages.map((m) => ({ role: m.role, content: m.text })),
+        }))
+      }
+
+      ws.onmessage = (event) => {
+        let data = null
+        try { data = JSON.parse(event.data) } catch { return }
+        logRealtime(data.type || 'event', data)
+        if (data.type === 'connected' || data.type === 'ready') {
+          setStreamConnected(true)
+          setCallState('listening')
+          if (recorder.state === 'inactive') recorder.start(120)
+          return
+        }
+        if (data.type === 'stt_partial' || data.type === 'stt_final') {
+          const text = String(data.text || '').trim()
+          if (text) setLiveTranscript(text)
+          return
+        }
+        if (data.type === 'barge_in') {
+          stopStreamingAndAudio({ measureInterrupt: true })
+          setCallState('listening')
+          return
+        }
+        if (data.type === 'llm_start') {
+          activeRequestIdRef.current += 1
+          realtimePlaybackRequestIdRef.current = activeRequestIdRef.current
+          processingRef.current = true
+          setCallState('thinking')
+          setMessages((rows) => [...rows, { role: 'user', text: data.text || '' }, { role: 'assistant', text: '', streaming: true }])
+          return
+        }
+        if (data.type === 'llm_text_delta') {
+          setChunksReceived((n) => n + 1)
+          setMessages((rows) => {
+            const next = [...rows]
+            for (let i = next.length - 1; i >= 0; i -= 1) {
+              if (next[i].role === 'assistant') {
+                next[i] = { ...next[i], text: `${next[i].text || ''}${data.delta || ''}`, streaming: true }
+                break
+              }
+            }
+            return next
+          })
+          return
+        }
+        if (data.type === 'metrics') {
+          setLatestTimings((prev) => ({
+            ...(prev || {}),
+            first_text_latency_ms: prev?.first_text_latency_ms ?? data.first_llm_token_ms,
+            backend: { ...((prev || {}).backend || {}), ...data },
+          }))
+          return
+        }
+        if (data.type === 'tts_audio_ready') {
+          setLatestTimings((prev) => ({
+            ...(prev || {}),
+            first_audio_latency_ms: data.is_first_audio ? (prev?.first_audio_latency_ms ?? data.elapsed_ms) : prev?.first_audio_latency_ms,
+            backend: { ...((prev || {}).backend || {}), cartesia_ws_first_chunk_ms: data.cartesia_ws_first_chunk_ms },
+          }))
+          enqueueAudioSegment(data, realtimePlaybackRequestIdRef.current)
+          return
+        }
+        if (data.type === 'done') {
+          processingRef.current = false
+          setLatestTimings((prev) => ({
+            ...(prev || {}),
+            total_completion_ms: data.metrics?.completed_ms,
+            backend: { ...((prev || {}).backend || {}), ...(data.metrics || {}) },
+          }))
+          setMessages((rows) => {
+            const next = [...rows]
+            for (let i = next.length - 1; i >= 0; i -= 1) {
+              if (next[i].role === 'assistant') {
+                next[i] = { ...next[i], text: data.agent_text || next[i].text || '', streaming: false }
+                break
+              }
+            }
+            return next
+          })
+          if (!audioPlayingRef.current && audioQueueRef.current.length === 0) setCallState('listening')
+          return
+        }
+        if (data.type === 'error') {
+          setError(data.message || 'Realtime voice failed')
+          processingRef.current = false
+          setCallState('error')
+        }
+      }
+      ws.onerror = () => {
+        setError('Realtime voice WebSocket failed.')
+        setCallState('error')
+      }
+      ws.onclose = () => {
+        realtimeSocketRef.current = null
+        setStreamConnected(false)
+        if (callActiveRef.current) setCallState('ended')
+      }
+    } catch (e) {
+      stopRealtimeVoiceStream()
+      setError(e?.message || 'Could not start realtime voice call.')
+      setCallState('error')
+    }
+  }
+
+
+  const startDeepgramRecognitionLoop = async ({ reason = 'deepgram-listen', bargeIn = false } = {}) => {
+    setError('')
+    if (!callActiveRef.current) return
+    if (!bargeIn && (processingRef.current || statusRef.current === 'speaking' || audioPlayingRef.current)) return
+    if (deepgramSocketRef.current || deepgramRecorderRef.current) return
+    if (!bargeIn) setCallState('preparing_mic')
+    finalTranscriptRef.current = ''
+    pendingFinalRef.current = ''
+    bargeInTranscriptRef.current = ''
+    earlySentRef.current = false
+    setLiveTranscript('')
+    try {
+      const token = adminToken()
+      if (!token) throw new Error('No admin session token available for Deepgram streaming.')
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      deepgramStreamRef.current = stream
+      const base = getApiBaseUrl() || getEmbeddedViteProxyTarget() || window.location.origin
+      const wsBase = base.replace(/^http/i, 'ws')
+      const ws = new WebSocket(`${wsBase}/admin/demo/stt/deepgram/stream?token=${encodeURIComponent(token)}`)
+      deepgramSocketRef.current = ws
+      const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' })
+      deepgramRecorderRef.current = recorder
+      ws.onopen = () => {
+        setCallState('preparing_mic')
+      }
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size && ws.readyState === WebSocket.OPEN) ws.send(event.data)
+      }
+      ws.onmessage = (event) => {
+        resetIdleTimer()
+        let payload = null
+        try { payload = JSON.parse(event.data) } catch { return }
+        if (payload?.type === 'ready') {
+          logRealtime('stt_ready', { provider: 'deepgram', reason, barge_in: bargeIn })
+          micReadyAtRef.current = performance.now()
+          if (recoveryStartedAtRef.current) {
+            setTurnTakingMetrics((prev) => ({
+              ...prev,
+              playback_end_to_recognizer_ready_ms: Math.round(micReadyAtRef.current - recoveryStartedAtRef.current),
+              last_mic_ready_reason: reason,
+            }))
+            recoveryStartedAtRef.current = 0
+          }
+          if (!bargeIn) setCallState('listening')
+          resetIdleTimer()
+          if (recorder.state === 'inactive') recorder.start(250)
+          return
+        }
+        if (payload?.type !== 'transcript') return
+        const text = String(payload.text || '').trim()
+        if (!text) return
+        logRealtime(payload.is_final || payload.speech_final ? 'stt_final' : 'stt_partial', {
+          text,
+          confidence: payload.confidence,
+          speech_final: Boolean(payload.speech_final),
+          barge_in: bargeIn,
+        })
+        const wordCount = text.split(/\s+/).filter(Boolean).length
+        if ((bargeIn || audioPlayingRef.current || processingRef.current || statusRef.current === 'speaking') && wordCount >= BARGE_IN_MIN_WORDS) {
+          const merged = `${bargeInTranscriptRef.current} ${text}`.trim()
+          bargeInTranscriptRef.current = merged
+          logRealtime('barge_in_detected', { text: merged })
+          stopStreamingAndAudio({ measureInterrupt: true })
+          processingRef.current = false
+          if (sendTimerRef.current) window.clearTimeout(sendTimerRef.current)
+          sendTimerRef.current = window.setTimeout(() => {
+            const bargeText = bargeInTranscriptRef.current.trim()
+            bargeInTranscriptRef.current = ''
+            if (bargeText && callActiveRef.current && !processingRef.current) {
+              stopRecognition()
+              sendToAgent(bargeText, messages, true)
+            }
+          }, payload.speech_final ? 50 : FINAL_SEND_DELAY_MS)
+          return
+        }
+        if (micReadyAtRef.current) {
+          setTurnTakingMetrics((prev) => prev.recognizer_ready_to_first_transcript_ms != null ? prev : {
+            ...prev,
+            recognizer_ready_to_first_transcript_ms: Math.round(performance.now() - micReadyAtRef.current),
+          })
+        }
+        if (payload.is_final || payload.speech_final) {
+          if (!speechFinalReadyAtRef.current) speechFinalReadyAtRef.current = performance.now()
+          finalTranscriptRef.current = `${finalTranscriptRef.current} ${text}`.trim()
+          pendingFinalRef.current = `${pendingFinalRef.current} ${text}`.trim()
+          setLiveTranscript(finalTranscriptRef.current)
+        } else {
+          setLiveTranscript(`${finalTranscriptRef.current} ${text}`.trim())
+          if (!earlySentRef.current && wordCount >= EARLY_PARTIAL_MIN_WORDS) {
+            if (partialSendTimerRef.current) window.clearTimeout(partialSendTimerRef.current)
+            partialSendTimerRef.current = window.setTimeout(() => {
+              const partialToSend = `${finalTranscriptRef.current} ${text}`.trim()
+              if (partialToSend && callActiveRef.current && !processingRef.current && !earlySentRef.current) {
+                earlySentRef.current = true
+                speechFinalReadyAtRef.current = speechFinalReadyAtRef.current || performance.now()
+                logRealtime('early_partial_send', { text: partialToSend })
+                stopRecognition()
+                sendToAgent(partialToSend, messages, true)
+              }
+            }, EARLY_PARTIAL_DELAY_MS)
+          }
+        }
+        if (payload.speech_final) {
+          if (sendTimerRef.current) window.clearTimeout(sendTimerRef.current)
+          sendTimerRef.current = window.setTimeout(() => {
+            const finalToSend = pendingFinalRef.current.trim()
+            pendingFinalRef.current = ''
+            if (finalToSend && callActiveRef.current && !processingRef.current) {
+              stopRecognition()
+              sendToAgent(finalToSend, messages, true)
+            }
+          }, FINAL_SEND_DELAY_MS)
+        }
+      }
+      ws.onerror = () => {
+        setError('Deepgram streaming connection failed.')
+        stopDeepgramStream()
+        if (callActiveRef.current) scheduleMicRecovery('deepgram-error-recovery', 250)
+      }
+      ws.onclose = () => {
+        deepgramSocketRef.current = null
+        if (callActiveRef.current && !processingRef.current && statusRef.current !== 'speaking' && !audioPlayingRef.current) {
+          scheduleMicRecovery('deepgram-ended', 120)
+        }
+      }
+    } catch (e) {
+      stopDeepgramStream()
+      setError(e?.message || 'Could not start Deepgram microphone stream.')
+      setCallState(callActiveRef.current ? 'error' : 'idle')
+      if (callActiveRef.current) scheduleMicRecovery('deepgram-start-retry', 250)
+    }
+  }
+
   const startRecognitionLoop = ({ reason = 'listen' } = {}) => {
     setError('')
     if (!recognitionSupported) {
@@ -756,6 +1248,7 @@ export default function AgentDemo() {
   const sendToAgent = async (input, history = messages, fromSpeech = false) => {
     const text = String(input || '').trim()
     if (!text || processingRef.current) return
+    if (!fromSpeech) await unlockAudioPlayback('send-to-agent')
     if (selectedProvider === 'vapi') {
       sendVapiText(text)
       return
@@ -793,6 +1286,8 @@ export default function AgentDemo() {
       browser_speech_finalized: browserTimings.browser_speech_finalized,
       request_sent: browserTimings.request_sent,
       selected_provider: selectedProvider,
+      voice_mode: voiceMode,
+      stt_provider: sttProvider,
       tts_provider: ttsProvider,
       browser_playback_start: null,
       first_text_latency_ms: null,
@@ -802,9 +1297,56 @@ export default function AgentDemo() {
     }
     playbackTimingRef.current = baseTiming
     setLatestTimings(baseTiming)
+    const requestPayload = {
+      agent_slug: agentSlug,
+      request_id: requestId,
+      provider: selectedProvider,
+      stt_provider: sttProvider,
+      tts_provider: ttsProvider,
+      groq_tts_voice: groqTtsVoice,
+      cartesia_voice_id: cartesiaVoiceId,
+      input: text,
+      history: historyPayload,
+      speech_finalized_ms: speechFinalizedMs,
+      browser_timings: browserTimings,
+      voice_id: demoVoice,
+      elevenlabs_voice_id: elevenLabsVoiceId,
+      elevenlabs_voice_settings: elevenLabsSettings,
+      speaking_rate: speechSpeed,
+      voice_mode: voiceMode,
+    }
     try {
       const token = adminToken()
-      if (!token) throw new Error('No admin session token available for streaming request.')
+      if (!token) throw new Error('No admin session token available for voice request.')
+      if (voiceMode === 'sequential') {
+        const result = await apiFetch('/admin/demo/agent-call', {
+          method: 'POST',
+          body: JSON.stringify(requestPayload),
+        })
+        const src = dataUrlFromAudio(result.audio_b64, result.audio_mime || 'audio/wav')
+        setLatestAudioSrc(src)
+        setLatestAudioBytes(result.audio_bytes || 0)
+        setMessages((rows) => {
+          const next = [...rows]
+          for (let i = next.length - 1; i >= 0; i -= 1) {
+            if (next[i].role === 'assistant') {
+              next[i] = { ...next[i], text: result.agent_text || '', streaming: false }
+              break
+            }
+          }
+          return next
+        })
+        setLatestTimings((prev) => ({
+          ...(prev || baseTiming),
+          total_completion_ms: result.timings?.total_roundtrip_ms ?? Math.round(performance.now() - turnStartAt),
+          selected_provider: result.provider || selectedProvider,
+          tts_provider: result.voice?.tts_provider || ttsProvider,
+          backend: { ...((prev || baseTiming).backend || {}), ...(result.timings || {}) },
+        }))
+        processingRef.current = false
+        await playAudioSrc(src)
+        return
+      }
       const controller = new AbortController()
       streamAbortRef.current = controller
       const response = await fetch(streamUrl('/admin/demo/agent-call/stream'), {
@@ -815,26 +1357,15 @@ export default function AgentDemo() {
           Accept: 'text/event-stream',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          agent_slug: agentSlug,
-          request_id: requestId,
-          provider: selectedProvider,
-          stt_provider: sttProvider,
-          tts_provider: ttsProvider,
-          input: text,
-          history: historyPayload,
-          speech_finalized_ms: speechFinalizedMs,
-          browser_timings: browserTimings,
-          voice_id: demoVoice,
-          elevenlabs_voice_id: elevenLabsVoiceId,
-          elevenlabs_voice_settings: elevenLabsSettings,
-          speaking_rate: speechSpeed,
-        }),
+        body: JSON.stringify(requestPayload),
       })
       if (!response.ok || !response.body) {
         throw new Error(`Streaming request failed: ${response.status} ${response.statusText}`)
       }
       setStreamConnected(true)
+      if (sttProvider === 'deepgram') {
+        window.setTimeout(() => startDeepgramRecognitionLoop({ reason: 'barge-in-monitor', bargeIn: true }), 0)
+      }
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -900,7 +1431,18 @@ export default function AgentDemo() {
               return next
             })
           } else if (event === 'error') {
-            throw new Error(data.message || 'Streaming demo failed')
+            const message = data.message || 'Streaming demo failed'
+            setMessages((rows) => {
+              const next = [...rows]
+              for (let i = next.length - 1; i >= 0; i -= 1) {
+                if (next[i].role === 'assistant') {
+                  next[i] = { ...next[i], text: message, streaming: false }
+                  break
+                }
+              }
+              return next
+            })
+            throw new Error(message)
           }
         }
       }
@@ -933,6 +1475,8 @@ export default function AgentDemo() {
           voice_id: demoVoice,
           elevenlabs_voice_id: elevenLabsVoiceId,
           elevenlabs_voice_settings: elevenLabsSettings,
+          cartesia_voice_id: cartesiaVoiceId,
+          groq_tts_voice: groqTtsVoice,
           speaking_rate: speechSpeed,
         }),
       })
@@ -971,8 +1515,8 @@ export default function AgentDemo() {
   }
 
   const startElevenLabsSttTest = async () => {
-    if (sttProvider !== 'elevenlabs') {
-      setModuleResult((prev) => ({ ...prev, stt: 'Choose ElevenLabs Scribe first.' }))
+    if (!['deepgram', 'elevenlabs', 'groq'].includes(sttProvider)) {
+      setModuleResult((prev) => ({ ...prev, stt: 'Choose Deepgram, ElevenLabs Scribe, or Groq Whisper first.' }))
       return
     }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -1000,14 +1544,14 @@ export default function AgentDemo() {
           setModuleResult((prev) => ({ ...prev, stt: 'No audio was recorded.' }))
           return
         }
-        setModuleResult((prev) => ({ ...prev, stt: 'Uploading audio to ElevenLabs Scribe...' }))
+        setModuleResult((prev) => ({ ...prev, stt: `Uploading audio to ${sttProvider}...` }))
         try {
           const token = adminToken()
           if (!token) throw new Error('No admin session token available.')
           const form = new FormData()
-          form.append('provider', 'elevenlabs')
-          form.append('model_id', 'scribe_v1')
-          form.append('file', blob, 'elevenlabs-stt-test.webm')
+          form.append('provider', sttProvider)
+          form.append('model_id', sttProvider === 'elevenlabs' ? 'scribe_v1' : sttProvider === 'groq' ? 'whisper-large-v3-turbo' : sttProvider === 'deepgram' ? 'nova-3' : '')
+          form.append('file', blob, `${sttProvider}-stt-test.webm`)
           const response = await fetch(streamUrl('/admin/demo/module-test/stt'), {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` },
@@ -1022,11 +1566,11 @@ export default function AgentDemo() {
           setTextInput(text)
           setModuleResult((prev) => ({
             ...prev,
-            stt: `ElevenLabs STT OK: ${text || '(empty transcript)'} (${result.timings?.elevenlabs_stt_total_ms || '-'} ms)`,
+          stt: `${sttProvider} STT OK: ${text || '(empty transcript)'} (${result.timings?.elevenlabs_stt_total_ms || result.timings?.deepgram_stt_total_ms || result.timings?.groq_stt_total_ms || '-'} ms)`,
           }))
         } catch (e) {
-          setModuleResult((prev) => ({ ...prev, stt: e?.message || 'ElevenLabs STT failed' }))
-          setError(e?.message || 'ElevenLabs STT failed')
+          setModuleResult((prev) => ({ ...prev, stt: e?.message || `${sttProvider} STT failed` }))
+          setError(e?.message || `${sttProvider} STT failed`)
         }
       }
       recorder.start()
@@ -1048,12 +1592,17 @@ export default function AgentDemo() {
 
   const startCall = () => {
     setError('')
+    void unlockAudioPlayback('start-call')
     if (selectedProvider === 'vapi') {
       startVapiCall()
       return
     }
     if (selectedProvider === 'telnyx') {
       startTelnyxPhoneCall()
+      return
+    }
+    if (isDgcRealtime()) {
+      void startRealtimeVoiceCall()
       return
     }
     stopStreamingAndAudio()
@@ -1066,6 +1615,7 @@ export default function AgentDemo() {
   function hangUp(nextStatus = 'ended') {
     stopStreamingAndAudio()
     stopRecognition()
+    stopRealtimeVoiceStream()
     stopVapiCall()
     callActiveRef.current = false
     processingRef.current = false
@@ -1092,6 +1642,7 @@ export default function AgentDemo() {
   }
 
   const sendTyped = () => {
+    void unlockAudioPlayback('typed-send')
     const text = textInput.trim()
     setTextInput('')
     sendToAgent(text, messages, false)
@@ -1114,12 +1665,12 @@ export default function AgentDemo() {
       <div className='pageTop'>
         <div>
           <h1>Vox Sales Demo Lab</h1>
-          <p>Choose an agent, select STT, LLM, and TTS providers, then run a browser call or a Telnyx outbound phone call.</p>
+          <p>Choose an agent, then run a browser voice call, Vapi web call, or Telnyx outbound phone call.</p>
           <p className='muted' style={{ marginTop: 6 }}>Using agent: {agentLabel}</p>
         </div>
         <div style={{ display: 'grid', justifyItems: 'end', gap: 6 }}>
           <span className={`pill ${status === 'listening' ? 'p-green' : status === 'preparing_mic' || status === 'interrupted' ? 'p-amber' : status === 'speaking' ? 'p-cyan' : status === 'ended' || status === 'error' ? 'p-amber' : 'p-cyan'}`}>{status}</span>
-          <span className='muted' style={{ fontSize: 12 }}>STT {sttProvider} | LLM {providerLabel(selectedProvider)} | TTS {TTS_PROVIDERS.find((provider) => provider.id === ttsProvider)?.label}</span>
+          <span className='muted' style={{ fontSize: 12 }}>{selectedProvider === 'vapi' ? `Vapi assistant ${providerConfig?.vapi?.assistant_id || 'not configured'}` : `STT ${sttProvider} | LLM ${providerLabel(selectedProvider)} | TTS ${TTS_PROVIDERS.find((provider) => provider.id === ttsProvider)?.label}`}</span>
         </div>
       </div>
 
@@ -1152,18 +1703,24 @@ export default function AgentDemo() {
               <div className='muted' style={{ fontSize: 12 }}>The selected agent's saved system prompt is the call workflow used for this demo.</div>
             </div>
 
-            <div className='note' style={{ display: 'grid', gap: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                <strong>Speech-to-text</strong>
+            {selectedProvider !== 'vapi' ? (
+              <div className='note' style={{ display: 'grid', gap: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                  <strong>Speech-to-text</strong>
                 <span className={`pill ${recognitionSupported ? 'p-green' : 'p-amber'}`}>{recognitionSupported ? 'Chrome ready' : 'fallback'}</span>
               </div>
+              <label className='label'>Mode</label>
+              <select className='input' value={voiceMode} onChange={(e) => setVoiceMode(e.target.value)} disabled={callActive || status === 'speaking' || status === 'thinking'}>
+                <option value='streaming'>Streaming</option>
+                <option value='sequential'>Sequential</option>
+              </select>
               <label className='label'>Provider</label>
               <select className='input' value={sttProvider} onChange={(e) => setSttProvider(e.target.value)}>
                 {STT_PROVIDERS.map((provider) => (
                   <option key={provider.id} value={provider.id}>{provider.label}</option>
                 ))}
               </select>
-              {sttProvider === 'elevenlabs' ? (
+              {['elevenlabs', 'groq', 'azure_speech', 'deepgram'].includes(sttProvider) ? (
                 <>
                   <div className='actions'>
                     <button className='btn soft' onClick={startElevenLabsSttTest} disabled={sttRecording}>
@@ -1174,7 +1731,7 @@ export default function AgentDemo() {
                     </button>
                   </div>
                   {moduleResult.stt ? <div className='muted' style={{ fontSize: 12 }}>{moduleResult.stt}</div> : null}
-                  <div className='muted' style={{ fontSize: 12 }}>ElevenLabs STT uses Scribe for a recorded clip. The live continuous call still uses Chrome Web Speech for now.</div>
+                  <div className='muted' style={{ fontSize: 12 }}>{sttProvider === 'deepgram' ? 'Deepgram realtime is used for live calls and this recorded module test.' : sttProvider === 'groq' ? 'Groq Whisper uses whisper-large-v3-turbo and forces language=en.' : 'ElevenLabs STT uses Scribe for a recorded clip.'}</div>
                 </>
               ) : (
                 <div className='muted' style={{ fontSize: 12 }}>
@@ -1183,7 +1740,8 @@ export default function AgentDemo() {
                     : 'For live calls, Chrome Web Speech captures the microphone transcript.'}
                 </div>
               )}
-            </div>
+              </div>
+            ) : null}
 
             <div className='note' style={{ display: 'grid', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
@@ -1196,20 +1754,36 @@ export default function AgentDemo() {
                   <option key={provider.id} value={provider.id}>{provider.label}</option>
                 ))}
               </select>
-              <button className='btn soft' onClick={runLlmModuleTest} disabled={status === 'thinking' || status === 'speaking'}>
-                Test LLM only
-              </button>
-              {selectedProvider === 'telnyx' ? (
-                <div className='muted' style={{ fontSize: 12 }}>
-                  Telnyx uses the selected Vox Sales agent in a real outbound phone call. Use Call my phone below.
-                </div>
-              ) : null}
+              {selectedProvider !== 'vapi' ? (
+                <button className='btn soft' onClick={runLlmModuleTest} disabled={status === 'thinking' || status === 'speaking'}>
+                  Test LLM only
+                </button>
+              ) : (
+                <div className='note'>Vapi owns STT, LLM, TTS, interruption handling, and voice settings from the Vapi dashboard. This app only stores the public key, optional API key, and assistant ID, then starts the web call.</div>
+              )}
               {moduleResult.llm ? <div className='muted' style={{ fontSize: 12 }}>{moduleResult.llm}</div> : null}
             </div>
 
-            <div className='note' style={{ display: 'grid', gap: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                <strong>Text-to-speech</strong>
+            {selectedProvider === 'vapi' ? (
+              <div className='note' style={{ display: 'grid', gap: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                  <strong>Vapi assistant</strong>
+                  <span className={`pill ${providerConfig?.vapi?.configured ? 'p-green' : 'p-amber'}`}>{providerConfig?.vapi?.configured ? 'Configured' : 'Not configured'}</span>
+                </div>
+                <div className='muted' style={{ fontSize: 12 }}>
+                  Assistant ID: {providerConfig?.vapi?.assistant_id || 'not set'}
+                </div>
+                <div className='muted' style={{ fontSize: 12 }}>
+                  Configure Vapi STT, model, tools, and voice in the Vapi dashboard. This demo will start a web call using that assistant.
+                </div>
+                <button className='btn soft' type='button' onClick={() => window.location.assign('/integrations/vapi')} disabled={callActive || status === 'thinking' || status === 'speaking'}>
+                  Open Vapi integration
+                </button>
+              </div>
+            ) : (
+              <div className='note' style={{ display: 'grid', gap: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                  <strong>Text-to-speech</strong>
                 <span className='pill p-cyan'>{TTS_PROVIDERS.find((provider) => provider.id === ttsProvider)?.label}</span>
               </div>
               <label className='label'>TTS provider</label>
@@ -1218,7 +1792,22 @@ export default function AgentDemo() {
                   <option key={provider.id} value={provider.id}>{provider.label}</option>
                 ))}
               </select>
-              {ttsProvider === 'elevenlabs' ? (
+              {ttsProvider === 'groq_orpheus' ? (
+                <>
+                  <label className='label'>Groq Orpheus voice</label>
+                  <select className='input' value={groqTtsVoice} onChange={(e) => setGroqTtsVoice(e.target.value)}>
+                    {GROQ_ORPHEUS_VOICES.map((voice) => (
+                      <option key={voice} value={voice}>{voice}</option>
+                    ))}
+                  </select>
+                </>
+              ) : ttsProvider === 'cartesia' ? (
+                <>
+                  <label className='label'>Cartesia voice ID</label>
+                  <input className='input' value={cartesiaVoiceId} onChange={(e) => setCartesiaVoiceId(e.target.value)} placeholder={providerConfig?.cartesia?.voice_id || 'Use admin default or paste voice_id'} />
+                  <div className='muted' style={{ fontSize: 12 }}>Cartesia audio is generated as soon as sentence chunks are ready for low first-audio latency.</div>
+                </>
+              ) : ttsProvider === 'elevenlabs' ? (
                 <>
                   <label className='label'>ElevenLabs voice ID</label>
                   <input className='input' value={elevenLabsVoiceId} onChange={(e) => setElevenLabsVoiceId(e.target.value)} placeholder='Use admin default or paste voice_id' />
@@ -1256,11 +1845,12 @@ export default function AgentDemo() {
                 </>
               )}
               <textarea className='input' rows={2} value={moduleTestText} onChange={(e) => setModuleTestText(e.target.value)} />
-              <button className='btn soft' onClick={runTtsModuleTest} disabled={ttsProvider === 'elevenlabs' && !String(elevenLabsVoiceId || providerConfig?.elevenlabs?.default_voice_id || '').trim()}>
+              <button className='btn soft' onClick={runTtsModuleTest} disabled={(ttsProvider === 'elevenlabs' && !String(elevenLabsVoiceId || providerConfig?.elevenlabs?.default_voice_id || '').trim()) || (ttsProvider === 'cartesia' && !String(cartesiaVoiceId || providerConfig?.cartesia?.voice_id || '').trim())}>
                 Test TTS only
               </button>
               {moduleResult.tts ? <div className='muted' style={{ fontSize: 12 }}>{moduleResult.tts}</div> : null}
-            </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1289,11 +1879,14 @@ export default function AgentDemo() {
               </div>
               <div className='actions'>
                 <button className='btn primary' onClick={startCall} disabled={callActive || status === 'processing' || status === 'thinking' || status === 'speaking'}>
-                  {selectedProvider === 'telnyx' ? 'Call my phone' : 'Start call'}
+                  {selectedProvider === 'telnyx' ? 'Call my phone' : selectedProvider === 'vapi' ? (vapiActive ? 'Vapi call active' : 'Start Vapi web call') : 'Start call'}
                 </button>
-                {selectedProvider !== 'telnyx' ? (
-                  <button className='btn soft' type='button' onClick={() => setSelectedProvider('telnyx')} disabled={callActive || status === 'thinking' || status === 'speaking'}>
-                    Use Telnyx phone call
+                <button className='btn soft' type='button' onClick={resumeQueuedAudio}>
+                  {audioUnlocked ? 'Audio ready' : 'Enable audio'}
+                </button>
+                {selectedProvider !== 'vapi' ? (
+                  <button className='btn soft' type='button' onClick={() => setSelectedProvider('vapi')} disabled={callActive || status === 'thinking' || status === 'speaking'}>
+                    Use Vapi web call
                   </button>
                 ) : null}
                 <button className='btn primary' onClick={interruptCurrentReply} disabled={!callActive || (status !== 'speaking' && status !== 'thinking' && !streamConnected && audioQueueLength === 0)}>
@@ -1306,6 +1899,18 @@ export default function AgentDemo() {
                   Clear
                 </button>
               </div>
+              {selectedProvider === 'vapi' ? (
+                <div className='note'>
+                  <strong>Vapi web call mode</strong>
+                  <div className='muted' style={{ fontSize: 12, marginTop: 6 }}>
+                    This skips the app STT/LLM/TTS modules. Vapi starts the configured assistant directly in the browser using the assistant ID saved in Integrations.
+                  </div>
+                  <div className='muted' style={{ fontSize: 12, marginTop: 8 }}>
+                    Vapi status: {providerConfig?.vapi?.configured ? `ready (${providerConfig?.vapi?.assistant_id || 'assistant'})` : `missing ${(providerConfig?.vapi?.missing || []).join(', ') || 'settings'}`}
+                  </div>
+                  {vapiActive ? <div className='pill p-green' style={{ marginTop: 10, width: 'fit-content' }}>Web call active</div> : null}
+                </div>
+              ) : null}
               {selectedProvider === 'telnyx' ? (
                 <div className='note'>
                   <strong>Telnyx phone call mode</strong>
@@ -1329,11 +1934,13 @@ export default function AgentDemo() {
                 </div>
               ) : null}
               <div className='note'>
-                Full flow: {sttProvider} transcript {'->'} {providerLabel(selectedProvider)} {'->'} {ttsProvider === 'elevenlabs' ? `ElevenLabs voice ${elevenLabsVoiceId || providerConfig?.elevenlabs?.default_voice_id || 'not set'}` : demoVoice}
+                {selectedProvider === 'vapi'
+                  ? `Full flow: Vapi assistant ${providerConfig?.vapi?.assistant_id || 'not configured'} (configured in Vapi dashboard)`
+                  : <>Full flow: {sttProvider} transcript {'->'} {providerLabel(selectedProvider)} {'->'} {ttsProvider === 'cartesia' ? `Cartesia voice ${cartesiaVoiceId || providerConfig?.cartesia?.voice_id || 'not set'}` : ttsProvider === 'elevenlabs' ? `ElevenLabs voice ${elevenLabsVoiceId || providerConfig?.elevenlabs?.default_voice_id || 'not set'}` : `Groq Orpheus ${groqTtsVoice}`}</>}
               </div>
-              {sttProvider !== 'browser' ? (
+              {sttProvider !== 'deepgram' ? (
                 <div className='note' style={{ borderColor: 'rgba(245,158,11,0.35)' }}>
-                  Live call note: continuous browser calls currently use Chrome Web Speech for the live microphone loop. Use the STT card above to test {STT_PROVIDERS.find((provider) => provider.id === sttProvider)?.label} transcription directly.
+                  Live call note: Deepgram is the realtime live STT path. ElevenLabs and Groq STT are available as recorded module tests.
                 </div>
               ) : null}
               <label className='label'>Live transcript</label>
@@ -1352,10 +1959,15 @@ export default function AgentDemo() {
               </div>
               {latestAudioSrc ? (
                 <div className='note'>
-                  {playbackBlocked ? <div style={{ marginBottom: 8 }}>Chrome blocked autoplay. Press play below.</div> : null}
-                  <button className='btn soft' onClick={() => playAudioSrc(latestAudioSrc)} style={{ marginBottom: 8 }}>
+                  {playbackBlocked ? <div style={{ marginBottom: 8 }}>Browser blocked autoplay. Click Enable audio, then resume playback.</div> : null}
+                  <div className='actions' style={{ marginBottom: 8 }}>
+                    <button className='btn soft' type='button' onClick={resumeQueuedAudio}>
+                      Enable audio / resume queue
+                    </button>
+                    <button className='btn soft' type='button' onClick={() => playAudioSrc(latestAudioSrc)}>
                     Play latest reply
-                  </button>
+                    </button>
+                  </div>
                   <audio controls src={latestAudioSrc} style={{ width: '100%' }} />
                   <div className='muted' style={{ fontSize: 12, marginTop: 6 }}>Latest audio: {latestAudioBytes || '-'} bytes</div>
                 </div>

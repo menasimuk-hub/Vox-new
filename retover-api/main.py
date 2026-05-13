@@ -14,6 +14,7 @@ from app.core.security import hash_password
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.user import User
+from app.services.provider_settings import ProviderSettingsService
 
 from app.routers.admin import router as admin_router
 from app.routers.admin_email import router as admin_email_router
@@ -80,6 +81,25 @@ def _ensure_local_demo_admin() -> None:
             db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
 
         db.commit()
+
+
+def _log_provider_key_status(logger) -> None:
+    SessionLocal = get_sessionmaker()
+    providers = ["openai", "deepseek", "groq", "elevenlabs", "azure_speech"]
+    status = {}
+    with SessionLocal() as db:
+        for provider in providers:
+            try:
+                row = ProviderSettingsService.get_platform_config_admin_view(db, provider=provider)
+                status[provider] = {
+                    "enabled": bool(row.get("is_enabled")),
+                    "configured": bool(row.get("configured")),
+                    "api_key_set": bool((row.get("secret_set") or {}).get("api_key")),
+                    "missing_fields": row.get("missing_fields") or [],
+                }
+            except Exception as exc:
+                status[provider] = {"configured": False, "error": str(exc)}
+    logger.info("provider_key_status", extra={"providers": status})
 
 
 @asynccontextmanager

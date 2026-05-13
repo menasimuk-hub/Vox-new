@@ -19,14 +19,12 @@ class ProviderSettingsService:
     PROVIDERS = {
         "twilio",
         "dentally",
-        "carestack",
-        "pabau",
-        "cliniko",
-        "optix",
-        "ocuco",
         "vapi",
         "deepseek",
+        "groq",
         "elevenlabs",
+        "deepgram",
+        "cartesia",
         "gocardless",
         "telnyx",
         "azure_speech",
@@ -40,16 +38,14 @@ class ProviderSettingsService:
     REQUIRED_FIELDS: dict[str, set[str]] = {
         "twilio": {"account_sid", "auth_token", "whatsapp_from", "from_number", "twiml_url"},
         "dentally": {"base_url", "api_key"},
-        "carestack": {"base_url", "api_key"},
-        "pabau": {"base_url", "api_key"},
-        "cliniko": {"base_url", "api_key"},
-        "optix": {"base_url", "api_key"},
-        "ocuco": {"base_url", "api_key"},
         "vapi": {"public_key", "assistant_id"},
         "deepseek": {"api_key", "base_url", "model"},
+        "groq": {"api_key", "base_url", "stt_model", "tts_model", "tts_voice"},
         "elevenlabs": {"api_key", "default_voice_id"},
+        "deepgram": {"api_key", "base_url", "ws_url", "model"},
+        "cartesia": {"api_key", "base_url", "model_id", "voice_id"},
         "gocardless": {"access_token", "webhook_secret"},
-        "telnyx": {"api_key", "connection_id", "default_outbound_number", "outbound_voice_profile_id", "voice_webhook_url"},
+        "telnyx": {"api_key", "connection_id", "default_outbound_number", "fallback_caller_id", "media_stream_url"},
         "azure_speech": {"api_key", "region", "default_voice_id"},
         "openai": {"api_key", "default_model", "realtime_model", "temperature", "max_output_tokens"},
         # Social OAuth providers. These settings are consumed by the FastAPI OAuth start/callback flow.
@@ -61,14 +57,12 @@ class ProviderSettingsService:
     SECRET_KEYS: dict[str, set[str]] = {
         "twilio": {"auth_token"},
         "dentally": {"api_key"},
-        "carestack": {"api_key"},
-        "pabau": {"api_key"},
-        "cliniko": {"api_key"},
-        "optix": {"api_key"},
-        "ocuco": {"api_key"},
         "vapi": {"api_key"},
         "deepseek": {"api_key"},
+        "groq": {"api_key"},
         "elevenlabs": {"api_key"},
+        "deepgram": {"api_key"},
+        "cartesia": {"api_key"},
         "gocardless": {"access_token", "webhook_secret"},
         "telnyx": {"api_key"},
         "azure_speech": {"api_key"},
@@ -107,14 +101,18 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_openai_config(config)
         if provider == "deepseek":
             config = ProviderSettingsService._validate_deepseek_config(config)
-        if provider == "vapi":
-            config = ProviderSettingsService._validate_vapi_config(config)
+        if provider == "groq":
+            config = ProviderSettingsService._validate_groq_config(config)
+        if provider == "deepgram":
+            config = ProviderSettingsService._validate_deepgram_config(config)
+        if provider == "cartesia":
+            config = ProviderSettingsService._validate_cartesia_config(config)
         if provider == "elevenlabs":
             config = ProviderSettingsService._validate_elevenlabs_config(config)
+        if provider == "vapi":
+            config = ProviderSettingsService._validate_vapi_config(config)
         if provider == "azure_speech":
             config = ProviderSettingsService._validate_azure_speech_config(config)
-        if provider == "telnyx":
-            config = ProviderSettingsService._validate_telnyx_config(config)
 
         payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
         cipher = enc.encrypt_str(payload)
@@ -231,30 +229,135 @@ class ProviderSettingsService:
         return cfg
 
     @staticmethod
-    def _validate_vapi_config(config: dict[str, Any]) -> dict[str, Any]:
+    def _validate_groq_config(config: dict[str, Any]) -> dict[str, Any]:
         cfg = {**config}
         errors: dict[str, str] = {}
-        public_key = str(cfg.get("public_key") or "").strip()
-        assistant_id = str(cfg.get("assistant_id") or "").strip()
         api_key = str(cfg.get("api_key") or "").strip()
-        base_url = str(cfg.get("base_url") or "https://api.vapi.ai").strip()
+        base_url = str(cfg.get("base_url") or "https://api.groq.com/openai").strip().rstrip("/")
+        stt_model = str(cfg.get("stt_model") or cfg.get("default_stt_model") or "whisper-large-v3-turbo").strip()
+        llm_model = str(cfg.get("llm_model") or cfg.get("default_llm_model") or "llama-3.3-70b-versatile").strip()
+        tts_model = str(cfg.get("tts_model") or cfg.get("default_tts_model") or "canopylabs/orpheus-v1-english").strip()
+        tts_voice = str(cfg.get("tts_voice") or cfg.get("default_tts_voice") or "austin").strip().lower()
 
-        if not public_key:
-            errors["public_key"] = "Public key is required for browser calls"
-        if not assistant_id:
-            errors["assistant_id"] = "Assistant ID is required for browser calls"
+        if not api_key:
+            errors["api_key"] = "API key is required"
+        if not base_url:
+            errors["base_url"] = "Base URL is required"
+        if not stt_model:
+            errors["stt_model"] = "STT model is required"
+        if not llm_model:
+            errors["llm_model"] = "LLM model is required"
+        if not tts_model:
+            errors["tts_model"] = "TTS model is required"
+        if not tts_voice:
+            errors["tts_voice"] = "TTS voice is required"
         if errors:
             details = "; ".join(f"{field}: {message}" for field, message in errors.items())
-            raise ValueError(f"Vapi settings validation failed: {details}")
+            raise ValueError(f"Groq settings validation failed: {details}")
 
-        cfg["public_key"] = public_key
-        cfg["assistant_id"] = assistant_id
+        while base_url.endswith("/v1"):
+            base_url = base_url[:-3].rstrip("/")
         cfg["api_key"] = api_key
-        cfg["base_url"] = base_url
+        cfg["base_url"] = base_url or "https://api.groq.com/openai"
+        cfg["stt_model"] = stt_model
+        cfg["default_stt_model"] = stt_model
+        cfg["llm_model"] = llm_model
+        cfg["default_llm_model"] = llm_model
+        cfg["tts_model"] = tts_model
+        cfg["default_tts_model"] = tts_model
+        cfg["tts_voice"] = tts_voice
+        cfg["default_tts_voice"] = tts_voice
+        cfg["temperature"] = float(cfg.get("temperature") or 0.45)
+        cfg["max_output_tokens"] = int(cfg.get("max_output_tokens") or 120)
         return cfg
 
     @staticmethod
-    def _optional_float(cfg: dict[str, Any], key: str, *, min_value: float | None = None, max_value: float | None = None) -> None:
+    def _validate_deepgram_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        api_key = str(cfg.get("api_key") or "").strip()
+        base_url = str(cfg.get("base_url") or "https://api.deepgram.com").strip().rstrip("/")
+        ws_url = str(cfg.get("ws_url") or "wss://api.deepgram.com").strip().rstrip("/")
+        model = str(cfg.get("model") or "nova-3").strip()
+        language = str(cfg.get("language") or "en").strip()
+
+        if not api_key:
+            errors["api_key"] = "API key is required"
+        if not base_url:
+            errors["base_url"] = "Base URL is required"
+        if not ws_url:
+            errors["ws_url"] = "WebSocket URL is required"
+        if not model:
+            errors["model"] = "Model is required"
+        if not language:
+            errors["language"] = "Language is required"
+        try:
+            endpointing = int(cfg.get("endpointing") or 250)
+            if endpointing < 0:
+                errors["endpointing"] = "Endpointing must be zero or greater"
+        except (TypeError, ValueError):
+            errors["endpointing"] = "Endpointing must be an integer"
+            endpointing = 250
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Deepgram settings validation failed: {details}")
+
+        cfg["api_key"] = api_key
+        cfg["base_url"] = base_url
+        cfg["ws_url"] = ws_url
+        cfg["model"] = model
+        cfg["language"] = language
+        cfg["endpointing"] = endpointing
+        cfg["interim_results"] = ProviderSettingsService._bool_config(cfg.get("interim_results"), default=True)
+        return cfg
+
+    @staticmethod
+    def _validate_cartesia_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        api_key = str(cfg.get("api_key") or "").strip()
+        base_url = str(cfg.get("base_url") or "https://api.cartesia.ai").strip().rstrip("/")
+        model_id = str(cfg.get("model_id") or "sonic-2").strip()
+        voice_id = str(cfg.get("voice_id") or "").strip()
+        encoding = str(cfg.get("encoding") or "mp3").strip()
+        container = str(cfg.get("container") or "mp3").strip()
+
+        if not api_key:
+            errors["api_key"] = "API key is required"
+        if not base_url:
+            errors["base_url"] = "Base URL is required"
+        if not model_id:
+            errors["model_id"] = "Model ID is required"
+        if not voice_id:
+            errors["voice_id"] = "Voice ID is required"
+        try:
+            sample_rate = int(cfg.get("sample_rate") or 44100)
+            if sample_rate <= 0:
+                errors["sample_rate"] = "Sample rate must be positive"
+        except (TypeError, ValueError):
+            errors["sample_rate"] = "Sample rate must be an integer"
+            sample_rate = 44100
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Cartesia settings validation failed: {details}")
+
+        cfg["api_key"] = api_key
+        cfg["base_url"] = base_url
+        cfg["model_id"] = model_id
+        cfg["voice_id"] = voice_id
+        cfg["encoding"] = encoding
+        cfg["container"] = container
+        cfg["sample_rate"] = sample_rate
+        return cfg
+
+    @staticmethod
+    def _optional_float(
+        cfg: dict[str, Any],
+        key: str,
+        *,
+        min_value: float | None = None,
+        max_value: float | None = None,
+    ) -> None:
         raw = cfg.get(key)
         if raw is None or raw == "":
             return
@@ -298,6 +401,29 @@ class ProviderSettingsService:
         return cfg
 
     @staticmethod
+    def _validate_vapi_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        public_key = str(cfg.get("public_key") or "").strip()
+        assistant_id = str(cfg.get("assistant_id") or "").strip()
+        api_key = str(cfg.get("api_key") or "").strip()
+        base_url = str(cfg.get("base_url") or "https://api.vapi.ai").strip()
+
+        if not public_key:
+            errors["public_key"] = "Public key is required for browser calls"
+        if not assistant_id:
+            errors["assistant_id"] = "Assistant ID is required for browser calls"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Vapi settings validation failed: {details}")
+
+        cfg["public_key"] = public_key
+        cfg["assistant_id"] = assistant_id
+        cfg["api_key"] = api_key
+        cfg["base_url"] = base_url
+        return cfg
+
+    @staticmethod
     def _bool_config(value: Any, *, default: bool) -> bool:
         if value is None:
             return default
@@ -334,66 +460,6 @@ class ProviderSettingsService:
         cfg["default_voice_id"] = default_voice_id
         cfg["tts_enabled"] = tts_enabled
         cfg["stt_enabled"] = stt_enabled
-        return cfg
-
-    @staticmethod
-    def _validate_telnyx_config(config: dict[str, Any]) -> dict[str, Any]:
-        cfg = {**config}
-        errors: dict[str, str] = {}
-
-        api_key = str(cfg.get("api_key") or "").strip()
-        connection_id = str(
-            cfg.get("connection_id")
-            or cfg.get("voice_api_application_id")
-            or cfg.get("call_control_connection_id")
-            or ""
-        ).strip()
-        default_outbound_number = str(
-            cfg.get("default_outbound_number")
-            or cfg.get("from_phone_number")
-            or cfg.get("from_number")
-            or ""
-        ).strip()
-        outbound_voice_profile_id = str(cfg.get("outbound_voice_profile_id") or "").strip()
-        webhook_base_url = str(cfg.get("webhook_base_url") or "").strip().rstrip("/")
-        voice_webhook_url = str(cfg.get("voice_webhook_url") or "").strip()
-        status_callback_url = str(cfg.get("status_callback_url") or "").strip()
-        verified_number_webhook_url = str(cfg.get("verified_number_webhook_url") or "").strip()
-
-        if webhook_base_url:
-            voice_webhook_url = voice_webhook_url or f"{webhook_base_url}/telnyx/webhooks/voice"
-            status_callback_url = status_callback_url or f"{webhook_base_url}/telnyx/webhooks/status"
-            verified_number_webhook_url = verified_number_webhook_url or f"{webhook_base_url}/telnyx/webhooks/verified-numbers"
-
-        if not api_key:
-            errors["api_key"] = "API key is required"
-        if not connection_id:
-            errors["connection_id"] = "Voice API application / connection ID is required"
-        if not default_outbound_number:
-            errors["default_outbound_number"] = "From phone number is required"
-        if not outbound_voice_profile_id:
-            errors["outbound_voice_profile_id"] = "Outbound voice profile ID is required"
-        if not voice_webhook_url:
-            errors["voice_webhook_url"] = "Voice webhook URL is required"
-
-        if errors:
-            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
-            raise ValueError(f"Telnyx settings validation failed: {details}")
-
-        cfg["api_key"] = api_key
-        cfg["connection_id"] = connection_id
-        cfg["voice_api_application_id"] = connection_id
-        cfg["call_control_connection_id"] = connection_id
-        cfg["default_outbound_number"] = default_outbound_number
-        cfg["from_phone_number"] = default_outbound_number
-        cfg["from_number"] = default_outbound_number
-        cfg["fallback_caller_id"] = str(cfg.get("fallback_caller_id") or default_outbound_number).strip()
-        cfg["outbound_voice_profile_id"] = outbound_voice_profile_id
-        cfg["webhook_base_url"] = webhook_base_url
-        cfg["voice_webhook_url"] = voice_webhook_url
-        cfg["status_callback_url"] = status_callback_url
-        cfg["verified_number_webhook_url"] = verified_number_webhook_url
-        cfg["media_stream_url"] = str(cfg.get("media_stream_url") or "").strip()
         return cfg
 
     @staticmethod
