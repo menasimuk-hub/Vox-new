@@ -1,5 +1,5 @@
 /**
- * Start FastAPI from ./retover-api (repo root = parent of this scripts/ folder).
+ * Start FastAPI from ./voxbulk-api (repo root = parent of this scripts/ folder).
  * Binds 0.0.0.0:8000 so Vite proxies and browsers can use http://127.0.0.1:8000.
  */
 import { spawn } from 'node:child_process'
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..')
-const apiRoot = path.join(repoRoot, 'retover-api')
+const apiRoot = path.join(repoRoot, 'voxbulk-api')
 
 if (!fs.existsSync(path.join(apiRoot, 'main.py'))) {
   console.error(`[dev-api] Expected main.py at ${apiRoot}`)

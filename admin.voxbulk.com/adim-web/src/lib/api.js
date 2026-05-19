@@ -270,7 +270,7 @@ function networkFailureHelp() {
   return [
     'Most common fixes:',
     '1) From this app folder run `npm run dev:full` — starts FastAPI on 0.0.0.0:8000 then Vite after /health is up (fixes 502 when the API was never started).',
-    '   Or manually: `cd retover-api` then `python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000` (`0.0.0.0` is more reliable than 127-only on some setups).',
+    '   Or manually: `cd voxbulk-api` then `python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000` (`0.0.0.0` is more reliable than 127-only on some setups).',
     '2) Restart Vite (`npm run dev`) after editing `.env` so VITE_* is picked up.',
     baseEmpty
       ? '3) Admin dev uses SAME-ORIGIN `/auth`, `/admin`, `/health` on http://localhost:5174 — Vite proxies to `VITE_PROXY_API_TARGET` (default http://127.0.0.1:8000). If `/health` fails, Node cannot reach uvicorn on that target.'
@@ -429,7 +429,11 @@ export async function ensureAdminSession() {
       const text = await r.text()
       const data = text ? safeJson(text) : null
       if (!r.ok) {
-        return { status: 'none', message: 'Session expired or invalid for this tenant. Sign in again.' }
+        return {
+          status: 'none',
+          message:
+            'Session expired or invalid. Sign-in links only work for about an hour — go to the public sign-in page and log in again with a platform admin account.',
+        }
       }
       if (data?.admin_access || data?.is_superuser) {
         return { status: 'ready', token: direct }
@@ -559,6 +563,32 @@ function safeJson(text) {
   } catch {
     return null
   }
+}
+
+/** Multipart upload (e.g. knowledge base .md). Do not set Content-Type — browser sets boundary. */
+export async function apiUpload(path, formData, options = {}) {
+  const mis = getApiMisconfigurationMessage()
+  if (mis) throw new Error(`${mis}\n\n${networkFailureHelp()}`)
+
+  const joined = joinOriginAndPath(getApiBaseUrl(), path)
+  const headers = new Headers(options.headers || {})
+  const token = await resolveAdminBearerToken()
+  if (!token) {
+    throw new Error('No admin session. Sign in on the public app with a platform-admin account first.')
+  }
+  headers.set('Authorization', `Bearer ${token}`)
+  headers.set('Accept', 'application/json')
+
+  const res = await fetch(joined, { ...options, method: options.method || 'POST', headers, body: formData })
+  const text = await res.text()
+  const data = text ? safeJson(text) : null
+  if (!res.ok) {
+    const err = new Error(formatApiError(data, res.status, res.statusText))
+    err.status = res.status
+    err.data = data
+    throw err
+  }
+  return data
 }
 
 export function adminLogoutRedirect() {

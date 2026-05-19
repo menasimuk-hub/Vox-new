@@ -5,7 +5,7 @@ export function getApiBaseUrl() {
   if (raw) return raw
   if (typeof window !== 'undefined') {
     const h = window.location.hostname
-    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return 'http://127.0.0.1:8000'
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return ''
   }
   return ''
 }
@@ -13,7 +13,6 @@ export function getApiBaseUrl() {
 export function getAccessToken() {
   const candidates = [
     localStorage.getItem('retover_access_token') || '',
-    // compatibility with earlier admin/public flows/tools
     localStorage.getItem('access_token') || '',
   ].filter(Boolean)
   if (!candidates.length) return ''
@@ -57,7 +56,7 @@ export async function apiFetch(path, options = {}) {
 
   if (!res.ok) {
     const message =
-      (data && (data.detail || data.message)) ||
+      (data && (typeof data.detail === 'string' ? data.detail : data.message)) ||
       `${res.status} ${res.statusText}`.trim()
     const err = new Error(message)
     err.status = res.status
@@ -99,7 +98,6 @@ export function getPublicSignInUrl() {
 }
 
 const DEV_PUBLIC_MARKETING = 'http://localhost:5173'
-/** Admin (5174) and clinic dashboard (5175) must never be used as “marketing home” after logout. */
 const DEV_NON_MARKETING_PORTS = new Set(['5174', '5175'])
 
 function marketingOriginAfterLogout() {
@@ -112,35 +110,22 @@ function marketingOriginAfterLogout() {
     .replace(/\/+$/, '')
   try {
     const u = new URL(raw.includes('://') ? raw : `http://${raw}`)
-    const host = u.hostname
     const port = String(u.port || (u.protocol === 'https:' ? '443' : '80'))
-    const loop = host === 'localhost' || host === '127.0.0.1' || host === '::1'
-    if (loop && DEV_NON_MARKETING_PORTS.has(port)) {
-      return DEV_PUBLIC_MARKETING
-    }
-    if (typeof window !== 'undefined') {
-      try {
-        if (u.host === window.location.host) {
-          return DEV_PUBLIC_MARKETING
-        }
-      } catch {
-        /* ignore */
-      }
-    }
+    const loop = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1'
+    if (loop && DEV_NON_MARKETING_PORTS.has(port)) return DEV_PUBLIC_MARKETING
+    if (typeof window !== 'undefined' && u.host === window.location.host) return DEV_PUBLIC_MARKETING
     return u.origin
   } catch {
     return DEV_PUBLIC_MARKETING
   }
 }
 
-/** Public marketing home; `retover_logout` clears clinic tokens on origin :5173. */
 function getPublicLogoutLandingUrl() {
   const u = new URL(`${marketingOriginAfterLogout().replace(/\/+$/, '')}/`)
   u.searchParams.set('retover_logout', '1')
   return u.toString()
 }
 
-/** Clear clinic + admin stash keys and navigate to public home. */
 export function logoutDashboard() {
   if (typeof window === 'undefined') return
   try {
@@ -152,10 +137,12 @@ export function logoutDashboard() {
     localStorage.removeItem('retover_admin_selected_org_id')
     localStorage.removeItem('retover_signup_org_id')
     localStorage.removeItem('retover_user_email')
-    // Wizard completion is stored on the server (membership); keep local draft only if present.
   } catch {
     /* ignore */
   }
   window.location.replace(getPublicLogoutLandingUrl())
 }
 
+export function redirectToSignIn() {
+  window.location.replace(getPublicSignInUrl())
+}

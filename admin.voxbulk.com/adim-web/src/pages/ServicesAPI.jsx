@@ -290,6 +290,12 @@ export default function ServicesAPI() {
       if (config.from_phone_number && !config.default_outbound_number) config.default_outbound_number = config.from_phone_number
       if (config.connection_id && !config.voice_api_application_id) config.voice_api_application_id = config.connection_id
       if (config.voice_api_application_id && !config.connection_id) config.connection_id = config.voice_api_application_id
+      const outbound = String(config.default_outbound_number || config.from_phone_number || '').trim()
+      if (outbound) {
+        config.default_outbound_number = outbound
+        config.from_phone_number = outbound
+        config.fallback_caller_id = outbound
+      }
       if (telnyxSecret.trim()) config.api_key = telnyxSecret.trim()
       const updated = await apiFetch('/admin/integrations/telnyx', {
         method: 'PUT',

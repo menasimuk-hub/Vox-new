@@ -1,0 +1,23 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.database import Base
+
+
+class LeadSalesSetting(Base):
+    __tablename__ = "lead_sales_settings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default="default")
+    telnyx_assistant_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    prompt_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kb_file_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kb_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    calling_hour_start: Mapped[int] = mapped_column(nullable=False, default=9)
+    calling_hour_end: Mapped[int] = mapped_column(nullable=False, default=18)
+    calling_days: Mapped[str] = mapped_column(String(32), nullable=False, default="1,2,3,4,5")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

@@ -1,4 +1,9 @@
 export function getApiBaseUrl() {
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return 'http://127.0.0.1:8000'
+  }
+
   const raw = (import.meta?.env?.VITE_API_BASE_URL || import.meta?.env?.VITE_RETOVER_API_BASE_URL || '')
     .trim()
     .replace(/\/+$/, '')
@@ -6,17 +11,20 @@ export function getApiBaseUrl() {
   if (raw) return raw
 
   if (typeof window !== 'undefined') {
-    const h = window.location.hostname
-    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return 'http://127.0.0.1:8000'
-
     // VPS/proxy fallback: microgreenia.com exposes FastAPI under /api/.
-    // This prevents deployed Vite dev/prod builds from hard-failing when env was not loaded.
     if (window.location.protocol === 'https:' || window.location.protocol === 'http:') {
       return `${window.location.origin}/api`
     }
   }
 
   return ''
+}
+
+export function getApiWebSocketUrl(path: string) {
+  const baseUrl = getApiBaseUrl()
+  const p = path.startsWith('/') ? path : `/${path}`
+  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : '')
+  return `${origin.replace(/\/+$/, '')}${p}`.replace(/^http/i, 'ws')
 }
 
 export function getUserAccessToken() {
@@ -59,23 +67,30 @@ export function clearAllRetoverSiteLocalKeys() {
 }
 
 export function getPostLoginTargets() {
-  const adminFromEnv = import.meta?.env?.VITE_POST_LOGIN_ADMIN_URL
-  const dashboardFromEnv = import.meta?.env?.VITE_POST_LOGIN_DASHBOARD_URL
-  if (!adminFromEnv && !dashboardFromEnv && typeof window !== 'undefined') {
-    const host = window.location.hostname
-    if (host === 'voxbulk.com' || host === 'www.voxbulk.com' || host.endsWith('.voxbulk.com')) {
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') {
+      return {
+        adminUrl: 'http://localhost:5174',
+        dashboardUrl: 'http://localhost:5175',
+      }
+    }
+    if (h === 'voxbulk.com' || h === 'www.voxbulk.com' || h.endsWith('.voxbulk.com')) {
       return {
         adminUrl: 'https://admin.voxbulk.com',
         dashboardUrl: 'https://dashboard.voxbulk.com',
       }
     }
-    if (host === 'microgreenia.com' || host === 'www.microgreenia.com' || host.endsWith('.microgreenia.com')) {
+    if (h === 'microgreenia.com' || h === 'www.microgreenia.com' || h.endsWith('.microgreenia.com')) {
       return {
         adminUrl: 'https://admin.microgreenia.com',
         dashboardUrl: 'https://dashboard.microgreenia.com',
       }
     }
   }
+
+  const adminFromEnv = import.meta?.env?.VITE_POST_LOGIN_ADMIN_URL
+  const dashboardFromEnv = import.meta?.env?.VITE_POST_LOGIN_DASHBOARD_URL
   return {
     adminUrl: (adminFromEnv || 'http://localhost:5174').replace(/\/+$/, ''),
     dashboardUrl: (dashboardFromEnv || 'http://localhost:5175').replace(/\/+$/, ''),
@@ -196,7 +211,7 @@ export async function retoverFetch(path, options = {}) {
 
 export async function loginWithPassword({ email, password }) {
   const body = new URLSearchParams()
-  body.set('username', email)
+  body.set('username', String(email).trim().toLowerCase())
   body.set('password', password)
   // org_id is optional on backend if the user has exactly one membership
 
@@ -298,5 +313,71 @@ export async function resetPasswordRequest(payload: { token: string; password: s
       password: String(payload.password || ''),
     }),
   })
+}
+
+export async function startFrontpageTalkToUsCall(payload: {
+  contact_name: string
+  company_name: string
+  email: string
+  phone?: string
+  client_timezone?: string
+  client_locale?: string
+  client_country?: string
+  source?: string
+}) {
+  return publicJsonFetch('/frontpage/talk-to-us/start-call', {
+    method: 'POST',
+    body: JSON.stringify({
+      contact_name: String(payload.contact_name || '').trim(),
+      company_name: String(payload.company_name || '').trim(),
+      email: String(payload.email || '').trim(),
+      phone: String(payload.phone || '').trim() || null,
+      client_timezone: String(payload.client_timezone || '').trim() || null,
+      client_locale: String(payload.client_locale || '').trim() || null,
+      client_country: String(payload.client_country || '').trim() || null,
+      source: payload.source || 'frontpage_talk_to_us',
+    }),
+  })
+}
+
+export function frontpageTalkToUsVoiceUrl(callId: string) {
+  return getApiWebSocketUrl(`/frontpage/talk-to-us/voice/${encodeURIComponent(callId)}`)
+}
+
+export async function fetchFrontpageTalkToUsConfig() {
+  return publicJsonFetch('/frontpage/talk-to-us/config')
+}
+
+export async function completeFrontpageTalkToUsCall(
+  callId: string,
+  payload: {
+    transcript_text?: string
+    agent_response_text?: string
+    duration_seconds?: number
+    provider_call_id?: string
+    recording?: Blob | null
+  },
+) {
+  const baseUrl = getApiBaseUrl()
+  if (!baseUrl) throw new Error('API base URL is not set')
+  const form = new FormData()
+  if (payload.transcript_text) form.append('transcript_text', payload.transcript_text)
+  if (payload.agent_response_text) form.append('agent_response_text', payload.agent_response_text)
+  if (payload.duration_seconds != null) form.append('duration_seconds', String(payload.duration_seconds))
+  if (payload.provider_call_id) form.append('provider_call_id', payload.provider_call_id)
+  if (payload.recording) form.append('recording', payload.recording, 'call.webm')
+
+  const res = await fetch(`${baseUrl}/frontpage/talk-to-us/complete-call/${encodeURIComponent(callId)}`, {
+    method: 'POST',
+    body: form,
+    headers: { Accept: 'application/json' },
+  })
+  const text = await res.text()
+  const data = text ? safeJson(text) : null
+  if (!res.ok) {
+    const message = formatApiDetail(data, res.status, res.statusText)
+    throw new Error(message)
+  }
+  return data
 }
 

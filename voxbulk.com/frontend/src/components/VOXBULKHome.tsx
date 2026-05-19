@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import logoLight from "@/assets/logolight.svg";
 import logoNormal from "@/assets/logonormal.svg";
 import { Link } from "@tanstack/react-router";
 import { useAuthModal } from "@/components/AuthModal";
 import { AmbientBackdrop } from "@/components/BackgroundDecor";
+import Vapi from "@vapi-ai/web";
+import { TelnyxAIAgent } from "@telnyx/ai-agent-lib";
+import {
+  completeFrontpageTalkToUsCall,
+  startFrontpageTalkToUsCall,
+} from "@/lib/retoverApi";
+import { createRingbackTone, type RingbackController } from "@/lib/ringbackTone";
 import {
   Search,
   PhoneCall,
@@ -39,6 +46,7 @@ import {
   Eye,
   Flower2,
   Stethoscope,
+  Loader2,
 } from "lucide-react";
 
 /* ---------------- NAVBAR ---------------- */
@@ -2284,8 +2292,100 @@ function FooterCol({ title, links }: { title: string; links: Array<[string, stri
 /* ---------------- TALK TO US ---------------- */
 function TalkToUs() {
   const [status, setStatus] = useState<"idle" | "connecting" | "live" | "ended" | "error">("idle");
+  const [activeVoiceProvider, setActiveVoiceProvider] = useState<"vapi" | "telnyx">("vapi");
   const [seconds, setSeconds] = useState(0);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [contactName, setContactName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [formError, setFormError] = useState("");
+  const [callId, setCallId] = useState("");
+  const callIdRef = useRef("");
+  const finalizedRef = useRef(false);
+  const vapiProviderCallIdRef = useRef("");
+  const telnyxProviderCallIdRef = useRef("");
+  const voiceProviderRef = useRef<"vapi" | "telnyx">("vapi");
+  const vapiConnectTimeoutRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const socketRef = useRef<WebSocket | null>(null);
+  const telnyxAgentRef = useRef<TelnyxAIAgent | null>(null);
+  const telnyxAudioRef = useRef<HTMLAudioElement | null>(null);
+  const telnyxConnectTimeoutRef = useRef<number | null>(null);
+  const telnyxStartingRef = useRef(false);
+  const telnyxMixAudioContextRef = useRef<AudioContext | null>(null);
+  const telnyxRecorderStartedRef = useRef(false);
+  const vapiRef = useRef<Vapi | null>(null);
+  const transcriptPartsRef = useRef<string[]>([]);
+  const agentPartsRef = useRef<string[]>([]);
+  const conversationLinesRef = useRef<string[]>([]);
+  const ringbackRef = useRef<RingbackController | null>(null);
+
+  useEffect(() => {
+    ringbackRef.current = createRingbackTone();
+    return () => {
+      ringbackRef.current?.stop(0);
+    };
+  }, []);
+
+  const startRingback = () => {
+    try {
+      ringbackRef.current?.start();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const stopRingback = () => {
+    try {
+      ringbackRef.current?.stop(180);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const speakerLabel = (role: string) => {
+    const clean = role.trim().toLowerCase();
+    if (clean === "user" || clean === "customer") return "User";
+    if (clean === "assistant" || clean === "bot" || clean === "ai") return "Agent";
+    return "";
+  };
+
+  const appendConversationLine = (role: string, content: string) => {
+    const text = content.trim();
+    const label = speakerLabel(role);
+    if (!label || !text) return;
+    const line = `${label}: ${text}`;
+    const lines = conversationLinesRef.current;
+    if (lines[lines.length - 1] === line) return;
+    lines.push(line);
+    if (label === "User") transcriptPartsRef.current.push(line);
+    else agentPartsRef.current.push(line);
+  };
+
+  const ingestVapiConversationMessages = (messages: unknown[]) => {
+    conversationLinesRef.current = [];
+    transcriptPartsRef.current = [];
+    agentPartsRef.current = [];
+    for (const raw of messages) {
+      if (!raw || typeof raw !== "object") continue;
+      const msg = raw as Record<string, unknown>;
+      if (msg.toolCalls || msg.toolCallId) continue;
+      const role = String(msg.role || "");
+      const nested = msg.message;
+      const text =
+        typeof nested === "string"
+          ? nested.trim()
+          : String(msg.transcript || msg.content || "").trim();
+      appendConversationLine(role, text);
+    }
+  };
+  const callStartedAtRef = useRef<number>(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioQueueRef = useRef<Array<{ audio_b64: string; audio_mime?: string }>>([]);
+  const audioPlayingRef = useRef(false);
 
   useEffect(() => {
     if (status !== "live") return;
@@ -2293,23 +2393,614 @@ function TalkToUs() {
     return () => clearInterval(id);
   }, [status]);
 
-  const startCall = async () => {
+  useEffect(() => () => stopBrowserCall(), []);
+
+  const openLeadModal = () => {
+    setFormError("");
+    setModalOpen(true);
+  };
+
+  const closeLeadModal = () => {
+    if (status === "connecting") return;
+    setModalOpen(false);
+    if (status !== "live") setStatus("idle");
+  };
+
+  const stopBrowserCall = () => {
+    stopRingback();
+    if (vapiConnectTimeoutRef.current) {
+      window.clearTimeout(vapiConnectTimeoutRef.current);
+      vapiConnectTimeoutRef.current = null;
+    }
     try {
-      setStatus("connecting");
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-      setStream(s);
-      setTimeout(() => setStatus("live"), 800);
+      vapiRef.current?.stop();
     } catch {
+      /* ignore */
+    }
+    vapiRef.current = null;
+    if (telnyxConnectTimeoutRef.current) {
+      window.clearTimeout(telnyxConnectTimeoutRef.current);
+      telnyxConnectTimeoutRef.current = null;
+    }
+    const telnyxAgent = telnyxAgentRef.current;
+    if (telnyxAgent) {
+      void telnyxAgent.endConversation().catch(() => undefined);
+      void telnyxAgent.disconnect().catch(() => undefined);
+    }
+    telnyxAgentRef.current = null;
+    telnyxRecorderStartedRef.current = false;
+    if (telnyxMixAudioContextRef.current) {
+      void telnyxMixAudioContextRef.current.close().catch(() => undefined);
+      telnyxMixAudioContextRef.current = null;
+    }
+    if (telnyxAudioRef.current) {
+      telnyxAudioRef.current.pause();
+      telnyxAudioRef.current.srcObject = null;
+    }
+    try {
+      socketRef.current?.send(JSON.stringify({ type: "close" }));
+      socketRef.current?.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    recorderRef.current = null;
+    socketRef.current = null;
+    audioRef.current?.pause();
+    audioRef.current = null;
+    audioQueueRef.current = [];
+    audioPlayingRef.current = false;
+  };
+
+  const startMicRecorder = (micStream: MediaStream, options?: { forwardToSocket?: boolean }) => {
+    recordedChunksRef.current = [];
+    const recorder = new MediaRecorder(
+      micStream,
+      { mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm" },
+    );
+    recorder.ondataavailable = (event) => {
+      if (!event.data?.size) return;
+      recordedChunksRef.current.push(event.data);
+      if (options?.forwardToSocket && socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(event.data);
+      }
+    };
+    recorderRef.current = recorder;
+    return recorder;
+  };
+
+  const finalizeCall = async (endedCallId: string) => {
+    if (!endedCallId || finalizedRef.current) return;
+    finalizedRef.current = true;
+    const duration = callStartedAtRef.current
+      ? Math.max(0, Math.round((Date.now() - callStartedAtRef.current) / 1000))
+      : seconds;
+    const isTelnyx = voiceProviderRef.current === "telnyx";
+    const recording =
+      !isTelnyx && recordedChunksRef.current.length > 0
+        ? new Blob(recordedChunksRef.current, { type: "audio/webm" })
+        : null;
+    try {
+      const transcriptText =
+        conversationLinesRef.current.length > 0
+          ? conversationLinesRef.current.join("\n")
+          : [...transcriptPartsRef.current, ...agentPartsRef.current].join("\n");
+      await completeFrontpageTalkToUsCall(endedCallId, {
+        transcript_text: transcriptText,
+        agent_response_text: "",
+        duration_seconds: duration,
+        recording,
+        provider_call_id: isTelnyx
+          ? telnyxProviderCallIdRef.current || undefined
+          : vapiProviderCallIdRef.current || undefined,
+      });
+    } catch {
+      /* lead still created; admin can review partial data */
+    }
+  };
+
+  const playNextAudio = () => {
+    if (audioPlayingRef.current) return;
+    const next = audioQueueRef.current.shift();
+    if (!next) return;
+    audioPlayingRef.current = true;
+    const audio = new Audio(`data:${next.audio_mime || "audio/wav"};base64,${next.audio_b64}`);
+    audioRef.current = audio;
+    audio.onended = () => {
+      audioPlayingRef.current = false;
+      playNextAudio();
+    };
+    audio.onerror = () => {
+      audioPlayingRef.current = false;
+      playNextAudio();
+    };
+    audio.play().catch(() => {
+      audioPlayingRef.current = false;
+      audioQueueRef.current.unshift(next);
+      setFormError("Browser blocked audio playback. Click Talk to us again after enabling audio.");
+    });
+  };
+
+  const unlockAudioPlayback = async () => {
+    try {
+      const silent = new Audio(
+        "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQQAAAAAAA==",
+      );
+      silent.muted = true;
+      silent.volume = 0;
+      await silent.play();
+      silent.pause();
+    } catch {
+      /* browser may still allow Vapi WebRTC audio */
+    }
+  };
+
+  const startVapiVoiceCall = async (
+    _newCallId: string,
+    vapiSession: {
+      public_key: string;
+      assistant_id: string;
+      system_prompt: string;
+      variable_values?: Record<string, string>;
+      first_message?: string;
+    },
+  ) => {
+    const publicKey = String(vapiSession.public_key || "").trim();
+    const assistantId = String(vapiSession.assistant_id || "").trim();
+    const systemPrompt = String(vapiSession.system_prompt || "").trim();
+    if (!publicKey || !assistantId) {
+      throw new Error("Vapi is not configured. Set public key (Integrations) and assistant ID (admin).");
+    }
+
+    try {
+      vapiRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+    vapiRef.current = null;
+    vapiProviderCallIdRef.current = "";
+
+    await unlockAudioPlayback();
+
+    const vapi = new Vapi(publicKey);
+
+    vapi.on("call-start", () => {
+      if (vapiConnectTimeoutRef.current) {
+        window.clearTimeout(vapiConnectTimeoutRef.current);
+        vapiConnectTimeoutRef.current = null;
+      }
+      if (systemPrompt) {
+        try {
+          vapi.send?.({
+            type: "add-message",
+            message: { role: "system", content: systemPrompt },
+          });
+        } catch {
+          /* assistant may already have a system prompt in Vapi dashboard */
+        }
+      }
+      callStartedAtRef.current = Date.now();
+      setSeconds(0);
+      setStatus("live");
+    });
+
+    vapi.on("call-start-success", (event: { callId?: string }) => {
+      if (event?.callId) vapiProviderCallIdRef.current = String(event.callId);
+    });
+
+    vapi.on("call-start-failed", (event: { error?: { message?: string }; stage?: string }) => {
+      const message =
+        event?.error?.message ||
+        `Vapi could not connect (${event?.stage || "setup failed"}). Check assistant ID and Vapi public key.`;
+      setFormError(message);
+      setStatus("error");
+    });
+
+    vapi.on("call-end", () => {
+      setStatus("ended");
+      const endedId = callIdRef.current;
+      if (endedId) void finalizeCall(endedId);
+    });
+
+    vapi.on("speech-start", () => {
+      setFormError("");
+      stopRingback();
+    });
+
+    vapi.on("message", (message: Record<string, unknown>) => {
+      const type = String(message?.type || "");
+      if (type === "conversation-update" && Array.isArray(message.messages)) {
+        ingestVapiConversationMessages(message.messages);
+        return;
+      }
+      if (type.includes("transcript")) {
+        if (String(message.transcriptType || "") === "partial") return;
+        const role = String(message.role || "");
+        const content = String(message.transcript || "").trim();
+        appendConversationLine(role, content);
+        return;
+      }
+      const role = String(message?.role || (message?.message as { role?: string })?.role || "").trim();
+      const nested = message?.message as { content?: string; transcript?: string } | undefined;
+      const content = String(
+        message?.transcript || message?.transcriptChunk || message?.content || nested?.content || nested?.transcript || "",
+      ).trim();
+      if (!content || !role) return;
+      appendConversationLine(role, content);
+    });
+
+    vapi.on("error", (event: { message?: string; error?: { message?: string } }) => {
+      const raw = String(event?.message || event?.error?.message || "Vapi call failed");
+      const message = /invalid key|unauthorized|401/i.test(raw)
+        ? "Invalid Vapi public key. In admin → Integrations → Vapi, paste the Public Key (not the private API key), then Save."
+        : raw;
+      setFormError(message);
+      setStatus("error");
+    });
+
+    vapiRef.current = vapi;
+
+    const overrides: {
+      firstMessage?: string;
+      variableValues?: Record<string, string>;
+      model?: { messages?: Array<{ role: string; content: string }> };
+    } = {
+      variableValues: vapiSession.variable_values || {},
+    };
+    if (systemPrompt) {
+      overrides.model = {
+        messages: [{ role: "system", content: systemPrompt }],
+      };
+    }
+    if (vapiSession.first_message) {
+      overrides.firstMessage = vapiSession.first_message;
+    }
+
+    setStatus("connecting");
+    if (vapiConnectTimeoutRef.current) window.clearTimeout(vapiConnectTimeoutRef.current);
+    vapiConnectTimeoutRef.current = window.setTimeout(() => {
+      setFormError(
+        "Vapi did not connect in time. Check your assistant ID, Vapi public key (Integrations), and allow microphone access.",
+      );
+      setStatus("error");
+      try {
+        vapi.stop();
+      } catch {
+        /* ignore */
+      }
+    }, 25000);
+
+    await vapi.start(assistantId, overrides);
+  };
+
+  const startTelnyxBrowserCall = async (
+    newCallId: string,
+    assistantId: string,
+    lead: { contact_name: string; company_name: string; email: string; phone?: string },
+    telnyxSession: {
+      custom_headers?: Array<{ name: string; value: string }>;
+      phone_e164?: string | null;
+    } = {},
+  ) => {
+    const cleanAssistantId = String(assistantId || "").trim();
+    if (!cleanAssistantId) {
+      throw new Error("Telnyx assistant ID is missing. Save it in admin → Front page call leads.");
+    }
+    if (telnyxStartingRef.current) return;
+    telnyxStartingRef.current = true;
+
+    const markLive = () => {
+      if (callStartedAtRef.current !== 0) return;
+      callStartedAtRef.current = Date.now();
+      setSeconds(0);
+      setStatus("live");
+      setFormError("");
+      if (telnyxConnectTimeoutRef.current) {
+        window.clearTimeout(telnyxConnectTimeoutRef.current);
+        telnyxConnectTimeoutRef.current = null;
+      }
+    };
+
+    const attachRemoteAudio = (remoteStream?: MediaStream | null) => {
+      if (!remoteStream || !telnyxAudioRef.current) return;
+      const audioEl = telnyxAudioRef.current;
+      const onAgentAudio = () => {
+        stopRingback();
+        audioEl.removeEventListener("playing", onAgentAudio);
+      };
+      audioEl.addEventListener("playing", onAgentAudio);
+      audioEl.srcObject = remoteStream;
+      void audioEl.play().catch(() => undefined);
+    };
+
+    const attachLocalRecorder = (localStream?: MediaStream | null) => {
+      if (voiceProviderRef.current === "telnyx") return;
+      if (!localStream) return;
+      streamRef.current = localStream;
+      if (!recorderRef.current || recorderRef.current.state === "inactive") {
+        startMicRecorder(localStream);
+        try {
+          recorderRef.current?.start(120);
+        } catch {
+          /* recorder may already be running */
+        }
+      }
+    };
+
+    const attachTelnyxMixedRecorder = (localStream?: MediaStream | null, remoteStream?: MediaStream | null) => {
+      if (voiceProviderRef.current !== "telnyx" || telnyxRecorderStartedRef.current) return;
+      if (!localStream && !remoteStream) return;
+      if (telnyxMixAudioContextRef.current) {
+        void telnyxMixAudioContextRef.current.close().catch(() => undefined);
+        telnyxMixAudioContextRef.current = null;
+      }
+      const mixContext = new AudioContext();
+      telnyxMixAudioContextRef.current = mixContext;
+      const destination = mixContext.createMediaStreamDestination();
+      if (localStream) {
+        mixContext.createMediaStreamSource(localStream).connect(destination);
+        streamRef.current = localStream;
+      }
+      if (remoteStream) {
+        mixContext.createMediaStreamSource(remoteStream).connect(destination);
+      }
+      startMicRecorder(destination.stream);
+      try {
+        recorderRef.current?.start(250);
+        telnyxRecorderStartedRef.current = true;
+      } catch {
+        /* recorder may already be running */
+      }
+    };
+
+    try {
+      await unlockAudioPlayback();
+
+      const agent = new TelnyxAIAgent({
+        agentId: cleanAssistantId,
+        environment: "production",
+        vad: {
+          volumeThreshold: 12,
+          silenceDurationMs: 700,
+          minSpeechDurationMs: 120,
+        },
+      });
+      telnyxAgentRef.current = agent;
+
+      agent.on("transcript.item", (item: { role?: string; content?: string }) => {
+        const role = String(item?.role || "").toLowerCase();
+        const content = String(item?.content || "").trim();
+        if (!content) return;
+        appendConversationLine(role === "user" ? "user" : "assistant", content);
+      });
+
+      agent.on(
+        "conversation.update",
+        (notification: { call?: { remoteStream?: MediaStream; localStream?: MediaStream; state?: string } }) => {
+          const call = notification?.call;
+          attachRemoteAudio(call?.remoteStream);
+          attachTelnyxMixedRecorder(call?.localStream, call?.remoteStream);
+          const state = String(call?.state || "").toLowerCase();
+          if (state === "active" || state === "ringing" || state === "trying" || state === "early") {
+            markLive();
+          }
+          if (state === "hangup" || state === "destroy") {
+            const endedId = callIdRef.current;
+            if (endedId && !finalizedRef.current) {
+              setStatus("ended");
+              void finalizeCall(endedId);
+            }
+          }
+        },
+      );
+
+      agent.on("conversation.agent.state", (data: { state?: string }) => {
+        const state = String(data?.state || "").toLowerCase();
+        if (state === "speaking") {
+          stopRingback();
+        }
+        if (state === "speaking" || state === "listening" || state === "thinking") {
+          markLive();
+        }
+      });
+
+      agent.on("agent.connected", (data: { callReportId?: string | null }) => {
+        telnyxProviderCallIdRef.current = String(data?.callReportId || "").trim();
+      });
+
+      agent.on("agent.error", (error: Error) => {
+        const raw = String(error?.message || "Telnyx voice call failed");
+        const message = /auth|login|46001|46002|46003|credential|incorrect/i.test(raw)
+          ? "Telnyx could not connect. Confirm assistant ID in admin and Telnyx API key under Integrations."
+          : raw;
+        setFormError(message);
+        setStatus("error");
+        if (telnyxConnectTimeoutRef.current) {
+          window.clearTimeout(telnyxConnectTimeoutRef.current);
+          telnyxConnectTimeoutRef.current = null;
+        }
+      });
+
+      agent.on("agent.disconnected", () => {
+        const endedId = callIdRef.current;
+        if (!endedId || finalizedRef.current) return;
+        if (callStartedAtRef.current > 0) {
+          setStatus("ended");
+          void finalizeCall(endedId);
+        } else {
+          setFormError("Telnyx disconnected before the call could start. Check assistant ID and try again.");
+          setStatus("error");
+        }
+      });
+
+      if (telnyxConnectTimeoutRef.current) window.clearTimeout(telnyxConnectTimeoutRef.current);
+      telnyxConnectTimeoutRef.current = window.setTimeout(() => {
+        setFormError("Telnyx did not connect in time. Check assistant ID and allow microphone access.");
+        setStatus("error");
+      }, 45000);
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          reject(new Error("Telnyx login timed out. Check assistant ID and try again."));
+        }, 30000);
+        const finish = () => {
+          window.clearTimeout(timeout);
+          resolve();
+        };
+        const fail = (err: unknown) => {
+          window.clearTimeout(timeout);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        };
+        agent.once("agent.connected", finish);
+        agent.once("agent.error", fail);
+        void agent.connect().catch(fail);
+      });
+
+      const customHeaders =
+        Array.isArray(telnyxSession.custom_headers) && telnyxSession.custom_headers.length > 0
+          ? telnyxSession.custom_headers
+          : [
+              { name: "X-Lead-Call-Id", value: newCallId },
+              { name: "X-Contact-Name", value: lead.contact_name },
+              { name: "X-Company-Name", value: lead.company_name },
+              { name: "X-Email", value: lead.email },
+              { name: "X-Phone", value: String(telnyxSession.phone_e164 || lead.phone || "") },
+              { name: "X-Phone-Raw", value: lead.phone || "" },
+            ];
+
+      await agent.startConversation({
+        callerName: lead.contact_name,
+        callerNumber: String(telnyxSession.phone_e164 || lead.phone || ""),
+        customHeaders,
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+
+    } finally {
+      telnyxStartingRef.current = false;
+    }
+  };
+
+  const submitLeadCall = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const cleanName = contactName.trim();
+    const cleanCompany = companyName.trim();
+    const cleanEmail = email.trim();
+    const cleanPhone = phone.trim();
+
+    if (!cleanName) {
+      setFormError("Your name is required.");
+      return;
+    }
+    if (!cleanCompany) {
+      setFormError("Company name is required.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setFormError("Enter a valid email address.");
+      return;
+    }
+
+    try {
+      setFormError("");
+      setStatus("connecting");
+      await unlockAudioPlayback();
+      startRingback();
+      transcriptPartsRef.current = [];
+      agentPartsRef.current = [];
+      conversationLinesRef.current = [];
+      finalizedRef.current = false;
+      telnyxRecorderStartedRef.current = false;
+      let clientTimezone = "";
+      let clientLocale = "";
+      try {
+        clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      } catch {
+        /* ignore */
+      }
+      try {
+        clientLocale = navigator.language || "";
+      } catch {
+        /* ignore */
+      }
+      const result = await startFrontpageTalkToUsCall({
+        contact_name: cleanName,
+        company_name: cleanCompany,
+        email: cleanEmail,
+        phone: cleanPhone,
+        client_timezone: clientTimezone,
+        client_locale: clientLocale,
+        source: "frontpage_talk_to_us",
+      });
+      const newCallId = String(result?.call_id || "");
+      setCallId(newCallId);
+      callIdRef.current = newCallId;
+      callStartedAtRef.current = 0;
+      const voiceProvider = String(result?.voice_provider || "vapi").toLowerCase() as "vapi" | "telnyx";
+      const resolvedProvider = voiceProvider === "telnyx" ? "telnyx" : "vapi";
+      voiceProviderRef.current = resolvedProvider;
+      telnyxProviderCallIdRef.current = "";
+      setActiveVoiceProvider(resolvedProvider);
+      if (voiceProvider === "telnyx") {
+        const assistantId = String(result?.telnyx?.agent_id || "");
+        if (!result?.telnyx?.configured || !assistantId) {
+          throw new Error(
+            String(
+              result?.detail ||
+                "Telnyx is not ready. In admin: choose Telnyx, save assistant ID + system prompt (syncs to Telnyx), and Telnyx API key under Integrations.",
+            ),
+          );
+        }
+        await startTelnyxBrowserCall(
+          newCallId,
+          assistantId,
+          {
+            contact_name: cleanName,
+            company_name: cleanCompany,
+            email: cleanEmail,
+            phone: cleanPhone,
+          },
+          {
+            custom_headers: result?.telnyx?.custom_headers,
+            phone_e164: result?.telnyx?.phone_e164,
+          },
+        );
+        return;
+      }
+      const vapiSession = result?.vapi;
+      if (!vapiSession?.public_key || !vapiSession?.assistant_id) {
+        throw new Error(
+          String(result?.detail || "Vapi is not ready. In admin: Vapi assistant ID + system prompt saved, and Vapi public key under Integrations."),
+        );
+      }
+      await startVapiVoiceCall(newCallId, {
+        public_key: String(vapiSession.public_key),
+        assistant_id: String(vapiSession.assistant_id),
+        system_prompt: String(vapiSession.system_prompt || ""),
+        variable_values: vapiSession.variable_values || {},
+        first_message: vapiSession.first_message ? String(vapiSession.first_message) : undefined,
+      });
+    } catch (error) {
+      stopRingback();
+      setFormError(error instanceof Error ? error.message : "Unable to connect you to an agent. Please try again.");
       setStatus("error");
     }
   };
 
-  const endCall = () => {
-    stream?.getTracks().forEach((t) => t.stop());
-    setStream(null);
+  const endCall = async () => {
+    const endedId = callId;
+    stopBrowserCall();
+    await finalizeCall(endedId);
     setSeconds(0);
-    setStatus("ended");
-    setTimeout(() => setStatus("idle"), 1500);
+    setCallId("");
+    callIdRef.current = "";
+    setModalOpen(false);
+    setStatus("idle");
   };
 
   const mmss = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
@@ -2318,6 +3009,7 @@ function TalkToUs() {
 
   return (
     <section id="talk-to-us" className="relative py-12 md:py-16 bg-background overflow-hidden">
+      <audio ref={telnyxAudioRef} autoPlay playsInline className="sr-only" aria-hidden />
       {/* Ambient background illustration */}
       <div aria-hidden className="absolute inset-0 pointer-events-none">
         <div
@@ -2411,7 +3103,7 @@ function TalkToUs() {
 
             <div className="mt-9 flex flex-col items-center gap-3">
               {status === "idle" && (
-                <button onClick={startCall} className="btn-primary group text-base px-8 py-4">
+                <button onClick={openLeadModal} className="btn-primary group text-base px-8 py-4">
                   <PhoneCall className="w-5 h-5" />
                   Talk to us
                   <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-0.5" />
@@ -2420,11 +3112,12 @@ function TalkToUs() {
               {status === "connecting" && (
                 <button disabled className="btn-primary opacity-80">
                   <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                  Connecting…
+                  Connecting you to our agent…
                 </button>
               )}
               {status === "live" && (
                 <div className="flex flex-col items-center gap-3">
+                  <p className="text-xs text-muted-text">You should hear the agent. Speak after they greet you.</p>
                   <div className="inline-flex items-center gap-3 rounded-full border border-border bg-card px-5 py-2.5 shadow-elegant">
                     <span className="relative flex w-2.5 h-2.5">
                       <span className="absolute inset-0 rounded-full bg-primary opacity-60 animate-ping" />
@@ -2443,9 +3136,9 @@ function TalkToUs() {
               {status === "error" && (
                 <div className="flex flex-col items-center gap-3">
                   <p className="text-sm text-destructive">
-                    Microphone access is required to start the demo.
+                    We could not connect you to an agent.
                   </p>
-                  <button onClick={startCall} className="btn-outline">
+                  <button onClick={openLeadModal} className="btn-outline">
                     Try again
                   </button>
                 </div>
@@ -2454,6 +3147,137 @@ function TalkToUs() {
           </div>
         </div>
       </div>
+
+      {modalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-6">
+          <button
+            type="button"
+            aria-label="Close talk to us popup"
+            className="absolute inset-0 bg-heading/50 backdrop-blur-sm"
+            onClick={closeLeadModal}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="talk-to-us-modal-title"
+            className="relative w-full max-w-lg rounded-3xl border border-border bg-white p-6 md:p-7 shadow-elevated"
+          >
+            {status === "live" ? (
+              <div className="text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <h3 id="talk-to-us-modal-title" className="mt-5 text-2xl font-bold tracking-tight text-heading">
+                  You&apos;re connected
+                </h3>
+                <p className="mt-2 text-sm text-body">Our agent is now on the line.</p>
+                <div className="mt-5 inline-flex items-center gap-3 rounded-full border border-border bg-card px-5 py-2.5 shadow-elegant">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="absolute inset-0 rounded-full bg-primary opacity-60 animate-ping" />
+                    <span className="relative h-2.5 w-2.5 rounded-full bg-primary" />
+                  </span>
+                  <span className="text-sm font-semibold text-heading">In call · {mmss}</span>
+                </div>
+                {callId && <p className="mt-3 text-xs text-muted-text">Call ID: {callId}</p>}
+                <div className="mt-7 flex justify-center gap-3">
+                  <button type="button" className="btn-outline" onClick={closeLeadModal}>
+                    Close
+                  </button>
+                  <button type="button" className="btn-primary" onClick={endCall}>
+                    End call
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={submitLeadCall}>
+                <span className="eyebrow">Live demo</span>
+                <h3 id="talk-to-us-modal-title" className="mt-3 text-2xl font-bold tracking-tight text-heading">
+                  Talk to us now
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-body">
+                  Share a few details and we&apos;ll connect you to our voice agent.
+                </p>
+
+                <div className="mt-6 space-y-4">
+                  <label className="block">
+                    <span className="text-sm font-semibold text-heading">Your name</span>
+                    <input
+                      required
+                      value={contactName}
+                      onChange={(event) => setContactName(event.target.value)}
+                      className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-heading shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      placeholder="First name"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-semibold text-heading">Company name</span>
+                    <input
+                      required
+                      value={companyName}
+                      onChange={(event) => setCompanyName(event.target.value)}
+                      className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-heading shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      placeholder="Your company"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-semibold text-heading">Email address</span>
+                    <input
+                      required
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-heading shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      placeholder="you@company.com"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-semibold text-heading">Phone number</span>
+                    <input
+                      value={phone}
+                      onChange={(event) => setPhone(event.target.value)}
+                      className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-heading shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      placeholder="Optional"
+                    />
+                  </label>
+                </div>
+
+                <p className="mt-4 text-xs text-muted-text">
+                  This call may be recorded for quality and training.
+                </p>
+                {status === "connecting" && (
+                  <p className="mt-3 text-xs text-muted-text">
+                    You&apos;ll hear a short connecting tone until our agent starts speaking.
+                  </p>
+                )}
+                {formError && <p className="mt-4 text-[13.5px] text-destructive">{formError}</p>}
+
+                <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                  <button type="button" className="btn-outline justify-center" onClick={closeLeadModal}>
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={status === "connecting"}
+                    className="btn-primary justify-center disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {status === "connecting" ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Connecting you to an agent…
+                      </>
+                    ) : (
+                      <>
+                        <PhoneCall className="h-4 w-4" />
+                        Talk to us
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

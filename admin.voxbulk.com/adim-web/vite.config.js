@@ -36,7 +36,7 @@ function buildApiProxy(target) {
               attempted_ingress_url: `(browser) → http://localhost:5174${req?.url || ''}`,
               hint:
                 code === 'ECONNREFUSED'
-                  ? `Nothing accepts HTTP on proxy target ${target}. In admin app folder run: npm run dev:full — or manually: cd retover-api && uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+                  ? `Nothing accepts HTTP on proxy target ${target}. In admin app folder run: npm run dev:full — or manually: cd voxbulk-api && uvicorn main:app --reload --host 0.0.0.0 --port 8000`
                   : 'See terminal [admin-api-proxy] line for Node-level error.',
             })
           )

@@ -1,16 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Search, Bell, TriangleAlert, Moon, Sun, LogOut } from 'lucide-react'
 import { adminLogoutRedirect } from '../../lib/api'
 import { normalizeAdminRole } from '../../lib/adminPaths'
 import { useAdminProfile } from '../../context/AdminProfileContext'
 
-export default function Topbar({ theme, toggleTheme }) {
+export default function Topbar({ dark, toggleTheme, onOpenMobile, collapsed, onToggleCollapse }) {
   const wrapRef = useRef(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const { loading, profile, adminRole } = useAdminProfile()
   const meEmail =
     loading ? 'Loading…' : profile?.email || (profile?.user_id ? `${String(profile.user_id).slice(0, 8)}…` : 'Admin')
   const roleLabel = normalizeAdminRole(adminRole || profile?.admin_role)
+  const initials = String(meEmail).slice(0, 2).toUpperCase()
 
   useEffect(() => {
     if (!menuOpen) return
@@ -23,66 +23,87 @@ export default function Topbar({ theme, toggleTheme }) {
 
   return (
     <div className='topbar'>
-      <div className='search'>
-        <Search size={16}/>
-        <input placeholder='Search organisations, invoices, jobs, users, tickets...' />
-      </div>
-      <div className='topbarRight'>
-        <button type='button' className='iconBtn'><Bell size={17}/></button>
-        <button type='button' className='iconBtn'><TriangleAlert size={17}/></button>
-        <button type='button' className='iconBtn' onClick={toggleTheme}>
-          {theme === 'dark' ? <Sun size={17}/> : <Moon size={17}/>}
+      {collapsed ? (
+        <button
+          type='button'
+          className='tb-sb-toggle'
+          onClick={onToggleCollapse}
+          aria-label='Show sidebar'
+          title='Show menu'
+        >
+          <i className='ti ti-layout-sidebar-left-expand' />
         </button>
+      ) : null}
+
+      <button type='button' className='mob-ham' onClick={onOpenMobile} aria-label='Open menu'>
+        <i className='ti ti-menu-2' />
+      </button>
+
+      <div className='tb-info'>
+        <div className='tb-title'>Admin Console</div>
+        <div className='tb-sub'>Platform management · {roleLabel}</div>
+      </div>
+
+      <div className='admin-search'>
+        <i className='ti ti-search' />
+        <input placeholder='Search organisations, invoices, jobs, users, tickets…' />
+      </div>
+
+      <div className='tb-r'>
+        <span className='api-pill'>
+          <span className='api-dot ldot' />
+          API connected
+        </span>
+
+        <button type='button' className='tbbtn nbell' aria-label='Notifications'>
+          <i className='ti ti-bell' />
+          <span className='ndot' />
+        </button>
+
+        <button type='button' className='tbbtn' aria-label='Alerts'>
+          <i className='ti ti-alert-triangle' />
+        </button>
+
+        <button type='button' className='tbbtn' onClick={toggleTheme} aria-label='Toggle theme'>
+          <i className={`ti ${dark ? 'ti-sun' : 'ti-moon'}`} />
+        </button>
+
         <div className='userMenuWrap' ref={wrapRef} style={{ position: 'relative' }}>
           <button
             type='button'
-            className='user userMenuTrigger'
+            className='user-row userMenuTrigger'
             onClick={() => setMenuOpen((v) => !v)}
-            style={{ border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'pointer' }}
+            style={{ margin: 0, border: 'none', background: 'transparent', width: 'auto' }}
           >
-            <div className='avatar'>A</div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{meEmail}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Platform role: {roleLabel}</div>
+            <div className='uav'>{initials}</div>
+            <div className='u-info'>
+              <div className='unm'>{meEmail}</div>
+              <div className='uplan'>{roleLabel}</div>
             </div>
-            <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.6 }}>▼</span>
+            <i className='ti ti-chevron-down' style={{ fontSize: 14, color: 'var(--t3)', flexShrink: 0 }} />
           </button>
-          {menuOpen && (
-            <div
-              className='userMenuDropdown'
-              style={{
-                position: 'absolute',
-                right: 0,
-                top: 'calc(100% + 6px)',
-                minWidth: 200,
-                background: 'var(--panel)',
-                border: '1px solid var(--border)',
-                borderRadius: 12,
-                boxShadow: '0 12px 32px rgba(15,23,42,.12)',
-                zIndex: 50,
-              }}
-            >
+
+          {menuOpen ? (
+            <div className='npanel userMenuDropdown'>
+              <div className='np-hd'>
+                <span className='np-t'>Account</span>
+              </div>
               <button
                 type='button'
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: 'none',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  color: 'var(--heading)',
-                  borderRadius: 12,
-                }}
+                className='nitem'
+                style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left' }}
                 onClick={() => adminLogoutRedirect()}
               >
-                <LogOut size={16} /><span>Log out</span>
+                <div className='nic' style={{ background: 'var(--rd)', color: 'var(--red)' }}>
+                  <i className='ti ti-logout' />
+                </div>
+                <div>
+                  <div className='nt'>Log out</div>
+                  <div className='ns'>Return to sign in</div>
+                </div>
               </button>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

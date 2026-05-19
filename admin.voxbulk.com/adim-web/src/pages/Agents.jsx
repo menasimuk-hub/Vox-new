@@ -1,25 +1,29 @@
-import React, { useEffect, useMemo, useState } from 'react'
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiUpload } from '../lib/api'
 
 const emptyAgent = {
   name: '',
   slug: '',
   description: '',
-  business_type: '',
-  category_id: '',
   system_prompt: '',
-  conversation_style: 'Warm, natural, concise, human, not scripted. British English.',
-  default_model: 'gpt-realtime-1.5',
-  default_voice: 'en-GB-AbbiNeural',
-  use_azure_tts: true,
-  use_azure_stt: true,
-  allow_lookup_tool: true,
-  allow_booking_tool: false,
-  allow_reschedule_tool: false,
-  allow_cancel_tool: false,
+  call_workflow: '',
+  knowledge_file_ids: [],
   is_active: true,
-  is_template: false,
+}
+
+function hasWorkflow(agent) {
+  return Boolean(String(agent?.call_workflow || '').trim())
+}
+
+function isPlaceholderPrompt(prompt) {
+  const text = String(prompt || '').trim().toLowerCase()
+  if (!text) return true
+  return text.includes('not configured')
+}
+
+function hasSystemPrompt(agent) {
+  return !isPlaceholderPrompt(agent?.system_prompt)
 }
 
 export default function Agents() {
@@ -29,53 +33,56 @@ export default function Agents() {
   const [agents, setAgents] = useState([])
   const [assignments, setAssignments] = useState([])
   const [orgs, setOrgs] = useState([])
-  const [categories, setCategories] = useState([])
+  const [kbFiles, setKbFiles] = useState([])
   const [assignmentSearch, setAssignmentSearch] = useState('')
   const [orgsToAdd, setOrgsToAdd] = useState([])
   const [orgsToRemove, setOrgsToRemove] = useState([])
   const [selectedId, setSelectedId] = useState('')
   const [draft, setDraft] = useState(emptyAgent)
-  const [previewInput, setPreviewInput] = useState('Hi, I need to move my appointment.')
-  const [previewOrgId, setPreviewOrgId] = useState('')
-  const [previewResult, setPreviewResult] = useState(null)
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  const [kbUploading, setKbUploading] = useState(false)
+  const [genPhase, setGenPhase] = useState('')
+  const lastSyncedAgentId = useRef('')
 
   const isEditPage = Boolean(agentId) || location.pathname.endsWith('/new')
   const selected = useMemo(() => agents.find((a) => a.id === selectedId) || null, [agents, selectedId])
   const orgById = useMemo(() => Object.fromEntries(orgs.map((o) => [o.id, o])), [orgs])
-  const categoryById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories])
   const assignmentsByAgent = useMemo(() => {
     const out = {}
     assignments.forEach((row) => {
-      if (!row.agent_id) return
+      if (!row.agent_id || !row.org_id) return
       if (!out[row.agent_id]) out[row.agent_id] = []
       out[row.agent_id].push(row)
     })
     return out
   }, [assignments])
 
+  const loadKb = async () => {
+    const data = await apiFetch('/admin/knowledge-base')
+    setKbFiles(data?.files || [])
+  }
+
   const load = async () => {
     setMsg('')
-    const [agentRows, orgRows, categoryRows] = await Promise.all([
+    const [agentRows, orgRows] = await Promise.all([
       apiFetch('/admin/agents'),
       apiFetch('/admin/organisations?limit=500').catch(() => []),
-      apiFetch('/admin/categories').catch(() => []),
     ])
     setAgents(agentRows?.agents || [])
     setAssignments(agentRows?.assignments || [])
     setOrgs(Array.isArray(orgRows) ? orgRows : [])
-    setCategories(Array.isArray(categoryRows) ? categoryRows : [])
-    if (!previewOrgId && Array.isArray(orgRows) && orgRows[0]?.id) setPreviewOrgId(orgRows[0].id)
+    await loadKb()
+
     if (agentId && agentId !== selectedId) {
       const found = agentRows?.agents?.find((a) => a.id === agentId)
       if (found) {
         setSelectedId(found.id)
-        setDraft({ ...emptyAgent, ...found })
+        setDraft({ ...emptyAgent, ...found, knowledge_file_ids: found.knowledge_file_ids || [] })
       }
     } else if (!selectedId && !location.pathname.endsWith('/new') && agentRows?.agents?.[0]) {
       setSelectedId(agentRows.agents[0].id)
-      setDraft({ ...emptyAgent, ...agentRows.agents[0] })
+      setDraft({ ...emptyAgent, ...agentRows.agents[0], knowledge_file_ids: agentRows.agents[0].knowledge_file_ids || [] })
     }
   }
 
@@ -85,7 +92,10 @@ export default function Agents() {
   }, [])
 
   useEffect(() => {
-    if (selected) setDraft({ ...emptyAgent, ...selected })
+    if (!selected?.id) return
+    if (lastSyncedAgentId.current === selected.id) return
+    lastSyncedAgentId.current = selected.id
+    setDraft({ ...emptyAgent, ...selected, knowledge_file_ids: selected.knowledge_file_ids || [] })
   }, [selected])
 
   useEffect(() => {
@@ -98,23 +108,20 @@ export default function Agents() {
     const found = agents.find((a) => a.id === agentId)
     if (found) {
       setSelectedId(found.id)
-      setDraft({ ...emptyAgent, ...found })
+      setDraft({ ...emptyAgent, ...found, knowledge_file_ids: found.knowledge_file_ids || [] })
     }
   }, [agentId, agents, location.pathname])
 
   const setField = (field, value) => setDraft((s) => ({ ...s, [field]: value }))
 
-  const assignedLabel = (agent) => {
+  const assignedOrgNames = (agent) => {
     const rows = assignmentsByAgent[agent.id] || []
-    if (!rows.length) return 'Not assigned'
-    return rows
-      .map((row) => row.org_id ? orgById[row.org_id]?.name || 'Organisation' : categoryById[row.category_id]?.name || 'Business type')
-      .join(', ')
+    if (!rows.length) return '-'
+    return rows.map((row) => orgById[row.org_id]?.name || 'Organisation').join(', ')
   }
-  const selectedAgentAssignments = useMemo(() => assignmentsByAgent[selectedId] || [], [assignmentsByAgent, selectedId])
-  const selectedOrgAssignments = useMemo(() => selectedAgentAssignments.filter((row) => row.org_id), [selectedAgentAssignments])
+
+  const selectedOrgAssignments = useMemo(() => assignmentsByAgent[selectedId] || [], [assignmentsByAgent, selectedId])
   const selectedOrgIds = useMemo(() => selectedOrgAssignments.map((row) => row.org_id).filter(Boolean), [selectedOrgAssignments])
-  const selectedCategoryAssignments = useMemo(() => selectedAgentAssignments.filter((row) => row.category_id), [selectedAgentAssignments])
   const assignableOrgs = useMemo(() => {
     const assigned = new Set(selectedOrgAssignments.map((row) => row.org_id))
     const term = assignmentSearch.trim().toLowerCase()
@@ -124,14 +131,31 @@ export default function Agents() {
       .slice(0, 20)
   }, [assignmentSearch, orgs, selectedOrgAssignments])
 
+  const toggleKbFile = (fileId) => {
+    setDraft((s) => {
+      const ids = new Set(s.knowledge_file_ids || [])
+      if (ids.has(fileId)) ids.delete(fileId)
+      else ids.add(fileId)
+      return { ...s, knowledge_file_ids: Array.from(ids) }
+    })
+  }
+
   const save = async () => {
     setBusy(true)
     setMsg('')
     try {
-      const body = JSON.stringify(draft)
+      const body = {
+        name: draft.name,
+        slug: draft.slug,
+        description: draft.description,
+        system_prompt: draft.system_prompt,
+        call_workflow: draft.call_workflow,
+        knowledge_file_ids: draft.knowledge_file_ids || [],
+        is_active: draft.is_active,
+      }
       const saved = selectedId
-        ? await apiFetch(`/admin/agents/${selectedId}`, { method: 'PUT', body })
-        : await apiFetch('/admin/agents', { method: 'POST', body })
+        ? await apiFetch(`/admin/agents/${selectedId}`, { method: 'PUT', body: JSON.stringify(body) })
+        : await apiFetch('/admin/agents', { method: 'POST', body: JSON.stringify(body) })
       setSelectedId(saved.id)
       setMsg('Agent saved.')
       await load()
@@ -143,14 +167,140 @@ export default function Agents() {
     }
   }
 
-  const reloadPage = async () => {
+  const generationPayload = (rewrite) => ({
+    description: String(draft.description || '').trim(),
+    name: draft.name,
+    knowledge_file_ids: draft.knowledge_file_ids || [],
+    rewrite,
+  })
+
+  const generateWorkflow = async () => {
+    const description = String(draft.description || '').trim()
+    if (!description) {
+      setMsg('Add a description first, then generate the call workflow.')
+      return
+    }
+    const rewrite = hasWorkflow(draft)
+    if (rewrite && !window.confirm('Replace the existing call workflow?')) {
+      setMsg('Workflow generation cancelled.')
+      return
+    }
     setBusy(true)
-    setMsg('Reloading agent data...')
+    setGenPhase('workflow')
+    setMsg('Generating call workflow with AI (reads your knowledge base files)...')
     try {
-      await load()
-      setMsg('Agent data reloaded.')
+      const path = selectedId ? `/admin/agents/${selectedId}/generate-workflow` : '/admin/agents/generate-workflow'
+      const generated = await apiFetch(path, { method: 'POST', body: JSON.stringify(generationPayload(rewrite)) })
+      const workflow = generated.call_workflow || ''
+      setDraft((s) => ({ ...s, call_workflow: workflow || s.call_workflow }))
+      if (selectedId && workflow) {
+        await apiFetch(`/admin/agents/${selectedId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ call_workflow: workflow }),
+        })
+        setAgents((rows) => rows.map((a) => (a.id === selectedId ? { ...a, call_workflow: workflow } : a)))
+      }
+      setMsg('Call workflow generated. Check the Call workflow box below, then click 2. Generate prompt.')
     } catch (e) {
-      setMsg(e?.message || 'Could not reload agent data')
+      if (e?.status === 409 && window.confirm(`${e.message}\n\nReplace anyway?`)) {
+        const generated = await apiFetch(
+          selectedId ? `/admin/agents/${selectedId}/generate-workflow` : '/admin/agents/generate-workflow',
+          { method: 'POST', body: JSON.stringify(generationPayload(true)) },
+        )
+        setDraft((s) => ({ ...s, call_workflow: generated.call_workflow || s.call_workflow }))
+        setMsg('Call workflow regenerated.')
+      } else {
+        setMsg(e?.message || 'Workflow generation failed')
+      }
+    } finally {
+      setBusy(false)
+      setGenPhase('')
+    }
+  }
+
+  const generatePrompt = async () => {
+    const description = String(draft.description || '').trim()
+    const workflow = String(draft.call_workflow || '').trim()
+    if (!description) {
+      setMsg('Add a description first.')
+      return
+    }
+    if (!workflow) {
+      setMsg('Generate the call workflow first (step 1), or paste workflow text into the Call workflow field.')
+      return
+    }
+    setBusy(true)
+    setGenPhase('prompt')
+    setMsg('Generating system prompt (30-60 seconds)...')
+    const path = selectedId ? `/admin/agents/${selectedId}/generate-prompt` : '/admin/agents/generate-prompt'
+    try {
+      const generated = await apiFetch(path, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...generationPayload(true),
+          call_workflow: workflow,
+        }),
+      })
+      const prompt = String(generated?.system_prompt || '').trim()
+      if (!prompt) {
+        setMsg('AI returned an empty system prompt. Check DeepSeek under Integrations and try again.')
+        return
+      }
+      setDraft((s) => ({ ...s, system_prompt: prompt }))
+      if (selectedId) {
+        await apiFetch(`/admin/agents/${selectedId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ system_prompt: prompt, call_workflow: workflow }),
+        })
+        setAgents((rows) => rows.map((a) => (a.id === selectedId ? { ...a, system_prompt: prompt, call_workflow: workflow } : a)))
+      }
+      setMsg('System prompt generated. Review the System prompt field below, then Save agent.')
+    } catch (e) {
+      const detail = e?.data?.detail
+      const extra = typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : ''
+      setMsg(extra ? `${e?.message || 'Prompt generation failed'} — ${extra}` : e?.message || 'Prompt generation failed')
+    } finally {
+      setBusy(false)
+      setGenPhase('')
+    }
+  }
+
+  const uploadKb = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.md')) {
+      setMsg('Only .md files are allowed.')
+      return
+    }
+    setKbUploading(true)
+    setMsg('')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      await apiUpload('/admin/knowledge-base/upload', form)
+      setMsg(`Uploaded ${file.name}.`)
+      await loadKb()
+    } catch (e) {
+      setMsg(e?.message || 'Upload failed')
+    } finally {
+      setKbUploading(false)
+    }
+  }
+
+  const deleteKb = async (file) => {
+    if (!window.confirm(`Delete "${file.original_filename}" from the library? Agents will lose this link.`)) return
+    setBusy(true)
+    try {
+      await apiFetch(`/admin/knowledge-base/${file.id}`, { method: 'DELETE' })
+      setDraft((s) => ({
+        ...s,
+        knowledge_file_ids: (s.knowledge_file_ids || []).filter((id) => id !== file.id),
+      }))
+      await loadKb()
+      setMsg('Knowledge base file deleted.')
+    } catch (e) {
+      setMsg(e?.message || 'Could not delete file')
     } finally {
       setBusy(false)
     }
@@ -158,16 +308,14 @@ export default function Agents() {
 
   const setAgentOrganisationAssignments = async (nextOrgIds, successMessage) => {
     if (!selectedId) {
-      setMsg('Save the agent first, then add organisations.')
+      setMsg('Save the agent first, then assign organisations.')
       return
     }
-    const uniqueOrgIds = Array.from(new Set(nextOrgIds.filter(Boolean)))
     setBusy(true)
-    setMsg('Saving organisation assignments...')
     try {
       const result = await apiFetch(`/admin/agents/${selectedId}/organisation-assignments`, {
         method: 'PUT',
-        body: JSON.stringify({ org_ids: uniqueOrgIds }),
+        body: JSON.stringify({ org_ids: nextOrgIds }),
       })
       setAssignments((rows) => [
         ...rows.filter((row) => !(row.agent_id === selectedId && row.org_id)),
@@ -184,98 +332,16 @@ export default function Agents() {
     }
   }
 
-  const assignOrg = async (orgId, agentId) => {
-    if (!orgId || !agentId) return
-    await setAgentOrganisationAssignments([...selectedOrgIds, orgId], 'Organisation assigned to agent.')
-  }
-
   const removeOrgAssignment = async (assignment) => {
-    if (!assignment?.id) return
-    const previousAssignments = assignments
+    const previous = assignments
     setAssignments((rows) => rows.filter((row) => row.id !== assignment.id))
-    setOrgsToRemove((rows) => rows.filter((id) => id !== assignment.org_id))
     setBusy(true)
-    setMsg('Removing organisation assignment...')
     try {
       await apiFetch(`/admin/agents/assignments/${assignment.id}`, { method: 'DELETE' })
-      setMsg('Organisation removed from agent.')
+      setMsg('Organisation removed.')
     } catch (e) {
-      setAssignments(previousAssignments)
-      setMsg(`${e?.message || 'Could not remove organisation assignment'} — if this keeps happening, restart FastAPI so the latest delete endpoint is active.`)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const toggleOrgToAdd = (orgId) => {
-    setOrgsToAdd((rows) => rows.includes(orgId) ? rows.filter((id) => id !== orgId) : [...rows, orgId])
-  }
-
-  const toggleOrgToRemove = (orgId) => {
-    setOrgsToRemove((rows) => rows.includes(orgId) ? rows.filter((id) => id !== orgId) : [...rows, orgId])
-  }
-
-  const addSelectedOrganisations = async () => {
-    if (!selectedId || !orgsToAdd.length) return
-    await setAgentOrganisationAssignments(
-      [...selectedOrgIds, ...orgsToAdd],
-      `${orgsToAdd.length} organisation${orgsToAdd.length === 1 ? '' : 's'} assigned to agent.`
-    )
-  }
-
-  const removeSelectedOrganisations = async () => {
-    if (!orgsToRemove.length) return
-    const previousAssignments = assignments
-    const removeSet = new Set(orgsToRemove)
-    const count = orgsToRemove.length
-    setAssignments((rows) => rows.filter((row) => !(row.agent_id === selectedId && removeSet.has(row.org_id))))
-    setOrgsToRemove([])
-    setBusy(true)
-    setMsg(`Removing ${count} organisation${count === 1 ? '' : 's'}...`)
-    try {
-      const rowsToDelete = selectedOrgAssignments.filter((row) => removeSet.has(row.org_id))
-      for (const row of rowsToDelete) {
-        await apiFetch(`/admin/agents/assignments/${row.id}`, { method: 'DELETE' })
-      }
-      setMsg(`${count} organisation${count === 1 ? '' : 's'} removed from agent.`)
-    } catch (e) {
-      setAssignments(previousAssignments)
-      setMsg(`${e?.message || 'Could not remove selected organisations'} — if this keeps happening, restart FastAPI so the latest delete endpoint is active.`)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const assignCategory = async (categoryId, agentId) => {
-    if (!categoryId || !agentId) return
-    setBusy(true)
-    setMsg('Saving category default assignment...')
-    try {
-      await apiFetch(`/admin/agents/assignments/business-type/${categoryId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ agent_id: agentId }),
-      })
-      setMsg('Category default assignment saved.')
-      await load()
-    } catch (e) {
-      setMsg(e?.message || 'Could not save category default assignment')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const preview = async () => {
-    setBusy(true)
-    setPreviewResult(null)
-    setMsg('')
-    try {
-      const res = await apiFetch('/admin/agents/preview', {
-        method: 'POST',
-        body: JSON.stringify({ agent_id: selectedId || null, org_id: previewOrgId || null, input: previewInput }),
-      })
-      setPreviewResult(res)
-    } catch (e) {
-      setMsg(e?.message || 'Preview failed')
+      setAssignments(previous)
+      setMsg(e?.message || 'Could not remove organisation')
     } finally {
       setBusy(false)
     }
@@ -289,13 +355,14 @@ export default function Agents() {
 
   const duplicateAgent = async (agent) => {
     setBusy(true)
-    setMsg('')
     try {
       const copy = {
-        ...agent,
-        id: undefined,
         name: `${agent.name} Copy`,
         slug: `${agent.slug || 'agent'}-copy-${Date.now().toString().slice(-5)}`,
+        description: agent.description,
+        system_prompt: agent.system_prompt,
+        call_workflow: agent.call_workflow,
+        knowledge_file_ids: agent.knowledge_file_ids || [],
         is_active: false,
       }
       const saved = await apiFetch('/admin/agents', { method: 'POST', body: JSON.stringify(copy) })
@@ -312,7 +379,6 @@ export default function Agents() {
   const deleteAgent = async (agent) => {
     if (!window.confirm(`Delete agent "${agent.name}"? This cannot be undone.`)) return
     setBusy(true)
-    setMsg('')
     try {
       await apiFetch(`/admin/agents/${agent.id}`, { method: 'DELETE' })
       setMsg('Agent deleted.')
@@ -329,10 +395,9 @@ export default function Agents() {
 
   const toggleFreeze = async (agent) => {
     setBusy(true)
-    setMsg('')
     try {
       await apiFetch(`/admin/agents/${agent.id}/${agent.is_active ? 'deactivate' : 'activate'}`, { method: 'POST' })
-      setMsg(agent.is_active ? 'Agent frozen.' : 'Agent unfrozen.')
+      setMsg(agent.is_active ? 'Agent frozen.' : 'Agent activated.')
       await load()
     } catch (e) {
       setMsg(e?.message || 'Could not update agent status')
@@ -347,15 +412,69 @@ export default function Agents() {
         <div className='pageTop'>
           <div>
             <h1>Agents</h1>
-            <p>Manage all AI call agents. Open an agent to edit its workflow, modules, assignment, and tools.</p>
+            <p>Create voice agents, attach knowledge base files, and assign them to organisations.</p>
           </div>
           <div className='actions'>
-            <button className='btn soft' onClick={reloadPage} disabled={busy}>{busy ? 'Working...' : 'Reload'}</button>
-            <button className='btn primary' onClick={newAgent}>New agent</button>
+            <button type='button' className='btn soft' onClick={() => load().catch((e) => setMsg(e.message))} disabled={busy}>
+              {busy ? 'Working...' : 'Reload'}
+            </button>
+            <button type='button' className='btn primary' onClick={newAgent}>
+              New agent
+            </button>
           </div>
         </div>
         {msg ? <div className='note' style={{ marginBottom: 16 }}>{msg}</div> : null}
-        <div className='card'>
+
+        <section className='card' style={{ marginBottom: 16 }}>
+          <div className='cardHead'>
+            <h3>Knowledge base library</h3>
+            <span className='pill p-cyan'>{kbFiles.length} files</span>
+          </div>
+          <div className='cardBody stack'>
+            <p className='muted'>Upload Markdown files (.md, max 2 MB each). All agents can attach files from this library.</p>
+            <div className='actions'>
+              <label className='btn soft' style={{ cursor: 'pointer' }}>
+                {kbUploading ? 'Uploading...' : 'Upload .md file'}
+                <input type='file' accept='.md,text/markdown' hidden onChange={uploadKb} disabled={kbUploading} />
+              </label>
+            </div>
+            <div className='tableWrap'>
+              <table className='table'>
+                <thead>
+                  <tr>
+                    <th>File</th>
+                    <th>Server path</th>
+                    <th>Size</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {kbFiles.map((file) => (
+                    <tr key={file.id}>
+                      <td>{file.original_filename}</td>
+                      <td className='muted' style={{ fontSize: 12 }}>{file.storage_path}</td>
+                      <td>{Math.round((file.size_bytes || 0) / 1024)} KB</td>
+                      <td>
+                        <button type='button' className='btn soft' onClick={() => deleteKb(file)} disabled={busy}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!kbFiles.length ? (
+                    <tr>
+                      <td colSpan={4} className='muted'>
+                        No knowledge base files yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section className='card'>
           <div className='cardHead'>
             <h3>All agents</h3>
             <span className='pill p-cyan'>{agents.length}</span>
@@ -365,10 +484,9 @@ export default function Agents() {
               <table className='table'>
                 <thead>
                   <tr>
-                    <th>Agent name</th>
-                    <th>Assigned to</th>
+                    <th>Name</th>
+                    <th>Organisations</th>
                     <th>Status</th>
-                    <th>Modules</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -377,242 +495,312 @@ export default function Agents() {
                     <tr key={agent.id}>
                       <td>
                         <strong>{agent.name}</strong>
-                        <div className='muted' style={{ fontSize: 12 }}>{agent.slug}</div>
+                        <div className='muted' style={{ fontSize: 12 }}>
+                          {agent.slug}
+                        </div>
                       </td>
-                      <td>{assignedLabel(agent)}</td>
-                      <td><span className={`pill ${agent.is_active ? 'p-green' : 'p-amber'}`}>{agent.is_active ? 'Active' : 'Frozen'}</span></td>
-                      <td className='muted' style={{ fontSize: 12 }}>
-                        STT {agent.use_azure_stt ? 'Azure' : 'Off'} · LLM {agent.default_model || 'Default'} · TTS {agent.use_azure_tts ? 'Azure' : 'Off'} · SIP later
+                      <td>{assignedOrgNames(agent)}</td>
+                      <td>
+                        <span className={`pill ${agent.is_active ? 'p-green' : 'p-amber'}`}>{agent.is_active ? 'Active' : 'Frozen'}</span>
                       </td>
                       <td>
                         <div className='actions'>
-                          <button className='btn soft' onClick={() => duplicateAgent(agent)} disabled={busy}>Duplicate</button>
-                          <button className='btn soft' onClick={() => navigate(`/ai/agents/${agent.id}/edit`)}>Edit</button>
-                          <button className='btn soft' onClick={() => toggleFreeze(agent)} disabled={busy}>{agent.is_active ? 'Freeze' : 'Unfreeze'}</button>
-                          <button className='btn soft' onClick={() => deleteAgent(agent)} disabled={busy}>Delete</button>
+                          <button type='button' className='btn soft' onClick={() => duplicateAgent(agent)} disabled={busy}>
+                            Duplicate
+                          </button>
+                          <button type='button' className='btn soft' onClick={() => navigate(`/ai/agents/${agent.id}/edit`)}>
+                            Edit
+                          </button>
+                          <button type='button' className='btn soft' onClick={() => toggleFreeze(agent)} disabled={busy}>
+                            {agent.is_active ? 'Freeze' : 'Unfreeze'}
+                          </button>
+                          <button type='button' className='btn soft' onClick={() => deleteAgent(agent)} disabled={busy}>
+                            Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
                   ))}
                   {!agents.length ? (
-                    <tr><td colSpan={5} className='muted'>No agents yet.</td></tr>
+                    <tr>
+                      <td colSpan={4} className='muted'>
+                        No agents yet.
+                      </td>
+                    </tr>
                   ) : null}
                 </tbody>
               </table>
             </div>
           </div>
-        </div>
+        </section>
       </>
     )
   }
 
+  const kbSelectedCount = (draft.knowledge_file_ids || []).length
+
   return (
-    <>
-      <div className='pageTop'>
+    <div className='agentEditPage'>
+      <header className='agentEditHero'>
         <div>
-          <h1>{selectedId ? `Edit ${draft.name || 'agent'}` : 'Create agent'}</h1>
-          <p>Configure the call workflow, assignment, AI modules, tools, and prompt for this agent.</p>
+          <h1>{selectedId ? draft.name || 'Edit agent' : 'Create agent'}</h1>
+          <p>Describe the role, generate prompts with AI, attach knowledge files, and assign organisations.</p>
+          <div className='agentEditHeroMeta'>
+            <span className={`pill ${draft.is_active ? 'p-green' : 'p-amber'}`}>{draft.is_active ? 'Active' : 'Frozen'}</span>
+            {draft.slug ? <span className='pill p-cyan'>{draft.slug}</span> : null}
+            <span className='pill'>{kbSelectedCount} KB file{kbSelectedCount === 1 ? '' : 's'}</span>
+            <span className='pill'>{selectedOrgAssignments.length} org{selectedOrgAssignments.length === 1 ? '' : 's'}</span>
+          </div>
         </div>
         <div className='actions'>
-          <button className='btn soft' onClick={() => navigate('/ai/agents')}>Back to list</button>
-          <button className='btn soft' onClick={reloadPage} disabled={busy}>{busy ? 'Working...' : 'Reload'}</button>
-          <button className='btn primary' onClick={save} disabled={busy || !draft.name?.trim() || !draft.system_prompt?.trim()}>
-            {busy ? 'Saving…' : 'Save agent'}
+          <button type='button' className='btn soft' onClick={() => navigate('/ai/agents')}>
+            Back to list
+          </button>
+          <button type='button' className='btn primary' onClick={save} disabled={busy || !draft.name?.trim()}>
+            {busy ? 'Saving...' : 'Save agent'}
           </button>
         </div>
-      </div>
-      {msg ? <div className='note' style={{ marginBottom: 16 }}>{msg}</div> : null}
+      </header>
+      {msg ? <div className='note' style={{ marginBottom: 20 }}>{msg}</div> : null}
 
-      <div className='card' style={{ marginBottom: 16 }}>
-        <div className='cardHead'>
-          <h3>Agent basics</h3>
-          <span className={`pill ${draft.is_active ? 'p-green' : 'p-amber'}`}>{draft.is_active ? 'Active' : 'Frozen'}</span>
-        </div>
-        <div className='cardBody stack'>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-            <label><span className='label'>Agent name</span><input className='input' value={draft.name || ''} onChange={(e) => setField('name', e.target.value)} placeholder='Vox Sales' /></label>
-            <label><span className='label'>Slug</span><input className='input' value={draft.slug || ''} onChange={(e) => setField('slug', e.target.value)} placeholder='vox-sales' /></label>
-            <label><span className='label'>Business type</span><input className='input' value={draft.business_type || ''} onChange={(e) => setField('business_type', e.target.value)} placeholder='clinic, sales, support...' /></label>
+      <div className='agentEditStack'>
+        <section className='card'>
+          <div className='cardHead'>
+            <h3>Basics</h3>
+          </div>
+          <div className='cardBody stack'>
+            <div className='agentFieldGrid3'>
+              <label>
+                <span className='label'>Name</span>
+                <input className='input' value={draft.name || ''} onChange={(e) => setField('name', e.target.value)} placeholder='Vox Sales' />
+              </label>
+              <label>
+                <span className='label'>Slug</span>
+                <input className='input' value={draft.slug || ''} onChange={(e) => setField('slug', e.target.value)} placeholder='vox-sales' />
+              </label>
+              <label className='agentActiveToggle'>
+                <input type='checkbox' checked={Boolean(draft.is_active)} onChange={(e) => setField('is_active', e.target.checked)} />
+                <span>Agent is active</span>
+              </label>
+            </div>
             <label>
-              <span className='label'>Category</span>
-              <select className='input' value={draft.category_id || ''} onChange={(e) => setField('category_id', e.target.value)}>
-                <option value=''>No category</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <span className='label'>What should this agent do?</span>
+              <textarea
+                className='input'
+                style={{ minHeight: 96 }}
+                value={draft.description || ''}
+                onChange={(e) => setField('description', e.target.value)}
+                placeholder='e.g. Qualify inbound leads, explain VOXBULK, collect company name and email.'
+              />
             </label>
-            <label style={{ gridColumn: 'span 2' }}><span className='label'>Description</span><input className='input' value={draft.description || ''} onChange={(e) => setField('description', e.target.value)} placeholder='Short internal description' /></label>
-          </div>
-        </div>
-      </div>
-
-      <div className='card' style={{ marginBottom: 16 }}>
-        <div className='cardHead'>
-          <h3>Module control</h3>
-          <span className='pill p-cyan'>STT · LLM · TTS · SIP</span>
-        </div>
-        <div className='cardBody'>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-            <div className='note' style={{ display: 'grid', gap: 8 }}>
-              <strong>Speech-to-text module</strong>
-              <select className='input' value={draft.use_azure_stt ? 'azure_speech' : 'browser'} onChange={(e) => setField('use_azure_stt', e.target.value === 'azure_speech')}>
-                <option value='browser'>Browser Web Speech</option>
-                <option value='azure_speech'>Azure Speech</option>
-                <option value='elevenlabs'>ElevenLabs Scribe (demo test)</option>
-              </select>
-              <div className='muted' style={{ fontSize: 12 }}>Saved today as Azure STT on/off. ElevenLabs STT is available in the demo lab.</div>
-            </div>
-            <div className='note' style={{ display: 'grid', gap: 8 }}>
-              <strong>LLM module</strong>
-              <input className='input' value={draft.default_model || ''} onChange={(e) => setField('default_model', e.target.value)} placeholder='gpt-4o-mini, deepseek-chat...' />
-              <div className='muted' style={{ fontSize: 12 }}>Model/provider routing uses current platform provider settings.</div>
-            </div>
-            <div className='note' style={{ display: 'grid', gap: 8 }}>
-              <strong>Text-to-speech module</strong>
-              <select className='input' value={draft.use_azure_tts ? 'azure_speech' : 'off'} onChange={(e) => setField('use_azure_tts', e.target.value === 'azure_speech')}>
-                <option value='azure_speech'>Azure Speech</option>
-                <option value='elevenlabs'>ElevenLabs (demo/test)</option>
-                <option value='off'>Off</option>
-              </select>
-              <input className='input' value={draft.default_voice || ''} onChange={(e) => setField('default_voice', e.target.value)} placeholder='Voice ID' />
-              <div className='muted' style={{ fontSize: 12 }}>Saved today as Azure TTS on/off plus default voice. ElevenLabs voice is tested in demo lab.</div>
-            </div>
-            <div className='note' style={{ display: 'grid', gap: 8 }}>
-              <strong>SIP module</strong>
-              <select className='input' disabled value='later'>
-                <option value='later'>Coming later</option>
-              </select>
-              <div className='muted' style={{ fontSize: 12 }}>Design placeholder for SIP routing/provider selection.</div>
+            <div className='agentEditToolbar'>
+              <p>
+                Step 1: workflow from description + knowledge base. Step 2: system prompt from that workflow.
+                DeepSeek must be configured under Integrations.
+              </p>
+              <div className='actions'>
+                <button
+                  type='button'
+                  className='btn soft'
+                  onClick={generateWorkflow}
+                  disabled={busy || !String(draft.description || '').trim()}
+                >
+                  {genPhase === 'workflow' ? 'Generating workflow...' : hasWorkflow(draft) ? 'Regenerate workflow' : '1. Generate workflow'}
+                </button>
+                <button
+                  type='button'
+                  className='btn primary'
+                  onClick={generatePrompt}
+                  disabled={busy || !String(draft.description || '').trim() || !hasWorkflow(draft)}
+                >
+                  {genPhase === 'prompt' ? 'Generating prompt...' : hasSystemPrompt(draft) ? 'Regenerate prompt' : '2. Generate prompt'}
+                </button>
+              </div>
+              {!hasWorkflow(draft) ? (
+                <p className='muted' style={{ margin: '10px 0 0', fontSize: 12 }}>
+                  Step 2 unlocks when the Call workflow field (below) has text.
+                </p>
+              ) : null}
             </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <div className='grid-12'>
-        <div className='span-5 stack'>
-          <div className='card'>
+        <div className='agentEditRow2'>
+          <section className='card'>
             <div className='cardHead'>
-              <h3>Assigned organisations</h3>
-              <span className='pill p-cyan'>{selectedOrgAssignments.length}</span>
+              <h3>Call workflow</h3>
+              <span className='pill p-cyan'>Step 1</span>
+            </div>
+            <div className='cardBody'>
+              <textarea
+                className='input agentPromptArea'
+                value={draft.call_workflow || ''}
+                onChange={(e) => setField('call_workflow', e.target.value)}
+                placeholder='Step-by-step call flow: greeting, questions, handoff, close...'
+              />
+            </div>
+          </section>
+          <section className='card'>
+            <div className='cardHead'>
+              <h3>System prompt</h3>
+              <span className='pill p-cyan'>Step 2</span>
+            </div>
+            <div className='cardBody'>
+              <textarea
+                className='input agentPromptArea'
+                value={draft.system_prompt || ''}
+                onChange={(e) => setField('system_prompt', e.target.value)}
+                placeholder='Generated or hand-written instructions for the agent...'
+              />
+            </div>
+          </section>
+        </div>
+
+        <div className='agentEditRow2'>
+          <section className='card'>
+            <div className='cardHead'>
+              <h3>Knowledge base</h3>
+              <span className='pill p-cyan'>{kbSelectedCount} selected</span>
             </div>
             <div className='cardBody stack'>
-              <div className='note'>
-                Add the one or two organisations that should use this agent. This is saved in the database as organisation agent assignments.
-              </div>
-              <div style={{ display: 'grid', gap: 10 }}>
-                {selectedOrgAssignments.length ? selectedOrgAssignments.map((row) => {
-                  const org = orgById[row.org_id]
-                  return (
-                    <div key={row.id} className='note' style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-                        <input type='checkbox' checked={orgsToRemove.includes(row.org_id)} onChange={() => toggleOrgToRemove(row.org_id)} />
+              <p className='muted' style={{ margin: 0, fontSize: 13 }}>
+                Upload .md files on the agents list page. Click a file to attach it to this agent.
+              </p>
+              <div className='agentKbPanel'>
+                {kbFiles.length ? (
+                  kbFiles.map((file) => {
+                    const selected = (draft.knowledge_file_ids || []).includes(file.id)
+                    return (
+                      <div
+                        key={file.id}
+                        role='button'
+                        tabIndex={0}
+                        className={`agentKbItem${selected ? ' is-selected' : ''}`}
+                        onClick={() => toggleKbFile(file.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            toggleKbFile(file.id)
+                          }
+                        }}
+                      >
+                        <input type='checkbox' checked={selected} readOnly tabIndex={-1} />
                         <span>
-                          <strong>{org?.name || 'Unknown organisation'}</strong>
-                          <div className='muted' style={{ fontSize: 12 }}>Assigned to this agent</div>
+                          <strong>{file.original_filename}</strong>
+                          <div className='muted'>{file.storage_path}</div>
                         </span>
-                      </label>
-                      <button className='btn soft' onClick={() => removeOrgAssignment(row)} disabled={busy}>
-                        Remove
-                      </button>
-                    </div>
-                  )
-                }) : <div className='note'>No organisations assigned yet.</div>}
-              </div>
-              {selectedOrgAssignments.length ? (
-                <div className='actions'>
-                  <button className='btn soft' onClick={() => setOrgsToRemove(selectedOrgAssignments.map((row) => row.org_id))} disabled={busy}>
-                    Select all assigned
-                  </button>
-                  <button className='btn primary' onClick={removeSelectedOrganisations} disabled={busy || !orgsToRemove.length}>
-                    Remove selected ({orgsToRemove.length})
-                  </button>
-                </div>
-              ) : null}
-              <div style={{ display: 'grid', gap: 8 }}>
-                <label className='label'>Add organisation</label>
-                <input className='input' value={assignmentSearch} onChange={(e) => setAssignmentSearch(e.target.value)} placeholder='Search organisation name...' />
-                <div className='note' style={{ display: 'grid', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
-                  {assignableOrgs.length ? assignableOrgs.map((org) => (
-                    <label key={org.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <input type='checkbox' checked={orgsToAdd.includes(org.id)} onChange={() => toggleOrgToAdd(org.id)} disabled={!selectedId || busy} />
-                      <span>{org.name}</span>
-                    </label>
-                  )) : <div className='muted'>No organisations found or all visible organisations are already assigned.</div>}
-                </div>
-                <div className='actions'>
-                  <button className='btn soft' onClick={() => setOrgsToAdd(assignableOrgs.map((org) => org.id))} disabled={!selectedId || busy || !assignableOrgs.length}>
-                    Select visible
-                  </button>
-                  <button className='btn primary' onClick={addSelectedOrganisations} disabled={!selectedId || busy || !orgsToAdd.length}>
-                    Add selected ({orgsToAdd.length})
-                  </button>
-                </div>
-                {!selectedId ? <div className='muted' style={{ fontSize: 12 }}>Save the agent first, then add organisations.</div> : null}
+                      </div>
+                    )
+                  })
+                ) : (
+                  <p className='muted' style={{ margin: 0 }}>No files yet. Upload on the agents list.</p>
+                )}
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className='card'>
+          <section className='card'>
             <div className='cardHead'>
-              <h3>Category default assignment</h3>
-              <span className='pill p-amber'>Optional</span>
+              <h3>Organisations</h3>
+              <span className='pill p-cyan'>{selectedOrgAssignments.length} assigned</span>
             </div>
             <div className='cardBody stack'>
-              <div className='note'>
-                This is different from organisation assignment. Organisation assignment is exact: that customer uses this agent. Category default is a fallback rule: any organisation in this category can use this agent when no organisation-specific agent is set.
-              </div>
-              {selectedCategoryAssignments.length ? (
-                <div className='note'>
-                  Current category default: {selectedCategoryAssignments.map((row) => categoryById[row.category_id]?.name || 'Business type').join(', ')}
+              <div>
+                <span className='label'>Currently assigned</span>
+                <div className='agentOrgAssigned'>
+                  {selectedOrgAssignments.length ? (
+                    selectedOrgAssignments.map((row) => {
+                      const org = orgById[row.org_id]
+                      return (
+                        <div key={row.id} className='agentOrgRow'>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                            <input
+                              type='checkbox'
+                              checked={orgsToRemove.includes(row.org_id)}
+                              onChange={() =>
+                                setOrgsToRemove((ids) =>
+                                  ids.includes(row.org_id) ? ids.filter((x) => x !== row.org_id) : [...ids, row.org_id],
+                                )
+                              }
+                            />
+                            <strong>{org?.name || 'Unknown'}</strong>
+                          </label>
+                          <button type='button' className='btn soft' onClick={() => removeOrgAssignment(row)} disabled={busy}>
+                            Remove
+                          </button>
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <p className='muted' style={{ margin: 0, fontSize: 13 }}>No organisations assigned yet.</p>
+                  )}
                 </div>
-              ) : null}
-              <select className='input' onChange={(e) => assignCategory(e.target.value, selectedId)} value=''>
-                <option value=''>Assign as category default...</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              <div className='muted' style={{ fontSize: 12 }}>If you do not want category fallback rules, leave this empty.</div>
-            </div>
-          </div>
-        </div>
-
-        <div className='span-7 stack'>
-          <div className='card'>
-            <div className='cardHead'><h3>Edit agent settings</h3></div>
-            <div className='cardBody stack'>
-              <label><span className='label'>Call workflow / system prompt</span><textarea className='input' style={{ minHeight: 260 }} value={draft.system_prompt || ''} onChange={(e) => setField('system_prompt', e.target.value)} /></label>
-              <label><span className='label'>Tone / personality</span><textarea className='input' style={{ minHeight: 90 }} value={draft.conversation_style || ''} onChange={(e) => setField('conversation_style', e.target.value)} /></label>
-              <div className='actions' style={{ flexWrap: 'wrap' }}>
-                {[
-                  ['allow_lookup_tool', 'Lookup tool'],
-                  ['allow_booking_tool', 'Booking tool'],
-                  ['allow_reschedule_tool', 'Reschedule tool'],
-                  ['allow_cancel_tool', 'Cancel tool'],
-                  ['is_active', 'Active / not frozen'],
-                  ['is_template', 'Template'],
-                ].map(([key, label]) => (
-                  <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input type='checkbox' checked={Boolean(draft[key])} onChange={(e) => setField(key, e.target.checked)} />
-                    <span>{label}</span>
-                  </label>
-                ))}
+                {selectedOrgAssignments.length ? (
+                  <div className='actions' style={{ marginTop: 10 }}>
+                    <button
+                      type='button'
+                      className='btn soft'
+                      onClick={() =>
+                        setAgentOrganisationAssignments(
+                          selectedOrgIds.filter((id) => !orgsToRemove.includes(id)),
+                          'Removed selected organisations.',
+                        )
+                      }
+                      disabled={busy || !orgsToRemove.length}
+                    >
+                      Remove selected
+                    </button>
+                  </div>
+                ) : null}
               </div>
-              <div className='actions'><button className='btn primary' onClick={save} disabled={busy || !draft.name?.trim() || !draft.system_prompt?.trim()}>{busy ? 'Saving…' : 'Save agent'}</button></div>
-            </div>
-          </div>
 
-          <div className='card'>
-            <div className='cardHead'><h3>Preview/test agent response</h3></div>
-            <div className='cardBody stack'>
-              <select className='input' value={previewOrgId} onChange={(e) => setPreviewOrgId(e.target.value)}>
-                <option value=''>Use first organisation</option>
-                {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
-              <textarea className='input' value={previewInput} onChange={(e) => setPreviewInput(e.target.value)} />
-              <div className='actions'><button className='btn primary' onClick={preview} disabled={busy || !previewInput.trim()}>{busy ? 'Testing…' : 'Preview response'}</button></div>
-              {previewResult ? <div className='note'><strong>{previewResult.agent_slug}</strong><br />{previewResult.assistant_text}</div> : null}
+              <div>
+                <span className='label'>Add organisations</span>
+                <input
+                  className='input'
+                  style={{ width: '100%', minWidth: 0, marginBottom: 10 }}
+                  value={assignmentSearch}
+                  onChange={(e) => setAssignmentSearch(e.target.value)}
+                  placeholder='Search by name...'
+                />
+                <div className='agentOrgPicker'>
+                  {assignableOrgs.length ? (
+                    assignableOrgs.map((org) => (
+                      <label key={org.id}>
+                        <input
+                          type='checkbox'
+                          checked={orgsToAdd.includes(org.id)}
+                          onChange={() =>
+                            setOrgsToAdd((ids) => (ids.includes(org.id) ? ids.filter((x) => x !== org.id) : [...ids, org.id]))
+                          }
+                          disabled={!selectedId}
+                        />
+                        {org.name}
+                      </label>
+                    ))
+                  ) : (
+                    <span className='muted' style={{ fontSize: 13 }}>No more organisations to add, or save the agent first.</span>
+                  )}
+                </div>
+                <div className='actions' style={{ marginTop: 12 }}>
+                  <button
+                    type='button'
+                    className='btn primary'
+                    onClick={() => setAgentOrganisationAssignments([...selectedOrgIds, ...orgsToAdd])}
+                    disabled={!selectedId || busy || !orgsToAdd.length}
+                  >
+                    Add selected organisations
+                  </button>
+                </div>
+                {!selectedId ? (
+                  <p className='muted' style={{ margin: '10px 0 0', fontSize: 12 }}>Save the agent before assigning organisations.</p>
+                ) : null}
+              </div>
             </div>
-          </div>
+          </section>
         </div>
       </div>
-    </>
+    </div>
   )
 }
+

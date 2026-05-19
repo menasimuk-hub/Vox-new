@@ -31,15 +31,36 @@ export function canAccessAdminPath(role, pathname) {
 
   // Marketing is restricted to SMTP + templates (still uses integration-style APIs only under /admin/email).
   if (r === 'marketing') {
-    return isUnder('/settings/email') || isUnder('/support')
+    return (
+      isUnder('/settings/email') ||
+      isUnder('/support') ||
+      isUnder('/marketing/frontpage-call-leads') ||
+      isUnder('/marketing/lead-sources') ||
+      isUnder('/marketing/lead-sales') ||
+      isUnder('/marketing/lead-sales/settings')
+    )
   }
 
   if (r === 'technical') {
-    return isUnder('/support') || isUnder('/ai/agents') || p === '/ai/agent-demo'
+    return (
+      isUnder('/support') ||
+      isUnder('/ai/agents') ||
+      p === '/ai/agent-demo' ||
+      isUnder('/marketing/frontpage-call-leads') ||
+      isUnder('/marketing/lead-sources') ||
+      isUnder('/marketing/lead-sales') ||
+      isUnder('/marketing/lead-sales/settings')
+    )
   }
 
   if (r === 'support') {
-    return isUnder('/support')
+    return (
+      isUnder('/support') ||
+      isUnder('/marketing/lead-sources') ||
+      isUnder('/marketing/lead-sales') ||
+      isUnder('/marketing/frontpage-call-leads') ||
+      isUnder('/marketing/lead-sales/settings')
+    )
   }
 
   if (r === 'accountant') {
@@ -66,12 +87,17 @@ export function canAccessAdminPath(role, pathname) {
 
 export function filterSidebarNav(adminRole, navTree) {
   const r = normalizeAdminRole(adminRole)
-  if (r === 'superadmin') return navTree
+  const groups = navTree.map((entry) => {
+    if (entry.length === 2) return [entry[0], entry[1]]
+    return [entry[0], entry[2]]
+  })
 
-  return navTree
-    .map(([group, Icon, items]) => {
+  if (r === 'superadmin') return groups
+
+  return groups
+    .map(([group, items]) => {
       const nextItems = items.filter(([, path]) => canAccessAdminPath(r, path))
-      return [group, Icon, nextItems]
+      return [group, nextItems]
     })
-    .filter(([, , items]) => items.length > 0)
+    .filter(([, items]) => items.length > 0)
 }

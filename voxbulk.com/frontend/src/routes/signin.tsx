@@ -221,7 +221,7 @@ function SignInPage() {
       try {
         const me = await retoverFetch("/auth/me");
         if (cancelled) return;
-        if (me?.is_superuser) {
+        if (me?.is_superuser || me?.admin_access) {
           navigate({ to: "/" });
           return;
         }
@@ -245,10 +245,12 @@ function SignInPage() {
     if (orgIdFromUrl) localStorage.setItem("retover_signup_org_id", orgIdFromUrl);
   }, [orgIdFromUrl]);
 
+  const shouldOpenAdminApp = (me) => Boolean(me?.is_superuser || me?.admin_access)
+
   const routeAfterAuthToRightApp = async () => {
     const { adminUrl, dashboardUrl } = getPostLoginTargets();
     const me = await retoverFetch("/auth/me");
-    if (me?.is_superuser) {
+    if (shouldOpenAdminApp(me)) {
       // Hand-off to admin app
       localStorage.setItem(
         "retover_admin_access_token",
@@ -260,10 +262,10 @@ function SignInPage() {
     window.location.assign(clinicDashboardUrlWithAuthHandoff(dashboardUrl));
   };
 
-  /** After token exists: superuser → admin; clinic without role → stay on role step; else → dashboard */
+  /** After token exists: platform admin → admin; clinic without role → stay on role step; else → dashboard */
   const proceedAfterCredentialAuth = async () => {
     const me = await retoverFetch("/auth/me");
-    if (me?.is_superuser) {
+    if (shouldOpenAdminApp(me)) {
       await routeAfterAuthToRightApp();
       return;
     }
@@ -330,9 +332,12 @@ function SignInPage() {
           toast.success("Request submitted. Await admin approval.");
         }
       } else {
-        const data = await loginWithPassword({ email, password });
+        const data = await loginWithPassword({
+          email: parsed.data.email,
+          password: parsed.data.password,
+        });
         setUserAuthSession(data);
-        localStorage.setItem("retover_user_email", email);
+        localStorage.setItem("retover_user_email", parsed.data.email);
         toast.success("Welcome back!");
         await proceedAfterCredentialAuth();
       }

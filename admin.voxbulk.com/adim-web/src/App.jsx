@@ -8,6 +8,7 @@ import Categories from './pages/Categories'
 import OperationsQueue from './pages/OperationsQueue'
 import Billing from './pages/Billing'
 import PackagesPricing from './pages/PackagesPricing'
+import CallsCost from './pages/CallsCost'
 import Integrations from './pages/Integrations'
 import ServicesAPI from './pages/ServicesAPI'
 import SupportSLA from './pages/SupportSLA'
@@ -24,6 +25,11 @@ import AdminUserCreate from './pages/AdminUserCreate'
 import AdminUserEdit from './pages/AdminUserEdit'
 import Agents from './pages/Agents'
 import AgentDemo from './pages/AgentDemo'
+import FrontpageCallLeads from './pages/FrontpageCallLeads'
+import LeadSources from './pages/LeadSources'
+import LeadSales from './pages/LeadSales'
+import LeadSalesEdit from './pages/LeadSalesEdit'
+import LeadSalesSettings from './pages/LeadSalesSettings'
 import { defaultAdminHome } from './lib/adminPaths'
 import { useAdminProfile } from './context/AdminProfileContext'
 
@@ -70,7 +76,15 @@ export default function App() {
         <Route path='/operations/manual-retry' element={<OperationsQueue title='Manual retry' />} />
         <Route path='/operations/recovery-events' element={<OperationsQueue title='Recovery events' />} />
 
-        <Route path='/marketing/lead-sources' element={G('Lead sources')} />
+        <Route path='/marketing/lead-sources' element={<LeadSources />} />
+        <Route path='/marketing/lead-sales' element={<LeadSales />} />
+        <Route path='/marketing/lead-sales/settings' element={<LeadSalesSettings />} />
+        <Route path='/marketing/lead-sales/:taskId' element={<LeadSalesEdit />} />
+        <Route path='/marketing/frontpage-call-leads' element={<FrontpageCallLeads />} />
+        {/* Legacy paths (old admin builds used /ai-marketing/…) */}
+        <Route path='/ai-marketing/leads' element={<Navigate to='/marketing/lead-sources' replace />} />
+        <Route path='/ai-marketing/lead-sources' element={<Navigate to='/marketing/lead-sources' replace />} />
+        <Route path='/ai-marketing/lead-sales' element={<Navigate to='/marketing/lead-sales' replace />} />
         <Route path='/marketing/apollo' element={G('Apollo leads')} />
         <Route path='/marketing/clay' element={G('Clay enrichment')} />
         <Route path='/marketing/instantly' element={G('Instantly campaigns')} />
@@ -107,6 +121,7 @@ export default function App() {
         <Route path='/billing/invoices' element={<Billing />} />
         <Route path='/billing/failed-payments' element={<Billing />} />
         <Route path='/billing/reports' element={<Billing />} />
+        <Route path='/billing/calls-cost' element={<CallsCost />} />
         <Route path='/billing/packages' element={<PackagesPricing />} />
 
         <Route path='/support/inbox' element={<SupportTickets />} />

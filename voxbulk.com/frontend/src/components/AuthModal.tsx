@@ -115,11 +115,14 @@ function AuthModal({ onClose }: { onClose: () => void }) {
   const providerState = (p: SocialProvider["provider"]) =>
     socialProviders.find((x) => x.provider === p) || null;
 
+  const shouldOpenAdminApp = (me: { is_superuser?: boolean; admin_access?: boolean } | null) =>
+    Boolean(me?.is_superuser || me?.admin_access)
+
   const redirectToTargetApp = async () => {
     onClose();
     const { adminUrl, dashboardUrl } = getPostLoginTargets();
     const me = await retoverFetch("/auth/me");
-    if (me?.is_superuser) {
+    if (shouldOpenAdminApp(me)) {
       localStorage.setItem(
         "retover_admin_access_token",
         localStorage.getItem("retover_access_token") || "",
@@ -132,7 +135,7 @@ function AuthModal({ onClose }: { onClose: () => void }) {
 
   const proceedAfterCredentialAuth = async () => {
     const me = await retoverFetch("/auth/me");
-    if (me?.is_superuser) {
+    if (shouldOpenAdminApp(me)) {
       await redirectToTargetApp();
       return;
     }
@@ -178,9 +181,12 @@ function AuthModal({ onClose }: { onClose: () => void }) {
         toast.success("Account created.");
         setPhase("role");
       } else {
-        const data = await loginWithPassword({ email, password });
+        const data = await loginWithPassword({
+          email: parsed.data.email,
+          password: parsed.data.password,
+        });
         setUserAuthSession(data);
-        localStorage.setItem("retover_user_email", email);
+        localStorage.setItem("retover_user_email", parsed.data.email);
         toast.success("Welcome back!");
         await proceedAfterCredentialAuth();
       }

@@ -86,8 +86,10 @@ function deepSeekValidation(config, draft, summary) {
 
 function vapiValidation(config, draft, summary) {
   const errors = {}
+  const hasPrivateKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
   if (!String(config?.public_key || '').trim()) errors.public_key = 'Public key is required for browser calls.'
   if (!String(config?.assistant_id || '').trim()) errors.assistant_id = 'Assistant ID is required for browser calls.'
+  if (!hasPrivateKey) errors.api_key = 'Private API key is required for lead transcripts and recordings.'
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
@@ -150,14 +152,28 @@ function elevenLabsValidation(config, draft, summary) {
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
+function httpBaseToWs(base) {
+  const clean = String(base || '').replace(/\/+$/, '')
+  if (clean.startsWith('https://')) return `wss://${clean.slice(8)}`
+  if (clean.startsWith('http://')) return `ws://${clean.slice(7)}`
+  return `wss://${clean}`
+}
+
 function telnyxValidation(config, draft, summary) {
   const errors = {}
-  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  const hasDraftKey = Boolean(String(draft?.api_key_draft || '').trim())
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || hasDraftKey
+  const meta = summary?.api_key_meta
   if (!hasApiKey) errors.api_key = 'API key is required.'
+  else if (!hasDraftKey && meta && meta.length > 0 && !meta.looks_valid) {
+    errors.api_key = 'Stored credential is not a Telnyx KEY… API key. Paste the secret key from API Keys and Save.'
+  }
   if (!String(config?.connection_id || config?.voice_api_application_id || '').trim()) errors.connection_id = 'Voice API application / connection ID is required.'
   if (!String(config?.default_outbound_number || config?.from_phone_number || '').trim()) errors.default_outbound_number = 'From phone number is required.'
-  if (!String(config?.outbound_voice_profile_id || '').trim()) errors.outbound_voice_profile_id = 'Outbound voice profile ID is required.'
-  if (!String(config?.voice_webhook_url || '').trim()) errors.voice_webhook_url = 'Webhook URL is required.'
+  const webhookBase = String(config?.webhook_base_url || '').trim()
+  if (webhookBase && /^https?:\/\/localhost/i.test(webhookBase)) {
+    errors.webhook_base_url = 'For local testing use your ngrok HTTPS URL (not localhost).'
+  }
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
@@ -430,6 +446,29 @@ export default function Integrations() {
   const [elevenLabsTestResult, setElevenLabsTestResult] = useState('')
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
   const [telnyxTestNumber, setTelnyxTestNumber] = useState('')
+  const [telnyxActiveCallId, setTelnyxActiveCallId] = useState('')
+  const [telnyxCallBusy, setTelnyxCallBusy] = useState(false)
+  const [telnyxAccountNumbers, setTelnyxAccountNumbers] = useState([])
+
+  function formatTelnyxApiError(e) {
+    const d = e?.data?.detail
+    if (d && typeof d === 'object' && !Array.isArray(d)) {
+      const lines = []
+      if (d.message) lines.push(String(d.message))
+      if (d.hint && d.hint !== d.message) lines.push(String(d.hint))
+      if (Array.isArray(d.telnyx_phone_numbers) && d.telnyx_phone_numbers.length) {
+        lines.push(`Your Telnyx numbers: ${d.telnyx_phone_numbers.join(', ')}`)
+      }
+      if (lines.length) return lines.join('\n')
+    }
+    return e?.message || 'Telnyx request failed'
+  }
+
+  function applyTelnyxFromNumber(number) {
+    setProviderField('telnyx', 'default_outbound_number', number)
+    setProviderField('telnyx', 'from_phone_number', number)
+    setProviderField('telnyx', 'fallback_caller_id', number)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -492,11 +531,25 @@ export default function Integrations() {
         if (config.from_phone_number && !config.default_outbound_number) config.default_outbound_number = config.from_phone_number
         if (config.connection_id && !config.voice_api_application_id) config.voice_api_application_id = config.connection_id
         if (config.voice_api_application_id && !config.connection_id) config.connection_id = config.voice_api_application_id
-        const webhookBase = String(config.webhook_base_url || DEFAULT_WEBHOOK_BASE).replace(/\/+$/, '')
-        if (!config.webhook_base_url) config.webhook_base_url = webhookBase
-        if (!config.voice_webhook_url) config.voice_webhook_url = `${webhookBase}/telnyx/webhooks/voice`
-        if (!config.status_callback_url) config.status_callback_url = `${webhookBase}/telnyx/webhooks/status`
-        if (!config.verified_number_webhook_url) config.verified_number_webhook_url = `${webhookBase}/telnyx/webhooks/verified-numbers`
+        const stripTelnyxPaths = (raw) => {
+          let base = String(raw || '').trim().replace(/\/+$/, '')
+          for (const suffix of ['/telnyx/webhooks/verified-numbers', '/telnyx/webhooks/status', '/telnyx/webhooks/voice', '/telnyx/media-stream']) {
+            if (base.toLowerCase().endsWith(suffix)) base = base.slice(0, -suffix.length).replace(/\/+$/, '')
+          }
+          return base || DEFAULT_WEBHOOK_BASE
+        }
+        const webhookBase = stripTelnyxPaths(config.webhook_base_url || config.voice_webhook_url || DEFAULT_WEBHOOK_BASE)
+        config.webhook_base_url = webhookBase
+        config.voice_webhook_url = `${webhookBase}/telnyx/webhooks/voice`
+        config.status_callback_url = `${webhookBase}/telnyx/webhooks/status`
+        config.verified_number_webhook_url = `${webhookBase}/telnyx/webhooks/verified-numbers`
+        config.media_stream_url = `${httpBaseToWs(webhookBase)}/telnyx/media-stream`
+        const outbound = String(config.default_outbound_number || config.from_phone_number || '').trim()
+        if (outbound) {
+          config.default_outbound_number = outbound
+          config.from_phone_number = outbound
+          config.fallback_caller_id = outbound
+        }
         const token = String(draft.api_key_draft || '').trim()
         if (token) config.api_key = token
       }
@@ -601,7 +654,9 @@ export default function Integrations() {
   const vapiStatus = activeProvider === 'vapi' ? vapiValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const elevenLabsStatus = activeProvider === 'elevenlabs' ? elevenLabsValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const telnyxStatus = activeProvider === 'telnyx' ? telnyxValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
-  const telnyxWebhookUrl = activeConfig.voice_webhook_url || `${activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE}/telnyx/webhooks/voice`
+  const telnyxWebhookBase = String(activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE).replace(/\/+$/, '')
+  const telnyxWebhookUrl = activeConfig.voice_webhook_url || `${telnyxWebhookBase}/telnyx/webhooks/voice`
+  const telnyxMediaStreamUrl = activeConfig.media_stream_url || `${httpBaseToWs(telnyxWebhookBase)}/telnyx/media-stream`
 
   const testAzureSpeechTts = async () => {
     setProviderError('')
@@ -691,10 +746,21 @@ export default function Integrations() {
     setVapiTestResult('Testing Vapi…')
     try {
       const result = await apiFetch('/admin/integrations/vapi/test', { method: 'POST' })
-      setVapiTestResult(result.verified ? `Vapi OK: ${result.assistant_name || result.assistant_id || 'assistant reachable'}` : result.message || 'Vapi browser config is present.')
+      if (result.verified) {
+        const parts = []
+        if (result.public_key_verified !== false) parts.push('Public key OK (Talk to us / browser)')
+        if (result.server_key_verified) parts.push('Private API key OK (server)')
+        else if (result.public_key_verified) parts.push('Private API key not set (optional)')
+        const name = result.assistant_name || result.assistant_id || 'assistant'
+        setVapiTestResult(`${parts.join(' · ')} — ${name}`)
+      } else {
+        setVapiTestResult(result.message || 'Vapi browser config is present.')
+      }
     } catch (e) {
       setVapiTestResult('')
-      setProviderError(e?.message || 'Vapi test failed')
+      const hint = e?.data?.detail?.hint || e?.data?.hint
+      const base = e?.message || 'Vapi test failed'
+      setProviderError(hint ? `${base}\n\n${hint}` : base)
     }
   }
 
@@ -713,15 +779,40 @@ export default function Integrations() {
     }
   }
 
+  const verifyTelnyxKey = async () => {
+    const apiKey = String(activeDraft.api_key_draft || '').trim()
+    if (!apiKey) {
+      window.alert('Paste your full Telnyx API key in the field above first.')
+      return
+    }
+    if (apiKey.length < 50) {
+      setProviderError(`Key is only ${apiKey.length} characters. Telnyx secret keys are about 58 characters — you copied a partial key.`)
+      return
+    }
+    setProviderError('')
+    setTelnyxTestResult('Verifying pasted API key with Telnyx…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/verify-key', {
+        method: 'POST',
+        body: JSON.stringify({ api_key: apiKey }),
+      })
+      setTelnyxTestResult(result.message || `Key OK (${result.length} chars). Now click Save Telnyx.`)
+    } catch (e) {
+      setTelnyxTestResult('')
+      setProviderError(formatTelnyxApiError(e))
+    }
+  }
+
   const testTelnyx = async () => {
     setProviderError('')
     setTelnyxTestResult('Testing Telnyx connection…')
     try {
       const result = await apiFetch('/admin/integrations/telnyx/test', { method: 'POST' })
+      if (Array.isArray(result.telnyx_phone_numbers)) setTelnyxAccountNumbers(result.telnyx_phone_numbers)
       setTelnyxTestResult(result.message || 'Telnyx settings look complete.')
     } catch (e) {
       setTelnyxTestResult('')
-      setProviderError(e?.message || 'Telnyx connection test failed')
+      setProviderError(formatTelnyxApiError(e))
     }
   }
 
@@ -732,16 +823,50 @@ export default function Integrations() {
       return
     }
     setProviderError('')
+    setTelnyxCallBusy(true)
     setTelnyxTestResult('Starting Telnyx test call…')
     try {
       const result = await apiFetch('/admin/integrations/telnyx/test-call', {
         method: 'POST',
         body: JSON.stringify({ to_number: toNumber }),
       })
-      setTelnyxTestResult(`${result.message || 'Test call accepted'} ${result.external_id ? `(${result.external_id})` : ''}`)
+      const callId = String(result.call_control_id || result.external_id || '').trim()
+      if (callId) setTelnyxActiveCallId(callId)
+      setTelnyxTestResult(
+        `${result.message || 'Test call accepted'}${callId ? ` — use Hang up to end (${callId})` : ''}`
+      )
     } catch (e) {
       setTelnyxTestResult('')
-      setProviderError(e?.message || 'Telnyx test call failed')
+      const d = e?.data?.detail
+      if (d && typeof d === 'object' && Array.isArray(d.telnyx_phone_numbers)) {
+        setTelnyxAccountNumbers(d.telnyx_phone_numbers)
+      }
+      setProviderError(formatTelnyxApiError(e))
+    } finally {
+      setTelnyxCallBusy(false)
+    }
+  }
+
+  const hangupTelnyxCall = async () => {
+    const callId = telnyxActiveCallId.trim()
+    if (!callId) {
+      window.alert('No active test call. Place a test call first.')
+      return
+    }
+    setProviderError('')
+    setTelnyxCallBusy(true)
+    setTelnyxTestResult('Sending hangup…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/hangup', {
+        method: 'POST',
+        body: JSON.stringify({ call_control_id: callId }),
+      })
+      setTelnyxActiveCallId('')
+      setTelnyxTestResult(result.message || 'Call ended')
+    } catch (e) {
+      setProviderError(e?.message || 'Telnyx hangup failed')
+    } finally {
+      setTelnyxCallBusy(false)
     }
   }
 
@@ -870,8 +995,9 @@ export default function Integrations() {
                     </label>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Telnyx API key</label>
-                      <input className='input' style={telnyxStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, telnyx: { ...(s.telnyx || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste Telnyx API key'} />
+                      <input className='input' style={telnyxStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, telnyx: { ...(s.telnyx || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Paste new KEY… key if you get 401' : 'KEYxxxxxxxx (Telnyx Portal → API Keys)'} />
                       {telnyxStatus.errors.api_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{telnyxStatus.errors.api_key}</div> : null}
+                      <div className='muted' style={{ fontSize: 12 }}>Secret API v2 key only (starts with KEY). Not Connection ID. No “Bearer ” prefix. Or set TELNYX_API_KEY in voxbulk-api/.env</div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Voice API application / connection ID</label>
@@ -880,20 +1006,22 @@ export default function Integrations() {
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>From phone number</label>
-                      <input className='input' style={telnyxStatus.errors.default_outbound_number ? invalidInputStyle : undefined} value={String(activeConfig.default_outbound_number || activeConfig.from_phone_number || '')} onChange={(e) => { setProviderField('telnyx', 'default_outbound_number', e.target.value); setProviderField('telnyx', 'from_phone_number', e.target.value) }} placeholder='+44...' />
+                      <input className='input' style={telnyxStatus.errors.default_outbound_number ? invalidInputStyle : undefined} value={String(activeConfig.default_outbound_number || activeConfig.from_phone_number || '')} onChange={(e) => { setProviderField('telnyx', 'default_outbound_number', e.target.value); setProviderField('telnyx', 'from_phone_number', e.target.value) }} placeholder='+447911123456' />
                       {telnyxStatus.errors.default_outbound_number ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{telnyxStatus.errors.default_outbound_number}</div> : null}
+                      <div className='muted' style={{ fontSize: 12 }}>Must be your UK Telnyx number in E.164 (+44…), assigned to the same Call Control app. Use +442046203055 exactly (you had an extra 2: +4420264203055). Run Test connection for Use buttons.</div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Outbound voice profile ID</label>
-                      <input className='input' style={telnyxStatus.errors.outbound_voice_profile_id ? invalidInputStyle : undefined} value={String(activeConfig.outbound_voice_profile_id || '')} onChange={(e) => setProviderField('telnyx', 'outbound_voice_profile_id', e.target.value)} placeholder='Telnyx outbound voice profile ID' />
-                      {telnyxStatus.errors.outbound_voice_profile_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{telnyxStatus.errors.outbound_voice_profile_id}</div> : null}
+                      <label className='label'>Outbound voice profile ID (optional)</label>
+                      <input className='input' value={String(activeConfig.outbound_voice_profile_id || '')} onChange={(e) => setProviderField('telnyx', 'outbound_voice_profile_id', e.target.value)} placeholder='Only if Telnyx shows a voice profile ID' />
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Webhook base URL</label>
-                      <input className='input' value={String(activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE)} onChange={(e) => setProviderField('telnyx', 'webhook_base_url', e.target.value)} />
+                      <label className='label'>Webhook base URL (ngrok for local test)</label>
+                      <input className='input' style={telnyxStatus.errors.webhook_base_url ? invalidInputStyle : undefined} value={String(activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE)} onChange={(e) => setProviderField('telnyx', 'webhook_base_url', e.target.value)} placeholder='https://YOUR-ID.ngrok-free.app' />
+                      {telnyxStatus.errors.webhook_base_url ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{telnyxStatus.errors.webhook_base_url}</div> : null}
+                      <div className='muted' style={{ fontSize: 12 }}>Run: ngrok http 8000 — paste only the ngrok host (e.g. https://YOUR-ID.ngrok-free.app), not /telnyx/webhooks/voice. Telnyx cannot reach localhost.</div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Webhook URL for Telnyx portal</label>
+                      <label className='label'>Webhook URL for Telnyx portal (paste in Telnyx app)</label>
                       <div className='actions' style={{ alignItems: 'center' }}>
                         <input className='input' style={telnyxStatus.errors.voice_webhook_url ? invalidInputStyle : undefined} value={String(telnyxWebhookUrl)} onChange={(e) => setProviderField('telnyx', 'voice_webhook_url', e.target.value)} />
                         <button className='btn soft' type='button' onClick={() => copyText(telnyxWebhookUrl)}>Copy</button>
@@ -910,16 +1038,19 @@ export default function Integrations() {
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Media stream WebSocket URL</label>
-                      <input className='input' value={String(activeConfig.media_stream_url || 'wss://localhost/telnyx/media-stream')} onChange={(e) => setProviderField('telnyx', 'media_stream_url', e.target.value)} />
+                      <input className='input' value={String(activeConfig.media_stream_url || telnyxMediaStreamUrl)} onChange={(e) => setProviderField('telnyx', 'media_stream_url', e.target.value)} />
+                      <div className='muted' style={{ fontSize: 12 }}>Computed after save: {telnyxMediaStreamUrl}</div>
                     </div>
                     <div className='note'>
                       <strong>Telnyx setup steps</strong>
                       <ol style={{ margin: '8px 0 0 18px', padding: 0 }}>
                         <li>Create an API key in the Telnyx portal.</li>
                         <li>Create a Voice API application / call control connection.</li>
-                        <li>Set the webhook URL shown above in Telnyx.</li>
-                        <li>Buy or assign a phone number to the voice profile/application.</li>
-                        <li>Save the credentials in VOXBULK, then run the connection test.</li>
+                        <li>For local dev: run <code>ngrok http 8000</code>, paste the https URL as Webhook base URL, then Save.</li>
+                        <li>Copy <strong>Webhook URL for Telnyx portal</strong> into your Telnyx Call Control app (exact path must end with <code>/telnyx/webhooks/voice</code>).</li>
+                        <li>Open that URL in a browser — you should see JSON with ok: true, not “file not found”.</li>
+                        <li>Buy or assign your UK number to the same Call Control application.</li>
+                        <li>Save in VOXBULK, then run Test connection.</li>
                       </ol>
                     </div>
                     <div className='actions'>
@@ -931,15 +1062,40 @@ export default function Integrations() {
                       </button>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Test call destination</label>
-                      <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+44...' />
-                      <button className='btn soft' onClick={testTelnyxCall} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
-                        Test call
-                      </button>
+                      <label className='label'>Test call destination (your mobile — this rings)</label>
+                      <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+447700900123' />
+                      <div className='muted' style={{ fontSize: 12 }}>From = your Telnyx line (+442046203055). To = your personal mobile in E.164 (+44…).</div>
+                      <div className='actions' style={{ flexWrap: 'wrap', gap: 8 }}>
+                        <button
+                          className='btn soft'
+                          type='button'
+                          onClick={testTelnyxCall}
+                          disabled={providerSaving || telnyxCallBusy || !activeSummary?.exists || !telnyxTestNumber.trim()}
+                        >
+                          {telnyxCallBusy && !telnyxActiveCallId ? 'Calling…' : 'Test call'}
+                        </button>
+                        <button
+                          className='btn soft'
+                          type='button'
+                          onClick={hangupTelnyxCall}
+                          disabled={providerSaving || telnyxCallBusy || !activeSummary?.exists || !telnyxActiveCallId}
+                          title={telnyxActiveCallId ? `Hang up ${telnyxActiveCallId}` : 'Place a test call first'}
+                        >
+                          Hang up
+                        </button>
+                      </div>
+                      {telnyxActiveCallId ? (
+                        <div className='muted' style={{ fontSize: 12 }}>Active call: {telnyxActiveCallId}</div>
+                      ) : null}
                     </div>
                     <div className='note'>
                       Connection status: {statusPill(activeSummary).text}
                       {activeSummary?.missing_fields?.length ? ` · Missing ${joinMissingFields(activeSummary.missing_fields)}` : ''}
+                      {activeSummary?.configured ? (
+                        <div className='muted' style={{ fontSize: 12, marginTop: 6 }}>
+                          “Configured” means required fields are saved. Use <strong>Test connection</strong> to confirm Telnyx accepts your API key.
+                        </div>
+                      ) : null}
                     </div>
                     {telnyxTestResult ? <div className='note'>{telnyxTestResult}</div> : null}
                   </div>
@@ -1237,7 +1393,7 @@ export default function Integrations() {
                     </label>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Public key</label>
-                      <input className='input' style={vapiStatus.errors.public_key ? invalidInputStyle : undefined} value={String(activeConfig.public_key || '')} onChange={(e) => setProviderField('vapi', 'public_key', e.target.value)} placeholder='Public key from Vapi dashboard' />
+                      <input className='input' style={vapiStatus.errors.public_key ? invalidInputStyle : undefined} value={String(activeConfig.public_key || '')} onChange={(e) => setProviderField('vapi', 'public_key', e.target.value)} placeholder='Public Key (for browser / Talk to us)' />
                       {vapiStatus.errors.public_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{vapiStatus.errors.public_key}</div> : null}
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
@@ -1246,9 +1402,10 @@ export default function Integrations() {
                       {vapiStatus.errors.assistant_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{vapiStatus.errors.assistant_id}</div> : null}
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Server API key (optional)</label>
-                      <input className='input' type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, vapi: { ...(s.vapi || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Optional server key'} />
-                      <div className='muted' style={{ fontSize: 12 }}>Browser calls need the public key and assistant ID. Server API key is stored for later backend tests.</div>
+                      <label className='label'>Private API key (required)</label>
+                      <input className='input' style={vapiStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, vapi: { ...(s.vapi || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current private key' : 'Paste Private API Key from Vapi dashboard'} />
+                      {vapiStatus.errors.api_key ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{vapiStatus.errors.api_key}</div> : null}
+                      <div className='muted' style={{ fontSize: 12 }}>Public key = Talk to us in the browser. Private API key = Lead sources transcript and recording from Vapi. Do not swap them.</div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Base URL</label>
@@ -1264,7 +1421,12 @@ export default function Integrations() {
                         Test Vapi
                       </button>
                     </div>
-                    <div className='note'>Use this in `/ai/agent-demo` by selecting Vapi. Vapi handles its own voice and latency, separate from Azure Speech.</div>
+                    <div className='note'>
+                      From your Vapi dashboard → API Keys: paste <strong>Public Key</strong> in Public key (used by Talk to us on the website).
+                      Optional <strong>Private API Key</strong> goes in Server API key (server checks only — never in the browser).
+                      Click <strong>Save Vapi</strong>, then <strong>Test Vapi</strong>. Do not swap the two keys (401).
+                      For website calls, also set the same assistant ID under Admin → Front page call leads.
+                    </div>
                   </div>
                 </div>
               </div>

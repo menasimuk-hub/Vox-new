@@ -1,29 +1,46 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import {
-  LayoutDashboard,
-  Building2,
-  ClipboardCheck,
-  Activity,
-  Megaphone,
-  Plug,
-  CreditCard,
-  LifeBuoy,
-  BrainCircuit,
-  Shield,
-  BarChart3,
-  Users,
-  Settings,
-  ChevronRight,
-} from 'lucide-react'
 
 import { filterSidebarNav } from '../../lib/adminPaths'
 import { useAdminProfile } from '../../context/AdminProfileContext'
 
+const GROUP_ICONS = {
+  Dashboard: 'ti-dashboard',
+  Organisations: 'ti-building',
+  Onboarding: 'ti-clipboard-check',
+  Operations: 'ti-activity',
+  'AI Marketing': 'ti-speakerphone',
+  Integrations: 'ti-plug',
+  'Services API': 'ti-api',
+  'Billing & Finance': 'ti-credit-card',
+  Support: 'ti-lifebuoy',
+  'AI / LLM Control': 'ti-brain',
+  Compliance: 'ti-shield',
+  Analytics: 'ti-chart-bar',
+  'Team & roles': 'ti-users',
+  'Platform Settings': 'ti-settings',
+}
+
+const GROUP_SECTION = {
+  Dashboard: 'Main',
+  Organisations: 'Main',
+  Onboarding: 'Main',
+  Operations: 'Main',
+  'AI Marketing': 'Growth & finance',
+  Integrations: 'Growth & finance',
+  'Services API': 'Growth & finance',
+  'Billing & Finance': 'Growth & finance',
+  Support: 'Control',
+  'AI / LLM Control': 'Control',
+  Compliance: 'Control',
+  Analytics: 'Control',
+  'Team & roles': 'Control',
+  'Platform Settings': 'Control',
+}
+
 const NAV = [
   [
     'Dashboard',
-    LayoutDashboard,
     [
       ['MRR', '/dashboard/mrr'],
       ['Total organisations', '/dashboard/total-organisations'],
@@ -34,7 +51,6 @@ const NAV = [
   ],
   [
     'Organisations',
-    Building2,
     [
       ['All organisations', '/organisations'],
       ['Organisation profile', '/organisations/profile'],
@@ -43,7 +59,6 @@ const NAV = [
   ],
   [
     'Onboarding',
-    ClipboardCheck,
     [
       ['New customer setup', '/onboarding/setup'],
       ['Pending signups', '/onboarding/pending-signups'],
@@ -54,7 +69,6 @@ const NAV = [
   ],
   [
     'Operations',
-    Activity,
     [
       ['Call queue', '/operations/call-queue'],
       ['WhatsApp queue', '/operations/whatsapp-queue'],
@@ -65,9 +79,11 @@ const NAV = [
   ],
   [
     'AI Marketing',
-    Megaphone,
     [
       ['Lead sources', '/marketing/lead-sources'],
+      ['Lead sales', '/marketing/lead-sales'],
+      ['Sales setup (AI + KB)', '/marketing/lead-sales/settings'],
+      ['Front page call leads', '/marketing/frontpage-call-leads'],
       ['Apollo leads', '/marketing/apollo'],
       ['Clay enrichment', '/marketing/clay'],
       ['Instantly campaigns', '/marketing/instantly'],
@@ -79,7 +95,6 @@ const NAV = [
   ],
   [
     'Integrations',
-    Plug,
     [
       ['Dentally', '/integrations/dentally'],
       ['Telnyx voice agent', '/integrations/telnyx'],
@@ -99,7 +114,6 @@ const NAV = [
   ],
   [
     'Services API',
-    Plug,
     [
       ['Dentally', '/services-api/dentally'],
       ['CareStack', '/services-api/carestack'],
@@ -112,19 +126,18 @@ const NAV = [
   ],
   [
     'Billing & Finance',
-    CreditCard,
     [
       ['Mandates', '/billing/mandates'],
       ['Subscriptions', '/billing/subscriptions'],
       ['Invoices', '/billing/invoices'],
       ['Failed payments', '/billing/failed-payments'],
       ['Revenue reports', '/billing/reports'],
+      ['Calls cost', '/billing/calls-cost'],
       ['Packages & Pricing', '/billing/packages'],
     ],
   ],
   [
     'Support',
-    LifeBuoy,
     [
       ['Support inbox', '/support/inbox'],
       ['Open tickets', '/support/tickets'],
@@ -137,7 +150,6 @@ const NAV = [
   ],
   [
     'AI / LLM Control',
-    BrainCircuit,
     [
       ['Call scripts', '/ai/scripts'],
       ['Agents', '/ai/agents'],
@@ -150,7 +162,6 @@ const NAV = [
   ],
   [
     'Compliance',
-    Shield,
     [
       ['Audit logs', '/compliance/audit'],
       ['Consent / opt-out', '/compliance/consent'],
@@ -161,7 +172,6 @@ const NAV = [
   ],
   [
     'Analytics',
-    BarChart3,
     [
       ['Platform KPIs', '/analytics/kpis'],
       ['Org benchmarks', '/analytics/benchmarks'],
@@ -169,9 +179,8 @@ const NAV = [
       ['Cost vs revenue', '/analytics/cost-revenue'],
     ],
   ],
-    [
+  [
     'Team & roles',
-    Users,
     [
       ['Platform admins (list)', '/admin/users'],
       ['Add platform admin', '/admin/users/new'],
@@ -181,7 +190,6 @@ const NAV = [
   ],
   [
     'Platform Settings',
-    Settings,
     [
       ['Global config', '/settings/global'],
       ['Feature flags', '/settings/flags'],
@@ -191,71 +199,115 @@ const NAV = [
   ],
 ]
 
-export default function Sidebar() {
+function findGroupForPath(pathname, tree) {
+  for (const [group, items] of tree) {
+    if (items.some(([, path]) => path === pathname)) return group
+  }
+  return null
+}
+
+function buildInitialOpen(pathname) {
+  const activeGroup = findGroupForPath(pathname, NAV) || 'Dashboard'
+  return Object.fromEntries(NAV.map(([name]) => [name, name === activeGroup]))
+}
+
+export default function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onNavigate }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { adminRole } = useAdminProfile()
 
   const nav = useMemo(() => filterSidebarNav(adminRole, NAV), [adminRole])
 
-  const [open, setOpen] = useState(
-    Object.fromEntries(
-      NAV.map(([name]) => [
-        name,
-        ['Dashboard', 'Organisations', 'Integrations', 'Billing & Finance'].includes(name),
-      ])
-    )
-  )
+  const [open, setOpen] = useState(() => buildInitialOpen(location.pathname))
+
+  useEffect(() => {
+    const activeGroup = findGroupForPath(location.pathname, nav)
+    if (!activeGroup) return
+    setOpen((prev) => ({ ...prev, [activeGroup]: true }))
+  }, [location.pathname, nav])
+
+  const toggleGroup = (group) => {
+    setOpen((prev) => {
+      const willOpen = !prev[group]
+      if (!willOpen) return { ...prev, [group]: false }
+      const next = Object.fromEntries(NAV.map(([name]) => [name, name === group]))
+      return next
+    })
+  }
 
   const handleNavigate = (path) => {
     if (location.pathname !== path) navigate(path)
+    onNavigate?.()
   }
 
-  return (
-    <aside className="sidebar">
-      <div className="brandBar">
-  <div className="brand brandImageOnly">
-    <img
-      src="/retoverlogosvg.svg"
-      alt="VOXBULK"
-      className="brandLogoImage"
-    />
-  </div>
-</div>
+  let lastSection = ''
 
-      <div className="navWrap">
-        {nav.map(([group, Icon, items], idx) => {
+  return (
+    <aside className={`sb ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`} id='sb'>
+      <div className='sb-logo'>
+        <button
+          type='button'
+          className='sb-logo-btn'
+          onClick={collapsed ? onToggleCollapse : undefined}
+          aria-label={collapsed ? 'Expand sidebar' : 'VOXBULK Admin'}
+          title={collapsed ? 'Show menu' : 'VOXBULK Admin'}
+        >
+          <img src='/logo-dark.svg' alt='VOXBULK' className='sb-logo-img logo-light sb-logo-full' />
+          <img src='/logo-light.svg' alt='VOXBULK' className='sb-logo-img logo-dark sb-logo-full' />
+          <span className='sb-logo-icon' aria-hidden={!collapsed}>
+            <img src='/favicon.png' alt='' />
+          </span>
+        </button>
+        {!collapsed ? (
+          <button type='button' className='sb-toggle' onClick={onToggleCollapse} aria-label='Collapse sidebar'>
+            <i className='ti ti-chevrons-left' />
+          </button>
+        ) : null}
+      </div>
+
+      <div className='sb-nav'>
+        {nav.map(([group, items]) => {
           const isGroupActive = items.some(([, path]) => location.pathname === path)
+          const icon = GROUP_ICONS[group] || 'ti-circle-dot'
+          const section = GROUP_SECTION[group] || ''
+          const showSection = section && section !== lastSection
+          if (showSection) lastSection = section
 
           return (
-            <div className="navGroup" key={group}>
-              {idx === 0 && <div className="groupTitle">Main</div>}
-              {idx === 4 && <div className="groupTitle">Growth & Finance</div>}
-              {idx === 7 && <div className="groupTitle">Control</div>}
+            <div className='nav-group' key={group}>
+              {showSection ? <div className='nav-sec'>{section}</div> : null}
 
               <button
-                className={`navButton ${open[group] ? 'open' : ''} ${isGroupActive ? 'group-active' : ''}`}
-                onClick={() => setOpen((s) => ({ ...s, [group]: !s[group] }))}
+                type='button'
+                className={`ni ni-group ${open[group] ? 'open' : ''} ${isGroupActive ? 'has-active' : ''}`}
+                onClick={() => toggleGroup(group)}
+                aria-expanded={Boolean(open[group])}
               >
-                <Icon size={17} />
-                <span>{group}</span>
-                <ChevronRight
-                  size={15}
-                  className="chev"
-                  style={{ transform: open[group] ? 'rotate(90deg)' : 'none' }}
-                />
+                <i className={`ti ${icon} nav-ic`} />
+                <span className='ni-label'>{group}</span>
+                <i className={`ti ti-chevron-down nav-chev ${open[group] ? 'open' : ''}`} />
+                <span className='ni-tip'>{group}</span>
               </button>
 
-              {open[group] &&
-                items.map(([label, path]) => (
-                  <button
-                    key={`${group}-${path}-${label}`}
-                    onClick={() => handleNavigate(path)}
-                    className={`subButton ${location.pathname === path ? 'active' : ''}`}
-                  >
-                    {label}
-                  </button>
-                ))}
+              {open[group] ? (
+                <div className='nav-children'>
+                  {items.map(([label, path]) => {
+                    const active = location.pathname === path
+                    return (
+                      <button
+                        type='button'
+                        key={`${group}-${path}-${label}`}
+                        className={`ni ni-sub ${active ? 'on' : ''}`}
+                        onClick={() => handleNavigate(path)}
+                      >
+                        <span className='ni-sub-dot' aria-hidden='true' />
+                        <span className='ni-label'>{label}</span>
+                        <span className='ni-tip'>{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
             </div>
           )
         })}

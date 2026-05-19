@@ -15,7 +15,7 @@
 
 API:
 ```powershell
-cd C:\Users\zaghlol\Downloads\voxbulk.com\retover-api
+cd C:\Users\zaghlol\Downloads\voxbulk.com\voxbulk-api
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
