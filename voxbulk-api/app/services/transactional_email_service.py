@@ -50,6 +50,25 @@ def substitute_placeholders(template: str, variables: dict[str, str]) -> str:
     return _PLACEHOLDER.sub(repl, template)
 
 
+def _coalesce_template_field(draft_value: str | None, saved_value: str | None) -> str:
+    """Prefer non-empty draft editor content; fall back to saved DB template."""
+    if draft_value is not None and str(draft_value).strip():
+        return str(draft_value)
+    return str(saved_value or "")
+
+
+def _looks_like_html(text: str) -> bool:
+    return bool(re.search(r"<[a-z][\s\S]*?>", str(text or ""), re.I))
+
+
+def _deliver_message(db: Session, *, to_addr: str, subject: str, body: str) -> None:
+    clean_body = str(body or "")
+    if _looks_like_html(clean_body):
+        SmtpMailerService.send_html(db, to_addr=to_addr, subject=subject, body=clean_body)
+    else:
+        SmtpMailerService.send_plain(db, to_addr=to_addr, subject=subject, body=clean_body or subject)
+
+
 class TransactionalEmailService:
     """Sends SMTP mail using persisted templates + simple {{placeholder}} substitution."""
 
@@ -83,7 +102,7 @@ class TransactionalEmailService:
         subject = substitute_placeholders(row.subject or "", variables)
         body = substitute_placeholders(row.body or "", variables)
         try:
-            SmtpMailerService.send_html(db, to_addr=to_addr, subject=subject, body=body)
+            _deliver_message(db, to_addr=to_addr, subject=subject, body=body)
         except SmtpMailerError as e:
             logger.warning("transactional_smtp_failed", extra={"template": k, "err": str(e)})
             return False, str(e)
@@ -110,26 +129,24 @@ class TransactionalEmailService:
             return False, "Recipient email is required"
 
         merged_vars = dict(EMAIL_TEST_VARIABLES)
+        merged_vars["user_email"] = to_addr
         if variables:
             merged_vars.update({str(key): "" if val is None else str(val) for key, val in variables.items()})
 
-        raw_subject = (subject if subject is not None else row.subject or "").strip()
-        raw_body = body if body is not None else row.body or ""
+        raw_subject = _coalesce_template_field(subject, row.subject).strip()
+        raw_body = _coalesce_template_field(body, row.body)
         if not raw_subject and not str(raw_body).strip():
-            return False, "Template subject and body are empty"
+            return False, "Template subject and body are empty — add content or click Save template first."
 
         rendered_subject = substitute_placeholders(raw_subject, merged_vars).strip() or f"Test: {k}"
         if not rendered_subject.lower().startswith("[test]"):
             rendered_subject = f"[TEST] {rendered_subject}"
-        rendered_body = substitute_placeholders(str(raw_body or ""), merged_vars)
+        rendered_body = substitute_placeholders(str(raw_body or ""), merged_vars).strip()
+        if not rendered_body:
+            rendered_body = rendered_subject
 
         try:
-            SmtpMailerService.send_html(
-                db,
-                to_addr=to_addr,
-                subject=rendered_subject,
-                body=rendered_body,
-            )
+            _deliver_message(db, to_addr=to_addr, subject=rendered_subject, body=rendered_body)
         except SmtpMailerError as e:
             return False, str(e)
         return True, None

@@ -15,8 +15,6 @@ import {
   smtpTestResultMessage,
 } from '../lib/messagingConstants'
 
-const SYSTEM_TEMPLATE_KEYS = new Set(Object.keys(SYSTEM_EMAIL_META))
-
 const EMPTY_NEW = {
   template_key: '',
   title: '',
@@ -128,40 +126,17 @@ export default function EmailTemplateEdit() {
     setTestMsg('')
     try {
       window.localStorage.setItem('retover_admin_test_email_to', to)
-      const variables = buildEmailTestVariables(templateKey)
-      const payload = {
-        to,
-        subject: draft.subject,
-        body: draft.body,
-        variables,
-      }
-      try {
-        const res = await apiFetch(`/admin/email/templates/${encodeURIComponent(templateKey)}/send-test`, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        })
-        setTestMsg(smtpTestResultMessage(res))
-        return
-      } catch (primaryErr) {
-        const canFallback = primaryErr?.status === 404 && SYSTEM_TEMPLATE_KEYS.has(templateKey) && templateKey !== 'forgot_password'
-        if (!canFallback) throw primaryErr
-        const res = await apiFetch('/admin/email/notify/send-templated', {
-          method: 'POST',
-          body: JSON.stringify({
-            template_key: templateKey,
-            to,
-            variables,
-          }),
-        })
-        setTestMsg(`${smtpTestResultMessage(res)} (used saved template — update API on server for draft test send.)`)
-      }
+      const variables = { ...buildEmailTestVariables(templateKey), user_email: to }
+      const payload = { to, variables }
+      if (String(draft.subject || '').trim()) payload.subject = draft.subject
+      if (String(draft.body || '').trim()) payload.body = draft.body
+      const res = await apiFetch(`/admin/email/templates/${encodeURIComponent(templateKey)}/send-test`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      setTestMsg(smtpTestResultMessage(res))
     } catch (e) {
-      const detail = e?.message || 'Send failed'
-      if (e?.status === 404) {
-        setTestMsg(`${detail}. The API on this server is missing the send-test route — git pull, restart FastAPI, then try again.`)
-      } else {
-        setTestMsg(detail)
-      }
+      setTestMsg(e?.message || 'Send failed')
     } finally {
       setTestBusy(false)
     }

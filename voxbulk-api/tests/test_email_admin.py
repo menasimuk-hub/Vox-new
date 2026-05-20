@@ -155,6 +155,43 @@ def test_email_template_send_test_mocked(app_client):
     assert "Alex Demo" in kwargs["body"]
 
 
+def test_email_template_send_test_uses_saved_when_draft_empty(app_client):
+    headers = _bootstrap_super(app_client)
+    _seed_templates()
+
+    app_client.put(
+        "/admin/email/smtp",
+        json={
+            "host": "localhost",
+            "port": 1025,
+            "username": "",
+            "from_name": "Test",
+            "from_email": "from@example.com",
+            "use_tls": False,
+            "use_ssl": False,
+            "is_enabled": True,
+        },
+        headers=headers,
+    )
+    app_client.put(
+        "/admin/email/templates/new_user",
+        json={"subject": "Welcome saved", "body": "<p>Saved body for {{user_email}}</p>", "is_enabled": False},
+        headers=headers,
+    )
+
+    from app.services.smtp_mailer_service import SmtpMailerService
+
+    with patch.object(SmtpMailerService, "send_html") as spy:
+        r = app_client.post(
+            "/admin/email/templates/new_user/send-test",
+            json={"to": "welcome@example.com", "subject": "", "body": ""},
+            headers=headers,
+        )
+    assert r.status_code == 200
+    kwargs = spy.call_args.kwargs
+    assert "Saved body for welcome@example.com" in kwargs["body"]
+
+
 def test_smtp_test_send_success_mocked(app_client):
     headers = _bootstrap_super(app_client)
     app_client.put(

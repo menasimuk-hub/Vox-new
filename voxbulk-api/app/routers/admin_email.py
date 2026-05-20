@@ -15,7 +15,6 @@ from app.schemas.email_admin import (
 )
 from app.services.email_template_service import EMAIL_TEMPLATE_KEYS, EmailTemplateService, EmailTemplateError, EmailTemplateUnknown
 from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
-from app.services.product_email_triggers import ProductEmailTriggers
 from app.services.smtp_settings_service import SmtpSettingsService
 from app.services.transactional_email_service import TransactionalEmailService
 
@@ -94,22 +93,16 @@ def post_send_templated_notification(
         )
 
     vars_plain = {str(k): "" if v is None else str(v) for k, v in (payload.variables or {}).items()}
-
-    if key == "new_user":
-        ok, err = ProductEmailTriggers.send_new_user_welcome(db, to_email=str(payload.to), extra_variables=vars_plain)
-    elif key == "payment_failed":
-        ok, err = ProductEmailTriggers.notify_payment_failed(db, to_email=str(payload.to), extra_variables=vars_plain)
-    elif key == "new_invoice":
-        ok, err = ProductEmailTriggers.notify_new_invoice(db, to_email=str(payload.to), extra_variables=vars_plain)
-    elif key == "general_notification":
-        ok, err = ProductEmailTriggers.notify_general(db, to_email=str(payload.to), extra_variables=vars_plain)
-    else:
-        ok, err = (False, "unsupported_template")
-
+    ok, err = TransactionalEmailService.send_template_test(
+        db,
+        template_key=key,
+        to_email=str(payload.to),
+        variables=vars_plain,
+    )
     if not ok:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=err or "Email was not sent (template disabled or SMTP incomplete).",
+            detail=err or "Test email was not sent.",
         )
     return {"ok": True, "detail": f"Templated '{key}' sent to {payload.to}."}
 
