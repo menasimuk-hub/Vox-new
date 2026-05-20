@@ -1539,3 +1539,18 @@ def sync_lead_sales_outcome_route(task_id: str, db: Session = Depends(get_db), _
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     lead = db.get(FrontpageLeadCall, row.lead_id)
     return {"task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None)}
+
+
+@admin_router.get("/lead-sales/tasks/{task_id}/telnyx-insights")
+def get_lead_sales_task_telnyx_insights(
+    task_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    from app.models.lead_sales_task import LeadSalesTask
+    from app.services.lead_sales_outcome_service import get_sales_task_telnyx_insights
+
+    row = db.get(LeadSalesTask, task_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
+    return get_sales_task_telnyx_insights(db, row)

@@ -607,3 +607,92 @@ def sync_telnyx_lead_artifacts(db: Session, row) -> dict[str, Any]:
         db.commit()
         db.refresh(row)
     return result
+
+
+def _parse_insight_result(value: Any) -> tuple[str, Any | None]:
+    text = str(value or "").strip()
+    if not text:
+        return "", None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return text, None
+    return text, parsed
+
+
+def fetch_conversation_insights(db: Session, conversation_id: str) -> dict[str, Any]:
+    """Fetch Telnyx Assistant conversation insights (structured agent output)."""
+    conv_id = str(conversation_id or "").strip()
+    if not _looks_like_conversation_id(conv_id):
+        return {
+            "conversation_id": conv_id,
+            "error": "Invalid Telnyx conversation id",
+            "status": "invalid",
+            "items": [],
+        }
+
+    body, err = _telnyx_request(
+        db,
+        "GET",
+        f"/ai/conversations/{conv_id}/conversations-insights",
+        timeout=30.0,
+    )
+    if err:
+        if err == "Telnyx resource not found":
+            return {
+                "conversation_id": conv_id,
+                "error": None,
+                "status": "none",
+                "items": [],
+                "message": (
+                    "Telnyx has no insight record for this conversation yet. "
+                    "Insights appear after the call ends when Insights are enabled on the assistant."
+                ),
+            }
+        return {
+            "conversation_id": conv_id,
+            "error": err,
+            "status": "error",
+            "items": [],
+        }
+
+    raw_batches = body.get("data") if isinstance(body, dict) else []
+    if not isinstance(raw_batches, list):
+        raw_batches = []
+
+    items: list[dict[str, Any]] = []
+    batch_statuses: list[str] = []
+    for batch in raw_batches:
+        if not isinstance(batch, dict):
+            continue
+        batch_status = str(batch.get("status") or "").strip() or "unknown"
+        batch_statuses.append(batch_status)
+        for ins in batch.get("conversation_insights") or []:
+            if not isinstance(ins, dict):
+                continue
+            result_text, result_json = _parse_insight_result(ins.get("result"))
+            items.append(
+                {
+                    "insight_id": ins.get("insight_id"),
+                    "result": result_text,
+                    "result_json": result_json,
+                    "batch_id": batch.get("id"),
+                    "batch_status": batch_status,
+                    "created_at": batch.get("created_at"),
+                }
+            )
+
+    if items:
+        status = "completed"
+    elif batch_statuses:
+        status = batch_statuses[0]
+    else:
+        status = "none"
+
+    return {
+        "conversation_id": conv_id,
+        "error": None,
+        "status": status,
+        "items": items,
+        "meta": body.get("meta") if isinstance(body, dict) else None,
+    }

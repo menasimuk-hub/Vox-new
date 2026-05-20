@@ -1581,6 +1581,48 @@ def admin_billing_call_cost_detail(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.get("/billing/conversations/{conversation_id}/insights")
+def admin_billing_conversation_insights(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.telnyx_call_cost_service import get_call_insights_by_conversation
+
+    try:
+        return get_call_insights_by_conversation(db, conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/billing/calls-cost/{session_id}/insights")
+def admin_billing_call_insights(
+    session_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.telnyx_call_cost_service import get_call_insights_by_session
+
+    try:
+        return get_call_insights_by_session(db, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/telnyx/conversations/{conversation_id}/insights")
+def admin_telnyx_conversation_insights(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    from app.services.telnyx_conversation_service import fetch_conversation_insights
+
+    payload = fetch_conversation_insights(db, conversation_id)
+    if payload.get("status") == "invalid":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(payload.get("error") or "Invalid id"))
+    return payload
+
+
 @router.get("/admin-users")
 def admin_list_admin_users(db: Session = Depends(get_db), _admin=Depends(require_superadmin)):
     rows = list(db.execute(select(AdminUser).order_by(AdminUser.created_at.desc()).limit(200)).scalars())

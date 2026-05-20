@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import TelnyxInsightsModal from '../components/TelnyxInsightsModal'
 
 const DATE_RANGES = [
   ['today', 'Today'],
@@ -154,6 +155,7 @@ export default function CallsCost() {
   const [error, setError] = useState('')
   const [payload, setPayload] = useState(null)
   const [detailSessionId, setDetailSessionId] = useState('')
+  const [insightsTarget, setInsightsTarget] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -314,6 +316,18 @@ export default function CallsCost() {
                   </td>
                   <td>{row.source_label || '—'}</td>
                   <td className='callCostActions'>
+                    <button
+                      type='button'
+                      className='btn soft'
+                      disabled={!row.conversation_id && !row.session_id}
+                      onClick={() => setInsightsTarget({
+                        conversationId: row.conversation_id,
+                        sessionId: row.session_id,
+                        title: row.agent_name || row.destination || 'Call result',
+                      })}
+                    >
+                      Result
+                    </button>
                     <button type='button' className='btn soft' onClick={() => setDetailSessionId(row.session_id)}>
                       Details
                     </button>
@@ -341,6 +355,15 @@ export default function CallsCost() {
 
       {detailSessionId ? (
         <CallCostDetailModal sessionId={detailSessionId} onClose={() => setDetailSessionId('')} />
+      ) : null}
+
+      {insightsTarget ? (
+        <TelnyxInsightsModal
+          sessionId={insightsTarget.sessionId}
+          conversationId={insightsTarget.conversationId}
+          title={insightsTarget.title}
+          onClose={() => setInsightsTarget(null)}
+        />
       ) : null}
     </>
   )

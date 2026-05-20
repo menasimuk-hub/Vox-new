@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -12,6 +12,8 @@ from app.models.lead_sales_task import LeadSalesTask
 from app.services.agents.base import AgentMessage
 from app.services.providers.openai_service import OpenAIProviderService
 from app.services.telnyx_conversation_service import (
+    _looks_like_conversation_id,
+    fetch_conversation_insights,
     fetch_conversation_messages,
     transcript_entries_from_messages,
     transcript_from_entries,
@@ -96,6 +98,41 @@ def extract_sales_outcome(db: Session, *, transcript: str, task: LeadSalesTask) 
         "objections": [str(x).strip() for x in objections if str(x).strip()],
         "sentiment": sentiment,
     }
+
+
+def resolve_sales_task_conversation_id(db: Session, task: LeadSalesTask) -> str:
+    for candidate in (task.telnyx_conversation_id, task.provider_call_id):
+        conv_id = str(candidate or "").strip()
+        if _looks_like_conversation_id(conv_id):
+            return conv_id
+    conversation = _find_conversation_for_sales_call(db, task)
+    if conversation:
+        return str(conversation.get("id") or "").strip()
+    return ""
+
+
+def get_sales_task_telnyx_insights(db: Session, task: LeadSalesTask) -> dict[str, Any]:
+    conv_id = resolve_sales_task_conversation_id(db, task)
+    if not conv_id:
+        return {
+            "task_id": task.id,
+            "conversation_id": "",
+            "error": None,
+            "status": "none",
+            "items": [],
+            "message": (
+                "Could not find a Telnyx conversation for this sales call. "
+                "Use Refresh from Telnyx on the task page after the call completes."
+            ),
+        }
+    if conv_id != str(task.telnyx_conversation_id or "").strip():
+        task.telnyx_conversation_id = conv_id
+        task.updated_at = datetime.utcnow()
+        db.add(task)
+        db.commit()
+    payload = fetch_conversation_insights(db, conv_id)
+    payload["task_id"] = task.id
+    return payload
 
 
 def _find_conversation_for_sales_call(db: Session, task: LeadSalesTask) -> dict[str, Any] | None:

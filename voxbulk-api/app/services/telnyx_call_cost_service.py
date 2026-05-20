@@ -528,3 +528,39 @@ def get_call_cost_detail(db: Session, session_id: str) -> dict[str, Any]:
             "legs": legs,
         },
     }
+
+
+def get_call_insights_by_conversation(db: Session, conversation_id: str) -> dict[str, Any]:
+    from app.services.telnyx_conversation_service import fetch_conversation_insights
+
+    conv_id = str(conversation_id or "").strip()
+    if not conv_id:
+        raise ValueError("Conversation id is required")
+    return fetch_conversation_insights(db, conv_id)
+
+
+def get_call_insights_by_session(db: Session, session_id: str) -> dict[str, Any]:
+    from app.services.telnyx_conversation_service import fetch_conversation_insights
+
+    clean_session = str(session_id or "").strip()
+    if not clean_session:
+        raise ValueError("Session id is required")
+
+    ai_rows, _, err = _detail_records(
+        db,
+        record_type="ai-voice-assistant",
+        session_id=clean_session,
+        page_size=5,
+    )
+    if err:
+        raise ValueError(err)
+    if not ai_rows:
+        raise ValueError("Call not found in Telnyx detail records")
+
+    conversation_id = str(ai_rows[0].get("conversation_id") or "").strip()
+    if not conversation_id:
+        raise ValueError("No Telnyx conversation id for this call")
+
+    payload = fetch_conversation_insights(db, conversation_id)
+    payload["session_id"] = clean_session
+    return payload

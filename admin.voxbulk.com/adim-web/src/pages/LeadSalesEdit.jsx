@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch, getApiBaseUrl } from '../lib/api'
 import TelnyxDualWaveform from '../components/TelnyxDualWaveform'
+import TelnyxInsightsModal from '../components/TelnyxInsightsModal'
 
 async function resolveAdminBearerToken() {
   if (typeof window === 'undefined') return ''
@@ -35,7 +36,7 @@ function statusClass(status) {
   return map[status] || 'leadPill'
 }
 
-function OutcomeResults({ task, onSync, syncing }) {
+function OutcomeResults({ task, onSync, syncing, onViewInsight }) {
   const outcome = task?.outcome
   const callDone = task?.call_done
 
@@ -61,6 +62,9 @@ function OutcomeResults({ task, onSync, syncing }) {
       <div className='cardHead'>
         <h3>Call results</h3>
         <span className='salesDoneBadge'>Call done</span>
+        <button type='button' className='btn soft' style={{ marginLeft: 12 }} onClick={onViewInsight}>
+          Assistant result
+        </button>
         <button type='button' className='btn soft' style={{ marginLeft: 'auto' }} onClick={onSync} disabled={syncing}>
           {syncing ? 'Syncing…' : 'Refresh from Telnyx'}
         </button>
@@ -251,6 +255,7 @@ export default function LeadSalesEdit() {
   const [generatingPrompt, setGeneratingPrompt] = useState(false)
   const [syncingOutcome, setSyncingOutcome] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
+  const [showInsights, setShowInsights] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -455,7 +460,20 @@ export default function LeadSalesEdit() {
 
       <RecordingsPanel lead={lead} taskId={taskId} callDone={task.call_done} />
 
-      <OutcomeResults task={task} onSync={syncOutcome} syncing={syncingOutcome} />
+      <OutcomeResults
+        task={task}
+        onSync={syncOutcome}
+        syncing={syncingOutcome}
+        onViewInsight={() => setShowInsights(true)}
+      />
+
+      {showInsights ? (
+        <TelnyxInsightsModal
+          taskId={taskId}
+          title={task.contact_name || task.company_name || 'Sales call result'}
+          onClose={() => setShowInsights(false)}
+        />
+      ) : null}
 
       <section ref={promptRef} className='card frontpagePromptCard' style={{ marginTop: 18 }}>
         <div className='cardHead'>

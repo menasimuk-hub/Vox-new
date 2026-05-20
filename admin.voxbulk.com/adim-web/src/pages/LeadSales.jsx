@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { downloadAdminCsv } from '../lib/csvDownload'
+import TelnyxInsightsModal from '../components/TelnyxInsightsModal'
 
 function initials(name, company) {
   const source = String(name || company || '?').trim()
@@ -47,6 +48,7 @@ export default function LeadSales() {
   const [masterPromptReady, setMasterPromptReady] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [assistantConfigured, setAssistantConfigured] = useState(true)
+  const [insightsTarget, setInsightsTarget] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -225,7 +227,16 @@ export default function LeadSales() {
                       </td>
                       <td>
                         {task.call_done ? (
-                          <span className={outcomeClass(task.outcome)}>{task.outcome_label || 'View results'}</span>
+                          <button
+                            type='button'
+                            className={`salesOutcomeLink ${outcomeClass(task.outcome)}`}
+                            onClick={() => setInsightsTarget({
+                              taskId: task.id,
+                              title: task.contact_name || task.company_name || 'Sales call result',
+                            })}
+                          >
+                            {task.outcome_label || 'View result'}
+                          </button>
                         ) : task.last_error ? (
                           <span className='muted' title={task.last_error}>
                             {task.last_error.slice(0, 40)}
@@ -284,6 +295,16 @@ export default function LeadSales() {
           </div>
         </div>
       </section>
+
+      {insightsTarget ? (
+        <TelnyxInsightsModal
+          taskId={insightsTarget.taskId}
+          conversationId={insightsTarget.conversationId}
+          sessionId={insightsTarget.sessionId}
+          title={insightsTarget.title}
+          onClose={() => setInsightsTarget(null)}
+        />
+      ) : null}
     </>
   )
 }

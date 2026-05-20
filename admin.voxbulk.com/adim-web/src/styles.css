@@ -2327,8 +2327,108 @@ textarea.input{
   gap:2px;
 }
 .callCostActions{
-  width:92px;
+  width:170px;
   text-align:right;
+  display:flex;
+  justify-content:flex-end;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.salesOutcomeLink{
+  border:none;
+  background:none;
+  padding:0;
+  cursor:pointer;
+  font:inherit;
+  text-align:left;
+}
+.salesOutcomeLink:hover{
+  text-decoration:underline;
+}
+.telnyxInsightsModal{
+  width:min(760px, calc(100vw - 32px));
+}
+.telnyxInsightMeta{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+  gap:12px;
+  margin-bottom:16px;
+}
+.telnyxInsightMeta > div{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--surface-3);
+}
+.telnyxInsightBlock{
+  margin-top:16px;
+  padding-top:16px;
+  border-top:1px solid var(--line);
+}
+.telnyxInsightBlockHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:8px;
+}
+.telnyxInsightBlockHead h4{
+  margin:0;
+}
+.telnyxInsightWhen{
+  margin:0 0 10px;
+  font-size:12px;
+}
+.telnyxInsightStatus{
+  display:inline-flex;
+  align-items:center;
+  padding:3px 9px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:700;
+  text-transform:capitalize;
+}
+.telnyxInsightStatusDone{background:#e8f8ee;color:#1a7a3f}
+.telnyxInsightStatusPending{background:#fff7ed;color:#c2410c}
+.telnyxInsightStatusFailed{background:#fdecec;color:#b42318}
+.telnyxInsightStatusNeutral{background:var(--panel-2);color:var(--muted)}
+.telnyxInsightFields{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+  gap:10px;
+  margin:0;
+}
+.telnyxInsightField{
+  margin:0;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--surface-3);
+}
+.telnyxInsightField dt{
+  margin:0 0 6px;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.telnyxInsightField dd{
+  margin:0;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.telnyxInsightList{
+  margin:0;
+  padding-left:18px;
+}
+.telnyxInsightRaw{
+  margin:0;
+  max-height:320px;
+  overflow:auto;
 }
 .callCostPager{
   display:flex;
@@ -2478,6 +2578,10 @@ body.dark .salesOutcomePillDemo { background: rgba(74, 222, 128, 0.14); color: #
 body.dark .salesOutcomePillBuy { background: rgba(124, 111, 247, 0.16); color: #c4b5fd; }
 body.dark .salesOutcomePillDecline { background: rgba(255, 83, 112, 0.14); color: #ff8fa3; }
 body.dark .salesOutcomePillNeutral { background: rgba(59, 130, 246, 0.14); color: #93c5fd; }
+
+body.dark .telnyxInsightStatusDone { background: rgba(74, 222, 128, 0.14); color: #86efac; }
+body.dark .telnyxInsightStatusPending { background: rgba(245, 166, 35, 0.14); color: #fcd34d; }
+body.dark .telnyxInsightStatusFailed { background: rgba(255, 83, 112, 0.14); color: #ff8fa3; }
 
 body.dark .callCostPillPhone {
   background: rgba(245, 166, 35, 0.14);
