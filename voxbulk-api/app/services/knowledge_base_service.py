@@ -183,25 +183,8 @@ def sanitize_kb_file_ids(db: Session, file_ids: list[str], *, scope: str | None 
 
 
 def validate_kb_file_ids_for_scope(db: Session, file_ids: list[str], *, scope: str) -> list[str]:
-    unique = list(dict.fromkeys([str(v).strip() for v in file_ids if str(v).strip()]))
-    if not unique:
-        return []
-    expected = normalize_kb_scope(scope)
-    rows = list(db.execute(select(KnowledgeBaseFile).where(KnowledgeBaseFile.id.in_(unique))).scalars())
-    by_id = {r.id: r for r in rows}
-    missing = [fid for fid in unique if fid not in by_id]
-    if missing:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"message": "Unknown knowledge base files", "missing_ids": missing},
-        )
-    wrong = [by_id[fid].original_filename for fid in unique if str(by_id[fid].scope or KB_SCOPE_ORG) != expected]
-    if wrong:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"These files belong to another agent library ({expected} only): {', '.join(wrong)}",
-        )
-    return unique
+    """Return file IDs that exist and match scope. Stale/missing IDs are dropped (no error)."""
+    return sanitize_kb_file_ids(db, file_ids, scope=scope)
 
 
 def prune_orphan_agent_knowledge_links(db: Session, *, agent_id: str | None = None) -> list[str]:
