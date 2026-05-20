@@ -115,6 +115,46 @@ def test_smtp_test_send_validates_config(app_client):
     assert "incomplete" in r.json()["detail"].lower() or "smtp" in r.json()["detail"].lower()
 
 
+def test_email_template_send_test_mocked(app_client):
+    headers = _bootstrap_super(app_client)
+    _seed_templates()
+
+    app_client.put(
+        "/admin/email/smtp",
+        json={
+            "host": "localhost",
+            "port": 1025,
+            "username": "",
+            "from_name": "Test",
+            "from_email": "from@example.com",
+            "use_tls": False,
+            "use_ssl": False,
+            "is_enabled": True,
+        },
+        headers=headers,
+    )
+
+    from app.services.smtp_mailer_service import SmtpMailerService
+
+    with patch.object(SmtpMailerService, "send_html") as spy:
+        r = app_client.post(
+            "/admin/email/templates/general_notification/send-test",
+            json={
+                "to": "to@example.com",
+                "subject": "Hello {{user_name}}",
+                "body": "<p>Hi {{user_name}}, {{message}}</p>",
+            },
+            headers=headers,
+        )
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+    spy.assert_called_once()
+    kwargs = spy.call_args.kwargs
+    assert kwargs["to_addr"] == "to@example.com"
+    assert kwargs["subject"].startswith("[TEST]")
+    assert "Alex Demo" in kwargs["body"]
+
+
 def test_smtp_test_send_success_mocked(app_client):
     headers = _bootstrap_super(app_client)
     app_client.put(

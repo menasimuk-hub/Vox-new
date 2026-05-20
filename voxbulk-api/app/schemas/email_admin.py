@@ -56,3 +56,12 @@ class TemplatedNotifySendRequest(BaseModel):
     template_key: str = Field(min_length=3, max_length=64)
     to: EmailStr
     variables: dict[str, Any] = Field(default_factory=dict)
+
+
+class EmailTemplateTestSendRequest(BaseModel):
+    """Send a one-off test using template content (saved or draft) with dummy variables."""
+
+    to: EmailStr
+    subject: str | None = None
+    body: str | None = None
+    variables: dict[str, Any] = Field(default_factory=dict)

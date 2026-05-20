@@ -3070,6 +3070,21 @@ body.dark .emailPreviewInner {
   width: 100%;
 }
 
+.emailTemplateTestRow {
+  align-items: center;
+  gap: 10px;
+}
+
+.emailTemplateTestField {
+  flex: 1 1 240px;
+  max-width: 320px;
+  min-width: 200px;
+}
+
+.emailTemplateTestField .input {
+  width: 100%;
+}
+
 .msgTemplateEditor textarea.input.msgFieldSms {
   min-height: 200px;
   width: 100%;

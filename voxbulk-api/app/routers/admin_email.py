@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.admin_rbac import CAP_EMAIL, require_cap
 from app.schemas.email_admin import (
     EmailTemplateCreate,
+    EmailTemplateTestSendRequest,
     EmailTemplateUpdate,
     SmtpSettingsUpdate,
     SmtpTestSendRequest,
@@ -16,6 +17,7 @@ from app.services.email_template_service import EMAIL_TEMPLATE_KEYS, EmailTempla
 from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
 from app.services.product_email_triggers import ProductEmailTriggers
 from app.services.smtp_settings_service import SmtpSettingsService
+from app.services.transactional_email_service import TransactionalEmailService
 
 router = APIRouter(prefix="/admin/email", tags=["admin-email"])
 
@@ -169,6 +171,29 @@ def put_email_template(
     except EmailTemplateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return EmailTemplateService.to_dict(row)
+
+
+@router.post("/templates/{template_key}/send-test")
+def post_email_template_send_test(
+    template_key: str,
+    payload: EmailTemplateTestSendRequest,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_EMAIL)),
+):
+    """Send the current template (draft subject/body optional) with dummy placeholder data."""
+    vars_plain = {str(k): "" if v is None else str(v) for k, v in (payload.variables or {}).items()}
+    ok, err = TransactionalEmailService.send_template_test(
+        db,
+        template_key=template_key,
+        to_email=str(payload.to),
+        subject=payload.subject,
+        body=payload.body,
+        variables=vars_plain,
+    )
+    if not ok:
+        code = status.HTTP_404_NOT_FOUND if err == "Template not found" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=err or "Test email was not sent.")
+    return {"ok": True, "detail": f"Test email sent to {payload.to}."}
 
 
 @router.delete("/templates/{template_key}")

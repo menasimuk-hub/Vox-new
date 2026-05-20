@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -8,6 +9,17 @@ from email.utils import formataddr
 from sqlalchemy.orm import Session
 
 from app.services.smtp_settings_service import SmtpSettingsService
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _html_to_plain(text: str) -> str:
+    clean = str(text or "")
+    clean = re.sub(r"(?i)<br\s*/?>", "\n", clean)
+    clean = re.sub(r"(?i)</p\s*>", "\n\n", clean)
+    clean = _HTML_TAG_RE.sub("", clean)
+    clean = re.sub(r"\n{3,}", "\n\n", clean)
+    return clean.strip()
 
 
 class SmtpMailerError(RuntimeError):
@@ -51,7 +63,11 @@ class SmtpMailerService:
         msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
         msg["To"] = to_addr
         if html:
-            msg.set_content(body or "", subtype="html", charset="utf-8")
+            plain = _html_to_plain(body)
+            if not plain:
+                plain = "This message contains HTML content. Open in an email client that supports HTML."
+            msg.set_content(plain)
+            msg.add_alternative(body or "", subtype="html", charset="utf-8")
         else:
             msg.set_content(body or "")
 

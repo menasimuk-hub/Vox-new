@@ -7,13 +7,15 @@ import {
   DEFAULT_NEW_EMAIL_HTML,
   DEMO_HTML_BY_KEY,
   SYSTEM_EMAIL_META,
-  TEST_VARS_BY_KEY,
+  buildEmailTestVariables,
   emailDisplayDescription,
   emailDisplayTitle,
   mergeSystemEmailDraft,
   slugifyTemplateKey,
   smtpTestResultMessage,
 } from '../lib/messagingConstants'
+
+const SYSTEM_TEMPLATE_KEYS = new Set(Object.keys(SYSTEM_EMAIL_META))
 
 const EMPTY_NEW = {
   template_key: '',
@@ -119,28 +121,47 @@ export default function EmailTemplateEdit() {
       return
     }
     if (isNew) {
-      setTestMsg('Save the template first.')
-      return
-    }
-    if (templateKey === 'forgot_password') {
-      setTestMsg('Use the public forgot-password flow for this template.')
+      setTestMsg('Save the template first, then send a test.')
       return
     }
     setTestBusy(true)
     setTestMsg('')
     try {
       window.localStorage.setItem('retover_admin_test_email_to', to)
-      const res = await apiFetch('/admin/email/notify/send-templated', {
-        method: 'POST',
-        body: JSON.stringify({
-          template_key: templateKey,
-          to,
-          variables: TEST_VARS_BY_KEY[templateKey] || {},
-        }),
-      })
-      setTestMsg(smtpTestResultMessage(res))
+      const variables = buildEmailTestVariables(templateKey)
+      const payload = {
+        to,
+        subject: draft.subject,
+        body: draft.body,
+        variables,
+      }
+      try {
+        const res = await apiFetch(`/admin/email/templates/${encodeURIComponent(templateKey)}/send-test`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setTestMsg(smtpTestResultMessage(res))
+        return
+      } catch (primaryErr) {
+        const canFallback = primaryErr?.status === 404 && SYSTEM_TEMPLATE_KEYS.has(templateKey) && templateKey !== 'forgot_password'
+        if (!canFallback) throw primaryErr
+        const res = await apiFetch('/admin/email/notify/send-templated', {
+          method: 'POST',
+          body: JSON.stringify({
+            template_key: templateKey,
+            to,
+            variables,
+          }),
+        })
+        setTestMsg(`${smtpTestResultMessage(res)} (used saved template — update API on server for draft test send.)`)
+      }
     } catch (e) {
-      setTestMsg(e?.message || 'Send failed')
+      const detail = e?.message || 'Send failed'
+      if (e?.status === 404) {
+        setTestMsg(`${detail}. The API on this server is missing the send-test route — git pull, restart FastAPI, then try again.`)
+      } else {
+        setTestMsg(detail)
+      }
     } finally {
       setTestBusy(false)
     }
@@ -274,16 +295,28 @@ export default function EmailTemplateEdit() {
                 </div>
               </div>
 
-              <div className="actions" style={{ flexWrap: 'wrap', marginTop: 20 }}>
+              <div className="actions emailTemplateTestRow" style={{ flexWrap: 'wrap', marginTop: 20 }}>
                 <button type="button" className="btn primary" onClick={save} disabled={saving}>
                   <i className="ti ti-device-floppy" />
                   {saving ? 'Saving…' : isNew ? 'Create template' : 'Save template'}
                 </button>
-                {!isNew && isSystem && templateKey !== 'forgot_password' ? (
-                  <button type="button" className="btn soft" onClick={sendTest} disabled={testBusy}>
-                    <i className="ti ti-send" />
-                    {testBusy ? 'Sending…' : 'Send test email'}
-                  </button>
+                {!isNew ? (
+                  <>
+                    <div className="emailTemplateTestField">
+                      <input
+                        className="input"
+                        type="email"
+                        value={testTo}
+                        onChange={(e) => setTestTo(e.target.value)}
+                        placeholder="Test recipient email"
+                        aria-label="Test recipient email"
+                      />
+                    </div>
+                    <button type="button" className="btn soft" onClick={sendTest} disabled={testBusy || !testTo.trim()}>
+                      <i className="ti ti-send" />
+                      {testBusy ? 'Sending…' : 'Send test email'}
+                    </button>
+                  </>
                 ) : null}
                 {DEMO_HTML_BY_KEY[draft.template_key || templateKey] ? (
                   <button type="button" className="btn soft" onClick={loadDemo}>
@@ -294,17 +327,10 @@ export default function EmailTemplateEdit() {
                 {feedback ? <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>{feedback}</span> : null}
               </div>
 
-              {!isNew && isSystem ? (
-                <div className="msgFieldBlock" style={{ marginTop: 16, maxWidth: 420 }}>
-                  <label className="label">Test recipient</label>
-                  <input
-                    className="input"
-                    type="email"
-                    value={testTo}
-                    onChange={(e) => setTestTo(e.target.value)}
-                    placeholder="you@example.com"
-                  />
-                </div>
+              {!isNew ? (
+                <p className="fieldHint" style={{ marginTop: 10, marginBottom: 0 }}>
+                  Test send uses the subject and HTML above (even if not saved yet) with dummy names and sample data for placeholders.
+                </p>
               ) : null}
               {testMsg ? <div className="note" style={{ marginTop: 12, marginBottom: 0 }}>{testMsg}</div> : null}
             </div>

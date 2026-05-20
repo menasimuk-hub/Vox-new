@@ -28,7 +28,7 @@ export const DEMO_HTML_BY_KEY = {
 
 export const TEST_VARS_BY_KEY = {
   new_user: { user_email: 'test@example.com' },
-  forgot_password: { user_email: 'test@example.com' },
+  forgot_password: { user_email: 'test@example.com', reset_link: 'https://example.com/reset/demo-token' },
   new_invoice: {
     invoice_id: 'INV-1001',
     amount_gbp_pence: '4999',
@@ -41,9 +41,41 @@ export const TEST_VARS_BY_KEY = {
     invoice_number: 'INV-1001',
   },
   general_notification: {
-    user_name: 'Alex',
+    user_name: 'Alex Demo',
     message: 'This is a test notification from the admin console.',
   },
+}
+
+export const DEFAULT_TEST_VARS = {
+  user_email: 'test@example.com',
+  user_name: 'Alex Demo',
+  first_name: 'Alex',
+  last_name: 'Demo',
+  clinic_name: 'Demo Clinic',
+  organisation_name: 'Demo Organisation',
+  amount: '£49.99',
+  invoice_number: 'INV-1001',
+  invoice_id: 'INV-1001',
+  amount_gbp_pence: '4999',
+  currency: 'GBP',
+  invoice_status: 'open',
+  message: 'This is a test notification from the admin console.',
+  code: '123456',
+  date: '20 May 2026',
+  time: '14:30',
+  reset_link: 'https://example.com/reset/demo-token',
+  reset_url: 'https://example.com/reset/demo-token',
+  appointment_date: '21 May 2026',
+  appointment_time: '10:30',
+  patient_name: 'Jamie Demo',
+  doctor_name: 'Dr. Smith',
+}
+
+export function buildEmailTestVariables(templateKey) {
+  return {
+    ...DEFAULT_TEST_VARS,
+    ...(TEST_VARS_BY_KEY[templateKey] || {}),
+  }
 }
 
 export const COMMON_PLACEHOLDERS = [
