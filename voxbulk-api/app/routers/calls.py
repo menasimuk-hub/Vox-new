@@ -7,7 +7,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_principal
 from app.schemas.call import CallLogCreate, CallLogOut
 from app.services.telnyx_voice_service import TelnyxExecutionService
-from app.services.twilio_service import LogService
+from app.services.messaging_log_service import LogService
 from app.services.recovery_service import RecoveryJobService
 from app.workers.celery_app import celery_app
 from sqlalchemy import select

@@ -107,7 +107,6 @@ export default function App() {
         <Route path='/integrations/deepgram' element={<Integrations />} />
         <Route path='/integrations/cartesia' element={<Integrations />} />
         <Route path='/integrations/elevenlabs' element={<Integrations />} />
-        <Route path='/integrations/twilio' element={<Integrations />} />
         <Route path='/integrations/vapi' element={<Integrations />} />
         <Route path='/integrations/gocardless' element={<Integrations />} />
         <Route path='/integrations/zoom' element={<Integrations />} />

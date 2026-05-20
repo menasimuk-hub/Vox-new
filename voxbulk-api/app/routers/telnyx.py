@@ -11,6 +11,7 @@ from app.core.database import get_db, get_sessionmaker
 from app.models.call_log import CallLog
 from app.services.agents.base import AgentRunRequest, AgentRuntimeContext
 from app.services.agents.manager import AgentManager
+from app.services.telnyx_inbound_messaging_service import TelnyxInboundMessagingService
 from app.services.telnyx_voice_service import TelnyxCallerIdService, TelnyxExecutionService
 from app.services.voice_agent_service import AzureSpeechService
 
@@ -74,6 +75,23 @@ async def telnyx_verified_numbers_webhook(request: Request, db: Session = Depend
     payload = await request.json()
     user = TelnyxCallerIdService.mark_webhook(db, payload=payload)
     return {"ok": True, "user_id": user.id if user else None}
+
+
+@router.get("/webhooks/messages")
+@router.head("/webhooks/messages")
+async def telnyx_messages_webhook_probe():
+    return {"ok": True, "endpoint": "telnyx_messages_webhook"}
+
+
+@router.post("/webhooks/messages")
+async def telnyx_messages_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+    x_retover_org_id: str | None = Header(default=None, alias="X-Retover-Org-Id"),
+):
+    payload = await request.json()
+    result = TelnyxInboundMessagingService.handle_webhook(db, payload, header_org_id=x_retover_org_id)
+    return result
 
 
 @router.websocket("/media-stream")

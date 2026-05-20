@@ -1,4 +1,4 @@
-from app.core.security import compute_twilio_signature, hash_password
+from app.core.security import hash_password
 
 
 def _seed(db):
@@ -9,6 +9,7 @@ def _seed(db):
     from app.models.organisation import Organisation
     from app.models.patient import Patient
     from app.models.user import User
+    from app.services.provider_settings import ProviderSettingsService
 
     org = Organisation(name="Recovery Org")
     db.add(org)
@@ -22,29 +23,34 @@ def _seed(db):
     db.flush()
     appt = Appointment(org_id=org.id, patient_id=patient.id, scheduled_start=datetime.now(timezone.utc), status="scheduled")
     db.add(appt)
+    ProviderSettingsService.upsert_platform_config(
+        db,
+        provider="telnyx",
+        is_enabled=True,
+        config={
+            "api_key": "KEY0123456789012345678901234567890123456789012345678901234567890",
+            "connection_id": "conn-test",
+            "default_outbound_number": "+447000000000",
+            "fallback_caller_id": "+447000000000",
+            "media_stream_url": "wss://example.com/telnyx/media-stream",
+            "webhook_base_url": "https://example.com",
+        },
+    )
     db.commit()
     return user, org, appt
 
 
-def test_enqueue_recovery_and_poll_status(app_client):
-    # Configure Twilio credentials and patch network call.
-    import os
-    from app.services import twilio_service
+def test_enqueue_recovery_and_poll_status(app_client, monkeypatch):
+    from app.services import telnyx_voice_service
 
-    os.environ["TWILIO_ACCOUNT_SID"] = "ACxxx"
-    os.environ["TWILIO_API_KEY"] = "SKxxx"
-    os.environ["TWILIO_API_SECRET"] = "secret"
-    os.environ["TWILIO_FROM_NUMBER"] = "+447000000000"
-    os.environ["TWILIO_TWIML_URL"] = "https://example.com/twiml.xml"
-    os.environ["TWILIO_WHATSAPP_FROM"] = "whatsapp:+447000000000"
+    monkeypatch.setattr("app.workers.call_tasks.is_within_calling_window", lambda _now: True)
 
-    def _fake_create_call(*, to_number: str, from_number: str, twiml_url: str) -> dict:
-        return {"sid": "CA123"}
+    def _fake_start_outbound_call(**kwargs):
+        from app.services.telnyx_voice_service import TelnyxProviderResult
 
-    def _fake_create_call2(*, account_sid: str, api_key: str, api_secret: str, to_number: str, from_number: str, twiml_url: str) -> dict:
-        return {"sid": "CA123"}
+        return TelnyxProviderResult(ok=True, status="initiated", external_id="v3:test-call-123")
 
-    twilio_service.TwilioAdapter._create_call = staticmethod(_fake_create_call2)
+    telnyx_voice_service.TelnyxVoiceAdapter.start_outbound_call = staticmethod(_fake_start_outbound_call)
 
     from app.core.database import get_sessionmaker
 
@@ -61,7 +67,6 @@ def test_enqueue_recovery_and_poll_status(app_client):
     job_id = r.json()["job_id"]
     task_id = r.json()["task_id"]
 
-    # eager celery processes immediately in tests
     st = app_client.get(f"/calls/recovery/jobs/{job_id}", headers=headers)
     assert st.status_code == 200
     assert st.json()["state"] in {"calling", "failed", "skipped", "queued", "messaged"}
@@ -71,50 +76,7 @@ def test_enqueue_recovery_and_poll_status(app_client):
     assert ts.json()["task_id"] == task_id
 
 
-def test_duplicate_webhook_is_idempotent(app_client):
-    url = "http://testserver/webhooks/twilio"
-    sig = compute_twilio_signature(auth_token="twilio-test-auth-token", url=url, params={"foo": "bar"})
-
-    r1 = app_client.post("/webhooks/twilio", data={"foo": "bar"}, headers={"X-Twilio-Signature": sig})
-    assert r1.status_code == 200
-    r2 = app_client.post("/webhooks/twilio", data={"foo": "bar"}, headers={"X-Twilio-Signature": sig})
-    assert r2.status_code == 200
-
-    # Only one persisted webhook event for same payload/provider
-    from app.core.database import get_sessionmaker
-    from app.models.webhook_event import WebhookEvent
-    from sqlalchemy import select, func
-
-    with get_sessionmaker()() as db:
-        cnt = db.execute(select(func.count()).select_from(WebhookEvent).where(WebhookEvent.provider == "twilio")).scalar_one()
-    assert int(cnt) == 1
-
-
-def test_twilio_duplicate_status_callback_is_idempotent(app_client):
-    url = "http://testserver/webhooks/twilio"
-    params = {"CallSid": "CA777", "CallStatus": "completed"}
-    sig = compute_twilio_signature(auth_token="twilio-test-auth-token", url=url, params=params)
-
-    r1 = app_client.post("/webhooks/twilio", data=params, headers={"X-Twilio-Signature": sig})
-    assert r1.status_code == 200
-    r2 = app_client.post("/webhooks/twilio", data=params, headers={"X-Twilio-Signature": sig})
-    assert r2.status_code == 200
-
-    from app.core.database import get_sessionmaker
-    from app.models.webhook_event import WebhookEvent
-    from sqlalchemy import func, select
-
-    with get_sessionmaker()() as db:
-        cnt = db.execute(
-            select(func.count())
-            .select_from(WebhookEvent)
-            .where(WebhookEvent.provider == "twilio", WebhookEvent.external_event_id == "CA777:completed")
-        ).scalar_one()
-    assert int(cnt) == 1
-
-
-def test_twilio_callback_updates_states(app_client):
-    # Seed a recovery job with known CallSid, then send a callback and verify state transitions.
+def test_telnyx_callback_updates_states(app_client):
     from datetime import datetime, timezone
     from app.core.database import get_sessionmaker
     from app.models.appointment import Appointment
@@ -126,33 +88,57 @@ def test_twilio_callback_updates_states(app_client):
 
     with get_sessionmaker()() as db:
         org = Organisation(name="Org")
-        db.add(org); db.flush()
+        db.add(org)
+        db.flush()
         user = User(email="cb@example.com", password_hash=hash_password("pass123"), is_active=True)
-        db.add(user); db.flush()
+        db.add(user)
+        db.flush()
         db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
         patient = Patient(org_id=org.id, first_name="A", last_name="B", phone_e164="+447000000001")
-        db.add(patient); db.flush()
-        appt = Appointment(org_id=org.id, patient_id=patient.id, scheduled_start=datetime.now(timezone.utc), status="scheduled", recovery_state="calling")
-        db.add(appt); db.flush()
-        job = RecoveryJob(org_id=org.id, appointment_id=appt.id, idempotency_key=f"appointment:{appt.id}", provider="twilio", provider_ref="CA123", state="calling")
-        db.add(job); db.commit()
+        db.add(patient)
+        db.flush()
+        appt = Appointment(
+            org_id=org.id,
+            patient_id=patient.id,
+            scheduled_start=datetime.now(timezone.utc),
+            status="scheduled",
+            recovery_state="calling",
+        )
+        db.add(appt)
+        db.flush()
+        job = RecoveryJob(
+            org_id=org.id,
+            appointment_id=appt.id,
+            idempotency_key=f"appointment:{appt.id}",
+            provider="telnyx",
+            provider_ref="v3:test-call-123",
+            state="calling",
+        )
+        db.add(job)
+        db.commit()
 
-    tok = app_client.post("/auth/token", data={"username": "cb@example.com", "password": "pass123", "org_id": org.id}).json()["access_token"]
-    # callback is unauthenticated; just needs Twilio signature
-    url = "http://testserver/webhooks/twilio"
-    params = {"CallSid": "CA123", "CallStatus": "completed"}
-    sig = compute_twilio_signature(auth_token="twilio-test-auth-token", url=url, params=params)
-    r = app_client.post("/webhooks/twilio", data=params, headers={"X-Twilio-Signature": sig})
+    tok = app_client.post("/auth/token", data={"username": "cb@example.com", "password": "pass123", "org_id": org.id}).json()[
+        "access_token"
+    ]
+    payload = {
+        "data": {
+            "event_type": "call.hangup",
+            "payload": {
+                "call_control_id": "v3:test-call-123",
+                "call_status": "completed",
+                "client_state": "",
+            },
+        }
+    }
+    r = app_client.post("/telnyx/webhooks/status", json=payload, headers={"X-Retover-Org-Id": org.id})
     assert r.status_code == 200
 
-    # tenant can inspect updated state
     headers = {"Authorization": f"Bearer {tok}"}
     st = app_client.get(f"/calls/recovery/jobs/{job.id}", headers=headers).json()
     assert st["state"] == "messaged"
 
 
-def test_twilio_out_of_order_callback_does_not_regress(app_client):
-    # completed then ringing should not regress from messaged->calling
+def test_telnyx_out_of_order_callback_does_not_regress(app_client):
     from datetime import datetime, timezone
     from app.core.database import get_sessionmaker
     from app.models.appointment import Appointment
@@ -164,28 +150,56 @@ def test_twilio_out_of_order_callback_does_not_regress(app_client):
 
     with get_sessionmaker()() as db:
         org = Organisation(name="Org2")
-        db.add(org); db.flush()
+        db.add(org)
+        db.flush()
         user = User(email="cb2@example.com", password_hash=hash_password("pass123"), is_active=True)
-        db.add(user); db.flush()
+        db.add(user)
+        db.flush()
         db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
         patient = Patient(org_id=org.id, first_name="A", last_name="B", phone_e164="+447000000001")
-        db.add(patient); db.flush()
-        appt = Appointment(org_id=org.id, patient_id=patient.id, scheduled_start=datetime.now(timezone.utc), status="scheduled", recovery_state="calling")
-        db.add(appt); db.flush()
-        job = RecoveryJob(org_id=org.id, appointment_id=appt.id, idempotency_key=f"appointment:{appt.id}", provider="twilio", provider_ref="CA999", state="calling")
-        db.add(job); db.commit()
+        db.add(patient)
+        db.flush()
+        appt = Appointment(
+            org_id=org.id,
+            patient_id=patient.id,
+            scheduled_start=datetime.now(timezone.utc),
+            status="scheduled",
+            recovery_state="calling",
+        )
+        db.add(appt)
+        db.flush()
+        job = RecoveryJob(
+            org_id=org.id,
+            appointment_id=appt.id,
+            idempotency_key=f"appointment:{appt.id}",
+            provider="telnyx",
+            provider_ref="v3:test-call-999",
+            state="calling",
+        )
+        db.add(job)
+        db.commit()
 
-    tok = app_client.post("/auth/token", data={"username": "cb2@example.com", "password": "pass123", "org_id": org.id}).json()["access_token"]
+    tok = app_client.post("/auth/token", data={"username": "cb2@example.com", "password": "pass123", "org_id": org.id}).json()[
+        "access_token"
+    ]
     headers = {"Authorization": f"Bearer {tok}"}
 
-    url = "http://testserver/webhooks/twilio"
-    sig1 = compute_twilio_signature(auth_token="twilio-test-auth-token", url=url, params={"CallSid": "CA999", "CallStatus": "completed"})
-    r1 = app_client.post("/webhooks/twilio", data={"CallSid": "CA999", "CallStatus": "completed"}, headers={"X-Twilio-Signature": sig1})
+    completed = {
+        "data": {
+            "event_type": "call.hangup",
+            "payload": {"call_control_id": "v3:test-call-999", "call_status": "completed"},
+        }
+    }
+    r1 = app_client.post("/telnyx/webhooks/status", json=completed, headers={"X-Retover-Org-Id": org.id})
     assert r1.status_code == 200
 
-    # out-of-order "ringing"
-    sig2 = compute_twilio_signature(auth_token="twilio-test-auth-token", url=url, params={"CallSid": "CA999", "CallStatus": "ringing"})
-    r2 = app_client.post("/webhooks/twilio", data={"CallSid": "CA999", "CallStatus": "ringing"}, headers={"X-Twilio-Signature": sig2})
+    ringing = {
+        "data": {
+            "event_type": "call.initiated",
+            "payload": {"call_control_id": "v3:test-call-999", "call_status": "ringing"},
+        }
+    }
+    r2 = app_client.post("/telnyx/webhooks/status", json=ringing, headers={"X-Retover-Org-Id": org.id})
     assert r2.status_code == 200
 
     st = app_client.get(f"/calls/recovery/jobs/{job.id}", headers=headers).json()
@@ -205,14 +219,11 @@ def test_recovery_state_transitions_are_safe(app_client):
         db.commit()
         db.refresh(appt)
 
-        # pending -> queued ok
         RecoveryStateMachine.transition(db, appointment=appt, to_state="queued")
         db.commit()
 
-        # queued -> recovered is invalid (must go through calling/messaged)
         try:
             RecoveryStateMachine.transition(db, appointment=appt, to_state="recovered")
             assert False, "expected ValueError"
         except ValueError:
             pass
-

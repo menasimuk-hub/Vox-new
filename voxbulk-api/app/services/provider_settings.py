@@ -17,7 +17,6 @@ class ProviderUnknown(ValueError):
 
 class ProviderSettingsService:
     PROVIDERS = {
-        "twilio",
         "dentally",
         "vapi",
         "deepseek",
@@ -37,7 +36,6 @@ class ProviderSettingsService:
 
     # Keys we expect for "configured" status (per provider). Secrets are stored encrypted and never returned.
     REQUIRED_FIELDS: dict[str, set[str]] = {
-        "twilio": {"account_sid", "auth_token", "whatsapp_from", "from_number", "twiml_url"},
         "dentally": {"base_url", "api_key"},
         "vapi": {"public_key", "assistant_id"},
         "deepseek": {"api_key", "base_url", "model"},
@@ -57,7 +55,6 @@ class ProviderSettingsService:
     }
 
     SECRET_KEYS: dict[str, set[str]] = {
-        "twilio": {"auth_token"},
         "dentally": {"api_key"},
         "vapi": {"api_key"},
         "deepseek": {"api_key"},
@@ -492,6 +489,7 @@ class ProviderSettingsService:
         """Strip Telnyx path segments so base is only scheme + host (avoids doubled /telnyx/webhooks/voice)."""
         base = str(url or "").strip().rstrip("/")
         for suffix in (
+            "/telnyx/webhooks/messages",
             "/telnyx/webhooks/verified-numbers",
             "/telnyx/webhooks/status",
             "/telnyx/webhooks/voice",
@@ -525,6 +523,8 @@ class ProviderSettingsService:
 
     @staticmethod
     def _validate_telnyx_config(config: dict[str, Any]) -> dict[str, Any]:
+        from app.services.telnyx_api_key import normalize_telnyx_api_key, normalize_telnyx_e164
+
         cfg = {**config}
         connection_id = str(cfg.get("connection_id") or cfg.get("voice_api_application_id") or "").strip()
         from_number = str(cfg.get("default_outbound_number") or cfg.get("from_phone_number") or "").strip()
@@ -546,6 +546,11 @@ class ProviderSettingsService:
             suffix="/telnyx/webhooks/verified-numbers",
             base=webhook_base,
         )
+        cfg["messaging_webhook_url"] = ProviderSettingsService._canonical_telnyx_webhook_url(
+            str(cfg.get("messaging_webhook_url") or ""),
+            suffix="/telnyx/webhooks/messages",
+            base=webhook_base,
+        )
         ws_base = webhook_base.replace("https://", "wss://").replace("http://", "ws://")
         cfg["media_stream_url"] = ProviderSettingsService._canonical_telnyx_webhook_url(
             str(cfg.get("media_stream_url") or ""),
@@ -556,18 +561,31 @@ class ProviderSettingsService:
             cfg["connection_id"] = connection_id
             cfg["voice_api_application_id"] = connection_id
         if from_number:
-            from app.services.telnyx_api_key import normalize_telnyx_e164
-
             try:
                 from_number = normalize_telnyx_e164(from_number)
             except ValueError:
                 pass
             cfg["default_outbound_number"] = from_number
             cfg["from_phone_number"] = from_number
-            # Always keep fallback in sync — stale fallback_caller_id was blocking saves from taking effect.
             cfg["fallback_caller_id"] = from_number
-        from app.services.telnyx_api_key import normalize_telnyx_api_key
-
+            if not str(cfg.get("sms_from") or "").strip():
+                cfg["sms_from"] = from_number
+        sms_from = str(cfg.get("sms_from") or cfg.get("default_outbound_number") or "").strip()
+        if sms_from:
+            try:
+                sms_from = normalize_telnyx_e164(sms_from)
+            except ValueError:
+                pass
+            cfg["sms_from"] = sms_from
+        wa_from = str(cfg.get("whatsapp_from") or "").strip()
+        if wa_from:
+            try:
+                wa_from = normalize_telnyx_e164(wa_from)
+            except ValueError:
+                pass
+            cfg["whatsapp_from"] = wa_from
+        cfg["messaging_profile_id"] = str(cfg.get("messaging_profile_id") or "").strip()
+        cfg["messaging_org_id"] = str(cfg.get("messaging_org_id") or cfg.get("default_messaging_org_id") or "").strip()
         cfg["api_key"] = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
         return cfg
 

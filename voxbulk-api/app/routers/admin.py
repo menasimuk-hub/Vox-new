@@ -56,11 +56,13 @@ from app.services.telnyx_api_key import (
     telnyx_key_fingerprint,
     telnyx_outbound_caller_id,
 )
+from app.services.telnyx_messaging_service import TelnyxMessagingService
+from app.services.messaging_log_service import LogService
 from app.services.telnyx_voice_service import TelnyxVoiceAdapter
 from app.services.dentally import DentallyAdapter, DentallyError
 from app.models.admin_user import AdminUser
 from app.workers.call_tasks import process_recovery_job
-from app.workers.sync_tasks import handle_gocardless_webhook, handle_twilio_webhook, handle_vapi_webhook
+from app.workers.sync_tasks import handle_gocardless_webhook, handle_vapi_webhook
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -618,6 +620,39 @@ def test_telnyx_hangup(payload: dict | None = None, db: Session = Depends(get_db
         "message": "Call hangup sent",
         "call_control_id": call_control_id,
     }
+
+
+@router.post("/integrations/telnyx/test-sms")
+def test_telnyx_sms(payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    payload = payload or {}
+    to_number = str(payload.get("to_number") or "").strip()
+    body = str(payload.get("body") or "VOXBULK Telnyx SMS test").strip()
+    if not to_number:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
+    result = TelnyxMessagingService.send_sms(db, to_number=to_number, body=body)
+    if not result.ok:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result.detail or result.status)
+    return {"ok": True, "message": "SMS queued", "external_id": result.external_id, "status": result.status}
+
+
+@router.post("/integrations/telnyx/test-whatsapp")
+def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    payload = payload or {}
+    to_number = str(payload.get("to_number") or "").strip()
+    body = str(payload.get("body") or "VOXBULK Telnyx WhatsApp test").strip()
+    if not to_number:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
+    result = TelnyxMessagingService.send_whatsapp(db, to_number=to_number, body=body)
+    if not result.ok:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result.detail or result.status)
+    return {"ok": True, "message": "WhatsApp message queued", "external_id": result.external_id, "status": result.status}
+
+
+@router.get("/integrations/telnyx/inbound-messages")
+def list_telnyx_inbound_messages(limit: int = 50, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    rows = LogService.list_platform_message_logs(db, limit=limit)
+    inbound = [row for row in rows if str(row.get("direction") or "").lower() == "inbound"]
+    return {"ok": True, "messages": inbound[: max(1, min(limit, 200))]}
 
 
 @router.get("/social-login/providers")
@@ -1429,7 +1464,6 @@ def admin_retry_webhook_event(event_id: int, db: Session = Depends(get_db), _adm
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot retry webhook with invalid signature")
 
     handler = {
-        "twilio": handle_twilio_webhook,
         "vapi": handle_vapi_webhook,
         "gocardless": handle_gocardless_webhook,
     }.get(str(event.provider).lower())

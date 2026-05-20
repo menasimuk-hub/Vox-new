@@ -73,7 +73,7 @@ def telnyx_outbound_caller_id(config: dict[str, Any] | None) -> str:
 
 def normalize_telnyx_e164(raw: str) -> str:
     """Normalize to E.164; UK local numbers starting with 0 become +44…"""
-    from app.services.twilio_service import normalize_e164
+    from app.services.messaging_log_service import normalize_e164
 
     s = str(raw or "").strip().replace(" ", "")
     if s.startswith("00"):

@@ -18,7 +18,6 @@ const PROVIDERS = [
   { key: 'deepgram', label: 'Deepgram' },
   { key: 'cartesia', label: 'Cartesia' },
   { key: 'elevenlabs', label: 'ElevenLabs' },
-  { key: 'twilio', label: 'Twilio' },
   { key: 'vapi', label: 'Vapi' },
   { key: 'gocardless', label: 'GoCardless' },
   { key: 'zoom', label: 'Zoom' },
@@ -456,6 +455,8 @@ export default function Integrations() {
   const [vapiTestResult, setVapiTestResult] = useState('')
   const [elevenLabsTestResult, setElevenLabsTestResult] = useState('')
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
+  const [telnyxSmsTestResult, setTelnyxSmsTestResult] = useState('')
+  const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxTestNumber, setTelnyxTestNumber] = useState('')
   const [telnyxActiveCallId, setTelnyxActiveCallId] = useState('')
   const [telnyxCallBusy, setTelnyxCallBusy] = useState(false)
@@ -533,10 +534,6 @@ export default function Integrations() {
         const webhookSecret = String(draft.webhook_secret_draft || '').trim()
         if (webhookSecret) config.webhook_secret = webhookSecret
       }
-      if (providerKey === 'twilio') {
-        const token = String(draft.auth_token_draft || '').trim()
-        if (token) config.auth_token = token
-      }
       if (providerKey === 'telnyx') {
         if (config.default_outbound_number && !config.from_phone_number) config.from_phone_number = config.default_outbound_number
         if (config.from_phone_number && !config.default_outbound_number) config.default_outbound_number = config.from_phone_number
@@ -544,13 +541,14 @@ export default function Integrations() {
         if (config.voice_api_application_id && !config.connection_id) config.connection_id = config.voice_api_application_id
         const stripTelnyxPaths = (raw) => {
           let base = String(raw || '').trim().replace(/\/+$/, '')
-          for (const suffix of ['/telnyx/webhooks/verified-numbers', '/telnyx/webhooks/status', '/telnyx/webhooks/voice', '/telnyx/media-stream']) {
+          for (const suffix of ['/telnyx/webhooks/messages', '/telnyx/webhooks/verified-numbers', '/telnyx/webhooks/status', '/telnyx/webhooks/voice', '/telnyx/media-stream']) {
             if (base.toLowerCase().endsWith(suffix)) base = base.slice(0, -suffix.length).replace(/\/+$/, '')
           }
           return base || DEFAULT_WEBHOOK_BASE
         }
         const webhookBase = stripTelnyxPaths(config.webhook_base_url || config.voice_webhook_url || DEFAULT_WEBHOOK_BASE)
         config.webhook_base_url = webhookBase
+        config.messaging_webhook_url = `${webhookBase}/telnyx/webhooks/messages`
         config.voice_webhook_url = `${webhookBase}/telnyx/webhooks/voice`
         config.status_callback_url = `${webhookBase}/telnyx/webhooks/status`
         config.verified_number_webhook_url = `${webhookBase}/telnyx/webhooks/verified-numbers`
@@ -674,6 +672,7 @@ export default function Integrations() {
   const telnyxStatus = activeProvider === 'telnyx' ? telnyxValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const telnyxWebhookBase = String(activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE).replace(/\/+$/, '')
   const telnyxWebhookUrl = activeConfig.voice_webhook_url || `${telnyxWebhookBase}/telnyx/webhooks/voice`
+  const telnyxMessagingWebhookUrl = activeConfig.messaging_webhook_url || `${telnyxWebhookBase}/telnyx/webhooks/messages`
   const telnyxMediaStreamUrl = activeConfig.media_stream_url || `${httpBaseToWs(telnyxWebhookBase)}/telnyx/media-stream`
 
   const testAzureSpeechTts = async () => {
@@ -904,6 +903,60 @@ export default function Integrations() {
     }
   }
 
+  const testTelnyxSms = async () => {
+    const toNumber = telnyxTestNumber.trim()
+    if (!toNumber) {
+      window.alert('Enter your mobile number in E.164 format (+44…).')
+      return
+    }
+    setProviderError('')
+    setTelnyxSmsTestResult('Sending test SMS…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/test-sms', {
+        method: 'POST',
+        body: JSON.stringify({ to_number: toNumber, body: 'VOXBULK Telnyx SMS test — reply if you received this.' }),
+      })
+      setTelnyxSmsTestResult(`${result.message || 'SMS queued'}${result.external_id ? ` (${result.external_id})` : ''}`)
+    } catch (e) {
+      setTelnyxSmsTestResult('')
+      setProviderError(e?.message || 'Telnyx SMS test failed')
+    }
+  }
+
+  const testTelnyxWhatsApp = async () => {
+    const toNumber = telnyxTestNumber.trim()
+    if (!toNumber) {
+      window.alert('Enter your WhatsApp number in E.164 format (+44…).')
+      return
+    }
+    setProviderError('')
+    setTelnyxSmsTestResult('Sending test WhatsApp…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/test-whatsapp', {
+        method: 'POST',
+        body: JSON.stringify({ to_number: toNumber, body: 'VOXBULK Telnyx WhatsApp test' }),
+      })
+      setTelnyxSmsTestResult(`${result.message || 'WhatsApp queued'}${result.external_id ? ` (${result.external_id})` : ''}`)
+    } catch (e) {
+      setTelnyxSmsTestResult('')
+      setProviderError(e?.message || 'Telnyx WhatsApp test failed')
+    }
+  }
+
+  const loadTelnyxInboundMessages = async () => {
+    setProviderError('')
+    setTelnyxSmsTestResult('Loading inbound messages…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/inbound-messages?limit=25')
+      setTelnyxInboundMessages(Array.isArray(result.messages) ? result.messages : [])
+      setTelnyxSmsTestResult(`Loaded ${Array.isArray(result.messages) ? result.messages.length : 0} inbound message(s).`)
+    } catch (e) {
+      setTelnyxInboundMessages([])
+      setTelnyxSmsTestResult('')
+      setProviderError(e?.message || 'Could not load inbound messages')
+    }
+  }
+
   return (
     <>
       <div className='pageTop'>
@@ -913,7 +966,7 @@ export default function Integrations() {
             <p>Configure social login providers and control their availability on the public sign-in page.</p>
           ) : (
             <p>
-              Central place for Dentally, Twilio, Vapi, GoCardless, Webhooks, and Social Login configuration, status, and
+              Central place for Dentally, Telnyx, Vapi, GoCardless, Webhooks, and Social Login configuration, status, and
               credentials management.
             </p>
           )}
@@ -1071,6 +1124,30 @@ export default function Integrations() {
                       <input className='input' value={String(activeConfig.verified_number_webhook_url || `${DEFAULT_WEBHOOK_BASE}/telnyx/webhooks/verified-numbers`)} onChange={(e) => setProviderField('telnyx', 'verified_number_webhook_url', e.target.value)} />
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Messaging webhook URL (SMS + WhatsApp inbound)</label>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <input className='input' value={String(telnyxMessagingWebhookUrl)} onChange={(e) => setProviderField('telnyx', 'messaging_webhook_url', e.target.value)} />
+                        <button className='btn soft' type='button' onClick={() => copyText(telnyxMessagingWebhookUrl)}>Copy</button>
+                      </div>
+                      <div className='muted' style={{ fontSize: 12 }}>Paste into Telnyx Messaging Profile → Webhook URL. Meta verification SMS arrives here.</div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Messaging profile ID</label>
+                      <input className='input' value={String(activeConfig.messaging_profile_id || '')} onChange={(e) => setProviderField('telnyx', 'messaging_profile_id', e.target.value)} placeholder='40000000-0000-0000-0000-000000000000' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>SMS from number</label>
+                      <input className='input' value={String(activeConfig.sms_from || activeConfig.default_outbound_number || '')} onChange={(e) => setProviderField('telnyx', 'sms_from', e.target.value)} placeholder='+447911123456' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>WhatsApp from number</label>
+                      <input className='input' value={String(activeConfig.whatsapp_from || '')} onChange={(e) => setProviderField('telnyx', 'whatsapp_from', e.target.value)} placeholder='+447911123456 (after Meta + Telnyx WA setup)' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Default messaging org ID (optional)</label>
+                      <input className='input' value={String(activeConfig.messaging_org_id || activeConfig.default_messaging_org_id || '')} onChange={(e) => setProviderField('telnyx', 'messaging_org_id', e.target.value)} placeholder='Org UUID for inbound message logs' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Media stream WebSocket URL</label>
                       <input className='input' value={String(activeConfig.media_stream_url || telnyxMediaStreamUrl)} onChange={(e) => setProviderField('telnyx', 'media_stream_url', e.target.value)} />
                       <div className='muted' style={{ fontSize: 12 }}>Computed after save: {telnyxMediaStreamUrl}</div>
@@ -1084,6 +1161,8 @@ export default function Integrations() {
                         <li>Copy <strong>Webhook URL for Telnyx portal</strong> into your Telnyx Call Control app (exact path must end with <code>/telnyx/webhooks/voice</code>).</li>
                         <li>Open that URL in a browser — you should see JSON with ok: true, not “file not found”.</li>
                         <li>Buy or assign your UK number to the same Call Control application.</li>
+                        <li>Create a Messaging Profile, assign your number, set webhook to the messaging URL above.</li>
+                        <li>For WhatsApp: connect Meta Business in Telnyx → WhatsApp, then paste WhatsApp from number.</li>
                         <li>Save in VOXBULK, then run Test connection.</li>
                       </ol>
                     </div>
@@ -1094,6 +1173,34 @@ export default function Integrations() {
                       <button className='btn soft' onClick={testTelnyx} disabled={providerSaving || !activeSummary?.exists}>
                         Test connection
                       </button>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Test SMS / WhatsApp destination (your mobile)</label>
+                      <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+447700900123' />
+                      <div className='actions' style={{ flexWrap: 'wrap', gap: 8 }}>
+                        <button className='btn soft' type='button' onClick={testTelnyxSms} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
+                          Test SMS
+                        </button>
+                        <button className='btn soft' type='button' onClick={testTelnyxWhatsApp} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
+                          Test WhatsApp
+                        </button>
+                        <button className='btn soft' type='button' onClick={loadTelnyxInboundMessages} disabled={providerSaving || !activeSummary?.exists}>
+                          Refresh inbound
+                        </button>
+                      </div>
+                      {telnyxSmsTestResult ? <div className='note'>{telnyxSmsTestResult}</div> : null}
+                      {telnyxInboundMessages.length ? (
+                        <div className='note'>
+                          <strong>Recent inbound</strong>
+                          <ul style={{ margin: '8px 0 0 18px', padding: 0 }}>
+                            {telnyxInboundMessages.slice(0, 8).map((m) => (
+                              <li key={m.id}>
+                                {m.from_number || '?'} → {m.to_number || '?'}: {String(m.body || '').slice(0, 80)}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Test call destination (your mobile — this rings)</label>
@@ -1531,67 +1638,6 @@ export default function Integrations() {
                   </div>
                 </div>
               </div>
-            ) : activeProvider === 'twilio' ? (
-              <div className='card'>
-                <div className='cardHead'>
-                  <h3>Twilio sandbox/test setup</h3>
-                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
-                </div>
-                <div className='cardBody'>
-                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
-                  <div className='stack' style={{ gap: 12 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('twilio', e.target.checked)} />
-                      <span>Enable Twilio testing (legacy/inactive voice path)</span>
-                    </label>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Account SID</label>
-                      <input className='input' value={String(activeConfig.account_sid || '')} onChange={(e) => setProviderField('twilio', 'account_sid', e.target.value)} placeholder='AC...' />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Auth token</label>
-                      <input className='input' type='password' value={String(activeDraft.auth_token_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, twilio: { ...(s.twilio || {}), auth_token_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.auth_token ? 'Leave blank to keep current token' : 'Paste Twilio auth token'} />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>WhatsApp sandbox number</label>
-                      <input className='input' value={String(activeConfig.whatsapp_from || 'whatsapp:+14155238886')} onChange={(e) => setProviderField('twilio', 'whatsapp_from', e.target.value)} placeholder='whatsapp:+14155238886' />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Test voice / phone number</label>
-                      <input className='input' value={String(activeConfig.from_number || '')} onChange={(e) => setProviderField('twilio', 'from_number', e.target.value)} placeholder='+44...' />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>TwiML URL</label>
-                      <input className='input' value={String(activeConfig.twiml_url || '')} onChange={(e) => setProviderField('twilio', 'twiml_url', e.target.value)} placeholder='https://.../twiml.xml' />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Voice status callback URL</label>
-                      <input className='input' value={String(activeConfig.status_callback_url || 'http://localhost:8000/twilio/webhooks/calls')} onChange={(e) => setProviderField('twilio', 'status_callback_url', e.target.value)} />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Voice webhook URL</label>
-                      <input className='input' value={String(activeConfig.voice_webhook_url || 'http://localhost:8000/twilio/webhooks/calls')} onChange={(e) => setProviderField('twilio', 'voice_webhook_url', e.target.value)} />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Caller ID verification callback URL</label>
-                      <input className='input' value={String(activeConfig.caller_id_status_callback_url || 'http://localhost:8000/twilio/webhooks/caller-id')} onChange={(e) => setProviderField('twilio', 'caller_id_status_callback_url', e.target.value)} />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>WhatsApp sandbox webhook URL</label>
-                      <input className='input' value={String(activeConfig.whatsapp_webhook_url || 'http://localhost:8000/twilio/webhooks/whatsapp')} onChange={(e) => setProviderField('twilio', 'whatsapp_webhook_url', e.target.value)} />
-                    </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <input type='checkbox' checked={activeConfig.sandbox_mode !== false} onChange={(e) => setProviderField('twilio', 'sandbox_mode', e.target.checked)} />
-                      <span>Sandbox/test mode</span>
-                    </label>
-                    <div className='actions'>
-                      <button className='btn primary' onClick={() => saveIntegrationProvider('twilio')} disabled={providerSaving}>
-                        {providerSaving ? 'Saving…' : 'Save Twilio'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
             ) : activeProvider === 'zoom' ? (
               <div className='card'>
                 <div className='cardHead'>
@@ -1700,7 +1746,7 @@ export default function Integrations() {
               </div>
               <div className='cardBody'>
                 <div className='note'>
-                  Open Telnyx, Azure Speech, and OpenAI for the active voice-agent path. Twilio and Vapi remain available as legacy settings only.
+                  Open Telnyx, Azure Speech, and OpenAI for the active voice-agent path. Vapi remains available for browser-call settings.
                 </div>
                 <div className='actions' style={{ marginTop: 12 }}>
                   <button className='btn primary' onClick={() => navigate('/integrations/telnyx')}>

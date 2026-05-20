@@ -46,19 +46,27 @@ def test_admin_provider_settings_encrypt_and_hide_secrets(app_client):
 
     secret = "super-secret"
     r = app_client.put(
-        "/admin/integrations/twilio",
-        json={"is_enabled": True, "config": {"account_sid": "AC", "api_key": "SK", "api_secret": secret}},
+        "/admin/integrations/openai",
+        json={
+            "is_enabled": True,
+            "config": {
+                "api_key": secret,
+                "default_model": "gpt-4o-mini",
+                "realtime_model": "gpt-4o-mini",
+                "temperature": 0.7,
+                "max_output_tokens": 256,
+            },
+        },
         headers=headers,
     )
     assert r.status_code == 200
-    assert "api_secret" not in str(r.json()).lower()
+    assert secret not in str(r.json()).lower()
 
-    # Encrypted at rest (ciphertext should not contain secret)
     from app.models.provider_config import ProviderConfig
     from sqlalchemy import select
 
     with get_sessionmaker()() as db:
-        obj = db.execute(select(ProviderConfig).where(ProviderConfig.provider == "twilio")).scalar_one()
+        obj = db.execute(select(ProviderConfig).where(ProviderConfig.provider == "openai")).scalar_one()
         assert secret not in obj.encrypted_json
 
 

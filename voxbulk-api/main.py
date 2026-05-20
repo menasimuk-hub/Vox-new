@@ -39,7 +39,6 @@ from app.routers.onboarding import router as onboarding_router
 from app.routers.organisations import router as organisations_router
 from app.routers.support import router as support_router
 from app.routers.telnyx import router as telnyx_router
-from app.routers.twilio import router as twilio_router
 from app.routers.users import router as users_router
 from app.routers.webhooks import router as webhooks_router
 from app.routers.whatsapp import router as whatsapp_router
@@ -180,7 +179,6 @@ app.include_router(admin_demo_router)
 app.include_router(billing_router)
 app.include_router(support_router)
 app.include_router(telnyx_router)
-app.include_router(twilio_router)
 app.include_router(faq_router)
 app.include_router(frontpage_router)
 app.include_router(frontpage_router, prefix="/api")

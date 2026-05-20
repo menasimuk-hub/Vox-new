@@ -78,25 +78,20 @@ def test_dentally_sync_idempotent_and_tenant_safe(app_client, monkeypatch):
 
 
 def test_multichannel_fallback_to_whatsapp(app_client, monkeypatch):
-    import os
+    from app.services import telnyx_messaging_service, telnyx_voice_service
+    from app.services.provider_settings import ProviderSettingsService
+    from app.services.telnyx_messaging_service import TelnyxMessageResult
+    from app.services.telnyx_voice_service import TelnyxProviderResult
 
-    os.environ["TWILIO_ACCOUNT_SID"] = "ACxxx"
-    os.environ["TWILIO_API_KEY"] = "SKxxx"
-    os.environ["TWILIO_API_SECRET"] = "secret"
-    os.environ["TWILIO_FROM_NUMBER"] = "+447000000000"
-    os.environ["TWILIO_TWIML_URL"] = "https://example.com/twiml.xml"
-    os.environ["TWILIO_WHATSAPP_FROM"] = "whatsapp:+447000000000"
+    def fake_start_outbound_call(**kwargs):
+        return TelnyxProviderResult(ok=False, status="failed", detail="call failed")
 
-    from app.services import twilio_service
+    def fake_send_survey_message(db, *, org_id, to_number, body, prefer_whatsapp=True):
+        return TelnyxMessageResult(ok=True, status="queued", external_id="msg-test-123", channel="whatsapp")
 
-    def fake_create_call(*, account_sid: str, api_key: str, api_secret: str, to_number: str, from_number: str, twiml_url: str):
-        raise Exception("call failed")
-
-    def fake_create_message(*, account_sid: str, api_key: str, api_secret: str, to_number: str, from_number: str, body: str):
-        return {"sid": "SM123", "status": "queued"}
-
-    twilio_service.TwilioAdapter._create_call = staticmethod(fake_create_call)
-    twilio_service.TwilioWhatsAppAdapter._create_message = staticmethod(fake_create_message)
+    telnyx_voice_service.TelnyxVoiceAdapter.start_outbound_call = staticmethod(fake_start_outbound_call)
+    monkeypatch.setattr(telnyx_messaging_service.TelnyxMessagingService, "send_survey_message", staticmethod(fake_send_survey_message))
+    monkeypatch.setattr("app.workers.call_tasks.is_within_calling_window", lambda _now: True)
 
     from app.core.database import get_sessionmaker
     from app.models.organisation import Organisation
@@ -109,14 +104,31 @@ def test_multichannel_fallback_to_whatsapp(app_client, monkeypatch):
 
     with get_sessionmaker()() as db:
         org = Organisation(name="MC")
-        db.add(org); db.flush()
+        db.add(org)
+        db.flush()
         user = User(email="mc@example.com", password_hash=hash_password("pass123"), is_active=True)
-        db.add(user); db.flush()
+        db.add(user)
+        db.flush()
         db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
         patient = Patient(org_id=org.id, first_name="A", last_name="B", phone_e164="+447000000001")
-        db.add(patient); db.flush()
+        db.add(patient)
+        db.flush()
         appt = Appointment(org_id=org.id, patient_id=patient.id, scheduled_start=datetime.now(timezone.utc))
-        db.add(appt); db.commit()
+        db.add(appt)
+        ProviderSettingsService.upsert_platform_config(
+            db,
+            provider="telnyx",
+            is_enabled=True,
+            config={
+                "api_key": "KEY0123456789012345678901234567890123456789012345678901234567890",
+                "connection_id": "conn-test",
+                "default_outbound_number": "+447000000000",
+                "fallback_caller_id": "+447000000000",
+                "media_stream_url": "wss://example.com/telnyx/media-stream",
+                "webhook_base_url": "https://example.com",
+            },
+        )
+        db.commit()
 
     tok = app_client.post("/auth/token", data={"username": "mc@example.com", "password": "pass123", "org_id": org.id}).json()["access_token"]
     r = app_client.post(f"/appointments/{appt.id}/recovery", headers={"Authorization": f"Bearer {tok}"})

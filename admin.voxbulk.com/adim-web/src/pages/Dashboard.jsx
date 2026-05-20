@@ -38,7 +38,7 @@ export default function Dashboard(){
         if (!cancelled) setHealth({})
         return
       }
-      const providers = ['dentally','telnyx','azure_speech','openai','twilio','vapi','gocardless']
+      const providers = ['dentally','telnyx','azure_speech','openai','vapi','gocardless']
       const next = {}
       await Promise.all(providers.map(async (p) => {
         try {
@@ -176,7 +176,6 @@ export default function Dashboard(){
     healthRow('Telnyx voice','telnyx'),
     healthRow('Azure Speech','azure_speech'),
     healthRow('OpenAI','openai'),
-    healthRow('Twilio legacy','twilio'),
     healthRow('Vapi legacy','vapi'),
     healthRow('GoCardless','gocardless'),
     ['Social login', normalizeAdminRole(adminRole) === 'superadmin' ? 'Use Integrations → Social login' : 'Hidden for your role']

@@ -24,7 +24,7 @@ from app.services.telnyx_api_key import (
     telnyx_caller_hint,
     telnyx_outbound_caller_id,
 )
-from app.services.twilio_service import LogService, normalize_e164
+from app.services.messaging_log_service import LogService, normalize_e164
 
 
 @dataclass(frozen=True)
@@ -557,6 +557,17 @@ class TelnyxExecutionService:
             log.ended_at = log.ended_at or now
         log.raw_payload = json.dumps(payload, ensure_ascii=False)
         db.add(log)
+        try:
+            from app.services.telephony_recovery_bridge import apply_call_status_to_recovery
+
+            apply_call_status_to_recovery(
+                db,
+                provider="telnyx",
+                provider_ref=str(call_id),
+                call_status=str(status),
+            )
+        except Exception:
+            pass
         db.commit()
         db.refresh(log)
         return log

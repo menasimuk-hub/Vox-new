@@ -105,7 +105,6 @@ const NAV = [
       ['Deepgram', '/integrations/deepgram'],
       ['Cartesia', '/integrations/cartesia'],
       ['ElevenLabs', '/integrations/elevenlabs'],
-      ['Twilio legacy', '/integrations/twilio'],
       ['Vapi', '/integrations/vapi'],
       ['GoCardless', '/integrations/gocardless'],
       ['Zoom', '/integrations/zoom'],

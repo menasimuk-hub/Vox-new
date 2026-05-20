@@ -12,7 +12,7 @@ from app.models.whatsapp_log import WhatsAppLog
 from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_api_key import normalize_telnyx_api_key, normalize_telnyx_e164, require_telnyx_api_key
 from app.services.telnyx_voice_service import _telnyx_config, _telnyx_headers, _telnyx_http_error_detail, TelnyxConfigError
-from app.services.twilio_service import LogService, normalize_e164
+from app.services.messaging_log_service import LogService, normalize_e164
 
 
 TELNYX_MESSAGES_URL = "https://api.telnyx.com/v2/messages"
