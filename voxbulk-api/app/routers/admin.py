@@ -239,6 +239,18 @@ def test_deepseek_completion(db: Session = Depends(get_db), _admin=Depends(requi
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"DeepSeek test failed: {e}") from e
 
 
+@router.post("/integrations/zoom/test")
+def test_zoom_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.zoom_service import ZoomService
+
+    try:
+        return ZoomService.test_connection(db)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Zoom test failed: {e}") from e
+
+
 @router.post("/integrations/groq/test")
 def test_groq_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:

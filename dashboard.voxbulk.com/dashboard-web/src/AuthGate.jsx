@@ -16,11 +16,12 @@ export default function AuthGate() {
       }
 
       try {
-        const [profile, org, onboarding, subscription] = await Promise.all([
+        const [profile, org, onboarding, subscription, aiConfig] = await Promise.all([
           apiFetch('/auth/me'),
           apiFetch('/organisations/me').catch(() => null),
           apiFetch('/onboarding/status').catch(() => null),
           apiFetch('/billing/subscription').catch(() => null),
+          apiFetch('/organisations/me/ai-config').catch(() => null),
         ])
         if (cancelled) return
         setState({
@@ -31,6 +32,7 @@ export default function AuthGate() {
             org,
             onboarding,
             subscription,
+            aiConfig,
           },
         })
       } catch (e) {

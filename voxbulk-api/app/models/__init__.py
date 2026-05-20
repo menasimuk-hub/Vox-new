@@ -38,6 +38,8 @@ from app.models.organisation_ai_config import (  # noqa: F401
 from app.models.oauth_identity import OAuthIdentity  # noqa: F401
 from app.models.smtp_settings import SmtpSettings  # noqa: F401
 from app.models.email_template import EmailTemplate  # noqa: F401
+from app.models.whatsapp_template import WhatsAppTemplate  # noqa: F401
+from app.models.sms_template import SmsTemplate  # noqa: F401
 from app.models.password_reset_token import PasswordResetToken  # noqa: F401
 from app.models.admin_user import AdminUser  # noqa: F401
 from app.models.payment_event import PaymentEvent  # noqa: F401
@@ -52,3 +54,5 @@ from app.models.support_ticket import (  # noqa: F401
     SupportTicketEvent,
     SupportTicketMessage,
 )
+from app.models.platform_service import PlatformService, ServicePricingRule  # noqa: F401
+from app.models.service_order import ServiceOrder, ServiceOrderRecipient  # noqa: F401

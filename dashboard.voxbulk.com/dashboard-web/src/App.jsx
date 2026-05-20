@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import bodyHtml from './bodyHtml.js'
 import { logoutDashboard } from './lib/api.js'
+import { setClientSession } from './clientContext.js'
 
 function initialsFromName(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
@@ -13,10 +14,13 @@ function App({ session }) {
   const profile = session?.profile || {}
   const org = session?.org || {}
   const subscription = session?.subscription || {}
-  const onboarding = session?.onboarding || {}
   const orgName = org.name || org.display_name || profile.email || 'Your clinic'
   const planName = subscription?.plan?.name || subscription?.plan_name || 'Plan'
   const avatar = initialsFromName(orgName)
+
+  useEffect(() => {
+    setClientSession(session)
+  }, [session])
 
   useEffect(() => {
     if (scriptsRan.current) return
@@ -27,9 +31,19 @@ function App({ session }) {
       script.textContent = jsCode
       document.body.appendChild(script)
 
-      window.__voxbulkLogout = logoutDashboard
+      import('./serviceOrdersBridge.js').then(({ initServiceOrdersBridge }) => {
+        initServiceOrdersBridge()
+      })
 
-      const logoutBtn = document.querySelector('.logout')
+      import('./dashboardBridge.js').then(({ initDashboardBridge }) => {
+        initDashboardBridge()
+      })
+
+      import('./profileBridge.js').then(({ initProfileBridge }) => {
+        initProfileBridge(session)
+      })
+
+      window.__voxbulkLogout = logoutDashboard
       logoutBtn?.addEventListener('click', logoutDashboard)
 
       const nameEl = document.querySelector('.unm')
@@ -83,20 +97,11 @@ function App({ session }) {
     return () => cancelAnimationFrame(raf)
   }, [])
 
-  const setupIncomplete = onboarding && onboarding.onboarding_complete === false
-
   return (
-    <>
-      {setupIncomplete ? (
-        <div className="setup-banner">
-          Account setup is not complete yet. Some features will stay in preview until onboarding is finished.
-        </div>
-      ) : null}
-      <div
-        style={{ minHeight: '100vh', width: '100%' }}
-        dangerouslySetInnerHTML={{ __html: bodyHtml }}
-      />
-    </>
+    <div
+      style={{ minHeight: '100vh', width: '100%' }}
+      dangerouslySetInnerHTML={{ __html: bodyHtml }}
+    />
   )
 }
 

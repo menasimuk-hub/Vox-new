@@ -31,6 +31,37 @@ export function getAccessToken() {
   return scored[0]?.token || candidates[0] || ''
 }
 
+export async function downloadAuthenticatedFile(path, filename) {
+  const baseUrl = getApiBaseUrl()
+  const url = baseUrl ? `${baseUrl}${path}` : path
+  const headers = new Headers()
+  const token = getAccessToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const orgId = localStorage.getItem('retover_org_id')
+  if (orgId) headers.set('X-Retover-Org-Id', orgId)
+  const res = await fetch(url, { headers })
+  if (!res.ok) {
+    const text = await res.text()
+    let message = `${res.status} ${res.statusText}`.trim()
+    try {
+      const data = JSON.parse(text)
+      if (data?.detail) message = typeof data.detail === 'string' ? data.detail : message
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message)
+  }
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
 export async function apiFetch(path, options = {}) {
   const baseUrl = getApiBaseUrl()
   const url = baseUrl ? `${baseUrl}${path}` : path

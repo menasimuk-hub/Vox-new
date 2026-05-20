@@ -10,10 +10,16 @@ from sqlalchemy.orm import Session
 from app.models.agent_knowledge_file import AgentKnowledgeFile
 from app.models.knowledge_base_file import KnowledgeBaseFile
 
+KB_SCOPE_LEAD = "lead"
+KB_SCOPE_SALES = "sales"
+KB_SCOPE_ORG = "org"
+KB_SCOPES = frozenset({KB_SCOPE_LEAD, KB_SCOPE_SALES, KB_SCOPE_ORG})
+
 # Recommended limits
 MAX_KB_FILE_BYTES = 2 * 1024 * 1024  # 2 MB per .md file
 MAX_KB_LIBRARY_FILES = 100
 MAX_KB_FILES_PER_AGENT = 20
+MAX_KB_FILES_PER_SCOPE = 20
 # Cached on agent.kb_context for low-latency runtime (no disk read per turn)
 MAX_KB_CONTEXT_CHARS = 20_000
 MAX_KB_FILE_CHARS_FOR_CONTEXT = 8_000
@@ -33,19 +39,33 @@ def ensure_kb_root() -> Path:
     return KB_ROOT
 
 
+def normalize_kb_scope(scope: str | None, *, default: str = KB_SCOPE_ORG) -> str:
+    s = (scope or default).strip().lower()
+    if s not in KB_SCOPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid knowledge base scope. Use one of: {', '.join(sorted(KB_SCOPES))}.",
+        )
+    return s
+
+
 def kb_file_out(row: KnowledgeBaseFile) -> dict:
     return {
         "id": row.id,
         "original_filename": row.original_filename,
         "storage_path": row.storage_path,
         "size_bytes": row.size_bytes,
+        "scope": str(row.scope or KB_SCOPE_ORG),
         "created_at": row.created_at,
         "uploaded_by_user_id": row.uploaded_by_user_id,
     }
 
 
-def list_kb_files(db: Session) -> list[dict]:
-    rows = list(db.execute(select(KnowledgeBaseFile).order_by(KnowledgeBaseFile.created_at.desc())).scalars())
+def list_kb_files(db: Session, *, scope: str | None = None) -> list[dict]:
+    stmt = select(KnowledgeBaseFile).order_by(KnowledgeBaseFile.created_at.desc())
+    if scope is not None:
+        stmt = stmt.where(KnowledgeBaseFile.scope == normalize_kb_scope(scope))
+    rows = list(db.execute(stmt).scalars())
     return [kb_file_out(r) for r in rows]
 
 
@@ -57,11 +77,27 @@ def get_kb_file(db: Session, file_id: str) -> dict:
     return {**kb_file_out(row), "content": content, "content_chars": len(content)}
 
 
-async def upload_kb_file(db: Session, *, file: UploadFile, uploaded_by_user_id: str | None) -> dict:
+async def upload_kb_file(
+    db: Session,
+    *,
+    file: UploadFile,
+    uploaded_by_user_id: str | None,
+    scope: str = KB_SCOPE_ORG,
+) -> dict:
     ensure_kb_root()
+    kb_scope = normalize_kb_scope(scope)
     total = db.execute(select(func.count()).select_from(KnowledgeBaseFile)).scalar_one()
     if int(total) >= MAX_KB_LIBRARY_FILES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Knowledge base library limit reached ({MAX_KB_LIBRARY_FILES} files)")
+
+    scoped_count = db.execute(
+        select(func.count()).select_from(KnowledgeBaseFile).where(KnowledgeBaseFile.scope == kb_scope)
+    ).scalar_one()
+    if int(scoped_count) >= MAX_KB_FILES_PER_SCOPE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Knowledge base limit reached for scope '{kb_scope}' ({MAX_KB_FILES_PER_SCOPE} files). Delete unused files first.",
+        )
 
     original = _safe_filename(file.filename or "document.md")
     if not original.lower().endswith(".md"):
@@ -80,6 +116,7 @@ async def upload_kb_file(db: Session, *, file: UploadFile, uploaded_by_user_id: 
         original_filename=original,
         storage_path="",
         size_bytes=len(raw),
+        scope=kb_scope,
         uploaded_by_user_id=uploaded_by_user_id,
     )
     db.add(row)
@@ -114,12 +151,39 @@ def delete_kb_file(db: Session, *, file_id: str) -> None:
     db.commit()
 
 
-def get_kb_files_by_ids(db: Session, file_ids: list[str]) -> list[KnowledgeBaseFile]:
+def get_kb_files_by_ids(db: Session, file_ids: list[str], *, scope: str | None = None) -> list[KnowledgeBaseFile]:
     if not file_ids:
         return []
     rows = list(db.execute(select(KnowledgeBaseFile).where(KnowledgeBaseFile.id.in_(file_ids))).scalars())
     by_id = {r.id: r for r in rows}
-    return [by_id[fid] for fid in file_ids if fid in by_id]
+    if scope is not None:
+        expected = normalize_kb_scope(scope)
+        rows = [by_id[fid] for fid in file_ids if fid in by_id and str(by_id[fid].scope or KB_SCOPE_ORG) == expected]
+    else:
+        rows = [by_id[fid] for fid in file_ids if fid in by_id]
+    return rows
+
+
+def validate_kb_file_ids_for_scope(db: Session, file_ids: list[str], *, scope: str) -> list[str]:
+    unique = list(dict.fromkeys([str(v).strip() for v in file_ids if str(v).strip()]))
+    if not unique:
+        return []
+    expected = normalize_kb_scope(scope)
+    rows = list(db.execute(select(KnowledgeBaseFile).where(KnowledgeBaseFile.id.in_(unique))).scalars())
+    by_id = {r.id: r for r in rows}
+    missing = [fid for fid in unique if fid not in by_id]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"message": "Unknown knowledge base files", "missing_ids": missing},
+        )
+    wrong = [by_id[fid].original_filename for fid in unique if str(by_id[fid].scope or KB_SCOPE_ORG) != expected]
+    if wrong:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"These files belong to another agent library ({expected} only): {', '.join(wrong)}",
+        )
+    return unique
 
 
 def agent_knowledge_file_ids(db: Session, agent_id: str) -> list[str]:
@@ -200,10 +264,17 @@ def set_agent_knowledge_files(db: Session, *, agent_id: str, file_ids: list[str]
             detail=f"At most {MAX_KB_FILES_PER_AGENT} knowledge base files per agent",
         )
     if unique:
-        existing = set(db.execute(select(KnowledgeBaseFile.id).where(KnowledgeBaseFile.id.in_(unique))).scalars())
+        existing_rows = list(db.execute(select(KnowledgeBaseFile).where(KnowledgeBaseFile.id.in_(unique))).scalars())
+        existing = {r.id for r in existing_rows}
         missing = [fid for fid in unique if fid not in existing]
         if missing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"message": "Unknown knowledge base files", "missing_ids": missing})
+        non_org = [r.original_filename for r in existing_rows if str(r.scope or KB_SCOPE_ORG) != KB_SCOPE_ORG]
+        if non_org:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Lead/sales knowledge base files cannot attach to clinic agents: {', '.join(non_org)}",
+            )
 
     db.execute(delete(AgentKnowledgeFile).where(AgentKnowledgeFile.agent_id == agent_id))
     for fid in unique:

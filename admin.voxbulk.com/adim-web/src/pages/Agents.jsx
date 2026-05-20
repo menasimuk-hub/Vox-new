@@ -59,7 +59,7 @@ export default function Agents() {
   }, [assignments])
 
   const loadKb = async () => {
-    const data = await apiFetch('/admin/knowledge-base')
+    const data = await apiFetch('/admin/knowledge-base?scope=org')
     setKbFiles(data?.files || [])
   }
 
@@ -278,7 +278,7 @@ export default function Agents() {
     try {
       const form = new FormData()
       form.append('file', file)
-      await apiUpload('/admin/knowledge-base/upload', form)
+      await apiUpload('/admin/knowledge-base/upload?scope=org', form)
       setMsg(`Uploaded ${file.name}.`)
       await loadKb()
     } catch (e) {
@@ -431,7 +431,7 @@ export default function Agents() {
             <span className='pill p-cyan'>{kbFiles.length} files</span>
           </div>
           <div className='cardBody stack'>
-            <p className='muted'>Upload Markdown files (.md, max 2 MB each). All agents can attach files from this library.</p>
+            <p className='muted'>Upload Markdown files (.md, max 2 MB each). Only clinic/org voice agents use this library — lead and sales agents have separate KB libraries.</p>
             <div className='actions'>
               <label className='btn soft' style={{ cursor: 'pointer' }}>
                 {kbUploading ? 'Uploading...' : 'Upload .md file'}

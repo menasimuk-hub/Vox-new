@@ -75,7 +75,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("template_key", sa.String(length=64), nullable=False),
         sa.Column("subject", sa.String(length=500), nullable=False, server_default=""),
-        sa.Column("body", sa.Text(), nullable=False, server_default=""),
+        sa.Column("body", sa.Text(), nullable=False),
         sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),

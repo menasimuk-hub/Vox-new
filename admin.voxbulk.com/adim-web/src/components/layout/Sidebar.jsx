@@ -108,6 +108,7 @@ const NAV = [
       ['Twilio legacy', '/integrations/twilio'],
       ['Vapi', '/integrations/vapi'],
       ['GoCardless', '/integrations/gocardless'],
+      ['Zoom', '/integrations/zoom'],
       ['Webhooks', '/integrations/webhooks'],
       ['Social login', '/integrations/social-login'],
     ],
@@ -134,6 +135,8 @@ const NAV = [
       ['Revenue reports', '/billing/reports'],
       ['Calls cost', '/billing/calls-cost'],
       ['Packages & Pricing', '/billing/packages'],
+      ['Services & pricing', '/billing/services-pricing'],
+      ['Service orders (cash)', '/billing/service-orders'],
     ],
   ],
   [

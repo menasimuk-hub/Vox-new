@@ -14,6 +14,7 @@ const API_PROXY_PATHS = [
   '/appointments',
   '/branches',
   '/users',
+  '/service-orders',
   '/health',
 ]
 

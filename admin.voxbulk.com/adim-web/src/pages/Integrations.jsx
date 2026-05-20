@@ -21,6 +21,7 @@ const PROVIDERS = [
   { key: 'twilio', label: 'Twilio' },
   { key: 'vapi', label: 'Vapi' },
   { key: 'gocardless', label: 'GoCardless' },
+  { key: 'zoom', label: 'Zoom' },
 ]
 
 const DEFAULT_WEBHOOK_BASE = 'https://localhost'
@@ -81,6 +82,15 @@ function deepSeekValidation(config, draft, summary) {
   if (!hasApiKey) errors.api_key = 'API key is required.'
   if (!String(config?.base_url || '').trim()) errors.base_url = 'Base URL is required.'
   if (!String(config?.model || config?.default_model || '').trim()) errors.model = 'Model is required.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function zoomValidation(config, draft, summary) {
+  const errors = {}
+  const hasSecret = Boolean(summary?.secret_set?.client_secret) || Boolean(String(draft?.client_secret_draft || '').trim())
+  if (!String(config?.account_id || '').trim()) errors.account_id = 'Account ID is required.'
+  if (!String(config?.client_id || '').trim()) errors.client_id = 'Client ID is required.'
+  if (!hasSecret) errors.client_secret = 'Client secret is required.'
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
@@ -439,6 +449,7 @@ export default function Integrations() {
   const [azureTestResult, setAzureTestResult] = useState('')
   const [openAITestResult, setOpenAITestResult] = useState('')
   const [deepSeekTestResult, setDeepSeekTestResult] = useState('')
+  const [zoomTestResult, setZoomTestResult] = useState('')
   const [groqTestResult, setGroqTestResult] = useState('')
   const [deepgramTestResult, setDeepgramTestResult] = useState('')
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
@@ -616,6 +627,11 @@ export default function Integrations() {
         if (!config.default_voice_id && config.voice_id) config.default_voice_id = config.voice_id
         if (!config.voice_id && config.default_voice_id) config.voice_id = config.default_voice_id
       }
+      if (providerKey === 'zoom') {
+        if (!config.base_url) config.base_url = 'https://api.zoom.us/v2'
+        const secret = String(draft.client_secret_draft || '').trim()
+        if (secret) config.client_secret = secret
+      }
       const updated = await apiFetch(`/admin/integrations/${providerKey}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -634,6 +650,7 @@ export default function Integrations() {
       if (providerKey === 'vapi') setVapiTestResult('')
       if (providerKey === 'elevenlabs') setElevenLabsTestResult('')
       if (providerKey === 'telnyx') setTelnyxTestResult('')
+      if (providerKey === 'zoom') setZoomTestResult('')
     } catch (e) {
       setProviderError(e?.message || 'Could not save provider')
     } finally {
@@ -648,6 +665,7 @@ export default function Integrations() {
   const openAIStatus = activeProvider === 'openai' ? openAIValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const azureStatus = activeProvider === 'azure_speech' ? azureSpeechValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepSeekStatus = activeProvider === 'deepseek' ? deepSeekValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const zoomStatus = activeProvider === 'zoom' ? zoomValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const groqStatus = activeProvider === 'groq' ? groqValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepgramStatus = activeProvider === 'deepgram' ? deepgramValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const cartesiaStatus = activeProvider === 'cartesia' ? cartesiaValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -701,6 +719,22 @@ export default function Integrations() {
     } catch (e) {
       setDeepSeekTestResult('')
       setProviderError(e?.message || 'DeepSeek test failed')
+    }
+  }
+
+  const testZoom = async () => {
+    setProviderError('')
+    setZoomTestResult('Testing Zoom…')
+    try {
+      const result = await apiFetch('/admin/integrations/zoom/test', { method: 'POST' })
+      if (!result.ok) {
+        setZoomTestResult(`Zoom failed: ${result.detail || 'Unknown error'}`)
+        return
+      }
+      setZoomTestResult(`Zoom OK: ${result.email || 'connected'}`)
+    } catch (e) {
+      setZoomTestResult('')
+      setProviderError(e?.message || 'Zoom test failed')
     }
   }
 
@@ -1555,6 +1589,52 @@ export default function Integrations() {
                         {providerSaving ? 'Saving…' : 'Save Twilio'}
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'zoom' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Zoom Server-to-Server OAuth</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('zoom', e.target.checked)} />
+                      <span>Enable Zoom for interview campaigns</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Account ID</label>
+                      <input className='input' style={zoomStatus.errors.account_id ? invalidInputStyle : undefined} value={String(activeConfig.account_id || '')} onChange={(e) => setProviderField('zoom', 'account_id', e.target.value)} />
+                      {zoomStatus.errors.account_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{zoomStatus.errors.account_id}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client ID</label>
+                      <input className='input' style={zoomStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('zoom', 'client_id', e.target.value)} />
+                      {zoomStatus.errors.client_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{zoomStatus.errors.client_id}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client secret</label>
+                      <input className='input' style={zoomStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, zoom: { ...(s.zoom || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Zoom client secret'} />
+                      {zoomStatus.errors.client_secret ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{zoomStatus.errors.client_secret}</div> : null}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>API base URL</label>
+                      <input className='input' value={String(activeConfig.base_url || 'https://api.zoom.us/v2')} onChange={(e) => setProviderField('zoom', 'base_url', e.target.value)} />
+                    </div>
+                    {!zoomStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete the required Zoom fields before saving.</div> : null}
+                    {zoomTestResult ? <div className='note'>{zoomTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('zoom')} disabled={providerSaving || !zoomStatus.valid}>
+                        {providerSaving ? 'Saving…' : 'Save Zoom'}
+                      </button>
+                      <button className='btn soft' onClick={testZoom} disabled={providerSaving || !activeSummary.configured}>
+                        Test Zoom
+                      </button>
+                    </div>
+                    <div className='note'>Used when customers choose Zoom delivery on interview orders.</div>
                   </div>
                 </div>
               </div>

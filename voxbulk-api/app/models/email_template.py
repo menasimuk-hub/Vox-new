@@ -18,6 +18,7 @@ class EmailTemplate(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     template_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     subject: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

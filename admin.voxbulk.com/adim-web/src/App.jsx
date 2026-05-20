@@ -17,6 +17,9 @@ import SupportTicketDetail from './pages/SupportTicketDetail'
 import Permissions from './pages/Permissions'
 import GenericPage from './pages/GenericPage'
 import EmailSettings from './pages/EmailSettings'
+import EmailTemplateEdit from './pages/EmailTemplateEdit'
+import WhatsAppTemplateEdit from './pages/WhatsAppTemplateEdit'
+import SmsTemplateEdit from './pages/SmsTemplateEdit'
 import FAQManagement from './pages/FAQManagement'
 import HelpCentreContent from './pages/HelpCentreContent'
 import PendingSignups from './pages/PendingSignups'
@@ -30,6 +33,8 @@ import LeadSources from './pages/LeadSources'
 import LeadSales from './pages/LeadSales'
 import LeadSalesEdit from './pages/LeadSalesEdit'
 import LeadSalesSettings from './pages/LeadSalesSettings'
+import ServicesPricing from './pages/ServicesPricing'
+import ServiceOrdersAdmin from './pages/ServiceOrdersAdmin'
 import { defaultAdminHome } from './lib/adminPaths'
 import { useAdminProfile } from './context/AdminProfileContext'
 
@@ -105,6 +110,7 @@ export default function App() {
         <Route path='/integrations/twilio' element={<Integrations />} />
         <Route path='/integrations/vapi' element={<Integrations />} />
         <Route path='/integrations/gocardless' element={<Integrations />} />
+        <Route path='/integrations/zoom' element={<Integrations />} />
         <Route path='/integrations/webhooks' element={<Integrations />} />
         <Route path='/integrations/social-login' element={<Integrations />} />
         <Route path='/services-api' element={<ServicesAPI />} />
@@ -123,6 +129,8 @@ export default function App() {
         <Route path='/billing/reports' element={<Billing />} />
         <Route path='/billing/calls-cost' element={<CallsCost />} />
         <Route path='/billing/packages' element={<PackagesPricing />} />
+        <Route path='/billing/services-pricing' element={<ServicesPricing />} />
+        <Route path='/billing/service-orders' element={<ServiceOrdersAdmin />} />
 
         <Route path='/support/inbox' element={<SupportTickets />} />
         <Route path='/support/tickets' element={<SupportTickets />} />
@@ -165,6 +173,12 @@ export default function App() {
         <Route path='/settings/global' element={G('Global config')} />
         <Route path='/settings/flags' element={G('Feature flags')} />
         <Route path='/settings/email' element={<EmailSettings />} />
+        <Route path='/settings/email/templates/new' element={<EmailTemplateEdit />} />
+        <Route path='/settings/email/templates/:templateKey/edit' element={<EmailTemplateEdit />} />
+        <Route path='/settings/email/whatsapp/new' element={<WhatsAppTemplateEdit />} />
+        <Route path='/settings/email/whatsapp/:templateKey/edit' element={<WhatsAppTemplateEdit />} />
+        <Route path='/settings/email/sms/new' element={<SmsTemplateEdit />} />
+        <Route path='/settings/email/sms/:templateKey/edit' element={<SmsTemplateEdit />} />
         <Route path='/settings/api-keys' element={G('API keys / secrets')} />
 
         <Route path='*' element={<HomeRedirect />} />

@@ -36,7 +36,14 @@ from app.services.frontpage_lead_service import (
     parse_kb_file_ids,
     recording_abs_path,
 )
-from app.services.knowledge_base_service import build_kb_context_text, get_kb_files_by_ids, list_kb_files
+from app.services.knowledge_base_service import (
+    KB_SCOPE_LEAD,
+    KB_SCOPE_SALES,
+    build_kb_context_text,
+    get_kb_files_by_ids,
+    list_kb_files,
+    validate_kb_file_ids_for_scope,
+)
 from app.services.providers.deepgram_service import DeepgramProviderService, deepgram_transcript_from_ws_message
 from app.services.telnyx_conversation_service import get_telnyx_media_for_lead, sync_telnyx_lead_artifacts
 from app.services.vapi_call_service import get_vapi_media_for_lead
@@ -186,7 +193,9 @@ def _default_agent(db: Session) -> AgentDefinition | None:
 
 def _refresh_frontpage_kb(settings: FrontpageCallSetting, db: Session) -> None:
     file_ids = parse_kb_file_ids(settings.kb_file_ids)
-    files = get_kb_files_by_ids(db, file_ids) if file_ids else []
+    if file_ids:
+        validate_kb_file_ids_for_scope(db, file_ids, scope=KB_SCOPE_LEAD)
+    files = get_kb_files_by_ids(db, file_ids, scope=KB_SCOPE_LEAD) if file_ids else []
     settings.kb_context = build_kb_context_text(files) or None
 
 
@@ -849,7 +858,7 @@ async def frontpage_talk_to_us_voice(websocket: WebSocket, call_id: str):
 @admin_router.get("/talk-to-us")
 def get_frontpage_talk_to_us_admin(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     settings, agent = _get_settings(db)
-    kb_files = list_kb_files(db)
+    kb_files = list_kb_files(db, scope=KB_SCOPE_LEAD)
     return {
         "settings": _settings_out(settings, agent),
         "kb_files": kb_files,
@@ -879,6 +888,7 @@ def update_frontpage_talk_to_us_settings(payload: FrontpageSettingsIn, db: Sessi
     if payload.system_prompt is not None:
         settings.system_prompt = payload.system_prompt.strip() or None
     if payload.kb_file_ids is not None:
+        validate_kb_file_ids_for_scope(db, payload.kb_file_ids, scope=KB_SCOPE_LEAD)
         settings.kb_file_ids = dump_kb_file_ids(payload.kb_file_ids)
     settings.llm_provider = payload.llm_provider
     settings.updated_at = datetime.utcnow()
@@ -915,7 +925,8 @@ def import_frontpage_prompt_from_kb(
     from app.services.knowledge_base_service import compose_prompt_from_kb_files, get_kb_files_by_ids
 
     settings, agent = _get_settings(db)
-    files = get_kb_files_by_ids(db, payload.kb_file_ids)
+    validate_kb_file_ids_for_scope(db, payload.kb_file_ids, scope=KB_SCOPE_LEAD)
+    files = get_kb_files_by_ids(db, payload.kb_file_ids, scope=KB_SCOPE_LEAD)
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected knowledge base files were not found")
     prompt = compose_prompt_from_kb_files(files)
@@ -949,12 +960,14 @@ def generate_frontpage_lead_agent_prompt(payload: FrontpageGeneratePromptIn, db:
             "kb_file_ids": parse_kb_file_ids(settings.kb_file_ids),
             "kb_context_chars": len(settings.kb_context or ""),
         }
-    files = get_kb_files_by_ids(db, payload.kb_file_ids)
+    files = get_kb_files_by_ids(db, payload.kb_file_ids, scope=KB_SCOPE_LEAD)
     if payload.kb_file_ids and not files:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Selected knowledge base files were not found. Refresh the page and tick your KB files again.",
+            detail="Selected knowledge base files were not found. Refresh the page and tick your lead KB files again.",
         )
+    if payload.kb_file_ids:
+        validate_kb_file_ids_for_scope(db, payload.kb_file_ids, scope=KB_SCOPE_LEAD)
     try:
         prompt = generate_frontpage_lead_prompt(db, description=payload.description, knowledge_files=files)
     except ValueError as e:
@@ -1189,7 +1202,7 @@ def get_lead_sales_settings_route(db: Session = Depends(get_db), _admin=Depends(
     from app.services.knowledge_base_service import list_kb_files
 
     row = get_lead_sales_settings(db)
-    return {"settings": lead_sales_settings_out(row), "kb_files": list_kb_files(db)}
+    return {"settings": lead_sales_settings_out(row), "kb_files": list_kb_files(db, scope=KB_SCOPE_SALES)}
 
 
 @admin_router.put("/lead-sales/settings")
@@ -1209,6 +1222,7 @@ def update_lead_sales_settings_route(
     if payload.system_prompt is not None:
         row.system_prompt = str(payload.system_prompt or "").strip() or None
     if payload.kb_file_ids is not None:
+        validate_kb_file_ids_for_scope(db, payload.kb_file_ids, scope=KB_SCOPE_SALES)
         row.kb_file_ids = dump_kb_file_ids(payload.kb_file_ids)
     if payload.calling_hour_start is not None:
         row.calling_hour_start = int(payload.calling_hour_start)
@@ -1235,7 +1249,8 @@ def import_lead_sales_prompt_from_kb(
     from app.services.frontpage_lead_service import dump_kb_file_ids
 
     settings = get_lead_sales_settings(db)
-    files = get_kb_files_by_ids(db, payload.kb_file_ids)
+    validate_kb_file_ids_for_scope(db, payload.kb_file_ids, scope=KB_SCOPE_SALES)
+    files = get_kb_files_by_ids(db, payload.kb_file_ids, scope=KB_SCOPE_SALES)
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected knowledge base files were not found")
     prompt = compose_prompt_from_kb_files(files)
@@ -1279,9 +1294,11 @@ def generate_lead_sales_master_prompt_route(
             "skipped": True,
             "kb_file_ids": parse_kb_file_ids(settings.kb_file_ids),
         }
-    files = get_kb_files_by_ids(db, payload.kb_file_ids)
+    files = get_kb_files_by_ids(db, payload.kb_file_ids, scope=KB_SCOPE_SALES)
     if payload.kb_file_ids and not files:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No knowledge base files found for selected IDs")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No sales knowledge base files found for selected IDs")
+    if payload.kb_file_ids:
+        validate_kb_file_ids_for_scope(db, payload.kb_file_ids, scope=KB_SCOPE_SALES)
     prompt = generate_lead_sales_master_prompt(db, description=desc, knowledge_files=files)
     settings.prompt_description = desc
     settings.system_prompt = prompt

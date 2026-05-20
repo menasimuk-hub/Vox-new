@@ -1,6 +1,6 @@
 
 var titles={
-  dashboard:['Dashboard','Live · Mon 19 May 2026'],
+  dashboard:['Dashboard','Live · Overview'],
   queue:['Recovery queue','Patients who missed or cancelled'],
   noshow:['No-show follow-up','AI contacts no-shows and offers to rebook'],
   emergency:['Emergency reschedule','Cancel a day or window — AI calls all patients'],
@@ -23,6 +23,19 @@ var titles={
 };
 
 // ── NAVIGATION ──
+function toggleSetupChecklist(show){
+  var card=document.getElementById('ob-card');
+  var btn=document.getElementById('ob-show-btn');
+  if(!card) return;
+  var open=(show===true)?true:(show===false?false:card.style.display==='none');
+  card.style.display=open?'block':'none';
+  if(btn) btn.style.display=open?'none':'inline-flex';
+}
+function syncSetupChecklistForPage(id){
+  if(id==='system'){
+    toggleSetupChecklist(true);
+  }
+}
 function go(id,el){
   document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('on'));
@@ -37,6 +50,7 @@ function go(id,el){
   var s=id==='dashboard'?'<span class="ldot"></span> '+t[1]:t[1];
   document.getElementById('tb-s').innerHTML=s;
   closeNotif();
+  syncSetupChecklistForPage(id);
   window.scrollTo(0,0);
 }
 // Convenience nav — finds and highlights correct sidebar item automatically

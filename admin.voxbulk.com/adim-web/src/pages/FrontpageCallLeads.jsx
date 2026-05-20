@@ -34,11 +34,6 @@ export default function FrontpageCallLeads() {
 
   const kbContextChars = settings?.kb_context_chars ?? 0
 
-  const loadKb = async () => {
-    const data = await apiFetch('/admin/knowledge-base')
-    setKbFiles(data?.files || [])
-  }
-
   const loadSettings = async () => {
     const data = await apiFetch('/admin/frontpage/talk-to-us')
     const s = data?.settings || {}
@@ -49,6 +44,7 @@ export default function FrontpageCallLeads() {
     setSystemPrompt(s.system_prompt || '')
     setSelectedKbIds(s.kb_file_ids || [])
     setLlmProvider(s.llm_provider || 'groq')
+    setKbFiles(data?.kb_files || [])
     if (s.system_prompt) setShowPromptPreview(true)
   }
 
@@ -56,7 +52,7 @@ export default function FrontpageCallLeads() {
     setMsg('')
     setLoading(true)
     try {
-      await Promise.all([loadSettings(), loadKb()])
+      await loadSettings()
     } catch (e) {
       const hint = e?.status === 404
         ? ' API route missing — restart FastAPI (uvicorn) after pulling latest code.'
@@ -226,7 +222,7 @@ export default function FrontpageCallLeads() {
         try {
           const form = new FormData()
           form.append('file', file)
-          const uploaded = await apiUpload('/admin/knowledge-base/upload', form)
+          const uploaded = await apiUpload('/admin/knowledge-base/upload?scope=lead', form)
           const newId = uploaded?.file?.id
           if (newId) newIds.push(newId)
           uploadedNames.push(file.name)
@@ -234,7 +230,7 @@ export default function FrontpageCallLeads() {
           failed.push(`${file.name}: ${e?.message || 'failed'}`)
         }
       }
-      await loadKb()
+      await loadSettings()
       if (newIds.length) {
         setSelectedKbIds((prev) => [...new Set([...prev, ...newIds])])
       }
@@ -254,14 +250,14 @@ export default function FrontpageCallLeads() {
   }
 
   const deleteKb = async (file) => {
-    if (!window.confirm(`Delete "${file.original_filename}"? This removes it for all agents.`)) return
+    if (!window.confirm(`Delete "${file.original_filename}"? This removes it from the website lead agent library.`)) return
     setDeletingKbId(file.id)
     setMsg('')
     try {
       await apiFetch(`/admin/knowledge-base/${file.id}`, { method: 'DELETE' })
       setSelectedKbIds((prev) => prev.filter((id) => id !== file.id))
       if (kbPreview?.id === file.id) setKbPreview(null)
-      await loadKb()
+      await loadSettings()
       setMsg(`Deleted ${file.original_filename}.`)
     } catch (e) {
       setMsg(e?.message || 'Delete failed')
@@ -326,7 +322,7 @@ export default function FrontpageCallLeads() {
 
         <section className='card'>
           <div className='cardHead'>
-            <h3>Knowledge base</h3>
+            <h3>Knowledge base · website lead agent</h3>
             <span className='pill p-cyan'>{selectedKb.length} selected · {kbContextChars.toLocaleString()} chars cached</span>
           </div>
           <div className='cardBody'>
@@ -334,6 +330,9 @@ export default function FrontpageCallLeads() {
               {uploading ? 'Uploading…' : 'Upload .md (one or many)'}
               <input type='file' accept='.md,text/markdown' multiple hidden onChange={uploadKb} disabled={uploading} />
             </label>
+            <p className='muted' style={{ marginTop: 0, marginBottom: 10 }}>
+              Files here are <strong>only for the website lead agent</strong> (Talk to us). Sales agent has its own library under Sales setup.
+            </p>
             <p className='muted' style={{ marginTop: 0, marginBottom: 10 }}>
               <strong>Use KB as prompt</strong> copies your .md exactly (e.g. jode_prompt.md). <strong>Generate with AI</strong> writes a new summary and may mix names if several files are ticked (call_flow.md mentions Sarah/Alex). Only tick the files you want in that step.
             </p>

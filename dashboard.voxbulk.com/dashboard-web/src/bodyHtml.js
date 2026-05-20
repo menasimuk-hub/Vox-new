@@ -18,7 +18,7 @@ const bodyHtml = `<div class="app" id="app">
       <div class="ni on" onclick="go('dashboard',this)" data-tip="Dashboard"><i class="ti ti-layout-dashboard nav-ic"></i><span class="ni-label">Dashboard</span><span class="ni-tip">Dashboard</span></div>
 
       <div class="nav-sec">Recovery</div>
-      <div class="ni" onclick="go('queue',this)" data-tip="Recovery queue"><i class="ti ti-phone-incoming nav-ic"></i><span class="ni-label">Recovery queue</span><span class="ni-badge" id="qbadge">12</span><span class="ni-tip">Recovery queue</span></div>
+      <div class="ni" onclick="go('queue',this)" data-tip="Recovery queue"><i class="ti ti-phone-incoming nav-ic"></i><span class="ni-label">Recovery queue</span><span class="ni-badge" id="qbadge" style="display:none">0</span><span class="ni-tip">Recovery queue</span></div>
       <div class="ni" onclick="go('noshow',this)" data-tip="No-show follow-up"><i class="ti ti-user-x nav-ic"></i><span class="ni-label">No-show follow-up</span><span class="ni-tip">No-show follow-up</span></div>
       <div class="ni" onclick="go('emergency',this)" data-tip="Emergency reschedule"><i class="ti ti-alert-triangle nav-ic"></i><span class="ni-label">Emergency reschedule</span><span class="ni-tip">Emergency reschedule</span></div>
 
@@ -62,19 +62,16 @@ const bodyHtml = `<div class="app" id="app">
     <div class="topbar">
       <div class="tb-info">
         <div class="tb-title" id="tb-t">Dashboard</div>
-        <div class="tb-sub" id="tb-s"><span class="ldot"></span> Live · Sat 16 May 2026</div>
+        <div class="tb-sub" id="tb-s"><span class="ldot"></span> Live · <span id="tb-s-plain">Overview</span></div>
       </div>
       <div class="tb-r">
         <div class="api-pill"><span class="api-dot"></span>Dentally connected</div>
         <div class="tbbtn" onclick="toggleDark()" title="Toggle dark mode"><i class="ti ti-moon" id="mode-i"></i></div>
         <div class="nbell" style="position:relative">
-          <div class="tbbtn" onclick="toggleNotif()"><i class="ti ti-bell"></i><div class="ndot"></div></div>
+          <div class="tbbtn" onclick="toggleNotif()"><i class="ti ti-bell"></i></div>
           <div class="npanel" id="npanel" style="display:none">
-            <div class="np-hd"><span class="np-t">Notifications</span><span class="bdg br">4 new</span></div>
-            <div class="nitem"><div class="nic af-g"><i class="ti ti-check"></i></div><div><div class="nt">Marco Rossi rebooked for Thu 3pm</div><div class="ns">2 min ago · Recovery</div></div></div>
-            <div class="nitem"><div class="nic af-r"><i class="ti ti-alert-triangle"></i></div><div><div class="nt">Dentally briefly disconnected — now reconnected</div><div class="ns">14 min ago · System</div></div></div>
-            <div class="nitem"><div class="nic af-a"><i class="ti ti-receipt"></i></div><div><div class="nt">Overage warning — £8.40 above plan credit</div><div class="ns">1 hr ago · Billing</div></div></div>
-            <div class="nitem"><div class="nic af-b"><i class="ti ti-message"></i></div><div><div class="nt">Kim Nguyen replied to WhatsApp reminder</div><div class="ns">2 hr ago · WhatsApp</div></div></div>
+            <div class="np-hd"><span class="np-t">Notifications</span><span class="bdg br">0 new</span></div>
+            <div class="nitem" style="cursor:default"><div class="nic af-b"><i class="ti ti-bell-off"></i></div><div><div class="nt">No notifications yet</div><div class="ns">Alerts will appear here</div></div></div>
           </div>
         </div>
       </div>
@@ -88,9 +85,9 @@ const bodyHtml = `<div class="app" id="app">
         <div class="roi-card">
           <div class="roi-ic"><i class="ti ti-trending-up"></i></div>
           <div class="roi-main">
-            <div class="roi-val">£25.50</div>
+            <div class="roi-val" id="dash-roi-val">£0.00</div>
             <div class="roi-lbl">returned for every £1 spent on VoxBulk this month</div>
-            <div class="roi-sub">£4,650 recovered · £182 total cost · 37% call success rate</div>
+            <div class="roi-sub" id="dash-roi-sub">£0 recovered · £0 total cost · 0% call success rate</div>
           </div>
           <div class="roi-actions">
             <button class="roi-btn" onclick="goNav('queue')"><i class="ti ti-phone-incoming"></i>Run AI now</button>
@@ -99,70 +96,43 @@ const bodyHtml = `<div class="app" id="app">
         </div>
         <!-- QUICK ACTIONS -->
         <div class="qa-row">
-          <button class="qa-btn primary" onclick="goNav('queue')"><i class="ti ti-phone-incoming"></i>Recovery queue<span class="qa-sub">12 patients waiting</span></button>
+          <button class="qa-btn primary" onclick="goNav('queue')"><i class="ti ti-phone-incoming"></i>Recovery queue<span class="qa-sub" id="dash-qa-queue">0 patients waiting</span></button>
           <button class="qa-btn" onclick="goNav('emergency')"><i class="ti ti-alert-triangle" style="color:var(--red)"></i>Emergency reschedule<span class="qa-sub">Cancel a day instantly</span></button>
-          <button class="qa-btn" onclick="goNav('recall')"><i class="ti ti-refresh" style="color:var(--pur)"></i>Recall campaign<span class="qa-sub">143 overdue patients</span></button>
+          <button class="qa-btn" onclick="goNav('recall')"><i class="ti ti-refresh" style="color:var(--pur)"></i>Recall campaign<span class="qa-sub" id="dash-qa-recall">0 overdue patients</span></button>
           <button class="qa-btn" onclick="goNav('reports')"><i class="ti ti-chart-bar" style="color:var(--blu)"></i>View reports<span class="qa-sub">Full analytics</span></button>
         </div>
-        <div class="ob-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div style="font-size:14px;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:8px"><i class="ti ti-rocket" style="color:var(--grn);font-size:16px"></i>Getting started — 3 of 6 complete</div>
-            <span class="bdg bg">50%</span>
-          </div>
-          <div class="ob-prog"><div class="ob-fill" style="width:50%"></div></div>
-          <div class="ob-step"><div class="ob-ic ob-done"><i class="ti ti-check"></i></div><div class="ob-lbl">Connect booking system API <span style="color:var(--t3)">— Dentally connected</span></div></div>
-          <div class="ob-step"><div class="ob-ic ob-done"><i class="ti ti-check"></i></div><div class="ob-lbl">Set average appointment value <span style="color:var(--t3)">— £85</span></div></div>
-          <div class="ob-step"><div class="ob-ic ob-done"><i class="ti ti-check"></i></div><div class="ob-lbl">Configure WhatsApp number <span style="color:var(--t3)">— Connected</span></div></div>
-          <div class="ob-step"><div class="ob-ic ob-act"><i class="ti ti-arrow-right"></i></div><div class="ob-lbl" style="color:var(--grn);font-weight:600">Set up reminder sequence <button class="btn btng bsm" style="margin-left:auto" onclick="go('reminders',document.querySelector('.ni'))">Set up →</button></div></div>
-          <div class="ob-step"><div class="ob-ic ob-pend">5</div><div class="ob-lbl">Approve AI script</div></div>
-          <div class="ob-step"><div class="ob-ic ob-pend">6</div><div class="ob-lbl">Make a test call to hear AI voice</div></div>
-        </div>
-        <div class="card" style="margin-bottom:14px">
-<div class="ch"><i class="ti ti-sparkles grn"></i>Recommended workflow</div>
-<div class="af"><div class="af-ic af-ai"><i class="ti ti-1"></i></div><div><div class="at">Use a wizard for interview and survey creation</div><div class="as">Start with a project name, then show the process step by step</div></div></div>
-<div class="af"><div class="af-ic af-bi"><i class="ti ti-2"></i></div><div><div class="at">Show the process when a project opens</div><div class="as">Name, audience, wizard step, and launch status should be visible</div></div></div>
-<div class="af"><div class="af-ic af-gi"><i class="ti ti-3"></i></div><div><div class="at">Keep multiple projects organized separately</div><div class="as">This avoids mixing different interview or survey runs</div></div></div>
-</div>
-
-<div class="kg4">
-          <div class="kpi gt"><div class="kl">Est. recovered today</div><div class="kv">£1,140</div><div class="kd up"><i class="ti ti-trending-up" style="font-size:12px"></i>+18% vs yesterday</div></div>
-          <div class="kpi"><div class="kl">Calls made</div><div class="kv">84</div><div class="kd up"><i class="ti ti-trending-up" style="font-size:12px"></i>37% recovery rate</div></div>
-          <div class="kpi"><div class="kl">No-shows contacted</div><div class="kv">18</div><div class="kd dn">3 unreachable</div></div>
-          <div class="kpi"><div class="kl">WhatsApp open rate</div><div class="kv">89%</div><div class="kd up">53 sent today</div></div>
+        <div class="kg4">
+          <div class="kpi gt"><div class="kl">Est. recovered today</div><div class="kv" id="dash-kpi-recovered-today">£0</div><div class="kd ne">0% vs yesterday</div></div>
+          <div class="kpi"><div class="kl">Calls made</div><div class="kv" id="dash-kpi-calls-made">0</div><div class="kd ne">0% recovery rate</div></div>
+          <div class="kpi"><div class="kl">No-shows contacted</div><div class="kv" id="dash-kpi-noshows">0</div><div class="kd ne">0 unreachable</div></div>
+          <div class="kpi"><div class="kl">WhatsApp open rate</div><div class="kv" id="dash-kpi-wa-rate">0%</div><div class="kd ne" id="dash-kpi-wa-sent">0 sent today</div></div>
         </div>
         <div class="kg4">
-          <div class="kpi"><div class="kl">Queue pending</div><div class="kv" style="color:var(--amb)">12</div><div class="kd am"><i class="ti ti-alert-circle" style="font-size:12px"></i>Needs attention</div></div>
-          <div class="kpi"><div class="kl">Avg call length</div><div class="kv">1m 42s</div><div class="kd ne">Per outbound call</div></div>
-          <div class="kpi"><div class="kl">Monthly cost</div><div class="kv">£182</div><div class="kd ne">All channels</div></div>
-          <div class="kpi"><div class="kl">Monthly target</div><div class="kv" style="color:var(--grn)">68%</div><div class="kd up">£4,650 / £6,800</div></div>
+          <div class="kpi"><div class="kl">Queue pending</div><div class="kv" style="color:var(--amb)" id="dash-kpi-queue">0</div><div class="kd ne">No pending items</div></div>
+          <div class="kpi"><div class="kl">Avg call length</div><div class="kv" id="dash-kpi-avg-call">0m 00s</div><div class="kd ne">Per outbound call</div></div>
+          <div class="kpi"><div class="kl">Monthly cost</div><div class="kv" id="dash-kpi-cost">£0</div><div class="kd ne">All channels</div></div>
+          <div class="kpi"><div class="kl">Monthly target</div><div class="kv" style="color:var(--grn)" id="dash-kpi-target-pct">0%</div><div class="kd ne" id="dash-kpi-target-amt">£0 / £0</div></div>
         </div>
         <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:13px;font-weight:600;color:var(--t1)">Est. revenue recovered this month</span><span style="font-size:13px;color:var(--grn);font-weight:700">£4,650 / £6,800</span></div>
-          <div class="rvbar"><div class="rvfill" style="width:68%"></div></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:13px;font-weight:600;color:var(--t1)">Est. revenue recovered this month</span><span style="font-size:13px;color:var(--grn);font-weight:700" id="dash-rv-label">£0 / £0</span></div>
+          <div class="rvbar"><div class="rvfill" id="dash-rv-fill" style="width:0%"></div></div>
           <div style="font-size:11px;color:var(--t3)">Based on £85 avg appointment value · <span style="color:var(--blu);cursor:pointer;text-decoration:underline" onclick="go('profile',document.querySelector('.ni'))">Update in profile settings</span></div>
         </div>
         <div class="g2">
           <div class="card" style="margin:0">
             <div class="ch"><i class="ti ti-activity grn"></i>Live activity feed</div>
-            <div class="af"><div class="af-ic af-g"><i class="ti ti-check"></i></div><div><div class="at">Marco Rossi rebooked — Thu 3pm hygiene</div><div class="as">2 min ago</div></div></div>
-            <div class="af"><div class="af-ic af-b"><i class="ti ti-message"></i></div><div><div class="at">WhatsApp sent to 4 patients — 48hr reminder</div><div class="as">9 min ago</div></div></div>
-            <div class="af"><div class="af-ic af-a"><i class="ti ti-phone"></i></div><div><div class="at">Calling Sarah Johnson — attempt 1</div><div class="as">12 min ago</div></div></div>
-            <div class="af"><div class="af-ic af-r"><i class="ti ti-x"></i></div><div><div class="at">Kim Nguyen — 2 attempts, no answer</div><div class="as">28 min ago</div></div></div>
-            <div class="af"><div class="af-ic af-p"><i class="ti ti-star"></i></div><div><div class="at">Recall campaign — James Davies booked</div><div class="as">41 min ago</div></div></div>
+            <div class="af" id="dash-activity-empty"><div class="af-ic af-b"><i class="ti ti-clock"></i></div><div><div class="at">No activity yet</div><div class="as">Activity will appear here when you start using VoxBulk</div></div></div>
           </div>
           <div class="card" style="margin:0">
             <div class="ch"><i class="ti ti-calendar grn"></i>Today's schedule</div>
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <div class="sl"><div class="sl-t">09:00</div><div class="sl-c ok"><span class="sdot sg"></span><div class="qi"><div class="qn">Emma Richards</div><div class="qd">Check-up · Confirmed</div></div></div></div>
-              <div class="sl"><div class="sl-t">10:30</div><div class="sl-c mt"><span class="sdot sr"></span><div class="qi"><div class="qn">Empty slot</div><div class="qd">Cancelled · AI calling waitlist</div></div></div></div>
-              <div class="sl"><div class="sl-t">11:00</div><div class="sl-c at"><span class="sdot sa"></span><div class="qi"><div class="qn">Marco Rossi</div><div class="qd">Hygiene · No confirmation yet</div></div></div></div>
-              <div class="sl"><div class="sl-t">14:30</div><div class="sl-c rc"><span class="sdot sb2"></span><div class="qi"><div class="qn">Sarah Johnson</div><div class="qd">Filling · Recovered slot</div></div></div></div>
+            <div style="display:flex;flex-direction:column;gap:6px" id="dash-schedule">
+              <div class="sl"><div class="sl-t">—</div><div class="sl-c mt"><span class="sdot sr"></span><div class="qi"><div class="qn">No appointments scheduled</div><div class="qd">Connect your booking API to sync today's schedule</div></div></div></div>
             </div>
           </div>
         </div>
         <div class="card" style="margin-top:12px">
           <div class="ch"><i class="ti ti-chart-line grn"></i>Calls this week</div>
-          <div class="brs"><div class="br-b" style="height:38%"></div><div class="br-b dm" style="height:55%"></div><div class="br-b dm" style="height:49%"></div><div class="br-b dm" style="height:71%"></div><div class="br-b dm" style="height:63%"></div><div class="br-b on" style="height:90%"></div><div class="br-b" style="height:14%;opacity:.3"></div></div>
+          <div class="brs"><div class="br-b" style="height:4%"></div><div class="br-b dm" style="height:4%"></div><div class="br-b dm" style="height:4%"></div><div class="br-b dm" style="height:4%"></div><div class="br-b dm" style="height:4%"></div><div class="br-b on" style="height:4%"></div><div class="br-b" style="height:4%;opacity:.3"></div></div>
           <div class="brl"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span style="color:var(--grn);font-weight:700">Sat</span><span>Sun</span></div>
         </div>
       </div>
@@ -258,31 +228,14 @@ const bodyHtml = `<div class="app" id="app">
           <button class="btn bsm btnr" onclick="showConfirm('Stop this campaign?','This will immediately halt all outbound AI calls. Calls already connected will finish naturally.','Stop campaign',function(){toast('Campaign stopped','ta');document.getElementById(\\'int-live-banner\\').style.display=\\'none\\';})"><i class="ti ti-player-stop"></i>Stop</button>
         </div>
         <div class="kg2" style="margin-bottom:12px">
-          <div class="kpi"><div class="kl">Credits remaining</div><div class="kv">17</div><div class="kd ne">of 25 bundle</div></div>
-          <div class="kpi"><div class="kl">Completed this month</div><div class="kv">8</div><div class="kd up">100% reached</div></div>
+          <div class="kpi"><div class="kl">Credits remaining</div><div class="kv">0</div><div class="kd ne">of 0 bundle</div></div>
+          <div class="kpi"><div class="kl">Completed this month</div><div class="kv">0</div><div class="kd ne">0% reached</div></div>
         </div>
         <!-- ACTIVE PROJECTS -->
         <div class="card">
           <div class="ch"><i class="ti ti-briefcase grn"></i>Projects</div>
-          <div class="proj-row" onclick="goNav('results-i')">
-            <div class="proj-ic ci-g"><i class="ti ti-briefcase"></i></div>
-            <div class="proj-info">
-              <div class="proj-name">Senior Engineer · May 2026</div>
-              <div class="proj-meta">8 called · 5 recommended · Avg 7m 20s</div>
-              <div class="proj-win"><i class="ti ti-clock"></i>Window: 10 May 09:00 → 10 May 17:00</div>
-            </div>
-            <span class="stat-done">Completed</span>
-          </div>
-          <div class="proj-row" onclick="goNav('results-i')">
-            <div class="proj-ic ci-b"><i class="ti ti-briefcase"></i></div>
-            <div class="proj-info">
-              <div class="proj-name">Product Manager · Apr 2026</div>
-              <div class="proj-meta">12 called · 4 recommended · Avg 8m 05s</div>
-              <div class="proj-win"><i class="ti ti-clock"></i>Window: 28 Apr 09:00 → 28 Apr 17:00</div>
-            </div>
-            <span class="stat-done">Completed</span>
-          </div>
-          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b1)">
+          <div id="int-live-orders"></div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b1)" id="int-projects-empty">
             <div class="empty-state" style="padding:16px 0">
               <i class="ti ti-plus-circle"></i>
               <div class="es-title">Start a new interview campaign</div>
@@ -293,15 +246,26 @@ const bodyHtml = `<div class="app" id="app">
         <!-- NEW CAMPAIGN FORM -->
         <div class="card">
           <div class="ch"><i class="ti ti-upload grn"></i>New interview campaign</div>
-          <div class="standalone-upload" style="margin-bottom:12px"><i class="ti ti-file-spreadsheet" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Drop Excel / CSV · Required: Name · Phone · Date · Time</div>
-          <div class="fg"><label>Role / position</label><input placeholder="e.g. Senior Software Engineer · London"/></div>
+          <div class="standalone-upload" id="int-upload-zone" style="margin-bottom:12px;cursor:pointer"><i class="ti ti-file-spreadsheet" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Drop Excel / CSV · Required: name, phone · Optional: email<br/><a href="#" id="int-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a><input type="file" id="int-file-input" accept=".csv,.xlsx,.xls" style="display:none"/></div>
+          <div class="fg"><label>Role / position</label><input id="int-role" placeholder="e.g. Senior Software Engineer · London"/></div>
           <div class="fg"><label>Interview format</label>
             <div style="display:flex;gap:7px" id="int-fmt-grp">
               <div class="vo sel" onclick="selFmt(this,'int-fmt-grp')" style="padding:9px">Phone call<small>AI calls candidate</small></div>
               <div class="vo" onclick="selFmt(this,'int-fmt-grp')" style="padding:9px">Zoom<small>AI sends link + books</small></div>
             </div>
           </div>
-          <div class="fg"><label>Screening criteria (AI generates questions from this)</label><textarea rows="2" style="resize:none" placeholder="e.g. Check 2+ years React, comfortable remote, available in 2 weeks, salary expectation"></textarea></div>
+          <div class="fg"><label>Screening criteria (AI generates questions from this)</label><textarea id="int-criteria" rows="2" style="resize:none" placeholder="e.g. Check 2+ years React, comfortable remote, available in 2 weeks, salary expectation"></textarea></div>
+          <div id="int-ai-panel" style="display:none;margin-bottom:10px;background:var(--s2);border-radius:11px;padding:13px;border:1.5px solid var(--b2)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="font-size:12px;font-weight:700;color:var(--t1)"><i class="ti ti-sparkles" style="color:var(--grn)"></i> AI-generated interview script</span>
+              <span class="bdg ba" id="int-ai-status">Draft</span>
+            </div>
+            <div class="fg" style="margin-bottom:8px"><label>Review and edit before approving</label><textarea id="int-ai-script" rows="10" style="resize:vertical;font-size:12px;line-height:1.6" placeholder="Click Generate AI questions to create a script you can read here…"></textarea></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btng bsm" type="button" id="int-ai-approve"><i class="ti ti-check"></i>Approve script</button>
+              <button class="btn bsm" type="button" id="int-ai-regen"><i class="ti ti-refresh"></i>Regenerate</button>
+            </div>
+          </div>
           <!-- CALLING WINDOW -->
           <div style="background:var(--s2);border-radius:11px;padding:13px;margin-bottom:10px">
             <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px"><i class="ti ti-clock" style="color:var(--grn);font-size:14px"></i>AI calling window — system stops automatically at end time</div>
@@ -318,7 +282,7 @@ const bodyHtml = `<div class="app" id="app">
             </div>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn btng bsm" onclick="toast('AI questions generated!','tg')"><i class="ti ti-sparkles"></i>Generate AI questions</button>
+            <button class="btn btng bsm" type="button" id="int-ai-generate"><i class="ti ti-sparkles"></i>Generate AI questions</button>
             <button class="btn bsm" onclick="launchIntCampaign()"><i class="ti ti-player-play"></i>Launch interviews</button>
           </div>
         </div>
@@ -327,46 +291,47 @@ const bodyHtml = `<div class="app" id="app">
       <!-- ══ SURVEYS ══ -->
       <div class="pg" id="pg-surveys">
         <!-- LIVE BANNER -->
-        <div class="live-banner">
+        <div class="live-banner" id="sur-live-banner" style="display:none">
           <div class="live-pulse"></div>
           <div class="lb-info">
-            <div class="lb-title">Live — May patient satisfaction survey</div>
-            <div class="lb-sub">61 of 84 responded · Window: 1 May 09:00 → 31 May 17:00 · 11 days remaining</div>
+            <div class="lb-title">No live survey</div>
+            <div class="lb-sub">0 of 0 responded · No active window</div>
           </div>
           <button class="btn bsm btnr" onclick="showConfirm('Stop this survey?','This will halt all outbound survey calls. Results collected so far will be saved.','Stop survey',function(){toast('Survey stopped','ta');})"><i class="ti ti-player-stop"></i>Stop</button>
         </div>
         <!-- ACTIVE PROJECTS -->
         <div class="card">
           <div class="ch"><i class="ti ti-clipboard-list grn"></i>Survey projects</div>
-          <div class="proj-row" onclick="goNav('results-s')">
-            <div class="proj-ic ci-b"><i class="ti ti-clipboard-list"></i></div>
-            <div class="proj-info">
-              <div class="proj-name">May patient satisfaction survey</div>
-              <div class="proj-meta">84 sent · 61 responded · 73% completion</div>
-              <div class="prog-b" style="margin-top:6px;margin-bottom:2px"><div class="prog-f" style="width:73%"></div></div>
-              <div class="proj-win"><i class="ti ti-clock"></i>Window: 1 May 09:00 → 31 May 17:00</div>
+          <div id="sur-live-orders"></div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b1)" id="sur-projects-empty">
+            <div class="empty-state" style="padding:16px 0">
+              <i class="ti ti-plus-circle"></i>
+              <div class="es-title">No survey projects yet</div>
+              <div class="es-sub">Create a new survey campaign below — upload your contact list and launch when ready.</div>
             </div>
-            <span class="stat-live"><span style="width:6px;height:6px;border-radius:50%;background:var(--grn);display:inline-block;animation:lpulse 1.2s infinite"></span>Live</span>
-          </div>
-          <div class="proj-row" onclick="goNav('results-s')">
-            <div class="proj-ic ci-g"><i class="ti ti-clipboard-list"></i></div>
-            <div class="proj-info">
-              <div class="proj-name">April exit survey</div>
-              <div class="proj-meta">45 sent · 32 responded · 71% completion</div>
-              <div class="proj-win"><i class="ti ti-clock"></i>Window: 1 Apr 09:00 → 30 Apr 17:00</div>
-            </div>
-            <span class="stat-done">Completed</span>
           </div>
         </div>
         <!-- NEW CAMPAIGN FORM -->
         <div class="card">
           <div class="ch"><i class="ti ti-plus grn"></i>New survey campaign</div>
-          <div class="fg"><label>What do you want to learn?</label><textarea rows="2" style="resize:none" placeholder="e.g. Patient satisfaction — experience, wait times, likelihood to recommend"></textarea></div>
+          <div class="fg"><label>What do you want to learn?</label><textarea id="sur-goal" rows="2" style="resize:none" placeholder="e.g. Patient satisfaction — experience, wait times, likelihood to recommend"></textarea></div>
           <div class="fg2">
-            <div class="fg"><label>Contact method</label><select><option selected>AI phone call</option><option>WhatsApp</option><option>Both</option></select></div>
-            <div class="fg"><label>Max call length</label><select><option selected>3 minutes</option><option>5 minutes</option><option>10 minutes</option></select></div>
+            <div class="fg"><label>Contact method</label><select id="sur-contact-method"><option selected>AI phone call</option><option>WhatsApp</option><option>Both</option></select></div>
+            <div class="fg"><label>Max call length</label><select id="sur-max-length"><option selected>3 minutes</option><option>5 minutes</option><option>10 minutes</option></select></div>
           </div>
-          <div class="standalone-upload" style="margin-bottom:12px"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Upload contact list · CSV with Name + Phone</div>
+          <div class="standalone-upload" id="sur-upload-zone" style="margin-bottom:12px;cursor:pointer"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Upload contact list · CSV/Excel: name, phone, email (phone used for WhatsApp)<br/><a href="#" id="sur-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a><input type="file" id="sur-file-input" accept=".csv,.xlsx,.xls" style="display:none"/></div>
+          <div id="sur-ai-panel" style="display:none;margin-bottom:10px;background:var(--s2);border-radius:11px;padding:13px;border:1.5px solid var(--b2)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="font-size:12px;font-weight:700;color:var(--t1)"><i class="ti ti-sparkles" style="color:var(--grn)"></i> AI-generated survey script</span>
+              <span class="bdg ba" id="sur-ai-status">Draft</span>
+            </div>
+            <div class="fg" style="margin-bottom:8px"><label>Review and edit before approving</label><textarea id="sur-ai-script" rows="10" style="resize:vertical;font-size:12px;line-height:1.6" placeholder="Click AI write survey script to generate questions you can read here…"></textarea></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btng bsm" type="button" id="sur-ai-approve"><i class="ti ti-check"></i>Approve script</button>
+              <button class="btn bsm" type="button" id="sur-ai-regen"><i class="ti ti-refresh"></i>Regenerate</button>
+              <button class="btn bsm" type="button" id="sur-wa-preview-btn" style="display:none;border-color:#25D366;color:#25D366"><i class="ti ti-brand-whatsapp"></i>WhatsApp preview</button>
+            </div>
+          </div>
           <!-- CALLING WINDOW -->
           <div style="background:var(--s2);border-radius:11px;padding:13px;margin-bottom:10px">
             <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px"><i class="ti ti-clock" style="color:var(--grn);font-size:14px"></i>AI calling window — system stops automatically at end time</div>
@@ -383,7 +348,7 @@ const bodyHtml = `<div class="app" id="app">
             </div>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn btng bsm" onclick="toast('Survey script generated by AI!','tg')"><i class="ti ti-sparkles"></i>AI write survey script</button>
+            <button class="btn btng bsm" type="button" id="sur-ai-generate"><i class="ti ti-sparkles"></i>AI write survey script</button>
             <button class="btn bsm" onclick="launchSurCampaign()">Launch survey</button>
           </div>
         </div>
@@ -672,12 +637,13 @@ const bodyHtml = `<div class="app" id="app">
         <div class="g2">
           <div class="card" style="margin:0">
             <div class="ch"><i class="ti ti-building grn"></i>Company info</div>
-            <div class="fg"><label>Company name</label><input value="Bright Smiles Dental"/></div>
-            <div class="fg"><label>Industry</label><select><option selected>Dental</option><option>Beauty / Salon / Spa</option><option>Aesthetics / Anti-aging</option><option>Eye Optician</option><option>Recruitment / HR</option><option>Other</option></select></div>
-            <div class="fg2"><div class="fg"><label>Phone</label><input value="+44 20 7946 0800"/></div><div class="fg"><label>Website</label><input value="brightsmiles.co.uk"/></div></div>
-            <div class="fg"><label>Caller ID shown to patients</label><input value="Bright Smiles"/></div>
+            <div class="fg"><label>Company name</label><input id="prof-company-name" placeholder="Your clinic or business name"/></div>
+            <div class="fg"><label>Survey organiser</label><input id="prof-organiser-name" placeholder="Name read on calls — e.g. Sarah Mitchell"/></div>
+            <div class="fg"><label>Industry</label><select id="prof-industry"><option selected>Dental</option><option>Beauty / Salon / Spa</option><option>Aesthetics / Anti-aging</option><option>Eye Optician</option><option>Recruitment / HR</option><option>Automotive</option><option>Other</option></select></div>
+            <div class="fg2"><div class="fg"><label>Phone</label><input id="prof-phone" placeholder="+44 …"/></div><div class="fg"><label>Website</label><input id="prof-website" placeholder="yoursite.co.uk"/></div></div>
+            <div class="fg"><label>Caller ID shown to patients</label><input id="prof-caller-id" placeholder="Short name on caller ID"/></div>
             <div class="fg"><label>Logo</label><div class="standalone-upload"><i class="ti ti-upload" style="font-size:22px;display:block;margin-bottom:5px;color:var(--t3)"></i>Drop PNG or SVG · max 2MB</div></div>
-            <button class="btn btng bsm"><i class="ti ti-device-floppy"></i>Save profile</button>
+            <button class="btn btng bsm" type="button" id="prof-save-btn"><i class="ti ti-device-floppy"></i>Save profile</button>
           </div>
           <div class="card" style="margin:0">
             <div class="ch"><i class="ti ti-currency-pound grn"></i>Revenue settings</div>
@@ -702,6 +668,25 @@ const bodyHtml = `<div class="app" id="app">
 
       <!-- ══ SYSTEM SETTINGS ══ -->
       <div class="pg" id="pg-system">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+          <button type="button" class="btn bsm btng" id="ob-show-btn" onclick="toggleSetupChecklist()"><i class="ti ti-list-check"></i> Show setup checklist</button>
+        </div>
+        <div class="ob-card" id="ob-card" style="display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-size:14px;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:8px"><i class="ti ti-rocket" style="color:var(--grn);font-size:16px"></i>Getting started — 3 of 6 complete</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="bdg bg">50%</span>
+              <button type="button" class="btn bsm" onclick="toggleSetupChecklist(false)" title="Hide checklist"><i class="ti ti-x"></i></button>
+            </div>
+          </div>
+          <div class="ob-prog"><div class="ob-fill" style="width:50%"></div></div>
+          <div class="ob-step"><div class="ob-ic ob-done"><i class="ti ti-check"></i></div><div class="ob-lbl">Connect booking system API <span style="color:var(--t3)">— Dentally connected</span></div></div>
+          <div class="ob-step"><div class="ob-ic ob-done"><i class="ti ti-check"></i></div><div class="ob-lbl">Set average appointment value <span style="color:var(--t3)">— £85</span></div></div>
+          <div class="ob-step"><div class="ob-ic ob-done"><i class="ti ti-check"></i></div><div class="ob-lbl">Configure WhatsApp number <span style="color:var(--t3)">— Connected</span></div></div>
+          <div class="ob-step"><div class="ob-ic ob-act"><i class="ti ti-arrow-right"></i></div><div class="ob-lbl" style="color:var(--grn);font-weight:600">Set up reminder sequence <button class="btn btng bsm" style="margin-left:auto" onclick="go('reminders',document.querySelector('.ni'))">Set up →</button></div></div>
+          <div class="ob-step"><div class="ob-ic ob-pend">5</div><div class="ob-lbl">Approve AI script</div></div>
+          <div class="ob-step"><div class="ob-ic ob-pend">6</div><div class="ob-lbl">Make a test call to hear AI voice</div></div>
+        </div>
         <div class="tbrow">
           <div class="tb on" onclick="stab('api',this)"><i class="ti ti-plug"></i>API connection</div>
           <div class="tb" onclick="stab('wa',this)"><i class="ti ti-brand-whatsapp"></i>WhatsApp</div>
@@ -1004,6 +989,57 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
 </div>
 
 
+
+<!-- ═══ SURVEY WHATSAPP PREVIEW ═══ -->
+<div id="sur-wa-preview-overlay">
+  <div class="wa-preview-box">
+    <div class="wa-preview-hd">
+      <div>
+        <div class="wa-preview-title"><i class="ti ti-brand-whatsapp"></i> WhatsApp survey preview</div>
+        <div class="wa-preview-sub" id="sur-wa-preview-sub">Your business identity · iPhone preview</div>
+      </div>
+      <button class="btn bsm" type="button" onclick="closeSurveyWaPreview()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="wa-preview-stage">
+      <div class="wa-device-shell">
+        <div class="wa-device-btn wa-device-btn-action" aria-hidden="true"></div>
+        <div class="wa-device-btn wa-device-btn-vol-up" aria-hidden="true"></div>
+        <div class="wa-device-btn wa-device-btn-vol-down" aria-hidden="true"></div>
+        <div class="wa-device-btn wa-device-btn-power" aria-hidden="true"></div>
+        <div class="wa-device wa-device-iphone17">
+          <div class="wa-device-bezel">
+            <div class="wa-device-island" aria-hidden="true"><span class="wa-island-cam"></span></div>
+            <div class="wa-device-screen wa-survey-screen">
+              <div class="wa-status-bar wa-survey-status"><span class="wa-status-time">9:41</span><span class="wa-status-icons"><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+              <div class="wa-survey-header">
+                <div class="wa-survey-avatar wa-survey-avatar-initials" id="sur-wa-org-avatar">—</div>
+                <div>
+                  <div class="wa-survey-title" id="sur-wa-org-title">Your business</div>
+                  <div class="wa-survey-sub"><i class="ti ti-circle-filled"></i>Online now</div>
+                </div>
+                <i class="ti ti-dots-vertical wa-survey-menu"></i>
+              </div>
+              <div class="wa-survey-progress"><div class="wa-survey-progress-fill" id="sur-wa-progress"></div></div>
+              <div class="wa-survey-step" id="sur-wa-step-ind">Getting started</div>
+              <div class="wa-chat-body">
+                <div class="wa-preview-chat wa-survey-body" id="sur-wa-chat"></div>
+              </div>
+              <div class="wa-survey-send-bar">
+                <input class="wa-survey-send-input" type="text" placeholder="Type a message..." readonly />
+                <button class="wa-survey-send-btn" type="button" tabindex="-1" aria-label="Send"><i class="ti ti-send"></i></button>
+              </div>
+              <div class="wa-home-indicator" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="wa-preview-foot">
+      <button class="btn bsm" type="button" onclick="resetSurveyWaPreview()"><i class="ti ti-refresh"></i>Restart preview</button>
+      <button class="btn btng bsm" type="button" onclick="closeSurveyWaPreview()">Done</button>
+    </div>
+  </div>
+</div>
 
 <!-- ═══ CONFIRM DIALOG ═══ -->
 <div id="confirm-overlay">

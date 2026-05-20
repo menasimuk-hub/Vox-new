@@ -81,7 +81,7 @@ export default function LeadSalesSettings() {
         try {
           const form = new FormData()
           form.append('file', file)
-          const uploaded = await apiUpload('/admin/knowledge-base/upload', form)
+          const uploaded = await apiUpload('/admin/knowledge-base/upload?scope=sales', form)
           const newId = uploaded?.file?.id
           if (newId) newIds.push(newId)
           uploadedNames.push(file.name)
@@ -287,7 +287,7 @@ export default function LeadSalesSettings() {
       <div className='grid two frontpageConfigureRow' style={{ marginTop: 18 }}>
         <section className='card'>
           <div className='cardHead'>
-            <h3>Knowledge base</h3>
+            <h3>Knowledge base · sales agent</h3>
             <span className='pill p-cyan'>{selectedKb.length} selected</span>
           </div>
           <div className='cardBody'>
@@ -295,6 +295,9 @@ export default function LeadSalesSettings() {
               {uploading ? 'Uploading…' : 'Upload .md (one or many)'}
               <input type='file' accept='.md,text/markdown' multiple hidden onChange={uploadKb} disabled={uploading} />
             </label>
+            <p className='muted' style={{ marginTop: 0, marginBottom: 10 }}>
+              Files here are <strong>only for the outbound sales agent</strong>. Website lead agent has its own library under Front page call leads.
+            </p>
             {!kbFiles.length ? (
               <p className='muted'>No KB files yet.</p>
             ) : (

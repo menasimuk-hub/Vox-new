@@ -23,7 +23,29 @@ class SmtpTestSendRequest(BaseModel):
 
 
 class EmailTemplateUpdate(BaseModel):
+    title: str | None = None
     subject: str = Field(default="")
+    body: str = Field(default="")
+    is_enabled: bool = True
+
+
+class EmailTemplateCreate(BaseModel):
+    template_key: str = Field(min_length=3, max_length=64)
+    title: str = Field(default="")
+    subject: str = Field(default="")
+    body: str = Field(default="")
+    is_enabled: bool = True
+
+
+class ChannelTemplateCreate(BaseModel):
+    template_key: str = Field(min_length=3, max_length=64)
+    name: str = Field(default="")
+    body: str = Field(default="")
+    is_enabled: bool = True
+
+
+class ChannelTemplateUpdate(BaseModel):
+    name: str = Field(default="")
     body: str = Field(default="")
     is_enabled: bool = True
 

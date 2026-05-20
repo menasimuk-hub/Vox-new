@@ -6,12 +6,13 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.admin_rbac import CAP_EMAIL, require_cap
 from app.schemas.email_admin import (
+    EmailTemplateCreate,
     EmailTemplateUpdate,
     SmtpSettingsUpdate,
     SmtpTestSendRequest,
     TemplatedNotifySendRequest,
 )
-from app.services.email_template_service import EMAIL_TEMPLATE_KEYS, EmailTemplateService, EmailTemplateUnknown
+from app.services.email_template_service import EMAIL_TEMPLATE_KEYS, EmailTemplateService, EmailTemplateError, EmailTemplateUnknown
 from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
 from app.services.product_email_triggers import ProductEmailTriggers
 from app.services.smtp_settings_service import SmtpSettingsService
@@ -81,10 +82,8 @@ def post_send_templated_notification(
     Blocks `forgot_password` (requires the public reset flow).
     """
     key = (payload.template_key or "").strip().lower()
-    try:
-        EmailTemplateService.assert_key(key)
-    except EmailTemplateUnknown:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown template key") from None
+    if not EmailTemplateService.is_system_key(key):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Test send only supports system email templates")
 
     if key == "forgot_password":
         raise HTTPException(
@@ -125,12 +124,29 @@ def list_email_templates(db: Session = Depends(get_db), _admin=Depends(require_c
 
 @router.get("/templates/{template_key}")
 def get_email_template(template_key: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
-    try:
-        row = EmailTemplateService.get(db, key=template_key)
-    except EmailTemplateUnknown:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown template key")
+    row = EmailTemplateService.get(db, key=template_key)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    return EmailTemplateService.to_dict(row)
+
+
+@router.post("/templates")
+def create_email_template(
+    payload: EmailTemplateCreate,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_EMAIL)),
+):
+    try:
+        row = EmailTemplateService.create(
+            db,
+            key=payload.template_key,
+            title=payload.title,
+            subject=payload.subject,
+            body=payload.body,
+            is_enabled=payload.is_enabled,
+        )
+    except EmailTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return EmailTemplateService.to_dict(row)
 
 
@@ -145,10 +161,26 @@ def put_email_template(
         row = EmailTemplateService.upsert(
             db,
             key=template_key,
+            title=payload.title,
             subject=payload.subject,
             body=payload.body,
             is_enabled=payload.is_enabled,
         )
-    except EmailTemplateUnknown:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown template key")
+    except EmailTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return EmailTemplateService.to_dict(row)
+
+
+@router.delete("/templates/{template_key}")
+def delete_email_template(
+    template_key: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_EMAIL)),
+):
+    try:
+        EmailTemplateService.delete(db, key=template_key)
+    except EmailTemplateUnknown as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except EmailTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {"ok": True}
