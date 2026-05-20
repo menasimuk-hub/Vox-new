@@ -150,7 +150,7 @@ export default function Agents() {
         description: draft.description,
         system_prompt: draft.system_prompt,
         call_workflow: draft.call_workflow,
-        knowledge_file_ids: draft.knowledge_file_ids || [],
+        knowledge_file_ids: validKnowledgeFileIds,
         is_active: draft.is_active,
       }
       const saved = selectedId
@@ -167,10 +167,24 @@ export default function Agents() {
     }
   }
 
+  const validKnowledgeFileIds = useMemo(
+    () => (draft.knowledge_file_ids || []).filter((id) => kbFiles.some((f) => f.id === id)),
+    [draft.knowledge_file_ids, kbFiles],
+  )
+
+  useEffect(() => {
+    if (!kbFiles.length) return
+    setDraft((s) => {
+      const filtered = (s.knowledge_file_ids || []).filter((id) => kbFiles.some((f) => f.id === id))
+      if (filtered.length === (s.knowledge_file_ids || []).length) return s
+      return { ...s, knowledge_file_ids: filtered }
+    })
+  }, [kbFiles])
+
   const generationPayload = (rewrite) => ({
     description: String(draft.description || '').trim(),
     name: draft.name,
-    knowledge_file_ids: draft.knowledge_file_ids || [],
+    knowledge_file_ids: validKnowledgeFileIds,
     rewrite,
   })
 

@@ -164,6 +164,24 @@ def get_kb_files_by_ids(db: Session, file_ids: list[str], *, scope: str | None =
     return rows
 
 
+def sanitize_kb_file_ids(db: Session, file_ids: list[str], *, scope: str | None = None) -> list[str]:
+    """Keep only IDs that still exist in the library (optionally scoped). Drops stale links."""
+    unique = list(dict.fromkeys([str(v).strip() for v in file_ids if str(v).strip()]))
+    if not unique:
+        return []
+    rows = list(db.execute(select(KnowledgeBaseFile).where(KnowledgeBaseFile.id.in_(unique))).scalars())
+    by_id = {r.id: r for r in rows}
+    out: list[str] = []
+    for fid in unique:
+        row = by_id.get(fid)
+        if row is None:
+            continue
+        if scope is not None and str(row.scope or KB_SCOPE_ORG) != normalize_kb_scope(scope):
+            continue
+        out.append(fid)
+    return out
+
+
 def validate_kb_file_ids_for_scope(db: Session, file_ids: list[str], *, scope: str) -> list[str]:
     unique = list(dict.fromkeys([str(v).strip() for v in file_ids if str(v).strip()]))
     if not unique:
@@ -186,7 +204,28 @@ def validate_kb_file_ids_for_scope(db: Session, file_ids: list[str], *, scope: s
     return unique
 
 
-def agent_knowledge_file_ids(db: Session, agent_id: str) -> list[str]:
+def prune_orphan_agent_knowledge_links(db: Session, *, agent_id: str | None = None) -> list[str]:
+    """Drop agent→KB links when the KB row no longer exists (e.g. after DB restore)."""
+    stmt = select(AgentKnowledgeFile)
+    if agent_id:
+        stmt = stmt.where(AgentKnowledgeFile.agent_id == agent_id)
+    links = list(db.execute(stmt).scalars())
+    if not links:
+        return []
+    valid_ids = set(db.execute(select(KnowledgeBaseFile.id)).scalars())
+    pruned: list[str] = []
+    for link in links:
+        if link.knowledge_base_file_id not in valid_ids:
+            pruned.append(link.knowledge_base_file_id)
+            db.delete(link)
+    if pruned:
+        db.commit()
+    return pruned
+
+
+def agent_knowledge_file_ids(db: Session, agent_id: str, *, prune_orphans: bool = True) -> list[str]:
+    if prune_orphans:
+        prune_orphan_agent_knowledge_links(db, agent_id=agent_id)
     return list(
         db.execute(
             select(AgentKnowledgeFile.knowledge_base_file_id).where(AgentKnowledgeFile.agent_id == agent_id)
@@ -266,9 +305,7 @@ def set_agent_knowledge_files(db: Session, *, agent_id: str, file_ids: list[str]
     if unique:
         existing_rows = list(db.execute(select(KnowledgeBaseFile).where(KnowledgeBaseFile.id.in_(unique))).scalars())
         existing = {r.id for r in existing_rows}
-        missing = [fid for fid in unique if fid not in existing]
-        if missing:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"message": "Unknown knowledge base files", "missing_ids": missing})
+        unique = [fid for fid in unique if fid in existing]
         non_org = [r.original_filename for r in existing_rows if str(r.scope or KB_SCOPE_ORG) != KB_SCOPE_ORG]
         if non_org:
             raise HTTPException(

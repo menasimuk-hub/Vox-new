@@ -42,6 +42,7 @@ from app.services.knowledge_base_service import (
     build_kb_context_text,
     get_kb_files_by_ids,
     list_kb_files,
+    sanitize_kb_file_ids,
     validate_kb_file_ids_for_scope,
 )
 from app.services.providers.deepgram_service import DeepgramProviderService, deepgram_transcript_from_ws_message
@@ -192,9 +193,8 @@ def _default_agent(db: Session) -> AgentDefinition | None:
 
 
 def _refresh_frontpage_kb(settings: FrontpageCallSetting, db: Session) -> None:
-    file_ids = parse_kb_file_ids(settings.kb_file_ids)
-    if file_ids:
-        validate_kb_file_ids_for_scope(db, file_ids, scope=KB_SCOPE_LEAD)
+    file_ids = sanitize_kb_file_ids(db, parse_kb_file_ids(settings.kb_file_ids), scope=KB_SCOPE_LEAD)
+    settings.kb_file_ids = dump_kb_file_ids(file_ids)
     files = get_kb_files_by_ids(db, file_ids, scope=KB_SCOPE_LEAD) if file_ids else []
     settings.kb_context = build_kb_context_text(files) or None
 

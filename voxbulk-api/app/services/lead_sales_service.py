@@ -17,7 +17,7 @@ from app.services.knowledge_base_service import (
     KB_SCOPE_SALES,
     build_kb_context_text,
     get_kb_files_by_ids,
-    validate_kb_file_ids_for_scope,
+    sanitize_kb_file_ids,
 )
 from app.services.lead_sales_prompt_generator import generate_lead_sales_prompt
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
@@ -40,9 +40,8 @@ def get_lead_sales_settings(db: Session) -> LeadSalesSetting:
 
 
 def refresh_lead_sales_kb(row: LeadSalesSetting, db: Session) -> None:
-    ids = parse_kb_file_ids(row.kb_file_ids)
-    if ids:
-        validate_kb_file_ids_for_scope(db, ids, scope=KB_SCOPE_SALES)
+    ids = sanitize_kb_file_ids(db, parse_kb_file_ids(row.kb_file_ids), scope=KB_SCOPE_SALES)
+    row.kb_file_ids = dump_kb_file_ids(ids)
     files = get_kb_files_by_ids(db, ids, scope=KB_SCOPE_SALES)
     row.kb_context = build_kb_context_text(files) or None
 

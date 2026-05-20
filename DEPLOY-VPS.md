@@ -25,6 +25,11 @@ export VOX_ADMIN_DIST=/var/www/admin.voxbulk.com
 export VOX_DASH_DIST=/var/www/dashboard.voxbulk.com
 export VOX_PUBLIC_DIST=/var/www/voxbulk.com
 
+# Baota / aaPanel (this VPS) — nginx serves from wwwroot, NOT from repo dist:
+# export VOX_ADMIN_DIST=/www/wwwroot/admin.voxbulk.com
+# export VOX_DASH_DIST=/www/wwwroot/dashboard.voxbulk.com
+# export VOX_PUBLIC_DIST=/www/wwwroot/voxbulk.com
+
 ./deploy-vps.sh
 ```
 
@@ -48,6 +53,18 @@ export VOX_GIT_BRANCH=main
 - `0046_messaging_templates` — WhatsApp/SMS/email template tables
 - `0047_email_template_html_defaults` — system email HTML bodies
 - `0048_kb_file_scope` — lead / sales / org KB libraries
+
+## Baota / aaPanel VPS (wwwroot)
+
+After `npm run build`, **copy dist to wwwroot** (nginx does not read repo `dist`):
+
+```bash
+rsync -a --exclude='.user.ini' /www/voxbulk/admin.voxbulk.com/adim-web/dist/ /www/wwwroot/admin.voxbulk.com/
+rsync -a --exclude='.user.ini' /www/voxbulk/dashboard.voxbulk.com/dashboard-web/dist/ /www/wwwroot/dashboard.voxbulk.com/
+rsync -a --exclude='.user.ini' /www/voxbulk/voxbulk.com/frontend/dist/ /www/wwwroot/voxbulk.com/
+```
+
+Verify: `curl -s https://admin.voxbulk.com/ | grep assets` — JS hash must match `dist/index.html` in repo.
 
 ## Troubleshooting
 
