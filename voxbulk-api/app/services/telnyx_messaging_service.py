@@ -39,14 +39,17 @@ class TelnyxMessagingService:
 
     @staticmethod
     def _from_numbers(config: dict[str, Any]) -> tuple[str, str | None]:
-        sms_from = str(
-            config.get("sms_from")
-            or config.get("default_outbound_number")
-            or config.get("fallback_caller_id")
-            or ""
-        ).strip()
+        sms_from = str(config.get("sms_from") or "").strip()
         wa_from = str(config.get("whatsapp_from") or config.get("whatsapp_number") or "").strip()
         return sms_from, wa_from or None
+
+    @staticmethod
+    def _messaging_profile_for_channel(config: dict[str, Any], channel: str) -> str | None:
+        if channel == "whatsapp":
+            profile = str(config.get("whatsapp_messaging_profile_id") or "").strip()
+            return profile or None
+        profile = str(config.get("messaging_profile_id") or config.get("sms_messaging_profile_id") or "").strip()
+        return profile or None
 
     @staticmethod
     def _messaging_webhook_url(config: dict[str, Any]) -> str | None:
@@ -73,7 +76,8 @@ class TelnyxMessagingService:
             api_key, _ = require_telnyx_api_key(db)
 
         if include_messaging_profile:
-            messaging_profile_id = str(config.get("messaging_profile_id") or "").strip()
+            channel = str(channel or "sms").lower()
+            messaging_profile_id = TelnyxMessagingService._messaging_profile_for_channel(config, channel)
             if messaging_profile_id and "messaging_profile_id" not in payload:
                 payload["messaging_profile_id"] = messaging_profile_id
 
@@ -152,7 +156,7 @@ class TelnyxMessagingService:
             return TelnyxMessageResult(
                 ok=False,
                 status="not_configured",
-                detail="Telnyx SMS from-number is not configured (set default_outbound_number in admin Integrations).",
+                detail="Telnyx SMS from-number is not configured (set sms_from in admin Integrations).",
                 channel="sms",
             )
         if not recipient:
@@ -213,9 +217,9 @@ class TelnyxMessagingService:
             "type": "WHATSAPP",
             "whatsapp_message": whatsapp_message,
         }
-        messaging_profile_id = str(config.get("messaging_profile_id") or "").strip()
-        if messaging_profile_id:
-            payload["messaging_profile_id"] = messaging_profile_id
+        wa_profile = TelnyxMessagingService._messaging_profile_for_channel(config, "whatsapp")
+        if wa_profile:
+            payload["messaging_profile_id"] = wa_profile
         webhook_url = TelnyxMessagingService._messaging_webhook_url(config)
         if webhook_url:
             payload["webhook_url"] = webhook_url

@@ -478,7 +478,15 @@ export default function Integrations() {
     return e?.message || 'Telnyx request failed'
   }
 
-  function applyTelnyxFromNumber(number) {
+  function applyTelnyxFromNumber(number, target = 'voice') {
+    if (target === 'sms') {
+      setProviderField('telnyx', 'sms_from', number)
+      return
+    }
+    if (target === 'whatsapp') {
+      setProviderField('telnyx', 'whatsapp_from', number)
+      return
+    }
     setProviderField('telnyx', 'default_outbound_number', number)
     setProviderField('telnyx', 'from_phone_number', number)
     setProviderField('telnyx', 'fallback_caller_id', number)

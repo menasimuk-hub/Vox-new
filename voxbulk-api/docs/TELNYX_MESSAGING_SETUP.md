@@ -44,16 +44,27 @@ For local dev, run `ngrok http 8000` and use the ngrok **https** URL as your web
 
 ---
 
-## Part 2 — VOXBULK admin
+## Part 2 — VOXBULK admin (three-number setup)
+
+Use **three separate Telnyx numbers** if you prefer — one per channel:
+
+| Admin field | Telnyx assignment | Purpose |
+|-------------|-------------------|---------|
+| **Voice / outbound calls** | Call Control application | Outbound AI / test calls (landline) |
+| **SMS number** | Messaging Profile | Outbound + inbound SMS (mobile) |
+| **WhatsApp number** | WhatsApp / Meta WABA | Outbound + inbound WhatsApp (can differ from SMS) |
+| **SMS messaging profile ID** | Messaging Profile UUID | Profile that owns the SMS mobile |
+| **WhatsApp messaging profile ID** | Optional | Only if WA uses a different profile; otherwise leave blank |
 
 1. Open **Admin → Integrations → Telnyx**.
 2. Fill in:
-   - **API key**
-   - **Connection ID** (Call Control)
-   - **Default outbound number** (your Telnyx number)
-   - **Webhook base URL** (ngrok or production host, e.g. `https://abc123.ngrok-free.app`)
-   - **Messaging profile ID**
-   - **SMS from number** (same Telnyx number)
+   - **Connection ID** (Call Control — landline only)
+   - **Voice / outbound calls** (landline E.164)
+   - **SMS number** (mobile E.164)
+   - **WhatsApp number** (WA E.164 — can differ from SMS)
+   - **Webhook base URL** (ngrok or production host)
+   - **SMS messaging profile ID**
+   - **WhatsApp messaging profile ID** (optional)
    - **Messaging webhook URL** (auto-computed after save — copy to Telnyx profile)
    - **Default messaging org ID** (optional — org UUID for inbound logs; otherwise first org is used)
 3. Click **Save Telnyx**.

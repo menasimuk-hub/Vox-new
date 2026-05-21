@@ -568,9 +568,7 @@ class ProviderSettingsService:
             cfg["default_outbound_number"] = from_number
             cfg["from_phone_number"] = from_number
             cfg["fallback_caller_id"] = from_number
-            if not str(cfg.get("sms_from") or "").strip():
-                cfg["sms_from"] = from_number
-        sms_from = str(cfg.get("sms_from") or cfg.get("default_outbound_number") or "").strip()
+        sms_from = str(cfg.get("sms_from") or "").strip()
         if sms_from:
             try:
                 sms_from = normalize_telnyx_e164(sms_from)
@@ -585,6 +583,7 @@ class ProviderSettingsService:
                 pass
             cfg["whatsapp_from"] = wa_from
         cfg["messaging_profile_id"] = str(cfg.get("messaging_profile_id") or "").strip()
+        cfg["whatsapp_messaging_profile_id"] = str(cfg.get("whatsapp_messaging_profile_id") or "").strip()
         cfg["messaging_org_id"] = str(cfg.get("messaging_org_id") or cfg.get("default_messaging_org_id") or "").strip()
         cfg["api_key"] = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
         return cfg

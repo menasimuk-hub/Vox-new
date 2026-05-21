@@ -147,11 +147,7 @@ export default function TelnyxIntegration({
                 placeholder={activeSummary?.secret_set?.api_key ? 'Paste new KEY… to replace' : 'KEYxxxxxxxx…'}
               />
             </Field>
-            <Field
-              label='Voice connection ID'
-              error={telnyxStatus.errors.connection_id}
-              hint='Call Control application ID (landline / voice calls).'
-            >
+            <Field label='Voice connection ID' error={telnyxStatus.errors.connection_id} hint='Call Control application ID (landline / voice calls only).'>
               <input
                 className='input'
                 style={telnyxStatus.errors.connection_id ? invalidInputStyle : undefined}
@@ -161,14 +157,6 @@ export default function TelnyxIntegration({
                   setProviderField('telnyx', 'voice_api_application_id', e.target.value)
                 }}
                 placeholder='Call Control connection ID'
-              />
-            </Field>
-            <Field label='Messaging profile ID' hint='UUID from Telnyx → Messaging Profiles (mobile SMS/WA).'>
-              <input
-                className='input'
-                value={String(activeConfig.messaging_profile_id || '')}
-                onChange={(e) => setProviderField('telnyx', 'messaging_profile_id', e.target.value)}
-                placeholder='40000000-0000-0000-0000-000000000000'
               />
             </Field>
             <Field label='Outbound voice profile ID (optional)'>
@@ -191,13 +179,13 @@ export default function TelnyxIntegration({
         <div className='card'>
           <div className='cardHead'>
             <h3>Phone numbers</h3>
-            <span className='pill p-cyan'>Voice + messaging</span>
+            <span className='pill p-cyan'>3 separate lines</span>
           </div>
           <div className='cardBody stack'>
             <Field
-              label='Voice / calling number (landline)'
+              label='Voice / outbound calls (landline)'
               error={telnyxStatus.errors.default_outbound_number}
-              hint='Outbound calls & test call. Assign to Call Control in Telnyx.'
+              hint='Telnyx → Call Control only. Used for test call and AI voice outbound.'
             >
               <input
                 className='input'
@@ -207,23 +195,39 @@ export default function TelnyxIntegration({
                   setProviderField('telnyx', 'default_outbound_number', e.target.value)
                   setProviderField('telnyx', 'from_phone_number', e.target.value)
                 }}
-                placeholder='+4420…'
+                placeholder='+4420… landline'
               />
             </Field>
-            <Field label='SMS from number (mobile)' hint='Outbound SMS + receives inbound SMS. Assign to Messaging Profile.'>
+            <Field label='SMS number (mobile)' hint='Telnyx → Messaging Profile. Outbound SMS + inbound SMS to this line.'>
               <input
                 className='input'
                 value={String(activeConfig.sms_from || '')}
                 onChange={(e) => setProviderField('telnyx', 'sms_from', e.target.value)}
-                placeholder='+447…'
+                placeholder='+447… mobile'
               />
             </Field>
-            <Field label='WhatsApp from number (mobile)' hint='Same mobile after Meta + Telnyx WhatsApp setup.'>
+            <Field label='WhatsApp number' hint='Telnyx → WhatsApp / Meta WABA. Can differ from SMS mobile.'>
               <input
                 className='input'
                 value={String(activeConfig.whatsapp_from || '')}
                 onChange={(e) => setProviderField('telnyx', 'whatsapp_from', e.target.value)}
-                placeholder='+447…'
+                placeholder='+447… WA line'
+              />
+            </Field>
+            <Field label='SMS messaging profile ID' hint='UUID for the profile that owns your SMS mobile number.'>
+              <input
+                className='input'
+                value={String(activeConfig.messaging_profile_id || '')}
+                onChange={(e) => setProviderField('telnyx', 'messaging_profile_id', e.target.value)}
+                placeholder='40000000-0000-0000-0000-000000000000'
+              />
+            </Field>
+            <Field label='WhatsApp messaging profile ID (optional)' hint='Only if your WA number uses a different profile than SMS. Leave blank to auto-resolve from the WA number.'>
+              <input
+                className='input'
+                value={String(activeConfig.whatsapp_messaging_profile_id || '')}
+                onChange={(e) => setProviderField('telnyx', 'whatsapp_messaging_profile_id', e.target.value)}
+                placeholder='Optional — same as SMS if one profile'
               />
             </Field>
             {telnyxAccountNumbers.length ? (
@@ -231,9 +235,18 @@ export default function TelnyxIntegration({
                 <strong>Numbers on your Telnyx account</strong>
                 <div className='telnyxNumberChips'>
                   {telnyxAccountNumbers.map((num) => (
-                    <button key={num} type='button' className='btn soft' onClick={() => applyTelnyxFromNumber(num)}>
-                      Use {num} for voice
-                    </button>
+                    <div key={num} className='telnyxNumberChipRow'>
+                      <span className='muted telnyxNumberChipLabel'>{num}</span>
+                      <button type='button' className='btn soft' onClick={() => applyTelnyxFromNumber(num, 'voice')}>
+                        Voice
+                      </button>
+                      <button type='button' className='btn soft' onClick={() => applyTelnyxFromNumber(num, 'sms')}>
+                        SMS
+                      </button>
+                      <button type='button' className='btn soft' onClick={() => applyTelnyxFromNumber(num, 'whatsapp')}>
+                        WhatsApp
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -359,11 +372,11 @@ export default function TelnyxIntegration({
           </div>
           <div className='cardBody'>
             <ol className='telnyxChecklist'>
-              <li>Landline on <strong>Call Control</strong> → voice webhook URL above.</li>
-              <li>Mobile on <strong>Messaging Profile</strong> → messaging webhook URL above.</li>
-              <li>Save settings here, then <strong>Test connection</strong>.</li>
-              <li>Send SMS to your mobile number, reply to the Telnyx mobile line.</li>
-              <li>For WhatsApp: connect Meta in Telnyx → WhatsApp, assign your mobile number, set the <strong>same webhook URL</strong> under WABA webhook settings, then test.</li>
+              <li><strong>Landline</strong> → Call Control → voice webhook URL.</li>
+              <li><strong>SMS mobile</strong> → Messaging Profile → messaging webhook URL.</li>
+              <li><strong>WhatsApp number</strong> → Meta WABA in Telnyx → same messaging webhook + WABA webhooks.</li>
+              <li>Save all three numbers here (they can be different lines).</li>
+              <li>Save settings, then <strong>Test connection</strong>.</li>
             </ol>
           </div>
         </div>
