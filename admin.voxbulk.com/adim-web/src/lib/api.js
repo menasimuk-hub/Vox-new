@@ -39,6 +39,12 @@ export function getSharedJwtFromStorage() {
   return localStorage.getItem('access_token') || localStorage.getItem('retover_access_token') || ''
 }
 
+function isLocalDevHost() {
+  if (typeof window === 'undefined') return false
+  const h = window.location.hostname
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1'
+}
+
 export function getApiBaseUrl() {
   const explicit = String(import.meta?.env?.VITE_API_BASE_URL || import.meta?.env?.VITE_RETOVER_API_BASE_URL || '')
     .trim()
@@ -50,7 +56,9 @@ export function getApiBaseUrl() {
     dev &&
     prefersDevSameOriginProxy() &&
     !forceCrossOriginApi() &&
-    (!hasExplicit || LOCAL_LOOPBACK_FASTAPI_ORIGINS.has(explicit))
+    (!hasExplicit ||
+      LOCAL_LOOPBACK_FASTAPI_ORIGINS.has(explicit) ||
+      (isLocalDevHost() && !LOCAL_LOOPBACK_FASTAPI_ORIGINS.has(explicit)))
 
   if (useDevProxyBehaviour) return ''
 
