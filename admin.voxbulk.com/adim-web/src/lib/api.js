@@ -45,12 +45,11 @@ function isLocalDevHost() {
   return h === 'localhost' || h === '127.0.0.1' || h === '::1'
 }
 
-/** Production admin/dashboard hosts call the API subdomain (nginx serves static only). */
+/** On production admin host, use same-origin /admin (nginx proxies to FastAPI). Avoids CORS issues on Baota. */
 function defaultProductionApiBaseUrl() {
   if (typeof window === 'undefined') return ''
   const h = window.location.hostname
-  if (h === 'admin.voxbulk.com') return 'https://api.voxbulk.com'
-  if (h === 'admin.microgreenia.com') return 'https://api.microgreenia.com'
+  if (h === 'admin.voxbulk.com' || h === 'admin.microgreenia.com') return ''
   return ''
 }
 
@@ -70,6 +69,17 @@ export function getApiBaseUrl() {
       (isLocalDevHost() && !LOCAL_LOOPBACK_FASTAPI_ORIGINS.has(explicit)))
 
   if (useDevProxyBehaviour) return ''
+
+  // Production admin on Baota: same-origin + nginx proxy (cross-origin api.* often breaks in browser).
+  if (
+    !dev &&
+    !forceCrossOriginApi() &&
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'admin.voxbulk.com' ||
+      window.location.hostname === 'admin.microgreenia.com')
+  ) {
+    return ''
+  }
 
   if (hasExplicit) return explicit
 
@@ -287,6 +297,17 @@ export async function checkApiConnectivity(options = {}) {
 
 function networkFailureHelp() {
   const baseEmpty = !getApiBaseUrl()
+  const onProdAdmin =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'admin.voxbulk.com' ||
+      window.location.hostname === 'admin.microgreenia.com')
+  if (onProdAdmin && baseEmpty) {
+    return [
+      'Production admin uses same-origin /admin on this hostname (nginx must proxy to FastAPI on 127.0.0.1:8000).',
+      'In Baota → admin.voxbulk.com → Config, add proxy locations for /admin, /auth, and /health → http://127.0.0.1:8000',
+      'Set proxy Host header to api.voxbulk.com (matches TRUSTED_HOSTS), then reload nginx and restart API.',
+    ].join('\n')
+  }
   return [
     'Most common fixes:',
     '1) From this app folder run `npm run dev:full` — starts FastAPI on 0.0.0.0:8000 then Vite after /health is up (fixes 502 when the API was never started).',

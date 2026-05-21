@@ -155,8 +155,17 @@ _origins = settings.cors_allow_origins
 _cors_kw = dict(
     allow_origins=_origins,
     allow_credentials=settings.cors_allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=[
+        "Authorization",
+        "Accept",
+        "Content-Type",
+        "Origin",
+        "X-Retover-Org-Id",
+        "X-Requested-With",
+    ],
+    expose_headers=["Content-Type", "Content-Length"],
+    max_age=600,
 )
 _reg = settings.cors_allow_origin_regex
 if _reg:
