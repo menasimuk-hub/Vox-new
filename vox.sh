@@ -28,8 +28,13 @@ start_api() {
 
 start_public() {
   cd "$PUBLIC_DIR"
+  if [[ ! -d dist/client ]]; then
+    echo "Building public frontend (first run)…"
+    npm install
+    npm run build
+  fi
   nohup npm run preview -- --host 127.0.0.1 --port 5173 >>"$PUBLIC_LOG" 2>&1 &
-  echo "Public site started (log: $PUBLIC_LOG)"
+  echo "Public site started on 127.0.0.1:5173 (log: $PUBLIC_LOG)"
 }
 
 status() {

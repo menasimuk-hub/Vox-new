@@ -444,9 +444,9 @@ export function getPublicAppHomeUrl() {
   return `${getPublicAppOrigin()}/`
 }
 
-/** Public home with one-time flag so the marketing app clears its own localStorage (other ports). */
+/** After logout, land on public sign-in (works once voxbulk.com nginx proxies :5173). */
 export function getPublicLogoutLandingUrl() {
-  const u = new URL(`${getPublicAppOrigin()}/`)
+  const u = new URL(`${getPublicAppOrigin()}/signin`)
   u.searchParams.set('retover_logout', '1')
   return u.toString()
 }

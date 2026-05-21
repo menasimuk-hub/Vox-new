@@ -61,7 +61,7 @@ After `npm run build`, **copy dist to wwwroot** (nginx does not read repo `dist`
 ```bash
 rsync -a --exclude='.user.ini' /www/voxbulk/admin.voxbulk.com/adim-web/dist/ /www/wwwroot/admin.voxbulk.com/
 rsync -a --exclude='.user.ini' /www/voxbulk/dashboard.voxbulk.com/dashboard-web/dist/ /www/wwwroot/dashboard.voxbulk.com/
-rsync -a --exclude='.user.ini' /www/voxbulk/voxbulk.com/frontend/dist/ /www/wwwroot/voxbulk.com/
+# Public site (voxbulk.com): nginx proxies to vite preview :5173 — do NOT rsync dist/ to wwwroot.
 ```
 
 Verify: `curl -s https://admin.voxbulk.com/ | grep assets` — JS hash must match `dist/index.html` in repo.

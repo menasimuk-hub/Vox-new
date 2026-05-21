@@ -135,7 +135,7 @@ copy_dist() {
 deploy_static() {
   copy_dist "$ADMIN_DIR/dist" "${VOX_ADMIN_DIST:-}" "admin"
   copy_dist "$DASH_DIR/dist" "${VOX_DASH_DIST:-}" "dashboard"
-  copy_dist "$PUBLIC_DIR/dist" "${VOX_PUBLIC_DIST:-}" "public"
+  # Public site (TanStack Start) is served via vite preview :5173 — NOT static wwwroot.
 }
 
 restart_services() {
