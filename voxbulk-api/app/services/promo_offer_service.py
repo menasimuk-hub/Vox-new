@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.plan import Plan
+from app.models.organisation import Organisation
 from app.models.promo_offer import PromoOffer, PromoRedemption
 from app.models.subscription import Subscription
 from app.services.gocardless_service import BillingService
@@ -16,12 +17,38 @@ from app.services.usage_wallet_service import UsageWalletService
 
 _CODE_RE = re.compile(r"[^A-Z0-9]+")
 
+SUBSCRIPTION_OFFER_TYPES = {"dental_trial", "subscription_trial"}
+SERVICE_CREDIT_OFFER_TYPES = {"survey_credits", "interview_credits"}
+
 
 class PromoOfferError(ValueError):
     pass
 
 
 class PromoOfferService:
+    @staticmethod
+    def is_subscription_offer(offer_type: str | None) -> bool:
+        clean = str(offer_type or "dental_trial").strip() or "dental_trial"
+        return clean in SUBSCRIPTION_OFFER_TYPES
+
+    @staticmethod
+    def is_service_credit_offer(offer_type: str | None) -> bool:
+        clean = str(offer_type or "").strip()
+        return clean in SERVICE_CREDIT_OFFER_TYPES
+
+    @staticmethod
+    def normalize_offer_type(raw: str | None) -> str:
+        clean = str(raw or "dental_trial").strip() or "dental_trial"
+        if clean in SUBSCRIPTION_OFFER_TYPES | SERVICE_CREDIT_OFFER_TYPES:
+            return clean
+        if clean in {"subscription", "plan"}:
+            return "dental_trial"
+        if clean in {"survey", "survey_contacts"}:
+            return "survey_credits"
+        if clean in {"interview", "interview_sessions"}:
+            return "interview_credits"
+        return clean
+
     @staticmethod
     def normalize_code(raw: str) -> str:
         code = _CODE_RE.sub("", str(raw or "").strip().upper())
@@ -66,6 +93,8 @@ class PromoOfferService:
             "sms_included": int(row.sms_included or 0),
             "price_gbp_pence": int(row.price_gbp_pence or 0),
             "overage_per_min_pence": int(row.overage_per_min_pence or 0),
+            "survey_contacts_included": int(row.survey_contacts_included or 0),
+            "interview_contacts_included": int(row.interview_contacts_included or 0),
             "signup_url": PromoOfferService.signup_url(row.code),
             "expires_at": row.expires_at.isoformat() if row.expires_at else None,
         }
@@ -99,29 +128,57 @@ class PromoOfferService:
         else:
             code = PromoOfferService.normalize_code(f"PROMO{secrets.token_hex(3).upper()}")
 
-        plan_code = str(payload.get("plan_code") or "starter").strip().lower()
-        plan = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
-        if plan is None:
-            raise PromoOfferError("Unknown plan code")
-
-        offer_type = str(payload.get("offer_type") or "dental_trial").strip() or "dental_trial"
+        offer_type = PromoOfferService.normalize_offer_type(payload.get("offer_type"))
         now = datetime.utcnow()
         expires_days = max(1, int(payload.get("expires_in_days") or 30))
         max_redemptions = max(1, int(payload.get("max_redemptions") or 1))
 
+        plan = None
+        plan_code = str(payload.get("plan_code") or "").strip().lower()
+        survey_contacts = max(0, int(payload.get("survey_contacts_included") or 0))
+        interview_contacts = max(0, int(payload.get("interview_contacts_included") or 0))
+
+        if offer_type == "survey_credits":
+            if survey_contacts <= 0:
+                raise PromoOfferError("Enter how many free survey contacts this promo includes")
+            default_name = f"Promo · {survey_contacts} survey contact{'s' if survey_contacts != 1 else ''}"
+            plan_code = None
+        elif offer_type == "interview_credits":
+            if interview_contacts <= 0:
+                raise PromoOfferError("Enter how many free interviews this promo includes")
+            default_name = f"Promo · {interview_contacts} interview{'s' if interview_contacts != 1 else ''}"
+            plan_code = None
+        else:
+            if not plan_code:
+                plan_code = "starter"
+            plan = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
+            if plan is None:
+                raise PromoOfferError("Unknown plan code")
+            default_name = f"Promo · {plan.name}"
+
+        display_name = str(payload.get("name") or default_name).strip() or default_name
+
         row = PromoOffer(
             code=code,
-            name=str(payload.get("name") or f"Promo · {plan.name}").strip() or f"Promo · {plan.name}",
+            name=display_name,
             offer_type=offer_type,
-            plan_code=plan.code,
-            service_kind=str(payload.get("service_kind") or plan.service_kind or "dental").strip() or "dental",
-            trial_days=int(payload.get("trial_days") if payload.get("trial_days") is not None else plan.trial_days_default or 0),
+            plan_code=plan.code if plan else None,
+            service_kind=(
+                "survey"
+                if offer_type == "survey_credits"
+                else "interview"
+                if offer_type == "interview_credits"
+                else str(payload.get("service_kind") or (plan.service_kind if plan else "dental")).strip() or "dental"
+            ),
+            trial_days=int(payload.get("trial_days") if payload.get("trial_days") is not None else (plan.trial_days_default if plan else 0)),
             free_call_credits=int(payload.get("free_call_credits") or 0),
-            calls_included=int(payload.get("calls_included") if payload.get("calls_included") is not None else plan.calls_included or 0),
-            whatsapp_included=int(payload.get("whatsapp_included") if payload.get("whatsapp_included") is not None else plan.whatsapp_included or 0),
-            sms_included=int(payload.get("sms_included") if payload.get("sms_included") is not None else plan.sms_included or 0),
-            price_gbp_pence=int(payload.get("price_gbp_pence") if payload.get("price_gbp_pence") is not None else plan.price_gbp_pence or 0),
-            overage_per_min_pence=int(payload.get("overage_per_min_pence") if payload.get("overage_per_min_pence") is not None else plan.overage_per_min_pence or 0),
+            survey_contacts_included=survey_contacts,
+            interview_contacts_included=interview_contacts,
+            calls_included=int(payload.get("calls_included") if payload.get("calls_included") is not None else (plan.calls_included if plan else 0)),
+            whatsapp_included=int(payload.get("whatsapp_included") if payload.get("whatsapp_included") is not None else (plan.whatsapp_included if plan else 0)),
+            sms_included=int(payload.get("sms_included") if payload.get("sms_included") is not None else (plan.sms_included if plan else 0)),
+            price_gbp_pence=int(payload.get("price_gbp_pence") if payload.get("price_gbp_pence") is not None else (plan.price_gbp_pence if plan else 0)),
+            overage_per_min_pence=int(payload.get("overage_per_min_pence") if payload.get("overage_per_min_pence") is not None else (plan.overage_per_min_pence if plan else 0)),
             prospect_email=(str(payload.get("prospect_email") or "").strip() or None),
             prospect_phone=(str(payload.get("prospect_phone") or "").strip() or None),
             prospect_name=(str(payload.get("prospect_name") or "").strip() or None),
@@ -221,19 +278,30 @@ class PromoOfferService:
         if row.redemption_count >= row.max_redemptions:
             raise PromoOfferError("Promo code already used")
 
-        plan_code = (row.plan_code or "starter").strip().lower()
-        try:
-            sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code=plan_code)
-        except ValueError:
-            sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code="starter")
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise PromoOfferError("Organisation not found")
 
-        if int(row.trial_days or 0) > 0:
-            sub.status = "trial"
-            sub.current_period_end = now + timedelta(days=int(row.trial_days))
-            sub.updated_at = now
-            db.add(sub)
+        if PromoOfferService.is_service_credit_offer(row.offer_type):
+            if row.offer_type == "survey_credits":
+                org.survey_credits_balance = int(org.survey_credits_balance or 0) + int(row.survey_contacts_included or 0)
+            else:
+                org.interview_credits_balance = int(org.interview_credits_balance or 0) + int(row.interview_contacts_included or 0)
+            db.add(org)
+        else:
+            plan_code = (row.plan_code or "starter").strip().lower()
+            try:
+                sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code=plan_code)
+            except ValueError:
+                sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code="starter")
 
-        UsageWalletService.bootstrap_from_promo(db, org_id=org_id, promo=row, subscription=sub)
+            if int(row.trial_days or 0) > 0:
+                sub.status = "trial"
+                sub.current_period_end = now + timedelta(days=int(row.trial_days))
+                sub.updated_at = now
+                db.add(sub)
+
+            UsageWalletService.bootstrap_from_promo(db, org_id=org_id, promo=row, subscription=sub)
 
         row.redemption_count = int(row.redemption_count or 0) + 1
         row.updated_at = now

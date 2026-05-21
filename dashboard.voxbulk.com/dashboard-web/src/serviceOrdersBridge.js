@@ -590,7 +590,37 @@ async function startGocardlessOrderPayment(orderId) {
   window.location.assign(authorizationUrl)
 }
 
+async function submitPromoCreditPayment(orderId) {
+  try {
+    const paid = await api(`/service-orders/${orderId}/pay-promo-credits`, { method: 'POST' })
+    await api(`/service-orders/${paid.id}/start`, { method: 'POST' })
+    window.toast?.('Paid with promo credits — campaign started', 'tg')
+    await loadOrdersIntoUi()
+  } catch (e) {
+    window.toast?.(e.message || 'Could not use promo credits', 'tr')
+  }
+}
+
 async function offerOrderPayment(order, quoteText) {
+  try {
+    const credits = await api('/service-orders/credits')
+    const available =
+      order.service_code === 'survey'
+        ? Number(credits?.survey_credits || 0)
+        : Number(credits?.interview_credits || 0)
+    if (available >= Number(order.recipient_count || 0) && order.recipient_count > 0) {
+      const usePromo = window.confirm(
+        `You have ${available} promo ${order.service_code} credit(s).\nThis order needs ${order.recipient_count}.\n\nUse promo credits instead of paying?`,
+      )
+      if (usePromo) {
+        await submitPromoCreditPayment(order.id)
+        return
+      }
+    }
+  } catch {
+    // fall through to normal payment options
+  }
+
   const gc = Boolean(state.paymentOptions?.gocardless_available)
   const cash = state.paymentOptions?.cash_available !== false
 

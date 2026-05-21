@@ -60,11 +60,23 @@ function statusLabel(status) {
 }
 
 function limitsLine(row) {
+  if (row.offer_type === 'survey_credits') {
+    return `${row.survey_contacts_included || 0} survey contacts`
+  }
+  if (row.offer_type === 'interview_credits') {
+    return `${row.interview_contacts_included || 0} interviews`
+  }
   const parts = []
   if (row.calls_included) parts.push(`${row.calls_included} calls`)
   if (row.whatsapp_included) parts.push(`${row.whatsapp_included} WhatsApp`)
   if (row.trial_days) parts.push(`${row.trial_days}-day trial`)
   return parts.join(' · ') || 'Plan defaults'
+}
+
+function offerTypeLabel(row) {
+  if (row.offer_type === 'survey_credits') return 'Survey promo'
+  if (row.offer_type === 'interview_credits') return 'Interview promo'
+  return row.plan_code || 'Subscription'
 }
 
 export default function PromoOffers() {
@@ -307,7 +319,7 @@ export default function PromoOffers() {
                     <tr>
                       <th>Offer</th>
                       <th>Code</th>
-                      <th>Plan</th>
+                      <th>Plan / type</th>
                       <th>Trial & limits</th>
                       <th>Prospect</th>
                       <th>Redemptions</th>
@@ -342,7 +354,7 @@ export default function PromoOffers() {
                             </button>
                           </td>
                           <td>
-                            <code className='productCode'>{row.plan_code || '—'}</code>
+                            <code className='productCode'>{offerTypeLabel(row)}</code>
                           </td>
                           <td className='mutedCell'>{limitsLine(row)}</td>
                           <td>

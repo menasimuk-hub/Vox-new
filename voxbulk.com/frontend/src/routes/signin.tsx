@@ -118,7 +118,14 @@ function SignInPage() {
   const [orgName, setOrgName] = useState("");
   const [planCode, setPlanCode] = useState("starter");
   const [promoCode, setPromoCode] = useState<string | null>(promoFromUrl);
-  const [promoPreview, setPromoPreview] = useState<{ name?: string; trial_days?: number; plan_code?: string } | null>(null);
+  const [promoPreview, setPromoPreview] = useState<{
+    name?: string;
+    trial_days?: number;
+    plan_code?: string;
+    offer_type?: string;
+    survey_contacts_included?: number;
+    interview_contacts_included?: number;
+  } | null>(null);
   const [signupPlans, setSignupPlans] = useState<Array<{ code: string; name: string; price_gbp_pence?: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
@@ -131,6 +138,10 @@ function SignInPage() {
   const [credentialView, setCredentialView] = useState<"login" | "forgot">("login");
   const [forgotMessage, setForgotMessage] = useState("");
   const [forgotSending, setForgotSending] = useState(false);
+
+  const isServiceCreditPromo =
+    promoPreview?.offer_type === "survey_credits" || promoPreview?.offer_type === "interview_credits";
+  const isSubscriptionPromo = Boolean(promoPreview?.plan_code) && !isServiceCreditPromo;
 
   const showForgot = mode === "signin" && credentialView === "forgot";
 
@@ -185,7 +196,16 @@ function SignInPage() {
     let cancelled = false;
     (async () => {
       try {
-        const data = (await fetchPromoPreview(promoFromUrl)) as { promo?: { name?: string; trial_days?: number; plan_code?: string } };
+        const data = (await fetchPromoPreview(promoFromUrl)) as {
+          promo?: {
+            name?: string;
+            trial_days?: number;
+            plan_code?: string;
+            offer_type?: string;
+            survey_contacts_included?: number;
+            interview_contacts_included?: number;
+          };
+        };
         if (cancelled) return;
         const promo = data?.promo;
         setPromoPreview(promo || null);
@@ -399,7 +419,7 @@ function SignInPage() {
             email,
             password,
             organisation_name: name,
-            plan_code: planCode,
+            plan_code: isServiceCreditPromo ? undefined : planCode,
             promo_code: promoCode || undefined,
           });
           if (result?.status === "approved" && result?.access_token) {
@@ -518,8 +538,14 @@ function SignInPage() {
               <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-[13px] text-heading">
                 <strong>Special offer applied</strong>
                 <div className="mt-1 text-muted-text">
-                  {promoPreview.name || "Dental package"}
-                  {promoPreview.trial_days ? ` · ${promoPreview.trial_days}-day trial` : ""}
+                  {promoPreview.name || "Promo offer"}
+                  {promoPreview.offer_type === "survey_credits"
+                    ? ` · ${promoPreview.survey_contacts_included || 0} free survey contacts`
+                    : promoPreview.offer_type === "interview_credits"
+                      ? ` · ${promoPreview.interview_contacts_included || 0} free interviews`
+                      : promoPreview.trial_days
+                        ? ` · ${promoPreview.trial_days}-day trial`
+                        : ""}
                   {promoCode ? ` · Code ${promoCode}` : ""}
                 </div>
               </div>
@@ -764,12 +790,13 @@ function SignInPage() {
                                 />
                               </div>
                             </label>
+                            {!isServiceCreditPromo ? (
                             <label className="block">
                               <span className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-text">
                                 Package
                               </span>
                               <div className="mt-1.5">
-                                {promoPreview?.plan_code ? (
+                                {isSubscriptionPromo ? (
                                   <input
                                     type="text"
                                     readOnly
@@ -807,6 +834,11 @@ function SignInPage() {
                                 Payment method: bank transfer (for now).
                               </p>
                             </label>
+                            ) : (
+                              <p className="text-[12.5px] text-muted-text">
+                                No subscription required — your promo credits are added after signup approval.
+                              </p>
+                            )}
                           </>
                         )}
                         <button

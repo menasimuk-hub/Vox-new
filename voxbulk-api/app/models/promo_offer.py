@@ -20,6 +20,8 @@ class PromoOffer(Base):
     service_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     trial_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     free_call_credits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    survey_contacts_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    interview_contacts_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     calls_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     whatsapp_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     sms_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

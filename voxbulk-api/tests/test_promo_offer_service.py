@@ -13,6 +13,13 @@ def test_normalize_code_rejects_short():
         pass
 
 
+def test_normalize_offer_type_maps_service_kinds():
+    assert PromoOfferService.normalize_offer_type("survey") == "survey_credits"
+    assert PromoOfferService.normalize_offer_type("interview") == "interview_credits"
+    assert PromoOfferService.is_service_credit_offer("survey_credits")
+    assert PromoOfferService.is_subscription_offer("dental_trial")
+
+
 def test_signup_url_uses_public_origin(monkeypatch):
     class _Settings:
         public_app_origin = "https://app.example.com"

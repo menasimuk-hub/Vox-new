@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_principal
+from app.models.organisation import Organisation
+from app.services.org_service_credit_service import OrgServiceCreditError, OrgServiceCreditService
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
 
@@ -41,6 +43,14 @@ def list_catalog(db: Session = Depends(get_db), _principal=Depends(get_current_p
             }
         )
     return out
+
+
+@router.get("/credits")
+def get_promo_credits(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    return {"ok": True, **OrgServiceCreditService.balances_dict(org)}
 
 
 @router.get("/template.csv")
@@ -143,6 +153,21 @@ def refresh_quote(order_id: str, db: Session = Depends(get_db), principal=Depend
         order = ServiceOrderService.quote_order(db, order)
         return ServiceOrderService.order_to_dict(order)
     except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/pay-promo-credits")
+def pay_with_promo_credits(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    try:
+        order = OrgServiceCreditService.apply_to_order(db, order, org)
+        return ServiceOrderService.order_to_dict(order)
+    except OrgServiceCreditError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 

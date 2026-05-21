@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -43,4 +43,7 @@ class Organisation(Base):
     contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_phone: Mapped[str | None] = mapped_column(String(80), nullable=True)
     website: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    survey_credits_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    interview_credits_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

@@ -243,20 +243,26 @@ def self_serve(payload: dict, db: Session = Depends(get_db)):
     promo_code = str(payload.get("promo_code") or "").strip()
     payment_method = str(payload.get("payment_method") or "bank_transfer").strip()
 
-    if not email or not password or not organisation_name or not plan_code:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="email, password, organisation_name, plan_code required")
-    if payment_method != "bank_transfer":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only bank_transfer supported")
-
+    promo_preview: dict | None = None
     if promo_code:
         from app.services.promo_offer_service import PromoOfferError, PromoOfferService
 
         try:
-            promo = PromoOfferService.validate_public(db, promo_code)
+            promo_preview = PromoOfferService.validate_public(db, promo_code)
         except PromoOfferError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        if promo.get("plan_code"):
-            plan_code = str(promo["plan_code"])
+        if promo_preview.get("plan_code") and PromoOfferService.is_subscription_offer(promo_preview.get("offer_type")):
+            plan_code = str(promo_preview["plan_code"])
+        elif PromoOfferService.is_service_credit_offer(promo_preview.get("offer_type")):
+            plan_code = str(promo_preview.get("offer_type") or "survey_credits")
+
+    needs_subscription_plan = not promo_preview or PromoOfferService.is_subscription_offer(promo_preview.get("offer_type"))
+    if not email or not password or not organisation_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="email, password, organisation_name required")
+    if needs_subscription_plan and not plan_code:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plan_code required for subscription promos")
+    if payment_method != "bank_transfer":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only bank_transfer supported")
 
     _ensure_onboarding_requests_table_for_local_dev()
 
@@ -273,16 +279,16 @@ def self_serve(payload: dict, db: Session = Depends(get_db)):
     db.flush()
 
     db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
-    # Store the requested package immediately so admin can see it while approval is pending.
-    try:
-        BillingService.assign_plan_cash(db, org_id=org.id, plan_code=plan_code)
-    except ValueError:
-        BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
+    if needs_subscription_plan and plan_code:
+        try:
+            BillingService.assign_plan_cash(db, org_id=org.id, plan_code=plan_code)
+        except ValueError:
+            BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
 
     req = OnboardingRequest(
         org_id=org.id,
         user_id=user.id,
-        plan_code=plan_code,
+        plan_code=plan_code or "survey_credits",
         promo_code=promo_code or None,
         payment_method="bank_transfer",
         status="pending",
