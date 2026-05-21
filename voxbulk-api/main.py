@@ -19,11 +19,13 @@ from app.services.provider_settings import ProviderSettingsService
 
 from app.routers.admin import router as admin_router
 from app.routers.admin_email import router as admin_email_router
+from app.routers.admin_email_legal import router as admin_email_legal_router
 from app.routers.admin_messaging import router as admin_messaging_router
 from app.routers.admin_support import router as admin_support_router
 from app.routers.agents import router as agents_router
 from app.routers.knowledge_base import router as knowledge_base_router
 from app.routers.legal_pages import router as legal_pages_router
+from app.routers.promo_offers import router as promo_offers_router
 from app.routers.appointments import router as appointments_router
 from app.routers.auth import router as auth_router
 from app.routers.billing import router as billing_router
@@ -44,6 +46,7 @@ from app.routers.users import router as users_router
 from app.routers.webhooks import router as webhooks_router
 from app.routers.whatsapp import router as whatsapp_router
 from app.routers.admin_platform_services import router as admin_platform_services_router
+from app.routers.admin_products import router as admin_products_router
 from app.routers.dashboard_help import router as dashboard_help_router
 from app.routers.dashboard_scripts import router as dashboard_scripts_router
 from app.routers.service_orders import router as service_orders_router
@@ -183,6 +186,8 @@ app.include_router(telnyx_router)
 app.include_router(faq_router)
 app.include_router(legal_pages_router)
 app.include_router(legal_pages_router, prefix="/api")
+app.include_router(promo_offers_router)
+app.include_router(promo_offers_router, prefix="/api")
 app.include_router(frontpage_router)
 app.include_router(frontpage_router, prefix="/api")
 app.include_router(admin_frontpage_router)
@@ -194,9 +199,12 @@ app.include_router(agents_router)
 app.include_router(knowledge_base_router)
 app.include_router(knowledge_base_router, prefix="/api")
 app.include_router(admin_email_router)
+app.include_router(admin_email_legal_router)
 app.include_router(admin_messaging_router)
 app.include_router(admin_support_router)
 app.include_router(service_orders_router)
 app.include_router(admin_platform_services_router)
+app.include_router(admin_products_router)
+app.include_router(admin_products_router, prefix="/api")
 app.include_router(dashboard_help_router)
 app.include_router(dashboard_scripts_router)

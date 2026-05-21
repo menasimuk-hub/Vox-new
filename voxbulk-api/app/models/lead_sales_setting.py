@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -20,4 +20,8 @@ class LeadSalesSetting(Base):
     calling_hour_start: Mapped[int] = mapped_column(nullable=False, default=9)
     calling_hour_end: Mapped[int] = mapped_column(nullable=False, default=18)
     calling_days: Mapped[str] = mapped_column(String(32), nullable=False, default="1,2,3,4,5")
+    sales_automation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sales_auto_plan_code: Mapped[str] = mapped_column(String(64), nullable=False, default="dental_1")
+    sales_auto_trial_days: Mapped[int] = mapped_column(Integer, nullable=False, default=15)
+    sales_followup_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

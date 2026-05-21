@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.email_template import EmailTemplate
+from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
 
 EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "new_user",
@@ -15,6 +16,8 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "new_invoice",
     "payment_failed",
     "general_notification",
+    "sales_offer",
+    "usage_warning",
 )
 
 _TEMPLATE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
@@ -29,6 +32,22 @@ class EmailTemplateError(ValueError):
 
 
 class EmailTemplateService:
+    @staticmethod
+    def ensure_system_templates(db: Session) -> None:
+        """Insert any missing system templates so admin always sees the full set."""
+        for key in EMAIL_TEMPLATE_KEYS:
+            if EmailTemplateService.get(db, key=key) is not None:
+                continue
+            defaults = SYSTEM_EMAIL_DEFAULTS.get(key, {})
+            EmailTemplateService.create(
+                db,
+                key=key,
+                title=defaults.get("title") or key.replace("_", " ").title(),
+                subject=defaults.get("subject") or key.replace("_", " ").title(),
+                body=defaults.get("body") or "",
+                is_enabled=True,
+            )
+
     @staticmethod
     def is_system_key(key: str) -> bool:
         return (key or "").strip().lower() in EMAIL_TEMPLATE_KEYS
@@ -49,6 +68,7 @@ class EmailTemplateService:
 
     @staticmethod
     def list_all(db: Session) -> list[dict[str, Any]]:
+        EmailTemplateService.ensure_system_templates(db)
         rows = db.execute(select(EmailTemplate).order_by(EmailTemplate.template_key.asc())).scalars().all()
         return [EmailTemplateService.to_dict(r) for r in rows]
 

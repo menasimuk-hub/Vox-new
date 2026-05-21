@@ -36,6 +36,16 @@ EMAIL_TEST_VARIABLES: dict[str, str] = {
     "appointment_time": "10:30",
     "patient_name": "Jamie Demo",
     "doctor_name": "Dr. Smith",
+    "trial_line": "15-day free trial",
+    "promo_name": "Sales offer · Northgate Dental",
+    "plan_summary": "Dental P1 · £199/mo · 300 calls, 500 WhatsApp, 300 SMS",
+    "signup_url": "https://voxbulk.com/signin?promo=SALEDEMO",
+    "plan_name": "Dental P1",
+    "plan_price": "£199",
+    "trial_days": "15",
+    "calls_included": "300",
+    "whatsapp_included": "500",
+    "sms_included": "300",
 }
 
 

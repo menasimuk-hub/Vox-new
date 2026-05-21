@@ -256,6 +256,11 @@ export default function LeadSalesEdit() {
   const [syncingOutcome, setSyncingOutcome] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
+  const [offerPlan, setOfferPlan] = useState('dental_1')
+  const [offerTrialDays, setOfferTrialDays] = useState(15)
+  const [offerPlans, setOfferPlans] = useState([])
+  const [sendingOffer, setSendingOffer] = useState(false)
+  const [lastOfferResult, setLastOfferResult] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -286,6 +291,26 @@ export default function LeadSalesEdit() {
   useEffect(() => {
     load()
   }, [taskId])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await apiFetch('/admin/products/plans/active')
+        if (cancelled) return
+        const list = Array.isArray(rows) ? rows : []
+        setOfferPlans(list)
+        if (list.length) {
+          setOfferPlan((prev) => (list.some((p) => p.code === prev) ? prev : list[0].code))
+        }
+      } catch {
+        if (!cancelled) setOfferPlans([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const saveDetails = async () => {
     setBusy('save')
@@ -338,6 +363,51 @@ export default function LeadSalesEdit() {
       setMsg(e?.message || 'Could not sync results')
     } finally {
       setSyncingOutcome(false)
+    }
+  }
+
+  const sendOfferLink = async () => {
+    setSendingOffer(true)
+    setMsg('')
+    try {
+      const data = await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}/send-offer`, {
+        method: 'POST',
+        body: JSON.stringify({
+          plan_code: offerPlan,
+          trial_days: Number(offerTrialDays) || 15,
+        }),
+      })
+      if (data?.task) setTask(data.task)
+      setLastOfferResult(data?.send || data)
+      const emailOk = data?.send?.email?.ok
+      const waOk = data?.send?.whatsapp?.ok
+      setMsg(
+        `Offer sent${emailOk ? ' · email OK' : ''}${waOk ? ' · WhatsApp OK' : ''}${
+          data?.send?.signup_url ? ` · Link: ${data.send.signup_url}` : ''
+        }`,
+      )
+    } catch (e) {
+      setMsg(e?.message || 'Could not send offer')
+    } finally {
+      setSendingOffer(false)
+    }
+  }
+
+  const toggleAutomation = async () => {
+    const paused = !(task.automation_paused || task.automation?.automation_paused)
+    setBusy('automation')
+    setMsg('')
+    try {
+      const data = await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}/automation/pause`, {
+        method: 'POST',
+        body: JSON.stringify({ paused }),
+      })
+      if (data?.task) setTask(data.task)
+      setMsg(paused ? 'WhatsApp automation paused for this lead.' : 'WhatsApp automation resumed.')
+    } catch (e) {
+      setMsg(e?.message || 'Could not update automation')
+    } finally {
+      setBusy('')
     }
   }
 
@@ -466,6 +536,126 @@ export default function LeadSalesEdit() {
         syncing={syncingOutcome}
         onViewInsight={() => setShowInsights(true)}
       />
+
+      <section className='card' style={{ marginTop: 16 }}>
+        <div className='cardHead'>
+          <h3>WhatsApp automation</h3>
+          <span className='pill p-cyan'>{task.automation?.stage || 'pending'}</span>
+        </div>
+        <div className='cardBody'>
+          <p className='muted' style={{ marginTop: 0 }}>
+            After the call, the system can send an opt-in message or auto-offer. Customer replies <strong>SEND OFFER</strong> to
+            get the link; confused replies get DeepSeek help. Configure defaults in{' '}
+            <Link to='/marketing/lead-sales/settings'>Sales setup</Link>.
+          </p>
+          <div className='salesOutcomeGrid' style={{ marginTop: 12 }}>
+            <div className='salesOutcomeTile'>
+              <span className='salesOutcomeTileLabel'>Stage</span>
+              <strong>{task.automation?.stage || '—'}</strong>
+            </div>
+            <div className='salesOutcomeTile'>
+              <span className='salesOutcomeTileLabel'>Opt-in sent</span>
+              <strong>{task.automation?.opt_in_sent_at ? displayWhen(task.automation.opt_in_sent_at) : '—'}</strong>
+            </div>
+            <div className='salesOutcomeTile'>
+              <span className='salesOutcomeTileLabel'>Follow-up due</span>
+              <strong>{task.automation?.followup_due_at ? displayWhen(task.automation.followup_due_at) : '—'}</strong>
+            </div>
+            <div className='salesOutcomeTile'>
+              <span className='salesOutcomeTileLabel'>Last inbound</span>
+              <strong>{task.automation?.last_inbound_at ? displayWhen(task.automation.last_inbound_at) : '—'}</strong>
+            </div>
+          </div>
+          {task.automation?.last_error ? (
+            <p className='muted' style={{ marginTop: 12, color: 'var(--danger, #b42318)' }}>
+              Last error: {task.automation.last_error}
+            </p>
+          ) : null}
+          <div className='actions' style={{ marginTop: 12 }}>
+            <button
+              type='button'
+              className='btn soft'
+              disabled={busy === 'automation'}
+              onClick={toggleAutomation}
+            >
+              {busy === 'automation'
+                ? 'Updating…'
+                : task.automation_paused || task.automation?.automation_paused
+                  ? 'Resume automation'
+                  : 'Pause automation'}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className='card' style={{ marginTop: 16 }}>
+        <div className='cardHead'>
+          <h3>Send offer link</h3>
+        </div>
+        <div className='cardBody'>
+          <p className='muted' style={{ marginBottom: 12 }}>
+            When the customer agrees on the call, send signup link by email and WhatsApp with trial + package pre-filled.
+          </p>
+          <div className='salesLeadDetailsGrid'>
+            <label className='salesLeadField'>
+              <span>Package</span>
+              <select
+                className='input inputCompact'
+                value={offerPlan}
+                onChange={(e) => {
+                  const code = e.target.value
+                  setOfferPlan(code)
+                  const picked = offerPlans.find((p) => p.code === code)
+                  if (picked?.trial_days_default) setOfferTrialDays(picked.trial_days_default)
+                }}
+              >
+                {offerPlans.length ? (
+                  offerPlans.map((p) => (
+                    <option key={p.code} value={p.code}>
+                      {p.name} — £{(Number(p.price_gbp_pence || 0) / 100).toFixed(0)} ({p.calls_included} calls / {p.whatsapp_included} WA / {p.sms_included} SMS)
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value='dental_1'>Dental P1 — £199</option>
+                    <option value='dental_2'>Dental P2 — £299</option>
+                  </>
+                )}
+              </select>
+            </label>
+            <label className='salesLeadField'>
+              <span>Trial days</span>
+              <input
+                className='input inputCompact'
+                type='number'
+                min={1}
+                max={90}
+                value={offerTrialDays}
+                onChange={(e) => setOfferTrialDays(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className='actions' style={{ marginTop: 12 }}>
+            <button type='button' className='btn primary' disabled={sendingOffer || !form.email} onClick={sendOfferLink}>
+              {sendingOffer ? 'Sending…' : 'Send offer (WhatsApp + email)'}
+            </button>
+          </div>
+          {!form.email ? (
+            <p className='muted' style={{ marginTop: 8 }}>Add an email on this lead before sending.</p>
+          ) : null}
+          {task.offer_promo_code ? (
+            <p className='muted' style={{ marginTop: 8 }}>
+              Last promo: <strong>{task.offer_promo_code}</strong>
+              {task.offer_sent_at ? ` · sent ${new Date(task.offer_sent_at).toLocaleString()}` : ''}
+            </p>
+          ) : null}
+          {lastOfferResult?.signup_url ? (
+            <p className='muted' style={{ marginTop: 8, wordBreak: 'break-all' }}>
+              Signup URL: {lastOfferResult.signup_url}
+            </p>
+          ) : null}
+        </div>
+      </section>
 
       {showInsights ? (
         <TelnyxInsightsModal

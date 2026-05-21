@@ -251,12 +251,23 @@ export async function fetchSocialLoginProviders() {
   return await retoverFetch('/auth/social-login/providers')
 }
 
-export async function submitSelfServeRequest({ email, password, organisation_name, plan_code }) {
+export async function submitSelfServeRequest({ email, password, organisation_name, plan_code, promo_code }) {
   return await retoverFetch('/auth/self-serve', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, organisation_name, plan_code, payment_method: 'bank_transfer' }),
+    body: JSON.stringify({
+      email,
+      password,
+      organisation_name,
+      plan_code,
+      promo_code: promo_code || undefined,
+      payment_method: 'bank_transfer',
+    }),
   })
+}
+
+export async function fetchPublicPlans() {
+  return await publicJsonFetch('/billing/plans')
 }
 
 /** Persist tenant membership role (must be called with a valid access token). */

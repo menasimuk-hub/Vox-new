@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.models.sms_template import SmsTemplate
 from app.models.whatsapp_template import WhatsAppTemplate
 from app.schemas.email_admin import ChannelTemplateCreate, ChannelTemplateUpdate
+from app.services.whatsapp_template_service import WhatsAppTemplateService
 from app.services.channel_template_service import ChannelTemplateError, ChannelTemplateService
 
 router = APIRouter(prefix="/admin/messaging", tags=["admin-messaging"])
@@ -23,7 +24,7 @@ def _sms_dict(row):
 
 @router.get("/whatsapp/templates")
 def list_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
-    return ChannelTemplateService.list_all(db, model=WhatsAppTemplate)
+    return WhatsAppTemplateService.list_all(db)
 
 
 @router.post("/whatsapp/templates")
@@ -82,6 +83,8 @@ def delete_whatsapp_template(
     _admin=Depends(require_cap(CAP_EMAIL)),
 ):
     try:
+        if WhatsAppTemplateService.is_system_key(template_key):
+            raise ChannelTemplateError("System templates cannot be deleted")
         ChannelTemplateService.delete(db, model=WhatsAppTemplate, key=template_key)
     except ChannelTemplateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

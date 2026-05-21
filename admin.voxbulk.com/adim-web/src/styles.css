@@ -3396,3 +3396,499 @@ body.dark .emailPreviewInner {
 body.dark .matrix th {
   color: var(--t2);
 }
+
+/* Products hub — full-width billing catalogue */
+.productsPageShell {
+  width: 100%;
+  max-width: none;
+}
+
+.productsHub {
+  width: 100%;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.25;
+}
+
+.productsTabBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0 12px;
+  background: var(--s1);
+}
+
+.productsTabBtn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--t2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  margin-bottom: -1px;
+  min-height: 40px;
+  padding: 0 14px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.productsTabBtn i {
+  font-size: 17px;
+  opacity: 0.92;
+}
+
+.productsTabBtn:hover {
+  background: var(--s2);
+  color: var(--t1);
+}
+
+.productsTabBtn.active {
+  background: var(--gd);
+  border-bottom-color: var(--grn);
+  color: var(--grn);
+  font-weight: 600;
+}
+
+.productsTabCount {
+  background: var(--s2);
+  border-radius: 999px;
+  color: var(--t2);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  min-width: 18px;
+  padding: 2px 6px;
+  text-align: center;
+}
+
+.productsTabBtn.active .productsTabCount {
+  background: color-mix(in oklab, var(--grn) 18%, var(--s1));
+  color: var(--grn);
+}
+
+.productsPanel {
+  padding: 20px 22px 24px;
+}
+
+.productsStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.productsStat {
+  background: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+.productsStat label {
+  color: var(--t3);
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.productsStat strong {
+  color: var(--t1);
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.productsStat span {
+  color: var(--t2);
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.productsToolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.productsToolbarTitle {
+  align-items: center;
+  color: var(--t1);
+  display: flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 8px;
+  margin: 0;
+}
+
+.productsToolbarTitle i {
+  color: var(--grn);
+  font-size: 17px;
+}
+
+.productsTableWrap {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: auto;
+  width: 100%;
+}
+
+.productsTable {
+  border-collapse: collapse;
+  min-width: 960px;
+  width: 100%;
+}
+
+.productsTable thead th {
+  background: var(--s2);
+  border-bottom: 1px solid var(--line);
+  color: var(--t3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 10px 14px;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.productsTable tbody tr {
+  border-bottom: 1px solid var(--line);
+  transition: background 0.12s ease;
+}
+
+.productsTable tbody tr:hover {
+  background: color-mix(in oklab, var(--grn) 4%, var(--s1));
+}
+
+.productsTable tbody tr.isStopped {
+  opacity: 0.72;
+}
+
+.productsTable td {
+  color: var(--t2);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 9px 14px;
+  vertical-align: middle;
+}
+
+.productsTable td.mutedCell {
+  color: var(--t2);
+  font-size: 12.5px;
+  font-weight: 500;
+  max-width: 280px;
+  white-space: normal;
+}
+
+.productIdentity {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 200px;
+}
+
+.productIdentity strong {
+  color: var(--t1);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.productAvatar {
+  align-items: center;
+  background: var(--gd);
+  border-radius: 10px;
+  color: var(--grn);
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 17px;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.productAvatar.isCampaign {
+  background: var(--pd);
+  color: var(--pur);
+}
+
+.productSub {
+  color: var(--t3);
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.productCode {
+  background: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--t1);
+  display: inline-block;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 3px 7px;
+}
+
+.productPrice {
+  color: var(--t1);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.productPrice span {
+  color: var(--t2);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.productTypePill {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.productTypePill.isSubscription {
+  background: var(--bd);
+  color: var(--blu);
+}
+
+.productTypePill.isCampaign {
+  background: var(--pd);
+  color: var(--pur);
+}
+
+.productStatusPill {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.productStatusPill.isActive {
+  background: var(--gd);
+  color: var(--grn);
+}
+
+.productStatusPill.isStopped {
+  background: var(--s2);
+  border: 1px solid var(--line);
+  color: var(--t2);
+}
+
+.productsRowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: 240px;
+}
+
+.productsRowActions .btn {
+  font-size: 12.5px;
+  min-height: 32px;
+  padding: 7px 12px;
+}
+
+.productsEmpty {
+  color: var(--t2);
+  font-size: 12.5px;
+  padding: 36px 20px;
+  text-align: center;
+}
+
+.productsPlanFormShell {
+  width: 100%;
+  max-width: none;
+}
+
+.productsPlanFormShell .adminPackageForm {
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .productsStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .productsStats {
+    grid-template-columns: 1fr;
+  }
+
+  .productsPanel {
+    padding: 16px;
+  }
+}
+
+/* Promo offers */
+.promoToolbarSearch {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  max-width: 320px;
+  min-width: 180px;
+  position: relative;
+}
+
+.promoToolbarSearch i {
+  color: var(--t3);
+  font-size: 16px;
+  left: 12px;
+  pointer-events: none;
+  position: absolute;
+}
+
+.promoSearchInput {
+  min-height: 36px;
+  padding-left: 36px;
+  width: 100%;
+}
+
+.promoCodeBtn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.promoCodeBtn:hover .productCode {
+  border-color: var(--grn);
+  color: var(--grn);
+}
+
+.promoCreateShell {
+  width: 100%;
+  max-width: none;
+}
+
+.promoCreateGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+}
+
+.promoFormRowWide {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.promoPlanSummary {
+  align-items: center;
+  background: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.promoPlanSummary strong {
+  color: var(--t1);
+  display: block;
+  font-size: 13px;
+}
+
+.promoPlanSummary .muted {
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.promoPreviewCard {
+  align-self: start;
+  position: sticky;
+  top: 16px;
+}
+
+.promoPreviewBody {
+  display: grid;
+  gap: 16px;
+}
+
+.promoPreviewHero {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.promoPreviewList {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.promoPreviewList li {
+  align-items: center;
+  color: var(--t2);
+  display: flex;
+  font-size: 12.5px;
+  gap: 10px;
+}
+
+.promoPreviewList i {
+  color: var(--grn);
+  font-size: 16px;
+}
+
+.promoSignupPreview {
+  background: var(--s2);
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.promoSignupPreview label {
+  color: var(--t3);
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.promoSignupPreview code {
+  color: var(--t1);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+@media (max-width: 1100px) {
+  .promoCreateGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .promoPreviewCard {
+    position: static;
+  }
+}

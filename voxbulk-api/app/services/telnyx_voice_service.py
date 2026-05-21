@@ -547,6 +547,11 @@ class TelnyxExecutionService:
             log = CallLog(org_id=org_id, provider="telnyx", external_call_id=str(call_id), direction="outbound")
         status = record.get("call_status") or record.get("state") or event_type.rsplit(".", 1)[-1] or log.status
         now = datetime.utcnow()
+        terminal = (
+            "hangup" in event_type
+            or "ended" in event_type
+            or str(status).lower() in {"completed", "hangup", "ended", "busy", "no-answer", "failed", "canceled", "cancelled"}
+        )
         log.status = str(status)
         log.to_number = record.get("to") or record.get("to_number") or log.to_number
         log.from_number = record.get("from") or record.get("from_number") or log.from_number
@@ -570,6 +575,13 @@ class TelnyxExecutionService:
             pass
         db.commit()
         db.refresh(log)
+        if terminal and log.org_id and not log.usage_metered:
+            try:
+                from app.services.usage_wallet_service import UsageWalletService
+
+                UsageWalletService.on_call_completed(db, org_id=log.org_id, call_log_id=log.id)
+            except Exception:
+                pass
         return log
 
     @staticmethod

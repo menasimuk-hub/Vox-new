@@ -21,6 +21,10 @@ export default function LeadSalesSettings() {
   const [callingHourStart, setCallingHourStart] = useState(9)
   const [callingHourEnd, setCallingHourEnd] = useState(18)
   const [callingDays, setCallingDays] = useState('1,2,3,4,5')
+  const [salesAutomationEnabled, setSalesAutomationEnabled] = useState(true)
+  const [salesAutoPlanCode, setSalesAutoPlanCode] = useState('dental_1')
+  const [salesAutoTrialDays, setSalesAutoTrialDays] = useState(15)
+  const [salesFollowupDays, setSalesFollowupDays] = useState(7)
   const [kbPreview, setKbPreview] = useState(null)
   const [loadingKbId, setLoadingKbId] = useState('')
 
@@ -43,6 +47,10 @@ export default function LeadSalesSettings() {
       setCallingHourStart(s.calling_hour_start ?? 9)
       setCallingHourEnd(s.calling_hour_end ?? 18)
       setCallingDays(s.calling_days || '1,2,3,4,5')
+      setSalesAutomationEnabled(s.sales_automation_enabled !== false)
+      setSalesAutoPlanCode(s.sales_auto_plan_code || 'dental_1')
+      setSalesAutoTrialDays(s.sales_auto_trial_days ?? 15)
+      setSalesFollowupDays(s.sales_followup_days ?? 7)
     } catch (e) {
       setMsg(e?.message || 'Could not load sales settings')
     } finally {
@@ -209,6 +217,10 @@ export default function LeadSalesSettings() {
           calling_hour_start: Number(callingHourStart),
           calling_hour_end: Number(callingHourEnd),
           calling_days: callingDays,
+          sales_automation_enabled: salesAutomationEnabled,
+          sales_auto_plan_code: salesAutoPlanCode,
+          sales_auto_trial_days: Number(salesAutoTrialDays) || 15,
+          sales_followup_days: Number(salesFollowupDays) || 7,
         }),
       })
       setMsg('Sales settings saved. New leads will use this master script to build per-lead outbound prompts.')
@@ -281,6 +293,46 @@ export default function LeadSalesSettings() {
             <span className='label'>Calling days (1=Mon … 7=Sun)</span>
             <input className='input' value={callingDays} onChange={(e) => setCallingDays(e.target.value)} />
           </label>
+        </div>
+      </section>
+
+      <section className='card' style={{ marginTop: 18 }}>
+        <div className='cardHead'>
+          <h3>WhatsApp sales automation</h3>
+          <span className='pill p-cyan'>{salesAutomationEnabled ? 'Enabled' : 'Off'}</span>
+        </div>
+        <div className='cardBody'>
+          <p className='muted' style={{ marginTop: 0 }}>
+            After each sales call: interested leads get the offer automatically; others get an opt-in WhatsApp
+            (reply <strong>SEND OFFER</strong>). If they do not sign up, a follow-up sends after the delay below.
+            DeepSeek replies when they ask for help on WhatsApp.
+          </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <input
+              type='checkbox'
+              checked={salesAutomationEnabled}
+              onChange={(e) => setSalesAutomationEnabled(e.target.checked)}
+            />
+            <span><strong>Enable post-call WhatsApp automation</strong></span>
+          </label>
+          <div className='grid three' style={{ gap: 12 }}>
+            <label className='frontpageField'>
+              <span className='label'>Auto-offer plan code</span>
+              <input className='input' value={salesAutoPlanCode} onChange={(e) => setSalesAutoPlanCode(e.target.value)} />
+            </label>
+            <label className='frontpageField'>
+              <span className='label'>Auto-offer trial days</span>
+              <input className='input' type='number' min={0} max={90} value={salesAutoTrialDays} onChange={(e) => setSalesAutoTrialDays(e.target.value)} />
+            </label>
+            <label className='frontpageField'>
+              <span className='label'>No-signup follow-up (days)</span>
+              <input className='input' type='number' min={1} max={30} value={salesFollowupDays} onChange={(e) => setSalesFollowupDays(e.target.value)} />
+            </label>
+          </div>
+          <p className='muted' style={{ marginBottom: 0 }}>
+            Edit message templates under <Link to='/settings/email?tab=whatsapp'>Settings → WhatsApp templates</Link>
+            {' '}(<code>sales_opt_in</code>, <code>sales_offer_followup</code>).
+          </p>
         </div>
       </section>
 

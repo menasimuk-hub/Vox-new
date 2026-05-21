@@ -19,9 +19,23 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    beat_schedule={
+        "rollover-usage-periods-daily": {
+            "task": "billing.rollover_usage_periods",
+            "schedule": 86400.0,
+        },
+        "sales-promo-followups-daily": {
+            "task": "sales.process_promo_followups",
+            "schedule": 3600.0,
+        },
+    },
 )
 
 celery_app.autodiscover_tasks(["app.workers"])
+
+# Ensure task modules outside tasks.py are registered (beat + workers).
+from app.workers import billing_tasks  # noqa: E402, F401
+from app.workers import sales_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""
 

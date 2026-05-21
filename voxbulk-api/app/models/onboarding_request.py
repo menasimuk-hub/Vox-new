@@ -17,6 +17,7 @@ class OnboardingRequest(Base):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
 
     plan_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    promo_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     payment_method: Mapped[str] = mapped_column(String(32), nullable=False, default="bank_transfer")
 
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)  # pending|approved|rejected

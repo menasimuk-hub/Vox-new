@@ -453,6 +453,7 @@ export default function Integrations() {
   const [groqTestResult, setGroqTestResult] = useState('')
   const [deepgramTestResult, setDeepgramTestResult] = useState('')
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
+  const [gocardlessTestResult, setGocardlessTestResult] = useState('')
   const [vapiTestResult, setVapiTestResult] = useState('')
   const [elevenLabsTestResult, setElevenLabsTestResult] = useState('')
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
@@ -782,6 +783,19 @@ export default function Integrations() {
     } catch (e) {
       setCartesiaTestResult('')
       setProviderError(e?.message || 'Cartesia test failed')
+    }
+  }
+
+  const testGocardless = async () => {
+    setProviderError('')
+    setGocardlessTestResult('Testing GoCardless sandbox…')
+    try {
+      const result = await apiFetch('/admin/integrations/gocardless/test', { method: 'POST' })
+      const name = result.creditor_name || result.creditor_id || 'creditor'
+      setGocardlessTestResult(`GoCardless OK (${result.environment || 'sandbox'}) — ${name}`)
+    } catch (e) {
+      setGocardlessTestResult('')
+      setProviderError(e?.message || 'GoCardless test failed')
     }
   }
 
@@ -1623,7 +1637,11 @@ export default function Integrations() {
                       <button className='btn primary' onClick={() => saveIntegrationProvider('gocardless')} disabled={providerSaving}>
                         {providerSaving ? 'Saving…' : 'Save GoCardless'}
                       </button>
+                      <button className='btn soft' onClick={testGocardless} disabled={providerSaving || !activeSummary.configured}>
+                        Test connection
+                      </button>
                     </div>
+                    {gocardlessTestResult ? <div className='note' style={{ marginTop: 8 }}>{gocardlessTestResult}</div> : null}
                   </div>
                 </div>
               </div>

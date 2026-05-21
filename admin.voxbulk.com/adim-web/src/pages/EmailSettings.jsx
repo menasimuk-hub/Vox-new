@@ -8,6 +8,8 @@ import {
   emailDisplayTitle,
   slugifyTemplateKey,
   subjectPreview,
+  waDisplayDescription,
+  waDisplayTitle,
 } from '../lib/messagingConstants'
 
 function uniqueEmailTemplateKey(baseKey, existingKeys) {
@@ -497,7 +499,10 @@ export default function EmailSettings() {
                         <tbody>
                           {waTemplates.map((row) => (
                             <tr key={row.template_key}>
-                              <td><strong>{row.name}</strong></td>
+                              <td>
+                                <strong>{waDisplayTitle(row)}</strong>
+                                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{waDisplayDescription(row)}</div>
+                              </td>
                               <td><code>{row.template_key}</code></td>
                               <td>{bodyPreview(row.body)}</td>
                               <td><span className={`pill ${row.is_enabled ? 'p-green' : 'p-amber'}`}>{row.is_enabled ? 'Enabled' : 'Disabled'}</span></td>
@@ -505,7 +510,7 @@ export default function EmailSettings() {
                                 <TemplateActions
                                   onEdit={() => navigate(`/settings/email/whatsapp/${encodeURIComponent(row.template_key)}/edit`)}
                                   onDelete={() => deleteWa(row.template_key)}
-                                  canDelete
+                                  canDelete={!row.is_system}
                                 />
                               </td>
                             </tr>

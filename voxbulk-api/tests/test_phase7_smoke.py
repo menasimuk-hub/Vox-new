@@ -100,6 +100,78 @@ def test_gocardless_sandbox_redirect_start_and_complete(app_client, monkeypatch)
     assert body["subscription"]["external_subscription_id"] == "SB_PHASE7"
 
 
+def test_gocardless_test_connection(app_client, monkeypatch):
+    headers, _org_id, _user_id = _seed_user(app_client, email="phase7_gc_test@example.com", superuser=True)
+    app_client.put(
+        "/admin/integrations/gocardless",
+        json={
+            "is_enabled": True,
+            "config": {
+                "access_token": "sandbox-token",
+                "environment": "sandbox",
+            },
+        },
+        headers=headers,
+    )
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"creditors": [{"id": "CR123", "name": "Sandbox Creditor"}]}
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url, **kwargs):
+            assert url.endswith("/creditors")
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.services.gocardless_service.httpx.Client", _FakeClient)
+    res = app_client.post("/admin/integrations/gocardless/test", headers=headers)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["environment"] == "sandbox"
+    assert body["creditor_name"] == "Sandbox Creditor"
+
+
+def test_cash_subscription_requires_admin_approval(app_client):
+    headers, org_id, _user_id = _seed_user(app_client, email="phase7_cash@example.com", superuser=True)
+    admin_headers = headers
+    plans = app_client.get("/billing/plans").json()
+    target = plans[1] if len(plans) > 1 else plans[0]
+
+    change = app_client.post("/billing/subscription/change-plan", json={"plan_id": target["id"]}, headers=headers)
+    assert change.status_code == 200
+    body = change.json()
+    assert body["awaiting_admin_approval"] is True
+    assert body["subscription"]["status"] == "pending_payment"
+    assert body["subscription"]["payment_provider"] == "manual_cash"
+
+    sub = app_client.get("/billing/subscription", headers=headers).json()
+    assert sub["pending_plan"]["id"] == target["id"]
+    assert sub["plan"]["id"] != target["id"] or sub["subscription"]["status"] == "pending_payment"
+
+    pending = app_client.get("/admin/billing/subscriptions/pending-cash", headers=admin_headers).json()
+    assert any(row["org_id"] == org_id for row in pending)
+
+    approve = app_client.post(f"/admin/billing/subscriptions/{org_id}/approve-cash", headers=admin_headers)
+    assert approve.status_code == 200
+    assert approve.json()["subscription"]["status"] == "active"
+
+    sub_after = app_client.get("/billing/subscription", headers=headers).json()
+    assert sub_after["plan"]["id"] == target["id"]
+    assert sub_after.get("pending_plan") is None
+
+
 def test_support_ticket_admin_reply_creates_user_notification(app_client):
     user_headers, _org_id, _user_id = _seed_user(app_client, email="phase7_support_user@example.com")
     admin_headers, _admin_org_id, _admin_id = _seed_user(app_client, email="phase7_support_admin@example.com", superuser=True)

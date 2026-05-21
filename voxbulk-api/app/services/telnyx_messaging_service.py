@@ -214,6 +214,8 @@ class TelnyxMessagingService:
         template_id: str | None = None,
         template_language: str | None = None,
         template_components: list[dict[str, Any]] | None = None,
+        org_id: str | None = None,
+        meter_usage: bool = True,
     ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
         _, wa_from = TelnyxMessagingService._from_numbers(config)
@@ -261,13 +263,21 @@ class TelnyxMessagingService:
         if webhook_url:
             payload["webhook_url"] = webhook_url
 
-        return TelnyxMessagingService._request_message(
+        result = TelnyxMessagingService._request_message(
             db,
             url=TELNYX_WHATSAPP_MESSAGES_URL,
             payload=payload,
             channel="whatsapp",
             include_messaging_profile=False,
         )
+        if result.ok and org_id and meter_usage:
+            try:
+                from app.services.usage_wallet_service import UsageWalletService
+
+                UsageWalletService.record_whatsapp_usage(db, org_id=org_id, units=1)
+            except Exception:
+                pass
+        return result
 
     @staticmethod
     def send_survey_message(
@@ -281,7 +291,7 @@ class TelnyxMessagingService:
         """Try WhatsApp first when requested; fall back to SMS if WA is unavailable."""
         wa_result: TelnyxMessageResult | None = None
         if prefer_whatsapp:
-            wa_result = TelnyxMessagingService.send_whatsapp(db, to_number=to_number, body=body)
+            wa_result = TelnyxMessagingService.send_whatsapp(db, to_number=to_number, body=body, org_id=org_id)
             if wa_result.ok:
                 return wa_result
         sms = TelnyxMessagingService.send_sms(db, to_number=to_number, body=body)

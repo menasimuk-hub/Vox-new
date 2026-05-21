@@ -58,6 +58,10 @@ def lead_sales_settings_out(row: LeadSalesSetting) -> dict[str, Any]:
         "calling_days": str(row.calling_days or "1,2,3,4,5"),
         "assistant_configured": bool(str(row.telnyx_assistant_id or "").strip()),
         "master_prompt_configured": bool(str(row.system_prompt or "").strip()),
+        "sales_automation_enabled": bool(getattr(row, "sales_automation_enabled", True)),
+        "sales_auto_plan_code": str(getattr(row, "sales_auto_plan_code", None) or "dental_1"),
+        "sales_auto_trial_days": int(getattr(row, "sales_auto_trial_days", None) or 15),
+        "sales_followup_days": int(getattr(row, "sales_followup_days", None) or 7),
         "updated_at": row.updated_at,
     }
 
@@ -197,9 +201,26 @@ def lead_sales_task_out(
         "status_label": _table_status_label(row, settings),
         "within_calling_hours": within_hours,
         "calling_hours_note": hours_note,
+        "offer_promo_code": row.offer_promo_code,
+        "offer_sent_at": row.offer_sent_at,
+        "offer_send_log": _parse_json_field(row.offer_send_log_json),
+        "automation_paused": bool(getattr(row, "automation_paused", False)),
+        "automation": None,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
+
+
+def _parse_json_field(raw: str | None) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    try:
+        import json
+
+        val = json.loads(raw)
+        return val if isinstance(val, dict) else None
+    except Exception:
+        return None
 
 
 def _outcome_label(outcome: dict[str, Any] | None, status: str) -> str | None:

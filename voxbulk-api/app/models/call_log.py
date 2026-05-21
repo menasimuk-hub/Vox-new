@@ -37,4 +37,5 @@ class CallLog(Base):
     answered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_status_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    usage_metered: Mapped[bool] = mapped_column(nullable=False, default=False)
 

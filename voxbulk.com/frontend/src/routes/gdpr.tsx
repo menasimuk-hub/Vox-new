@@ -1,14 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { LegalPageView } from "@/components/LegalPageView";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/gdpr")({
-  head: () => ({
-    meta: [
-      { title: "GDPR — VOXBULK" },
-      { name: "description", content: "VOXBULK GDPR information." },
-    ],
-  }),
-  component: () => (
-    <LegalPageView slug="gdpr" fallbackTitle="GDPR" fallbackDescription="VOXBULK GDPR information." />
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: "/legal-policies", search: { tab: "gdpr" } });
+  },
 });

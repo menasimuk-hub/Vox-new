@@ -240,12 +240,23 @@ def self_serve(payload: dict, db: Session = Depends(get_db)):
     password = str(payload.get("password") or "")
     organisation_name = str(payload.get("organisation_name") or "").strip()
     plan_code = str(payload.get("plan_code") or "").strip()
+    promo_code = str(payload.get("promo_code") or "").strip()
     payment_method = str(payload.get("payment_method") or "bank_transfer").strip()
 
     if not email or not password or not organisation_name or not plan_code:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="email, password, organisation_name, plan_code required")
     if payment_method != "bank_transfer":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only bank_transfer supported")
+
+    if promo_code:
+        from app.services.promo_offer_service import PromoOfferError, PromoOfferService
+
+        try:
+            promo = PromoOfferService.validate_public(db, promo_code)
+        except PromoOfferError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        if promo.get("plan_code"):
+            plan_code = str(promo["plan_code"])
 
     _ensure_onboarding_requests_table_for_local_dev()
 
@@ -272,6 +283,7 @@ def self_serve(payload: dict, db: Session = Depends(get_db)):
         org_id=org.id,
         user_id=user.id,
         plan_code=plan_code,
+        promo_code=promo_code or None,
         payment_method="bank_transfer",
         status="pending",
         created_at=datetime.utcnow(),
@@ -279,6 +291,31 @@ def self_serve(payload: dict, db: Session = Depends(get_db)):
     db.add(req)
     db.commit()
     db.refresh(req)
+
+    from app.services.onboarding_settings_service import OnboardingSettingsService
+
+    settings = OnboardingSettingsService.get_settings(db)
+    if promo_code and settings.auto_approve_promo_signups:
+        try:
+            OnboardingSettingsService.approve_request(
+                db,
+                req,
+                user=user,
+                note="Auto-approved (promo signup)",
+            )
+        except ValueError:
+            return {"status": "pending", "request_id": req.id, "org_id": org.id, "user_id": user.id}
+
+        db.refresh(user)
+        token = create_access_token(subject=user.id, org_id=org.id)
+        return {
+            "status": "approved",
+            "request_id": req.id,
+            "org_id": org.id,
+            "user_id": user.id,
+            "access_token": token,
+            "token_type": "bearer",
+        }
 
     return {"status": "pending", "request_id": req.id, "org_id": org.id, "user_id": user.id}
 

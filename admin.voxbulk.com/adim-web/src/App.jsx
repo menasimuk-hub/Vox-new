@@ -7,7 +7,8 @@ import OrganisationProfile from './pages/OrganisationProfile'
 import Categories from './pages/Categories'
 import OperationsQueue from './pages/OperationsQueue'
 import Billing from './pages/Billing'
-import PackagesPricing from './pages/PackagesPricing'
+import ProductsHub from './pages/ProductsHub'
+import ProductPlanEdit from './pages/ProductPlanEdit'
 import CallsCost from './pages/CallsCost'
 import Integrations from './pages/Integrations'
 import ServicesAPI from './pages/ServicesAPI'
@@ -35,6 +36,8 @@ import LeadSources from './pages/LeadSources'
 import LeadSales from './pages/LeadSales'
 import LeadSalesEdit from './pages/LeadSalesEdit'
 import LeadSalesSettings from './pages/LeadSalesSettings'
+import PromoOffers from './pages/PromoOffers'
+import PromoOfferCreate from './pages/PromoOfferCreate'
 import ServicesPricing from './pages/ServicesPricing'
 import ServiceOrdersAdmin from './pages/ServiceOrdersAdmin'
 import { defaultAdminHome } from './lib/adminPaths'
@@ -87,6 +90,8 @@ export default function App() {
         <Route path='/marketing/lead-sales' element={<LeadSales />} />
         <Route path='/marketing/lead-sales/settings' element={<LeadSalesSettings />} />
         <Route path='/marketing/lead-sales/:taskId' element={<LeadSalesEdit />} />
+        <Route path='/marketing/promo-offers' element={<PromoOffers />} />
+        <Route path='/marketing/promo-offers/new' element={<PromoOfferCreate />} />
         <Route path='/marketing/frontpage-call-leads' element={<FrontpageCallLeads />} />
         {/* Legacy paths (old admin builds used /ai-marketing/…) */}
         <Route path='/ai-marketing/leads' element={<Navigate to='/marketing/lead-sources' replace />} />
@@ -129,7 +134,10 @@ export default function App() {
         <Route path='/billing/failed-payments' element={<Billing />} />
         <Route path='/billing/reports' element={<Billing />} />
         <Route path='/billing/calls-cost' element={<CallsCost />} />
-        <Route path='/billing/packages' element={<PackagesPricing />} />
+        <Route path='/billing/packages' element={<Navigate to='/billing/products?tab=subscription' replace />} />
+        <Route path='/billing/products' element={<ProductsHub />} />
+        <Route path='/billing/products/plan/new' element={<ProductPlanEdit />} />
+        <Route path='/billing/products/plan/:planId/edit' element={<ProductPlanEdit />} />
         <Route path='/billing/services-pricing' element={<ServicesPricing />} />
         <Route path='/billing/service-orders' element={<ServiceOrdersAdmin />} />
 

@@ -14,6 +14,7 @@ import { Route as SigninRouteImport } from './routes/signin'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as LegalPoliciesRouteImport } from './routes/legal-policies'
 import { Route as LegalRouteImport } from './routes/legal'
 import { Route as GdprRouteImport } from './routes/gdpr'
 import { Route as CookiesRouteImport } from './routes/cookies'
@@ -43,6 +44,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LegalPoliciesRoute = LegalPoliciesRouteImport.update({
+  id: '/legal-policies',
+  path: '/legal-policies',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LegalRoute = LegalRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/cookies': typeof CookiesRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
+  '/legal-policies': typeof LegalPoliciesRoute
   '/onboarding': typeof OnboardingRoute
   '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/cookies': typeof CookiesRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
+  '/legal-policies': typeof LegalPoliciesRoute
   '/onboarding': typeof OnboardingRoute
   '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/cookies': typeof CookiesRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
+  '/legal-policies': typeof LegalPoliciesRoute
   '/onboarding': typeof OnboardingRoute
   '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/cookies'
     | '/gdpr'
     | '/legal'
+    | '/legal-policies'
     | '/onboarding'
     | '/privacy'
     | '/reset-password'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/cookies'
     | '/gdpr'
     | '/legal'
+    | '/legal-policies'
     | '/onboarding'
     | '/privacy'
     | '/reset-password'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/cookies'
     | '/gdpr'
     | '/legal'
+    | '/legal-policies'
     | '/onboarding'
     | '/privacy'
     | '/reset-password'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   CookiesRoute: typeof CookiesRoute
   GdprRoute: typeof GdprRoute
   LegalRoute: typeof LegalRoute
+  LegalPoliciesRoute: typeof LegalPoliciesRoute
   OnboardingRoute: typeof OnboardingRoute
   PrivacyRoute: typeof PrivacyRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
@@ -195,6 +208,13 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/legal-policies': {
+      id: '/legal-policies'
+      path: '/legal-policies'
+      fullPath: '/legal-policies'
+      preLoaderRoute: typeof LegalPoliciesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/legal': {
@@ -241,6 +261,7 @@ const rootRouteChildren: RootRouteChildren = {
   CookiesRoute: CookiesRoute,
   GdprRoute: GdprRoute,
   LegalRoute: LegalRoute,
+  LegalPoliciesRoute: LegalPoliciesRoute,
   OnboardingRoute: OnboardingRoute,
   PrivacyRoute: PrivacyRoute,
   ResetPasswordRoute: ResetPasswordRoute,

@@ -79,6 +79,7 @@ export function canAccessAdminPath(role, pathname) {
       isUnder('/marketing') ||
       isUnder('/settings/global') ||
       isUnder('/settings/flags') ||
+      isUnder('/settings/legal') ||
       isUnder('/settings/api-keys')
     )
   }

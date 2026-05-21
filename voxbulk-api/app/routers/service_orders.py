@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_principal
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
+from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
 
 router = APIRouter(prefix="/service-orders", tags=["service-orders"])
 
@@ -155,6 +156,53 @@ def pay_cash(order_id: str, payload: dict | None = None, db: Session = Depends(g
         return ServiceOrderService.order_to_dict(order)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/gocardless/start")
+def start_gocardless_order_payment(
+    order_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    try:
+        res = BillingService.start_service_order_gocardless_flow(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            order_id=order_id,
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessProviderError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
+@router.post("/gocardless/complete")
+def complete_gocardless_order_payment(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    redirect_flow_id = str((payload or {}).get("redirect_flow_id") or "").strip()
+    if not redirect_flow_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="redirect_flow_id required")
+    try:
+        res = BillingService.complete_service_order_gocardless_flow(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            redirect_flow_id=redirect_flow_id,
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessProviderError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
 
 
 @router.post("/{order_id}/start")

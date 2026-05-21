@@ -53,7 +53,7 @@ const bodyHtml = `<div class="app" id="app">
         <div class="uav">BS</div>
         <div class="u-info"><div class="unm">Bright Smiles</div><div class="uplan">Starter plan · Profile area</div></div>
       </div>
-      <div class="logout"><i class="ti ti-logout"></i><span class="logout-label">Log out</span></div>
+      <div class="logout" id="dashboard-logout" role="button" tabindex="0" aria-label="Log out"><i class="ti ti-logout"></i><span class="logout-label">Log out</span></div>
     </div>
   </div>
 
@@ -907,10 +907,8 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
           </div>
         </div>
         <div class="tgl-r"><span class="tgl-l on" id="tl-m">Monthly</span><div class="tgl-tr" id="tgl" onclick="tb()"><div class="tgl-th"></div></div><span class="tgl-l" id="tl-y">Yearly <span class="stag">Save 20%</span></span></div>
-        <div class="plan-g">
-          <div class="plan"><div class="pic pig"><i class="ti ti-rocket"></i></div><div class="pnm">Starter</div><div class="pfor">1–2 practitioners</div><div class="ppr" id="pp1">£79<span>/mo</span></div><div class="pcr">Includes £50 call credit · Extra mins at £0.15/min</div><div class="pfe"><i class="ti ti-check ck"></i>200 calls per month</div><div class="pfe"><i class="ti ti-check ck"></i>1 booking system API</div><div class="pfe"><i class="ti ti-check ck"></i>WhatsApp reminders</div><div class="pfe"><i class="ti ti-check ck"></i>Recovery queue</div><div class="pfe"><i class="ti ti-check ck"></i>Basic reports</div><div class="pfe"><i class="ti ti-x xx"></i>Fill &amp; Grow campaigns</div><div class="pfe"><i class="ti ti-x xx"></i>Survey credits</div><div class="pfe"><i class="ti ti-x xx"></i>Emergency reschedule</div><button class="pbtn">Current plan</button></div>
-          <div class="plan ft"><div class="pptop">Most popular</div><div class="pic pip"><i class="ti ti-trending-up"></i></div><div class="pnm">Growth</div><div class="pfor">3–6 practitioners</div><div class="ppr" id="pp2">£179<span>/mo</span></div><div class="pcr">Includes £120 call credit · Extra mins at £0.13/min</div><div class="pfe"><i class="ti ti-check ck"></i>600 calls per month</div><div class="pfe"><i class="ti ti-check ck"></i>3 booking system APIs</div><div class="pfe"><i class="ti ti-check ck"></i>WhatsApp + SMS</div><div class="pfe"><i class="ti ti-check ck"></i>All Fill &amp; Grow campaigns</div><div class="pfe"><i class="ti ti-check ck"></i>Surveys — 100 contacts/mo</div><div class="pfe"><i class="ti ti-check ck"></i>Emergency reschedule</div><div class="pfe"><i class="ti ti-check ck"></i>Advanced reports + export</div><button class="pbtn pg">Upgrade to Growth</button></div>
-          <div class="plan"><div class="pic pia"><i class="ti ti-building-skyscraper"></i></div><div class="pnm">Enterprise</div><div class="pfor">Groups &amp; chains</div><div class="ppr">Custom</div><div class="pcr">Volume pricing · Dedicated SLA guarantee</div><div class="pfe"><i class="ti ti-check ck"></i>Unlimited calls</div><div class="pfe"><i class="ti ti-check ck"></i>All integrations</div><div class="pfe"><i class="ti ti-check ck"></i>Multi-location dashboard</div><div class="pfe"><i class="ti ti-check ck"></i>Dedicated account manager</div><div class="pfe"><i class="ti ti-check ck"></i>Custom AI voice &amp; branding</div><div class="pfe"><i class="ti ti-check ck"></i>On-premise option available</div><button class="pbtn">Talk to sales</button></div>
+        <div class="plan-g" id="packages-plan-grid">
+          <div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--t3);font-size:13px">Loading subscription plans…</div>
         </div>
 
         <div style="font-size:15px;font-weight:700;color:var(--t1);margin-bottom:4px">Interview bundles — pay as you go</div>
@@ -957,8 +955,19 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
       <!-- ══ BILLING ══ -->
       <div class="pg" id="pg-billing">
         <div class="kg2" style="margin-bottom:12px">
-          <div class="kpi"><div class="kl">Current plan</div><div class="kv" style="font-size:17px">Starter</div><div class="kd ne">Renews Jun 15, 2026</div></div>
-          <div class="kpi"><div class="kl">Credit remaining</div><div class="kv" style="color:var(--grn)">£18.40</div><div class="kd ne">of £50 included</div></div>
+          <div class="kpi"><div class="kl">Current plan</div><div class="kv" style="font-size:17px" id="billing-plan-name">—</div><div class="kd ne" id="billing-plan-renew">—</div></div>
+          <div class="kpi"><div class="kl">Call usage</div><div class="kv" style="color:var(--grn)" id="billing-calls-used">—</div><div class="kd ne" id="billing-calls-label">—</div></div>
+        </div>
+        <div class="card" id="billing-usage-card" style="margin-bottom:12px;display:none">
+          <div class="ch"><i class="ti ti-chart-bar grn"></i>Usage this period</div>
+          <div id="billing-usage-body" style="font-size:13px;color:var(--t2);line-height:1.7"></div>
+        </div>
+        <div class="card" id="billing-change-card" style="margin-bottom:12px">
+          <div class="ch"><i class="ti ti-switch-horizontal grn"></i>Change plan</div>
+          <p style="font-size:12.5px;color:var(--t2);margin:0 0 12px">Upgrade or downgrade your subscription. Usage limits update immediately; overage is calculated at period end.</p>
+          <div class="plan-g" id="billing-plan-grid">
+            <div style="grid-column:1/-1;padding:12px;text-align:center;color:var(--t3);font-size:13px">Loading plans…</div>
+          </div>
         </div>
         <div class="card"><div class="ch"><i class="ti ti-credit-card grn"></i>Payment method</div><div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--t1)"><i class="ti ti-credit-card" style="font-size:18px;color:var(--t3)"></i>Visa ending 4242 <span class="bdg bg">Default</span><button class="btn bsm" style="margin-left:auto">Change card</button></div></div>
         <div class="card"><div class="ch"><i class="ti ti-file-invoice grn"></i>Invoices</div>

@@ -33,7 +33,7 @@ def send_whatsapp_message(payload: dict, db: Session = Depends(get_db), principa
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number and body are required")
     try:
         if prefer_whatsapp:
-            result = TelnyxMessagingService.send_whatsapp(db, to_number=to_number, body=body)
+            result = TelnyxMessagingService.send_whatsapp(db, to_number=to_number, body=body, org_id=principal.org_id)
         else:
             result = TelnyxMessagingService.send_sms(db, to_number=to_number, body=body)
         if not result.ok:

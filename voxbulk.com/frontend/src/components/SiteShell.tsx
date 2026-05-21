@@ -197,11 +197,7 @@ const footerCols: Array<{ title: string; links: Array<[string, string | null]> }
   {
     title: "Legal",
     links: [
-      ["Terms & Conditions", "/terms"],
-      ["Privacy Policy", "/privacy"],
-      ["Cookie Policy", "/cookies"],
-      ["GDPR", "/gdpr"],
-      ["Legal", "/legal"],
+      ["Legal & policies", "/legal-policies"],
       ["Contact us", "/contact"],
     ],
   },

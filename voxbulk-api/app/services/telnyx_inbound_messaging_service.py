@@ -204,6 +204,19 @@ class TelnyxInboundMessagingService:
         db.commit()
         db.refresh(row)
 
+        if direction == "inbound" and channel == "whatsapp" and body:
+            try:
+                from app.services.sales_automation_service import SalesAutomationService
+
+                SalesAutomationService.handle_inbound_whatsapp(
+                    db,
+                    from_phone=from_norm or from_number,
+                    body=body,
+                    log_id=row.id,
+                )
+            except Exception:
+                pass
+
         if message_id and direction == "outbound":
             try:
                 from app.services.telephony_recovery_bridge import apply_message_status_to_recovery

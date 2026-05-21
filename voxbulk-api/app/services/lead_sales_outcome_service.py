@@ -185,3 +185,9 @@ def finalize_sales_task_after_call(db: Session, task: LeadSalesTask, *, status: 
         sync_sales_task_outcome(db, task)
     except Exception:
         db.refresh(task)
+    try:
+        from app.services.sales_automation_service import SalesAutomationService
+
+        SalesAutomationService.handle_post_call(db, task, call_status=status)
+    except Exception:
+        pass

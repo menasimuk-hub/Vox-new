@@ -82,6 +82,7 @@ const NAV = [
     [
       ['Lead sources', '/marketing/lead-sources'],
       ['Lead sales', '/marketing/lead-sales'],
+      ['Promo offers', '/marketing/promo-offers'],
       ['Sales setup (AI + KB)', '/marketing/lead-sales/settings'],
       ['Front page call leads', '/marketing/frontpage-call-leads'],
       ['Apollo leads', '/marketing/apollo'],
@@ -133,7 +134,7 @@ const NAV = [
       ['Failed payments', '/billing/failed-payments'],
       ['Revenue reports', '/billing/reports'],
       ['Calls cost', '/billing/calls-cost'],
-      ['Packages & Pricing', '/billing/packages'],
+      ['Products hub', '/billing/products'],
       ['Services & pricing', '/billing/services-pricing'],
       ['Service orders (cash)', '/billing/service-orders'],
     ],

@@ -12,6 +12,8 @@ from app.models.appointment import Appointment  # noqa: F401
 from app.models.call_log import CallLog  # noqa: F401
 from app.models.whatsapp_log import WhatsAppLog  # noqa: F401
 from app.models.plan import Plan  # noqa: F401
+from app.models.promo_offer import PromoOffer, PromoRedemption  # noqa: F401
+from app.models.org_usage_period import OrgUsagePeriod  # noqa: F401
 from app.models.subscription import Subscription  # noqa: F401
 from app.models.billing_redirect_flow import BillingRedirectFlow  # noqa: F401
 from app.models.webhook_event import WebhookEvent  # noqa: F401
@@ -19,9 +21,11 @@ from app.models.frontpage_lead_call import FrontpageLeadCall  # noqa: F401
 from app.models.frontpage_call_setting import FrontpageCallSetting  # noqa: F401
 from app.models.lead_sales_setting import LeadSalesSetting  # noqa: F401
 from app.models.lead_sales_task import LeadSalesTask  # noqa: F401
+from app.models.sales_conversation_state import SalesConversationState  # noqa: F401
 from app.models.recovery_job import RecoveryJob  # noqa: F401
 from app.models.provider_config import ProviderConfig  # noqa: F401
 from app.models.onboarding_request import OnboardingRequest  # noqa: F401
+from app.models.onboarding_setting import OnboardingSetting  # noqa: F401
 from app.models.organisation_invite import OrganisationInvite  # noqa: F401
 from app.models.category import Category  # noqa: F401
 from app.models.agent import AgentAssignment, AgentDefinition  # noqa: F401

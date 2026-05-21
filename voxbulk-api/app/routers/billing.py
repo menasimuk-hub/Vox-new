@@ -13,18 +13,53 @@ from app.schemas.dashboard import (
     BillingRedirectCompleteOut,
     BillingRedirectStartOut,
     CashPlanSelectIn,
+    PaymentOptionsOut,
     PlanOut,
     SubscriptionOut,
     SubscriptionWithPlanOut,
 )
 from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
+from app.services.provider_settings import ProviderSettingsService
+from app.services.usage_wallet_service import UsageWalletService
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
 
 @router.get("/plans", response_model=list[PlanOut])
 def list_plans(db: Session = Depends(get_db)):
-    return BillingService.list_plans(db)
+    return BillingService.list_plans(db, active_only=True)
+
+
+@router.get("/payment-options", response_model=PaymentOptionsOut)
+def get_payment_options(db: Session = Depends(get_db)):
+    return PaymentOptionsOut.model_validate(BillingService.payment_options(db))
+
+
+@router.post("/subscription/change-plan")
+def change_subscription_plan(
+    payload: CashPlanSelectIn,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Request a plan change via cash/testing — awaits admin approval before activation."""
+    try:
+        sub, plan, direction = BillingService.change_plan(
+            db,
+            org_id=principal.org_id,
+            plan_id=(payload.plan_id or "").strip() or None,
+            plan_code=(payload.plan_code or "").strip() or None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    return {
+        "ok": True,
+        "direction": direction,
+        "awaiting_admin_approval": True,
+        "subscription": SubscriptionOut.model_validate(sub),
+        "plan": PlanOut.model_validate(plan),
+        "pending_plan": PlanOut.model_validate(plan),
+    }
 
 
 @router.get("/subscription", response_model=SubscriptionWithPlanOut)
@@ -34,10 +69,21 @@ def get_my_subscription(db: Session = Depends(get_db), principal=Depends(get_cur
     plan_row = None
     if sub:
         plan_row = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
+    gc_cfg, gc_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="gocardless")
+    gocardless_checkout_available = bool(gc_enabled and str(gc_cfg.get("access_token") or "").strip())
+    pending_plan_row = None
+    if sub and getattr(sub, "pending_plan_id", None):
+        pending_plan_row = db.execute(select(Plan).where(Plan.id == sub.pending_plan_id)).scalar_one_or_none()
+    active_plan_row = plan_row
+    if sub and sub.status == "pending_payment" and sub.pending_plan_id and pending_plan_row:
+        active_plan_row = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none() or plan_row
     return SubscriptionWithPlanOut(
         subscription=SubscriptionOut.model_validate(sub) if sub else None,
-        plan=PlanOut.model_validate(plan_row) if plan_row else None,
+        plan=PlanOut.model_validate(active_plan_row) if active_plan_row else None,
+        pending_plan=PlanOut.model_validate(pending_plan_row) if pending_plan_row else None,
         test_cash_billing_enabled=get_settings().test_cash_billing_allowed,
+        gocardless_checkout_available=gocardless_checkout_available,
+        payment_options=BillingService.payment_options(db),
     )
 
 
@@ -127,6 +173,10 @@ def complete_gocardless_checkout(
             user_id=principal.user_id,
             redirect_flow_id=payload.redirect_flow_id,
         )
+        sub = res.get("subscription")
+        plan = res.get("plan")
+        if sub is not None and plan is not None:
+            UsageWalletService.sync_plan_limits(db, org_id=principal.org_id, plan=plan, subscription=sub)
         return BillingRedirectCompleteOut(
             ok=True,
             status=str(res["status"]),
@@ -139,4 +189,19 @@ def complete_gocardless_checkout(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except GoCardlessProviderError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
+@router.get("/usage-summary")
+def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    row = UsageWalletService.get_current(db, principal.org_id)
+    if row is None:
+        sub = BillingService.get_subscription(db, principal.org_id)
+        if sub is not None:
+            try:
+                row = UsageWalletService.bootstrap_from_plan(db, org_id=principal.org_id, subscription=sub)
+            except Exception:
+                row = None
+    if row is None:
+        return {"ok": True, "usage": None}
+    return {"ok": True, "usage": UsageWalletService.summary_dict(row)}
 

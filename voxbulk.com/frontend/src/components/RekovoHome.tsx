@@ -1347,9 +1347,7 @@ function Footer() {
             ["VOXBULK Beauty (soon)", null], ["VOXBULK Wellness (soon)", null],
           ]} />
           <FooterCol title="Legal" links={[
-            ["Terms & Conditions", "/terms"], ["Privacy Policy", "/privacy"],
-            ["Cookie Policy", "/cookies"], ["GDPR", "/gdpr"],
-            ["Legal", "/legal"], ["Contact us", "/contact"],
+            ["Legal & policies", "/legal-policies"], ["Contact us", "/contact"],
           ]} />
         </div>
 

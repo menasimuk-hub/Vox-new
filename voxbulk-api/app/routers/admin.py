@@ -40,6 +40,7 @@ from app.services.admin_billing_service import AdminBillingService
 from app.services.admin_ops_service import AdminOperationsService
 from app.services.admin_org_service import AdminOrganisationService
 from app.services.billing_event_email_service import BillingEventEmailService
+from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
 from app.services.provider_settings import ProviderSettingsService, ProviderUnknown
 from app.services.providers.azure_speech import AzureSpeechProviderService, VoiceAgentConfigError
 from app.services.providers.cartesia_service import CartesiaProviderService
@@ -275,6 +276,73 @@ def test_deepgram_connection(db: Session = Depends(get_db), _admin=Depends(requi
     if not result.get("ok"):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result)
     return result
+
+
+@router.post("/integrations/gocardless/test")
+def test_gocardless_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    try:
+        result = BillingService.test_gocardless_connection(db)
+    except GoCardlessConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessProviderError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"GoCardless test failed: {e}") from e
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result)
+    return result
+
+
+@router.get("/billing/subscriptions/pending-cash")
+def admin_list_pending_cash_subscriptions(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    return BillingService.list_pending_cash_subscriptions(db)
+
+
+@router.post("/billing/subscriptions/{org_id}/approve-cash")
+def admin_approve_cash_subscription(
+    org_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.usage_wallet_service import UsageWalletService
+
+    try:
+        sub, plan = BillingService.approve_cash_subscription(db, org_id=org_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    UsageWalletService.sync_plan_limits(db, org_id=org_id, plan=plan, subscription=sub)
+    return {
+        "ok": True,
+        "subscription": {
+            "id": sub.id,
+            "org_id": sub.org_id,
+            "plan_id": sub.plan_id,
+            "status": sub.status,
+            "payment_provider": sub.payment_provider,
+        },
+        "plan": {"id": plan.id, "code": plan.code, "name": plan.name},
+    }
+
+
+@router.post("/billing/subscriptions/{org_id}/reject-cash")
+def admin_reject_cash_subscription(
+    org_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    try:
+        sub = BillingService.reject_cash_subscription(db, org_id=org_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {
+        "ok": True,
+        "subscription": {
+            "id": sub.id,
+            "org_id": sub.org_id,
+            "plan_id": sub.plan_id,
+            "status": sub.status,
+        },
+    }
 
 
 @router.post("/integrations/cartesia/test")
@@ -1278,6 +1346,37 @@ def admin_delete_category(category_id: str, db: Session = Depends(get_db), _admi
     return {"ok": True}
 
 
+@router.get("/onboarding/settings")
+def admin_get_onboarding_settings(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.onboarding_settings_service import OnboardingSettingsService
+
+    row = OnboardingSettingsService.get_settings(db)
+    return {"settings": OnboardingSettingsService.settings_out(row)}
+
+
+@router.put("/onboarding/settings")
+def admin_update_onboarding_settings(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from datetime import datetime
+
+    from app.services.onboarding_settings_service import OnboardingSettingsService
+
+    row = OnboardingSettingsService.get_settings(db)
+    if "auto_approve_promo_signups" in payload:
+        row.auto_approve_promo_signups = bool(payload.get("auto_approve_promo_signups"))
+    row.updated_at = datetime.utcnow()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"settings": OnboardingSettingsService.settings_out(row)}
+
+
 @router.get("/onboarding/requests")
 def admin_list_onboarding_requests(
     status_filter: str | None = None,
@@ -1305,6 +1404,7 @@ def admin_list_onboarding_requests(
             "org_name": orgs.get(r.org_id).name if orgs.get(r.org_id) else None,
             "user_id": r.user_id,
             "user_email": users.get(r.user_id).email if users.get(r.user_id) else None,
+            "promo_code": r.promo_code,
         }
         for r in items
     ]
@@ -1328,12 +1428,18 @@ def admin_approve_onboarding_request(
     if u is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    u.is_active = True
-    r.status = "approved"
-    r.decided_at = datetime.utcnow()
-    r.decision_note = str((payload or {}).get("note") or "") or None
-    db.add_all([u, r])
-    db.commit()
+    from app.services.onboarding_settings_service import OnboardingSettingsService
+
+    try:
+        OnboardingSettingsService.approve_request(
+            db,
+            r,
+            user=u,
+            note=str((payload or {}).get("note") or "") or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     return {"ok": True}
 
 

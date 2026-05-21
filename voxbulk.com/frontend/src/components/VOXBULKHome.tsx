@@ -9,7 +9,14 @@ import { TelnyxAIAgent } from "@telnyx/ai-agent-lib";
 import {
   completeFrontpageTalkToUsCall,
   startFrontpageTalkToUsCall,
+  fetchPublicPlans,
 } from "@/lib/retoverApi";
+import {
+  mapPublicPlansToCards,
+  overageFootnote,
+  type MarketingPlanCard,
+  type PublicPlanRow,
+} from "@/lib/publicPlanCards";
 import { createRingbackTone, type RingbackController } from "@/lib/ringbackTone";
 import {
   Search,
@@ -968,69 +975,41 @@ function Transparency() {
 
 /* ---------------- PRICING (compact + extended layout) ---------------- */
 function Pricing() {
-  const plans = [
-    {
-      name: "Solo",
-      who: "1–2 dentists",
-      base: "£99",
-      incl: "Includes 1 dentist",
-      extra: "+ £49/mo per extra dentist",
-      calls: "100 calls included",
-      trial: "14-day free trial",
-      featured: false,
-      features: [
-        "1 branch",
-        "WhatsApp messaging",
-        "Cancellation recovery",
-        "Basic dashboard",
-        "Dentally integration",
-        "Email support",
-      ],
-      cta: "Start free trial",
-      ctaStyle: "outline",
-    },
-    {
-      name: "Practice",
-      who: "3–6 dentists · Most popular",
-      base: "£199",
-      incl: "Includes 3 dentists",
-      extra: "+ £49/mo per extra dentist",
-      calls: "200 calls included",
-      trial: "14-day free trial",
-      featured: true,
-      features: [
-        "Up to 3 branches",
-        "WhatsApp messaging",
-        "No-show follow-up",
-        "Full dashboard + PDF reports",
-        "Team up to 10",
-        "Priority support",
-        "Dentally integration",
-      ],
-      cta: "Start free trial",
-      ctaStyle: "primary",
-    },
-    {
-      name: "Group",
-      who: "7+ dentists · Multi-site",
-      base: "£399",
-      incl: "Includes 7 dentists",
-      extra: "+ £49/mo per extra dentist",
-      calls: "400 calls included",
-      trial: "30-day free trial",
-      featured: false,
-      features: [
-        "Unlimited branches",
-        "Custom call scripts",
-        "Advanced analytics",
-        "Account manager",
-        "SLA guarantee",
-        "API access",
-      ],
-      cta: "Book a demo",
-      ctaStyle: "outline",
-    },
-  ];
+  const [plans, setPlans] = useState<MarketingPlanCard[]>([]);
+  const [rawPlans, setRawPlans] = useState<PublicPlanRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = (await fetchPublicPlans()) as PublicPlanRow[];
+        if (cancelled) return;
+        const list = Array.isArray(rows) ? rows : [];
+        setRawPlans(list);
+        setPlans(mapPublicPlansToCards(list));
+      } catch {
+        if (!cancelled) {
+          setRawPlans([]);
+          setPlans(mapPublicPlansToCards([]));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const gridClass =
+    plans.length <= 1
+      ? "mt-12 grid max-w-md mx-auto gap-4"
+      : plans.length === 2
+        ? "mt-12 grid md:grid-cols-2 gap-4 items-stretch max-w-3xl mx-auto"
+        : "mt-12 grid lg:grid-cols-3 gap-4 items-stretch";
+
+  const footnote = overageFootnote(plans, rawPlans);
 
   return (
     <section id="pricing" className="relative py-24 md:py-32 bg-surface overflow-hidden">
@@ -1052,10 +1031,16 @@ function Pricing() {
           Pay by direct debit · No setup fee · Cancel anytime · All prices ex VAT
         </p>
 
-        <div className="mt-12 grid lg:grid-cols-3 gap-4 items-stretch">
-          {plans.map((p) => (
+        <div className={gridClass}>
+          {loading && (
+            <div className="col-span-full text-center text-[13px] text-muted-text py-8">
+              Loading plans…
+            </div>
+          )}
+          {!loading &&
+            plans.map((p, index) => (
             <div
-              key={p.name}
+              key={p.code}
               className={`relative rounded-2xl bg-white p-6 flex flex-col transition-all duration-300 ${
                 p.featured
                   ? "border-2 border-primary shadow-glow lg:-translate-y-1"
@@ -1075,9 +1060,9 @@ function Pricing() {
                 <div
                   className={`w-9 h-9 rounded-xl flex items-center justify-center ${p.featured ? "bg-primary text-white" : "bg-secondary text-primary"}`}
                 >
-                  {p.name === "Solo" ? (
+                  {index % 3 === 0 ? (
                     <Users size={16} />
-                  ) : p.name === "Practice" ? (
+                  ) : index % 3 === 1 ? (
                     <Sparkles size={16} />
                   ) : (
                     <BarChart3 size={16} />
@@ -1118,7 +1103,7 @@ function Pricing() {
               </ul>
 
               <a
-                href="#demo"
+                href={p.signupHref}
                 className={`mt-5 w-full ${p.ctaStyle === "primary" ? "btn-primary" : "btn-outline"} !py-3 text-[14px]`}
               >
                 {p.cta} <ArrowRight size={14} />
@@ -1127,9 +1112,7 @@ function Pricing() {
           ))}
         </div>
 
-        <p className="mt-6 text-center text-[12.5px] text-muted-text">
-          Overage calls: £0.18 · WhatsApp conversations: £0.08 · Extra branch: £49/mo
-        </p>
+        <p className="mt-6 text-center text-[12.5px] text-muted-text">{footnote}</p>
 
         {/* ROI nudge — wider, slimmer */}
         <div className="mt-12 mx-auto bg-dark text-white rounded-2xl p-6 md:p-8 relative overflow-hidden noise flex flex-col md:flex-row items-center justify-between gap-5">
@@ -2235,11 +2218,7 @@ function Footer() {
           <FooterCol
             title="Legal"
             links={[
-              ["Terms & Conditions", "/terms"],
-              ["Privacy Policy", "/privacy"],
-              ["Cookie Policy", "/cookies"],
-              ["GDPR", "/gdpr"],
-              ["Legal", "/legal"],
+              ["Legal & policies", "/legal-policies"],
               ["Contact us", "/contact"],
             ]}
           />

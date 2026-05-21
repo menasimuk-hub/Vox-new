@@ -23,6 +23,35 @@ function App({ session }) {
   }, [session])
 
   useEffect(() => {
+    window.__voxbulkLogout = logoutDashboard
+
+    function onLogoutActivate(event) {
+      const logoutEl = event.target.closest?.('#dashboard-logout, .sb-bot .logout')
+      if (!logoutEl) return
+      event.preventDefault()
+      event.stopPropagation()
+      logoutDashboard()
+    }
+
+    function onLogoutKeydown(event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      const logoutEl = event.target.closest?.('#dashboard-logout, .sb-bot .logout')
+      if (!logoutEl) return
+      event.preventDefault()
+      logoutDashboard()
+    }
+
+    document.addEventListener('click', onLogoutActivate)
+    document.addEventListener('keydown', onLogoutKeydown)
+
+    return () => {
+      document.removeEventListener('click', onLogoutActivate)
+      document.removeEventListener('keydown', onLogoutKeydown)
+      delete window.__voxbulkLogout
+    }
+  }, [])
+
+  useEffect(() => {
     if (scriptsRan.current) return
     scriptsRan.current = true
 
@@ -43,8 +72,9 @@ function App({ session }) {
         initProfileBridge(session)
       })
 
-      window.__voxbulkLogout = logoutDashboard
-      logoutBtn?.addEventListener('click', logoutDashboard)
+      import('./billingBridge.js').then(({ initBillingBridge }) => {
+        initBillingBridge(session)
+      })
 
       const nameEl = document.querySelector('.unm')
       const planEl = document.querySelector('.uplan')

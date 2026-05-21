@@ -6,6 +6,21 @@ export default function PendingSignups() {
   const navigate = useNavigate()
   const [rows, setRows] = useState(null)
   const [busyId, setBusyId] = useState(null)
+  const [autoApprovePromo, setAutoApprovePromo] = useState(true)
+  const [settingsLoading, setSettingsLoading] = useState(true)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+
+  async function loadSettings() {
+    setSettingsLoading(true)
+    try {
+      const data = await apiFetch('/admin/onboarding/settings')
+      setAutoApprovePromo(Boolean(data?.settings?.auto_approve_promo_signups ?? true))
+    } catch {
+      setAutoApprovePromo(true)
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
 
   async function load() {
     try {
@@ -16,7 +31,25 @@ export default function PendingSignups() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    loadSettings()
+    load()
+  }, [])
+
+  const saveAutoApprove = async (next) => {
+    setSettingsSaving(true)
+    try {
+      const data = await apiFetch('/admin/onboarding/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ auto_approve_promo_signups: next }),
+      })
+      setAutoApprovePromo(Boolean(data?.settings?.auto_approve_promo_signups ?? next))
+    } catch (e) {
+      window.alert(e?.message || 'Could not save setting')
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
 
   const decide = async (id, action) => {
     setBusyId(id)
@@ -50,6 +83,32 @@ export default function PendingSignups() {
         </div>
       </div>
 
+      <div className='card' style={{ marginBottom: 16 }}>
+        <div className='cardBody'>
+          <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>Promo signup approval</h2>
+          <p className='muted' style={{ margin: '0 0 12px', fontSize: 14 }}>
+            When enabled, customers who sign up with a sales promo link are activated immediately — no manual approval needed.
+            Signups without a promo code always require manual approval.
+          </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: settingsLoading || settingsSaving ? 'wait' : 'pointer' }}>
+            <input
+              type='checkbox'
+              checked={autoApprovePromo}
+              disabled={settingsLoading || settingsSaving}
+              onChange={(e) => {
+                const next = e.target.checked
+                setAutoApprovePromo(next)
+                saveAutoApprove(next)
+              }}
+            />
+            <span>
+              <strong>Auto-approve promo signups</strong>
+              {settingsLoading ? ' (loading…)' : settingsSaving ? ' (saving…)' : autoApprovePromo ? ' — on (default)' : ' — off (manual approval)'}
+            </span>
+          </label>
+        </div>
+      </div>
+
       <div className='card'>
         <div className='cardBody'>
           <div className='tableWrap'>
@@ -60,20 +119,22 @@ export default function PendingSignups() {
                   <th>Organisation</th>
                   <th>User</th>
                   <th>Plan</th>
+                  <th>Promo</th>
                   <th>Payment</th>
                   <th>Created</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {!rows && <tr><td colSpan={7}>Loading…</td></tr>}
-                {rows && rows.length === 0 && <tr><td colSpan={7}>No pending requests.</td></tr>}
+                {!rows && <tr><td colSpan={8}>Loading…</td></tr>}
+                {rows && rows.length === 0 && <tr><td colSpan={8}>No pending requests.</td></tr>}
                 {(rows || []).map((r) => (
                   <tr key={r.id}>
                     <td>{r.id}</td>
                     <td>{r.org_name || r.org_id}</td>
                     <td>{r.user_email || r.user_id}</td>
                     <td>{r.plan_code}</td>
+                    <td>{r.promo_code || '—'}</td>
                     <td>{r.payment_method}</td>
                     <td>{r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</td>
                     <td style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -91,4 +152,3 @@ export default function PendingSignups() {
     </>
   )
 }
-

@@ -20,7 +20,10 @@ const state = {
   interviewScriptPayload: null,
   surveyGenerating: false,
   interviewGenerating: false,
+  paymentOptions: null,
 }
+
+const GC_ORDER_FLOW_KEY = 'voxbulk_gc_order_redirect_flow_id'
 
 const waPreview = {
   step: 0,
@@ -514,6 +517,125 @@ async function parseFirstNameFromRecipientFile(file) {
   }
 }
 
+async function loadPaymentOptions() {
+  try {
+    state.paymentOptions = await api('/billing/payment-options')
+  } catch {
+    state.paymentOptions = { cash_available: true, gocardless_available: false }
+  }
+}
+
+function orderBillingQueryParam(name) {
+  try {
+    return new URLSearchParams(window.location.search).get(name)
+  } catch {
+    return null
+  }
+}
+
+function clearOrderBillingQuery() {
+  try {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('order_billing')
+    window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+  } catch {
+    /* ignore */
+  }
+}
+
+async function completeGocardlessOrderReturn() {
+  const billing = orderBillingQueryParam('order_billing')
+  if (billing === 'cancelled') {
+    sessionStorage.removeItem(GC_ORDER_FLOW_KEY)
+    clearOrderBillingQuery()
+    window.toast?.('GoCardless payment cancelled.', 'tw')
+    return
+  }
+  if (billing !== 'success') return
+
+  const redirectFlowId = sessionStorage.getItem(GC_ORDER_FLOW_KEY)
+  sessionStorage.removeItem(GC_ORDER_FLOW_KEY)
+  clearOrderBillingQuery()
+  if (!redirectFlowId) {
+    window.toast?.('Payment completed — refresh if your order did not update.', 'tw')
+    return
+  }
+
+  try {
+    const result = await api('/service-orders/gocardless/complete', {
+      method: 'POST',
+      body: JSON.stringify({ redirect_flow_id: redirectFlowId }),
+    })
+    const order = result?.order
+    if (order?.payment_status === 'approved') {
+      await api(`/service-orders/${order.id}/start`, { method: 'POST' })
+      window.toast?.('GoCardless payment approved — campaign started', 'tg')
+    } else {
+      window.toast?.('GoCardless payment completed', 'tg')
+    }
+    await loadOrdersIntoUi()
+  } catch (e) {
+    window.toast?.(e.message || 'Could not complete GoCardless payment', 'tr')
+  }
+}
+
+async function startGocardlessOrderPayment(orderId) {
+  const result = await api(`/service-orders/${orderId}/gocardless/start`, { method: 'POST' })
+  const redirectFlowId = result?.redirect_flow_id
+  const authorizationUrl = result?.authorization_url
+  if (!redirectFlowId || !authorizationUrl) {
+    throw new Error('GoCardless did not return a checkout URL')
+  }
+  sessionStorage.setItem(GC_ORDER_FLOW_KEY, redirectFlowId)
+  window.location.assign(authorizationUrl)
+}
+
+async function offerOrderPayment(order, quoteText) {
+  const gc = Boolean(state.paymentOptions?.gocardless_available)
+  const cash = state.paymentOptions?.cash_available !== false
+
+  if (gc && cash) {
+    const useGc = window.confirm(
+      `${quoteText}\n\nOK = Pay with GoCardless (sandbox, no admin approval)\nCancel = Pay cash (testing, admin approval required)`,
+    )
+    if (useGc) {
+      await startGocardlessOrderPayment(order.id)
+      return
+    }
+    await submitCashOrderPayment(order.id)
+    return
+  }
+
+  if (gc) {
+    await startGocardlessOrderPayment(order.id)
+    return
+  }
+
+  window.showConfirm?.(
+    `Total ${order.quote_total_gbp}`,
+    `${quoteText}\n\nAfter you pay cash, admin must approve before the campaign can start.`,
+    'I paid cash',
+    () => submitCashOrderPayment(order.id),
+  )
+}
+
+async function submitCashOrderPayment(orderId) {
+  try {
+    const paid = await api(`/service-orders/${orderId}/pay-cash`, {
+      method: 'POST',
+      body: JSON.stringify({ note: 'Cash payment submitted from dashboard' }),
+    })
+    window.toast?.('Payment submitted — waiting for admin approval', 'tg')
+    if (paid.payment_status === 'approved') {
+      await api(`/service-orders/${paid.id}/start`, { method: 'POST' })
+      window.toast?.('Campaign started', 'tg')
+    }
+    await loadOrdersIntoUi()
+  } catch (e) {
+    window.toast?.(e.message || 'Payment submit failed', 'tr')
+  }
+}
+
 async function uploadRecipients(orderId, file) {
   const base = getApiBaseUrl()
   const url = `${base}/service-orders/${orderId}/recipients/upload`
@@ -617,27 +739,7 @@ async function runOrderFlow(serviceCode) {
       .map((l) => l.detail || l.label)
       .join('\n')
 
-    window.showConfirm?.(
-      `Total ${order.quote_total_gbp}`,
-      `${quoteText}\n\nAfter you pay cash, admin must approve before the campaign can start.`,
-      'I paid cash',
-      async () => {
-        try {
-          const paid = await api(`/service-orders/${order.id}/pay-cash`, {
-            method: 'POST',
-            body: JSON.stringify({ note: 'Cash payment submitted from dashboard' }),
-          })
-          window.toast?.('Payment submitted — waiting for admin approval', 'tg')
-          if (paid.payment_status === 'approved') {
-            await api(`/service-orders/${paid.id}/start`, { method: 'POST' })
-            window.toast?.('Campaign started', 'tg')
-          }
-          await loadOrdersIntoUi()
-        } catch (e) {
-          window.toast?.(e.message || 'Payment submit failed', 'tr')
-        }
-      },
-    )
+    await offerOrderPayment(order, quoteText)
   } catch (e) {
     window.toast?.(e.message || 'Could not create order', 'tr')
   }
@@ -702,5 +804,7 @@ export function initServiceOrdersBridge() {
   wireAiButtons()
   syncSurveyWhatsAppUi()
   syncWaPreviewHeader()
+  loadPaymentOptions()
+  completeGocardlessOrderReturn()
   loadOrdersIntoUi()
 }

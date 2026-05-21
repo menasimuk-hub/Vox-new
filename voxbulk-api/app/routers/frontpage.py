@@ -9,7 +9,7 @@ from threading import Event
 from typing import Any
 
 import websockets
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
@@ -250,8 +250,11 @@ def _lead_out(row: FrontpageLeadCall, *, sales_task: dict[str, Any] | None = Non
 
 def _sales_task_out(db: Session, row: Any, *, lead_code: str | None = None) -> dict[str, Any]:
     from app.services.lead_sales_service import get_lead_sales_settings, lead_sales_task_out
+    from app.services.sales_automation_service import SalesAutomationService
 
-    return lead_sales_task_out(row, lead_code=lead_code, settings=get_lead_sales_settings(db))
+    out = lead_sales_task_out(row, lead_code=lead_code, settings=get_lead_sales_settings(db))
+    out["automation"] = SalesAutomationService.state_to_dict(SalesAutomationService.get_state(db, row.id))
+    return out
 
 
 def _finalize_lead_call(db: Session, lead: FrontpageLeadCall, *, transcript: str, agent_text: str, duration_seconds: int | None) -> FrontpageLeadCall:
@@ -1168,6 +1171,10 @@ class LeadSalesSettingsIn(BaseModel):
     calling_hour_start: int | None = None
     calling_hour_end: int | None = None
     calling_days: str | None = None
+    sales_automation_enabled: bool | None = None
+    sales_auto_plan_code: str | None = None
+    sales_auto_trial_days: int | None = None
+    sales_followup_days: int | None = None
 
     @field_validator("telnyx_assistant_id", mode="before")
     @classmethod
@@ -1228,6 +1235,14 @@ def update_lead_sales_settings_route(
         row.calling_hour_end = int(payload.calling_hour_end)
     if payload.calling_days is not None:
         row.calling_days = str(payload.calling_days or "1,2,3,4,5").strip()
+    if payload.sales_automation_enabled is not None:
+        row.sales_automation_enabled = bool(payload.sales_automation_enabled)
+    if payload.sales_auto_plan_code is not None:
+        row.sales_auto_plan_code = str(payload.sales_auto_plan_code or "dental_1").strip().lower() or "dental_1"
+    if payload.sales_auto_trial_days is not None:
+        row.sales_auto_trial_days = max(0, int(payload.sales_auto_trial_days))
+    if payload.sales_followup_days is not None:
+        row.sales_followup_days = max(1, int(payload.sales_followup_days))
     row.updated_at = datetime.utcnow()
     refresh_lead_sales_kb(row, db)
     db.add(row)
@@ -1523,6 +1538,67 @@ def delete_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), _a
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
     delete_sales_task(db, row)
     return {"ok": True}
+
+
+@admin_router.post("/lead-sales/tasks/{task_id}/send-offer")
+def send_lead_sales_offer(
+    task_id: str,
+    payload: dict = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    from app.models.lead_sales_task import LeadSalesTask
+    from app.services.sales_offer_send_service import SalesOfferSendError, SalesOfferSendService
+
+    row = db.get(LeadSalesTask, task_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
+    body = payload
+    try:
+        result = SalesOfferSendService.send_for_task(
+            db,
+            task=row,
+            offer_type=str(body.get("offer_type") or "dental_trial"),
+            plan_code=str(body.get("plan_code") or "dental_1"),
+            trial_days=int(body.get("trial_days") or 15),
+            free_call_credits=int(body.get("free_call_credits") or 0),
+            send_email=body.get("send_email", True) is not False,
+            send_whatsapp=body.get("send_whatsapp", True) is not False,
+        )
+    except SalesOfferSendError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    lead = db.get(FrontpageLeadCall, row.lead_id)
+    return {"ok": True, "send": result, "task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None)}
+
+
+@admin_router.post("/lead-sales/tasks/{task_id}/automation/pause")
+def pause_lead_sales_automation(
+    task_id: str,
+    payload: dict = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    from app.models.lead_sales_task import LeadSalesTask
+    from app.services.sales_automation_service import SalesAutomationService
+
+    row = db.get(LeadSalesTask, task_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
+    paused = payload.get("paused", True) is not False
+    state = SalesAutomationService.set_task_automation_paused(db, row, paused)
+    lead = db.get(FrontpageLeadCall, row.lead_id)
+    return {
+        "ok": True,
+        "automation": SalesAutomationService.state_to_dict(state),
+        "task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None),
+    }
+
+
+@admin_router.post("/lead-sales/automation/run-followups")
+def run_sales_followups_now(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.sales_automation_service import SalesAutomationService
+
+    return {"ok": True, **SalesAutomationService.process_due_followups(db)}
 
 
 @admin_router.post("/lead-sales/tasks/{task_id}/sync-outcome")

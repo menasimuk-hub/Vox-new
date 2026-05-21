@@ -17,6 +17,14 @@ class PlanOut(BaseModel):
     description: str | None = None
     """JSON array of feature strings (stored column); clients may parse for bullets."""
     features_json: str | None = None
+    calls_included: int = 0
+    whatsapp_included: int = 0
+    sms_included: int = 0
+    overage_per_min_pence: int = 0
+    trial_days_default: int = 0
+    service_kind: str = "dental"
+    is_active: bool = True
+    sort_order: int = 100
 
 
 class SubscriptionOut(BaseModel):
@@ -25,6 +33,7 @@ class SubscriptionOut(BaseModel):
     id: str
     org_id: str
     plan_id: str
+    pending_plan_id: str | None = None
     status: str
     current_period_end: datetime | None
     payment_provider: str | None = None
@@ -38,7 +47,18 @@ class SubscriptionOut(BaseModel):
 class SubscriptionWithPlanOut(BaseModel):
     subscription: SubscriptionOut | None = None
     plan: PlanOut | None = None
+    pending_plan: PlanOut | None = None
     test_cash_billing_enabled: bool = False
+    gocardless_checkout_available: bool = False
+    payment_options: dict | None = None
+
+
+class PaymentOptionsOut(BaseModel):
+    cash_available: bool = True
+    cash_requires_admin_approval: bool = True
+    gocardless_available: bool = False
+    gocardless_environment: str | None = None
+    gocardless_auto_activate: bool = True
 
 
 class BillingRedirectStartOut(BaseModel):
