@@ -21,6 +21,15 @@ def _has_column(table: str, column: str) -> bool:
     return column in {c["name"] for c in insp.get_columns(table)}
 
 
+def _column_nullable(table: str, column: str) -> bool | None:
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    for col in insp.get_columns(table):
+        if col["name"] == column:
+            return bool(col.get("nullable", True))
+    return None
+
+
 def upgrade() -> None:
     if not _has_column("plans", "is_active"):
         op.add_column("plans", sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()))
@@ -28,9 +37,16 @@ def upgrade() -> None:
         op.add_column("plans", sa.Column("sort_order", sa.Integer(), nullable=False, server_default="100"))
     if not _has_column("plans", "updated_at"):
         op.add_column("plans", sa.Column("updated_at", sa.DateTime(), nullable=True))
+
+    if _has_column("plans", "updated_at"):
         op.execute(sa.text("UPDATE plans SET updated_at = created_at WHERE updated_at IS NULL"))
-        with op.batch_alter_table("plans") as batch_op:
-            batch_op.alter_column("updated_at", nullable=False)
+        if _column_nullable("plans", "updated_at") is not False:
+            op.alter_column(
+                "plans",
+                "updated_at",
+                existing_type=sa.DateTime(),
+                nullable=False,
+            )
 
     if not _has_column("org_usage_periods", "overage_invoiced_pence"):
         op.add_column(

@@ -21,31 +21,37 @@ def _has_column(table: str, column: str) -> bool:
     return column in {c["name"] for c in insp.get_columns(table)}
 
 
+def _has_table(table: str) -> bool:
+    bind = op.get_bind()
+    return sa.inspect(bind).has_table(table)
+
+
 def upgrade() -> None:
-    op.create_table(
-        "sales_conversation_states",
-        sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("lead_sales_task_id", sa.String(length=36), sa.ForeignKey("lead_sales_tasks.id"), nullable=False),
-        sa.Column("promo_offer_id", sa.String(length=36), sa.ForeignKey("promo_offers.id"), nullable=True),
-        sa.Column("prospect_phone", sa.String(length=40), nullable=True),
-        sa.Column("prospect_email", sa.String(length=320), nullable=True),
-        sa.Column("stage", sa.String(length=32), nullable=False, server_default="pending"),
-        sa.Column("automation_paused", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("opt_in_sent_at", sa.DateTime(), nullable=True),
-        sa.Column("offer_sent_at", sa.DateTime(), nullable=True),
-        sa.Column("followup_due_at", sa.DateTime(), nullable=True),
-        sa.Column("followup_sent_at", sa.DateTime(), nullable=True),
-        sa.Column("last_inbound_at", sa.DateTime(), nullable=True),
-        sa.Column("last_outbound_at", sa.DateTime(), nullable=True),
-        sa.Column("last_inbound_body", sa.Text(), nullable=True),
-        sa.Column("last_error", sa.Text(), nullable=True),
-        sa.Column("meta_json", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
-    )
-    op.create_index("ix_sales_conversation_states_task_id", "sales_conversation_states", ["lead_sales_task_id"])
-    op.create_index("ix_sales_conversation_states_phone", "sales_conversation_states", ["prospect_phone"])
-    op.create_index("ix_sales_conversation_states_promo_id", "sales_conversation_states", ["promo_offer_id"])
+    if not _has_table("sales_conversation_states"):
+        op.create_table(
+            "sales_conversation_states",
+            sa.Column("id", sa.String(length=36), primary_key=True),
+            sa.Column("lead_sales_task_id", sa.String(length=36), sa.ForeignKey("lead_sales_tasks.id"), nullable=False),
+            sa.Column("promo_offer_id", sa.String(length=36), sa.ForeignKey("promo_offers.id"), nullable=True),
+            sa.Column("prospect_phone", sa.String(length=40), nullable=True),
+            sa.Column("prospect_email", sa.String(length=320), nullable=True),
+            sa.Column("stage", sa.String(length=32), nullable=False, server_default="pending"),
+            sa.Column("automation_paused", sa.Boolean(), nullable=False, server_default=sa.false()),
+            sa.Column("opt_in_sent_at", sa.DateTime(), nullable=True),
+            sa.Column("offer_sent_at", sa.DateTime(), nullable=True),
+            sa.Column("followup_due_at", sa.DateTime(), nullable=True),
+            sa.Column("followup_sent_at", sa.DateTime(), nullable=True),
+            sa.Column("last_inbound_at", sa.DateTime(), nullable=True),
+            sa.Column("last_outbound_at", sa.DateTime(), nullable=True),
+            sa.Column("last_inbound_body", sa.Text(), nullable=True),
+            sa.Column("last_error", sa.Text(), nullable=True),
+            sa.Column("meta_json", sa.Text(), nullable=True),
+            sa.Column("created_at", sa.DateTime(), nullable=False),
+            sa.Column("updated_at", sa.DateTime(), nullable=False),
+        )
+        op.create_index("ix_sales_conversation_states_task_id", "sales_conversation_states", ["lead_sales_task_id"])
+        op.create_index("ix_sales_conversation_states_phone", "sales_conversation_states", ["prospect_phone"])
+        op.create_index("ix_sales_conversation_states_promo_id", "sales_conversation_states", ["promo_offer_id"])
 
     if not _has_column("lead_sales_tasks", "automation_paused"):
         op.add_column("lead_sales_tasks", sa.Column("automation_paused", sa.Boolean(), nullable=False, server_default=sa.false()))
