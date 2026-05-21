@@ -322,18 +322,32 @@ export async function checkApiConnectivity(options = {}) {
 }
 
 function networkFailureHelp() {
-  const baseEmpty = !getApiBaseUrl()
+  if (productionAdminUsesApiPrefixProxy()) {
+    return [
+      'Production admin (admin.voxbulk.com):',
+      '1) Nginx must proxy /api/ → http://127.0.0.1:8000 with Host api.voxbulk.com (see docs/nginx-admin.voxbulk.com.conf).',
+      '2) Verify on VPS: curl -s https://admin.voxbulk.com/api/health  →  {"status":"ok"}',
+      '3) Remove any old location ^~ /admin proxy — it breaks the admin UI.',
+      '4) Rebuild admin after git pull: cd admin.voxbulk.com/adim-web && npm run build && rsync dist/ to /www/wwwroot/admin.voxbulk.com/',
+      '5) Sign in at https://voxbulk.com/signin first (platform admin), then open https://admin.voxbulk.com',
+      '6) Restart API: cd /www/voxbulk && ./vox.sh restart',
+    ].join('\n')
+  }
+  if (isViteDevelopment() || isLocalDevHost()) {
+    const baseEmpty = !getApiBaseUrl()
+    return [
+      'Local dev fixes:',
+      '1) Run `npm run dev:full` from admin.voxbulk.com/adim-web (starts API :8000 + Vite :5174).',
+      '2) Open http://localhost:5174 — not :8000.',
+      baseEmpty
+        ? '3) API calls use /admin, /auth on :5174 — Vite proxies to FastAPI.'
+        : '3) Set VITE_API_BASE_URL or unset it to use the Vite proxy.',
+      '4) Sign in on http://localhost:5173, then use admin handoff to :5174.',
+    ].join('\n')
+  }
   return [
-    'Most common fixes:',
-    '1) From this app folder run `npm run dev:full` — starts FastAPI on 0.0.0.0:8000 then Vite after /health is up (fixes 502 when the API was never started).',
-    '   Or manually: `cd voxbulk-api` then `python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000`.',
-    '2) Restart Vite (`npm run dev`) after editing `.env` so VITE_* is picked up.',
-    baseEmpty
-      ? '3) Admin dev uses SAME-ORIGIN `/auth`, `/admin`, `/health` on http://localhost:5174 — Vite proxies to FastAPI.'
-      : '3) Production admin uses same-origin `https://admin.voxbulk.com/api/*` — nginx must proxy /api/ to 127.0.0.1:8000.',
-    '4) Signing in on http://localhost:5173 does NOT share localStorage with admin on :5174 — use sign-in handoff.',
-    '5) Do NOT proxy `location ^~ /admin` on admin.voxbulk.com — use `location ^~ /api/` only (see docs/nginx-admin.voxbulk.com.conf).',
-    '6) `DEBUG_ADMIN_PROXY=1 npm run dev` prints each proxied path in the Vite terminal.',
+    'Check VITE_API_BASE_URL in the admin build and that https://api.voxbulk.com/health responds.',
+    'Ensure CORS_ALLOW_ORIGINS on the API includes this site origin.',
   ].join('\n')
 }
 
