@@ -18,6 +18,10 @@
 #
 set -euo pipefail
 
+VOX_ADMIN_DIST="${VOX_ADMIN_DIST:-/www/wwwroot/admin.voxbulk.com}"
+VOX_DASH_DIST="${VOX_DASH_DIST:-/www/wwwroot/dashboard.voxbulk.com}"
+VOX_PUBLIC_DIST="${VOX_PUBLIC_DIST:-/www/wwwroot/voxbulk.com}"
+
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 API_DIR="$ROOT/voxbulk-api"
 ADMIN_DIR="$ROOT/admin.voxbulk.com/adim-web"
@@ -125,7 +129,7 @@ copy_dist() {
   [[ -d "$src" ]] || fail "$label dist missing: $src (build failed?)"
   info "Copying $label → $dest"
   sudo mkdir -p "$dest"
-  sudo rsync -a --delete "$src/" "$dest/"
+  sudo rsync -a --delete --exclude='.user.ini' "$src/" "$dest/"
 }
 
 deploy_static() {
@@ -143,6 +147,20 @@ post_checks() {
   info "Post-deploy checks …"
   sleep 2
   bash "$VOX_SH" status || warn "Status check reported issues — see $DEPLOY_LOG"
+
+  if [[ -d "${VOX_ADMIN_DIST:-}" ]]; then
+    local js
+    js=$(grep -oE '/assets/[^"]+\.js' "$VOX_ADMIN_DIST/index.html" 2>/dev/null | head -1 || true)
+    if [[ -n "$js" && -f "$VOX_ADMIN_DIST${js}" ]]; then
+      info "  Admin static OK: index.html → $js exists in wwwroot"
+    else
+      warn "  Admin wwwroot broken: index.html JS ($js) missing — browser will show blank page"
+      warn "  Fix: cd $ADMIN_DIR && npm run build && rsync dist/ → $VOX_ADMIN_DIST"
+    fi
+    local health_code
+    health_code=$(curl -s -o /dev/null -w "%{http_code}" https://admin.voxbulk.com/health 2>/dev/null || echo "000")
+    info "  https://admin.voxbulk.com/health → HTTP $health_code (want 200)"
+  fi
 
   # New routes added in recent releases
   local checks=(
