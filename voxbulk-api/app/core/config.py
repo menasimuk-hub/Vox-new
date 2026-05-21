@@ -104,6 +104,14 @@ class Settings(BaseSettings):
                 "http://127.0.0.1:5174",
                 "http://127.0.0.1:5175",
             ]
+        # Production fallback when CORS_ALLOW_ORIGINS unset (dashboard/public call api.* cross-origin).
+        if str(self.env).lower() in {"production", "prod", "staging"}:
+            return [
+                "https://voxbulk.com",
+                "https://www.voxbulk.com",
+                "https://admin.voxbulk.com",
+                "https://dashboard.voxbulk.com",
+            ]
         return []
 
     @property

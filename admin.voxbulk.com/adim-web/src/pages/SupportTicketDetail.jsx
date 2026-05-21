@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { apiFetch, getAdminAccessTokenRaw, getApiBaseUrl } from '../lib/api'
+import { apiFetch, getAdminAccessTokenRaw, resolveApiUrl } from '../lib/api'
 
 function dt(v) {
   if (!v) return '—'
@@ -70,7 +70,7 @@ export default function SupportTicketDetail() {
   }
 
   const downloadAttachment = async (a) => {
-    const res = await fetch(`${getApiBaseUrl()}/admin/support/attachments/${a.id}`, {
+    const res = await fetch(resolveApiUrl(`/admin/support/attachments/${a.id}`), {
       headers: { Authorization: `Bearer ${getAdminAccessTokenRaw()}` },
     })
     if (!res.ok) {

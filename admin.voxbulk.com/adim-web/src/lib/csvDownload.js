@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from './api'
+import { resolveApiUrl } from './api'
 
 async function resolveAdminBearerToken() {
   if (typeof window === 'undefined') return ''
@@ -7,8 +7,7 @@ async function resolveAdminBearerToken() {
 
 export async function downloadAdminCsv(path, filename) {
   const token = await resolveAdminBearerToken()
-  const base = getApiBaseUrl()
-  const url = base ? `${base}${path}` : `${window.location.origin}${path}`
+  const url = resolveApiUrl(path)
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })

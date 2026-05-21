@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiFetch, getApiBaseUrl } from '../lib/api'
+import { apiFetch, resolveApiUrl } from '../lib/api'
 import { downloadAdminCsv } from '../lib/csvDownload'
 
 const TelnyxDualWaveform = lazy(() => import('../components/TelnyxDualWaveform'))
@@ -246,19 +246,16 @@ export default function LeadSources() {
 
   const resolveRecordingUrl = async (lead, media) => {
     const token = await resolveAdminBearerToken()
-    const base = getApiBaseUrl()
 
     if (isTelnyxLead(lead)) {
       const playPath =
         String(media?.recording_play_url || '').trim() ||
         `/admin/frontpage/lead-sources/${lead.id}/recording`
-      const proxyUrl = base ? `${base}${playPath}` : `${window.location.origin}${playPath}`
-      return { url: proxyUrl, fromProvider: false, token, telnyxDual: true }
+      return { url: resolveApiUrl(playPath), fromProvider: false, token, telnyxDual: true }
     }
 
     if (lead?.recording_url) {
-      const localUrl = base ? `${base}${lead.recording_url}` : `${window.location.origin}${lead.recording_url}`
-      return { url: localUrl, fromProvider: false, token }
+      return { url: resolveApiUrl(lead.recording_url), fromProvider: false, token }
     }
 
     const direct = String(media?.recording_url || '').trim()

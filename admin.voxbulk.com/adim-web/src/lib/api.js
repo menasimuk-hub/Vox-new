@@ -45,20 +45,23 @@ function isLocalDevHost() {
   return h === 'localhost' || h === '127.0.0.1' || h === '::1'
 }
 
-/** Production admin calls api.* subdomain directly (nginx on admin host serves static SPA only). */
-function defaultProductionApiBaseUrl() {
-  if (typeof window === 'undefined') return ''
+function isProductionAdminHost() {
+  if (typeof window === 'undefined') return false
   const h = window.location.hostname
-  if (h === 'admin.voxbulk.com') return 'https://api.voxbulk.com'
-  if (h === 'admin.microgreenia.com') return 'https://api.microgreenia.com'
-  return ''
+  return h === 'admin.voxbulk.com' || h === 'admin.microgreenia.com'
 }
 
-/** Browser calls /admin on this origin only in local Vite dev (vite.config.js proxy). */
+/** On production admin host, nginx proxies /api/* → FastAPI (same origin, no CORS). */
+function productionAdminUsesApiPrefixProxy() {
+  return !isViteDevelopment() && !forceCrossOriginApi() && isProductionAdminHost()
+}
+
+/** Browser calls /admin on this origin in local Vite dev, or /api/* on production admin (nginx). */
 export function usesSameOriginApiProxy() {
   if (forceCrossOriginApi()) return false
   if (getApiBaseUrl() !== '') return false
   if (isLocalDevHost()) return true
+  if (productionAdminUsesApiPrefixProxy()) return true
   return isViteDevelopment() && prefersDevSameOriginProxy()
 }
 
@@ -79,14 +82,45 @@ export function getApiBaseUrl() {
 
   if (useDevProxyBehaviour) return ''
 
+  // Production admin: always same-origin /api/* (ignore baked VITE_API_BASE_URL — avoids CORS).
+  if (productionAdminUsesApiPrefixProxy()) return ''
+
   if (hasExplicit) return explicit
 
-  const prodDefault = defaultProductionApiBaseUrl()
-  if (prodDefault) return prodDefault
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname
+    if (h === 'admin.voxbulk.com') return 'https://api.voxbulk.com'
+    if (h === 'admin.microgreenia.com') return 'https://api.microgreenia.com'
+  }
 
   if (isLocalDevHost()) return 'http://127.0.0.1:8000'
 
   return ''
+}
+
+/** Path sent to fetch/WebSocket — production admin prefixes /api for nginx proxy. */
+export function getApiRequestPath(path) {
+  const p = path.startsWith('/') ? path : `/${path}`
+  if (productionAdminUsesApiPrefixProxy() && getApiBaseUrl() === '') {
+    return `/api${p}`
+  }
+  return p
+}
+
+/** Full URL for browser fetch (origin + optional /api prefix). */
+export function resolveApiUrl(path) {
+  const base = getApiBaseUrl()
+  const reqPath = getApiRequestPath(path)
+  if (!base) {
+    if (typeof window !== 'undefined') return `${window.location.origin}${reqPath}`
+    return reqPath
+  }
+  return `${base.replace(/\/+$/, '')}${reqPath}`
+}
+
+/** WebSocket URL (http→ws) with same routing as resolveApiUrl. */
+export function resolveApiWebSocketUrl(path) {
+  return resolveApiUrl(path).replace(/^http/i, 'ws')
 }
 
 /** Human-readable endpoint for blocking messages (avoid implying cross-origin when using proxy). */
@@ -94,6 +128,9 @@ export function describeApiOrigin() {
   const b = getApiBaseUrl()
   if (b) return b
   if (typeof window !== 'undefined') {
+    if (productionAdminUsesApiPrefixProxy()) {
+      return `${window.location.origin}/api (proxied → FastAPI)`
+    }
     return `${window.location.origin} (proxied → FastAPI)`
   }
   return '(unset)'
@@ -101,17 +138,15 @@ export function describeApiOrigin() {
 
 export function getApiMisconfigurationMessage() {
   if (typeof window === 'undefined') return ''
+  if (usesSameOriginApiProxy()) return ''
   if (getApiBaseUrl() !== '') return ''
   const h = window.location.hostname
   if (isLocalDevHost()) return ''
-  if (isViteDevelopment() && prefersDevSameOriginProxy()) return ''
   return `This admin host (${h}) requires VITE_API_BASE_URL (absolute URL of the VOXBULK FastAPI origin). Example: https://api.example.com`
 }
 
 function joinOriginAndPath(origin, path) {
-  const p = path.startsWith('/') ? path : `/${path}`
-  if (!origin) return p
-  return `${origin.replace(/\/+$/, '')}${p}`
+  return resolveApiUrl(path)
 }
 
 /** Injected in dev by vite.config.js `define`; empty in production builds. */
@@ -197,7 +232,7 @@ export async function probeApiConnectivity(options = {}) {
   const ms = typeof options.timeoutMs === 'number' ? options.timeoutMs : 4500
   const baseUrl = getApiBaseUrl()
   const path = '/health'
-  const url = baseUrl ? joinOriginAndPath(baseUrl, path) : `${window.location.origin}${path}`
+  const url = resolveApiUrl(path)
 
   const ctl = new AbortController()
   const t = window.setTimeout(() => ctl.abort(), ms)
@@ -295,9 +330,9 @@ function networkFailureHelp() {
     '2) Restart Vite (`npm run dev`) after editing `.env` so VITE_* is picked up.',
     baseEmpty
       ? '3) Admin dev uses SAME-ORIGIN `/auth`, `/admin`, `/health` on http://localhost:5174 — Vite proxies to FastAPI.'
-      : '3) Production: browser calls https://api.voxbulk.com — ensure API CORS includes https://admin.voxbulk.com.',
+      : '3) Production admin uses same-origin `https://admin.voxbulk.com/api/*` — nginx must proxy /api/ to 127.0.0.1:8000.',
     '4) Signing in on http://localhost:5173 does NOT share localStorage with admin on :5174 — use sign-in handoff.',
-    '5) admin.voxbulk.com nginx must serve static files ONLY — remove any `location /admin` proxy (breaks React routes).',
+    '5) Do NOT proxy `location ^~ /admin` on admin.voxbulk.com — use `location ^~ /api/` only (see docs/nginx-admin.voxbulk.com.conf).',
     '6) `DEBUG_ADMIN_PROXY=1 npm run dev` prints each proxied path in the Vite terminal.',
   ].join('\n')
 }

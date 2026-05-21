@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { apiFetch, getApiBaseUrl } from '../lib/api'
+import { apiFetch, resolveApiUrl } from '../lib/api'
 import TelnyxDualWaveform from '../components/TelnyxDualWaveform'
 import TelnyxInsightsModal from '../components/TelnyxInsightsModal'
 
@@ -143,12 +143,10 @@ function RecordingsPanel({ lead, taskId, callDone }) {
     const load = async () => {
       if (!lead?.id && !taskId) return
       const token = await resolveAdminBearerToken()
-      const base = getApiBaseUrl()
-      const origin = typeof window !== 'undefined' ? window.location.origin : ''
       const intakePath = lead?.recording_url || (lead?.id ? `/admin/frontpage/lead-sources/${lead.id}/recording` : '')
-      const intakeFull = intakePath ? (base ? `${base}${intakePath}` : `${origin}${intakePath}`) : ''
+      const intakeFull = intakePath ? resolveApiUrl(intakePath) : ''
       const salesPath = taskId ? `/admin/frontpage/lead-sales/tasks/${taskId}/recording` : ''
-      const salesFull = salesPath ? (base ? `${base}${salesPath}` : `${origin}${salesPath}`) : ''
+      const salesFull = salesPath ? resolveApiUrl(salesPath) : ''
       if (!cancelled) {
         setAuthToken(token || '')
         setIntakeUrl(lead?.recording_available ? intakeFull : '')

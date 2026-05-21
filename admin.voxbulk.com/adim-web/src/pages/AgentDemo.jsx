@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import Vapi from '@vapi-ai/web'
-import { apiFetch, getApiBaseUrl, getEmbeddedViteProxyTarget } from '../lib/api'
+import { apiFetch, resolveApiUrl, resolveApiWebSocketUrl } from '../lib/api'
 
 const DEFAULT_AGENT_SLUG = 'vox-sales'
 const FINAL_SEND_DELAY_MS = 150
@@ -77,8 +77,7 @@ function dataUrlFromAudio(audioB64, mime) {
 }
 
 function streamUrl(path) {
-  const base = getApiBaseUrl()
-  return `${base || ''}${path}`
+  return resolveApiUrl(path)
 }
 
 function adminToken() {
@@ -863,9 +862,7 @@ export default function AgentDemo() {
         },
       })
       realtimeStreamRef.current = stream
-      const base = getApiBaseUrl() || getEmbeddedViteProxyTarget() || window.location.origin
-      const wsBase = base.replace(/^http/i, 'ws')
-      const ws = new WebSocket(`${wsBase}/admin/demo/voice/realtime?token=${encodeURIComponent(token)}`)
+      const ws = new WebSocket(`${resolveApiWebSocketUrl('/admin/demo/voice/realtime')}?token=${encodeURIComponent(token)}`)
       realtimeSocketRef.current = ws
       const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' })
       realtimeRecorderRef.current = recorder
@@ -1025,9 +1022,7 @@ export default function AgentDemo() {
       if (!token) throw new Error('No admin session token available for Deepgram streaming.')
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       deepgramStreamRef.current = stream
-      const base = getApiBaseUrl() || getEmbeddedViteProxyTarget() || window.location.origin
-      const wsBase = base.replace(/^http/i, 'ws')
-      const ws = new WebSocket(`${wsBase}/admin/demo/stt/deepgram/stream?token=${encodeURIComponent(token)}`)
+      const ws = new WebSocket(`${resolveApiWebSocketUrl('/admin/demo/stt/deepgram/stream')}?token=${encodeURIComponent(token)}`)
       deepgramSocketRef.current = ws
       const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' })
       deepgramRecorderRef.current = recorder
