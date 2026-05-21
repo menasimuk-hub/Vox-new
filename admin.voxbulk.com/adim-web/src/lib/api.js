@@ -45,12 +45,19 @@ function isLocalDevHost() {
   return h === 'localhost' || h === '127.0.0.1' || h === '::1'
 }
 
-/** On production admin host, use same-origin /admin (nginx proxies to FastAPI). Avoids CORS issues on Baota. */
-function defaultProductionApiBaseUrl() {
-  if (typeof window === 'undefined') return ''
+function isProductionAdminHost() {
+  if (typeof window === 'undefined') return false
   const h = window.location.hostname
-  if (h === 'admin.voxbulk.com' || h === 'admin.microgreenia.com') return ''
-  return ''
+  return h === 'admin.voxbulk.com' || h === 'admin.microgreenia.com'
+}
+
+/** Browser calls /admin on this origin; Vite (dev) or nginx (prod) forwards to FastAPI. */
+export function usesSameOriginApiProxy() {
+  if (forceCrossOriginApi()) return false
+  if (getApiBaseUrl() !== '') return false
+  if (isLocalDevHost()) return true
+  if (isProductionAdminHost()) return true
+  return isViteDevelopment() && prefersDevSameOriginProxy()
 }
 
 export function getApiBaseUrl() {
@@ -60,38 +67,24 @@ export function getApiBaseUrl() {
   const dev = isViteDevelopment()
   const hasExplicit = Boolean(explicit)
 
-  const useDevProxyBehaviour =
-    dev &&
-    prefersDevSameOriginProxy() &&
-    !forceCrossOriginApi() &&
-    (!hasExplicit ||
-      LOCAL_LOOPBACK_FASTAPI_ORIGINS.has(explicit) ||
-      (isLocalDevHost() && !LOCAL_LOOPBACK_FASTAPI_ORIGINS.has(explicit)))
+  // Local Vite dev → same-origin proxy (localhost:5174/admin → :8000)
+  if (dev && prefersDevSameOriginProxy() && !forceCrossOriginApi()) {
+    return ''
+  }
 
-  if (useDevProxyBehaviour) return ''
+  // Production admin → same-origin proxy (admin.voxbulk.com/admin → nginx → :8000)
+  if (!dev && !forceCrossOriginApi() && isProductionAdminHost()) {
+    return ''
+  }
 
-  // Production admin on Baota: same-origin + nginx proxy (cross-origin api.* often breaks in browser).
-  if (
-    !dev &&
-    !forceCrossOriginApi() &&
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'admin.voxbulk.com' ||
-      window.location.hostname === 'admin.microgreenia.com')
-  ) {
+  // Vite preview on localhost still has proxy in vite.config.js
+  if (!dev && !forceCrossOriginApi() && isLocalDevHost()) {
     return ''
   }
 
   if (hasExplicit) return explicit
 
-  const prodDefault = defaultProductionApiBaseUrl()
-  if (prodDefault) return prodDefault
-
-  if (typeof window !== 'undefined') {
-    const h = window.location.hostname
-    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') {
-      return 'http://127.0.0.1:8000'
-    }
-  }
+  if (isLocalDevHost()) return 'http://127.0.0.1:8000'
 
   return ''
 }
@@ -108,12 +101,10 @@ export function describeApiOrigin() {
 
 export function getApiMisconfigurationMessage() {
   if (typeof window === 'undefined') return ''
+  if (usesSameOriginApiProxy()) return ''
   if (getApiBaseUrl() !== '') return ''
   const h = window.location.hostname
-  if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return ''
-
-  if (isViteDevelopment() && prefersDevSameOriginProxy()) return ''
-
+  if (isLocalDevHost()) return ''
   return `This admin host (${h}) requires VITE_API_BASE_URL (absolute URL of the VOXBULK FastAPI origin). Example: https://api.example.com`
 }
 
