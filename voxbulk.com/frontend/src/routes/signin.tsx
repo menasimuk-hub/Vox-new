@@ -135,6 +135,20 @@ function SignInPage() {
   const showForgot = mode === "signin" && credentialView === "forgot";
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("retover_logout") !== "1") return;
+    try {
+      clearAllRetoverSiteLocalKeys();
+    } catch {
+      /* ignore */
+    }
+    sp.delete("retover_logout");
+    const rest = sp.toString();
+    window.history.replaceState(window.history.state ?? {}, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`);
+  }, []);
+
+  useEffect(() => {
     if (mode !== "signin") setCredentialView("login");
   }, [mode]);
 
