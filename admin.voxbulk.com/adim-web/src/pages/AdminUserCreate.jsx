@@ -54,7 +54,7 @@ export default function AdminUserCreate() {
           </p>
         </div>
         <div className='actions'>
-          <Link className='btn soft' to='/admin/users'>
+          <Link className='btn soft' to='/platform/users'>
             Back to list
           </Link>
         </div>

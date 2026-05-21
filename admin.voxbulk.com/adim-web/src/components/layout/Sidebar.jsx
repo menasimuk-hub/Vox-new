@@ -185,8 +185,8 @@ const NAV = [
   [
     'Team & roles',
     [
-      ['Platform admins (list)', '/admin/users'],
-      ['Add platform admin', '/admin/users/new'],
+      ['Platform admins (list)', '/platform/users'],
+      ['Add platform admin', '/platform/users/new'],
       ['Permissions', '/team/permissions'],
       ['Activity logs', '/team/logs'],
     ],

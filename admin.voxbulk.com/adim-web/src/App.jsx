@@ -171,11 +171,14 @@ export default function App() {
         <Route path='/analytics/recovery' element={G('Recovery performance')} />
         <Route path='/analytics/cost-revenue' element={G('Cost vs revenue')} />
 
-        <Route path='/team/users' element={<Navigate to='/admin/users' replace />} />
-        <Route path='/admin/users' element={<AdminUsers />} />
-        <Route path='/admin/users/new' element={<AdminUserCreate />} />
-        <Route path='/admin/users/:id/edit' element={<AdminUserEdit />} />
-        <Route path='/admin/admin-users' element={<Navigate to='/admin/users/new' replace />} />
+        <Route path='/team/users' element={<Navigate to='/platform/users' replace />} />
+        <Route path='/admin/users' element={<Navigate to='/platform/users' replace />} />
+        <Route path='/admin/users/new' element={<Navigate to='/platform/users/new' replace />} />
+        <Route path='/admin/users/:id/edit' element={<Navigate to='/platform/users/:id/edit' replace />} />
+        <Route path='/admin/admin-users' element={<Navigate to='/platform/users/new' replace />} />
+        <Route path='/platform/users' element={<AdminUsers />} />
+        <Route path='/platform/users/new' element={<AdminUserCreate />} />
+        <Route path='/platform/users/:id/edit' element={<AdminUserEdit />} />
         <Route path='/team/permissions' element={<Permissions />} />
         <Route path='/team/logs' element={G('Activity logs')} />
 

@@ -51,7 +51,7 @@ export default function AdminUsers() {
           </p>
         </div>
         <div className='actions'>
-          <Link className='btn soft' to='/admin/users/new'>
+          <Link className='btn soft' to='/platform/users/new'>
             Add platform admin
           </Link>
           <button className='btn' onClick={load} disabled={loading}>
@@ -97,7 +97,7 @@ export default function AdminUsers() {
                         <td style={{ textAlign: 'right' }}>
                           {canManage ? (
                             <>
-                              <Link className='btn soft' to={`/admin/users/${encodeURIComponent(r.id)}/edit`} style={{ marginRight: 8 }}>
+                              <Link className='btn soft' to={`/platform/users/${encodeURIComponent(r.id)}/edit`} style={{ marginRight: 8 }}>
                                 Edit
                               </Link>
                               <button className='btn soft' onClick={() => del(r.id)}>

@@ -45,18 +45,20 @@ function isLocalDevHost() {
   return h === 'localhost' || h === '127.0.0.1' || h === '::1'
 }
 
-function isProductionAdminHost() {
-  if (typeof window === 'undefined') return false
+/** Production admin calls api.* subdomain directly (nginx on admin host serves static SPA only). */
+function defaultProductionApiBaseUrl() {
+  if (typeof window === 'undefined') return ''
   const h = window.location.hostname
-  return h === 'admin.voxbulk.com' || h === 'admin.microgreenia.com'
+  if (h === 'admin.voxbulk.com') return 'https://api.voxbulk.com'
+  if (h === 'admin.microgreenia.com') return 'https://api.microgreenia.com'
+  return ''
 }
 
-/** Browser calls /admin on this origin; Vite (dev) or nginx (prod) forwards to FastAPI. */
+/** Browser calls /admin on this origin only in local Vite dev (vite.config.js proxy). */
 export function usesSameOriginApiProxy() {
   if (forceCrossOriginApi()) return false
   if (getApiBaseUrl() !== '') return false
   if (isLocalDevHost()) return true
-  if (isProductionAdminHost()) return true
   return isViteDevelopment() && prefersDevSameOriginProxy()
 }
 
@@ -67,22 +69,20 @@ export function getApiBaseUrl() {
   const dev = isViteDevelopment()
   const hasExplicit = Boolean(explicit)
 
-  // Local Vite dev → same-origin proxy (localhost:5174/admin → :8000)
-  if (dev && prefersDevSameOriginProxy() && !forceCrossOriginApi()) {
-    return ''
-  }
+  const useDevProxyBehaviour =
+    dev &&
+    prefersDevSameOriginProxy() &&
+    !forceCrossOriginApi() &&
+    (!hasExplicit ||
+      LOCAL_LOOPBACK_FASTAPI_ORIGINS.has(explicit) ||
+      (isLocalDevHost() && !LOCAL_LOOPBACK_FASTAPI_ORIGINS.has(explicit)))
 
-  // Production admin → same-origin proxy (admin.voxbulk.com/admin → nginx → :8000)
-  if (!dev && !forceCrossOriginApi() && isProductionAdminHost()) {
-    return ''
-  }
-
-  // Vite preview on localhost still has proxy in vite.config.js
-  if (!dev && !forceCrossOriginApi() && isLocalDevHost()) {
-    return ''
-  }
+  if (useDevProxyBehaviour) return ''
 
   if (hasExplicit) return explicit
+
+  const prodDefault = defaultProductionApiBaseUrl()
+  if (prodDefault) return prodDefault
 
   if (isLocalDevHost()) return 'http://127.0.0.1:8000'
 
@@ -101,10 +101,10 @@ export function describeApiOrigin() {
 
 export function getApiMisconfigurationMessage() {
   if (typeof window === 'undefined') return ''
-  if (usesSameOriginApiProxy()) return ''
   if (getApiBaseUrl() !== '') return ''
   const h = window.location.hostname
   if (isLocalDevHost()) return ''
+  if (isViteDevelopment() && prefersDevSameOriginProxy()) return ''
   return `This admin host (${h}) requires VITE_API_BASE_URL (absolute URL of the VOXBULK FastAPI origin). Example: https://api.example.com`
 }
 
@@ -288,27 +288,16 @@ export async function checkApiConnectivity(options = {}) {
 
 function networkFailureHelp() {
   const baseEmpty = !getApiBaseUrl()
-  const onProdAdmin =
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'admin.voxbulk.com' ||
-      window.location.hostname === 'admin.microgreenia.com')
-  if (onProdAdmin && baseEmpty) {
-    return [
-      'Production admin uses same-origin /admin on this hostname (nginx must proxy to FastAPI on 127.0.0.1:8000).',
-      'In Baota → admin.voxbulk.com → Config, add proxy locations for /admin, /auth, and /health → http://127.0.0.1:8000',
-      'Set proxy Host header to api.voxbulk.com (matches TRUSTED_HOSTS), then reload nginx and restart API.',
-    ].join('\n')
-  }
   return [
     'Most common fixes:',
     '1) From this app folder run `npm run dev:full` — starts FastAPI on 0.0.0.0:8000 then Vite after /health is up (fixes 502 when the API was never started).',
-    '   Or manually: `cd voxbulk-api` then `python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000` (`0.0.0.0` is more reliable than 127-only on some setups).',
+    '   Or manually: `cd voxbulk-api` then `python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000`.',
     '2) Restart Vite (`npm run dev`) after editing `.env` so VITE_* is picked up.',
     baseEmpty
-      ? '3) Admin dev uses SAME-ORIGIN `/auth`, `/admin`, `/health` on http://localhost:5174 — Vite proxies to `VITE_PROXY_API_TARGET` (default http://127.0.0.1:8000). If `/health` fails, Node cannot reach uvicorn on that target.'
-      : '3) Browser calls `VITE_API_BASE_URL` directly — it must match uvicorn’s listen URL.',
-    '4) Signing in on http://localhost:5173 does NOT share localStorage with admin on :5174 — use the admin URL’s sign-in/handoff so tokens land on port 5174.',
-    '5) `VITE_FORCE_CROSS_ORIGIN_API=true` forces browser→API cross-origin; `VITE_DEV_API_PROXY=false` disables the dev proxy.',
+      ? '3) Admin dev uses SAME-ORIGIN `/auth`, `/admin`, `/health` on http://localhost:5174 — Vite proxies to FastAPI.'
+      : '3) Production: browser calls https://api.voxbulk.com — ensure API CORS includes https://admin.voxbulk.com.',
+    '4) Signing in on http://localhost:5173 does NOT share localStorage with admin on :5174 — use sign-in handoff.',
+    '5) admin.voxbulk.com nginx must serve static files ONLY — remove any `location /admin` proxy (breaks React routes).',
     '6) `DEBUG_ADMIN_PROXY=1 npm run dev` prints each proxied path in the Vite terminal.',
   ].join('\n')
 }

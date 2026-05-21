@@ -58,7 +58,7 @@ export default function AdminUserEdit() {
         body.password = pw
       }
       await apiFetch(`/admin/admin-users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) })
-      navigate('/admin/users')
+      navigate('/platform/users')
     } catch (e2) {
       setErr(e2?.message || 'Save failed')
     } finally {
@@ -77,7 +77,7 @@ export default function AdminUserEdit() {
           </p>
         </div>
         <div className='actions'>
-          <button type='button' className='btn soft' onClick={() => navigate('/admin/users')}>
+          <button type='button' className='btn soft' onClick={() => navigate('/platform/users')}>
             Back to list
           </button>
         </div>
