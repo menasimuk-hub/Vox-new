@@ -87,8 +87,9 @@ api_deps_and_migrate() {
     return
   fi
 
-  info "Running database migrations (0046 messaging, 0047 email HTML, 0048 KB scope) …"
+  info "Running database migrations …"
   python -m alembic upgrade head
+  python -m alembic current
   info "Migration OK"
 }
 

@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from sqlalchemy import select
+from fastapi.responses import JSONResponse
+from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.core.config import get_settings
 from app.core.database import get_sessionmaker, init_db
@@ -173,9 +175,46 @@ if _reg:
 app.add_middleware(CORSMiddleware, **_cors_kw)
 
 
+def _migration_hint_from_db_error(exc: BaseException) -> str | None:
+    msg = str(exc).lower()
+    if "unknown column" in msg or "doesn't exist" in msg or "no such table" in msg or "does not exist" in msg:
+        return (
+            "Database schema is behind the API code. On the VPS run: "
+            "cd /www/voxbulk/voxbulk-api && source .venv/bin/activate && python -m alembic upgrade head && cd /www/voxbulk && ./vox.sh restart"
+        )
+    return None
+
+
+@app.exception_handler(OperationalError)
+async def db_operational_error_handler(_request: Request, exc: OperationalError):
+    hint = _migration_hint_from_db_error(exc)
+    detail = hint or "Database error — check API logs and DATABASE_URL."
+    return JSONResponse(status_code=503, content={"detail": detail})
+
+
+@app.exception_handler(ProgrammingError)
+async def db_programming_error_handler(_request: Request, exc: ProgrammingError):
+    hint = _migration_hint_from_db_error(exc)
+    detail = hint or "Database error — check API logs."
+    return JSONResponse(status_code=503, content={"detail": detail})
+
+
 @app.get("/health", tags=["health"])
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/db", tags=["health"])
+def health_db():
+    """Quick schema probe — fails with 503 if migrations were not applied."""
+    SessionLocal = get_sessionmaker()
+    with SessionLocal() as db:
+        db.execute(text("SELECT 1"))
+        # Columns/tables added in recent releases (lead sales + automation)
+        db.execute(text("SELECT automation_paused FROM lead_sales_tasks LIMIT 0"))
+        db.execute(text("SELECT sales_automation_enabled FROM lead_sales_settings LIMIT 0"))
+        db.execute(text("SELECT id FROM sales_conversation_states LIMIT 0"))
+    return {"status": "ok", "schema": "current"}
 
 
 app.include_router(auth_router)

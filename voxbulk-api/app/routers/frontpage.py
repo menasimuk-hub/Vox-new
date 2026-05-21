@@ -252,8 +252,17 @@ def _sales_task_out(db: Session, row: Any, *, lead_code: str | None = None) -> d
     from app.services.lead_sales_service import get_lead_sales_settings, lead_sales_task_out
     from app.services.sales_automation_service import SalesAutomationService
 
-    out = lead_sales_task_out(row, lead_code=lead_code, settings=get_lead_sales_settings(db))
-    out["automation"] = SalesAutomationService.state_to_dict(SalesAutomationService.get_state(db, row.id))
+    try:
+        settings = get_lead_sales_settings(db)
+    except Exception:
+        db.rollback()
+        settings = None
+    out = lead_sales_task_out(row, lead_code=lead_code, settings=settings)
+    try:
+        out["automation"] = SalesAutomationService.state_to_dict(SalesAutomationService.get_state(db, row.id))
+    except Exception:
+        db.rollback()
+        out["automation"] = None
     return out
 
 
