@@ -9,7 +9,7 @@ export const SYSTEM_EMAIL_META = {
 }
 
 export const SYSTEM_WHATSAPP_META = {
-  sales_offer: { title: 'Sales offer link', description: 'Sent when sales agent shares signup promo link via WhatsApp' },
+  sales_offer: { title: 'Sales offer link', description: 'Sent when sales agent shares signup promo link via WhatsApp (subscription, survey, or interview)' },
   sales_opt_in: { title: 'Sales opt-in', description: 'Sent after call — customer replies SEND OFFER to get the link' },
   sales_offer_followup: { title: 'Sales 7-day follow-up', description: 'Sent if promo link was not used after follow-up days' },
   sales_offer_keyword_confirm: { title: 'Keyword offer confirm', description: 'Sent when customer replies SEND OFFER on WhatsApp' },
@@ -18,8 +18,11 @@ export const SYSTEM_WHATSAPP_META = {
 export const DEFAULT_WA_BODY_BY_KEY = {
   sales_offer: `Hi {{first_name}},
 
-Great speaking with you. Here is your VOXBULK {{trial_line}} ({{promo_name}}):
-{{signup_url}}
+Great speaking with you. Here is your VOXBULK {{offer_line}}:
+{{promo_name}}
+{{offer_summary}}
+
+Start here: {{signup_url}}
 
 Open the link to create your account — your offer applies automatically.
 
@@ -35,7 +38,7 @@ Reply **STOP** anytime to opt out.
 — VOXBULK Sales`,
   sales_offer_followup: `Hi {{first_name}},
 
-We sent your VOXBULK {{trial_line}} link a few days ago — any trouble signing up?
+We sent your VOXBULK {{offer_line}} link a few days ago — any trouble signing up?
 
 Reply here if you need help, or open your link again:
 {{signup_url}}
@@ -45,8 +48,11 @@ Reply **STOP** to opt out.
 — VOXBULK Sales`,
   sales_offer_keyword_confirm: `Hi {{first_name}},
 
-Here is your VOXBULK {{trial_line}} ({{promo_name}}):
-{{signup_url}}
+Here is your VOXBULK {{offer_line}}:
+{{promo_name}}
+{{offer_summary}}
+
+Start here: {{signup_url}}
 
 Open the link on your phone to create your account — your offer applies automatically.
 
@@ -77,10 +83,10 @@ export const DEMO_HTML_BY_KEY = {
   general_notification: `<p>Hello {{user_name}},</p><p>{{message}}</p><p style="font-size:12px;color:#64748b;">Sent by VOXBULK notifications.</p>`,
   sales_offer: `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
   <p>Hi <strong>{{first_name}}</strong>,</p>
-  <p>Thanks for speaking with us today. Your VOXBULK <strong>{{trial_line}}</strong> is ready:</p>
+  <p>Thanks for speaking with us today. Your VOXBULK <strong>{{offer_line}}</strong> is ready:</p>
   <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;">
     <strong style="display:block;font-size:16px;color:#0f172a;">{{promo_name}}</strong>
-    <span style="color:#64748b;font-size:14px;">{{plan_summary}}</span>
+    <span style="color:#64748b;font-size:14px;">{{offer_summary}}</span>
   </div>
   <p><a href="{{signup_url}}" style="display:inline-block;background:#00C896;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Start your account</a></p>
   <p style="word-break:break-all;font-size:13px;"><a href="{{signup_url}}" style="color:#00C896;">{{signup_url}}</a></p>
@@ -109,16 +115,20 @@ export const TEST_VARS_BY_KEY = {
   },
   sales_offer: {
     first_name: 'Alex',
-    trial_line: '15-day free trial',
-    promo_name: 'Sales offer · Northgate Dental',
-    plan_summary: 'Dental P1 · £199/mo · 300 calls, 500 WhatsApp, 300 SMS',
-    signup_url: 'https://voxbulk.com/signin?promo=SALEDEMO',
-    plan_name: 'Dental P1',
-    plan_price: '£199',
-    trial_days: '15',
-    calls_included: '300',
-    whatsapp_included: '500',
-    sms_included: '300',
+    offer_line: '20 free survey contacts',
+    offer_summary: 'Includes 20 survey contacts after signup.',
+    trial_line: '20 free survey contacts',
+    promo_name: 'Promo · 20 survey contacts',
+    plan_summary: 'Includes 20 survey contacts after signup.',
+    signup_url: 'https://voxbulk.com/signin?promo=SURVEY20',
+    plan_name: '',
+    plan_price: '',
+    trial_days: '0',
+    survey_contacts_included: '20',
+    interview_contacts_included: '0',
+    calls_included: '0',
+    whatsapp_included: '0',
+    sms_included: '0',
   },
   usage_warning: {
     organisation_name: 'Northgate Dental',

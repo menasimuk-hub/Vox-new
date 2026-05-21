@@ -12,7 +12,7 @@ Reply **STOP** anytime to opt out.
 
 SALES_OFFER_FOLLOWUP_WHATSAPP_BODY = """Hi {{first_name}},
 
-We sent your VOXBULK {{trial_line}} link a few days ago — any trouble signing up?
+We sent your VOXBULK {{offer_line}} link a few days ago — any trouble signing up?
 
 Reply here if you need help, or open your link again:
 {{signup_url}}
@@ -23,8 +23,11 @@ Reply **STOP** to opt out.
 
 SALES_OFFER_KEYWORD_CONFIRM_WHATSAPP_BODY = """Hi {{first_name}},
 
-Here is your VOXBULK {{trial_line}} ({{promo_name}}):
-{{signup_url}}
+Here is your VOXBULK {{offer_line}}:
+{{promo_name}}
+{{offer_summary}}
+
+Start here: {{signup_url}}
 
 Open the link on your phone to create your account — your offer applies automatically.
 

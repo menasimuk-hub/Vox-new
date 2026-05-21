@@ -15,6 +15,7 @@ from app.data.sales_automation_defaults import (
     SALES_OPT_IN_WHATSAPP_BODY,
 )
 from app.models.lead_sales_task import LeadSalesTask
+from app.models.plan import Plan
 from app.models.promo_offer import PromoOffer
 from app.models.sales_conversation_state import SalesConversationState
 from app.services.agents.base import AgentMessage
@@ -96,11 +97,29 @@ class SalesAutomationService:
         )
 
     @staticmethod
-    def _template_variables(task: LeadSalesTask, *, signup_url: str = "", promo_name: str = "", trial_days: int = 0) -> dict[str, str]:
+    @staticmethod
+    def _template_variables(
+        task: LeadSalesTask,
+        *,
+        signup_url: str = "",
+        promo_name: str = "",
+        trial_days: int = 0,
+        promo: PromoOffer | None = None,
+        plan: Plan | None = None,
+    ) -> dict[str, str]:
+        if promo is not None:
+            return SalesOfferSendService._variables_from_promo(
+                contact_name=task.contact_name,
+                promo=promo,
+                signup_url=signup_url,
+                plan=plan,
+            )
         first = SalesOfferSendService._first_name(task.contact_name)
         trial_line = SalesOfferSendService._trial_line(int(trial_days or 0))
         return {
             "first_name": first,
+            "offer_line": trial_line,
+            "offer_summary": promo_name or "VOXBULK trial",
             "trial_line": trial_line,
             "promo_name": promo_name or "VOXBULK trial",
             "signup_url": signup_url,
@@ -108,6 +127,8 @@ class SalesAutomationService:
             "plan_name": "",
             "plan_price": "",
             "trial_days": str(int(trial_days or 0)),
+            "survey_contacts_included": "0",
+            "interview_contacts_included": "0",
             "calls_included": "0",
             "whatsapp_included": "0",
             "sms_included": "0",
@@ -308,11 +329,16 @@ class SalesAutomationService:
 
             promo = PromoOfferService.get_by_code(db, task.offer_promo_code)
             signup_url = PromoOfferService.signup_url(task.offer_promo_code) if promo else ""
+            plan = None
+            if promo and promo.plan_code:
+                plan = db.execute(select(Plan).where(Plan.code == promo.plan_code.strip().lower())).scalar_one_or_none()
             variables = SalesAutomationService._template_variables(
                 task,
                 signup_url=signup_url,
                 promo_name=promo.name if promo else task.offer_promo_code,
                 trial_days=int(promo.trial_days if promo else trial_days),
+                promo=promo,
+                plan=plan,
             )
             ok, err = SalesAutomationService._send_whatsapp(
                 db,
@@ -420,14 +446,23 @@ class SalesAutomationService:
             signup_url = ""
             promo_name = "VOXBULK trial"
             trial_days = int(get_lead_sales_settings(db).sales_auto_trial_days or 15)
+            promo = None
+            plan = None
             if task.offer_promo_code:
                 promo = PromoOfferService.get_by_code(db, task.offer_promo_code)
                 if promo:
                     signup_url = PromoOfferService.signup_url(promo.code)
                     promo_name = promo.name
                     trial_days = int(promo.trial_days or trial_days)
+                    if promo.plan_code:
+                        plan = db.execute(select(Plan).where(Plan.code == promo.plan_code.strip().lower())).scalar_one_or_none()
             variables = SalesAutomationService._template_variables(
-                task, signup_url=signup_url, promo_name=promo_name, trial_days=trial_days
+                task,
+                signup_url=signup_url,
+                promo_name=promo_name,
+                trial_days=trial_days,
+                promo=promo,
+                plan=plan,
             )
             ok, err = SalesAutomationService._send_whatsapp(
                 db, task=task, body="", template_key="sales_offer_followup", variables=variables

@@ -228,6 +228,8 @@ class PromoOfferService:
         plan_code: str = "dental_1",
         trial_days: int = 15,
         free_call_credits: int = 0,
+        survey_contacts_included: int = 0,
+        interview_contacts_included: int = 0,
     ) -> PromoOffer:
         existing = db.execute(
             select(PromoOffer).where(PromoOffer.lead_sales_task_id == task_id, PromoOffer.is_active.is_(True))
@@ -235,17 +237,36 @@ class PromoOfferService:
         if existing is not None:
             return existing
 
-        plan = db.execute(select(Plan).where(Plan.code == plan_code.strip().lower())).scalar_one_or_none()
+        plan = None
+        normalized = PromoOfferService.normalize_offer_type(offer_type)
+        if normalized in SUBSCRIPTION_OFFER_TYPES:
+            plan = db.execute(select(Plan).where(Plan.code == plan_code.strip().lower())).scalar_one_or_none()
         code = PromoOfferService.normalize_code(f"SALE{secrets.token_hex(3).upper()}")
         now = datetime.utcnow()
+        survey_contacts = max(0, int(survey_contacts_included or 0))
+        interview_contacts = max(0, int(interview_contacts_included or 0))
         row = PromoOffer(
             code=code,
-            name=f"Sales offer · {contact_name or plan_code}",
-            offer_type=offer_type,
-            plan_code=plan.code if plan else plan_code,
-            service_kind="dental" if offer_type.startswith("dental") else offer_type.replace("_trial", ""),
+            name=(
+                f"Sales offer · {contact_name or plan_code}"
+                if normalized in SUBSCRIPTION_OFFER_TYPES
+                else f"Sales offer · {survey_contacts} surveys"
+                if normalized == "survey_credits"
+                else f"Sales offer · {interview_contacts} interviews"
+            ),
+            offer_type=normalized,
+            plan_code=plan.code if plan else None,
+            service_kind=(
+                "survey"
+                if normalized == "survey_credits"
+                else "interview"
+                if normalized == "interview_credits"
+                else "dental"
+            ),
             trial_days=int(trial_days),
             free_call_credits=int(free_call_credits),
+            survey_contacts_included=survey_contacts,
+            interview_contacts_included=interview_contacts,
             calls_included=int(plan.calls_included if plan else 0),
             whatsapp_included=int(plan.whatsapp_included if plan else 0),
             sms_included=int(plan.sms_included if plan else 0),

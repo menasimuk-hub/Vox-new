@@ -1571,6 +1571,8 @@ def send_lead_sales_offer(
             plan_code=str(body.get("plan_code") or "dental_1"),
             trial_days=int(body.get("trial_days") or 15),
             free_call_credits=int(body.get("free_call_credits") or 0),
+            survey_contacts_included=int(body.get("survey_contacts_included") or 0),
+            interview_contacts_included=int(body.get("interview_contacts_included") or 0),
             send_email=body.get("send_email", True) is not False,
             send_whatsapp=body.get("send_whatsapp", True) is not False,
         )

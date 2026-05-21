@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.data.sales_offer_email_default import SALES_OFFER_EMAIL_BODY, SALES_OFFER_EMAIL_SUBJECT, SALES_OFFER_WHATSAPP_BODY
 from app.models.lead_sales_task import LeadSalesTask
 from app.models.plan import Plan
+from app.models.promo_offer import PromoOffer
 from app.services.promo_offer_service import PromoOfferService
 from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
@@ -29,6 +30,81 @@ class SalesOfferSendService:
     @staticmethod
     def _trial_line(trial_days: int) -> str:
         return f"{trial_days}-day free trial" if trial_days else "special offer"
+
+    @staticmethod
+    def _offer_line(*, offer_type: str, trial_days: int = 0, survey_contacts: int = 0, interview_contacts: int = 0) -> str:
+        if offer_type == "survey_credits":
+            count = max(0, int(survey_contacts or 0))
+            label = "free survey contact" if count == 1 else "free survey contacts"
+            return f"{count} {label}" if count else "free survey offer"
+        if offer_type == "interview_credits":
+            count = max(0, int(interview_contacts or 0))
+            label = "free interview" if count == 1 else "free interviews"
+            return f"{count} {label}" if count else "free interview offer"
+        return SalesOfferSendService._trial_line(int(trial_days or 0))
+
+    @staticmethod
+    def _offer_summary(
+        *,
+        offer_type: str,
+        plan: Plan | None,
+        trial_days: int = 0,
+        survey_contacts: int = 0,
+        interview_contacts: int = 0,
+    ) -> str:
+        if offer_type == "survey_credits":
+            count = max(0, int(survey_contacts or 0))
+            return f"Includes {count} survey contact{'s' if count != 1 else ''} after signup."
+        if offer_type == "interview_credits":
+            count = max(0, int(interview_contacts or 0))
+            return f"Includes {count} AI interview session{'s' if count != 1 else ''} after signup."
+        summary = SalesOfferSendService._plan_summary(plan, trial_days=trial_days)
+        return summary or (f"{trial_days}-day trial included" if trial_days else "Special subscription offer")
+
+    @staticmethod
+    def _variables_from_promo(
+        *,
+        contact_name: str | None,
+        promo: PromoOffer,
+        signup_url: str,
+        plan: Plan | None,
+    ) -> dict[str, str]:
+        offer_type = PromoOfferService.normalize_offer_type(promo.offer_type)
+        trial_days = int(promo.trial_days or 0)
+        survey_contacts = int(promo.survey_contacts_included or 0)
+        interview_contacts = int(promo.interview_contacts_included or 0)
+        offer_line = SalesOfferSendService._offer_line(
+            offer_type=offer_type,
+            trial_days=trial_days,
+            survey_contacts=survey_contacts,
+            interview_contacts=interview_contacts,
+        )
+        offer_summary = SalesOfferSendService._offer_summary(
+            offer_type=offer_type,
+            plan=plan,
+            trial_days=trial_days,
+            survey_contacts=survey_contacts,
+            interview_contacts=interview_contacts,
+        )
+        first = SalesOfferSendService._first_name(contact_name)
+        plan_summary = SalesOfferSendService._plan_summary(plan, trial_days=trial_days)
+        return {
+            "first_name": first,
+            "offer_line": offer_line,
+            "offer_summary": offer_summary,
+            "trial_line": offer_line,
+            "promo_name": promo.name,
+            "plan_summary": plan_summary or offer_summary,
+            "signup_url": signup_url,
+            "plan_name": plan.name if plan else "",
+            "plan_price": f"£{int(plan.price_gbp_pence or 0) / 100:.0f}" if plan else "",
+            "trial_days": str(trial_days),
+            "survey_contacts_included": str(survey_contacts),
+            "interview_contacts_included": str(interview_contacts),
+            "calls_included": str(int(plan.calls_included or 0) if plan else 0),
+            "whatsapp_included": str(int(plan.whatsapp_included or 0) if plan else 0),
+            "sms_included": str(int(plan.sms_included or 0) if plan else 0),
+        }
 
     @staticmethod
     def _plan_summary(plan: Plan | None, *, trial_days: int) -> str:
@@ -124,6 +200,8 @@ class SalesOfferSendService:
         plan_code: str = "dental_1",
         trial_days: int = 15,
         free_call_credits: int = 0,
+        survey_contacts_included: int = 0,
+        interview_contacts_included: int = 0,
         send_email: bool = True,
         send_whatsapp: bool = True,
     ) -> dict:
@@ -140,14 +218,19 @@ class SalesOfferSendService:
             plan_code=plan_code,
             trial_days=trial_days,
             free_call_credits=free_call_credits,
+            survey_contacts_included=survey_contacts_included,
+            interview_contacts_included=interview_contacts_included,
         )
         signup_url = PromoOfferService.signup_url(promo.code)
-        plan = db.execute(select(Plan).where(Plan.code == (promo.plan_code or plan_code).strip().lower())).scalar_one_or_none()
-        variables = SalesOfferSendService._template_variables(
+        plan = None
+        if promo.plan_code:
+            plan = db.execute(select(Plan).where(Plan.code == promo.plan_code.strip().lower())).scalar_one_or_none()
+        if plan is None and plan_code:
+            plan = db.execute(select(Plan).where(Plan.code == plan_code.strip().lower())).scalar_one_or_none()
+        variables = SalesOfferSendService._variables_from_promo(
             contact_name=task.contact_name,
-            promo_name=promo.name,
+            promo=promo,
             signup_url=signup_url,
-            trial_days=int(promo.trial_days or 0),
             plan=plan,
         )
         plain = SalesOfferSendService._whatsapp_body(db, variables)
