@@ -3892,3 +3892,259 @@ body.dark .matrix th {
     position: static;
   }
 }
+
+/* Integration KPI hub — full-width layout */
+.integrationPageShell {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.integrationProviderPage {
+  width: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.integrationToolbarBody {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.integrationToolbarLeft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.integrationBackLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t2);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.integrationBackLink:hover {
+  color: var(--t1);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.integrationEnableRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.integrationMissing {
+  font-size: 12px;
+}
+
+.integrationErrorNote {
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+.integrationKpiHub {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
+.integrationKpiStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.integrationKpiStat {
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+}
+
+.integrationKpiStat label {
+  display: block;
+  font-size: 12px;
+  color: var(--t3);
+  margin-bottom: 4px;
+}
+
+.integrationKpiStat strong {
+  display: block;
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--t1);
+}
+
+.integrationKpiStat span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+.integrationKpiSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.integrationKpiSectionHead h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.integrationKpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.integrationKpiGridCompact {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.integrationKpiCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  width: 100%;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.integrationKpiCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.integrationKpiCard.isConnected {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: linear-gradient(160deg, rgba(34, 197, 94, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+.integrationKpiCard.isDisconnected {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: linear-gradient(160deg, rgba(239, 68, 68, 0.07), rgba(255, 255, 255, 0.02));
+}
+
+.integrationKpiCard.isConfig {
+  border-color: rgba(6, 182, 212, 0.35);
+}
+
+.integrationKpiCardTop {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.integrationKpiIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--t1);
+  font-size: 18px;
+}
+
+.integrationKpiDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.integrationKpiDot.isOn {
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
+}
+
+.integrationKpiDot.isOff {
+  background: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
+}
+
+.integrationKpiDot.isNeutral {
+  background: #06b6d4;
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.18);
+}
+
+.integrationKpiTitle {
+  font-size: 15px;
+  color: var(--t1);
+}
+
+.integrationKpiBlurb {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--t3);
+  min-height: 34px;
+}
+
+.integrationKpiFoot {
+  width: 100%;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.integrationKpiOpen {
+  font-size: 12px;
+  color: var(--t3);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.integrationWebhookRow {
+  display: grid;
+  gap: 6px;
+}
+
+.integrationWebhookUrl {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--t2);
+}
+
+@media (max-width: 900px) {
+  .integrationKpiStats {
+    grid-template-columns: 1fr;
+  }
+}

@@ -105,6 +105,8 @@ export default function App() {
         <Route path='/marketing/funnel' element={G('Ad funnel tracking')} />
         <Route path='/marketing/attribution' element={G('Conversion attribution')} />
 
+        <Route path='/integrations' element={<Integrations />} />
+        <Route path='/integrations/kpi' element={<Integrations />} />
         <Route path='/integrations/dentally' element={<Integrations />} />
         <Route path='/integrations/telnyx' element={<Integrations />} />
         <Route path='/integrations/azure_speech' element={<Integrations />} />

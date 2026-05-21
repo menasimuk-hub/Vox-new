@@ -97,6 +97,7 @@ const NAV = [
   [
     'Integrations',
     [
+      ['KPI overview', '/integrations/kpi'],
       ['Dentally', '/integrations/dentally'],
       ['Telnyx voice agent', '/integrations/telnyx'],
       ['Azure Speech', '/integrations/azure_speech'],

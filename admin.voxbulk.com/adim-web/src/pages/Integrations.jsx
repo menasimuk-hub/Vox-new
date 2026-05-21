@@ -1,6 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { providerLabel } from '../lib/integrationsCatalog'
+import IntegrationKpiHub from './IntegrationKpiHub'
+import IntegrationProviderShell from './IntegrationProviderShell'
 import TelnyxIntegration from './TelnyxIntegration'
 
 const SOCIAL_PROVIDERS = [
@@ -196,6 +199,42 @@ function copyText(value) {
 }
 
 const invalidInputStyle = { borderColor: 'rgba(220,38,38,0.85)' }
+
+function WebhooksOverview({ summaries }) {
+  const telnyx = summaries?.telnyx?.config || {}
+  const gc = summaries?.gocardless?.config || {}
+  const webhookBase = String(telnyx.webhook_base_url || 'https://your-api-host').replace(/\/+$/, '')
+
+  const rows = [
+    { label: 'Telnyx voice', url: telnyx.voice_webhook_url || `${webhookBase}/telnyx/webhooks/voice` },
+    { label: 'Telnyx messaging (SMS / WhatsApp)', url: telnyx.messaging_webhook_url || `${webhookBase}/telnyx/webhooks/messages` },
+    { label: 'Telnyx call status', url: telnyx.status_callback_url || `${webhookBase}/telnyx/webhooks/status` },
+    { label: 'GoCardless billing', url: gc.webhook_url || 'https://your-api-host/webhooks/gocardless' },
+    { label: 'Vapi call events', url: 'Configure in Vapi dashboard → Server URL (see Vapi integration)' },
+  ]
+
+  return (
+    <IntegrationProviderShell summary={null}>
+      <div className='card'>
+        <div className='cardHead'>
+          <h3>Inbound webhook URLs</h3>
+          <span className='pill p-cyan'>Reference</span>
+        </div>
+        <div className='cardBody stack' style={{ gap: 14 }}>
+          <div className='note'>
+            Paste these URLs into Telnyx, GoCardless, and Vapi. Telnyx URLs update when you save Telnyx with your public API base URL (ngrok or production).
+          </div>
+          {rows.map((row) => (
+            <div key={row.label} className='integrationWebhookRow'>
+              <label className='label'>{row.label}</label>
+              <code className='integrationWebhookUrl'>{row.url}</code>
+            </div>
+          ))}
+        </div>
+      </div>
+    </IntegrationProviderShell>
+  )
+}
 
 function SocialLoginSettings() {
   const [loading, setLoading] = useState(true)
@@ -429,7 +468,6 @@ function SocialLoginSettings() {
 
 export default function Integrations() {
   const location = useLocation()
-  const navigate = useNavigate()
   const activeProvider = useMemo(() => {
     const m = location.pathname.match(/^\/integrations\/([^/]+)\/?$/)
     const key = (m?.[1] || '').toLowerCase()
@@ -438,6 +476,14 @@ export default function Integrations() {
 
   const isSocialLoginRoute = useMemo(() => {
     return /\/integrations\/social-login$/.test(location.pathname)
+  }, [location.pathname])
+
+  const isKpiRoute = useMemo(() => {
+    return /^\/integrations\/?$/.test(location.pathname) || /\/integrations\/kpi\/?$/.test(location.pathname)
+  }, [location.pathname])
+
+  const isWebhooksRoute = useMemo(() => {
+    return /\/integrations\/webhooks\/?$/.test(location.pathname)
   }, [location.pathname])
 
   const [summaries, setSummaries] = useState(() =>
@@ -465,6 +511,24 @@ export default function Integrations() {
   const [telnyxActiveCallId, setTelnyxActiveCallId] = useState('')
   const [telnyxCallBusy, setTelnyxCallBusy] = useState(false)
   const [telnyxAccountNumbers, setTelnyxAccountNumbers] = useState([])
+  const [summariesRefreshing, setSummariesRefreshing] = useState(false)
+
+  const reloadSummaries = useCallback(async () => {
+    setSummariesRefreshing(true)
+    const next = {}
+    await Promise.all(
+      PROVIDERS.map(async (p) => {
+        try {
+          const data = await apiFetch(`/admin/integrations/${p.key}`)
+          next[p.key] = data
+        } catch (e) {
+          next[p.key] = { error: true, message: e?.message || 'Error' }
+        }
+      })
+    )
+    setSummaries((s) => ({ ...s, ...next }))
+    setSummariesRefreshing(false)
+  }, [])
 
   function formatTelnyxApiError(e) {
     const d = e?.data?.detail
@@ -1003,42 +1067,64 @@ export default function Integrations() {
     <>
       <div className='pageTop'>
         <div>
-          <h1>{isSocialLoginRoute ? 'Social Login' : activeProvider === 'telnyx' ? 'Telnyx' : 'Integrations'}</h1>
+          <h1>
+            {isSocialLoginRoute
+              ? 'Social Login'
+              : isKpiRoute
+                ? 'Integration KPI'
+                : isWebhooksRoute
+                  ? 'Webhooks'
+                  : activeProvider === 'telnyx'
+                    ? 'Telnyx'
+                    : activeProvider
+                      ? providerLabel(activeProvider)
+                      : 'Integrations'}
+          </h1>
           {isSocialLoginRoute ? (
             <p>Configure social login providers and control their availability on the public sign-in page.</p>
+          ) : isKpiRoute ? (
+            <p>Overview of every integration — green when enabled and connected, red when setup is incomplete.</p>
+          ) : isWebhooksRoute ? (
+            <p>Inbound webhook endpoints for Telnyx, GoCardless, and third-party callbacks.</p>
           ) : activeProvider === 'telnyx' ? (
             <p>Voice, SMS, and WhatsApp — credentials, phone numbers, webhooks, testing, and received messages.</p>
+          ) : activeProvider ? (
+            <p>Credentials, enable toggle, connection test, and status for {providerLabel(activeProvider)}.</p>
           ) : (
-            <p>
-              Central place for Dentally, Telnyx, Vapi, GoCardless, Webhooks, and Social Login configuration, status, and
-              credentials management.
-            </p>
+            <p>Integration settings and connection status.</p>
           )}
         </div>
         <div className='actions'>
-          <button className='btn' onClick={() => window.location.reload()}>
-            Refresh
+          {!isKpiRoute && !isSocialLoginRoute ? (
+            <Link to='/integrations/kpi' className='btn soft'>
+              <i className='ti ti-layout-grid' /> KPI overview
+            </Link>
+          ) : null}
+          <button className='btn' onClick={isKpiRoute ? reloadSummaries : () => window.location.reload()} disabled={summariesRefreshing}>
+            {summariesRefreshing ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </div>
 
       {isSocialLoginRoute ? (
-        <div className='pageShell' style={{ margin: '0 auto', width: '100%', maxWidth: 980 }}>
-          <div className='stack'>
-            <SocialLoginSettings />
-            <div className='card'>
-              <div className='cardHead'>
-                <h3>Security</h3>
-                <span className='pill p-cyan'>Secrets</span>
-              </div>
-              <div className='cardBody'>
-                <div className='note'>
-                  Client secrets are accepted when saving but are never returned to the browser. Leave the secret field
-                  blank to keep the current one.
+        <div className='pageShell integrationPageShell'>
+          <IntegrationProviderShell summary={null}>
+            <div className='stack'>
+              <SocialLoginSettings />
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Security</h3>
+                  <span className='pill p-cyan'>Secrets</span>
+                </div>
+                <div className='cardBody'>
+                  <div className='note'>
+                    Client secrets are accepted when saving but are never returned to the browser. Leave the secret field
+                    blank to keep the current one.
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </IntegrationProviderShell>
         </div>
       ) : activeProvider === 'telnyx' ? (
         <div className='pageShell telnyxPageShell'>
@@ -1079,77 +1165,18 @@ export default function Integrations() {
           loadTelnyxInboundMessages={() => loadTelnyxInboundMessages(false)}
           />
         </div>
-      ) : (
-        <div className='grid-12'>
-          <div className='span-7 stack'>
-            <div className='card'>
-              <div className='cardHead'>
-                <h3>Provider summaries</h3>
-                <span className='pill p-cyan'>API-backed</span>
-              </div>
-              <div className='cardBody'>
-                <div className='tableWrap'>
-                  <table className='table'>
-                    <thead>
-                      <tr>
-                        <th>Provider</th>
-                        <th>Status</th>
-                        <th>Last update</th>
-                        <th>Note</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {PROVIDERS.map((p) => {
-                        const s = summaries[p.key]
-                        const pill = statusPill(s)
-                        return (
-                          <tr key={p.key}>
-                            <td>{p.label}</td>
-                            <td>
-                              <span className={`pill ${pill.cls}`}>{pill.text}</span>
-                            </td>
-                            <td>{s?.updated_at ? new Date(s.updated_at).toLocaleString() : '-'}</td>
-                            <td className='muted' style={{ maxWidth: 360 }}>
-                              {s?.error
-                                ? 'No admin session.'
-                                : s?.exists
-                                  ? s?.is_enabled
-                                    ? s?.configured
-                                      ? 'Ready'
-                                      : 'Missing required fields'
-                                    : 'Disabled'
-                                  : 'Not configured'}
-                            </td>
-                            <td>
-                              <button className='btn soft' onClick={() => navigate(`/integrations/${p.key}`)}>
-                                Open
-                              </button>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                      <tr>
-                        <td>Social Login</td>
-                        <td>
-                          <span className='pill p-cyan'>Config</span>
-                        </td>
-                        <td>-</td>
-                        <td className='muted'>Provider credentials + availability for the sign-in page.</td>
-                        <td>
-                          <button className='btn soft' onClick={() => navigate('/integrations/social-login')}>
-                            Open
-                          </button>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className='span-5 stack'>
+      ) : isKpiRoute ? (
+        <div className='pageShell integrationPageShell'>
+          <IntegrationKpiHub summaries={summaries} loading={summariesRefreshing} onRefresh={reloadSummaries} />
+        </div>
+      ) : isWebhooksRoute ? (
+        <div className='pageShell integrationPageShell'>
+          <WebhooksOverview summaries={summaries} />
+        </div>
+      ) : activeProvider ? (
+        <div className='pageShell integrationPageShell'>
+          <IntegrationProviderShell summary={activeSummary} providerError={providerError}>
+            <div className='stack'>
             {activeProvider === 'azure_speech' ? (
               <div className='card'>
                 <div className='cardHead'>
@@ -1651,39 +1678,11 @@ export default function Integrations() {
                 <div className='cardBody'><div className='note'>Credential editor for this provider is not expanded in this phase.</div></div>
               </div>
             ) : null}
-            <div className='card'>
-              <div className='cardHead'>
-                <h3>Quick access</h3>
-                <span className='pill p-cyan'>Shortcuts</span>
-              </div>
-              <div className='cardBody'>
-                <div className='note'>
-                  Open Telnyx, Azure Speech, and OpenAI for the active voice-agent path. Vapi remains available for browser-call settings.
-                </div>
-                <div className='actions' style={{ marginTop: 12 }}>
-                  <button className='btn primary' onClick={() => navigate('/integrations/telnyx')}>
-                    Telnyx voice settings
-                  </button>
-                  <button className='btn soft' onClick={() => navigate('/integrations/azure_speech')}>
-                    Azure Speech settings
-                  </button>
-                  <button className='btn soft' onClick={() => navigate('/integrations/openai')}>
-                    OpenAI settings
-                  </button>
-                  <button className='btn soft' onClick={() => navigate('/integrations/elevenlabs')}>
-                    ElevenLabs TTS
-                  </button>
-                  <button className='btn soft' onClick={() => navigate('/integrations/gocardless')}>
-                    GoCardless settings
-                  </button>
-                  <button className='btn soft' onClick={() => navigate('/integrations/social-login')}>
-                    Social Login settings
-                  </button>
-                </div>
-              </div>
             </div>
-          </div>
+          </IntegrationProviderShell>
         </div>
+      ) : (
+        <Navigate to='/integrations/kpi' replace />
       )}
     </>
   )
