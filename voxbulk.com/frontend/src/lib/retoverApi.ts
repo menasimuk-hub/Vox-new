@@ -270,6 +270,12 @@ export async function fetchPublicPlans() {
   return await publicJsonFetch('/billing/plans')
 }
 
+export async function fetchPromoPreview(code: string) {
+  const trimmed = String(code || '').trim()
+  if (!trimmed) throw new Error('Promo code required')
+  return publicJsonFetch(`/promo/${encodeURIComponent(trimmed)}`)
+}
+
 /** Persist tenant membership role (must be called with a valid access token). */
 export async function setMembershipRole(role) {
   return await retoverFetch('/auth/me/role', {
