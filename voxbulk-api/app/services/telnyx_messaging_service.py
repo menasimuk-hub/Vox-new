@@ -16,6 +16,7 @@ from app.services.messaging_log_service import LogService, normalize_e164
 
 
 TELNYX_MESSAGES_URL = "https://api.telnyx.com/v2/messages"
+TELNYX_WHATSAPP_MESSAGES_URL = "https://api.telnyx.com/v2/messages/whatsapp"
 
 
 @dataclass(frozen=True)
@@ -48,19 +49,27 @@ class TelnyxMessagingService:
         return sms_from, wa_from or None
 
     @staticmethod
-    def _post_message(db: Session, payload: dict[str, Any]) -> TelnyxMessageResult:
+    def _request_message(
+        db: Session,
+        *,
+        url: str,
+        payload: dict[str, Any],
+        channel: str,
+        include_messaging_profile: bool = True,
+    ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
 
-        messaging_profile_id = str(config.get("messaging_profile_id") or "").strip()
-        if messaging_profile_id and "messaging_profile_id" not in payload:
-            payload["messaging_profile_id"] = messaging_profile_id
+        if include_messaging_profile:
+            messaging_profile_id = str(config.get("messaging_profile_id") or "").strip()
+            if messaging_profile_id and "messaging_profile_id" not in payload:
+                payload["messaging_profile_id"] = messaging_profile_id
 
         try:
             with httpx.Client(timeout=20.0, verify=httpx_ssl_verify()) as client:
-                response = client.post(TELNYX_MESSAGES_URL, json=payload, headers=_telnyx_headers(api_key))
+                response = client.post(url, json=payload, headers=_telnyx_headers(api_key))
                 response.raise_for_status()
                 body = response.json()
         except httpx.HTTPStatusError as e:
@@ -68,10 +77,10 @@ class TelnyxMessagingService:
                 ok=False,
                 status="http_error",
                 detail=_telnyx_http_error_detail(e),
-                channel=str(payload.get("type") or "sms").lower(),
+                channel=channel,
             )
         except Exception as e:
-            return TelnyxMessageResult(ok=False, status="error", detail=str(e), channel=str(payload.get("type") or "sms").lower())
+            return TelnyxMessageResult(ok=False, status="error", detail=str(e), channel=channel)
 
         data = body.get("data") if isinstance(body, dict) else {}
         if not isinstance(data, dict):
@@ -82,9 +91,46 @@ class TelnyxMessagingService:
             ok=True,
             status=msg_status,
             external_id=msg_id,
-            channel=str(payload.get("type") or "SMS").lower(),
+            channel=channel,
             payload=body if isinstance(body, dict) else None,
         )
+
+    @staticmethod
+    def _post_message(db: Session, payload: dict[str, Any]) -> TelnyxMessageResult:
+        return TelnyxMessagingService._request_message(
+            db,
+            url=TELNYX_MESSAGES_URL,
+            payload=payload,
+            channel=str(payload.get("type") or "sms").lower(),
+        )
+
+    @staticmethod
+    def _build_whatsapp_message(
+        *,
+        body: str,
+        template_name: str | None = None,
+        template_id: str | None = None,
+        template_language: str | None = None,
+        template_components: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        template_id = str(template_id or "").strip() or None
+        template_name = str(template_name or "").strip() or None
+        if template_id or template_name:
+            template: dict[str, Any] = {}
+            if template_id:
+                template["template_id"] = template_id
+            else:
+                template["name"] = template_name
+                lang = str(template_language or "en_US").strip() or "en_US"
+                template["language"] = {"policy": "deterministic", "code": lang}
+            if template_components:
+                template["components"] = template_components
+            return {"type": "template", "template": template}
+
+        text_body = str(body or "").strip()
+        if not text_body:
+            raise ValueError("WhatsApp message body is required unless a template is provided.")
+        return {"type": "text", "text": {"body": text_body}}
 
     @staticmethod
     def send_sms(db: Session, *, to_number: str, body: str, from_number: str | None = None) -> TelnyxMessageResult:
@@ -107,39 +153,57 @@ class TelnyxMessagingService:
         )
 
     @staticmethod
-    def send_whatsapp(db: Session, *, to_number: str, body: str, from_number: str | None = None) -> TelnyxMessageResult:
+    def send_whatsapp(
+        db: Session,
+        *,
+        to_number: str,
+        body: str,
+        from_number: str | None = None,
+        template_name: str | None = None,
+        template_id: str | None = None,
+        template_language: str | None = None,
+        template_components: list[dict[str, Any]] | None = None,
+    ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
-        sms_from, wa_from = TelnyxMessagingService._from_numbers(config)
-        sender_raw = from_number or wa_from or sms_from
+        _, wa_from = TelnyxMessagingService._from_numbers(config)
+        sender_raw = from_number or wa_from
         if not sender_raw:
             return TelnyxMessageResult(
                 ok=False,
                 status="not_configured",
-                detail="Telnyx WhatsApp from-number is not configured yet.",
+                detail="Telnyx WhatsApp from-number is not configured (set whatsapp_from in admin Integrations).",
                 channel="whatsapp",
             )
         sender = normalize_telnyx_e164(sender_raw)
         recipient = normalize_telnyx_e164(to_number)
+        if not sender:
+            return TelnyxMessageResult(
+                ok=False,
+                status="invalid_from",
+                detail="WhatsApp from-number is invalid.",
+                channel="whatsapp",
+            )
         if not recipient:
             return TelnyxMessageResult(ok=False, status="invalid_to", detail="Recipient phone number is invalid.", channel="whatsapp")
 
-        # Telnyx WhatsApp uses the Messages API; whatsapp: prefix when profile supports it.
-        to_val = recipient if recipient.startswith("whatsapp:") else recipient
-        from_val = sender if sender.startswith("whatsapp:") else sender
-        result = TelnyxMessagingService._post_message(
-            db,
-            {"from": from_val, "to": to_val, "text": str(body or ""), "type": "whatsapp"},
-        )
-        if result.ok:
-            result = TelnyxMessageResult(
-                ok=result.ok,
-                status=result.status,
-                external_id=result.external_id,
-                detail=result.detail,
-                channel="whatsapp",
-                payload=result.payload,
+        try:
+            whatsapp_message = TelnyxMessagingService._build_whatsapp_message(
+                body=body,
+                template_name=template_name,
+                template_id=template_id,
+                template_language=template_language,
+                template_components=template_components,
             )
-        return result
+        except ValueError as e:
+            return TelnyxMessageResult(ok=False, status="invalid_payload", detail=str(e), channel="whatsapp")
+
+        return TelnyxMessagingService._request_message(
+            db,
+            url=TELNYX_WHATSAPP_MESSAGES_URL,
+            payload={"from": sender, "to": recipient, "whatsapp_message": whatsapp_message},
+            channel="whatsapp",
+            include_messaging_profile=False,
+        )
 
     @staticmethod
     def send_survey_message(
@@ -210,7 +274,7 @@ class TelnyxMessagingService:
             return {
                 "enabled": bool(api_key),
                 "sms": bool(api_key and sms_from),
-                "whatsapp": bool(api_key and (wa_from or sms_from)),
+                "whatsapp": bool(api_key and wa_from),
             }
         except Exception:
             return {"enabled": False, "sms": False, "whatsapp": False}

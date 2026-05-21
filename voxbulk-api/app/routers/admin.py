@@ -640,11 +640,28 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
     payload = payload or {}
     to_number = str(payload.get("to_number") or "").strip()
     body = str(payload.get("body") or "VOXBULK Telnyx WhatsApp test").strip()
+    template_name = str(payload.get("template_name") or "").strip() or None
+    template_id = str(payload.get("template_id") or "").strip() or None
+    template_language = str(payload.get("template_language") or "en_US").strip() or None
     if not to_number:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
-    result = TelnyxMessagingService.send_whatsapp(db, to_number=to_number, body=body)
+    result = TelnyxMessagingService.send_whatsapp(
+        db,
+        to_number=to_number,
+        body=body,
+        template_name=template_name,
+        template_id=template_id,
+        template_language=template_language,
+    )
     if not result.ok:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result.detail or result.status)
+        detail = result.detail or result.status
+        if not (template_name or template_id):
+            detail = (
+                f"{detail} "
+                "Free-form WhatsApp text only works within 24 hours after the recipient messages your business number. "
+                "For a first contact, send a Meta-approved template instead (set template_name in the test request)."
+            )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
     return {"ok": True, "message": "WhatsApp message queued", "external_id": result.external_id, "status": result.status}
 
 

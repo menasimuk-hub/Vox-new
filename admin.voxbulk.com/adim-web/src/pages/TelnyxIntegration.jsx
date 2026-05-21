@@ -68,6 +68,8 @@ export default function TelnyxIntegration({
   telnyxMediaStreamUrl,
   telnyxTestNumber,
   setTelnyxTestNumber,
+  telnyxWaTemplateName,
+  setTelnyxWaTemplateName,
   telnyxTestResult,
   telnyxSmsTestResult,
   telnyxInboundMessages,
@@ -326,6 +328,17 @@ export default function TelnyxIntegration({
             <div className='telnyxTestBlock'>
               <div className='telnyxTestBlockTitle'>SMS & WhatsApp</div>
               <div className='muted telnyxFieldHint'>Uses mobile SMS/WA numbers configured above</div>
+              <Field
+                label='WhatsApp template name (optional)'
+                hint='For first contact use a Meta-approved template from Telnyx → WhatsApp. Leave blank only if you already messaged your business number within 24h.'
+              >
+                <input
+                  className='input'
+                  value={telnyxWaTemplateName}
+                  onChange={(e) => setTelnyxWaTemplateName(e.target.value)}
+                  placeholder='hello_world'
+                />
+              </Field>
               <div className='actions telnyxTestActions'>
                 <button type='button' className='btn soft' onClick={testTelnyxSms} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
                   Test SMS
@@ -350,7 +363,7 @@ export default function TelnyxIntegration({
               <li>Mobile on <strong>Messaging Profile</strong> → messaging webhook URL above.</li>
               <li>Save settings here, then <strong>Test connection</strong>.</li>
               <li>Send SMS to your mobile number, reply to the Telnyx mobile line.</li>
-              <li>For WhatsApp: connect Meta in Telnyx → WhatsApp, then test.</li>
+              <li>For WhatsApp: connect Meta in Telnyx → WhatsApp, assign your mobile number, then test with an approved template (or message your business number first for free-form text within 24h).</li>
             </ol>
           </div>
         </div>

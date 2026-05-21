@@ -459,6 +459,7 @@ export default function Integrations() {
   const [telnyxSmsTestResult, setTelnyxSmsTestResult] = useState('')
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxTestNumber, setTelnyxTestNumber] = useState('')
+  const [telnyxWaTemplateName, setTelnyxWaTemplateName] = useState('')
   const [telnyxActiveCallId, setTelnyxActiveCallId] = useState('')
   const [telnyxCallBusy, setTelnyxCallBusy] = useState(false)
   const [telnyxAccountNumbers, setTelnyxAccountNumbers] = useState([])
@@ -933,9 +934,15 @@ export default function Integrations() {
     setProviderError('')
     setTelnyxSmsTestResult('Sending test WhatsApp…')
     try {
+      const payload = { to_number: toNumber, body: 'VOXBULK Telnyx WhatsApp test' }
+      const templateName = telnyxWaTemplateName.trim()
+      if (templateName) {
+        payload.template_name = templateName
+        payload.template_language = 'en_US'
+      }
       const result = await apiFetch('/admin/integrations/telnyx/test-whatsapp', {
         method: 'POST',
-        body: JSON.stringify({ to_number: toNumber, body: 'VOXBULK Telnyx WhatsApp test' }),
+        body: JSON.stringify(payload),
       })
       setTelnyxSmsTestResult(`${result.message || 'WhatsApp queued'}${result.external_id ? ` (${result.external_id})` : ''}`)
     } catch (e) {
@@ -1023,6 +1030,8 @@ export default function Integrations() {
           telnyxMediaStreamUrl={telnyxMediaStreamUrl}
           telnyxTestNumber={telnyxTestNumber}
           setTelnyxTestNumber={setTelnyxTestNumber}
+          telnyxWaTemplateName={telnyxWaTemplateName}
+          setTelnyxWaTemplateName={setTelnyxWaTemplateName}
           telnyxTestResult={telnyxTestResult}
           telnyxSmsTestResult={telnyxSmsTestResult}
           telnyxInboundMessages={telnyxInboundMessages}
