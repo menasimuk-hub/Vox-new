@@ -45,6 +45,15 @@ function isLocalDevHost() {
   return h === 'localhost' || h === '127.0.0.1' || h === '::1'
 }
 
+/** Production admin/dashboard hosts call the API subdomain (nginx serves static only). */
+function defaultProductionApiBaseUrl() {
+  if (typeof window === 'undefined') return ''
+  const h = window.location.hostname
+  if (h === 'admin.voxbulk.com') return 'https://api.voxbulk.com'
+  if (h === 'admin.microgreenia.com') return 'https://api.microgreenia.com'
+  return ''
+}
+
 export function getApiBaseUrl() {
   const explicit = String(import.meta?.env?.VITE_API_BASE_URL || import.meta?.env?.VITE_RETOVER_API_BASE_URL || '')
     .trim()
@@ -63,6 +72,9 @@ export function getApiBaseUrl() {
   if (useDevProxyBehaviour) return ''
 
   if (hasExplicit) return explicit
+
+  const prodDefault = defaultProductionApiBaseUrl()
+  if (prodDefault) return prodDefault
 
   if (typeof window !== 'undefined') {
     const h = window.location.hostname
