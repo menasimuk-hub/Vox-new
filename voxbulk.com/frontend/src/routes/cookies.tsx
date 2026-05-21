@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { PageShell } from "@/components/SiteShell";
+import { LegalPageView } from "@/components/LegalPageView";
 
 export const Route = createFileRoute("/cookies")({
   head: () => ({
@@ -8,5 +8,7 @@ export const Route = createFileRoute("/cookies")({
       { name: "description", content: "VOXBULK Cookie Policy." },
     ],
   }),
-  component: () => <PageShell eyebrow="Legal" title="Cookie Policy" />,
+  component: () => (
+    <LegalPageView slug="cookies" fallbackTitle="Cookie Policy" fallbackDescription="VOXBULK Cookie Policy." />
+  ),
 });

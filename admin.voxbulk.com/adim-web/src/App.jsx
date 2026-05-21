@@ -21,6 +21,8 @@ import EmailTemplateEdit from './pages/EmailTemplateEdit'
 import WhatsAppTemplateEdit from './pages/WhatsAppTemplateEdit'
 import SmsTemplateEdit from './pages/SmsTemplateEdit'
 import FAQManagement from './pages/FAQManagement'
+import LegalPages from './pages/LegalPages'
+import LegalPageEdit from './pages/LegalPageEdit'
 import HelpCentreContent from './pages/HelpCentreContent'
 import PendingSignups from './pages/PendingSignups'
 import AdminUsers from './pages/AdminUsers'
@@ -178,6 +180,8 @@ export default function App() {
         <Route path='/settings/email/whatsapp/:templateKey/edit' element={<WhatsAppTemplateEdit />} />
         <Route path='/settings/email/sms/new' element={<SmsTemplateEdit />} />
         <Route path='/settings/email/sms/:templateKey/edit' element={<SmsTemplateEdit />} />
+        <Route path='/settings/legal' element={<LegalPages />} />
+        <Route path='/settings/legal/:slug/edit' element={<LegalPageEdit />} />
         <Route path='/settings/api-keys' element={G('API keys / secrets')} />
 
         <Route path='*' element={<HomeRedirect />} />

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { PageShell } from "@/components/SiteShell";
+import { LegalPageView } from "@/components/LegalPageView";
 
 export const Route = createFileRoute("/privacy")({
   head: () => ({
@@ -8,5 +8,7 @@ export const Route = createFileRoute("/privacy")({
       { name: "description", content: "VOXBULK Privacy Policy." },
     ],
   }),
-  component: () => <PageShell eyebrow="Legal" title="Privacy Policy" />,
+  component: () => (
+    <LegalPageView slug="privacy" fallbackTitle="Privacy Policy" fallbackDescription="VOXBULK Privacy Policy." />
+  ),
 });

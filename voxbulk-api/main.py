@@ -23,6 +23,7 @@ from app.routers.admin_messaging import router as admin_messaging_router
 from app.routers.admin_support import router as admin_support_router
 from app.routers.agents import router as agents_router
 from app.routers.knowledge_base import router as knowledge_base_router
+from app.routers.legal_pages import router as legal_pages_router
 from app.routers.appointments import router as appointments_router
 from app.routers.auth import router as auth_router
 from app.routers.billing import router as billing_router
@@ -180,6 +181,8 @@ app.include_router(billing_router)
 app.include_router(support_router)
 app.include_router(telnyx_router)
 app.include_router(faq_router)
+app.include_router(legal_pages_router)
+app.include_router(legal_pages_router, prefix="/api")
 app.include_router(frontpage_router)
 app.include_router(frontpage_router, prefix="/api")
 app.include_router(admin_frontpage_router)

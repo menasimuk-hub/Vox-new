@@ -46,6 +46,7 @@ from app.models.payment_event import PaymentEvent  # noqa: F401
 from app.models.billing_invoice import BillingInvoice  # noqa: F401
 from app.models.notification import Notification  # noqa: F401
 from app.models.faq import FAQCategory, FAQItem  # noqa: F401
+from app.models.legal_page import LegalPage  # noqa: F401
 from app.models.support_ticket import (  # noqa: F401
     CannedReply,
     CannedReplyCategory,
