@@ -78,6 +78,7 @@ Meta verification SMS (and later WhatsApp traffic) flows through Telnyx once con
 3. Complete WhatsApp Business profile (display name, category, description).
 4. Once approved, Telnyx shows your **WhatsApp-enabled number**.
 5. Ensure that number uses the same **Messaging Profile** with webhook `…/telnyx/webhooks/messages`.
+6. **Important:** In **Messaging → WhatsApp → your WABA → Webhooks**, set the **same URL** again. WhatsApp inbound and delivery status events use this WABA webhook — the Messaging Profile alone is not enough for WhatsApp.
 
 ### In VOXBULK
 1. Set **WhatsApp from number** to the Telnyx WhatsApp number (E.164, e.g. `+442046203055`).

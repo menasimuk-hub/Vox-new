@@ -662,14 +662,44 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
                 "For a first contact, send a Meta-approved template instead (set template_name in the test request)."
             )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
-    return {"ok": True, "message": "WhatsApp message queued", "external_id": result.external_id, "status": result.status}
+
+    try:
+        from app.services.provider_settings import ProviderSettingsService
+
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        config = cfg if isinstance(cfg, dict) else {}
+        org_id = str(config.get("messaging_org_id") or config.get("default_messaging_org_id") or "").strip()
+        if not org_id:
+            from sqlalchemy import select
+            from app.models.organisation import Organisation
+
+            fallback = db.execute(select(Organisation.id).order_by(Organisation.created_at.asc()).limit(1)).scalar_one_or_none()
+            org_id = str(fallback or "")
+        wa_from = str(config.get("whatsapp_from") or "").strip() or None
+        if org_id:
+            TelnyxMessagingService.log_outbound(
+                db,
+                org_id=org_id,
+                to_number=to_number,
+                from_number=wa_from,
+                body=body if not (template_name or template_id) else f"[template:{template_name or template_id}] {body}".strip(),
+                result=result,
+            )
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "message": "WhatsApp message queued — check Messages below after Refresh (status updates via webhook).",
+        "external_id": result.external_id,
+        "status": result.status,
+    }
 
 
 @router.get("/integrations/telnyx/inbound-messages")
 def list_telnyx_inbound_messages(limit: int = 50, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     rows = LogService.list_platform_message_logs(db, limit=limit)
-    inbound = [row for row in rows if str(row.get("direction") or "").lower() == "inbound"]
-    return {"ok": True, "messages": inbound[: max(1, min(limit, 200))]}
+    return {"ok": True, "messages": rows[: max(1, min(limit, 200))]}
 
 
 @router.get("/social-login/providers")

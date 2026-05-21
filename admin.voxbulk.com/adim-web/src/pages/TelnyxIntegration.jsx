@@ -265,7 +265,7 @@ export default function TelnyxIntegration({
               label='Messaging webhook (SMS + WhatsApp inbound)'
               value={telnyxMessagingWebhookUrl}
               onChange={(e) => setProviderField('telnyx', 'messaging_webhook_url', e.target.value)}
-              hint='Paste into Telnyx Messaging Profile. Meta verification SMS arrives here.'
+              hint='Paste into Telnyx Messaging Profile AND Messaging → WhatsApp → WABA webhook settings.'
             />
             <Field label='Status callback URL'>
               <input
@@ -363,7 +363,7 @@ export default function TelnyxIntegration({
               <li>Mobile on <strong>Messaging Profile</strong> → messaging webhook URL above.</li>
               <li>Save settings here, then <strong>Test connection</strong>.</li>
               <li>Send SMS to your mobile number, reply to the Telnyx mobile line.</li>
-              <li>For WhatsApp: connect Meta in Telnyx → WhatsApp, assign your mobile number, then test with an approved template (or message your business number first for free-form text within 24h).</li>
+              <li>For WhatsApp: connect Meta in Telnyx → WhatsApp, assign your mobile number, set the <strong>same webhook URL</strong> under WABA webhook settings, then test.</li>
             </ol>
           </div>
         </div>
@@ -371,7 +371,7 @@ export default function TelnyxIntegration({
 
       <div className='card telnyxInboundCard'>
         <div className='cardHead'>
-          <h3>Received messages</h3>
+          <h3>Messages</h3>
           <div className='actions'>
             <button type='button' className='btn soft' onClick={loadTelnyxInboundMessages} disabled={providerSaving || !activeSummary?.exists}>
               Refresh
@@ -384,7 +384,8 @@ export default function TelnyxIntegration({
               <table className='table telnyxInboundTable'>
                 <thead>
                   <tr>
-                    <th>Received</th>
+                    <th>Time</th>
+                    <th>Direction</th>
                     <th>From</th>
                     <th>To</th>
                     <th>Message</th>
@@ -395,6 +396,11 @@ export default function TelnyxIntegration({
                   {telnyxInboundMessages.map((m) => (
                     <tr key={m.id}>
                       <td className='muted'>{fmtTime(m.created_at)}</td>
+                      <td>
+                        <span className={`pill ${String(m.direction || '').toLowerCase() === 'outbound' ? 'p-cyan' : 'p-green'}`}>
+                          {m.direction || 'inbound'}
+                        </span>
+                      </td>
                       <td>{m.from_number || '—'}</td>
                       <td>{m.to_number || '—'}</td>
                       <td className='telnyxMessageBody'>{String(m.body || '').trim() || '—'}</td>
@@ -408,7 +414,8 @@ export default function TelnyxIntegration({
             </div>
           ) : (
             <div className='note telnyxEmptyInbound'>
-              No inbound messages yet. Text your Telnyx <strong>SMS mobile number</strong> or complete Meta verification, then click <strong>Refresh</strong>.
+              No messages yet. Text your Telnyx <strong>WhatsApp business number</strong> from your phone, or run <strong>Test WhatsApp</strong>, then click <strong>Refresh</strong>.
+              Ensure the webhook URL is set in both the Messaging Profile and Telnyx → WhatsApp → WABA webhooks.
             </div>
           )}
         </div>

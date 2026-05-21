@@ -49,6 +49,16 @@ class TelnyxMessagingService:
         return sms_from, wa_from or None
 
     @staticmethod
+    def _messaging_webhook_url(config: dict[str, Any]) -> str | None:
+        url = str(config.get("messaging_webhook_url") or "").strip()
+        if url:
+            return url
+        base = str(config.get("webhook_base_url") or "").strip().rstrip("/")
+        if base:
+            return f"{base}/telnyx/webhooks/messages"
+        return None
+
+    @staticmethod
     def _request_message(
         db: Session,
         *,
@@ -197,10 +207,23 @@ class TelnyxMessagingService:
         except ValueError as e:
             return TelnyxMessageResult(ok=False, status="invalid_payload", detail=str(e), channel="whatsapp")
 
+        payload: dict[str, Any] = {
+            "from": sender,
+            "to": recipient,
+            "type": "WHATSAPP",
+            "whatsapp_message": whatsapp_message,
+        }
+        messaging_profile_id = str(config.get("messaging_profile_id") or "").strip()
+        if messaging_profile_id:
+            payload["messaging_profile_id"] = messaging_profile_id
+        webhook_url = TelnyxMessagingService._messaging_webhook_url(config)
+        if webhook_url:
+            payload["webhook_url"] = webhook_url
+
         return TelnyxMessagingService._request_message(
             db,
             url=TELNYX_WHATSAPP_MESSAGES_URL,
-            payload={"from": sender, "to": recipient, "whatsapp_message": whatsapp_message},
+            payload=payload,
             channel="whatsapp",
             include_messaging_profile=False,
         )

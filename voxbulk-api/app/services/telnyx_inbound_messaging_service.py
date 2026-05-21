@@ -18,6 +18,41 @@ def _phone_from(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _extract_message_text(record: dict[str, Any]) -> str:
+    text = record.get("text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+
+    body = record.get("body")
+    if isinstance(body, str) and body.strip():
+        return body.strip()
+    if isinstance(body, dict):
+        inner = body.get("text")
+        if isinstance(inner, str) and inner.strip():
+            return inner.strip()
+        if isinstance(inner, dict):
+            nested = inner.get("body")
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
+        if str(body.get("type") or "").lower() == "text":
+            text_obj = body.get("text")
+            if isinstance(text_obj, dict):
+                nested = text_obj.get("body")
+                if isinstance(nested, str) and nested.strip():
+                    return nested.strip()
+
+    whatsapp_message = record.get("whatsapp_message")
+    if isinstance(whatsapp_message, dict):
+        if str(whatsapp_message.get("type") or "").lower() == "text":
+            text_obj = whatsapp_message.get("text")
+            if isinstance(text_obj, dict):
+                nested = text_obj.get("body")
+                if isinstance(nested, str) and nested.strip():
+                    return nested.strip()
+
+    return ""
+
+
 def _resolve_org_id(db: Session, *, header_org_id: str | None, config: dict[str, Any]) -> str:
     for candidate in (
         str(header_org_id or "").strip(),
@@ -63,7 +98,7 @@ class TelnyxInboundMessagingService:
         elif isinstance(to_entries, dict):
             to_number = _phone_from(to_entries)
 
-        body = str(record.get("text") or record.get("body") or "").strip()
+        body = _extract_message_text(record)
         status = str(record.get("status") or ("received" if direction == "inbound" else "sent")).strip().lower()
 
         if message_id:
@@ -80,7 +115,7 @@ class TelnyxInboundMessagingService:
                         existing.body = body
                     db.add(existing)
                     db.commit()
-                if message_id and direction == "outbound":
+                if direction == "outbound":
                     try:
                         from app.services.telephony_recovery_bridge import apply_message_status_to_recovery
 
@@ -94,10 +129,13 @@ class TelnyxInboundMessagingService:
                         db.commit()
                     except Exception:
                         pass
-                return {"ok": True, "log_id": existing.id, "duplicate": True}
+                return {"ok": True, "log_id": existing.id, "duplicate": True, "status": status}
 
         if direction != "inbound" and event_type != "message.received":
-            return {"ok": True, "ignored": True, "event_type": event_type, "direction": direction}
+            if direction == "outbound" and event_type in {"message.sent", "message.finalized"} and message_id:
+                pass
+            else:
+                return {"ok": True, "ignored": True, "event_type": event_type, "direction": direction}
 
         cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
         config = cfg if isinstance(cfg, dict) else {}
@@ -120,8 +158,8 @@ class TelnyxInboundMessagingService:
             org_id=org_id,
             provider="telnyx",
             external_message_id=message_id,
-            status=status or "received",
-            direction="inbound",
+            status=status or ("received" if direction == "inbound" else "sent"),
+            direction="inbound" if direction == "inbound" else "outbound",
             to_number=to_norm or None,
             from_number=from_norm or None,
             body=body or f"({channel} message)",

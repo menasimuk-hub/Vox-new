@@ -38,6 +38,48 @@ def test_telnyx_inbound_message_webhook(app_client):
     assert body.get("log_id")
 
 
+def test_telnyx_inbound_whatsapp_message_webhook(app_client):
+    from app.core.database import get_sessionmaker
+    from app.models.organisation import Organisation
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="WhatsApp Inbound Org")
+        db.add(org)
+        db.commit()
+        org_id = org.id
+
+    payload = {
+        "data": {
+            "event_type": "message.received",
+            "payload": {
+                "id": "msg-wa-inbound-001",
+                "direction": "inbound",
+                "type": "WHATSAPP",
+                "from": {"phone_number": "+447700900123"},
+                "to": [{"phone_number": "+442046203055"}],
+                "body": {"type": "text", "text": {"body": "Hello from WhatsApp"}},
+                "status": "received",
+            },
+        }
+    }
+    r = app_client.post("/telnyx/webhooks/messages", json=payload, headers={"X-Retover-Org-Id": org_id})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert body.get("channel") == "whatsapp"
+
+    with get_sessionmaker()() as db:
+        from app.models.whatsapp_log import WhatsAppLog
+        from sqlalchemy import select
+
+        row = db.execute(
+            select(WhatsAppLog).where(WhatsAppLog.external_message_id == "msg-wa-inbound-001")
+        ).scalar_one_or_none()
+        assert row is not None
+        assert row.body == "Hello from WhatsApp"
+        assert row.direction == "inbound"
+
+
 def test_gocardless_webhook_signature(app_client):
     body = b"{\"events\":[{\"id\":\"EV123\"}]}"
     sig = compute_gocardless_signature_hex(secret="gc-test", body=body)
