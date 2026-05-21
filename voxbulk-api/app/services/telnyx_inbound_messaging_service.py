@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from typing import Any
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,6 +9,36 @@ from app.models.organisation import Organisation
 from app.models.whatsapp_log import WhatsAppLog
 from app.services.messaging_log_service import LogService, normalize_e164
 from app.services.provider_settings import ProviderSettingsService
+
+
+def _extract_delivery_status(record: dict[str, Any]) -> str:
+    to_entries = record.get("to")
+    if isinstance(to_entries, list) and to_entries:
+        first = to_entries[0]
+        if isinstance(first, dict):
+            to_status = str(first.get("status") or "").strip().lower()
+            if to_status:
+                return to_status
+    return str(record.get("status") or "").strip().lower()
+
+
+def _format_delivery_errors(record: dict[str, Any]) -> str | None:
+    errors = record.get("errors")
+    if not isinstance(errors, list) or not errors:
+        return None
+    parts: list[str] = []
+    for item in errors:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "").strip()
+        detail = str(item.get("detail") or item.get("title") or "").strip()
+        if code and detail:
+            parts.append(f"{code}: {detail}")
+        elif detail:
+            parts.append(detail)
+        elif code:
+            parts.append(code)
+    return " · ".join(parts) if parts else None
 
 
 def _phone_from(value: Any) -> str:
@@ -99,7 +128,8 @@ class TelnyxInboundMessagingService:
             to_number = _phone_from(to_entries)
 
         body = _extract_message_text(record)
-        status = str(record.get("status") or ("received" if direction == "inbound" else "sent")).strip().lower()
+        status = _extract_delivery_status(record) or ("received" if direction == "inbound" else "sent")
+        delivery_error = _format_delivery_errors(record)
 
         if message_id:
             existing = db.execute(
@@ -113,6 +143,10 @@ class TelnyxInboundMessagingService:
                     existing.status = status
                     if body and not existing.body:
                         existing.body = body
+                    if delivery_error:
+                        err_note = f"Delivery error: {delivery_error}"
+                        if err_note not in str(existing.body or ""):
+                            existing.body = f"{existing.body or ''}\n{err_note}".strip()
                     db.add(existing)
                     db.commit()
                 if direction == "outbound":
@@ -162,7 +196,7 @@ class TelnyxInboundMessagingService:
             direction="inbound" if direction == "inbound" else "outbound",
             to_number=to_norm or None,
             from_number=from_norm or None,
-            body=body or f"({channel} message)",
+            body=(body or f"({channel} message)") + (f"\nDelivery error: {delivery_error}" if delivery_error else ""),
             media_json=media_json,
             raw_payload=raw_payload,
         )

@@ -642,9 +642,12 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
     body = str(payload.get("body") or "VOXBULK Telnyx WhatsApp test").strip()
     template_name = str(payload.get("template_name") or "").strip() or None
     template_id = str(payload.get("template_id") or "").strip() or None
-    template_language = str(payload.get("template_language") or "en_US").strip() or None
+    template_language = str(payload.get("template_language") or "en_GB").strip() or None
     if not to_number:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
+    template_error = TelnyxMessagingService.validate_whatsapp_template_ref(template_name, template_id)
+    if template_error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=template_error)
     result = TelnyxMessagingService.send_whatsapp(
         db,
         to_number=to_number,

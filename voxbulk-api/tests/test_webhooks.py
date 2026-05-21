@@ -80,6 +80,69 @@ def test_telnyx_inbound_whatsapp_message_webhook(app_client):
         assert row.direction == "inbound"
 
 
+def test_telnyx_whatsapp_template_validation_rejects_numeric_name():
+    from app.services.telnyx_messaging_service import TelnyxMessagingService
+
+    err = TelnyxMessagingService.validate_whatsapp_template_ref("212", None)
+    assert err
+    assert "212" in err
+
+
+def test_telnyx_message_finalized_delivery_failed(app_client):
+    from sqlalchemy import select
+
+    from app.core.database import get_sessionmaker
+    from app.models.organisation import Organisation
+    from app.models.whatsapp_log import WhatsAppLog
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="WA Delivery Fail Org")
+        db.add(org)
+        db.commit()
+        org_id = org.id
+        row = WhatsAppLog(
+            org_id=org_id,
+            provider="telnyx",
+            external_message_id="msg-wa-out-001",
+            status="queued",
+            direction="outbound",
+            to_number="+447954823445",
+            from_number="+447822002055",
+            body="[template:hello_world] test",
+        )
+        db.add(row)
+        db.commit()
+
+    payload = {
+        "data": {
+            "event_type": "message.finalized",
+            "payload": {
+                "id": "msg-wa-out-001",
+                "direction": "outbound",
+                "type": "WHATSAPP",
+                "from": {"phone_number": "+447822002055"},
+                "to": [{"phone_number": "+447954823445", "status": "delivery_failed"}],
+                "errors": [
+                    {
+                        "code": "131026",
+                        "title": "Template not found",
+                        "detail": "The template name does not exist in the translation.",
+                    }
+                ],
+            },
+        }
+    }
+    r = app_client.post("/telnyx/webhooks/messages", json=payload, headers={"X-Retover-Org-Id": org_id})
+    assert r.status_code == 200
+
+    with get_sessionmaker()() as db:
+        row = db.execute(
+            select(WhatsAppLog).where(WhatsAppLog.external_message_id == "msg-wa-out-001")
+        ).scalar_one()
+        assert row.status == "delivery_failed"
+        assert "template name does not exist" in str(row.body).lower()
+
+
 def test_gocardless_webhook_signature(app_client):
     body = b"{\"events\":[{\"id\":\"EV123\"}]}"
     sig = compute_gocardless_signature_hex(secret="gc-test", body=body)

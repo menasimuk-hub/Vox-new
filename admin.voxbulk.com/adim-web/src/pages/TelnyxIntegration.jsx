@@ -33,6 +33,14 @@ function fmtTime(value) {
   }
 }
 
+function messageStatusClass(status) {
+  const s = String(status || '').toLowerCase()
+  if (s.includes('fail') || s.includes('error') || s.includes('undeliver')) return 'p-red'
+  if (s === 'delivered' || s === 'read' || s === 'received') return 'p-green'
+  if (s === 'queued' || s === 'sent' || s === 'sending') return 'p-amber'
+  return 'p-cyan'
+}
+
 function Field({ label, hint, error, children }) {
   return (
     <div className='telnyxField'>
@@ -70,6 +78,8 @@ export default function TelnyxIntegration({
   setTelnyxTestNumber,
   telnyxWaTemplateName,
   setTelnyxWaTemplateName,
+  telnyxWaTemplateLang,
+  setTelnyxWaTemplateLang,
   telnyxTestResult,
   telnyxSmsTestResult,
   telnyxInboundMessages,
@@ -342,14 +352,22 @@ export default function TelnyxIntegration({
               <div className='telnyxTestBlockTitle'>SMS & WhatsApp</div>
               <div className='muted telnyxFieldHint'>Uses mobile SMS/WA numbers configured above</div>
               <Field
-                label='WhatsApp template name (optional)'
-                hint='For first contact use a Meta-approved template from Telnyx → WhatsApp. Leave blank only if you already messaged your business number within 24h.'
+                label='WhatsApp template name or UUID (optional)'
+                hint='Use the Meta template NAME from Telnyx → WhatsApp → Templates (e.g. hello_world), or paste the UUID template_id. Do not use the row number (212). Leave blank only if you messaged the business number within 24h.'
               >
                 <input
                   className='input'
                   value={telnyxWaTemplateName}
                   onChange={(e) => setTelnyxWaTemplateName(e.target.value)}
-                  placeholder='hello_world'
+                  placeholder='hello_world or 019cd44b-…'
+                />
+              </Field>
+              <Field label='Template language' hint='Must match the approved template language in Meta (UK templates often use en_GB).'>
+                <input
+                  className='input'
+                  value={telnyxWaTemplateLang}
+                  onChange={(e) => setTelnyxWaTemplateLang(e.target.value)}
+                  placeholder='en_GB'
                 />
               </Field>
               <div className='actions telnyxTestActions'>
@@ -418,7 +436,7 @@ export default function TelnyxIntegration({
                       <td>{m.to_number || '—'}</td>
                       <td className='telnyxMessageBody'>{String(m.body || '').trim() || '—'}</td>
                       <td>
-                        <span className='pill p-cyan'>{m.status || 'received'}</span>
+                        <span className={`pill ${messageStatusClass(m.status)}`}>{m.status || 'received'}</span>
                       </td>
                     </tr>
                   ))}

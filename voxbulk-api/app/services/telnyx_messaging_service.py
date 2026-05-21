@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,6 +18,7 @@ from app.services.messaging_log_service import LogService, normalize_e164
 
 TELNYX_MESSAGES_URL = "https://api.telnyx.com/v2/messages"
 TELNYX_WHATSAPP_MESSAGES_URL = "https://api.telnyx.com/v2/messages/whatsapp"
+_TEMPLATE_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,37 @@ class TelnyxMessagingService:
         )
 
     @staticmethod
+    def resolve_whatsapp_template_ref(
+        *,
+        template_name: str | None = None,
+        template_id: str | None = None,
+    ) -> tuple[str | None, str | None]:
+        tid = str(template_id or "").strip() or None
+        if tid:
+            return None, tid
+        name = str(template_name or "").strip() or None
+        if not name:
+            return None, None
+        if _TEMPLATE_UUID_RE.match(name):
+            return None, name
+        return name, None
+
+    @staticmethod
+    def validate_whatsapp_template_ref(template_name: str | None, template_id: str | None) -> str | None:
+        name, tid = TelnyxMessagingService.resolve_whatsapp_template_ref(
+            template_name=template_name,
+            template_id=template_id,
+        )
+        ref = tid or name
+        if ref and ref.isdigit():
+            return (
+                f"Template '{ref}' looks like a list number, not a Meta template. "
+                "In Telnyx → WhatsApp → Templates, copy the template name (e.g. hello_world) "
+                "or the UUID template_id — not the row number in the portal."
+            )
+        return None
+
+    @staticmethod
     def _build_whatsapp_message(
         *,
         body: str,
@@ -129,13 +162,17 @@ class TelnyxMessagingService:
     ) -> dict[str, Any]:
         template_id = str(template_id or "").strip() or None
         template_name = str(template_name or "").strip() or None
-        if template_id or template_name:
+        resolved_name, resolved_id = TelnyxMessagingService.resolve_whatsapp_template_ref(
+            template_name=template_name,
+            template_id=template_id,
+        )
+        if resolved_id or resolved_name:
             template: dict[str, Any] = {}
-            if template_id:
-                template["template_id"] = template_id
+            if resolved_id:
+                template["template_id"] = resolved_id
             else:
-                template["name"] = template_name
-                lang = str(template_language or "en_US").strip() or "en_US"
+                template["name"] = resolved_name
+                lang = str(template_language or "en_GB").strip() or "en_GB"
                 template["language"] = {"policy": "deterministic", "code": lang}
             if template_components:
                 template["components"] = template_components
