@@ -30,7 +30,7 @@ def upgrade() -> None:
         sa.Column("title", sa.String(length=200), nullable=False),
         sa.Column("public_path", sa.String(length=120), nullable=False),
         sa.Column("meta_description", sa.String(length=500), nullable=True),
-        sa.Column("body", sa.Text(), nullable=False, server_default=""),
+        sa.Column("body", sa.Text(), nullable=False),
         sa.Column("is_published", sa.Boolean(), nullable=False, server_default=sa.text("1")),
         sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
