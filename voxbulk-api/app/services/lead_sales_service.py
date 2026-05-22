@@ -86,6 +86,23 @@ def _sales_playbook_block(settings: LeadSalesSetting) -> str:
     return "\n\n".join(parts)
 
 
+def sync_lead_sales_telnyx_assistant(db: Session, settings: LeadSalesSetting | None = None) -> dict[str, object]:
+    """Push Adam master script + sales KB cache to the Telnyx sales assistant."""
+    settings = settings or get_lead_sales_settings(db)
+    refresh_lead_sales_kb(settings, db)
+    agent_id = str(settings.telnyx_assistant_id or "").strip()
+    sync_prompt = _sales_playbook_block(settings).strip()
+    if not agent_id:
+        return {"telnyx_synced": False, "telnyx_sync_warning": "Telnyx sales assistant ID is not set"}
+    if not sync_prompt:
+        return {"telnyx_synced": False, "telnyx_sync_warning": "Master sales script is empty"}
+    try:
+        sync_telnyx_assistant_instructions(db, agent_id, sync_prompt, enable_web_calls=False)
+        return {"telnyx_synced": True, "telnyx_sync_warning": None}
+    except Exception as exc:
+        return {"telnyx_synced": False, "telnyx_sync_warning": str(exc)}
+
+
 def get_sales_task_for_lead(db: Session, lead_id: str) -> LeadSalesTask | None:
     return db.execute(select(LeadSalesTask).where(LeadSalesTask.lead_id == lead_id).limit(1)).scalar_one_or_none()
 

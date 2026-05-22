@@ -207,15 +207,14 @@ def resync_telnyx_after_kb_delete(db: Session, *, scope: str) -> dict[str, objec
                     sync_telnyx_assistant_instructions(db, agent_id, sync_prompt)
                     synced = True
         elif kb_scope == KB_SCOPE_SALES:
-            from app.services.lead_sales_service import _sales_playbook_block, get_lead_sales_settings
-            from app.services.telnyx_assistant_service import sync_telnyx_assistant_instructions
+            from app.services.lead_sales_service import sync_lead_sales_telnyx_assistant
 
-            settings = get_lead_sales_settings(db)
-            agent_id = str(settings.telnyx_assistant_id or "").strip()
-            sync_prompt = _sales_playbook_block(settings).strip()
-            if agent_id and sync_prompt:
-                sync_telnyx_assistant_instructions(db, agent_id, sync_prompt, enable_web_calls=False)
-                synced = True
+            telnyx = sync_lead_sales_telnyx_assistant(db)
+            synced = bool(telnyx.get("telnyx_synced"))
+            warning = telnyx.get("telnyx_sync_warning")
+            if isinstance(warning, str):
+                warning = warning or None
+            return {"telnyx_synced": synced, "telnyx_sync_warning": warning}
     except Exception as exc:
         warning = str(exc)
 

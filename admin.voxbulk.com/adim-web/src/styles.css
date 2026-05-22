@@ -2151,9 +2151,19 @@ textarea.input{
 .frontpageKbTable .table td{
   padding:8px 10px;
   font-size:13px;
+  vertical-align:middle;
+}
+.frontpageKbTable .table td.frontpageKbFilename{
   max-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.frontpageKbTable .table td.frontpageKbActions{
+  width:148px;
+  min-width:148px;
+  max-width:none;
+  overflow:visible;
   white-space:nowrap;
 }
 .frontpageKbTable .table tr.isSelected td{

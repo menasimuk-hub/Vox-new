@@ -358,7 +358,7 @@ export default function FrontpageCallLeads() {
                       <th style={{ width: 36 }} />
                       <th>File</th>
                       <th style={{ width: 56 }}>KB</th>
-                      <th style={{ width: 120 }} />
+                      <th style={{ width: 148 }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -372,9 +372,9 @@ export default function FrontpageCallLeads() {
                             aria-label={`Use ${file.original_filename}`}
                           />
                         </td>
-                        <td title={file.original_filename}>{file.original_filename}</td>
+                        <td title={file.original_filename} className='frontpageKbFilename'>{file.original_filename}</td>
                         <td className='muted'>{Math.round((file.size_bytes || 0) / 1024)}</td>
-                        <td>
+                        <td className='frontpageKbActions'>
                           <div className='actions' style={{ gap: 6 }}>
                             <button
                               type='button'

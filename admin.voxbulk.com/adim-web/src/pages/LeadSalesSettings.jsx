@@ -249,7 +249,7 @@ export default function LeadSalesSettings() {
     setSaving(true)
     setMsg('')
     try {
-      await apiFetch('/admin/frontpage/lead-sales/settings', {
+      const result = await apiFetch('/admin/frontpage/lead-sales/settings', {
         method: 'PUT',
         body: JSON.stringify({
           telnyx_assistant_id: telnyxAssistantId.trim(),
@@ -266,7 +266,13 @@ export default function LeadSalesSettings() {
           sales_template_interview_id: salesTemplateInterviewId || null,
         }),
       })
-      setMsg('Sales settings saved. New leads will use this master script to build per-lead outbound prompts.')
+      if (result?.telnyx_sync_warning) {
+        setMsg(`Saved. Telnyx resync warning: ${result.telnyx_sync_warning}`)
+      } else if (result?.telnyx_synced) {
+        setMsg('Saved. Adam master script + sales KB synced to Telnyx.')
+      } else {
+        setMsg('Sales settings saved. Set Telnyx sales assistant ID to enable auto-resync.')
+      }
     } catch (err) {
       setMsg(err?.message || 'Save failed')
     } finally {
@@ -413,7 +419,7 @@ export default function LeadSalesSettings() {
                     <tr>
                       <th style={{ width: 36 }} />
                       <th>File</th>
-                      <th />
+                      <th style={{ width: 148 }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -422,8 +428,8 @@ export default function LeadSalesSettings() {
                         <td>
                           <input type='checkbox' checked={selectedKbIds.includes(file.id)} onChange={() => toggleKb(file.id)} />
                         </td>
-                        <td>{file.original_filename}</td>
-                        <td>
+                        <td className='frontpageKbFilename'>{file.original_filename}</td>
+                        <td className='frontpageKbActions'>
                           <div className='actions' style={{ gap: 6 }}>
                             <button
                               type='button'

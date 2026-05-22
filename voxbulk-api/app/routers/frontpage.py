@@ -1266,7 +1266,14 @@ def update_lead_sales_settings_route(
     db.add(row)
     db.commit()
     db.refresh(row)
-    return {"settings": lead_sales_settings_out(row)}
+    from app.services.lead_sales_service import sync_lead_sales_telnyx_assistant
+
+    telnyx = sync_lead_sales_telnyx_assistant(db, row)
+    return {
+        "settings": lead_sales_settings_out(row),
+        "telnyx_synced": bool(telnyx.get("telnyx_synced")),
+        "telnyx_sync_warning": telnyx.get("telnyx_sync_warning"),
+    }
 
 
 @admin_router.post("/lead-sales/import-kb-prompt")
