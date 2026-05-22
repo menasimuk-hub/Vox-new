@@ -88,7 +88,7 @@ def _url_button_param(index: int, suffix: str) -> dict[str, Any]:
     return {
         "type": "button",
         "sub_type": "url",
-        "index": str(index),
+        "index": int(index),
         "parameters": [{"type": "text", "text": str(suffix or "promo=demo")[:1024]}],
     }
 
