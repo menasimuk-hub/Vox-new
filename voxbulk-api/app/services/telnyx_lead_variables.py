@@ -67,20 +67,20 @@ _TZ_REGION: dict[str, str] = {
 }
 
 _TELNYX_VARIABLES_BLOCK = """
-## Website form data (Telnyx dynamic variables)
-The visitor completed the Talk to us form before this call. SIP headers supply these variables — use them immediately; do not ask them to repeat name, company, or email unless confirming.
-
+## Website form data (use silently — do not read as a script)
+The visitor completed the Talk to us form. You already have:
 - Name: {{contact_name}}
 - Company: {{company_name}}
 - Email: {{email}}
-- Phone (normalized): {{phone}}
-- Phone (as entered): {{phone_raw}}
-- Country: {{country}}
-- Country dial code: {{country_code}}
-- Browser timezone: {{timezone}}
-- Browser locale: {{locale}}
+- Phone: {{phone}} (as entered: {{phone_raw}})
+- Country: {{country}} ({{country_code}})
 
-Begin within a few seconds — short opening (under 12 words), greet {{contact_name}} by first name, then say once: "This call is recorded for quality — privacy details are on voxbulk.com." Phone from the form: if {{phone}} is set, read it back once and ask "Is that still correct?" — do not ask again if they say yes. If {{phone}} is empty, ask once for their best callback number. Only re-confirm if they give a different number than {{phone_raw}}.
+Rules:
+- Greet {{contact_name}} by first name. The Telnyx greeting already handled hello + recording — do NOT repeat them.
+- Do NOT confirm the phone number at the start. Qualify their need first.
+- Confirm the phone once near the END only if scheduling a sales callback.
+- If they interrupt or ask something: answer that first — never restart the opening.
+- One or two short sentences per turn. Never repeat the same line twice.
 """.strip()
 
 
@@ -225,7 +225,8 @@ def build_lead_context_message(
         f"Name: {contact_name}. Company: {company_name}. Email: {email}. "
         f"Phone on file: {phone_line}. Country: {location.country} ({location.country_code}). "
         f"Timezone: {location.timezone or 'unknown'}. "
-        "Greet them by first name. Phone is on file — confirm it once only if needed."
+        "Greet them by first name. Use form data — do not re-ask name or company unless unclear. "
+        "Confirm phone only once near end if booking a callback."
     )
 
 
@@ -246,6 +247,6 @@ def enrich_lead_context_text(
     if phone_raw and phone_raw != phone_e164:
         lines.append(f"- Phone (as entered): {phone_raw}")
     lines.append(
-        "- Phone is on file: read it back once and ask if it is still correct. Do not repeat unless they correct it."
+        "- Phone: confirm once near END of call before sales callback — not at the start. Do not repeat if confirmed."
     )
     return "\n".join(lines)

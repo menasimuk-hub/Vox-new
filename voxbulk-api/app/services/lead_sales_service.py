@@ -85,13 +85,16 @@ def _sales_playbook_block(settings: LeadSalesSetting) -> str:
     parts = []
     master = str(settings.system_prompt or "").strip()
     if master:
-        parts.append(f"Master sales script (follow this closely):\n{master}")
+        parts.append(master)
     playbook = str(settings.prompt_description or "").strip()
     if playbook:
         parts.append(f"Operator notes:\n{playbook}")
     kb = str(settings.kb_context or "").strip()
     if kb:
-        parts.append(f"Sales knowledge base (Adam library only — authoritative):\n{kb}")
+        from app.services.knowledge_base_service import kb_context_already_in_prompt
+
+        if not kb_context_already_in_prompt(master, kb):
+            parts.append(f"Reference facts (pricing and offers — use when relevant, do not read verbatim):\n{kb}")
     return "\n\n".join(parts)
 
 
@@ -116,7 +119,7 @@ def _sales_lead_context_block(task: LeadSalesTask, *, transcript_excerpt: str = 
     ]
     excerpt = str(transcript_excerpt or "").strip()
     if excerpt:
-        lines.append(f"Website intake transcript:\n{excerpt[:6000]}")
+        lines.append(f"Website intake transcript (summary only — do not read aloud):\n{excerpt[:2500]}")
     return "\n".join(lines)
 
 
@@ -140,7 +143,11 @@ def assemble_sales_call_instructions(
     parts.append(_sales_lead_context_block(task, transcript_excerpt=transcript_excerpt))
     kb = str(settings.kb_context or "").strip()
     if kb:
-        parts.append(f"{SALES_KB_MARKER} (authoritative — follow closely)\n{kb}")
+        from app.services.knowledge_base_service import kb_context_already_in_prompt
+
+        master = str(settings.system_prompt or "").strip()
+        if not kb_context_already_in_prompt(master, kb):
+            parts.append(f"Reference facts (do not read verbatim):\n{kb}")
     notes = str(settings.prompt_description or "").strip()
     if notes:
         parts.append(f"## Operator notes\n{notes}")
@@ -154,7 +161,10 @@ def refresh_sales_prompt_kb_tail(prompt: str, kb_context: str | None) -> str:
         text = text.split(SALES_KB_MARKER)[0].rstrip()
     kb = str(kb_context or "").strip()
     if kb:
-        text = f"{text}\n\n{SALES_KB_MARKER} (authoritative — follow closely)\n{kb}".strip()
+        from app.services.knowledge_base_service import kb_context_already_in_prompt
+
+        if not kb_context_already_in_prompt(text, kb):
+            text = f"{text}\n\n{SALES_KB_MARKER}\n{kb}".strip()
     return text
 
 

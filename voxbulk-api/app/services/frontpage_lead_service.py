@@ -134,7 +134,10 @@ def build_runtime_system_prompt(
     if include_kb:
         kb = str(kb_context or "").strip()
         if kb:
-            parts.append(f"Knowledge base (lead library — follow closely):\n{kb}")
+            from app.services.knowledge_base_service import kb_context_already_in_prompt
+
+            if not kb_context_already_in_prompt(base, kb):
+                parts.append(f"Reference facts (do not read verbatim — use only when relevant):\n{kb}")
     lead = str(lead_context or "").strip()
     if lead:
         parts.append(lead)

@@ -33,7 +33,7 @@ def test_assemble_sales_call_instructions_includes_kb_and_lead_context():
     assert "Master script line" in out
     assert "Lead-specific guidance" in out
     assert "Jane" in out
-    assert SALES_KB_MARKER in out
+    assert "Reference facts" in out
     assert "KB fact one" in out
     assert "Operator note" in out
 

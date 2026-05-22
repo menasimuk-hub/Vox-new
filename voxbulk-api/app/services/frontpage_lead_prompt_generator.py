@@ -11,35 +11,34 @@ from app.services.knowledge_base_service import build_kb_context_text
 from app.constants.frontpage_consent import (
     INTAKE_CONVERSATION_PACE,
     PHONE_CONFIRM_ONCE_RULE,
-    RECORDING_NOTICE_SHORT,
     UK_CALLBACK_CONSENT_SHORT,
+    VOICE_INTERRUPT_RULE,
+    VOICE_NO_REPEAT_RULE,
 )
 from app.services.providers.openai_service import OpenAIProviderService
 
 _META = """You are an expert prompt engineer for VOXBULK website lead-capture voice agents.
 
-Write the complete system prompt for a live browser voice sales agent.
+Write a BEHAVIOURAL system prompt for a live browser voice agent named Jode.
 
 Output rules (critical):
-- Return ONLY the system prompt plain text.
-- Do NOT wrap in JSON, markdown code fences, or quotes.
-- British English, warm and professional, one or two short sentences per turn.
-- Use the visitor's first name naturally once you know it.
-- Confirm their company and what they need help with.
-- Do not invent pricing or features not supported by the knowledge base.
-- Keep every turn short (one or two sentences). Do not repeat the same question.
-- If the knowledge base defines the agent's name (e.g. "Your name is Jode"), use ONLY that name. Never substitute Sarah, Alex, or other names from other documents.
-- Jode qualifies leads on the website only. She schedules a callback with sales (Adam) — she does not live-transfer the call.
-- Use only facts from the lead-scoped knowledge base below — ignore sales-agent content."""
+- Return ONLY the system prompt plain text — no JSON, no markdown fences, no sample dialogue.
+- NEVER write a call script, numbered lines to speak, or quoted example sentences the agent must recite.
+- Use short sections and bullet rules (role, tone, flow, do-nots).
+- British English. One or two short sentences per spoken turn.
+- Jode qualifies leads on the website only. She schedules Adam (sales) to call back — no live transfer.
+- Opening hello and recording notice are handled by Telnyx greeting — instruct Jode NOT to repeat them.
+- Use only facts from the knowledge base for product claims — do not invent pricing."""
 
 _INSTRUCTION = (
-    "Write the system prompt for a website Talk to us voice agent that qualifies inbound leads "
-    "for sales follow-up. Include these rules verbatim in the prompt:\n"
-    f"- {RECORDING_NOTICE_SHORT}\n"
+    "Write the behavioural system prompt for website Talk to us (Jode). Include these rules (paraphrase, do not quote as dialogue):\n"
     f"- {PHONE_CONFIRM_ONCE_RULE}\n"
     f"- {UK_CALLBACK_CONSENT_SHORT}\n"
     f"- {INTAKE_CONVERSATION_PACE}\n"
-    "Use the operator description and knowledge base below."
+    f"- {VOICE_INTERRUPT_RULE}\n"
+    f"- {VOICE_NO_REPEAT_RULE}\n"
+    "Flow: greet by name → understand business and need → if they want sales/pricing, offer Adam callback + consent + time → "
+    "confirm phone once at end if callback agreed. Use operator description and KB facts only."
 )
 
 
@@ -52,7 +51,6 @@ def _extract_system_prompt(raw: str) -> str:
         text = re.sub(r"^```(?:json|markdown|text)?\s*", "", text, flags=re.I)
         text = re.sub(r"\s*```$", "", text).strip()
 
-    # Legacy JSON responses
     if text.startswith("{"):
         try:
             data = json.loads(text)
@@ -76,7 +74,7 @@ def _kb_section(files: list[KnowledgeBaseFile]) -> str:
     if not body:
         return "No knowledge base files selected."
     return (
-        "Knowledge base file contents (authoritative — do not invent facts beyond these):\n\n"
+        "Knowledge base facts (for your reference when writing rules — do NOT paste verbatim dialogue from KB):\n\n"
         f"{body}"
     )
 
@@ -97,11 +95,24 @@ def generate_frontpage_lead_prompt(
         db,
         system_prompt=_META,
         messages=[AgentMessage(role="user", content=f"{user}\n\n{_INSTRUCTION}")],
-        max_tokens=2500,
-        temperature=0.4,
+        max_tokens=1800,
+        temperature=0.35,
         provider="deepseek",
     )
     value = _extract_system_prompt(result.assistant_text)
     if not value:
         raise ValueError("DeepSeek returned an empty system prompt")
+    if _looks_like_dialogue_script(value):
+        raise ValueError(
+            "Generated prompt looks like a call script, not behavioural rules. "
+            "Use the jode-system-prompt.md template from kb-upload-ready/lead/ instead."
+        )
     return value
+
+
+def _looks_like_dialogue_script(text: str) -> bool:
+    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+    if len(lines) < 4:
+        return False
+    quoted = sum(1 for ln in lines if ln.startswith('"') or ln.startswith("'") or "?" in ln and len(ln) < 120)
+    return quoted >= 3 and quoted / max(len(lines), 1) > 0.4

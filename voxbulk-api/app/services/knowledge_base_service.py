@@ -342,6 +342,22 @@ def build_kb_context_text(files: list[KnowledgeBaseFile]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
+def kb_context_already_in_prompt(system_prompt: str | None, kb_context: str | None) -> bool:
+    """True when KB text is already embedded in the master prompt (e.g. import-kb-prompt)."""
+    base = str(system_prompt or "").strip()
+    kb = str(kb_context or "").strip()
+    if not base or not kb:
+        return False
+    if len(kb) >= 80 and kb[:80] in base:
+        return True
+    if len(kb) >= 200 and kb[:200] in base:
+        return True
+    sample = kb[: min(400, len(kb))]
+    if sample and sample in base:
+        return True
+    return False
+
+
 def refresh_agent_kb_context(db: Session, agent_id: str) -> str | None:
     from app.models.agent import AgentDefinition
 
