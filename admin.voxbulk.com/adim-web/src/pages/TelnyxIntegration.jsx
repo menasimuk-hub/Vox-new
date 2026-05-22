@@ -78,6 +78,12 @@ export default function TelnyxIntegration({
   setTelnyxTestNumber,
   telnyxWaTemplateName,
   setTelnyxWaTemplateName,
+  telnyxWaTemplateId,
+  telnyxWaTemplates,
+  telnyxWaSyncBusy,
+  onSelectTelnyxWaTemplate,
+  syncTelnyxWaTemplates,
+  loadTelnyxWaTemplates,
   telnyxWaTemplateLang,
   setTelnyxWaTemplateLang,
   telnyxTestResult,
@@ -351,23 +357,59 @@ export default function TelnyxIntegration({
             <div className='telnyxTestBlock'>
               <div className='telnyxTestBlockTitle'>SMS & WhatsApp</div>
               <div className='muted telnyxFieldHint'>Uses mobile SMS/WA numbers configured above</div>
+              <div className='actions telnyxTestActions' style={{ marginBottom: 12 }}>
+                <button
+                  type='button'
+                  className='btn soft'
+                  onClick={syncTelnyxWaTemplates}
+                  disabled={providerSaving || telnyxWaSyncBusy || !activeSummary?.exists}
+                >
+                  {telnyxWaSyncBusy ? 'Syncing…' : 'Sync WhatsApp templates'}
+                </button>
+                <button
+                  type='button'
+                  className='btn soft'
+                  onClick={() => loadTelnyxWaTemplates(false)}
+                  disabled={providerSaving || !activeSummary?.exists}
+                >
+                  Reload templates
+                </button>
+              </div>
               <Field
-                label='WhatsApp template name or UUID (optional)'
-                hint='Use the Meta template NAME from Telnyx → WhatsApp → Templates (e.g. hello_world), or paste the UUID template_id. Do not use the row number (212). Leave blank only if you messaged the business number within 24h.'
+                label='WhatsApp template (from Telnyx sync)'
+                hint='Sync first, then pick a template — sends using template_id + sample variables automatically.'
+              >
+                <select
+                  className='input'
+                  value={telnyxWaTemplateId}
+                  onChange={(e) => onSelectTelnyxWaTemplate(e.target.value)}
+                >
+                  <option value=''>— Select approved template —</option>
+                  {(telnyxWaTemplates || []).map((t) => (
+                    <option key={t.template_id || t.id} value={t.template_id || ''}>
+                      {t.name} · {t.language} · {t.status}
+                      {t.template_id ? ` · ${String(t.template_id).slice(0, 8)}…` : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field
+                label='Or template name / UUID (manual)'
+                hint='Optional override. Prefer the synced dropdown above.'
               >
                 <input
                   className='input'
                   value={telnyxWaTemplateName}
                   onChange={(e) => setTelnyxWaTemplateName(e.target.value)}
-                  placeholder='hello_world or 019cd44b-…'
+                  placeholder='voxbulk_sales_offer or UUID'
                 />
               </Field>
-              <Field label='Template language' hint='Must match the approved template language in Meta (UK templates often use en_GB).'>
+              <Field label='Template language' hint='Auto-filled when you pick a synced template (your templates use en_US).'>
                 <input
                   className='input'
                   value={telnyxWaTemplateLang}
                   onChange={(e) => setTelnyxWaTemplateLang(e.target.value)}
-                  placeholder='en_GB'
+                  placeholder='en_US'
                 />
               </Field>
               <div className='actions telnyxTestActions'>

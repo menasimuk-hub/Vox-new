@@ -704,8 +704,37 @@ def test_telnyx_sms(payload: dict | None = None, db: Session = Depends(get_db), 
     return {"ok": True, "message": "SMS queued", "external_id": result.external_id, "status": result.status}
 
 
+@router.get("/integrations/telnyx/whatsapp-templates")
+def list_telnyx_whatsapp_templates(
+    approved_only: bool = False,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+    return {
+        "ok": True,
+        "templates": TelnyxWhatsappTemplateSyncService.list_stored(db, approved_only=approved_only),
+    }
+
+
+@router.post("/integrations/telnyx/whatsapp-templates/sync")
+def sync_telnyx_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.telnyx_whatsapp_template_sync_service import (
+        TelnyxWhatsappTemplateSyncError,
+        TelnyxWhatsappTemplateSyncService,
+    )
+
+    try:
+        return TelnyxWhatsappTemplateSyncService.sync(db)
+    except TelnyxWhatsappTemplateSyncError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
 @router.post("/integrations/telnyx/test-whatsapp")
 def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
     payload = payload or {}
     to_number = str(payload.get("to_number") or "").strip()
     body = str(payload.get("body") or "VOXBULK Telnyx WhatsApp test").strip()
@@ -718,15 +747,40 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
     if template_error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=template_error)
 
-    template_components = payload.get("template_components")
-    if not template_components and template_name and not template_id:
-        from app.services.sales_whatsapp_telnyx_service import build_test_components_for_template_name
+    synced = TelnyxWhatsappTemplateSyncService.resolve_for_send(
+        db,
+        template_name=template_name,
+        template_id=template_id,
+    )
+    if synced is not None:
+        if not template_id:
+            template_id = synced.template_id
+        if not template_language:
+            template_language = synced.language
+        if not template_name:
+            template_name = synced.name
 
-        template_components = build_test_components_for_template_name(template_name)
+    template_components = payload.get("template_components")
+    if not template_components:
+        if synced is not None:
+            template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(synced)
+        elif template_name and not template_id:
+            from app.services.sales_whatsapp_telnyx_service import build_test_components_for_template_name
+
+            template_components = build_test_components_for_template_name(template_name)
 
     components = template_components if isinstance(template_components, list) else None
     result = None
-    if template_name and not template_id:
+    if template_id:
+        result = TelnyxMessagingService.send_whatsapp(
+            db,
+            to_number=to_number,
+            body=body,
+            template_id=template_id,
+            template_language=template_language or (synced.language if synced else "en_US"),
+            template_components=components,
+        )
+    elif template_name:
         from app.services.sales_whatsapp_telnyx_service import resolve_whatsapp_template_languages
 
         langs = [template_language] if template_language else resolve_whatsapp_template_languages(db)
@@ -750,10 +804,6 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
             db,
             to_number=to_number,
             body=body,
-            template_name=template_name,
-            template_id=template_id,
-            template_language=template_language or "en_US",
-            template_components=components,
         )
     if not result.ok:
         detail = result.detail or result.status
@@ -795,6 +845,9 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
         "message": "WhatsApp message queued — check Messages below after Refresh (status updates via webhook).",
         "external_id": result.external_id,
         "status": result.status,
+        "template_id": template_id,
+        "template_name": template_name,
+        "template_language": template_language or (synced.language if synced else None),
     }
 
 

@@ -507,7 +507,10 @@ export default function Integrations() {
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxTestNumber, setTelnyxTestNumber] = useState('')
   const [telnyxWaTemplateName, setTelnyxWaTemplateName] = useState('')
+  const [telnyxWaTemplateId, setTelnyxWaTemplateId] = useState('')
   const [telnyxWaTemplateLang, setTelnyxWaTemplateLang] = useState('en_US')
+  const [telnyxWaTemplates, setTelnyxWaTemplates] = useState([])
+  const [telnyxWaSyncBusy, setTelnyxWaSyncBusy] = useState(false)
   const [telnyxActiveCallId, setTelnyxActiveCallId] = useState('')
   const [telnyxCallBusy, setTelnyxCallBusy] = useState(false)
   const [telnyxAccountNumbers, setTelnyxAccountNumbers] = useState([])
@@ -1012,6 +1015,48 @@ export default function Integrations() {
     }
   }
 
+  const loadTelnyxWaTemplates = async (silent = false) => {
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=true')
+      const rows = Array.isArray(result.templates) ? result.templates : []
+      setTelnyxWaTemplates(rows)
+      if (!silent && !rows.length) {
+        setTelnyxSmsTestResult('No synced WhatsApp templates — click Sync WhatsApp templates.')
+      }
+    } catch (e) {
+      if (!silent) setProviderError(e?.message || 'Could not load WhatsApp templates')
+    }
+  }
+
+  const syncTelnyxWaTemplates = async () => {
+    setTelnyxWaSyncBusy(true)
+    setProviderError('')
+    setTelnyxSmsTestResult('Syncing WhatsApp templates from Telnyx…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/whatsapp-templates/sync', { method: 'POST' })
+      const rows = Array.isArray(result.templates) ? result.templates : []
+      setTelnyxWaTemplates(rows.filter((t) => String(t.status || '').toUpperCase() === 'APPROVED'))
+      setTelnyxSmsTestResult(`Synced ${result.synced || rows.length} template(s) — ${result.approved || 0} approved.`)
+    } catch (e) {
+      setTelnyxSmsTestResult('')
+      setProviderError(e?.message || 'WhatsApp template sync failed')
+    } finally {
+      setTelnyxWaSyncBusy(false)
+    }
+  }
+
+  const onSelectTelnyxWaTemplate = (value) => {
+    const id = String(value || '').trim()
+    setTelnyxWaTemplateId(id)
+    const row = telnyxWaTemplates.find((t) => String(t.template_id || '') === id)
+    if (row) {
+      setTelnyxWaTemplateName(String(row.name || ''))
+      setTelnyxWaTemplateLang(String(row.language || 'en_US'))
+    } else {
+      setTelnyxWaTemplateName('')
+    }
+  }
+
   const testTelnyxWhatsApp = async () => {
     const toNumber = telnyxTestNumber.trim()
     if (!toNumber) {
@@ -1022,8 +1067,12 @@ export default function Integrations() {
     setTelnyxSmsTestResult('Sending test WhatsApp…')
     try {
       const payload = { to_number: toNumber, body: 'VOXBULK Telnyx WhatsApp test' }
+      const templateId = telnyxWaTemplateId.trim()
       const templateName = telnyxWaTemplateName.trim()
-      if (templateName) {
+      if (templateId) {
+        payload.template_id = templateId
+        payload.template_language = telnyxWaTemplateLang.trim() || 'en_US'
+      } else if (templateName) {
         payload.template_name = templateName
         payload.template_language = telnyxWaTemplateLang.trim() || 'en_US'
       }
@@ -1031,7 +1080,8 @@ export default function Integrations() {
         method: 'POST',
         body: JSON.stringify(payload),
       })
-      setTelnyxSmsTestResult(`${result.message || 'WhatsApp queued'}${result.external_id ? ` (${result.external_id})` : ''}`)
+      const tpl = result.template_id ? ` template_id=${result.template_id}` : ''
+      setTelnyxSmsTestResult(`${result.message || 'WhatsApp queued'}${tpl}${result.external_id ? ` (${result.external_id})` : ''}`)
     } catch (e) {
       setTelnyxSmsTestResult('')
       setProviderError(e?.message || 'Telnyx WhatsApp test failed')
@@ -1061,6 +1111,7 @@ export default function Integrations() {
     if (activeProvider !== 'telnyx') return
     if (!summaries.telnyx?.exists) return
     loadTelnyxInboundMessages(true)
+    loadTelnyxWaTemplates(true)
   }, [activeProvider, summaries.telnyx?.exists])
 
   return (
@@ -1141,6 +1192,12 @@ export default function Integrations() {
           setTelnyxTestNumber={setTelnyxTestNumber}
           telnyxWaTemplateName={telnyxWaTemplateName}
           setTelnyxWaTemplateName={setTelnyxWaTemplateName}
+          telnyxWaTemplateId={telnyxWaTemplateId}
+          telnyxWaTemplates={telnyxWaTemplates}
+          telnyxWaSyncBusy={telnyxWaSyncBusy}
+          onSelectTelnyxWaTemplate={onSelectTelnyxWaTemplate}
+          syncTelnyxWaTemplates={syncTelnyxWaTemplates}
+          loadTelnyxWaTemplates={loadTelnyxWaTemplates}
           telnyxWaTemplateLang={telnyxWaTemplateLang}
           setTelnyxWaTemplateLang={setTelnyxWaTemplateLang}
           telnyxTestResult={telnyxTestResult}
