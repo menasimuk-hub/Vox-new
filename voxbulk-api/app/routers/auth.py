@@ -214,7 +214,15 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     db.flush()
 
     db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
-    if not raw_org_id:
+    promo_code = str(payload.promo_code or "").strip().upper() or None
+    if promo_code:
+        try:
+            from app.services.promo_offer_service import PromoOfferError, PromoOfferService
+
+            PromoOfferService.redeem_for_org(db, org_id=org.id, user_id=user.id, promo_code=promo_code)
+        except PromoOfferError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    elif not raw_org_id:
         BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
     db.commit()
 
@@ -231,99 +239,24 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
 @router.post("/self-serve")
 def self_serve(payload: dict, db: Session = Depends(get_db)):
     """
-    Self-serve onboarding request.
-
-    Creates org + user + membership in an INACTIVE (pending approval) state.
-    Admin must approve the request before login works.
+    Legacy self-serve signup — creates an active account immediately (no admin approval).
+    Prefer POST /auth/register for new integrations.
     """
     email = str(payload.get("email") or "").strip()
     password = str(payload.get("password") or "")
     organisation_name = str(payload.get("organisation_name") or "").strip()
-    plan_code = str(payload.get("plan_code") or "").strip()
-    promo_code = str(payload.get("promo_code") or "").strip()
-    payment_method = str(payload.get("payment_method") or "bank_transfer").strip()
+    promo_code = str(payload.get("promo_code") or "").strip().upper() or None
 
-    promo_preview: dict | None = None
-    if promo_code:
-        from app.services.promo_offer_service import PromoOfferError, PromoOfferService
-
-        try:
-            promo_preview = PromoOfferService.validate_public(db, promo_code)
-        except PromoOfferError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        if promo_preview.get("plan_code") and PromoOfferService.is_subscription_offer(promo_preview.get("offer_type")):
-            plan_code = str(promo_preview["plan_code"])
-        elif PromoOfferService.is_service_credit_offer(promo_preview.get("offer_type")):
-            plan_code = str(promo_preview.get("offer_type") or "survey_credits")
-
-    needs_subscription_plan = not promo_preview or PromoOfferService.is_subscription_offer(promo_preview.get("offer_type"))
     if not email or not password or not organisation_name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="email, password, organisation_name required")
-    if needs_subscription_plan and not plan_code:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plan_code required for subscription promos")
-    if payment_method != "bank_transfer":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only bank_transfer supported")
 
-    _ensure_onboarding_requests_table_for_local_dev()
-
-    existing = db.execute(select(User.id).where(User.email == email)).scalar_one_or_none()
-    if existing is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
-
-    org = Organisation(name=organisation_name)
-    db.add(org)
-    db.flush()
-
-    user = User(email=email, password_hash=hash_password(password), is_active=False, is_superuser=False)
-    db.add(user)
-    db.flush()
-
-    db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
-    if needs_subscription_plan and plan_code:
-        try:
-            BillingService.assign_plan_cash(db, org_id=org.id, plan_code=plan_code)
-        except ValueError:
-            BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
-
-    req = OnboardingRequest(
-        org_id=org.id,
-        user_id=user.id,
-        plan_code=plan_code or "survey_credits",
-        promo_code=promo_code or None,
-        payment_method="bank_transfer",
-        status="pending",
-        created_at=datetime.utcnow(),
+    reg = RegisterIn(
+        email=email,
+        password=password,
+        organisation_name=organisation_name,
+        promo_code=promo_code,
     )
-    db.add(req)
-    db.commit()
-    db.refresh(req)
-
-    from app.services.onboarding_settings_service import OnboardingSettingsService
-
-    settings = OnboardingSettingsService.get_settings(db)
-    if promo_code and settings.auto_approve_promo_signups:
-        try:
-            OnboardingSettingsService.approve_request(
-                db,
-                req,
-                user=user,
-                note="Auto-approved (promo signup)",
-            )
-        except ValueError:
-            return {"status": "pending", "request_id": req.id, "org_id": org.id, "user_id": user.id}
-
-        db.refresh(user)
-        token = create_access_token(subject=user.id, org_id=org.id)
-        return {
-            "status": "approved",
-            "request_id": req.id,
-            "org_id": org.id,
-            "user_id": user.id,
-            "access_token": token,
-            "token_type": "bearer",
-        }
-
-    return {"status": "pending", "request_id": req.id, "org_id": org.id, "user_id": user.id}
+    return register(reg, db)
 
 
 @router.post("/token")

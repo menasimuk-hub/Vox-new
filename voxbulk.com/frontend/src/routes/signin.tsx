@@ -21,9 +21,7 @@ import {
   retoverFetch,
   setMembershipRole,
   setUserAuthSession,
-  submitSelfServeRequest,
   fetchPromoPreview,
-  fetchPublicPlans,
 } from "@/lib/retoverApi";
 
 type SocialProviderRow = {
@@ -103,8 +101,6 @@ function SignInPage() {
       : null;
   const promoFromUrl =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("promo") : null;
-  const planFromUrl =
-    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("plan") : null;
   const modeFromUrl =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("mode") : null;
   const orgId =
@@ -116,7 +112,6 @@ function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [orgName, setOrgName] = useState("");
-  const [planCode, setPlanCode] = useState("starter");
   const [promoCode, setPromoCode] = useState<string | null>(promoFromUrl);
   const [promoPreview, setPromoPreview] = useState<{
     name?: string;
@@ -126,22 +121,16 @@ function SignInPage() {
     survey_contacts_included?: number;
     interview_contacts_included?: number;
   } | null>(null);
-  const [signupPlans, setSignupPlans] = useState<Array<{ code: string; name: string; price_gbp_pence?: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
   const [socialProviders, setSocialProviders] = useState<SocialProviderRow[]>(() =>
     mergeSocialProviderRows([]),
   );
   const [socialProvidersLoading, setSocialProvidersLoading] = useState(true);
-  const [pending, setPending] = useState(false);
   const [inviteOrgName, setInviteOrgName] = useState<string | null>(null);
   const [credentialView, setCredentialView] = useState<"login" | "forgot">("login");
   const [forgotMessage, setForgotMessage] = useState("");
   const [forgotSending, setForgotSending] = useState(false);
-
-  const isServiceCreditPromo =
-    promoPreview?.offer_type === "survey_credits" || promoPreview?.offer_type === "interview_credits";
-  const isSubscriptionPromo = Boolean(promoPreview?.plan_code) && !isServiceCreditPromo;
 
   const showForgot = mode === "signin" && credentialView === "forgot";
 
@@ -168,28 +157,6 @@ function SignInPage() {
   }, [modeFromUrl]);
 
   useEffect(() => {
-    if (!planFromUrl) return;
-    setMode("signup");
-    setPlanCode(planFromUrl.trim().toLowerCase());
-  }, [planFromUrl]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const rows = (await fetchPublicPlans()) as Array<{ code: string; name: string; price_gbp_pence?: number }>;
-        if (cancelled) return;
-        setSignupPlans(Array.isArray(rows) ? rows : []);
-      } catch {
-        if (!cancelled) setSignupPlans([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!promoFromUrl) return;
     setMode("signup");
     setPromoCode(promoFromUrl.toUpperCase());
@@ -209,7 +176,6 @@ function SignInPage() {
         if (cancelled) return;
         const promo = data?.promo;
         setPromoPreview(promo || null);
-        if (promo?.plan_code) setPlanCode(promo.plan_code);
       } catch {
         if (!cancelled) toast.error("This offer link is invalid or expired.");
       }
@@ -415,22 +381,18 @@ function SignInPage() {
         } else {
           const name = (orgName || "").trim();
           if (!name) throw new Error("Organisation / clinic name is required");
-          const result = await submitSelfServeRequest({
+          const data = await registerUser({
             email,
             password,
             organisation_name: name,
-            plan_code: isServiceCreditPromo ? undefined : planCode,
             promo_code: promoCode || undefined,
           });
-          if (result?.status === "approved" && result?.access_token) {
-            setUserAuthSession(result);
-            localStorage.setItem("retover_user_email", email);
-            toast.success("Account created — you're ready to go.");
-            await proceedAfterCredentialAuth();
-          } else {
-            setPending(true);
-            toast.success("Request submitted. Await admin approval.");
-          }
+          setUserAuthSession(data);
+          localStorage.setItem("retover_user_email", email);
+          toast.success(
+            promoCode ? "Account created — your offer is applied." : "Account created — choose a plan in your dashboard.",
+          );
+          await proceedAfterCredentialAuth();
         }
       } else {
         const data = await loginWithPassword({
@@ -512,7 +474,7 @@ function SignInPage() {
                 ? "Enter your email. If it matches an account, you will receive reset instructions shortly."
                 : mode === "signin"
                   ? "Sign in to access your dashboard."
-                  : "Create your account, then continue through the onboarding flow."}
+                  : "Create your account — pick a subscription after you sign in."}
             </p>
             {inviteTokenFromUrl && (
               <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-border bg-secondary/50 px-3 py-1.5 text-[12.5px] text-muted-text">
@@ -548,12 +510,6 @@ function SignInPage() {
                         : ""}
                   {promoCode ? ` · Code ${promoCode}` : ""}
                 </div>
-              </div>
-            )}
-            {!orgId && !inviteTokenFromUrl && mode === "signup" && (
-              <div className="mt-3 text-[12.5px] text-muted-text">
-                Self-serve signup: create your clinic, choose a package, then wait for admin
-                approval.
               </div>
             )}
           </div>
@@ -726,12 +682,6 @@ function SignInPage() {
                   ) : (
                     <>
                       <form onSubmit={handleEmail} className="space-y-3">
-                        {pending && (
-                          <div className="rounded-xl border border-border bg-secondary/50 p-3 text-[13.5px] text-body">
-                            <strong className="text-heading">Pending approval.</strong> An admin
-                            must approve your request before you can log in.
-                          </div>
-                        )}
                         <label className="block">
                           <span className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-text">
                             Email
@@ -790,55 +740,6 @@ function SignInPage() {
                                 />
                               </div>
                             </label>
-                            {!isServiceCreditPromo ? (
-                            <label className="block">
-                              <span className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-text">
-                                Package
-                              </span>
-                              <div className="mt-1.5">
-                                {isSubscriptionPromo ? (
-                                  <input
-                                    type="text"
-                                    readOnly
-                                    value={promoPreview.plan_code}
-                                    className="w-full px-3 py-3 rounded-xl border border-border bg-secondary/50 text-[15px] text-muted-text"
-                                  />
-                                ) : (
-                                  <select
-                                    value={planCode}
-                                    onChange={(e) => setPlanCode(e.target.value)}
-                                    className="w-full px-3 py-3 rounded-xl border border-border bg-secondary/30 text-[15px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                                  >
-                                    {signupPlans.length ? (
-                                      signupPlans.map((p) => (
-                                        <option key={p.code} value={p.code}>
-                                          {p.name}
-                                          {p.price_gbp_pence != null
-                                            ? ` (£${(Number(p.price_gbp_pence) / 100).toFixed(0)}/mo)`
-                                            : ""}
-                                        </option>
-                                      ))
-                                    ) : (
-                                      <>
-                                        <option value="starter">Starter</option>
-                                        <option value="practice">Practice</option>
-                                        <option value="group">Group</option>
-                                        <option value="dental_1">Dental P1 (£199)</option>
-                                        <option value="dental_2">Dental P2 (£299)</option>
-                                      </>
-                                    )}
-                                  </select>
-                                )}
-                              </div>
-                              <p className="mt-1 text-[12.5px] text-muted-text">
-                                Payment method: bank transfer (for now).
-                              </p>
-                            </label>
-                            ) : (
-                              <p className="text-[12.5px] text-muted-text">
-                                No subscription required — your promo credits are added after signup approval.
-                              </p>
-                            )}
                           </>
                         )}
                         <button

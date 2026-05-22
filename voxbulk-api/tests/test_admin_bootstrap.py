@@ -196,7 +196,25 @@ def test_admin_operations_and_billing_overviews(app_client):
     assert any(p["code"] == "solo" for p in plans.json())
 
 
-def test_admin_can_approve_self_serve_request_activates_user(app_client):
+def test_self_serve_creates_active_account_immediately(app_client):
+    r = app_client.post(
+        "/auth/self-serve",
+        json={
+            "email": "selfserve@example.com",
+            "password": "pass1234",
+            "organisation_name": "Self Serve Clinic",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("access_token")
+    assert body.get("org_id")
+
+    r2 = app_client.post("/auth/token", data={"username": "selfserve@example.com", "password": "pass1234"})
+    assert r2.status_code == 200
+
+
+def test_admin_can_approve_legacy_onboarding_request(app_client):
     from app.core.database import get_sessionmaker
     from app.core.security import hash_password
     from app.models.membership import OrganisationMembership
@@ -215,29 +233,41 @@ def test_admin_can_approve_self_serve_request_activates_user(app_client):
     tok = app_client.post("/auth/token", data={"username": "su-approve@example.com", "password": "pass123", "org_id": org.id}).json()["access_token"]
     h = {"Authorization": f"Bearer {tok}"}
 
-    # Create a self-serve request (pending)
-    r = app_client.post(
-        "/auth/self-serve",
-        json={
-            "email": "selfserve@example.com",
-            "password": "pass1234",
-            "organisation_name": "Self Serve Clinic",
-            "plan_code": "starter",
-            "payment_method": "bank_transfer",
-        },
-    )
-    assert r.status_code == 200
-    req_id = r.json()["request_id"]
+    from app.core.database import get_sessionmaker
+    from app.models.onboarding_request import OnboardingRequest
+    from datetime import datetime
 
-    # user cannot login while pending
-    r2 = app_client.post("/auth/token", data={"username": "selfserve@example.com", "password": "pass1234"})
+    with get_sessionmaker()() as db:
+        pending_org = Organisation(name="Pending Clinic")
+        db.add(pending_org)
+        db.flush()
+        pending_user = User(
+            email="pending@example.com",
+            password_hash=hash_password("pass1234"),
+            is_active=False,
+            is_superuser=False,
+        )
+        db.add(pending_user)
+        db.flush()
+        db.add(OrganisationMembership(org_id=pending_org.id, user_id=pending_user.id))
+        req = OnboardingRequest(
+            org_id=pending_org.id,
+            user_id=pending_user.id,
+            plan_code="starter",
+            payment_method="bank_transfer",
+            status="pending",
+            created_at=datetime.utcnow(),
+        )
+        db.add(req)
+        db.commit()
+        req_id = req.id
+
+    r2 = app_client.post("/auth/token", data={"username": "pending@example.com", "password": "pass1234"})
     assert r2.status_code == 401
 
-    # approve
     r3 = app_client.post(f"/admin/onboarding/requests/{req_id}/approve", headers=h)
     assert r3.status_code == 200
 
-    # login works after approval
-    r4 = app_client.post("/auth/token", data={"username": "selfserve@example.com", "password": "pass1234"})
+    r4 = app_client.post("/auth/token", data={"username": "pending@example.com", "password": "pass1234"})
     assert r4.status_code == 200
 

@@ -235,10 +235,12 @@ export async function acceptInvite({ token, password }: { token: string; passwor
   })
 }
 
-export async function registerUser({ email, password, organisation_name, org_id }) {
+export async function registerUser({ email, password, organisation_name, org_id, promo_code }) {
   const body = { email, password, organisation_name }
   const trimmedOrg = org_id != null && String(org_id).trim() !== '' ? String(org_id).trim() : null
   if (trimmedOrg) Object.assign(body, { org_id: trimmedOrg })
+  const promo = promo_code != null && String(promo_code).trim() !== '' ? String(promo_code).trim().toUpperCase() : null
+  if (promo) Object.assign(body, { promo_code: promo })
 
   return await retoverFetch('/auth/register', {
     method: 'POST',

@@ -52,7 +52,7 @@ const FALLBACK_PLANS: MarketingPlanCard[] = [
     ],
     cta: "Start free trial",
     ctaStyle: "outline",
-    signupHref: "/signin?mode=signup&plan=solo",
+    signupHref: "/signin?mode=signup",
   },
   {
     code: "practice",
@@ -75,7 +75,7 @@ const FALLBACK_PLANS: MarketingPlanCard[] = [
     ],
     cta: "Start free trial",
     ctaStyle: "primary",
-    signupHref: "/signin?mode=signup&plan=practice",
+    signupHref: "/signin?mode=signup",
   },
   {
     code: "group",
@@ -152,7 +152,7 @@ export function mapPublicPlanToCard(plan: PublicPlanRow, index: number, total: n
     features: parseFeatures(plan),
     cta: trialDays > 0 ? "Start free trial" : "Get started",
     ctaStyle: featured ? "primary" : "outline",
-    signupHref: `/signin?mode=signup&plan=${encodeURIComponent(plan.code)}`,
+    signupHref: "/signin?mode=signup",
   };
 }
 

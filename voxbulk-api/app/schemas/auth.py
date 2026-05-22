@@ -9,6 +9,7 @@ class RegisterIn(BaseModel):
     organisation_name: str = Field(min_length=1, max_length=255)
     # If provided, join an existing organisation instead of creating one.
     org_id: str | None = None
+    promo_code: str | None = None
 
 
 class TokenOut(BaseModel):
