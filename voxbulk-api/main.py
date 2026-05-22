@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.core.config import get_settings
-from app.core.database import get_sessionmaker, init_db
+from app.core.database import get_sessionmaker, init_db, ensure_schema_hotfixes
 from app.core.logging import configure_logging, get_logger
 from app.core.security import hash_password
 from app.models.membership import OrganisationMembership
@@ -132,6 +132,10 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("local demo admin bootstrap failed — create a superuser manually")
     logger.info("app_starting", extra={"env": settings.env, "app_name": settings.app_name})
+    try:
+        ensure_schema_hotfixes()
+    except Exception:
+        logger.exception("schema_hotfixes failed — run: alembic upgrade head")
     stop_event = asyncio.Event()
     scheduler_task = asyncio.create_task(lead_sales_scheduler_loop(stop_event))
     yield
@@ -213,7 +217,8 @@ def health_db():
         # Columns/tables added in recent releases (lead sales + automation)
         db.execute(text("SELECT automation_paused FROM lead_sales_tasks LIMIT 0"))
         db.execute(text("SELECT sales_automation_enabled FROM lead_sales_settings LIMIT 0"))
-        db.execute(text("SELECT id FROM sales_conversation_states LIMIT 0"))
+        db.execute(text("SELECT telnyx_greeting FROM frontpage_call_settings LIMIT 0"))
+        db.execute(text("SELECT telnyx_greeting FROM lead_sales_settings LIMIT 0"))
     return {"status": "ok", "schema": "current"}
 
 

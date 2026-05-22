@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import require_platform_admin
 from app.core.database import get_db, get_sessionmaker
+from app.core.logging import get_logger
 from app.models.agent import AgentDefinition
 from app.models.organisation import Organisation
 from app.models.frontpage_call_setting import FrontpageCallSetting
@@ -1823,16 +1824,20 @@ def send_lead_sales_offer(
     force_resend = body.get("force_resend", False) is True
     email = str(body.get("email") or "").strip() or None
     phone = str(body.get("phone") or "").strip() or None
-    result = SalesAutomationService.send_offer_for_task(
-        db,
-        row,
-        source="manual",
-        resend_only=resend_only,
-        template_id=template_id,
-        email=email,
-        phone=phone,
-        force_resend=force_resend,
-    )
+    try:
+        result = SalesAutomationService.send_offer_for_task(
+            db,
+            row,
+            source="manual",
+            resend_only=resend_only,
+            template_id=template_id,
+            email=email,
+            phone=phone,
+            force_resend=force_resend,
+        )
+    except Exception as exc:
+        get_logger(__name__).exception("send_offer_failed task_id=%s", task_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
     if not result.get("ok") and result.get("error"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(result["error"]))
     lead = db.get(FrontpageLeadCall, row.lead_id)
