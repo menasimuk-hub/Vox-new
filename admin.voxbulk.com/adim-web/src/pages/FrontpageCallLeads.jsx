@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, apiUpload } from '../lib/api'
+import TelnyxPromptPreview from '../components/TelnyxPromptPreview'
 
 const DEFAULT_DESCRIPTION =
   'You are a friendly British voice agent on our website Talk to us call. Greet the visitor by first name, learn their company and what they need, and answer from the knowledge base only. Once near the start say briefly: "This call is recorded for quality — privacy details are on voxbulk.com." Say that only once. You already have their mobile from the form: read it back once and ask if it is still correct — do not ask again unless they change it. Keep turns short. If they want a sales callback, ask once if they are happy to be called back on that number about this enquiry; only book if they clearly say yes. Agree callback time in their timezone (UK, Australia, or Canada) when relevant.'
@@ -469,6 +470,16 @@ export default function FrontpageCallLeads() {
             <p className='muted' style={{ marginTop: 8, marginBottom: 0 }}>
               Tick knowledge base files, click Generate prompt with AI, then Save settings.
             </p>
+          ) : null}
+          {voiceProvider === 'telnyx' && providerAgentId.trim() ? (
+            <TelnyxPromptPreview
+              previewUrl='/admin/frontpage/talk-to-us/telnyx-preview'
+              resyncUrl='/admin/frontpage/talk-to-us/resync-telnyx'
+              onResyncDone={(result) => {
+                if (result?.telnyx_sync_warning) setMsg(`Telnyx resync warning: ${result.telnyx_sync_warning}`)
+                else if (result?.telnyx_synced) setMsg(`Jode synced to Telnyx (${result.telnyx_sync_instructions_chars || '?'} instruction chars).`)
+              }}
+            />
           ) : null}
         </div>
       </section>

@@ -21,9 +21,17 @@ from app.services.knowledge_base_service import (
 )
 from app.services.lead_sales_prompt_generator import generate_lead_sales_prompt
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
-from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id, sync_telnyx_assistant_instructions
+from app.services.telnyx_assistant_service import (
+    derive_greeting_from_prompt,
+    normalize_telnyx_assistant_id,
+    resolve_telnyx_assistant_runtime,
+    sync_telnyx_assistant_instructions,
+)
 from app.services.telnyx_voice_service import TelnyxVoiceAdapter, _telnyx_config, _decode_client_state
 from app.utils.callback_timezone import resolve_callback_timezone
+
+
+SALES_KB_MARKER = "## Sales knowledge base"
 
 
 TASK_STATUSES = {"scheduled", "calling", "paused", "completed", "failed", "cancelled", "no_answer"}
@@ -86,8 +94,145 @@ def _sales_playbook_block(settings: LeadSalesSetting) -> str:
     return "\n\n".join(parts)
 
 
+def _lead_transcript(lead: FrontpageLeadCall | None) -> str:
+    if lead is None:
+        return ""
+    return "\n".join(
+        part.strip()
+        for part in (str(lead.transcript_text or ""), str(lead.agent_response_text or ""))
+        if part and part.strip()
+    )
+
+
+def _sales_lead_context_block(task: LeadSalesTask, *, transcript_excerpt: str = "") -> str:
+    lines = [
+        "## This call (lead-specific)",
+        f"Contact: {task.contact_name or 'unknown'} at {task.company_name or 'unknown'}",
+        f"Phone: {task.phone or 'not provided'}",
+        f"Email: {task.email or 'not provided'}",
+        f"Interest: {task.interest_summary or task.sales_intent or 'Website enquiry'}",
+        f"Scheduled callback: {_scheduled_label(task)}",
+    ]
+    excerpt = str(transcript_excerpt or "").strip()
+    if excerpt:
+        lines.append(f"Website intake transcript:\n{excerpt[:6000]}")
+    return "\n".join(lines)
+
+
+def assemble_sales_call_instructions(
+    settings: LeadSalesSetting,
+    task: LeadSalesTask,
+    *,
+    lead_custom: str,
+    transcript_excerpt: str = "",
+) -> str:
+    """Full Telnyx instructions: master script + lead section + lead facts + sales KB."""
+    parts: list[str] = []
+    master = str(settings.system_prompt or "").strip()
+    custom = str(lead_custom or "").strip()
+    if master:
+        parts.append(master)
+    if custom and custom != master:
+        parts.append(f"## Lead-specific guidance\n{custom}")
+    elif custom and not master:
+        parts.append(custom)
+    parts.append(_sales_lead_context_block(task, transcript_excerpt=transcript_excerpt))
+    kb = str(settings.kb_context or "").strip()
+    if kb:
+        parts.append(f"{SALES_KB_MARKER} (authoritative — follow closely)\n{kb}")
+    notes = str(settings.prompt_description or "").strip()
+    if notes:
+        parts.append(f"## Operator notes\n{notes}")
+    return "\n\n".join(p for p in parts if p).strip()
+
+
+def refresh_sales_prompt_kb_tail(prompt: str, kb_context: str | None) -> str:
+    """Replace the KB appendix so calls always use the latest cached sales KB."""
+    text = str(prompt or "").strip()
+    if SALES_KB_MARKER in text:
+        text = text.split(SALES_KB_MARKER)[0].rstrip()
+    kb = str(kb_context or "").strip()
+    if kb:
+        text = f"{text}\n\n{SALES_KB_MARKER} (authoritative — follow closely)\n{kb}".strip()
+    return text
+
+
+def build_sales_runtime_instructions(
+    db: Session,
+    task: LeadSalesTask,
+    settings: LeadSalesSetting | None = None,
+    *,
+    transcript_excerpt: str = "",
+) -> str:
+    """Instructions pushed to Telnyx for this outbound call."""
+    settings = settings or get_lead_sales_settings(db)
+    refresh_lead_sales_kb(settings, db)
+    db.add(settings)
+    db.flush()
+    base = str(task.sales_prompt or "").strip()
+    if not base:
+        return ""
+    return refresh_sales_prompt_kb_tail(base, settings.kb_context)
+
+
+def sales_call_opening_greeting_for_instructions(instructions: str, *, contact_name: str | None) -> str:
+    """Telnyx greeting field — separate from system instructions."""
+    first = str(contact_name or "").strip().split()[0] if str(contact_name or "").strip() else "there"
+    derived = derive_greeting_from_prompt(instructions)
+    if derived:
+        line = (
+            derived.replace("Hi there,", f"Hi {first},")
+            .replace("Hi there", f"Hi {first}")
+            .replace("Hi,", f"Hi {first},")
+        )
+    else:
+        line = f"Hi {first}, this is Adam from VoxBulk following up on your website enquiry. Is now still a good time?"
+    if "recorded" not in line.lower():
+        line = f"{line} This call is recorded for quality — see voxbulk.com for privacy."
+    return line
+
+
+def sales_telnyx_preview(
+    db: Session,
+    *,
+    assistant_id: str,
+    instructions: str,
+    contact_name: str | None = None,
+) -> dict[str, Any]:
+    """Compare what we intend to send vs what Telnyx currently stores."""
+    clean_id = str(assistant_id or "").strip()
+    greeting = sales_call_opening_greeting_for_instructions(instructions, contact_name=contact_name)
+    out: dict[str, Any] = {
+        "assistant_id": clean_id,
+        "planned_instructions": instructions,
+        "planned_instructions_chars": len(instructions or ""),
+        "planned_greeting": greeting,
+        "planned_greeting_chars": len(greeting or ""),
+        "live_instructions": "",
+        "live_greeting": "",
+        "live_instructions_chars": 0,
+        "live_greeting_chars": 0,
+        "in_sync": False,
+    }
+    if not clean_id:
+        return out
+    try:
+        live = resolve_telnyx_assistant_runtime(db, clean_id)
+        out["live_instructions"] = str(live.get("instructions") or "")
+        out["live_greeting"] = str(live.get("greeting") or "")
+        out["live_instructions_chars"] = len(out["live_instructions"])
+        out["live_greeting_chars"] = len(out["live_greeting"])
+        out["in_sync"] = (
+            out["live_instructions"].strip() == str(instructions or "").strip()
+            and out["live_greeting"].strip() == greeting.strip()
+        )
+    except Exception as exc:
+        out["live_error"] = str(exc)
+    return out
+
+
 def sync_lead_sales_telnyx_assistant(db: Session, settings: LeadSalesSetting | None = None) -> dict[str, object]:
-    """Push Adam master script + sales KB cache to the Telnyx sales assistant."""
+    """Push Adam master script + sales KB cache to the Telnyx sales assistant (default assistant config)."""
     settings = settings or get_lead_sales_settings(db)
     refresh_lead_sales_kb(settings, db)
     agent_id = str(settings.telnyx_assistant_id or "").strip()
@@ -97,10 +242,48 @@ def sync_lead_sales_telnyx_assistant(db: Session, settings: LeadSalesSetting | N
     if not sync_prompt:
         return {"telnyx_synced": False, "telnyx_sync_warning": "Master sales script is empty"}
     try:
-        sync_telnyx_assistant_instructions(db, agent_id, sync_prompt, enable_web_calls=False)
-        return {"telnyx_synced": True, "telnyx_sync_warning": None}
+        greeting = sales_call_opening_greeting_for_instructions(sync_prompt, contact_name="there")
+        sync_telnyx_assistant_instructions(
+            db,
+            agent_id,
+            sync_prompt,
+            greeting=greeting,
+            enable_web_calls=False,
+        )
+        return {
+            "telnyx_synced": True,
+            "telnyx_sync_warning": None,
+            "synced_instructions_chars": len(sync_prompt),
+            "synced_greeting": greeting,
+        }
     except Exception as exc:
         return {"telnyx_synced": False, "telnyx_sync_warning": str(exc)}
+
+
+def sync_sales_task_to_telnyx(db: Session, task: LeadSalesTask) -> dict[str, Any]:
+    """Push this lead's full call prompt + greeting to Telnyx."""
+    settings = get_lead_sales_settings(db)
+    assistant_id = str(task.telnyx_assistant_id or settings.telnyx_assistant_id or "").strip()
+    instructions = build_sales_runtime_instructions(db, task, settings)
+    if not assistant_id:
+        return {"ok": False, "error": "Telnyx sales assistant ID is not configured"}
+    if not instructions:
+        return {"ok": False, "error": "Sales prompt is empty — generate the prompt first"}
+    greeting = sales_call_opening_greeting_for_instructions(instructions, contact_name=task.contact_name)
+    sync_telnyx_assistant_instructions(
+        db,
+        assistant_id,
+        instructions,
+        greeting=greeting,
+        enable_web_calls=False,
+    )
+    preview = sales_telnyx_preview(
+        db,
+        assistant_id=assistant_id,
+        instructions=instructions,
+        contact_name=task.contact_name,
+    )
+    return {"ok": True, "instructions_chars": len(instructions), "greeting": greeting, "preview": preview}
 
 
 def get_sales_task_for_lead(db: Session, lead_id: str) -> LeadSalesTask | None:
@@ -291,23 +474,11 @@ def _parse_scheduled_at(value: str | None, tz_name: str | None) -> datetime | No
 
 
 def sales_call_opening_greeting(task: LeadSalesTask) -> str:
-    """First line the sales agent speaks as soon as the callee answers."""
-    from app.services.telnyx_assistant_service import derive_greeting_from_prompt
-
-    first = str(task.contact_name or "").strip().split()[0] if str(task.contact_name or "").strip() else "there"
-    prompt = str(task.sales_prompt or "")
-    derived = derive_greeting_from_prompt(prompt)
-    if derived:
-        line = (
-            derived.replace("Hi there,", f"Hi {first},")
-            .replace("Hi there", f"Hi {first}")
-            .replace("thanks for reaching out", "thanks for taking our call")
-        )
-    else:
-        line = f"Hi {first}, this is a follow-up from VoxBulk about your recent enquiry. Is now still a good time?"
-    if "recorded" not in line.lower():
-        line = f"{line} This call is recorded for quality — see voxbulk.com for privacy."
-    return line
+    """First line the sales agent speaks as soon as the callee answers (Telnyx greeting field)."""
+    return sales_call_opening_greeting_for_instructions(
+        str(task.sales_prompt or ""),
+        contact_name=task.contact_name,
+    )
 
 
 def _scheduled_label(task: LeadSalesTask) -> str:
@@ -356,11 +527,9 @@ def _build_task_from_lead(
         payload = {}
 
     assistant_id = str(settings.telnyx_assistant_id or "").strip() or None
-    transcript = "\n".join(
-        part.strip()
-        for part in (str(lead.transcript_text or ""), str(lead.agent_response_text or ""))
-        if part and part.strip()
-    )
+    refresh_lead_sales_kb(settings, db)
+    db.add(settings)
+    transcript = _lead_transcript(lead)
     task = LeadSalesTask(
         id=str(uuid.uuid4()),
         lead_id=lead.id,
@@ -383,7 +552,7 @@ def _build_task_from_lead(
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
-    task.sales_prompt = generate_lead_sales_prompt(
+    lead_custom = generate_lead_sales_prompt(
         db,
         contact_name=task.contact_name or "there",
         company_name=task.company_name or "their company",
@@ -393,6 +562,12 @@ def _build_task_from_lead(
         transcript_excerpt=transcript,
         playbook=_sales_playbook_block(settings),
         scheduled_label=_scheduled_label(task),
+    )
+    task.sales_prompt = assemble_sales_call_instructions(
+        settings,
+        task,
+        lead_custom=lead_custom,
+        transcript_excerpt=transcript,
     )
     return task
 
@@ -449,21 +624,15 @@ def regenerate_sales_prompt(db: Session, task: LeadSalesTask) -> LeadSalesTask:
     db.add(settings)
     lead = db.get(FrontpageLeadCall, task.lead_id)
     payload: dict[str, Any] = {}
-    transcript = ""
-    if lead:
-        if lead.lead_data_json:
-            try:
-                data = json.loads(lead.lead_data_json)
-                if isinstance(data, dict):
-                    payload = data.get("lead_payload") if isinstance(data.get("lead_payload"), dict) else data
-            except json.JSONDecodeError:
-                payload = {}
-        transcript = "\n".join(
-            part.strip()
-            for part in (str(lead.transcript_text or ""), str(lead.agent_response_text or ""))
-            if part and part.strip()
-        )
-    task.sales_prompt = generate_lead_sales_prompt(
+    transcript = _lead_transcript(lead)
+    if lead and lead.lead_data_json:
+        try:
+            data = json.loads(lead.lead_data_json)
+            if isinstance(data, dict):
+                payload = data.get("lead_payload") if isinstance(data.get("lead_payload"), dict) else data
+        except json.JSONDecodeError:
+            payload = {}
+    lead_custom = generate_lead_sales_prompt(
         db,
         contact_name=task.contact_name or "there",
         company_name=task.company_name or "their company",
@@ -473,6 +642,12 @@ def regenerate_sales_prompt(db: Session, task: LeadSalesTask) -> LeadSalesTask:
         transcript_excerpt=transcript,
         playbook=_sales_playbook_block(settings),
         scheduled_label=_scheduled_label(task),
+    )
+    task.sales_prompt = assemble_sales_call_instructions(
+        settings,
+        task,
+        lead_custom=lead_custom,
+        transcript_excerpt=transcript,
     )
     task.sales_prompt_version = int(task.sales_prompt_version or 0) + 1
     task.updated_at = datetime.utcnow()
@@ -488,26 +663,32 @@ def prepare_sales_outbound_call(
     *,
     settings: LeadSalesSetting | None = None,
 ) -> tuple[str, str, str]:
-    """Sync prompt + greeting to Telnyx before the phone rings."""
+    """Sync full prompt + greeting to Telnyx before the phone rings."""
     settings = settings or get_lead_sales_settings(db)
     assistant_id = str(task.telnyx_assistant_id or settings.telnyx_assistant_id or "").strip()
     if not assistant_id:
         raise ValueError("Telnyx sales assistant ID is not configured")
-    prompt = str(task.sales_prompt or "").strip()
-    if not prompt:
+    if not str(task.sales_prompt or "").strip():
         task = regenerate_sales_prompt(db, task)
-        prompt = str(task.sales_prompt or "").strip()
-    if not prompt:
+    lead = db.get(FrontpageLeadCall, task.lead_id)
+    instructions = build_sales_runtime_instructions(db, task, settings, transcript_excerpt=_lead_transcript(lead))
+    if not instructions:
         raise ValueError("Sales prompt is empty — regenerate the prompt first")
-    greeting = sales_call_opening_greeting(task)
+    if instructions != str(task.sales_prompt or ""):
+        task.sales_prompt = instructions
+        task.updated_at = datetime.utcnow()
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+    greeting = sales_call_opening_greeting_for_instructions(instructions, contact_name=task.contact_name)
     sync_telnyx_assistant_instructions(
         db,
         assistant_id,
-        prompt,
+        instructions,
         greeting=greeting,
         enable_web_calls=False,
     )
-    return assistant_id, prompt, greeting
+    return assistant_id, instructions, greeting
 
 
 def execute_sales_outbound_call(db: Session, task: LeadSalesTask) -> LeadSalesTask:
@@ -606,6 +787,21 @@ def cancel_sales_task(db: Session, task: LeadSalesTask) -> LeadSalesTask:
     return task
 
 
+def _is_permanent_dial_error(message: str) -> bool:
+    low = str(message or "").lower()
+    needles = (
+        "no phone number",
+        "assistant id is not configured",
+        "prompt is empty",
+        "caller id is not configured",
+        "task is paused",
+        "task is cancelled",
+        "task is completed",
+        "task is no_answer",
+    )
+    return any(n in low for n in needles)
+
+
 def process_due_lead_sales_tasks(db: Session) -> int:
     now = datetime.utcnow()
     rows = list(
@@ -629,6 +825,8 @@ def process_due_lead_sales_tasks(db: Session) -> int:
             started += 1
         except Exception as exc:
             task.last_error = str(exc)
+            if _is_permanent_dial_error(str(exc)):
+                task.status = "failed"
             task.updated_at = datetime.utcnow()
             db.add(task)
             db.commit()
@@ -659,32 +857,26 @@ def handle_lead_sales_telnyx_event(db: Session, payload: dict[str, Any]) -> None
     if "answered" in event_type:
         if assistant_id:
             config = _telnyx_config(db)
-            prepared = bool(parsed.get("sales_prepared"))
             greeting = str(parsed.get("sales_greeting") or "").strip() or sales_call_opening_greeting(task)
-            prompt = str(task.sales_prompt or "").strip()
-            if not prepared and not prompt:
+            settings = get_lead_sales_settings(db)
+            prompt = build_sales_runtime_instructions(db, task, settings)
+            if not prompt:
+                prompt = str(task.sales_prompt or "").strip()
+            if not prompt:
                 task.last_error = "Sales prompt missing on answer — regenerate before calling"
                 task.updated_at = datetime.utcnow()
                 db.add(task)
                 db.commit()
                 return
+            # Always pass per-call instructions inline — shared Telnyx assistant would otherwise race.
             result = TelnyxVoiceAdapter.start_ai_assistant(
                 call_control_id=call_id,
                 assistant_id=assistant_id,
                 config=config,
-                instructions=prompt or None,
+                instructions=prompt,
                 greeting=greeting,
-                prepared=prepared,
+                prepared=False,
             )
-            if not result.ok and prepared:
-                result = TelnyxVoiceAdapter.start_ai_assistant(
-                    call_control_id=call_id,
-                    assistant_id=assistant_id,
-                    config=config,
-                    instructions=prompt or None,
-                    greeting=greeting,
-                    prepared=False,
-                )
             if not result.ok:
                 task.last_error = f"AI assistant did not start: {result.detail or result.status}"
                 task.updated_at = datetime.utcnow()

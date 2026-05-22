@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, apiUpload } from '../lib/api'
+import TelnyxPromptPreview from '../components/TelnyxPromptPreview'
 
 const DEFAULT_DESCRIPTION =
   'You are a senior sales closer for VOXBULK. At the very start say once: "This call is recorded for quality — see voxbulk.com for privacy." Then confirm the agreed callback time, reference their website enquiry, understand budget and timeline, handle objections, and secure a demo or clear next step. Keep every turn short.'
@@ -496,6 +497,16 @@ export default function LeadSalesSettings() {
               onChange={(e) => setSystemPrompt(e.target.value)}
               placeholder='Generate master script with AI using KB files above'
             />
+            {telnyxAssistantId.trim() ? (
+              <TelnyxPromptPreview
+                previewUrl='/admin/frontpage/lead-sales/settings/telnyx-preview'
+                resyncUrl='/admin/frontpage/lead-sales/settings/resync-telnyx'
+                onResyncDone={(result) => {
+                  if (result?.telnyx_sync_warning) setMsg(`Telnyx resync warning: ${result.telnyx_sync_warning}`)
+                  else if (result?.telnyx_synced) setMsg(`Telnyx synced (${result.synced_instructions_chars || '?'} instruction chars).`)
+                }}
+              />
+            ) : null}
           </div>
         </section>
       </div>

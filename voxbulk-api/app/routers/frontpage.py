@@ -26,6 +26,7 @@ from app.services.frontpage_lead_prompt_generator import generate_frontpage_lead
 from app.services.frontpage_lead_service import (
     apply_lead_intelligence,
     build_lead_runtime_prompt,
+    intake_call_opening_greeting,
     build_runtime_system_prompt,
     combined_lead_transcript,
     enrich_lead_after_transcript_update,
@@ -370,23 +371,12 @@ def _lead_runtime_prompt(
             "timezone": getattr(location, "timezone", "") if location else "",
             "locale": getattr(location, "locale", "") if location else "",
         },
-        "first_message": _intake_call_opening_greeting(first_name, system_prompt),
+        "first_message": intake_call_opening_greeting(first_name, system_prompt),
     }
 
 
 def _intake_call_opening_greeting(first_name: str, system_prompt: str) -> str:
-    """First line the intake agent speaks as soon as the browser call connects."""
-    from app.services.telnyx_assistant_service import derive_greeting_from_prompt
-
-    first = str(first_name or "").strip() or "there"
-    derived = derive_greeting_from_prompt(system_prompt)
-    if derived:
-        line = derived.replace("Hi there,", f"Hi {first},").replace("Hi there", f"Hi {first}")
-    else:
-        line = f"Hi {first}, thanks for contacting VOXBULK. How can I help you today?"
-    if "recorded" not in line.lower():
-        line = f"{line} This call is recorded for quality — see voxbulk.com for privacy."
-    return line
+    return intake_call_opening_greeting(first_name, system_prompt)
 
 
 def _vapi_runtime_for_lead(
@@ -904,14 +894,24 @@ def update_frontpage_talk_to_us_settings(payload: FrontpageSettingsIn, db: Sessi
             sync_prompt = ensure_telnyx_variables_block(_frontpage_sync_prompt(settings))
             if not sync_prompt.strip():
                 raise ValueError("System prompt is empty after merging lead knowledge base.")
-            telnyx_sync = sync_telnyx_assistant_instructions(db, effective_agent_id, sync_prompt)
+            greeting = _intake_call_opening_greeting("there", sync_prompt)
+            telnyx_sync = sync_telnyx_assistant_instructions(db, effective_agent_id, sync_prompt, greeting=greeting)
         except Exception as exc:
             telnyx_sync_warning = str(exc)
     db.refresh(settings)
+    sync_chars = 0
+    synced_greeting = None
+    if telnyx_sync:
+        from app.services.telnyx_lead_variables import ensure_telnyx_variables_block
+
+        sync_chars = len(ensure_telnyx_variables_block(_frontpage_sync_prompt(settings)))
+        synced_greeting = _intake_call_opening_greeting("there", ensure_telnyx_variables_block(_frontpage_sync_prompt(settings)))
     return {
         "settings": _settings_out(settings, agent),
         "telnyx_synced": bool(telnyx_sync),
         "telnyx_sync_warning": telnyx_sync_warning,
+        "telnyx_sync_instructions_chars": sync_chars,
+        "telnyx_sync_greeting": synced_greeting,
     }
 
 
@@ -1204,6 +1204,125 @@ class LeadSalesGeneratePromptIn(BaseModel):
     rewrite: bool = True
 
 
+@admin_router.get("/talk-to-us/telnyx-preview")
+def frontpage_talk_to_us_telnyx_preview(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.telnyx_assistant_service import resolve_telnyx_assistant_runtime
+    from app.services.telnyx_lead_variables import ensure_telnyx_variables_block
+
+    settings, agent = _get_settings(db)
+    agent_id = str(settings.provider_agent_id or "").strip()
+    instructions = ensure_telnyx_variables_block(_frontpage_sync_prompt(settings))
+    greeting = _intake_call_opening_greeting("there", instructions)
+    out = {
+        "assistant_id": agent_id,
+        "saved_system_prompt_chars": len(str(settings.system_prompt or "")),
+        "planned_instructions": instructions,
+        "planned_instructions_chars": len(instructions),
+        "planned_greeting": greeting,
+        "planned_greeting_chars": len(greeting),
+        "live_instructions": "",
+        "live_greeting": "",
+        "live_instructions_chars": 0,
+        "live_greeting_chars": 0,
+        "in_sync": False,
+        "note": "Telnyx uses two fields: instructions (system prompt + KB) and greeting (first spoken line). The admin textarea is instructions only.",
+    }
+    if agent_id and (settings.voice_provider or "").strip().lower() == "telnyx":
+        try:
+            live = resolve_telnyx_assistant_runtime(db, agent_id)
+            out["live_instructions"] = str(live.get("instructions") or "")
+            out["live_greeting"] = str(live.get("greeting") or "")
+            out["live_instructions_chars"] = len(out["live_instructions"])
+            out["live_greeting_chars"] = len(out["live_greeting"])
+            out["in_sync"] = (
+                out["live_instructions"].strip() == instructions.strip()
+                and out["live_greeting"].strip() == greeting.strip()
+            )
+        except Exception as exc:
+            out["live_error"] = str(exc)
+    return out
+
+
+@admin_router.post("/talk-to-us/resync-telnyx")
+def frontpage_talk_to_us_resync_telnyx(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    settings, agent = _get_settings(db)
+    if (settings.voice_provider or "").strip().lower() != "telnyx":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voice provider is not Telnyx")
+    payload = FrontpageSettingsIn(
+        voice_provider=settings.voice_provider,
+        provider_agent_id=settings.provider_agent_id,
+        prompt_description=settings.prompt_description,
+        system_prompt=settings.system_prompt,
+        kb_file_ids=parse_kb_file_ids(settings.kb_file_ids),
+        llm_provider=settings.llm_provider,
+    )
+    return update_frontpage_talk_to_us_settings(payload, db, _admin)
+
+
+@admin_router.get("/lead-sales/settings/telnyx-preview")
+def lead_sales_settings_telnyx_preview(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.lead_sales_service import get_lead_sales_settings, sales_telnyx_preview, _sales_playbook_block
+
+    settings = get_lead_sales_settings(db)
+    agent_id = str(settings.telnyx_assistant_id or "").strip()
+    instructions = _sales_playbook_block(settings).strip()
+    preview = sales_telnyx_preview(db, assistant_id=agent_id, instructions=instructions, contact_name="there")
+    preview["saved_master_script_chars"] = len(str(settings.system_prompt or ""))
+    preview["note"] = (
+        "Master sync pushes playbook + sales KB to the Telnyx assistant. "
+        "Each outbound call overwrites with the full per-lead prompt before dialing."
+    )
+    return preview
+
+
+@admin_router.post("/lead-sales/settings/resync-telnyx")
+def lead_sales_settings_resync_telnyx(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.lead_sales_service import get_lead_sales_settings, sync_lead_sales_telnyx_assistant
+
+    settings = get_lead_sales_settings(db)
+    result = sync_lead_sales_telnyx_assistant(db, settings)
+    return {"settings": get_lead_sales_settings(db), **result}
+
+
+@admin_router.get("/lead-sales/tasks/{task_id}/telnyx-preview")
+def lead_sales_task_telnyx_preview(task_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.models.lead_sales_task import LeadSalesTask
+    from app.services.lead_sales_service import (
+        build_sales_runtime_instructions,
+        get_lead_sales_settings,
+        sales_telnyx_preview,
+    )
+
+    row = db.get(LeadSalesTask, task_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
+    settings = get_lead_sales_settings(db)
+    assistant_id = str(row.telnyx_assistant_id or settings.telnyx_assistant_id or "").strip()
+    instructions = build_sales_runtime_instructions(db, row, settings) or str(row.sales_prompt or "").strip()
+    preview = sales_telnyx_preview(db, assistant_id=assistant_id, instructions=instructions, contact_name=row.contact_name)
+    preview["saved_prompt_chars"] = len(str(row.sales_prompt or ""))
+    preview["note"] = (
+        "Admin shows the saved prompt. Telnyx receives instructions (prompt + fresh KB) and greeting separately. "
+        "Greeting is not part of the instructions field."
+    )
+    return preview
+
+
+@admin_router.post("/lead-sales/tasks/{task_id}/resync-telnyx")
+def lead_sales_task_resync_telnyx(task_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.models.lead_sales_task import LeadSalesTask
+    from app.services.lead_sales_service import sync_sales_task_to_telnyx
+
+    row = db.get(LeadSalesTask, task_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
+    result = sync_sales_task_to_telnyx(db, row)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(result.get("error") or "Telnyx sync failed"))
+    lead = db.get(FrontpageLeadCall, row.lead_id)
+    return {"task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None), **result}
+
+
 @admin_router.get("/lead-sales/settings")
 def get_lead_sales_settings_route(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     from app.services.lead_sales_service import get_lead_sales_settings, lead_sales_settings_out
@@ -1273,6 +1392,8 @@ def update_lead_sales_settings_route(
         "settings": lead_sales_settings_out(row),
         "telnyx_synced": bool(telnyx.get("telnyx_synced")),
         "telnyx_sync_warning": telnyx.get("telnyx_sync_warning"),
+        "telnyx_sync_instructions_chars": telnyx.get("synced_instructions_chars"),
+        "telnyx_sync_greeting": telnyx.get("synced_greeting"),
     }
 
 

@@ -5,6 +5,7 @@ import { resolveTemplateForLead, templateSummary } from '../lib/salesOfferResolv
 import { categoryLabel } from '../lib/salesOfferTypes'
 import TelnyxDualWaveform from '../components/TelnyxDualWaveform'
 import TelnyxInsightsModal from '../components/TelnyxInsightsModal'
+import TelnyxPromptPreview from '../components/TelnyxPromptPreview'
 
 async function resolveAdminBearerToken() {
   if (typeof window === 'undefined') return ''
@@ -705,14 +706,15 @@ export default function LeadSalesEdit() {
         </div>
         <div className='cardBody frontpagePromptFull'>
           <p className='muted' style={{ marginTop: 0 }}>
-            Generated from lead data + playbook. Synced to Telnyx before each call.
+            Saved prompt includes master script + lead section + sales KB. Before each call the full text is pushed to Telnyx{' '}
+            <strong>instructions</strong>; the opening line goes to Telnyx <strong>greeting</strong> (separate field).
           </p>
           <div className='actions' style={{ gap: 8 }}>
             <button type='button' className='btn primary' onClick={generatePrompt} disabled={generatingPrompt}>
               {generatingPrompt ? 'Generating…' : 'Generate prompt with AI'}
             </button>
             <button type='button' className='btn soft' onClick={() => setShowPrompt((v) => !v)} disabled={!task.sales_prompt}>
-              {showPrompt ? 'Hide' : 'View'} prompt
+              {showPrompt ? 'Hide' : 'View'} saved prompt
             </button>
           </div>
           {showPrompt && task.sales_prompt ? (
@@ -720,6 +722,11 @@ export default function LeadSalesEdit() {
           ) : (
             !task.sales_prompt && <p className='muted' style={{ marginBottom: 0 }}>No prompt yet — generate with AI before calling.</p>
           )}
+          <TelnyxPromptPreview
+            previewUrl={`/admin/frontpage/lead-sales/tasks/${taskId}/telnyx-preview`}
+            resyncUrl={`/admin/frontpage/lead-sales/tasks/${taskId}/resync-telnyx`}
+            onResyncDone={() => setMsg('Full prompt + greeting pushed to Telnyx for this lead.')}
+          />
         </div>
       </section>
 

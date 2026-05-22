@@ -204,7 +204,10 @@ def resync_telnyx_after_kb_delete(db: Session, *, scope: str) -> dict[str, objec
                 agent_id = str(settings.provider_agent_id or "").strip()
                 sync_prompt = ensure_telnyx_variables_block(build_lead_runtime_prompt(settings))
                 if agent_id and sync_prompt.strip():
-                    sync_telnyx_assistant_instructions(db, agent_id, sync_prompt)
+                    from app.services.frontpage_lead_service import intake_call_opening_greeting
+
+                    greeting = intake_call_opening_greeting("there", sync_prompt)
+                    sync_telnyx_assistant_instructions(db, agent_id, sync_prompt, greeting=greeting)
                     synced = True
         elif kb_scope == KB_SCOPE_SALES:
             from app.services.lead_sales_service import sync_lead_sales_telnyx_assistant

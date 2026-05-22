@@ -1,6 +1,6 @@
-from __future__ import annotations
+import logging
 
-import json
+logger = logging.getLogger(__name__)
 import re
 import secrets
 from datetime import datetime
@@ -156,6 +156,21 @@ def build_lead_runtime_prompt(
     )
 
 
+def intake_call_opening_greeting(first_name: str, system_prompt: str) -> str:
+    """First line the intake agent speaks as soon as the browser call connects."""
+    from app.services.telnyx_assistant_service import derive_greeting_from_prompt
+
+    first = str(first_name or "").strip() or "there"
+    derived = derive_greeting_from_prompt(system_prompt)
+    if derived:
+        line = derived.replace("Hi there,", f"Hi {first},").replace("Hi there", f"Hi {first}")
+    else:
+        line = f"Hi {first}, thanks for contacting VOXBULK. How can I help you today?"
+    if "recorded" not in line.lower():
+        line = f"{line} This call is recorded for quality — see voxbulk.com for privacy."
+    return line
+
+
 def recording_abs_path(rel_path: str) -> Path:
     return _REPO_ROOT / rel_path.replace("\\", "/")
 
@@ -249,10 +264,23 @@ def enrich_lead_after_transcript_update(db: Session, lead: FrontpageLeadCall) ->
     try:
         from app.services.lead_sales_service import maybe_create_sales_task_from_lead
 
-        maybe_create_sales_task_from_lead(db, lead, extracted)
+        task = maybe_create_sales_task_from_lead(db, lead, extracted)
+        if task is None and should_log_sales_skip(extracted):
+            logger.info(
+                "sales_task_not_auto_created lead_id=%s wants_sales=%s consent=%s phone=%s",
+                lead.id,
+                extracted.get("wants_sales_call"),
+                extracted.get("callback_consent"),
+                bool(str(extracted.get("phone") or lead.phone or "").strip()),
+            )
     except Exception:
-        pass
+        logger.exception("sales_task_auto_create_failed lead_id=%s", lead.id)
     return extracted
+
+
+def should_log_sales_skip(extracted: dict) -> bool:
+    """Log when extraction suggests sales interest but no task was created."""
+    return bool(extracted.get("wants_sales_call") or extracted.get("callback_consent"))
 
 
 def _duration_label(seconds: int | None) -> str:
