@@ -335,3 +335,100 @@ class SalesOfferSendService:
             send_email=send_email,
             send_whatsapp=send_whatsapp,
         )
+
+
+def _parse_task_outcome(task: LeadSalesTask) -> dict:
+    raw = str(task.outcome_json or "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _platform_admin_notification_email(db: Session) -> str | None:
+    from app.models.frontpage_call_setting import FrontpageCallSetting
+    from app.models.organisation import Organisation
+    from app.models.user import User
+    from app.services.sales_automation_service import SalesAutomationService
+    from app.services.smtp_settings_service import SmtpSettingsService
+    from app.services.usage_wallet_service import UsageWalletService
+
+    org_id = SalesAutomationService._platform_org_id(db)
+    if org_id:
+        org = db.get(Organisation, org_id)
+        if org and str(org.contact_email or "").strip():
+            return str(org.contact_email).strip().lower()
+        billing = UsageWalletService.get_org_billing_email(db, org_id)
+        if billing:
+            return billing
+
+    frontpage = db.get(FrontpageCallSetting, "default")
+    if frontpage and frontpage.org_id:
+        org = db.get(Organisation, frontpage.org_id)
+        if org and str(org.contact_email or "").strip():
+            return str(org.contact_email).strip().lower()
+        billing = UsageWalletService.get_org_billing_email(db, str(frontpage.org_id))
+        if billing:
+            return billing
+
+    admin = db.execute(
+        select(User.email).where(User.is_active.is_(True), User.is_superuser.is_(True)).limit(1)
+    ).scalar_one_or_none()
+    if admin:
+        return str(admin).strip().lower()
+
+    smtp_row = SmtpSettingsService.get_row(db)
+    from_email = str(smtp_row.from_email or "").strip().lower()
+    return from_email if from_email and "@" in from_email else None
+
+
+def send_sale_confirmation_email(db: Session, task: LeadSalesTask) -> dict[str, object]:
+    """Customer confirmation + internal alert when DeepSeek marks the call as a closed sale."""
+    outcome = _parse_task_outcome(task)
+    stage = str(outcome.get("deal_stage") or "").strip().lower()
+    interested = bool(outcome.get("interested_to_buy"))
+    demo_agreed = bool(outcome.get("demo_agreed"))
+    if stage != "closed" and not interested and not demo_agreed:
+        return {"ok": False, "skipped": True, "reason": "outcome_not_closed_sale"}
+
+    first = SalesOfferSendService._first_name(task.contact_name)
+    customer_result: dict[str, object] = {"ok": False, "skipped": True, "reason": "no_customer_email"}
+    if task.email:
+        subject = "Great news — your enquiry with VoxBulk is confirmed"
+        body = f"""<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
+  <p>Hi <strong>{first}</strong>,</p>
+  <p>Thank you for speaking with VoxBulk today. Your enquiry is confirmed and a team member will be in touch shortly.</p>
+  <p>For more information, visit <a href="https://voxbulk.com">voxbulk.com</a>.</p>
+  <p style="font-size:12px;color:#64748b;">— VOXBULK Sales</p>
+</body></html>"""
+        SmtpMailerService.send_html(db, to_addr=str(task.email).strip(), subject=subject, body=body)
+        customer_result = {"ok": True, "to": task.email}
+
+    admin_email = _platform_admin_notification_email(db)
+    admin_result: dict[str, object] = {"ok": False, "skipped": True, "reason": "no_admin_email"}
+    if admin_email:
+        summary = str(outcome.get("outcome_summary") or "").strip() or "No summary available."
+        transcript_excerpt = str(task.sales_transcript_text or "").strip()[:500]
+        lead_name = str(task.contact_name or "Unknown").strip()
+        company = str(task.company_name or "Unknown").strip()
+        admin_subject = f"Sale closed — {lead_name} {company}".strip()
+        admin_body = "\n".join(
+            [
+                f"Lead: {lead_name}",
+                f"Company: {company}",
+                f"Phone: {task.phone or '—'}",
+                f"Email: {task.email or '—'}",
+                "",
+                f"Call summary: {summary}",
+                "",
+                "Transcript excerpt:",
+                transcript_excerpt or "(not available yet)",
+            ]
+        )
+        SmtpMailerService.send_plain(db, to_addr=admin_email, subject=admin_subject, body=admin_body)
+        admin_result = {"ok": True, "to": admin_email}
+
+    return {"ok": True, "customer": customer_result, "admin": admin_result}

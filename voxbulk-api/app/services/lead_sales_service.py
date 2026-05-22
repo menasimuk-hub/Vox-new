@@ -733,8 +733,8 @@ def prepare_sales_outbound_call(
         db,
         assistant_id,
         instructions,
-        greeting=saved or None,
-        sync_greeting=bool(saved),
+        greeting=greeting,
+        sync_greeting=True,
         enable_web_calls=False,
     )
     return assistant_id, instructions, greeting
@@ -957,7 +957,7 @@ def handle_lead_sales_telnyx_event(db: Session, payload: dict[str, Any]) -> None
                 config=config,
                 instructions=prompt,
                 greeting=greeting,
-                prepared=False,
+                prepared=True,
             )
             if not result.ok:
                 task.last_error = f"AI assistant did not start: {result.detail or result.status}"

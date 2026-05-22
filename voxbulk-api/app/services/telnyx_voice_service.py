@@ -407,9 +407,11 @@ class TelnyxVoiceAdapter:
             assistant_block["instructions"] = clean_instructions
         if clean_greeting:
             assistant_block["greeting"] = clean_greeting
+            assistant_block["greeting_mode"] = "assistant_speaks_first"
         payload: dict[str, Any] = {"assistant": assistant_block}
         if clean_greeting:
             payload["greeting"] = clean_greeting
+            payload["greeting_mode"] = "assistant_speaks_first"
         try:
             with httpx.Client(timeout=15.0, verify=httpx_ssl_verify()) as client:
                 response = client.post(

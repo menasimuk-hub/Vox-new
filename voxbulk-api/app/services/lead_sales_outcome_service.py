@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -167,7 +168,18 @@ def sync_sales_task_outcome(db: Session, task: LeadSalesTask) -> LeadSalesTask:
     if conversation:
         conv_id = str(conversation.get("id") or "").strip()
         task.telnyx_conversation_id = conv_id or task.telnyx_conversation_id
-        messages, _err = fetch_conversation_messages(db, conv_id)
+        messages: list[dict[str, Any]] = []
+        for attempt in range(3):
+            messages, _err = fetch_conversation_messages(db, conv_id)
+            if messages:
+                break
+            if attempt < 2:
+                time.sleep(5)
+        if not messages:
+            logger.warning(
+                "sales_transcript_messages_empty_after_retries",
+                extra={"task_id": task.id, "conversation_id": conv_id},
+            )
         entries = transcript_entries_from_messages(messages)
         built = transcript_from_entries(entries)
         if built:

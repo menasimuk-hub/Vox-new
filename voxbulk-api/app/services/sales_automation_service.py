@@ -544,6 +544,15 @@ class SalesAutomationService:
                 "post_call_automation_send_offer",
                 extra={"task_id": task.id, "deal_stage": outcome.get("deal_stage")},
             )
+            from app.services.sales_offer_send_service import send_sale_confirmation_email
+
+            try:
+                send_sale_confirmation_email(db, task)
+            except Exception as exc:
+                logger.warning(
+                    "sale_confirmation_email_failed",
+                    extra={"task_id": task.id, "error": str(exc)},
+                )
             return SalesAutomationService.send_offer_for_task(db, task, source="post_call_auto_offer")
 
         if SalesAutomationService._should_send_opt_in(task, outcome, call_status=call_status):

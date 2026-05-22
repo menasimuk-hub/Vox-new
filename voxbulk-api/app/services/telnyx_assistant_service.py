@@ -195,7 +195,7 @@ def sync_telnyx_assistant_instructions(
         raise ValueError("System prompt is required to sync to Telnyx")
     if enable_web_calls:
         enable_telnyx_assistant_web_calls(db, clean_id)
-    body: dict[str, Any] = {"instructions": clean_instructions, "promote_to_main": True}
+    body: dict[str, Any] = {"instructions": clean_instructions, "promote_to_main": True, "include_transcript": True}
     pushed_greeting = ""
     if sync_greeting:
         pushed_greeting = str(greeting or "").strip()
