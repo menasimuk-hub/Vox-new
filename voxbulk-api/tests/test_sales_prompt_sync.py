@@ -59,7 +59,13 @@ def test_greeting_falls_back_to_voxbulk_when_name_not_in_prompt():
     assert greeting == build_agent_greeting("VoxBulk")
 
 
-def test_greeting_saved_custom_appends_recording_notice():
+def test_greeting_ignores_legacy_recording_only_saved_value():
+    greeting = sales_call_opening_greeting_for_instructions(
+        "You are Adam, a senior sales closer for VoxBulk.",
+        contact_name="Jane Smith",
+        saved_greeting="This call is recorded for quality — see voxbulk.com for privacy.",
+    )
+    assert greeting == build_agent_greeting("Adam")
     greeting = sales_call_opening_greeting_for_instructions(
         "Master script",
         contact_name="Jane Smith",

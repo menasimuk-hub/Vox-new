@@ -19,6 +19,7 @@ from app.models.lead_sales_setting import LeadSalesSetting
 from app.services.frontpage_lead_service import build_lead_runtime_prompt
 from app.services.lead_sales_service import _sales_playbook_block, refresh_lead_sales_kb
 from app.services.telnyx_assistant_service import (
+    RECORDING_SUFFIX,
     build_agent_greeting,
     extract_agent_name_from_prompt,
     sync_telnyx_assistant_instructions,
@@ -29,7 +30,12 @@ STALE_PHRASES = ("good time", "quick chat", "thanks for reaching out")
 
 
 def _is_stale(value: str | None) -> bool:
-    lowered = str(value or "").lower()
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if text == RECORDING_SUFFIX:
+        return True
+    lowered = text.lower()
     return any(phrase in lowered for phrase in STALE_PHRASES)
 
 

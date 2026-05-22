@@ -171,10 +171,11 @@ def intake_call_opening_greeting(
         RECORDING_SUFFIX,
         build_agent_greeting,
         extract_agent_name_from_prompt,
+        normalize_saved_telnyx_greeting,
         personalize_greeting,
     )
 
-    saved = str(saved_greeting or "").strip()
+    saved = normalize_saved_telnyx_greeting(saved_greeting)
     if saved:
         line = personalize_greeting(saved, first_name=first_name)
         if "recorded" not in line.lower():

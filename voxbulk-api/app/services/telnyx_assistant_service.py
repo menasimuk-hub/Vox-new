@@ -17,6 +17,14 @@ def build_agent_greeting(agent_name: str) -> str:
     return f"Hello, this is {name}. {RECORDING_SUFFIX}"
 
 
+def normalize_saved_telnyx_greeting(saved_greeting: str | None) -> str:
+    """Ignore legacy DB values that are only the recording suffix (pre–Hello, this is X format)."""
+    saved = str(saved_greeting or "").strip()
+    if saved == RECORDING_SUFFIX:
+        return ""
+    return saved
+
+
 def _telnyx_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",

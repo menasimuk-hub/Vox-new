@@ -23,6 +23,7 @@ from app.services.lead_sales_prompt_generator import generate_lead_sales_prompt
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
 from app.services.telnyx_assistant_service import (
     normalize_telnyx_assistant_id,
+    normalize_saved_telnyx_greeting,
     resolve_telnyx_assistant_runtime,
     sync_telnyx_assistant_instructions,
 )
@@ -196,10 +197,11 @@ def sales_call_opening_greeting_for_instructions(
         RECORDING_SUFFIX,
         build_agent_greeting,
         extract_agent_name_from_prompt,
+        normalize_saved_telnyx_greeting,
         personalize_greeting,
     )
 
-    saved = str(saved_greeting or "").strip()
+    saved = normalize_saved_telnyx_greeting(saved_greeting)
     if saved:
         line = personalize_greeting(saved, first_name=contact_name)
         if "recorded" not in line.lower():
@@ -269,7 +271,7 @@ def sync_lead_sales_telnyx_assistant(db: Session, settings: LeadSalesSetting | N
     if not sync_prompt:
         return {"telnyx_synced": False, "telnyx_sync_warning": "Master sales script is empty"}
     try:
-        saved = str(settings.telnyx_greeting or "").strip()
+        saved = normalize_saved_telnyx_greeting(settings.telnyx_greeting)
         sync_telnyx_assistant_instructions(
             db,
             agent_id,
@@ -298,7 +300,7 @@ def sync_sales_task_to_telnyx(db: Session, task: LeadSalesTask) -> dict[str, Any
         return {"ok": False, "error": "Telnyx sales assistant ID is not configured"}
     if not instructions:
         return {"ok": False, "error": "Sales prompt is empty — generate the prompt first"}
-    saved = str(settings.telnyx_greeting or "").strip()
+    saved = normalize_saved_telnyx_greeting(settings.telnyx_greeting)
     greeting = saved or sales_call_opening_greeting_for_instructions(
         instructions,
         contact_name=task.contact_name,
@@ -511,7 +513,7 @@ def _parse_scheduled_at(value: str | None, tz_name: str | None) -> datetime | No
 
 def sales_call_opening_greeting(task: LeadSalesTask, *, settings: LeadSalesSetting | None = None) -> str:
     """First line the sales agent speaks as soon as the callee answers (Telnyx greeting field)."""
-    saved = str(settings.telnyx_greeting or "").strip() if settings else ""
+    saved = normalize_saved_telnyx_greeting(settings.telnyx_greeting) if settings else ""
     return sales_call_opening_greeting_for_instructions(
         str(task.sales_prompt or ""),
         contact_name=task.contact_name,
@@ -718,7 +720,7 @@ def prepare_sales_outbound_call(
         db.add(task)
         db.commit()
         db.refresh(task)
-    saved = str(settings.telnyx_greeting or "").strip()
+    saved = normalize_saved_telnyx_greeting(settings.telnyx_greeting)
     greeting = sales_call_opening_greeting_for_instructions(
         instructions,
         contact_name=task.contact_name,

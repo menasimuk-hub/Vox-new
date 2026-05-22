@@ -1227,13 +1227,13 @@ class LeadSalesGeneratePromptIn(BaseModel):
 
 @admin_router.get("/talk-to-us/telnyx-preview")
 def frontpage_talk_to_us_telnyx_preview(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
-    from app.services.telnyx_assistant_service import resolve_telnyx_assistant_runtime
+    from app.services.telnyx_assistant_service import normalize_saved_telnyx_greeting, resolve_telnyx_assistant_runtime
     from app.services.telnyx_lead_variables import ensure_telnyx_variables_block
 
     settings, agent = _get_settings(db)
     agent_id = str(settings.provider_agent_id or "").strip()
     instructions = ensure_telnyx_variables_block(_frontpage_sync_prompt(settings))
-    saved = str(settings.telnyx_greeting or "").strip()
+    saved = normalize_saved_telnyx_greeting(settings.telnyx_greeting)
     greeting = saved or _intake_call_opening_greeting("there", instructions)
     out = {
         "assistant_id": agent_id,
