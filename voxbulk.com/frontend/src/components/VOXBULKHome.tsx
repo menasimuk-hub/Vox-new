@@ -3304,7 +3304,6 @@ export default function VOXBULKHome() {
         <Industries />
         <Testimonial />
         <BottomCTA />
-        <DemoCTA />
       </main>
       <Footer />
     </div>
