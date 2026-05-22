@@ -733,7 +733,10 @@ def sync_telnyx_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends
 
 @router.post("/integrations/telnyx/test-whatsapp")
 def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+    from app.services.telnyx_whatsapp_template_sync_service import (
+        TelnyxWhatsappTemplateSyncService,
+        send_template_id_for_row,
+    )
 
     payload = payload or {}
     to_number = str(payload.get("to_number") or "").strip()
@@ -754,7 +757,7 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
     )
     if synced is not None:
         if not template_id:
-            template_id = synced.template_id
+            template_id = send_template_id_for_row(synced)
         if not template_language:
             template_language = synced.language
         if not template_name:

@@ -80,12 +80,14 @@ def test_telnyx_inbound_whatsapp_message_webhook(app_client):
         assert row.direction == "inbound"
 
 
-def test_telnyx_whatsapp_template_validation_rejects_numeric_name():
+def test_telnyx_whatsapp_template_validation_rejects_short_numeric_name():
     from app.services.telnyx_messaging_service import TelnyxMessagingService
 
     err = TelnyxMessagingService.validate_whatsapp_template_ref("212", None)
     assert err
     assert "212" in err
+
+    assert TelnyxMessagingService.validate_whatsapp_template_ref(None, "1909771389734817") is None
 
 
 def test_telnyx_message_finalized_delivery_failed(app_client):

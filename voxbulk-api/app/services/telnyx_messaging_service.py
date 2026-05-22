@@ -138,16 +138,26 @@ class TelnyxMessagingService:
 
     @staticmethod
     def validate_whatsapp_template_ref(template_name: str | None, template_id: str | None) -> str | None:
+        explicit_id = str(template_id or "").strip()
+        if explicit_id:
+            # Synced Meta/Telnyx template ids are often numeric — only reject short portal row numbers.
+            if explicit_id.isdigit() and len(explicit_id) <= 5:
+                return (
+                    f"Template '{explicit_id}' looks like a Telnyx portal row number. "
+                    "Use Sync WhatsApp templates in admin, or paste the template name (e.g. voxbulk_sales_offer)."
+                )
+            return None
+
         name, tid = TelnyxMessagingService.resolve_whatsapp_template_ref(
             template_name=template_name,
             template_id=template_id,
         )
-        ref = tid or name
-        if ref and ref.isdigit():
+        ref = name or tid
+        if ref and ref.isdigit() and len(ref) <= 5:
             return (
                 f"Template '{ref}' looks like a list number, not a Meta template. "
-                "In Telnyx → WhatsApp → Templates, copy the template name (e.g. hello_world) "
-                "or the UUID template_id — not the row number in the portal."
+                "In Telnyx → WhatsApp → Templates, copy the template name (e.g. voxbulk_sales_offer) "
+                "or use Sync WhatsApp templates — not the row number in the portal."
             )
         return None
 

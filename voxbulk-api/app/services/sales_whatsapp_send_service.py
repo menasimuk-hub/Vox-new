@@ -13,7 +13,10 @@ from app.services.sales_whatsapp_telnyx_service import (
     telnyx_template_name,
 )
 from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMessagingService
-from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+from app.services.telnyx_whatsapp_template_sync_service import (
+    TelnyxWhatsappTemplateSyncService,
+    send_template_id_for_row,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +47,14 @@ def send_sales_whatsapp(
 
     if use_meta_template and template_key:
         synced = TelnyxWhatsappTemplateSyncService.get_for_sales_key(db, template_key)
-        if synced and synced.template_id and str(synced.status or "").upper() == "APPROVED":
+        if synced and str(synced.status or "").upper() == "APPROVED":
+            send_tid = send_template_id_for_row(synced)
             send_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(synced, variables=variables)
             result = TelnyxMessagingService.send_whatsapp(
                 db,
                 to_number=to_number,
                 body=body,
-                template_id=synced.template_id,
+                template_id=send_tid,
                 template_language=synced.language,
                 template_components=send_components or components,
                 org_id=None,

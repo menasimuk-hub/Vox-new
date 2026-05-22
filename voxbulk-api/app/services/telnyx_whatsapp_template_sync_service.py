@@ -22,6 +22,7 @@ from app.services.sales_whatsapp_telnyx_service import (
     template_key_for_telnyx_name,
 )
 from app.services.telnyx_api_key import normalize_telnyx_api_key, require_telnyx_api_key
+from app.services.telnyx_messaging_service import _TEMPLATE_UUID_RE
 from app.services.telnyx_voice_service import _telnyx_config, _telnyx_headers, _telnyx_http_error_detail, TelnyxConfigError
 
 logger = logging.getLogger(__name__)
@@ -62,11 +63,39 @@ def _body_variable_count(components: list[Any] | None) -> int:
     return max(nums) if nums else 0
 
 
+def _send_template_id_from_api_item(item: dict[str, Any]) -> str:
+    """Telnyx send API uses list `id` (UUID). `template_id` is often Meta's numeric id."""
+    telnyx_id = str(item.get("id") or "").strip()
+    meta_id = str(item.get("template_id") or "").strip()
+    if telnyx_id and (_TEMPLATE_UUID_RE.match(telnyx_id) or not meta_id.isdigit()):
+        return telnyx_id
+    if meta_id and _TEMPLATE_UUID_RE.match(meta_id):
+        return meta_id
+    return telnyx_id or meta_id
+
+
+def send_template_id_for_row(row: TelnyxWhatsappTemplate) -> str:
+    """Id to pass to Telnyx messages API (prefer Telnyx UUID over Meta numeric)."""
+    record = str(row.telnyx_record_id or "").strip()
+    stored = str(row.template_id or "").strip()
+    if stored and not (stored.isdigit() and len(stored) >= 10):
+        return stored
+    if record and (_TEMPLATE_UUID_RE.match(record) or not stored.isdigit()):
+        return record
+    return stored or record
+
+
 def template_to_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+    send_id = send_template_id_for_row(row)
     return {
         "id": row.id,
         "telnyx_record_id": row.telnyx_record_id,
-        "template_id": row.template_id,
+        "template_id": send_id,
+        "meta_template_id": (
+            row.template_id
+            if row.template_id != send_id and str(row.template_id or "").isdigit()
+            else None
+        ),
         "name": row.name,
         "language": row.language,
         "category": row.category,
@@ -138,9 +167,10 @@ class TelnyxWhatsappTemplateSyncService:
         approved = 0
         for item in remote:
             record_id = str(item.get("id") or "").strip()
-            template_id = str(item.get("template_id") or item.get("id") or "").strip()
+            meta_template_id = str(item.get("template_id") or "").strip()
+            send_template_id = _send_template_id_from_api_item(item)
             name = str(item.get("name") or "").strip()
-            if not record_id or not template_id or not name:
+            if not record_id or not send_template_id or not name:
                 continue
 
             language = str(item.get("language") or "en_US").strip() or "en_US"
@@ -158,14 +188,14 @@ class TelnyxWhatsappTemplateSyncService:
             if existing is None:
                 existing = TelnyxWhatsappTemplate(
                     telnyx_record_id=record_id,
-                    template_id=template_id,
+                    template_id=send_template_id,
                     name=name,
                     language=language,
                     created_at=now,
                 )
                 db.add(existing)
 
-            existing.template_id = template_id
+            existing.template_id = send_template_id
             existing.name = name
             existing.language = language
             existing.category = category
@@ -228,6 +258,10 @@ class TelnyxWhatsappTemplateSyncService:
             row = db.execute(
                 select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.template_id == tid).limit(1)
             ).scalar_one_or_none()
+            if row is None:
+                row = db.execute(
+                    select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == tid).limit(1)
+                ).scalar_one_or_none()
             if row is not None:
                 return row
 

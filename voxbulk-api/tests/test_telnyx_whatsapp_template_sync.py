@@ -9,8 +9,8 @@ from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTem
 def test_sync_upserts_templates(app_client, monkeypatch):
     remote = [
         {
-            "id": "rec-offer-1",
-            "template_id": "019cd44b-offer-uuid",
+            "id": "019cd44b-offer-telnyx-uuid",
+            "template_id": "1909771389734817",
             "name": "voxbulk_sales_offer",
             "language": "en_US",
             "category": "MARKETING",
@@ -27,8 +27,8 @@ def test_sync_upserts_templates(app_client, monkeypatch):
             ],
         },
         {
-            "id": "rec-optin-1",
-            "template_id": "019cd44b-optin-uuid",
+            "id": "019cd44b-optin-telnyx-uuid",
+            "template_id": "1909771389734818",
             "name": "voxbulk_sales_opt_in",
             "language": "en_US",
             "status": "APPROVED",
@@ -50,7 +50,7 @@ def test_sync_upserts_templates(app_client, monkeypatch):
 
         offer = TelnyxWhatsappTemplateSyncService.get_for_sales_key(db, "sales_offer")
         assert offer is not None
-        assert offer.template_id == "019cd44b-offer-uuid"
+        assert offer.template_id == "019cd44b-offer-telnyx-uuid"
         assert offer.sales_template_key == "sales_offer"
         assert offer.language == "en_US"
 
