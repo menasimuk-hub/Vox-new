@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import uuid
 
 from app.core.database import get_sessionmaker
 from app.models.lead_sales_setting import LeadSalesSetting
@@ -37,8 +38,16 @@ def test_handle_inbound_send_offer_keyword(app_client, monkeypatch):
         "app.services.sales_offer_send_service.TransactionalEmailService.send_templated_optional",
         lambda *a, **k: (True, None),
     )
+    monkeypatch.setattr(
+        "app.services.sales_whatsapp_send_service.send_sales_whatsapp",
+        lambda *a, **k: __import__(
+            "app.services.telnyx_messaging_service", fromlist=["TelnyxMessageResult"]
+        ).TelnyxMessageResult(ok=True, status="queued", external_id="msg-1", channel="whatsapp"),
+    )
 
     with get_sessionmaker()() as db:
+        from app.models.sales_offer_template import SalesOfferTemplate
+
         org = Organisation(name="Auto Org")
         db.add(org)
         db.flush()
@@ -47,6 +56,19 @@ def test_handle_inbound_send_offer_keyword(app_client, monkeypatch):
             settings = LeadSalesSetting(id="default", updated_at=datetime.utcnow())
             db.add(settings)
         settings.sales_automation_enabled = True
+        db.add(
+            SalesOfferTemplate(
+                id=str(uuid.uuid4()),
+                name="Test subscription offer",
+                offer_type="dental_trial",
+                plan_code="dental_1",
+                trial_days=15,
+                is_active=True,
+                sort_order=1,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+        )
         task = LeadSalesTask(
             lead_id=org.id,
             status="completed",
@@ -67,6 +89,18 @@ def test_handle_inbound_send_offer_keyword(app_client, monkeypatch):
         db.refresh(task)
         assert task.offer_promo_code
         assert task.offer_sent_at
+
+
+def test_should_auto_offer_when_demo_agreed():
+    task = LeadSalesTask(
+        lead_id="x",
+        status="completed",
+        outcome_json='{"deal_stage":"follow_up","demo_agreed":true}',
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    outcome = SalesAutomationService._parse_outcome(task)
+    assert SalesAutomationService._should_auto_offer(task, outcome) is True
 
 
 def test_process_due_followups_skips_redeemed(app_client, monkeypatch):

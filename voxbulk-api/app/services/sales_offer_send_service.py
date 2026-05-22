@@ -177,16 +177,23 @@ class SalesOfferSendService:
 
     @staticmethod
     def _send_email(db: Session, *, to_addr: str, variables: dict[str, str]) -> None:
-        sent, err = TransactionalEmailService.send_templated_optional(
-            db,
-            template_key="sales_offer",
-            to_email=to_addr,
-            variables=variables,
-        )
-        if sent:
-            return
-        if err and err not in ("unknown_template", None):
-            raise SmtpMailerError(err)
+        from app.services.email_template_service import EmailTemplateService
+
+        row = EmailTemplateService.get(db, key="sales_offer")
+        if row is not None and row.is_enabled:
+            sent, err = TransactionalEmailService.send_templated_optional(
+                db,
+                template_key="sales_offer",
+                to_email=to_addr,
+                variables=variables,
+            )
+            if sent:
+                return
+            raise SmtpMailerError(err or "sales_offer email could not be sent — check SMTP settings.")
+        if row is not None and not row.is_enabled:
+            raise SmtpMailerError(
+                "sales_offer email template is disabled. Enable it under Admin → Email settings."
+            )
         subject = substitute_placeholders(SALES_OFFER_EMAIL_SUBJECT, variables)
         body = substitute_placeholders(SALES_OFFER_EMAIL_BODY, variables)
         SmtpMailerService.send_html(db, to_addr=to_addr, subject=subject, body=body)
@@ -280,7 +287,9 @@ class SalesOfferSendService:
         if send_whatsapp and not log.get("whatsapp") and task.phone:
             errors.append("WhatsApp not sent")
 
-        if errors and not any((log.get("email") or {}).get("ok") or (log.get("whatsapp") or {}).get("ok")):
+        email_ok = bool((log.get("email") or {}).get("ok"))
+        whatsapp_ok = bool((log.get("whatsapp") or {}).get("ok"))
+        if errors and not email_ok and not whatsapp_ok:
             raise SalesOfferSendError("; ".join(errors))
 
         task.offer_promo_code = promo.code

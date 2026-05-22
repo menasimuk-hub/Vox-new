@@ -170,8 +170,5 @@ def resolve_template_for_task(
         "interview": "interview_credits",
     }
     want_type = offer_type_by_cat.get(cat, "dental_trial")
-    for row in list_templates(db, active_only=True):
-        if _normalize_offer_type(row.offer_type) == want_type:
-            return row
-    active = list_templates(db, active_only=True)
+    active = [row for row in list_templates(db, active_only=True) if _normalize_offer_type(row.offer_type) == want_type]
     return active[0] if active else None

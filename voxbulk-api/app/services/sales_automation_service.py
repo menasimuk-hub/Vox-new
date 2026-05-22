@@ -97,7 +97,6 @@ class SalesAutomationService:
         )
 
     @staticmethod
-    @staticmethod
     def _template_variables(
         task: LeadSalesTask,
         *,
@@ -242,9 +241,55 @@ class SalesAutomationService:
     @staticmethod
     def _should_auto_offer(task: LeadSalesTask, outcome: dict[str, Any]) -> bool:
         stage = str(outcome.get("deal_stage") or "").strip().lower()
-        if outcome.get("interested_to_buy"):
+        if outcome.get("interested_to_buy") or outcome.get("demo_agreed"):
             return True
         return stage in {"won_intent", "demo_booked", "qualified"}
+
+    @staticmethod
+    def _set_task_error(db: Session, task: LeadSalesTask, message: str | None) -> None:
+        task.last_error = (str(message or "").strip() or None)[:2000] if message else None
+        task.updated_at = SalesAutomationService._now()
+        db.add(task)
+        state = SalesAutomationService.get_state(db, task.id)
+        if state is not None:
+            state.last_error = task.last_error
+            state.updated_at = SalesAutomationService._now()
+            db.add(state)
+        db.commit()
+
+    @staticmethod
+    def _apply_automation_result(db: Session, task: LeadSalesTask, result: dict[str, Any]) -> None:
+        db.refresh(task)
+        if result.get("ok"):
+            task.last_error = None
+        elif result.get("error"):
+            task.last_error = str(result["error"])[:2000]
+        elif result.get("skipped"):
+            reason = str(result.get("reason") or "").strip()
+            if reason and reason not in {"offer_already_sent", "automation_disabled", "no_action_for_outcome"}:
+                task.last_error = reason[:2000]
+        task.updated_at = SalesAutomationService._now()
+        db.add(task)
+        state = SalesAutomationService.get_state(db, task.id)
+        if state is not None:
+            if result.get("error"):
+                state.last_error = str(result["error"])[:2000]
+            elif result.get("ok"):
+                state.last_error = None
+            state.updated_at = SalesAutomationService._now()
+            db.add(state)
+        db.commit()
+
+    @staticmethod
+    def run_post_call_automation(db: Session, task: LeadSalesTask, *, call_status: str = "completed") -> dict[str, Any]:
+        try:
+            result = SalesAutomationService.handle_post_call(db, task, call_status=call_status)
+            SalesAutomationService._apply_automation_result(db, task, result)
+            return result
+        except Exception as exc:
+            logger.exception("post_call_automation_failed", extra={"task_id": task.id})
+            SalesAutomationService._set_task_error(db, task, str(exc))
+            return {"ok": False, "error": str(exc)}
 
     @staticmethod
     def _should_send_opt_in(task: LeadSalesTask, outcome: dict[str, Any], *, call_status: str) -> bool:
@@ -328,8 +373,23 @@ class SalesAutomationService:
         source: str = "manual",
         resend_only: bool = False,
         template_id: str | None = None,
+        email: str | None = None,
+        phone: str | None = None,
+        force_resend: bool = False,
     ) -> dict[str, Any]:
         from app.services.sales_offer_template_service import resolve_template_for_task
+
+        clean_email = str(email or "").strip().lower() or None
+        clean_phone = str(phone or "").strip() or None
+        if clean_email:
+            task.email = clean_email
+        if clean_phone:
+            task.phone = clean_phone
+        if clean_email or clean_phone:
+            task.updated_at = SalesAutomationService._now()
+            db.add(task)
+            db.commit()
+            db.refresh(task)
 
         if task.offer_sent_at and task.offer_promo_code and resend_only:
             from app.services.promo_offer_service import PromoOfferService
@@ -365,7 +425,14 @@ class SalesAutomationService:
 
         template = resolve_template_for_task(db, task, template_id=template_id)
         if template is None:
-            return {"ok": False, "error": "No active sales offer template configured. Add templates under Lead sales → Offer templates."}
+            category = SalesAutomationService._parse_outcome(task).get("recommended_offer") or "subscription"
+            return {
+                "ok": False,
+                "error": (
+                    f"No active offer template for {category}. "
+                    "Add one under Lead sales → Offer templates and map it in Sales setup."
+                ),
+            }
 
         try:
             result = SalesOfferSendService.send_for_task_with_template(
@@ -376,10 +443,12 @@ class SalesAutomationService:
                 send_whatsapp=bool(task.phone),
             )
         except SalesOfferSendError as exc:
+            SalesAutomationService._set_task_error(db, task, str(exc))
             return {"ok": False, "error": str(exc)}
 
         result["template_id"] = template.id
         result["template_name"] = template.name
+        result["offer_type"] = template.offer_type
         result["recommended_offer"] = SalesAutomationService._parse_outcome(task).get("recommended_offer")
 
         promo = None
@@ -390,9 +459,16 @@ class SalesAutomationService:
         row = SalesAutomationService.get_state(db, task.id)
         if row is not None:
             row.meta_json = json.dumps(meta)
+            row.last_error = None
             db.add(row)
             db.commit()
+        task.last_error = None
+        if result.get("partial_errors"):
+            task.last_error = "; ".join(result["partial_errors"])[:2000]
+            db.add(task)
+            db.commit()
         result["automation"] = True
+        result["ok"] = True
         return result
 
     @staticmethod

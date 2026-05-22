@@ -1620,12 +1620,18 @@ def send_lead_sales_offer(
     body = payload
     template_id = str(body.get("template_id") or "").strip() or None
     resend_only = body.get("resend_only", False) is True
+    force_resend = body.get("force_resend", False) is True
+    email = str(body.get("email") or "").strip() or None
+    phone = str(body.get("phone") or "").strip() or None
     result = SalesAutomationService.send_offer_for_task(
         db,
         row,
         source="manual",
         resend_only=resend_only,
         template_id=template_id,
+        email=email,
+        phone=phone,
+        force_resend=force_resend,
     )
     if not result.get("ok") and result.get("error"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(result["error"]))
@@ -1667,6 +1673,7 @@ def run_sales_followups_now(db: Session = Depends(get_db), _admin=Depends(requir
 def sync_lead_sales_outcome_route(task_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     from app.models.lead_sales_task import LeadSalesTask
     from app.services.lead_sales_outcome_service import sync_sales_task_outcome
+    from app.services.sales_automation_service import SalesAutomationService
 
     row = db.get(LeadSalesTask, task_id)
     if row is None:
@@ -1675,8 +1682,14 @@ def sync_lead_sales_outcome_route(task_id: str, db: Session = Depends(get_db), _
         row = sync_sales_task_outcome(db, row)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    automation = None
+    if not row.offer_sent_at:
+        automation = SalesAutomationService.run_post_call_automation(db, row, call_status=str(row.status or "completed"))
     lead = db.get(FrontpageLeadCall, row.lead_id)
-    return {"task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None)}
+    return {
+        "task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None),
+        "automation": automation,
+    }
 
 
 @admin_router.get("/lead-sales/tasks/{task_id}/telnyx-insights")

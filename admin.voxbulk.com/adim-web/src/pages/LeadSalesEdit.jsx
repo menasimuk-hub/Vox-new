@@ -360,7 +360,12 @@ export default function LeadSalesEdit() {
     try {
       const data = await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}/sync-outcome`, { method: 'POST' })
       if (data?.task) setTask(data.task)
-      setMsg('Results updated from Telnyx + DeepSeek.')
+      const auto = data?.automation
+      let extra = ''
+      if (auto?.ok) extra = ' Offer sent automatically (WhatsApp + email).'
+      else if (auto?.error) extra = ` Auto-send failed: ${auto.error}`
+      else if (auto?.skipped && auto?.reason) extra = ` Auto-send skipped: ${auto.reason}.`
+      setMsg(`Results updated from Telnyx + DeepSeek.${extra}`)
     } catch (e) {
       setMsg(e?.message || 'Could not sync results')
     } finally {
@@ -368,22 +373,40 @@ export default function LeadSalesEdit() {
     }
   }
 
-  const sendOfferLink = async ({ resendOnly = false } = {}) => {
+  const sendOfferLink = async ({ resendOnly = false, forceResend = false } = {}) => {
     setSendingOffer(true)
     setMsg('')
     try {
+      await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...form,
+          scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
+        }),
+      })
       const data = await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}/send-offer`, {
         method: 'POST',
-        body: JSON.stringify({ resend_only: resendOnly }),
+        body: JSON.stringify({
+          resend_only: resendOnly,
+          force_resend: forceResend,
+          email: form.email?.trim() || null,
+          phone: form.phone?.trim() || null,
+          template_id: autoOffer.template?.id || null,
+        }),
       })
       if (data?.task) setTask(data.task)
       setLastOfferResult(data?.send || data)
-      const emailOk = data?.send?.email?.ok
-      const waOk = data?.send?.whatsapp?.ok
+      const send = data?.send || {}
+      const emailOk = send?.email?.ok
+      const waOk = send?.whatsapp?.ok
+      const partial = Array.isArray(send?.partial_errors) ? send.partial_errors.join('; ') : ''
+      const templateName = send?.template_name || autoOffer.template?.name || 'template'
       setMsg(
-        `Offer sent${emailOk ? ' · email OK' : ''}${waOk ? ' · WhatsApp OK' : ''}${
-          data?.send?.signup_url ? ` · Link: ${data.send.signup_url}` : ''
-        }`,
+        `${resendOnly ? 'WhatsApp link resent' : `Offer sent (${templateName})`}${
+          emailOk ? ' · email OK' : send?.email?.error ? ` · email failed: ${send.email.error}` : ''
+        }${waOk ? ' · WhatsApp OK' : send?.whatsapp?.error ? ` · WhatsApp failed: ${send.whatsapp.error}` : ''}${
+          send?.signup_url ? ` · Link: ${send.signup_url}` : ''
+        }${partial ? ` · ${partial}` : ''}`,
       )
     } catch (e) {
       setMsg(e?.message || 'Could not send offer')
@@ -630,14 +653,24 @@ export default function LeadSalesEdit() {
                 {sendingOffer ? 'Sending…' : 'Send offer now (AI template)'}
               </button>
             ) : (
-              <button
-                type='button'
-                className='btn soft'
-                disabled={sendingOffer || !form.phone}
-                onClick={() => sendOfferLink({ resendOnly: true })}
-              >
-                {sendingOffer ? 'Sending…' : 'Resend link on WhatsApp'}
-              </button>
+              <>
+                <button
+                  type='button'
+                  className='btn primary'
+                  disabled={sendingOffer || (!form.email && !form.phone) || !autoOffer.template}
+                  onClick={() => sendOfferLink({ forceResend: true })}
+                >
+                  {sendingOffer ? 'Sending…' : 'Resend offer (email + WhatsApp)'}
+                </button>
+                <button
+                  type='button'
+                  className='btn soft'
+                  disabled={sendingOffer || !form.phone}
+                  onClick={() => sendOfferLink({ resendOnly: true })}
+                >
+                  {sendingOffer ? 'Sending…' : 'Resend link on WhatsApp only'}
+                </button>
+              </>
             )}
           </div>
           {!autoOffer.template ? (

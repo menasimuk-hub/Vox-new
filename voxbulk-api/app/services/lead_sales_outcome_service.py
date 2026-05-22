@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timedelta
 from typing import Any
@@ -12,14 +13,16 @@ from app.models.lead_sales_task import LeadSalesTask
 from app.services.agents.base import AgentMessage
 from app.services.providers.openai_service import OpenAIProviderService
 from app.services.telnyx_conversation_service import (
+    _conversation_list,
+    _extract_call_ids_from_conversation,
     _looks_like_conversation_id,
     fetch_conversation_insights,
     fetch_conversation_messages,
     transcript_entries_from_messages,
     transcript_from_entries,
-    _conversation_list,
-    _extract_call_ids_from_conversation,
 )
+
+logger = logging.getLogger(__name__)
 
 _OUTCOME_META = """You analyse a completed outbound sales call transcript.
 Return ONLY valid JSON:
@@ -179,21 +182,52 @@ def sync_sales_task_outcome(db: Session, task: LeadSalesTask) -> LeadSalesTask:
     return task
 
 
+def schedule_post_call_automation_retry(task_id: str, *, delay_seconds: int = 180) -> None:
+    """Retry sync + auto-offer when Telnyx transcript was not ready at hangup."""
+    try:
+        from app.workers.sales_tasks import retry_post_call_automation_task
+
+        retry_post_call_automation_task.apply_async(args=[task_id], countdown=max(30, int(delay_seconds)))
+    except Exception as exc:
+        logger.warning(
+            "schedule_post_call_automation_retry_failed",
+            extra={"task_id": task_id, "error": str(exc)},
+        )
+
+
 def finalize_sales_task_after_call(db: Session, task: LeadSalesTask, *, status: str = "completed") -> None:
     task.status = status if status in {"completed", "no_answer", "failed"} else "completed"
-    from datetime import datetime
-
     task.call_completed_at = datetime.utcnow()
     task.updated_at = datetime.utcnow()
     db.add(task)
     db.commit()
+
     try:
-        sync_sales_task_outcome(db, task)
-    except Exception:
+        task = sync_sales_task_outcome(db, task)
+    except Exception as exc:
+        logger.exception("sales_outcome_sync_failed", extra={"task_id": task.id})
+        task.last_error = f"Outcome sync failed: {exc}"[:2000]
+        task.updated_at = datetime.utcnow()
+        db.add(task)
+        db.commit()
         db.refresh(task)
+
+    automation_result: dict[str, Any] = {"skipped": True}
     try:
         from app.services.sales_automation_service import SalesAutomationService
 
-        SalesAutomationService.handle_post_call(db, task, call_status=status)
-    except Exception:
-        pass
+        automation_result = SalesAutomationService.run_post_call_automation(db, task, call_status=status)
+    except Exception as exc:
+        logger.exception("sales_post_call_automation_failed", extra={"task_id": task.id})
+        task.last_error = f"Post-call automation failed: {exc}"[:2000]
+        task.updated_at = datetime.utcnow()
+        db.add(task)
+        db.commit()
+
+    db.refresh(task)
+    if status == "completed" and not task.offer_sent_at:
+        reason = str(automation_result.get("reason") or "").strip()
+        if automation_result.get("skipped") and reason in {"no_action_for_outcome", "offer_already_sent"}:
+            pass
+        elif not automation_result.get("ok"):
+            schedule_post_call_automation_retry(task.id)
