@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch, resolveApiUrl } from '../lib/api'
+import { resolveTemplateForLead, templateSummary } from '../lib/salesOfferResolve'
+import { categoryLabel } from '../lib/salesOfferTypes'
 import TelnyxDualWaveform from '../components/TelnyxDualWaveform'
 import TelnyxInsightsModal from '../components/TelnyxInsightsModal'
 
@@ -254,9 +256,8 @@ export default function LeadSalesEdit() {
   const [syncingOutcome, setSyncingOutcome] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
-  const [offerPlan, setOfferPlan] = useState('dental_1')
-  const [offerTrialDays, setOfferTrialDays] = useState(15)
-  const [offerPlans, setOfferPlans] = useState([])
+  const [offerTemplates, setOfferTemplates] = useState([])
+  const [salesSettings, setSalesSettings] = useState({})
   const [sendingOffer, setSendingOffer] = useState(false)
   const [lastOfferResult, setLastOfferResult] = useState(null)
 
@@ -294,15 +295,18 @@ export default function LeadSalesEdit() {
     let cancelled = false
     ;(async () => {
       try {
-        const rows = await apiFetch('/admin/products/plans/active')
+        const [tplData, settingsData] = await Promise.all([
+          apiFetch('/admin/frontpage/lead-sales/offer-templates'),
+          apiFetch('/admin/frontpage/lead-sales/settings'),
+        ])
         if (cancelled) return
-        const list = Array.isArray(rows) ? rows : []
-        setOfferPlans(list)
-        if (list.length) {
-          setOfferPlan((prev) => (list.some((p) => p.code === prev) ? prev : list[0].code))
-        }
+        setOfferTemplates(Array.isArray(tplData?.templates) ? tplData.templates : [])
+        setSalesSettings(settingsData?.settings || {})
       } catch {
-        if (!cancelled) setOfferPlans([])
+        if (!cancelled) {
+          setOfferTemplates([])
+          setSalesSettings({})
+        }
       }
     })()
     return () => {
@@ -364,16 +368,13 @@ export default function LeadSalesEdit() {
     }
   }
 
-  const sendOfferLink = async () => {
+  const sendOfferLink = async ({ resendOnly = false } = {}) => {
     setSendingOffer(true)
     setMsg('')
     try {
       const data = await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}/send-offer`, {
         method: 'POST',
-        body: JSON.stringify({
-          plan_code: offerPlan,
-          trial_days: Number(offerTrialDays) || 15,
-        }),
+        body: JSON.stringify({ resend_only: resendOnly }),
       })
       if (data?.task) setTask(data.task)
       setLastOfferResult(data?.send || data)
@@ -408,6 +409,11 @@ export default function LeadSalesEdit() {
       setBusy('')
     }
   }
+
+  const autoOffer = useMemo(
+    () => resolveTemplateForLead(offerTemplates, salesSettings, task?.outcome, task),
+    [offerTemplates, salesSettings, task],
+  )
 
   if (loading) {
     return <p className='muted' style={{ padding: 24 }}>Loading…</p>
@@ -586,70 +592,66 @@ export default function LeadSalesEdit() {
         </div>
       </section>
 
-      <section className='card' style={{ marginTop: 16 }}>
+      <section className='card salesOfferCard' style={{ marginTop: 16 }}>
         <div className='cardHead'>
-          <h3>Send offer link</h3>
+          <h3>Auto offer</h3>
+          {task.offer_promo_code ? <span className='pill p-green'>Sent · {task.offer_promo_code}</span> : <span className='pill p-cyan'>Automatic</span>}
         </div>
         <div className='cardBody'>
-          <p className='muted' style={{ marginBottom: 12 }}>
-            When the customer agrees on the call, send signup link by email and WhatsApp with trial + package pre-filled.
+          <p className='muted salesOfferIntro'>
+            After the call, AI picks the offer type and sends the matching template. Configure under{' '}
+            <Link to='/marketing/lead-sales/offer-templates'>Offer templates</Link>.
           </p>
-          <div className='salesLeadDetailsGrid'>
-            <label className='salesLeadField'>
-              <span>Package</span>
-              <select
-                className='input inputCompact'
-                value={offerPlan}
-                onChange={(e) => {
-                  const code = e.target.value
-                  setOfferPlan(code)
-                  const picked = offerPlans.find((p) => p.code === code)
-                  if (picked?.trial_days_default) setOfferTrialDays(picked.trial_days_default)
-                }}
+          <div className='salesAutoOfferGrid'>
+            <div className='salesAutoOfferTile'>
+              <span className='muted'>AI recommendation</span>
+              <strong>{categoryLabel(autoOffer.category)}</strong>
+              <span className='muted'>{task.outcome?.recommended_offer ? 'From call analysis' : 'Default until outcome synced'}</span>
+            </div>
+            <div className='salesAutoOfferTile'>
+              <span className='muted'>Template to send</span>
+              <strong>{autoOffer.template?.name || '—'}</strong>
+              <span className='muted'>{templateSummary(autoOffer.template)}</span>
+            </div>
+            <div className='salesAutoOfferTile'>
+              <span className='muted'>Delivery</span>
+              <strong>WhatsApp + email</strong>
+              <span className='muted'>After interested call or manual send</span>
+            </div>
+          </div>
+          <div className='actions' style={{ marginTop: 14 }}>
+            {!task.offer_promo_code ? (
+              <button
+                type='button'
+                className='btn primary'
+                disabled={sendingOffer || (!form.email && !form.phone) || !autoOffer.template}
+                onClick={() => sendOfferLink()}
               >
-                {offerPlans.length ? (
-                  offerPlans.map((p) => (
-                    <option key={p.code} value={p.code}>
-                      {p.name} — £{(Number(p.price_gbp_pence || 0) / 100).toFixed(0)} ({p.calls_included} calls / {p.whatsapp_included} WA / {p.sms_included} SMS)
-                    </option>
-                  ))
-                ) : (
-                  <>
-                    <option value='dental_1'>Dental P1 — £199</option>
-                    <option value='dental_2'>Dental P2 — £299</option>
-                  </>
-                )}
-              </select>
-            </label>
-            <label className='salesLeadField'>
-              <span>Trial days</span>
-              <input
-                className='input inputCompact'
-                type='number'
-                min={1}
-                max={90}
-                value={offerTrialDays}
-                onChange={(e) => setOfferTrialDays(e.target.value)}
-              />
-            </label>
+                {sendingOffer ? 'Sending…' : 'Send offer now (AI template)'}
+              </button>
+            ) : (
+              <button
+                type='button'
+                className='btn soft'
+                disabled={sendingOffer || !form.phone}
+                onClick={() => sendOfferLink({ resendOnly: true })}
+              >
+                {sendingOffer ? 'Sending…' : 'Resend link on WhatsApp'}
+              </button>
+            )}
           </div>
-          <div className='actions' style={{ marginTop: 12 }}>
-            <button type='button' className='btn primary' disabled={sendingOffer || !form.email} onClick={sendOfferLink}>
-              {sendingOffer ? 'Sending…' : 'Send offer (WhatsApp + email)'}
-            </button>
-          </div>
-          {!form.email ? (
-            <p className='muted' style={{ marginTop: 8 }}>Add an email on this lead before sending.</p>
+          {!autoOffer.template ? (
+            <p className='muted' style={{ marginTop: 8 }}>Add active templates and map them in Lead sales setup.</p>
           ) : null}
-          {task.offer_promo_code ? (
-            <p className='muted' style={{ marginTop: 8 }}>
-              Last promo: <strong>{task.offer_promo_code}</strong>
-              {task.offer_sent_at ? ` · sent ${new Date(task.offer_sent_at).toLocaleString()}` : ''}
-            </p>
+          {!form.email && !form.phone ? (
+            <p className='muted' style={{ marginTop: 8 }}>Add an email or phone on this lead before sending.</p>
+          ) : null}
+          {task.offer_sent_at ? (
+            <p className='muted' style={{ marginTop: 8 }}>Last sent {new Date(task.offer_sent_at).toLocaleString()}</p>
           ) : null}
           {lastOfferResult?.signup_url ? (
             <p className='muted' style={{ marginTop: 8, wordBreak: 'break-all' }}>
-              Signup URL: {lastOfferResult.signup_url}
+              Signup URL: <a href={lastOfferResult.signup_url} target='_blank' rel='noreferrer'>{lastOfferResult.signup_url}</a>
             </p>
           ) : null}
         </div>

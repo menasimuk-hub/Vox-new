@@ -205,3 +205,72 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
         return {"ok": True, "usage": None}
     return {"ok": True, "usage": UsageWalletService.summary_dict(row)}
 
+
+@router.get("/invoices")
+def list_my_invoices(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.invoice_service import InvoiceService
+
+    rows = InvoiceService.list_for_org(db, org_id=principal.org_id, limit=limit)
+    return [InvoiceService.invoice_to_dict(db, r) for r in rows]
+
+
+@router.get("/invoices/{invoice_id}")
+def get_my_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.invoice_service import InvoiceService
+
+    row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=principal.org_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return InvoiceService.invoice_to_dict(db, row)
+
+
+@router.get("/invoices/{invoice_id}/html")
+def get_my_invoice_html(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import HTMLResponse
+
+    from app.services.invoice_service import InvoiceDocumentService
+    from app.services.invoice_service import InvoiceService
+
+    row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=principal.org_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return HTMLResponse(InvoiceDocumentService.render_html(db, invoice=row))
+
+
+@router.get("/invoices/{invoice_id}/pdf")
+def get_my_invoice_pdf(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import Response
+
+    from app.services.invoice_service import InvoiceDocumentService
+    from app.services.invoice_service import InvoiceService
+
+    row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=principal.org_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    try:
+        pdf_bytes = InvoiceDocumentService.render_pdf(db, invoice=row)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+    number = row.invoice_number or row.id
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="invoice-{number}.pdf"'},
+    )
+

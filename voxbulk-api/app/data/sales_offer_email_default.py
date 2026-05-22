@@ -17,12 +17,11 @@ SALES_OFFER_EMAIL_BODY = """<!DOCTYPE html><html><body style="font-family:system
 
 SALES_OFFER_WHATSAPP_BODY = """Hi {{first_name}},
 
-Great speaking with you. Here is your VOXBULK {{offer_line}}:
-{{promo_name}}
+Your VOXBULK {{offer_line}} is ready:
 {{offer_summary}}
 
-Start here: {{signup_url}}
+Tap **Start account** below to sign up — your offer applies automatically.
 
-Open the link to create your account — your offer applies automatically.
+Tap **Stop** if you don't want further messages.
 
 — VOXBULK Sales"""

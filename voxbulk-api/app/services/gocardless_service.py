@@ -615,6 +615,41 @@ class BillingService:
         db.add(row)
         db.commit()
         db.refresh(sub)
+
+        try:
+            from app.models.organisation import Organisation
+            from app.models.user import User
+            from app.services.invoice_service import InvoiceService
+
+            org = db.get(Organisation, org_id)
+            user = db.get(User, user_id)
+            prefilled_email = str((completed_flow.get("prefilled_customer") or {}).get("email") or "").strip()
+            client_email = prefilled_email or (org.contact_email if org else "") or (user.email if user else "")
+            if client_email:
+                InvoiceService.issue_from_payment(
+                    db,
+                    org_id=org_id,
+                    client_email=client_email,
+                    subtotal_pence=int(plan.price_gbp_pence or 0),
+                    currency="GBP",
+                    description=f"{plan.name} — subscription",
+                    provider="gocardless",
+                    external_invoice_id=external_subscription_id or flow_id,
+                    payment_reference=external_subscription_id or mandate_id,
+                    payment_method="gocardless",
+                    status="paid",
+                    line_items=[
+                        {
+                            "description": f"{plan.name} — monthly subscription",
+                            "quantity": 1,
+                            "unit_pence": int(plan.price_gbp_pence or 0),
+                            "total_pence": int(plan.price_gbp_pence or 0),
+                        }
+                    ],
+                )
+        except Exception:
+            pass
+
         return {"ok": True, "status": "completed", "subscription": sub, "plan": plan}
 
     @staticmethod
@@ -792,5 +827,41 @@ class BillingService:
         db.add(row)
         db.commit()
         db.refresh(order)
+
+        try:
+            from app.models.organisation import Organisation
+            from app.models.user import User
+            from app.services.invoice_service import InvoiceService
+
+            org = db.get(Organisation, org_id)
+            user = db.get(User, user_id)
+            prefilled_email = str((completed_flow.get("prefilled_customer") or {}).get("email") or "").strip()
+            client_email = prefilled_email or (org.contact_email if org else "") or (user.email if user else "")
+            payment_id = str(provider_payment.get("id") or "").strip()
+            if client_email and payment_id:
+                InvoiceService.issue_from_payment(
+                    db,
+                    org_id=org_id,
+                    client_email=client_email,
+                    subtotal_pence=int(order.quote_total_pence or 0),
+                    currency="GBP",
+                    description=f"{order.title} — {order.service_code}",
+                    provider="gocardless",
+                    external_invoice_id=payment_id,
+                    payment_reference=payment_id,
+                    payment_method="gocardless",
+                    status="paid",
+                    line_items=[
+                        {
+                            "description": order.title or order.service_code,
+                            "quantity": 1,
+                            "unit_pence": int(order.quote_total_pence or 0),
+                            "total_pence": int(order.quote_total_pence or 0),
+                        }
+                    ],
+                )
+        except Exception:
+            pass
+
         return {"ok": True, "status": "completed", "order": PlatformCatalogService.order_to_dict(order)}
 

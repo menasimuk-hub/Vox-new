@@ -31,6 +31,7 @@ Return ONLY valid JSON:
 - "next_step": short string — what sales should do next
 - "objections": array of strings
 - "sentiment": one of "enthusiastic", "neutral", "hesitant", "negative"
+- "recommended_offer": one of "subscription", "survey", "interview" — which signup offer fits best based on what they discussed (dental plan trial vs free survey contacts vs free interviews)
 
 British English. Only facts from the transcript."""
 
@@ -60,6 +61,7 @@ def extract_sales_outcome(db: Session, *, transcript: str, task: LeadSalesTask) 
             "next_step": "Sync outcome from Telnyx or review the call in the portal.",
             "objections": [],
             "sentiment": "neutral",
+            "recommended_offer": "subscription",
         }
     user_block = "\n".join(
         [
@@ -88,6 +90,9 @@ def extract_sales_outcome(db: Session, *, transcript: str, task: LeadSalesTask) 
     objections = data.get("objections")
     if not isinstance(objections, list):
         objections = []
+    recommended = str(data.get("recommended_offer") or "subscription").strip().lower()
+    if recommended not in {"subscription", "survey", "interview"}:
+        recommended = "subscription"
     return {
         "demo_agreed": bool(data.get("demo_agreed")),
         "demo_scheduled_at": str(data.get("demo_scheduled_at") or "").strip() or None,
@@ -97,6 +102,7 @@ def extract_sales_outcome(db: Session, *, transcript: str, task: LeadSalesTask) 
         "next_step": str(data.get("next_step") or "").strip(),
         "objections": [str(x).strip() for x in objections if str(x).strip()],
         "sentiment": sentiment,
+        "recommended_offer": recommended,
     }
 
 

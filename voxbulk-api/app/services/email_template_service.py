@@ -14,6 +14,7 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "new_user",
     "forgot_password",
     "new_invoice",
+    "invoice_document",
     "payment_failed",
     "general_notification",
     "sales_offer",

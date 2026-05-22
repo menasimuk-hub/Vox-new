@@ -202,6 +202,8 @@ class SalesOfferSendService:
         free_call_credits: int = 0,
         survey_contacts_included: int = 0,
         interview_contacts_included: int = 0,
+        expires_in_days: int = 30,
+        template_name: str | None = None,
         send_email: bool = True,
         send_whatsapp: bool = True,
     ) -> dict:
@@ -220,6 +222,8 @@ class SalesOfferSendService:
             free_call_credits=free_call_credits,
             survey_contacts_included=survey_contacts_included,
             interview_contacts_included=interview_contacts_included,
+            expires_in_days=expires_in_days,
+            template_name=template_name,
         )
         signup_url = PromoOfferService.signup_url(promo.code)
         plan = None
@@ -235,7 +239,13 @@ class SalesOfferSendService:
         )
         plain = SalesOfferSendService._whatsapp_body(db, variables)
 
-        log: dict = {"promo_code": promo.code, "signup_url": signup_url, "email": None, "whatsapp": None}
+        log: dict = {
+            "promo_code": promo.code,
+            "signup_url": signup_url,
+            "template_name": template_name,
+            "email": None,
+            "whatsapp": None,
+        }
         errors: list[str] = []
 
         if send_email and task.email:
@@ -248,7 +258,15 @@ class SalesOfferSendService:
 
         if send_whatsapp and task.phone:
             try:
-                result = TelnyxMessagingService.send_whatsapp(db, to_number=task.phone, body=plain, org_id=None, meter_usage=False)
+                from app.services.sales_whatsapp_send_service import send_sales_whatsapp
+
+                result = send_sales_whatsapp(
+                    db,
+                    to_number=task.phone,
+                    template_key="sales_offer",
+                    body=plain,
+                    variables=variables,
+                )
                 SalesOfferSendService._log_sales_whatsapp(db, task=task, body=plain, result=result)
                 if not result.ok:
                     raise RuntimeError(result.detail or result.status)
@@ -280,3 +298,31 @@ class SalesOfferSendService:
         log["partial_errors"] = errors
         log["ok"] = True
         return log
+
+    @staticmethod
+    def send_for_task_with_template(
+        db: Session,
+        *,
+        task: LeadSalesTask,
+        template,
+        send_email: bool = True,
+        send_whatsapp: bool = True,
+    ) -> dict:
+        from app.services.promo_offer_service import PromoOfferService
+
+        offer_type = PromoOfferService.normalize_offer_type(template.offer_type)
+        plan_code = str(template.plan_code or "dental_1")
+        return SalesOfferSendService.send_for_task(
+            db,
+            task=task,
+            offer_type=offer_type,
+            plan_code=plan_code,
+            trial_days=int(template.trial_days or 0),
+            free_call_credits=int(template.free_call_credits or 0),
+            survey_contacts_included=int(template.survey_contacts_included or 0),
+            interview_contacts_included=int(template.interview_contacts_included or 0),
+            expires_in_days=int(template.expires_in_days or 30),
+            template_name=str(template.name or "").strip() or None,
+            send_email=send_email,
+            send_whatsapp=send_whatsapp,
+        )

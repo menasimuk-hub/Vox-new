@@ -230,6 +230,8 @@ class PromoOfferService:
         free_call_credits: int = 0,
         survey_contacts_included: int = 0,
         interview_contacts_included: int = 0,
+        expires_in_days: int = 30,
+        template_name: str | None = None,
     ) -> PromoOffer:
         existing = db.execute(
             select(PromoOffer).where(PromoOffer.lead_sales_task_id == task_id, PromoOffer.is_active.is_(True))
@@ -248,7 +250,9 @@ class PromoOfferService:
         row = PromoOffer(
             code=code,
             name=(
-                f"Sales offer · {contact_name or plan_code}"
+                f"{template_name} · {contact_name or 'prospect'}"
+                if template_name
+                else f"Sales offer · {contact_name or plan_code}"
                 if normalized in SUBSCRIPTION_OFFER_TYPES
                 else f"Sales offer · {survey_contacts} surveys"
                 if normalized == "survey_credits"
@@ -278,7 +282,7 @@ class PromoOfferService:
             lead_sales_task_id=task_id,
             max_redemptions=1,
             redemption_count=0,
-            expires_at=now + timedelta(days=30),
+            expires_at=now + timedelta(days=max(1, int(expires_in_days or 30))),
             is_active=True,
             created_at=now,
             updated_at=now,

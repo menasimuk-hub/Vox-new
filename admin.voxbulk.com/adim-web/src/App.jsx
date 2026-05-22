@@ -7,6 +7,7 @@ import OrganisationProfile from './pages/OrganisationProfile'
 import Categories from './pages/Categories'
 import OperationsQueue from './pages/OperationsQueue'
 import Billing from './pages/Billing'
+import InvoicesAdmin from './pages/InvoicesAdmin'
 import ProductsHub from './pages/ProductsHub'
 import ProductPlanEdit from './pages/ProductPlanEdit'
 import CallsCost from './pages/CallsCost'
@@ -36,6 +37,7 @@ import LeadSources from './pages/LeadSources'
 import LeadSales from './pages/LeadSales'
 import LeadSalesEdit from './pages/LeadSalesEdit'
 import LeadSalesSettings from './pages/LeadSalesSettings'
+import SalesOfferTemplates from './pages/SalesOfferTemplates'
 import PromoOffers from './pages/PromoOffers'
 import PromoOfferCreate from './pages/PromoOfferCreate'
 import ServicesPricing from './pages/ServicesPricing'
@@ -89,6 +91,7 @@ export default function App() {
         <Route path='/marketing/lead-sources' element={<LeadSources />} />
         <Route path='/marketing/lead-sales' element={<LeadSales />} />
         <Route path='/marketing/lead-sales/settings' element={<LeadSalesSettings />} />
+        <Route path='/marketing/lead-sales/offer-templates' element={<SalesOfferTemplates />} />
         <Route path='/marketing/lead-sales/:taskId' element={<LeadSalesEdit />} />
         <Route path='/marketing/promo-offers' element={<PromoOffers />} />
         <Route path='/marketing/promo-offers/new' element={<PromoOfferCreate />} />
@@ -132,7 +135,7 @@ export default function App() {
 
         <Route path='/billing/mandates' element={<Billing />} />
         <Route path='/billing/subscriptions' element={<Billing />} />
-        <Route path='/billing/invoices' element={<Billing />} />
+        <Route path='/billing/invoices' element={<InvoicesAdmin />} />
         <Route path='/billing/failed-payments' element={<Billing />} />
         <Route path='/billing/reports' element={<Billing />} />
         <Route path='/billing/calls-cost' element={<CallsCost />} />

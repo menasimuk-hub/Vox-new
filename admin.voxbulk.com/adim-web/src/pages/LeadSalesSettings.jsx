@@ -22,9 +22,11 @@ export default function LeadSalesSettings() {
   const [callingHourEnd, setCallingHourEnd] = useState(18)
   const [callingDays, setCallingDays] = useState('1,2,3,4,5')
   const [salesAutomationEnabled, setSalesAutomationEnabled] = useState(true)
-  const [salesAutoPlanCode, setSalesAutoPlanCode] = useState('dental_1')
-  const [salesAutoTrialDays, setSalesAutoTrialDays] = useState(15)
   const [salesFollowupDays, setSalesFollowupDays] = useState(7)
+  const [salesTemplateSubscriptionId, setSalesTemplateSubscriptionId] = useState('')
+  const [salesTemplateSurveyId, setSalesTemplateSurveyId] = useState('')
+  const [salesTemplateInterviewId, setSalesTemplateInterviewId] = useState('')
+  const [offerTemplates, setOfferTemplates] = useState([])
   const [kbPreview, setKbPreview] = useState(null)
   const [loadingKbId, setLoadingKbId] = useState('')
 
@@ -48,9 +50,10 @@ export default function LeadSalesSettings() {
       setCallingHourEnd(s.calling_hour_end ?? 18)
       setCallingDays(s.calling_days || '1,2,3,4,5')
       setSalesAutomationEnabled(s.sales_automation_enabled !== false)
-      setSalesAutoPlanCode(s.sales_auto_plan_code || 'dental_1')
-      setSalesAutoTrialDays(s.sales_auto_trial_days ?? 15)
       setSalesFollowupDays(s.sales_followup_days ?? 7)
+      setSalesTemplateSubscriptionId(s.sales_template_subscription_id || '')
+      setSalesTemplateSurveyId(s.sales_template_survey_id || '')
+      setSalesTemplateInterviewId(s.sales_template_interview_id || '')
     } catch (e) {
       setMsg(e?.message || 'Could not load sales settings')
     } finally {
@@ -60,6 +63,14 @@ export default function LeadSalesSettings() {
 
   useEffect(() => {
     load()
+    ;(async () => {
+      try {
+        const tplData = await apiFetch('/admin/frontpage/lead-sales/offer-templates')
+        setOfferTemplates(Array.isArray(tplData?.templates) ? tplData.templates : [])
+      } catch {
+        setOfferTemplates([])
+      }
+    })()
   }, [])
 
   const toggleKb = (fileId) => {
@@ -218,9 +229,10 @@ export default function LeadSalesSettings() {
           calling_hour_end: Number(callingHourEnd),
           calling_days: callingDays,
           sales_automation_enabled: salesAutomationEnabled,
-          sales_auto_plan_code: salesAutoPlanCode,
-          sales_auto_trial_days: Number(salesAutoTrialDays) || 15,
           sales_followup_days: Number(salesFollowupDays) || 7,
+          sales_template_subscription_id: salesTemplateSubscriptionId || null,
+          sales_template_survey_id: salesTemplateSurveyId || null,
+          sales_template_interview_id: salesTemplateInterviewId || null,
         }),
       })
       setMsg('Sales settings saved. New leads will use this master script to build per-lead outbound prompts.')
@@ -315,20 +327,31 @@ export default function LeadSalesSettings() {
             />
             <span><strong>Enable post-call WhatsApp automation</strong></span>
           </label>
-          <div className='grid three' style={{ gap: 12 }}>
-            <label className='frontpageField'>
-              <span className='label'>Auto-offer plan code</span>
-              <input className='input' value={salesAutoPlanCode} onChange={(e) => setSalesAutoPlanCode(e.target.value)} />
-            </label>
-            <label className='frontpageField'>
-              <span className='label'>Auto-offer trial days</span>
-              <input className='input' type='number' min={0} max={90} value={salesAutoTrialDays} onChange={(e) => setSalesAutoTrialDays(e.target.value)} />
-            </label>
-            <label className='frontpageField'>
-              <span className='label'>No-signup follow-up (days)</span>
-              <input className='input' type='number' min={1} max={30} value={salesFollowupDays} onChange={(e) => setSalesFollowupDays(e.target.value)} />
-            </label>
+          <p className='muted' style={{ marginTop: 0, marginBottom: 12 }}>
+            After each call, AI chooses subscription / survey / interview. Map each path to a template below.
+            Manage template amounts under <Link to='/marketing/lead-sales/offer-templates'>Offer templates</Link>.
+          </p>
+          <div className='salesTplMapGrid'>
+            {[
+              ['subscription', 'When AI picks subscription', salesTemplateSubscriptionId, setSalesTemplateSubscriptionId],
+              ['survey', 'When AI picks survey', salesTemplateSurveyId, setSalesTemplateSurveyId],
+              ['interview', 'When AI picks interview', salesTemplateInterviewId, setSalesTemplateInterviewId],
+            ].map(([cat, label, value, setter]) => (
+              <label key={cat} className='frontpageField'>
+                <span className='label'>{label}</span>
+                <select className='input inputCompact' value={value} onChange={(e) => setter(e.target.value)}>
+                  <option value=''>— Select template —</option>
+                  {offerTemplates.filter((t) => t.is_active).map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
           </div>
+          <label className='frontpageField' style={{ marginTop: 14, maxWidth: 220 }}>
+            <span className='label'>No-signup follow-up (days)</span>
+            <input className='input inputCompact' type='number' min={1} max={30} value={salesFollowupDays} onChange={(e) => setSalesFollowupDays(e.target.value)} />
+          </label>
           <p className='muted' style={{ marginBottom: 0 }}>
             Edit message templates under <Link to='/settings/email?tab=whatsapp'>Settings → WhatsApp templates</Link>
             {' '}(<code>sales_opt_in</code>, <code>sales_offer_followup</code>).

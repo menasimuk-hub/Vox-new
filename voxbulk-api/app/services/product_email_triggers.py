@@ -49,6 +49,7 @@ class ProductEmailTriggers:
         *,
         to_email: str,
         extra_variables: dict[str, Any] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> tuple[bool, str | None]:
         em = (to_email or "").strip().lower()
         if not em:
@@ -58,7 +59,7 @@ class ProductEmailTriggers:
             for k, v in (extra_variables or {}).items():
                 vars_[str(k)] = "" if v is None else str(v)
         return TransactionalEmailService.send_templated_optional(
-            db, template_key="new_invoice", to_email=em, variables=vars_
+            db, template_key="new_invoice", to_email=em, variables=vars_, attachments=attachments
         )
 
     @staticmethod

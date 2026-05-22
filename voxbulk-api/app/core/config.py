@@ -59,7 +59,14 @@ class Settings(BaseSettings):
     twilio_auth_token: str = Field(default="", alias="TWILIO_AUTH_TOKEN")
     vapi_webhook_secret: str = Field(default="", alias="VAPI_WEBHOOK_SECRET")
     gocardless_webhook_secret: str = Field(default="", alias="GOCARDLESS_WEBHOOK_SECRET")
-    enable_test_cash_billing: bool = Field(default=False, alias="ENABLE_TEST_CASH_BILLING")
+    invoice_company_name: str = Field(default="VOXBULK", alias="INVOICE_COMPANY_NAME")
+    invoice_company_address: str = Field(
+        default="VOXBULK Ltd\nLondon, United Kingdom",
+        alias="INVOICE_COMPANY_ADDRESS",
+    )
+    invoice_company_email: str = Field(default="billing@voxbulk.com", alias="INVOICE_COMPANY_EMAIL")
+    invoice_company_vat: str = Field(default="", alias="INVOICE_COMPANY_VAT")
+
 
     # Twilio API (provider execution)
     twilio_account_sid: str = Field(default="", alias="TWILIO_ACCOUNT_SID")

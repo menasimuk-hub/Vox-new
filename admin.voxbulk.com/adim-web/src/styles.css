@@ -4148,3 +4148,709 @@ body.dark .matrix th {
     grid-template-columns: 1fr;
   }
 }
+
+/* Sales offer type picker */
+.salesOfferCard .cardHead {
+  align-items: center;
+}
+
+.salesOfferIntro {
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+.salesOfferPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.salesOfferTypeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.salesOfferTypeCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.salesOfferTypeCard strong {
+  font-size: 13px;
+  color: var(--t1);
+}
+
+.salesOfferTypeCard .muted {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.salesOfferTypeCard.isActive {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: linear-gradient(160deg, rgba(34, 197, 94, 0.1), rgba(255, 255, 255, 0.02));
+}
+
+.salesOfferTypeIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 15px;
+  margin-bottom: 2px;
+}
+
+.salesOfferDetails {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.salesOfferFields {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.salesOfferField {
+  display: grid;
+  gap: 4px;
+}
+
+.salesOfferField span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.salesOfferPreview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.salesOfferPreview strong {
+  font-size: 14px;
+  color: var(--t1);
+}
+
+.salesOfferPreview .muted {
+  font-size: 11px;
+}
+
+.salesOfferPickerCompact .salesOfferTypeGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Services & pricing — compact layout */
+.servicesPricingPage {
+  max-width: 1100px;
+}
+
+.servicesPricingNote {
+  margin-bottom: 12px;
+}
+
+.servicesPricingLayout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.servicesPricingCard .cardHead.servicesPricingHead {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.servicesPricingDesc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  max-width: 640px;
+}
+
+.servicesPricingBody {
+  padding-top: 0;
+}
+
+.servicesPricingTable th,
+.servicesPricingTable td {
+  font-size: 12px;
+  padding: 8px 10px;
+  vertical-align: middle;
+}
+
+.servicesPricingTable .inputCompact {
+  min-width: 0;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.servicesPricingBundleCell {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  min-width: 140px;
+}
+
+.servicesPricingActions {
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+.servicesPricingActions .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.servicesPricingHint {
+  display: block;
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+.servicesPricingPreviewCard {
+  max-width: 520px;
+}
+
+.servicesPricingPreviewForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.servicesPricingPreviewField {
+  display: grid;
+  gap: 4px;
+  min-width: 110px;
+}
+
+.servicesPricingPreviewField span {
+  font-size: 11px;
+  color: var(--t3);
+  font-weight: 600;
+}
+
+.servicesPricingPreviewResult {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 13px;
+}
+
+.servicesPricingPreviewResult ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--t2);
+}
+
+@media (max-width: 900px) {
+  .salesOfferTypeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .salesOfferFields {
+    grid-template-columns: 1fr;
+  }
+
+  .servicesPricingTable {
+    min-width: 720px;
+  }
+
+  .salesAutoOfferGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .salesTplFieldGrid,
+  .svcPriceFieldGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Sales offer templates admin */
+.salesTplStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+  max-width: 520px;
+}
+
+.salesTplStat {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.salesTplStat label {
+  display: block;
+  font-size: 11px;
+  color: var(--t3);
+}
+
+.salesTplStat strong {
+  display: block;
+  font-size: 18px;
+  margin-top: 2px;
+}
+
+.salesTplStat span {
+  font-size: 11px;
+}
+
+.salesTplList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.salesTplRowHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.salesTplRowMeta {
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.salesTplEditor {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.salesTplFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.salesTplField {
+  display: grid;
+  gap: 4px;
+}
+
+.salesTplField span {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.salesTplCheck {
+  align-content: end;
+  padding-bottom: 6px;
+}
+
+.salesTplMapGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.salesAutoOfferGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.salesAutoOfferTile {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  display: grid;
+  gap: 4px;
+}
+
+.salesAutoOfferTile strong {
+  font-size: 14px;
+}
+
+.salesAutoOfferTile .muted {
+  font-size: 11px;
+}
+
+/* Services & pricing — compact list + edit */
+.svcPricePage {
+  max-width: 1200px;
+}
+
+.svcPriceNote {
+  margin-bottom: 10px;
+}
+
+.svcPriceLayout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.svcPriceServiceHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 0;
+}
+
+.svcPriceServiceHead h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.svcPriceServiceHead p {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.svcPriceRuleList {
+  padding: 8px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.svcPriceRuleItem {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.svcPriceRuleItem.isOpen {
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.svcPriceRuleSummary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.svcPriceRuleSummary strong {
+  display: block;
+  font-size: 13px;
+}
+
+.svcPriceRuleSummary .muted {
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.svcPriceRuleToggle {
+  font-size: 12px;
+  color: var(--t3);
+  flex-shrink: 0;
+}
+
+.svcPriceRuleEditor {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.svcPriceFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.svcPriceField {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.svcPriceField span {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.svcPriceRuleActions {
+  margin-top: 8px;
+  align-items: center;
+}
+
+.svcPricePreviewForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.svcPricePreviewResult {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.svcPricePreviewResult ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.invoiceTableWrap {
+  overflow-x: auto;
+}
+
+.invoiceDenseTable {
+  width: 100%;
+  font-size: 12px;
+}
+
+.invoiceDenseTable th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #64748b);
+  white-space: nowrap;
+}
+
+.invoiceDenseTable td {
+  vertical-align: middle;
+}
+
+.invoiceIdPill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(15, 118, 110, 0.08);
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.invoiceRowActions {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.invoiceRowActions .btn.xs {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.invoiceHubFilters .label {
+  font-size: 11px;
+}
+
+.invoiceFilterGrid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+
+@media (max-width: 900px) {
+  .invoiceFilterGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.invoiceSection {
+  margin-top: 18px;
+}
+
+.invoiceSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.invoiceSectionHead h3 {
+  margin: 0;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.invoiceCardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.invoiceCardGridCompact {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.invoiceCard {
+  background: var(--card, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.invoiceCard:hover {
+  box-shadow: 0 8px 24px rgba(15, 118, 110, 0.08);
+  transform: translateY(-1px);
+}
+
+.invoiceCardPaid {
+  border-color: rgba(5, 150, 105, 0.25);
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.06) 0%, var(--card, #fff) 42%);
+}
+
+.invoiceCardPending {
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.invoiceCardFailed {
+  border-color: rgba(220, 38, 38, 0.25);
+}
+
+.invoiceCardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.invoiceCardLabel {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted, #64748b);
+  margin-bottom: 4px;
+}
+
+.invoiceCardId {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.08);
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.invoiceCardAmount {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text, #0f172a);
+  line-height: 1.1;
+}
+
+.invoiceCardPaid .invoiceCardAmount {
+  color: #047857;
+}
+
+.invoiceCardMeta {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted, #64748b);
+}
+
+.invoiceCardMeta i {
+  width: 16px;
+  margin-right: 4px;
+  opacity: 0.75;
+}
+
+.invoiceCardTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.invoiceTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+  font-size: 10px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.invoiceTagOk {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
+.invoiceCardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.invoiceTemplateSplit {
+  min-height: 520px;
+}
+
+.invoiceTemplateEditor {
+  min-height: 480px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.invoiceDocPreviewBox {
+  min-height: 480px;
+  overflow: auto;
+  background: #f8fafc;
+}
+
+.invoiceDocPreviewInner {
+  background: #fff;
+  min-height: 100%;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}

@@ -148,7 +148,15 @@ class SalesAutomationService:
         text = body
         if template_key and variables is not None:
             text = SalesAutomationService._render_template(db, template_key=template_key, variables=variables)
-        result = TelnyxMessagingService.send_whatsapp(db, to_number=task.phone, body=text, org_id=None, meter_usage=False)
+        from app.services.sales_whatsapp_send_service import send_sales_whatsapp
+
+        result = send_sales_whatsapp(
+            db,
+            to_number=task.phone,
+            template_key=template_key,
+            body=text,
+            variables=variables,
+        )
         org_id = SalesAutomationService._platform_org_id(db)
         if org_id:
             try:
@@ -319,10 +327,9 @@ class SalesAutomationService:
         *,
         source: str = "manual",
         resend_only: bool = False,
+        template_id: str | None = None,
     ) -> dict[str, Any]:
-        settings = get_lead_sales_settings(db)
-        plan_code = str(settings.sales_auto_plan_code or "dental_1")
-        trial_days = int(settings.sales_auto_trial_days or 15)
+        from app.services.sales_offer_template_service import resolve_template_for_task
 
         if task.offer_sent_at and task.offer_promo_code and resend_only:
             from app.services.promo_offer_service import PromoOfferService
@@ -336,7 +343,7 @@ class SalesAutomationService:
                 task,
                 signup_url=signup_url,
                 promo_name=promo.name if promo else task.offer_promo_code,
-                trial_days=int(promo.trial_days if promo else trial_days),
+                trial_days=int(promo.trial_days if promo else 15),
                 promo=promo,
                 plan=plan,
             )
@@ -356,17 +363,24 @@ class SalesAutomationService:
                 db.commit()
             return {"ok": ok, "resent": True, "signup_url": signup_url, "error": err}
 
+        template = resolve_template_for_task(db, task, template_id=template_id)
+        if template is None:
+            return {"ok": False, "error": "No active sales offer template configured. Add templates under Lead sales → Offer templates."}
+
         try:
-            result = SalesOfferSendService.send_for_task(
+            result = SalesOfferSendService.send_for_task_with_template(
                 db,
                 task=task,
-                plan_code=plan_code,
-                trial_days=trial_days,
+                template=template,
                 send_email=bool(task.email),
                 send_whatsapp=bool(task.phone),
             )
         except SalesOfferSendError as exc:
             return {"ok": False, "error": str(exc)}
+
+        result["template_id"] = template.id
+        result["template_name"] = template.name
+        result["recommended_offer"] = SalesAutomationService._parse_outcome(task).get("recommended_offer")
 
         promo = None
         if task.offer_promo_code:

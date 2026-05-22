@@ -21,6 +21,7 @@ from app.models.frontpage_lead_call import FrontpageLeadCall  # noqa: F401
 from app.models.frontpage_call_setting import FrontpageCallSetting  # noqa: F401
 from app.models.lead_sales_setting import LeadSalesSetting  # noqa: F401
 from app.models.lead_sales_task import LeadSalesTask  # noqa: F401
+from app.models.sales_offer_template import SalesOfferTemplate  # noqa: F401
 from app.models.sales_conversation_state import SalesConversationState  # noqa: F401
 from app.models.recovery_job import RecoveryJob  # noqa: F401
 from app.models.provider_config import ProviderConfig  # noqa: F401
@@ -48,6 +49,7 @@ from app.models.password_reset_token import PasswordResetToken  # noqa: F401
 from app.models.admin_user import AdminUser  # noqa: F401
 from app.models.payment_event import PaymentEvent  # noqa: F401
 from app.models.billing_invoice import BillingInvoice  # noqa: F401
+from app.models.country_vat_rate import CountryVatRate  # noqa: F401
 from app.models.notification import Notification  # noqa: F401
 from app.models.faq import FAQCategory, FAQItem  # noqa: F401
 from app.models.legal_page import LegalPage  # noqa: F401

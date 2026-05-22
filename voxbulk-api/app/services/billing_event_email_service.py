@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -8,8 +9,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.billing_invoice import BillingInvoice
+from app.models.organisation import Organisation
 from app.models.payment_event import PaymentEvent
+from app.services.invoice_service import InvoiceDocumentService
 from app.services.product_email_triggers import ProductEmailTriggers
+
+logger = logging.getLogger(__name__)
 
 
 class BillingEventEmailService:
@@ -21,6 +26,24 @@ class BillingEventEmailService:
     """
 
     FAILED_STATUSES = {"failed", "declined", "canceled", "cancelled", "past_due"}
+
+    @staticmethod
+    def _invoice_pdf_attachment(db: Session, invoice: BillingInvoice) -> list[dict[str, Any]] | None:
+        try:
+            org = db.get(Organisation, invoice.org_id)
+            pdf_bytes = InvoiceDocumentService.render_pdf(db, invoice=invoice, org=org)
+            number = invoice.invoice_number or invoice.external_invoice_id or invoice.id
+            return [
+                {
+                    "filename": f"invoice-{number}.pdf",
+                    "content": pdf_bytes,
+                    "maintype": "application",
+                    "subtype": "pdf",
+                }
+            ]
+        except Exception as exc:
+            logger.warning("invoice_pdf_attachment_failed", extra={"invoice_id": invoice.id, "error": str(exc)})
+            return None
 
     @staticmethod
     def record_payment_status(
@@ -73,7 +96,6 @@ class BillingEventEmailService:
                 .one()
             )
 
-        # Email only once, and only if status is a failure.
         if row.emailed_at is not None:
             return row, created, False
         if (row.status or "").lower() not in BillingEventEmailService.FAILED_STATUSES:
@@ -95,6 +117,18 @@ class BillingEventEmailService:
         return row, created, False
 
     @staticmethod
+    def send_invoice_email(db: Session, *, invoice: BillingInvoice) -> tuple[bool, str | None]:
+        org = db.get(Organisation, invoice.org_id)
+        vars_plain = InvoiceDocumentService.build_variables(db, invoice=invoice, org=org)
+        attachments = BillingEventEmailService._invoice_pdf_attachment(db, invoice)
+        return ProductEmailTriggers.notify_new_invoice(
+            db,
+            to_email=invoice.client_email,
+            extra_variables=vars_plain,
+            attachments=attachments,
+        )
+
+    @staticmethod
     def create_invoice(
         db: Session,
         *,
@@ -106,58 +140,69 @@ class BillingEventEmailService:
         currency: str = "GBP",
         status: str = "issued",
         variables: dict[str, Any] | None = None,
+        invoice_row: BillingInvoice | None = None,
     ) -> tuple[BillingInvoice, bool, bool]:
         """
         Returns: (invoice_row, created_row, sent_email)
         """
-        prov = (provider or "internal").strip().lower()
-        ext = (external_invoice_id or "").strip()
-        em = (client_email or "").strip().lower()
-        if not ext:
-            raise ValueError("external_invoice_id required")
-        if not org_id:
-            raise ValueError("org_id required")
-        if not em:
-            raise ValueError("client_email required")
-
-        row = BillingInvoice(
-            org_id=str(org_id),
-            provider=prov,
-            external_invoice_id=ext,
-            client_email=em,
-            amount_gbp_pence=int(amount_gbp_pence or 0),
-            currency=(currency or "GBP").strip().upper(),
-            status=(status or "issued").strip().lower(),
-            created_at=datetime.utcnow(),
-        )
-        db.add(row)
-        created = True
-        try:
-            db.commit()
-            db.refresh(row)
-        except IntegrityError:
-            db.rollback()
+        if invoice_row is not None:
+            row = invoice_row
             created = False
-            row = (
-                db.execute(
-                    select(BillingInvoice).where(
-                        BillingInvoice.provider == prov, BillingInvoice.external_invoice_id == ext
-                    )
-                )
-                .scalars()
-                .one()
+        else:
+            prov = (provider or "internal").strip().lower()
+            ext = (external_invoice_id or "").strip()
+            em = (client_email or "").strip().lower()
+            if not ext:
+                raise ValueError("external_invoice_id required")
+            if not org_id:
+                raise ValueError("org_id required")
+            if not em:
+                raise ValueError("client_email required")
+
+            row = BillingInvoice(
+                org_id=str(org_id),
+                provider=prov,
+                external_invoice_id=ext,
+                client_email=em,
+                amount_gbp_pence=int(amount_gbp_pence or 0),
+                currency=(currency or "GBP").strip().upper(),
+                status=(status or "issued").strip().lower(),
+                created_at=datetime.utcnow(),
             )
+            db.add(row)
+            created = True
+            try:
+                db.commit()
+                db.refresh(row)
+            except IntegrityError:
+                db.rollback()
+                created = False
+                row = (
+                    db.execute(
+                        select(BillingInvoice).where(
+                            BillingInvoice.provider == prov, BillingInvoice.external_invoice_id == ext
+                        )
+                    )
+                    .scalars()
+                    .one()
+                )
 
         if row.emailed_at is not None:
             return row, created, False
 
-        vars_plain = {str(k): "" if v is None else str(v) for k, v in (variables or {}).items()}
-        vars_plain.setdefault("invoice_id", row.external_invoice_id)
-        vars_plain.setdefault("amount_gbp_pence", str(row.amount_gbp_pence))
-        vars_plain.setdefault("currency", row.currency)
-        vars_plain.setdefault("invoice_status", row.status)
+        org = db.get(Organisation, row.org_id)
+        vars_plain = InvoiceDocumentService.build_variables(db, invoice=row, org=org)
+        if variables:
+            for k, v in variables.items():
+                vars_plain[str(k)] = "" if v is None else str(v)
 
-        ok, _err = ProductEmailTriggers.notify_new_invoice(db, to_email=row.client_email, extra_variables=vars_plain)
+        attachments = BillingEventEmailService._invoice_pdf_attachment(db, row)
+        ok, _err = ProductEmailTriggers.notify_new_invoice(
+            db,
+            to_email=row.client_email,
+            extra_variables=vars_plain,
+            attachments=attachments,
+        )
         if ok:
             row.emailed_at = datetime.utcnow()
             db.add(row)
@@ -166,3 +211,21 @@ class BillingEventEmailService:
             return row, created, True
         return row, created, False
 
+    @staticmethod
+    def issue_payment_invoice(
+        db: Session,
+        *,
+        invoice: BillingInvoice,
+    ) -> tuple[BillingInvoice, bool, bool]:
+        """Send invoice notification email (with PDF) once."""
+        return BillingEventEmailService.create_invoice(
+            db,
+            provider=invoice.provider,
+            external_invoice_id=invoice.external_invoice_id,
+            org_id=invoice.org_id,
+            client_email=invoice.client_email,
+            amount_gbp_pence=invoice.amount_gbp_pence,
+            currency=invoice.currency,
+            status=invoice.status,
+            invoice_row=invoice,
+        )

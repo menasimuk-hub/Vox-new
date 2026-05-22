@@ -71,12 +71,19 @@ def _looks_like_html(text: str) -> bool:
     return bool(re.search(r"<[a-z][\s\S]*?>", str(text or ""), re.I))
 
 
-def _deliver_message(db: Session, *, to_addr: str, subject: str, body: str) -> None:
+def _deliver_message(
+    db: Session,
+    *,
+    to_addr: str,
+    subject: str,
+    body: str,
+    attachments: list[dict[str, Any]] | None = None,
+) -> None:
     clean_body = str(body or "")
     if _looks_like_html(clean_body):
-        SmtpMailerService.send_html(db, to_addr=to_addr, subject=subject, body=clean_body)
+        SmtpMailerService.send_html(db, to_addr=to_addr, subject=subject, body=clean_body, attachments=attachments)
     else:
-        SmtpMailerService.send_plain(db, to_addr=to_addr, subject=subject, body=clean_body or subject)
+        SmtpMailerService.send_plain(db, to_addr=to_addr, subject=subject, body=clean_body or subject, attachments=attachments)
 
 
 class TransactionalEmailService:
@@ -89,6 +96,7 @@ class TransactionalEmailService:
         template_key: str,
         to_email: str,
         variables: dict[str, str],
+        attachments: list[dict[str, Any]] | None = None,
     ) -> tuple[bool, str | None]:
         """
         Sends if template exists, is enabled, and SMTP works.
@@ -112,7 +120,7 @@ class TransactionalEmailService:
         subject = substitute_placeholders(row.subject or "", variables)
         body = substitute_placeholders(row.body or "", variables)
         try:
-            _deliver_message(db, to_addr=to_addr, subject=subject, body=body)
+            _deliver_message(db, to_addr=to_addr, subject=subject, body=body, attachments=attachments)
         except SmtpMailerError as e:
             logger.warning("transactional_smtp_failed", extra={"template": k, "err": str(e)})
             return False, str(e)

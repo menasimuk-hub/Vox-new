@@ -61,6 +61,12 @@ def lead_sales_settings_out(row: LeadSalesSetting) -> dict[str, Any]:
         "sales_automation_enabled": bool(getattr(row, "sales_automation_enabled", True)),
         "sales_auto_plan_code": str(getattr(row, "sales_auto_plan_code", None) or "dental_1"),
         "sales_auto_trial_days": int(getattr(row, "sales_auto_trial_days", None) or 15),
+        "sales_auto_offer_type": str(getattr(row, "sales_auto_offer_type", None) or "dental_trial"),
+        "sales_auto_survey_contacts": int(getattr(row, "sales_auto_survey_contacts", None) or 3),
+        "sales_auto_interview_contacts": int(getattr(row, "sales_auto_interview_contacts", None) or 3),
+        "sales_template_subscription_id": getattr(row, "sales_template_subscription_id", None),
+        "sales_template_survey_id": getattr(row, "sales_template_survey_id", None),
+        "sales_template_interview_id": getattr(row, "sales_template_interview_id", None),
         "sales_followup_days": int(getattr(row, "sales_followup_days", None) or 7),
         "updated_at": row.updated_at,
     }

@@ -1,5 +1,6 @@
 """Default content for system email templates (upserted when missing)."""
 
+from app.data.invoice_document_default import INVOICE_DOCUMENT_BODY, INVOICE_DOCUMENT_SUBJECT, NEW_INVOICE_EMAIL_BODY
 from app.data.sales_offer_email_default import SALES_OFFER_EMAIL_BODY, SALES_OFFER_EMAIL_SUBJECT
 
 SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
@@ -18,9 +19,14 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
         "body": "<p>Hello,</p><p>We received a password reset for <strong>{{user_email}}</strong>.</p><p>If this was not you, ignore this email.</p>",
     },
     "new_invoice": {
-        "title": "New invoice",
-        "subject": "New invoice",
-        "body": "<p>Hello,</p><p>New invoice <strong>#{{invoice_id}}</strong> — amount <strong>{{amount_gbp_pence}}</strong> pence ({{currency}}), status {{invoice_status}}.</p>",
+        "title": "New invoice notification",
+        "subject": "Your VOXBULK invoice {{invoice_number}}",
+        "body": NEW_INVOICE_EMAIL_BODY,
+    },
+    "invoice_document": {
+        "title": "Invoice document (PDF)",
+        "subject": INVOICE_DOCUMENT_SUBJECT,
+        "body": INVOICE_DOCUMENT_BODY,
     },
     "payment_failed": {
         "title": "Cancel / failed payment",

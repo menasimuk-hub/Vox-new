@@ -1183,6 +1183,12 @@ class LeadSalesSettingsIn(BaseModel):
     sales_automation_enabled: bool | None = None
     sales_auto_plan_code: str | None = None
     sales_auto_trial_days: int | None = None
+    sales_auto_offer_type: str | None = None
+    sales_auto_survey_contacts: int | None = None
+    sales_auto_interview_contacts: int | None = None
+    sales_template_subscription_id: str | None = None
+    sales_template_survey_id: str | None = None
+    sales_template_interview_id: str | None = None
     sales_followup_days: int | None = None
 
     @field_validator("telnyx_assistant_id", mode="before")
@@ -1250,6 +1256,21 @@ def update_lead_sales_settings_route(
         row.sales_auto_plan_code = str(payload.sales_auto_plan_code or "dental_1").strip().lower() or "dental_1"
     if payload.sales_auto_trial_days is not None:
         row.sales_auto_trial_days = max(0, int(payload.sales_auto_trial_days))
+    if payload.sales_auto_offer_type is not None:
+        offer_type = str(payload.sales_auto_offer_type or "dental_trial").strip().lower()
+        if offer_type not in {"dental_trial", "survey_credits", "interview_credits"}:
+            offer_type = "dental_trial"
+        row.sales_auto_offer_type = offer_type
+    if payload.sales_auto_survey_contacts is not None:
+        row.sales_auto_survey_contacts = max(1, int(payload.sales_auto_survey_contacts))
+    if payload.sales_auto_interview_contacts is not None:
+        row.sales_auto_interview_contacts = max(1, int(payload.sales_auto_interview_contacts))
+    if payload.sales_template_subscription_id is not None:
+        row.sales_template_subscription_id = str(payload.sales_template_subscription_id or "").strip() or None
+    if payload.sales_template_survey_id is not None:
+        row.sales_template_survey_id = str(payload.sales_template_survey_id or "").strip() or None
+    if payload.sales_template_interview_id is not None:
+        row.sales_template_interview_id = str(payload.sales_template_interview_id or "").strip() or None
     if payload.sales_followup_days is not None:
         row.sales_followup_days = max(1, int(payload.sales_followup_days))
     row.updated_at = datetime.utcnow()
@@ -1549,6 +1570,45 @@ def delete_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), _a
     return {"ok": True}
 
 
+@admin_router.get("/lead-sales/offer-templates")
+def list_lead_sales_offer_templates(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.sales_offer_template_service import list_templates, template_to_dict
+
+    rows = list_templates(db, active_only=False)
+    return {"templates": [template_to_dict(r) for r in rows]}
+
+
+@admin_router.post("/lead-sales/offer-templates")
+def create_lead_sales_offer_template(
+    payload: dict = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    from app.services.sales_offer_template_service import create_template, template_to_dict
+
+    try:
+        row = create_template(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"ok": True, "template": template_to_dict(row)}
+
+
+@admin_router.put("/lead-sales/offer-templates/{template_id}")
+def update_lead_sales_offer_template(
+    template_id: str,
+    payload: dict = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    from app.services.sales_offer_template_service import template_to_dict, update_template
+
+    try:
+        row = update_template(db, template_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {"ok": True, "template": template_to_dict(row)}
+
+
 @admin_router.post("/lead-sales/tasks/{task_id}/send-offer")
 def send_lead_sales_offer(
     task_id: str,
@@ -1557,27 +1617,23 @@ def send_lead_sales_offer(
     _admin=Depends(require_platform_admin),
 ):
     from app.models.lead_sales_task import LeadSalesTask
-    from app.services.sales_offer_send_service import SalesOfferSendError, SalesOfferSendService
+    from app.services.sales_automation_service import SalesAutomationService
 
     row = db.get(LeadSalesTask, task_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
     body = payload
-    try:
-        result = SalesOfferSendService.send_for_task(
-            db,
-            task=row,
-            offer_type=str(body.get("offer_type") or "dental_trial"),
-            plan_code=str(body.get("plan_code") or "dental_1"),
-            trial_days=int(body.get("trial_days") or 15),
-            free_call_credits=int(body.get("free_call_credits") or 0),
-            survey_contacts_included=int(body.get("survey_contacts_included") or 0),
-            interview_contacts_included=int(body.get("interview_contacts_included") or 0),
-            send_email=body.get("send_email", True) is not False,
-            send_whatsapp=body.get("send_whatsapp", True) is not False,
-        )
-    except SalesOfferSendError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    template_id = str(body.get("template_id") or "").strip() or None
+    resend_only = body.get("resend_only", False) is True
+    result = SalesAutomationService.send_offer_for_task(
+        db,
+        row,
+        source="manual",
+        resend_only=resend_only,
+        template_id=template_id,
+    )
+    if not result.get("ok") and result.get("error"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(result["error"]))
     lead = db.get(FrontpageLeadCall, row.lead_id)
     return {"ok": True, "send": result, "task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None)}
 

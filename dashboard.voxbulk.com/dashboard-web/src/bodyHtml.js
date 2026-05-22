@@ -971,9 +971,9 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
         </div>
         <div class="card"><div class="ch"><i class="ti ti-credit-card grn"></i>Payment method</div><div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--t1)"><i class="ti ti-credit-card" style="font-size:18px;color:var(--t3)"></i>Visa ending 4242 <span class="bdg bg">Default</span><button class="btn bsm" style="margin-left:auto">Change card</button></div></div>
         <div class="card"><div class="ch"><i class="ti ti-file-invoice grn"></i>Invoices</div>
-          <div class="qr"><span style="font-size:11px;color:var(--t3);min-width:70px">May 2026</span><span style="font-size:12.5px;color:var(--t1);flex:1">Starter plan + usage</span><span style="font-size:13px;font-weight:700;color:var(--t1)">£97.20</span><button class="btn bsm" style="margin-left:9px"><i class="ti ti-download"></i></button></div>
-          <div class="qr"><span style="font-size:11px;color:var(--t3);min-width:70px">Apr 2026</span><span style="font-size:12.5px;color:var(--t1);flex:1">Starter plan + usage</span><span style="font-size:13px;font-weight:700;color:var(--t1)">£82.60</span><button class="btn bsm" style="margin-left:9px"><i class="ti ti-download"></i></button></div>
-          <div class="qr" style="border:none"><span style="font-size:11px;color:var(--t3);min-width:70px">Mar 2026</span><span style="font-size:12.5px;color:var(--t1);flex:1">Overage invoice — extra call minutes</span><span style="font-size:13px;font-weight:700;color:var(--amb)">£24.80</span><button class="btn bsm" style="margin-left:9px"><i class="ti ti-download"></i></button></div>
+          <div id="billing-invoices-list">
+            <div style="padding:12px;font-size:13px;color:var(--t3);">Loading invoices…</div>
+          </div>
         </div>
       </div>
 

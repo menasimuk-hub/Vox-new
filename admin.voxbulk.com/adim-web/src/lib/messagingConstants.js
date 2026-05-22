@@ -1,7 +1,8 @@
 export const SYSTEM_EMAIL_META = {
   new_user: { title: 'New user', description: 'Welcome / account created' },
   forgot_password: { title: 'Forgot password', description: 'Password recovery message' },
-  new_invoice: { title: 'New invoice', description: 'Invoice available' },
+  new_invoice: { title: 'New invoice email', description: 'Sent with PDF attachment when payment completes' },
+  invoice_document: { title: 'Invoice document (PDF)', description: 'Printable HTML used for PDF download and dashboard view' },
   payment_failed: { title: 'Cancel / failed payment', description: 'Payment could not be processed' },
   general_notification: { title: 'General activity', description: 'Notifications and activity' },
   sales_offer: { title: 'Sales offer link', description: 'Sent when sales agent shares signup promo link' },
@@ -9,54 +10,66 @@ export const SYSTEM_EMAIL_META = {
 }
 
 export const SYSTEM_WHATSAPP_META = {
-  sales_offer: { title: 'Sales offer link', description: 'Sent when sales agent shares signup promo link via WhatsApp (subscription, survey, or interview)' },
-  sales_opt_in: { title: 'Sales opt-in', description: 'Sent after call — customer replies SEND OFFER to get the link' },
-  sales_offer_followup: { title: 'Sales 7-day follow-up', description: 'Sent if promo link was not used after follow-up days' },
-  sales_offer_keyword_confirm: { title: 'Keyword offer confirm', description: 'Sent when customer replies SEND OFFER on WhatsApp' },
+  sales_offer: {
+    title: 'Sales offer link',
+    description: 'Hot call / first offer. Telnyx: voxbulk_sales_offer — URL Start account + Stop',
+  },
+  sales_opt_in: {
+    title: 'Sales opt-in',
+    description: 'After lukewarm call. Telnyx: voxbulk_sales_opt_in — Send offer + Stop quick replies',
+  },
+  sales_offer_followup: {
+    title: 'Sales 7-day follow-up',
+    description: 'No signup after follow-up days. Telnyx: voxbulk_sales_followup — Open offer + Stop',
+  },
+  sales_offer_keyword_confirm: {
+    title: 'Keyword offer confirm',
+    description: 'Customer tapped Send offer. Telnyx: voxbulk_sales_keyword_confirm — Start account URL',
+  },
+}
+
+export const WHATSAPP_TELNYX_TEMPLATE_NAMES = {
+  sales_opt_in: 'voxbulk_sales_opt_in',
+  sales_offer: 'voxbulk_sales_offer',
+  sales_offer_followup: 'voxbulk_sales_followup',
+  sales_offer_keyword_confirm: 'voxbulk_sales_keyword_confirm',
 }
 
 export const DEFAULT_WA_BODY_BY_KEY = {
   sales_offer: `Hi {{first_name}},
 
-Great speaking with you. Here is your VOXBULK {{offer_line}}:
-{{promo_name}}
+Your VOXBULK {{offer_line}} is ready:
 {{offer_summary}}
 
-Start here: {{signup_url}}
+Tap **Start account** below to sign up — your offer applies automatically.
 
-Open the link to create your account — your offer applies automatically.
+Tap **Stop** if you don't want further messages.
 
 — VOXBULK Sales`,
   sales_opt_in: `Hi {{first_name}},
 
 Thanks for speaking with VOXBULK today.
 
-If you'd like your trial offer later, reply **SEND OFFER** to this chat and we'll send your signup link.
+When you're ready, tap **Send offer** below and we'll send your personal signup link.
 
-Reply **STOP** anytime to opt out.
+Tap **Stop** if you don't want further messages.
 
 — VOXBULK Sales`,
   sales_offer_followup: `Hi {{first_name}},
 
-We sent your VOXBULK {{offer_line}} link a few days ago — any trouble signing up?
+Your VOXBULK {{offer_line}} is still waiting for you.
 
-Reply here if you need help, or open your link again:
-{{signup_url}}
+Tap **Open offer** below to finish signup, or reply here if you need help.
 
-Reply **STOP** to opt out.
+Tap **Stop** to opt out.
 
 — VOXBULK Sales`,
   sales_offer_keyword_confirm: `Hi {{first_name}},
 
-Here is your VOXBULK {{offer_line}}:
-{{promo_name}}
+As requested — your VOXBULK {{offer_line}}:
 {{offer_summary}}
 
-Start here: {{signup_url}}
-
-Open the link on your phone to create your account — your offer applies automatically.
-
-Need help? Just reply to this message.
+Tap **Start account** below. Your offer applies automatically when you sign up.
 
 — VOXBULK Sales`,
 }
@@ -137,6 +150,34 @@ export const TEST_VARS_BY_KEY = {
     usage_details_html: '<div><strong>Calls</strong>: 246 of 300 (82%)</div>',
     period_end: '30 Jun 2026',
     message: 'Usage alert: Calls 82%',
+  },
+  invoice_document: {
+    invoice_number: 'INV-2026-0042',
+    invoice_id: 'INV-2026-0042',
+    invoice_date: '20 May 2026',
+    due_date: '27 May 2026',
+    invoice_status: 'Paid',
+    organisation_name: 'Northgate Dental',
+    client_email: 'billing@northgate.example',
+    billing_address: '12 High Street\nLondon\nSW1A 1AA\nUnited Kingdom',
+    country_code: 'GB',
+    country_name: 'United Kingdom',
+    description: 'Dental P1 — monthly subscription',
+    amount: '£59.99',
+    amount_gbp_pence: '5999',
+    subtotal: '£49.99',
+    tax_amount: '£10.00',
+    tax_rate: '20%',
+    currency: 'GBP',
+    payment_method: 'GoCardless',
+    payment_reference: 'PM000123',
+    company_name: 'VOXBULK',
+    company_address: 'VOXBULK Ltd\nLondon, United Kingdom',
+    company_email: 'billing@voxbulk.com',
+    company_vat: 'GB 123456789',
+    notes: 'Thank you for your business.',
+    line_items_html:
+      '<tr><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">Dental P1 — monthly subscription</td><td style="padding:10px 8px;text-align:center;">1</td><td style="padding:10px 12px;text-align:right;">£49.99</td><td style="padding:10px 12px;text-align:right;font-weight:600;">£49.99</td></tr>',
   },
 }
 

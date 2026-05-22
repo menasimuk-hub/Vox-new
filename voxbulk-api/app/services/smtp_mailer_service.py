@@ -5,6 +5,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 from email.utils import formataddr
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,7 @@ class SmtpMailerService:
         subject: str,
         body: str,
         html: bool,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> None:
         row = SmtpSettingsService.get_row(db)
         configured, missing = SmtpSettingsService.compute_status(row)
@@ -70,6 +72,15 @@ class SmtpMailerService:
             msg.add_alternative(body or "", subtype="html", charset="utf-8")
         else:
             msg.set_content(body or "")
+
+        for attachment in attachments or []:
+            filename = str(attachment.get("filename") or "attachment.bin")
+            content = attachment.get("content")
+            if content is None:
+                continue
+            maintype = str(attachment.get("maintype") or "application")
+            subtype = str(attachment.get("subtype") or "octet-stream")
+            msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
 
         username = (row.username or "").strip() or None
 
@@ -108,8 +119,11 @@ class SmtpMailerService:
         to_addr: str,
         subject: str,
         body: str,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> None:
-        SmtpMailerService._send_message(db, to_addr=to_addr, subject=subject, body=body, html=False)
+        SmtpMailerService._send_message(
+            db, to_addr=to_addr, subject=subject, body=body, html=False, attachments=attachments
+        )
 
     @staticmethod
     def send_html(
@@ -118,6 +132,9 @@ class SmtpMailerService:
         to_addr: str,
         subject: str,
         body: str,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> None:
         """Send message with text/html MIME (for DB-backed templates that store HTML)."""
-        SmtpMailerService._send_message(db, to_addr=to_addr, subject=subject, body=body, html=True)
+        SmtpMailerService._send_message(
+            db, to_addr=to_addr, subject=subject, body=body, html=True, attachments=attachments
+        )

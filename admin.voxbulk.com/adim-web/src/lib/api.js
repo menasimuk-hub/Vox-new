@@ -627,6 +627,44 @@ export async function apiFetch(path, options = {}) {
   return data
 }
 
+export async function apiFetchBlob(path, options = {}) {
+  const mis = getApiMisconfigurationMessage()
+  if (mis) throw new Error(`${mis}\n\n${networkFailureHelp()}`)
+
+  const joined = joinOriginAndPath(getApiBaseUrl(), path)
+  const headers = new Headers(options.headers || {})
+  const token = await resolveAdminBearerToken()
+  if (!token) throw new Error('No admin session.')
+  headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(joined, { ...options, headers })
+  if (!res.ok) {
+    const text = await res.text()
+    const data = text ? safeJson(text) : null
+    throw new Error(formatApiError(data, res.status, res.statusText))
+  }
+  return res.blob()
+}
+
+export async function apiFetchText(path, options = {}) {
+  const mis = getApiMisconfigurationMessage()
+  if (mis) throw new Error(`${mis}\n\n${networkFailureHelp()}`)
+
+  const joined = joinOriginAndPath(getApiBaseUrl(), path)
+  const headers = new Headers(options.headers || {})
+  const token = await resolveAdminBearerToken()
+  if (!token) throw new Error('No admin session.')
+  headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(joined, { ...options, headers })
+  if (!res.ok) {
+    const text = await res.text()
+    const data = text ? safeJson(text) : null
+    throw new Error(formatApiError(data, res.status, res.statusText))
+  }
+  return res.text()
+}
+
 function safeJson(text) {
   try {
     return JSON.parse(text)

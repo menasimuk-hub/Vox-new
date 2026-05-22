@@ -1,4 +1,4 @@
-import { apiFetch } from './lib/api.js'
+import { apiFetch, downloadAuthenticatedFile } from './lib/api.js'
 
 const GC_FLOW_KEY = 'voxbulk_gc_redirect_flow_id'
 const PLAN_ICONS = ['ti-rocket', 'ti-trending-up', 'ti-building-skyscraper']
@@ -9,6 +9,7 @@ const state = {
   subscription: null,
   currentPlan: null,
   usage: null,
+  invoices: [],
   busyPlanId: null,
   paymentOptions: null,
 }
@@ -258,12 +259,53 @@ function renderBillingSummary() {
   }
 }
 
+function renderInvoicesList() {
+  const root = document.getElementById('billing-invoices-list')
+  if (!root) return
+  const rows = Array.isArray(state.invoices) ? state.invoices : []
+  if (!rows.length) {
+    root.innerHTML = '<div style="padding:12px;font-size:13px;color:var(--t3);">No invoices yet.</div>'
+    return
+  }
+  root.innerHTML = rows
+    .map((row, index) => {
+      const number = row.invoice_number || row.external_invoice_id || row.id
+      const date = fmtDate(row.created_at)
+      const desc = row.description || 'Invoice'
+      const amount = fmtGbpPrecise(row.amount_gbp_pence)
+      const border = index === rows.length - 1 ? 'border:none' : ''
+      return `<div class="qr" style="${border}" data-invoice-id="${escapeHtml(row.id)}">
+        <span style="font-size:11px;color:var(--t3);min-width:88px;font-family:ui-monospace,monospace;">${escapeHtml(number)}</span>
+        <span style="font-size:11px;color:var(--t3);min-width:72px;">${escapeHtml(date)}</span>
+        <span style="font-size:12.5px;color:var(--t1);flex:1;">${escapeHtml(desc)}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--t1);">${escapeHtml(amount)}</span>
+        <button class="btn bsm billing-invoice-pdf" type="button" data-invoice-id="${escapeHtml(row.id)}" data-invoice-number="${escapeHtml(number)}" style="margin-left:9px" title="Download PDF"><i class="ti ti-download"></i></button>
+      </div>`
+    })
+    .join('')
+
+  root.querySelectorAll('.billing-invoice-pdf').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-invoice-id')
+      const number = btn.getAttribute('data-invoice-number') || id
+      try {
+        await downloadAuthenticatedFile(`/billing/invoices/${encodeURIComponent(id)}/pdf`, `invoice-${number}.pdf`)
+      } catch (e) {
+        const message = e?.message || 'Download failed'
+        if (typeof window.toast === 'function') window.toast(message, 'tr')
+        else window.alert(message)
+      }
+    })
+  })
+}
+
 async function loadBillingData() {
-  const [plansRes, subRes, usageRes, optionsRes] = await Promise.all([
+  const [plansRes, subRes, usageRes, optionsRes, invoicesRes] = await Promise.all([
     apiFetch('/billing/plans').catch(() => []),
     apiFetch('/billing/subscription').catch(() => null),
     apiFetch('/billing/usage-summary').catch(() => null),
     apiFetch('/billing/payment-options').catch(() => null),
+    apiFetch('/billing/invoices').catch(() => []),
   ])
 
   state.plans = Array.isArray(plansRes) ? plansRes : []
@@ -271,6 +313,7 @@ async function loadBillingData() {
   state.currentPlan = subRes?.plan || null
   state.usage = usageRes?.usage || null
   state.paymentOptions = optionsRes || subRes?.payment_options || null
+  state.invoices = Array.isArray(invoicesRes) ? invoicesRes : []
 }
 
 function confirmPlanChange(plan) {
@@ -344,6 +387,7 @@ function renderAll() {
   renderPlanGrid('packages-plan-grid', confirmPlanChange)
   renderPlanGrid('billing-plan-grid', confirmPlanChange)
   renderBillingSummary()
+  renderInvoicesList()
 }
 
 async function refreshBillingViews() {

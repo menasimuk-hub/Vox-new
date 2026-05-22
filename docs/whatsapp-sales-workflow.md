@@ -32,7 +32,7 @@ flowchart TD
 
 1. **Telnyx** configured under Admin → Integrations → Telnyx (WhatsApp from-number, messaging webhook).
 2. **Lead sales setup** → WhatsApp sales automation **enabled**.
-3. WhatsApp templates under **Settings → Email & messaging → WhatsApp**:
+3. WhatsApp templates under **Settings → Email & messaging → WhatsApp** (copy matches Telnyx/Meta templates — see [telnyx-whatsapp-sales-templates.md](./telnyx-whatsapp-sales-templates.md)):
    - `sales_opt_in`
    - `sales_offer`
    - `sales_offer_followup`
@@ -76,7 +76,7 @@ Manual override: open the lead task → **Send offer link**.
 
 ### Opt-in (`sales_opt_in`)
 
-Sent when the call did not close hot. Message asks the prospect to reply **SEND OFFER** to receive the signup link later.
+Sent when the call did not close hot. Message includes **Send offer** and **Stop** quick-reply buttons (or customer can type **SEND OFFER** / **STOP**).
 
 ### Offer (`sales_offer`)
 
@@ -85,7 +85,7 @@ Sent when:
 - Post-call automation detects strong interest, or
 - Agent clicks **Send offer link** on the lead task.
 
-Includes promo name, offer line (trial / survey credits / interviews), signup URL.
+Includes promo name, offer line (trial / survey credits / interviews), and a **Start account** URL button (signup link with promo code).
 
 ### Keyword confirm (`sales_offer_keyword_confirm`)
 
@@ -105,12 +105,14 @@ Phone number is matched to a **lead sales task**.
 
 | Customer message | System response |
 |------------------|-----------------|
-| **STOP** / unsubscribe | Opt-out confirmation; no further automation |
-| **SEND OFFER** / “send me offer” / “send link” | Resend or first-send offer link via WhatsApp |
+| **STOP** / unsubscribe (or **Stop** button) | Opt-out confirmation; no further automation |
+| **SEND OFFER** / “send me offer” / “send link” (or **Send offer** button) | Resend or first-send offer link via WhatsApp |
 | Help / confused / problem (or after offer sent) | **AI help reply** (DeepSeek) with signup URL |
 | Anything else | Logged on lead; **no auto-reply** |
 
-**Note:** Messages are **text + keyword based**, not WhatsApp quick-reply buttons. Customers type **SEND OFFER**; they do not tap a button (Meta template buttons are not wired yet).
+**Note:** Outbound sales messages use **approved Meta/Telnyx templates with buttons** when available (`voxbulk_sales_*`). Quick-reply taps send the same text as typing **SEND OFFER** or **STOP**. If templates are not approved yet, the system falls back to plain text from admin template bodies.
+
+See [telnyx-whatsapp-sales-templates.md](./telnyx-whatsapp-sales-templates.md) for exact Telnyx template names and button setup.
 
 ---
 
@@ -149,7 +151,8 @@ Promos are **new users only** (signup redemption).
 | No WhatsApp after call | Lead sales setup → automation on; task has phone; sync outcome on task |
 | Opt-in sent but no link on reply | Customer must reply **SEND OFFER** (exact keyword patterns) |
 | WhatsApp not delivered | Integrations → Telnyx → test WhatsApp; inbound messages table |
-| Wrong offer text | Settings → WhatsApp templates; placeholders `{{offer_line}}`, `{{signup_url}}` |
+| Wrong offer text | Settings → WhatsApp templates; Telnyx template approval; placeholders `{{offer_line}}`, `{{offer_summary}}` |
+| Buttons not showing | Create/approve `voxbulk_sales_*` templates in Telnyx (see telnyx-whatsapp-sales-templates.md) |
 | Credits not in dashboard | Signup approved; migration 0059+ applied; redeem ran (check promo redemption count) |
 
 ---

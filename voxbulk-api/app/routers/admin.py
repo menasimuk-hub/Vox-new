@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import HTMLResponse, Response
 from datetime import datetime, timedelta
 import secrets
 import uuid
@@ -1987,6 +1988,138 @@ def admin_list_recent_payment_events(
 
 @router.get("/billing/invoices/recent")
 def admin_list_recent_billing_invoices(
+    limit: int = 100,
+    status: str | None = None,
+    provider: str | None = None,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.invoice_service import InvoiceService
+
+    rows = InvoiceService.list_admin(db, limit=limit, status=status, provider=provider, search=search)
+    return [InvoiceService.invoice_to_dict(db, r) for r in rows]
+
+
+@router.get("/billing/invoices/{invoice_id}")
+def admin_get_billing_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.models.billing_invoice import BillingInvoice
+    from app.services.invoice_service import InvoiceService
+
+    row = db.get(BillingInvoice, invoice_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return InvoiceService.invoice_to_dict(db, row)
+
+
+@router.get("/billing/invoices/{invoice_id}/html", response_class=HTMLResponse)
+def admin_get_billing_invoice_html(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.models.billing_invoice import BillingInvoice
+    from app.services.invoice_service import InvoiceDocumentService
+
+    row = db.get(BillingInvoice, invoice_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return InvoiceDocumentService.render_html(db, invoice=row)
+
+
+@router.get("/billing/invoices/{invoice_id}/pdf")
+def admin_get_billing_invoice_pdf(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.models.billing_invoice import BillingInvoice
+    from app.services.invoice_service import InvoiceDocumentService
+
+    row = db.get(BillingInvoice, invoice_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    try:
+        pdf_bytes = InvoiceDocumentService.render_pdf(db, invoice=row)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+    number = row.invoice_number or row.id
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="invoice-{number}.pdf"'},
+    )
+
+
+@router.post("/billing/invoices/{invoice_id}/resend-email")
+def admin_resend_billing_invoice_email(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.models.billing_invoice import BillingInvoice
+    from app.services.billing_event_email_service import BillingEventEmailService
+
+    row = db.get(BillingInvoice, invoice_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    row.emailed_at = None
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    _, _, sent = BillingEventEmailService.issue_payment_invoice(db, invoice=row)
+    return {"ok": True, "sent": sent}
+
+
+@router.get("/billing/vat-rates")
+def admin_list_vat_rates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    from app.services.country_vat_service import CountryVatService
+
+    return [CountryVatService.to_dict(r) for r in CountryVatService.list_all(db)]
+
+
+@router.put("/billing/vat-rates/{country_code}")
+def admin_upsert_vat_rate(
+    country_code: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.country_vat_service import CountryVatService
+
+    try:
+        row = CountryVatService.upsert(
+            db,
+            country_code=country_code,
+            country_name=str(payload.get("country_name") or country_code),
+            vat_rate_percent=float(payload.get("vat_rate_percent") or 0),
+            is_enabled=bool(payload.get("is_enabled", True)),
+            notes=str(payload.get("notes") or "") or None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return CountryVatService.to_dict(row)
+
+
+@router.delete("/billing/vat-rates/{country_code}")
+def admin_delete_vat_rate(
+    country_code: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.country_vat_service import CountryVatService
+
+    if not CountryVatService.delete(db, country_code):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VAT rate not found")
+    return {"ok": True}
+
+
+@router.get("/billing/invoices/recent-legacy")
+def admin_list_recent_billing_invoices_legacy(
     limit: int = 50,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_BILLING)),
