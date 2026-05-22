@@ -730,6 +730,39 @@ def prepare_sales_outbound_call(
     return assistant_id, instructions, greeting
 
 
+def reset_sales_task_for_recall(db: Session, task: LeadSalesTask) -> LeadSalesTask:
+    """Clear the previous call session so the lead can be dialled again."""
+    if task.status == "calling":
+        raise ValueError("Call already in progress")
+    if task.status == "cancelled":
+        raise ValueError("Cancelled tasks cannot be called again")
+    if task.status == "paused":
+        raise ValueError("Resume the task first, or call again from a finished state")
+    if task.status not in {"completed", "no_answer", "failed", "scheduled"}:
+        raise ValueError(f"Task is {task.status}")
+
+    if task.status in {"completed", "no_answer", "failed"}:
+        task.provider_call_id = None
+        task.telnyx_conversation_id = None
+        task.call_started_at = None
+        task.call_completed_at = None
+        task.sales_transcript_text = None
+        task.outcome_json = None
+        task.last_error = None
+        task.paused_at = None
+        task.status = "scheduled"
+        task.updated_at = datetime.utcnow()
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+    return task
+
+
+def call_again_sales_task(db: Session, task: LeadSalesTask) -> LeadSalesTask:
+    task = reset_sales_task_for_recall(db, task)
+    return execute_sales_outbound_call(db, task)
+
+
 def execute_sales_outbound_call(db: Session, task: LeadSalesTask) -> LeadSalesTask:
     if task.status == "paused":
         raise ValueError("Task is paused — resume it before calling")

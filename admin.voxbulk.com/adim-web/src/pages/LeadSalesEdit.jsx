@@ -468,9 +468,22 @@ export default function LeadSalesEdit() {
           </p>
         </div>
         <div className='actions'>
-          <button type='button' className='btn primary' disabled={!!busy} onClick={() => runAction('call-now')}>
-            {busy === 'call-now' ? 'Calling…' : 'Call now'}
-          </button>
+          {(() => {
+            const canCallAgain = task.call_done || ['completed', 'no_answer', 'failed'].includes(task.status)
+            const callAction = canCallAgain ? 'call-again' : 'call-now'
+            const callLabel =
+              busy === callAction ? 'Calling…' : canCallAgain ? 'Call again' : 'Call now'
+            return (
+              <button
+                type='button'
+                className='btn primary'
+                disabled={!!busy || task.status === 'calling'}
+                onClick={() => runAction(callAction)}
+              >
+                {callLabel}
+              </button>
+            )
+          })()}
           {task.status === 'paused' ? (
             <button type='button' className='btn soft' disabled={!!busy} onClick={() => runAction('resume')}>
               Resume

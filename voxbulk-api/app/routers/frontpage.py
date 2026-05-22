@@ -1711,6 +1711,22 @@ def call_now_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), 
     return {"task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None)}
 
 
+@admin_router.post("/lead-sales/tasks/{task_id}/call-again")
+def call_again_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.models.lead_sales_task import LeadSalesTask
+    from app.services.lead_sales_service import call_again_sales_task
+
+    row = db.get(LeadSalesTask, task_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
+    try:
+        row = call_again_sales_task(db, row)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    lead = db.get(FrontpageLeadCall, row.lead_id)
+    return {"task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None)}
+
+
 @admin_router.post("/lead-sales/tasks/{task_id}/cancel")
 def cancel_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     from app.models.lead_sales_task import LeadSalesTask

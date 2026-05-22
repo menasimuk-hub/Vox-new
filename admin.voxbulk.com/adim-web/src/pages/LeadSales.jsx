@@ -113,7 +113,12 @@ export default function LeadSales() {
       await runTaskAction(task, 'resume')
       return
     }
-    await runTaskAction(task, 'call-now')
+    const finished = ['completed', 'no_answer', 'failed'].includes(task.status)
+    await runTaskAction(task, finished ? 'call-again' : 'call-now')
+  }
+
+  const callAgain = async (task) => {
+    await runTaskAction(task, 'call-again')
   }
 
   const stopCall = async (task) => {
@@ -188,7 +193,7 @@ export default function LeadSales() {
                   <th>Scheduled</th>
                   <th>Status</th>
                   <th>Result</th>
-                  <th style={{ width: 200 }}>Actions</th>
+                  <th style={{ width: 260 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -196,6 +201,7 @@ export default function LeadSales() {
                   const busy = busyId.startsWith(`${task.id}-`)
                   const finished = ['completed', 'cancelled', 'failed', 'no_answer'].includes(task.status)
                   const canRun = !finished && (task.status === 'paused' || task.status === 'scheduled')
+                  const canCallAgain = ['completed', 'no_answer', 'failed'].includes(task.status)
                   const canStop = !finished && (task.status === 'calling' || task.status === 'scheduled')
                   return (
                     <tr key={task.id}>
@@ -262,6 +268,16 @@ export default function LeadSales() {
                           >
                             {busyId === `${task.id}-call-now` || busyId === `${task.id}-resume` ? '…' : 'Run'}
                           </button>
+                          {canCallAgain ? (
+                            <button
+                              type='button'
+                              className='leadPlayBtn'
+                              disabled={busy}
+                              onClick={() => callAgain(task)}
+                            >
+                              {busyId === `${task.id}-call-again` ? '…' : 'Call again'}
+                            </button>
+                          ) : null}
                           <button
                             type='button'
                             className='leadPlayBtn'
