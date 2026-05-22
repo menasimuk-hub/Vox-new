@@ -20,6 +20,8 @@ from app.services.sales_whatsapp_telnyx_service import (
     build_telnyx_components,
     build_test_components_for_template_name,
     template_key_for_telnyx_name,
+    url_button_has_dynamic_suffix,
+    url_button_index_from_components,
 )
 from app.services.telnyx_api_key import normalize_telnyx_api_key, require_telnyx_api_key
 from app.services.telnyx_messaging_service import _TEMPLATE_UUID_RE
@@ -295,8 +297,24 @@ class TelnyxWhatsappTemplateSyncService:
         if row is None:
             return None
         vars_ = variables or TEST_TEMPLATE_VARIABLES
+        stored_components: list[Any] | None = None
+        try:
+            parsed = json.loads(row.components_json or "null")
+            if isinstance(parsed, list):
+                stored_components = parsed
+        except json.JSONDecodeError:
+            stored_components = None
+
+        url_idx = url_button_index_from_components(stored_components)
+        include_url = url_button_has_dynamic_suffix(stored_components) if url_idx is not None else False
+
         if row.sales_template_key:
-            return build_telnyx_components(row.sales_template_key, vars_)
+            return build_telnyx_components(
+                row.sales_template_key,
+                vars_,
+                url_button_index=url_idx if url_idx is not None else 0,
+                include_url_button=include_url or row.sales_template_key != "sales_opt_in",
+            )
         built = build_test_components_for_template_name(row.name)
         if built is not None:
             return built

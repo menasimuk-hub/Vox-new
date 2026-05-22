@@ -93,7 +93,41 @@ def _url_button_param(index: int, suffix: str) -> dict[str, Any]:
     }
 
 
-def build_telnyx_components(template_key: str, variables: dict[str, str]) -> list[dict[str, Any]]:
+def url_button_index_from_components(components: list[Any] | None) -> int | None:
+    """0-based index of the URL CTA button in the approved template."""
+    if not isinstance(components, list):
+        return None
+    for comp in components:
+        if str(comp.get("type") or "").upper() != "BUTTONS":
+            continue
+        buttons = comp.get("buttons")
+        if not isinstance(buttons, list):
+            continue
+        for i, btn in enumerate(buttons):
+            if isinstance(btn, dict) and str(btn.get("type") or "").upper() == "URL":
+                return i
+    return None
+
+
+def url_button_has_dynamic_suffix(components: list[Any] | None) -> bool:
+    if not isinstance(components, list):
+        return True
+    for comp in components:
+        if str(comp.get("type") or "").upper() != "BUTTONS":
+            continue
+        for btn in comp.get("buttons") or []:
+            if isinstance(btn, dict) and str(btn.get("type") or "").upper() == "URL":
+                return "{{" in str(btn.get("url") or "")
+    return True
+
+
+def build_telnyx_components(
+    template_key: str,
+    variables: dict[str, str],
+    *,
+    url_button_index: int = 0,
+    include_url_button: bool = True,
+) -> list[dict[str, Any]]:
     first = str(variables.get("first_name") or "there").strip() or "there"
     offer_line = str(variables.get("offer_line") or variables.get("trial_line") or "VOXBULK offer").strip()
     offer_summary = str(variables.get("offer_summary") or variables.get("promo_name") or offer_line).strip()
@@ -103,16 +137,16 @@ def build_telnyx_components(template_key: str, variables: dict[str, str]) -> lis
         return [_body_params([first])]
 
     if template_key in {"sales_offer", "sales_offer_keyword_confirm"}:
-        return [
-            _body_params([first, offer_line, offer_summary]),
-            _url_button_param(0, signup_suffix),
-        ]
+        parts = [_body_params([first, offer_line, offer_summary])]
+        if include_url_button:
+            parts.append(_url_button_param(url_button_index, signup_suffix))
+        return parts
 
     if template_key == "sales_offer_followup":
-        return [
-            _body_params([first, offer_line]),
-            _url_button_param(0, signup_suffix),
-        ]
+        parts = [_body_params([first, offer_line])]
+        if include_url_button:
+            parts.append(_url_button_param(url_button_index, signup_suffix))
+        return parts
 
     return [_body_params([first])]
 
