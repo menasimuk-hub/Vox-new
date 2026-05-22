@@ -6,7 +6,7 @@ from app.services.lead_sales_service import (
     refresh_sales_prompt_kb_tail,
     sales_call_opening_greeting_for_instructions,
 )
-from app.services.telnyx_assistant_service import TELNYX_RECORDING_NOTICE
+from app.services.telnyx_assistant_service import RECORDING_SUFFIX, build_agent_greeting
 
 
 def test_assemble_sales_call_instructions_includes_kb_and_lead_context():
@@ -47,10 +47,16 @@ def test_refresh_sales_prompt_kb_tail_replaces_old_kb():
 
 
 def test_greeting_is_separate_from_instructions():
-    instructions = "Hi, I'm Adam from VoxBulk — thanks for taking our call. Is now a good time?"
+    instructions = "You are Adam, a senior sales closer for VoxBulk."
     greeting = sales_call_opening_greeting_for_instructions(instructions, contact_name="Jane Smith")
-    assert greeting == TELNYX_RECORDING_NOTICE
+    assert greeting == build_agent_greeting("Adam")
     assert greeting != instructions
+
+
+def test_greeting_falls_back_to_voxbulk_when_name_not_in_prompt():
+    instructions = "Hi, I'm calling about a website enquiry."
+    greeting = sales_call_opening_greeting_for_instructions(instructions, contact_name="Jane Smith")
+    assert greeting == build_agent_greeting("VoxBulk")
 
 
 def test_greeting_saved_custom_appends_recording_notice():
@@ -60,4 +66,4 @@ def test_greeting_saved_custom_appends_recording_notice():
         saved_greeting="Hi {{first_name}}, welcome back.",
     )
     assert "Jane" in greeting
-    assert TELNYX_RECORDING_NOTICE in greeting
+    assert RECORDING_SUFFIX in greeting

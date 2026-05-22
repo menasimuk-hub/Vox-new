@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -8,9 +9,12 @@ from sqlalchemy.orm import Session
 from app.core.http_ssl import httpx_ssl_verify
 from app.services.telnyx_api_key import require_telnyx_api_key
 
-TELNYX_RECORDING_NOTICE = (
-    "This call is recorded for quality — see voxbulk.com for privacy."
-)
+RECORDING_SUFFIX = "This call is recorded for quality — see voxbulk.com for privacy."
+
+
+def build_agent_greeting(agent_name: str) -> str:
+    name = str(agent_name or "").strip() or "VoxBulk"
+    return f"Hello, this is {name}. {RECORDING_SUFFIX}"
 
 
 def _telnyx_headers(api_key: str) -> dict[str, str]:
@@ -155,10 +159,20 @@ def ensure_telnyx_webrtc_call_ready(db: Session, assistant_id: str) -> dict[str,
     }
 
 
-def derive_greeting_from_prompt(instructions: str) -> str:
-    """Telnyx greeting field — recording notice only; agent intro lives in system prompt."""
-    _ = instructions
-    return TELNYX_RECORDING_NOTICE
+def extract_agent_name_from_prompt(instructions: str) -> str:
+    """Extract agent name from system prompt. Returns 'VoxBulk' if not found."""
+    text = str(instructions or "")
+    patterns = [
+        r"your name is\s+([A-Za-z][A-Za-z'-]{0,30})",
+        r"you are\s+([A-Za-z][A-Za-z'-]{0,30})",
+        r"I am\s+([A-Za-z][A-Za-z'-]{0,30})",
+        r"my name is\s+([A-Za-z][A-Za-z'-]{0,30})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return match.group(1).strip()
+    return "VoxBulk"
 
 
 def personalize_greeting(greeting: str, *, first_name: str | None = None) -> str:

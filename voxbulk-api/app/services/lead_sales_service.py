@@ -22,7 +22,6 @@ from app.services.knowledge_base_service import (
 from app.services.lead_sales_prompt_generator import generate_lead_sales_prompt
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
 from app.services.telnyx_assistant_service import (
-    TELNYX_RECORDING_NOTICE,
     normalize_telnyx_assistant_id,
     resolve_telnyx_assistant_runtime,
     sync_telnyx_assistant_instructions,
@@ -193,16 +192,21 @@ def sales_call_opening_greeting_for_instructions(
     saved_greeting: str | None = None,
 ) -> str:
     """Telnyx greeting field — separate from system instructions."""
-    from app.services.telnyx_assistant_service import personalize_greeting
+    from app.services.telnyx_assistant_service import (
+        RECORDING_SUFFIX,
+        build_agent_greeting,
+        extract_agent_name_from_prompt,
+        personalize_greeting,
+    )
 
-    _ = instructions
     saved = str(saved_greeting or "").strip()
     if saved:
         line = personalize_greeting(saved, first_name=contact_name)
         if "recorded" not in line.lower():
-            line = f"{line} {TELNYX_RECORDING_NOTICE}"
+            line = f"{line} {RECORDING_SUFFIX}"
         return line
-    return TELNYX_RECORDING_NOTICE
+    agent_name = extract_agent_name_from_prompt(instructions)
+    return build_agent_greeting(agent_name)
 
 
 def sales_telnyx_preview(

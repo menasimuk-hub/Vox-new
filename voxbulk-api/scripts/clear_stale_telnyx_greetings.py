@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Clear stale telnyx_greeting values and push TELNYX_RECORDING_NOTICE to Telnyx."""
+"""Clear stale telnyx_greeting values and push build_agent_greeting() to Telnyx."""
 from __future__ import annotations
 
 import argparse
@@ -19,7 +19,8 @@ from app.models.lead_sales_setting import LeadSalesSetting
 from app.services.frontpage_lead_service import build_lead_runtime_prompt
 from app.services.lead_sales_service import _sales_playbook_block, refresh_lead_sales_kb
 from app.services.telnyx_assistant_service import (
-    TELNYX_RECORDING_NOTICE,
+    build_agent_greeting,
+    extract_agent_name_from_prompt,
     sync_telnyx_assistant_instructions,
 )
 from app.services.telnyx_lead_variables import ensure_telnyx_variables_block
@@ -120,11 +121,12 @@ def _sync_assistant(
             instructions = ensure_telnyx_variables_block(build_lead_runtime_prompt(setting))
             if not instructions.strip():
                 return {"table": table, "id": row_id, "ok": False, "error": "empty instructions"}
+            portal_greeting = build_agent_greeting(extract_agent_name_from_prompt(instructions))
             sync_telnyx_assistant_instructions(
                 db,
                 assistant_id,
                 instructions,
-                greeting=TELNYX_RECORDING_NOTICE if push_greeting else None,
+                greeting=portal_greeting if push_greeting else None,
                 sync_greeting=push_greeting,
             )
             return {
@@ -133,7 +135,7 @@ def _sync_assistant(
                 "assistant_id": assistant_id,
                 "ok": True,
                 "greeting_pushed": push_greeting,
-                "portal_greeting": TELNYX_RECORDING_NOTICE if push_greeting else None,
+                "portal_greeting": portal_greeting if push_greeting else None,
             }
 
         setting = db.get(LeadSalesSetting, row_id)
@@ -145,11 +147,12 @@ def _sync_assistant(
         instructions = _sales_playbook_block(setting).strip()
         if not instructions:
             return {"table": table, "id": row_id, "ok": False, "error": "empty instructions"}
+        portal_greeting = build_agent_greeting(extract_agent_name_from_prompt(instructions))
         sync_telnyx_assistant_instructions(
             db,
             assistant_id,
             instructions,
-            greeting=TELNYX_RECORDING_NOTICE if push_greeting else None,
+            greeting=portal_greeting if push_greeting else None,
             sync_greeting=push_greeting,
             enable_web_calls=False,
         )
@@ -159,7 +162,7 @@ def _sync_assistant(
             "assistant_id": assistant_id,
             "ok": True,
             "greeting_pushed": push_greeting,
-            "portal_greeting": TELNYX_RECORDING_NOTICE if push_greeting else None,
+            "portal_greeting": portal_greeting if push_greeting else None,
         }
     except Exception as exc:
         return {"table": table, "id": row_id, "assistant_id": assistant_id, "ok": False, "error": str(exc)}
@@ -223,7 +226,7 @@ def main() -> int:
     parser.add_argument(
         "--fix-portal",
         action="store_true",
-        help="Push TELNYX_RECORDING_NOTICE to all configured Telnyx assistants (even if DB is already NULL)",
+        help="Push build_agent_greeting() to all configured Telnyx assistants (even if DB is already NULL)",
     )
     args = parser.parse_args()
 
@@ -242,7 +245,7 @@ def main() -> int:
 
         sync_results = resync_targets(db, sync_targets, push_greeting=True) if sync_targets else []
         label = (
-            "TELNYX RE-SYNC (instructions + TELNYX_RECORDING_NOTICE on portal)"
+            "TELNYX RE-SYNC (instructions + build_agent_greeting on portal)"
             if sync_targets
             else "TELNYX RE-SYNC"
         )

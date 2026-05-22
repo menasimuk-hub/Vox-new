@@ -167,16 +167,21 @@ def intake_call_opening_greeting(
     saved_greeting: str | None = None,
 ) -> str:
     """First line the intake agent speaks as soon as the browser call connects."""
-    from app.services.telnyx_assistant_service import TELNYX_RECORDING_NOTICE, personalize_greeting
+    from app.services.telnyx_assistant_service import (
+        RECORDING_SUFFIX,
+        build_agent_greeting,
+        extract_agent_name_from_prompt,
+        personalize_greeting,
+    )
 
-    _ = system_prompt
     saved = str(saved_greeting or "").strip()
     if saved:
         line = personalize_greeting(saved, first_name=first_name)
         if "recorded" not in line.lower():
-            line = f"{line} {TELNYX_RECORDING_NOTICE}"
+            line = f"{line} {RECORDING_SUFFIX}"
         return line
-    return TELNYX_RECORDING_NOTICE
+    agent_name = extract_agent_name_from_prompt(system_prompt)
+    return build_agent_greeting(agent_name)
 
 
 def recording_abs_path(rel_path: str) -> Path:
