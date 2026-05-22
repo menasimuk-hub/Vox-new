@@ -21,6 +21,7 @@ export default function FrontpageCallLeads() {
   const [providerAgentId, setProviderAgentId] = useState('')
   const [description, setDescription] = useState(DEFAULT_DESCRIPTION)
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [telnyxGreeting, setTelnyxGreeting] = useState('')
   const [selectedKbIds, setSelectedKbIds] = useState([])
   const [llmProvider, setLlmProvider] = useState('groq')
   const [kbPreview, setKbPreview] = useState(null)
@@ -45,6 +46,7 @@ export default function FrontpageCallLeads() {
     setProviderAgentId(s.provider_agent_id || '')
     setDescription(s.prompt_description || DEFAULT_DESCRIPTION)
     setSystemPrompt(s.system_prompt || '')
+    setTelnyxGreeting(s.telnyx_greeting || '')
     setSelectedKbIds((s.kb_file_ids || []).filter((id) => allowedIds.has(id)))
     setLlmProvider(s.llm_provider || 'groq')
     setKbFiles(files)
@@ -107,6 +109,7 @@ export default function FrontpageCallLeads() {
           provider_agent_id: providerAgentId.trim(),
           prompt_description: description,
           system_prompt: systemPrompt,
+          telnyx_greeting: telnyxGreeting,
           kb_file_ids: selectedKbIds,
           llm_provider: llmProvider,
         }),
@@ -472,9 +475,28 @@ export default function FrontpageCallLeads() {
             </p>
           ) : null}
           {voiceProvider === 'telnyx' && providerAgentId.trim() ? (
+            <>
+              <label className='label' style={{ marginTop: 14 }}>
+                Opening greeting (first spoken line on Telnyx — separate from system prompt)
+              </label>
+              <textarea
+                className='input frontpageDescTextarea'
+                rows={3}
+                value={telnyxGreeting}
+                onChange={(e) => setTelnyxGreeting(e.target.value)}
+                placeholder='Hi {{first_name}}, thanks for contacting VOXBULK. How can I help? This call is recorded for quality — see voxbulk.com for privacy.'
+              />
+              <p className='muted' style={{ marginTop: 6, fontSize: 13 }}>
+                Save settings to push this greeting to Telnyx. Resync without text here only updates instructions — it will not overwrite your Telnyx greeting.
+              </p>
+            </>
+          ) : null}
+          {voiceProvider === 'telnyx' && providerAgentId.trim() ? (
             <TelnyxPromptPreview
               previewUrl='/admin/frontpage/talk-to-us/telnyx-preview'
               resyncUrl='/admin/frontpage/talk-to-us/resync-telnyx'
+              pullGreetingUrl='/admin/frontpage/talk-to-us/pull-telnyx-greeting'
+              onPullGreeting={(g) => setTelnyxGreeting(g || '')}
               onResyncDone={(result) => {
                 if (result?.telnyx_sync_warning) setMsg(`Telnyx resync warning: ${result.telnyx_sync_warning}`)
                 else if (result?.telnyx_synced) setMsg(`Jode synced to Telnyx (${result.telnyx_sync_instructions_chars || '?'} instruction chars).`)

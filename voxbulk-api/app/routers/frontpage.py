@@ -104,6 +104,7 @@ class FrontpageSettingsIn(BaseModel):
     provider_agent_id: str | None = None
     prompt_description: str | None = None
     system_prompt: str | None = None
+    telnyx_greeting: str | None = None
     kb_file_ids: list[str] | None = None
     llm_provider: str = "groq"
 
@@ -211,6 +212,7 @@ def _settings_out(settings: FrontpageCallSetting, agent: AgentDefinition | None 
         "provider_agent_id": settings.provider_agent_id,
         "prompt_description": settings.prompt_description,
         "system_prompt": settings.system_prompt,
+        "telnyx_greeting": settings.telnyx_greeting,
         "kb_file_ids": parse_kb_file_ids(settings.kb_file_ids),
         "kb_context_chars": len(settings.kb_context or ""),
         "llm_provider": settings.llm_provider,
@@ -371,12 +373,21 @@ def _lead_runtime_prompt(
             "timezone": getattr(location, "timezone", "") if location else "",
             "locale": getattr(location, "locale", "") if location else "",
         },
-        "first_message": intake_call_opening_greeting(first_name, system_prompt),
+        "first_message": intake_call_opening_greeting(
+            first_name,
+            system_prompt,
+            saved_greeting=settings.telnyx_greeting,
+        ),
     }
 
 
-def _intake_call_opening_greeting(first_name: str, system_prompt: str) -> str:
-    return intake_call_opening_greeting(first_name, system_prompt)
+def _intake_call_opening_greeting(
+    first_name: str,
+    system_prompt: str,
+    *,
+    saved_greeting: str | None = None,
+) -> str:
+    return intake_call_opening_greeting(first_name, system_prompt, saved_greeting=saved_greeting)
 
 
 def _vapi_runtime_for_lead(
@@ -876,6 +887,8 @@ def update_frontpage_talk_to_us_settings(payload: FrontpageSettingsIn, db: Sessi
     settings.prompt_description = (payload.prompt_description or "").strip() or None
     if payload.system_prompt is not None:
         settings.system_prompt = payload.system_prompt.strip() or None
+    if payload.telnyx_greeting is not None:
+        settings.telnyx_greeting = str(payload.telnyx_greeting or "").strip() or None
     if payload.kb_file_ids is not None:
         clean_ids = sanitize_kb_file_ids(db, payload.kb_file_ids, scope=KB_SCOPE_LEAD)
         settings.kb_file_ids = dump_kb_file_ids(clean_ids)
@@ -894,8 +907,14 @@ def update_frontpage_talk_to_us_settings(payload: FrontpageSettingsIn, db: Sessi
             sync_prompt = ensure_telnyx_variables_block(_frontpage_sync_prompt(settings))
             if not sync_prompt.strip():
                 raise ValueError("System prompt is empty after merging lead knowledge base.")
-            greeting = _intake_call_opening_greeting("there", sync_prompt)
-            telnyx_sync = sync_telnyx_assistant_instructions(db, effective_agent_id, sync_prompt, greeting=greeting)
+            saved_greeting = str(settings.telnyx_greeting or "").strip()
+            telnyx_sync = sync_telnyx_assistant_instructions(
+                db,
+                effective_agent_id,
+                sync_prompt,
+                greeting=saved_greeting or None,
+                sync_greeting=bool(saved_greeting),
+            )
         except Exception as exc:
             telnyx_sync_warning = str(exc)
     db.refresh(settings)
@@ -905,7 +924,7 @@ def update_frontpage_talk_to_us_settings(payload: FrontpageSettingsIn, db: Sessi
         from app.services.telnyx_lead_variables import ensure_telnyx_variables_block
 
         sync_chars = len(ensure_telnyx_variables_block(_frontpage_sync_prompt(settings)))
-        synced_greeting = _intake_call_opening_greeting("there", ensure_telnyx_variables_block(_frontpage_sync_prompt(settings)))
+        synced_greeting = str(settings.telnyx_greeting or "").strip() or None
     return {
         "settings": _settings_out(settings, agent),
         "telnyx_synced": bool(telnyx_sync),
@@ -1164,6 +1183,7 @@ class LeadSalesSettingsIn(BaseModel):
     telnyx_assistant_id: str | None = None
     prompt_description: str | None = None
     system_prompt: str | None = None
+    telnyx_greeting: str | None = None
     kb_file_ids: list[str] | None = None
     calling_hour_start: int | None = None
     calling_hour_end: int | None = None
@@ -1212,20 +1232,23 @@ def frontpage_talk_to_us_telnyx_preview(db: Session = Depends(get_db), _admin=De
     settings, agent = _get_settings(db)
     agent_id = str(settings.provider_agent_id or "").strip()
     instructions = ensure_telnyx_variables_block(_frontpage_sync_prompt(settings))
-    greeting = _intake_call_opening_greeting("there", instructions)
+    saved = str(settings.telnyx_greeting or "").strip()
+    greeting = saved or _intake_call_opening_greeting("there", instructions)
     out = {
         "assistant_id": agent_id,
         "saved_system_prompt_chars": len(str(settings.system_prompt or "")),
+        "saved_greeting": saved,
         "planned_instructions": instructions,
         "planned_instructions_chars": len(instructions),
         "planned_greeting": greeting,
         "planned_greeting_chars": len(greeting),
+        "greeting_will_push": bool(saved),
         "live_instructions": "",
         "live_greeting": "",
         "live_instructions_chars": 0,
         "live_greeting_chars": 0,
         "in_sync": False,
-        "note": "Telnyx uses two fields: instructions (system prompt + KB) and greeting (first spoken line). The admin textarea is instructions only.",
+        "note": "Instructions sync on Save/Resync. Greeting only pushes when the Greeting field below is filled — otherwise your Telnyx portal greeting is left unchanged.",
     }
     if agent_id and (settings.voice_provider or "").strip().lower() == "telnyx":
         try:
@@ -1234,13 +1257,53 @@ def frontpage_talk_to_us_telnyx_preview(db: Session = Depends(get_db), _admin=De
             out["live_greeting"] = str(live.get("greeting") or "")
             out["live_instructions_chars"] = len(out["live_instructions"])
             out["live_greeting_chars"] = len(out["live_greeting"])
-            out["in_sync"] = (
-                out["live_instructions"].strip() == instructions.strip()
-                and out["live_greeting"].strip() == greeting.strip()
+            out["in_sync"] = out["live_instructions"].strip() == instructions.strip() and (
+                (not saved) or out["live_greeting"].strip() == saved.strip()
             )
         except Exception as exc:
             out["live_error"] = str(exc)
     return out
+
+
+@admin_router.post("/talk-to-us/pull-telnyx-greeting")
+def frontpage_pull_telnyx_greeting(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.telnyx_assistant_service import resolve_telnyx_assistant_runtime
+
+    settings, agent = _get_settings(db)
+    agent_id = str(settings.provider_agent_id or "").strip()
+    if not agent_id or (settings.voice_provider or "").strip().lower() != "telnyx":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Telnyx assistant not configured")
+    live = resolve_telnyx_assistant_runtime(db, agent_id)
+    greeting = str(live.get("greeting") or "").strip()
+    if not greeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No greeting on this Telnyx assistant")
+    settings.telnyx_greeting = greeting
+    settings.updated_at = datetime.utcnow()
+    db.add(settings)
+    db.commit()
+    db.refresh(settings)
+    return {"settings": _settings_out(settings, agent), "telnyx_greeting": greeting}
+
+
+@admin_router.post("/lead-sales/settings/pull-telnyx-greeting")
+def lead_sales_pull_telnyx_greeting(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.lead_sales_service import get_lead_sales_settings, lead_sales_settings_out
+    from app.services.telnyx_assistant_service import resolve_telnyx_assistant_runtime
+
+    settings = get_lead_sales_settings(db)
+    agent_id = str(settings.telnyx_assistant_id or "").strip()
+    if not agent_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Telnyx sales assistant ID not set")
+    live = resolve_telnyx_assistant_runtime(db, agent_id)
+    greeting = str(live.get("greeting") or "").strip()
+    if not greeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No greeting on this Telnyx assistant")
+    settings.telnyx_greeting = greeting
+    settings.updated_at = datetime.utcnow()
+    db.add(settings)
+    db.commit()
+    db.refresh(settings)
+    return {"settings": lead_sales_settings_out(settings), "telnyx_greeting": greeting}
 
 
 @admin_router.post("/talk-to-us/resync-telnyx")
@@ -1253,6 +1316,7 @@ def frontpage_talk_to_us_resync_telnyx(db: Session = Depends(get_db), _admin=Dep
         provider_agent_id=settings.provider_agent_id,
         prompt_description=settings.prompt_description,
         system_prompt=settings.system_prompt,
+        telnyx_greeting=settings.telnyx_greeting,
         kb_file_ids=parse_kb_file_ids(settings.kb_file_ids),
         llm_provider=settings.llm_provider,
     )
@@ -1266,11 +1330,18 @@ def lead_sales_settings_telnyx_preview(db: Session = Depends(get_db), _admin=Dep
     settings = get_lead_sales_settings(db)
     agent_id = str(settings.telnyx_assistant_id or "").strip()
     instructions = _sales_playbook_block(settings).strip()
-    preview = sales_telnyx_preview(db, assistant_id=agent_id, instructions=instructions, contact_name="there")
+    saved = str(settings.telnyx_greeting or "").strip()
+    preview = sales_telnyx_preview(
+        db,
+        assistant_id=agent_id,
+        instructions=instructions,
+        contact_name="there",
+        saved_greeting=saved or None,
+    )
     preview["saved_master_script_chars"] = len(str(settings.system_prompt or ""))
     preview["note"] = (
-        "Master sync pushes playbook + sales KB to the Telnyx assistant. "
-        "Each outbound call overwrites with the full per-lead prompt before dialing."
+        "Master sync pushes playbook + sales KB. Greeting pushes only when the Greeting field is filled. "
+        "Per-lead outbound calls always send full instructions inline on answer."
     )
     return preview
 
@@ -1299,7 +1370,13 @@ def lead_sales_task_telnyx_preview(task_id: str, db: Session = Depends(get_db), 
     settings = get_lead_sales_settings(db)
     assistant_id = str(row.telnyx_assistant_id or settings.telnyx_assistant_id or "").strip()
     instructions = build_sales_runtime_instructions(db, row, settings) or str(row.sales_prompt or "").strip()
-    preview = sales_telnyx_preview(db, assistant_id=assistant_id, instructions=instructions, contact_name=row.contact_name)
+    preview = sales_telnyx_preview(
+        db,
+        assistant_id=assistant_id,
+        instructions=instructions,
+        contact_name=row.contact_name,
+        saved_greeting=str(settings.telnyx_greeting or "").strip() or None,
+    )
     preview["saved_prompt_chars"] = len(str(row.sales_prompt or ""))
     preview["note"] = (
         "Admin shows the saved prompt. Telnyx receives instructions (prompt + fresh KB) and greeting separately. "
@@ -1348,6 +1425,8 @@ def update_lead_sales_settings_route(
         row.prompt_description = str(payload.prompt_description or "").strip() or None
     if payload.system_prompt is not None:
         row.system_prompt = str(payload.system_prompt or "").strip() or None
+    if payload.telnyx_greeting is not None:
+        row.telnyx_greeting = str(payload.telnyx_greeting or "").strip() or None
     if payload.kb_file_ids is not None:
         clean_ids = sanitize_kb_file_ids(db, payload.kb_file_ids, scope=KB_SCOPE_SALES)
         row.kb_file_ids = dump_kb_file_ids(clean_ids)

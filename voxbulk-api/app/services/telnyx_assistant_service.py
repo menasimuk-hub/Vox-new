@@ -100,8 +100,11 @@ def _update_telnyx_assistant(db: Session, assistant_id: str, body: dict[str, Any
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     api_key, _source = require_telnyx_api_key(db)
     url = f"https://api.telnyx.com/v2/ai/assistants/{clean_id}"
+    payload = dict(body)
+    if "promote_to_main" not in payload:
+        payload["promote_to_main"] = True
     with httpx.Client(timeout=30.0, verify=httpx_ssl_verify()) as client:
-        response = client.post(url, json=body, headers=_telnyx_headers(api_key))
+        response = client.post(url, json=payload, headers=_telnyx_headers(api_key))
     response.raise_for_status()
     payload = response.json()
     data = payload.get("data") if isinstance(payload, dict) else None
@@ -162,6 +165,20 @@ def derive_greeting_from_prompt(instructions: str) -> str | None:
     )
 
 
+def personalize_greeting(greeting: str, *, first_name: str | None = None) -> str:
+    """Apply {{first_name}} and common Hi there placeholders."""
+    first = str(first_name or "").strip().split()[0] if str(first_name or "").strip() else "there"
+    text = str(greeting or "").strip()
+    if not text:
+        return ""
+    return (
+        text.replace("{{first_name}}", first)
+        .replace("Hi there,", f"Hi {first},")
+        .replace("Hi there", f"Hi {first}")
+        .replace("Hi,", f"Hi {first},")
+    )
+
+
 def sync_telnyx_assistant_instructions(
     db: Session,
     assistant_id: str,
@@ -178,12 +195,33 @@ def sync_telnyx_assistant_instructions(
         raise ValueError("System prompt is required to sync to Telnyx")
     if enable_web_calls:
         enable_telnyx_assistant_web_calls(db, clean_id)
-    body: dict[str, Any] = {"instructions": clean_instructions}
+    body: dict[str, Any] = {"instructions": clean_instructions, "promote_to_main": True}
+    pushed_greeting = ""
     if sync_greeting:
-        derived = str(greeting or "").strip() or derive_greeting_from_prompt(clean_instructions)
-        if derived:
-            body["greeting"] = derived
-    return _update_telnyx_assistant(db, clean_id, body)
+        pushed_greeting = str(greeting or "").strip()
+        if pushed_greeting:
+            body["greeting"] = pushed_greeting
+    updated = _update_telnyx_assistant(db, clean_id, body)
+    live = resolve_telnyx_assistant_runtime(db, clean_id)
+    live_instructions = str(live.get("instructions") or "").strip()
+    live_greeting = str(live.get("greeting") or "").strip()
+    if live_instructions != clean_instructions:
+        raise ValueError(
+            "Telnyx did not save instructions — live text differs after sync. "
+            "Check assistant ID and API key in Integrations."
+        )
+    if pushed_greeting and live_greeting != pushed_greeting:
+        raise ValueError(
+            f"Telnyx did not save greeting ({len(pushed_greeting)} chars pushed, {len(live_greeting)} live). "
+            "Save your greeting in admin and try again."
+        )
+    return {
+        **updated,
+        "verified_instructions_chars": len(live_instructions),
+        "verified_greeting": live_greeting,
+        "verified_greeting_chars": len(live_greeting),
+        "greeting_pushed": bool(pushed_greeting),
+    }
 
 
 def prepare_telnyx_webrtc_call(

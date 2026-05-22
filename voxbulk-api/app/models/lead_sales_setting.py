@@ -15,6 +15,7 @@ class LeadSalesSetting(Base):
     telnyx_assistant_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     prompt_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    telnyx_greeting: Mapped[str | None] = mapped_column(Text, nullable=True)
     kb_file_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     kb_context: Mapped[str | None] = mapped_column(Text, nullable=True)
     calling_hour_start: Mapped[int] = mapped_column(nullable=False, default=9)

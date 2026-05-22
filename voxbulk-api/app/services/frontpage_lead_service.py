@@ -156,16 +156,25 @@ def build_lead_runtime_prompt(
     )
 
 
-def intake_call_opening_greeting(first_name: str, system_prompt: str) -> str:
+def intake_call_opening_greeting(
+    first_name: str,
+    system_prompt: str,
+    *,
+    saved_greeting: str | None = None,
+) -> str:
     """First line the intake agent speaks as soon as the browser call connects."""
-    from app.services.telnyx_assistant_service import derive_greeting_from_prompt
+    from app.services.telnyx_assistant_service import derive_greeting_from_prompt, personalize_greeting
 
-    first = str(first_name or "").strip() or "there"
-    derived = derive_greeting_from_prompt(system_prompt)
-    if derived:
-        line = derived.replace("Hi there,", f"Hi {first},").replace("Hi there", f"Hi {first}")
+    saved = str(saved_greeting or "").strip()
+    if saved:
+        line = personalize_greeting(saved, first_name=first_name)
     else:
-        line = f"Hi {first}, thanks for contacting VOXBULK. How can I help you today?"
+        first = str(first_name or "").strip() or "there"
+        derived = derive_greeting_from_prompt(system_prompt)
+        if derived:
+            line = derived.replace("Hi there,", f"Hi {first},").replace("Hi there", f"Hi {first}")
+        else:
+            line = f"Hi {first}, thanks for contacting VOXBULK. How can I help you today?"
     if "recorded" not in line.lower():
         line = f"{line} This call is recorded for quality — see voxbulk.com for privacy."
     return line

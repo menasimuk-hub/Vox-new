@@ -17,6 +17,7 @@ export default function LeadSalesSettings() {
   const [telnyxAssistantId, setTelnyxAssistantId] = useState('')
   const [description, setDescription] = useState(DEFAULT_DESCRIPTION)
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [telnyxGreeting, setTelnyxGreeting] = useState('')
   const [kbFiles, setKbFiles] = useState([])
   const [selectedKbIds, setSelectedKbIds] = useState([])
   const [callingHourStart, setCallingHourStart] = useState(9)
@@ -49,6 +50,7 @@ export default function LeadSalesSettings() {
       setTelnyxAssistantId(s.telnyx_assistant_id || '')
       setDescription(s.prompt_description || DEFAULT_DESCRIPTION)
       setSystemPrompt(s.system_prompt || '')
+      setTelnyxGreeting(s.telnyx_greeting || '')
       setSelectedKbIds((s.kb_file_ids || []).filter((id) => allowedIds.has(id)))
       setCallingHourStart(s.calling_hour_start ?? 9)
       setCallingHourEnd(s.calling_hour_end ?? 18)
@@ -256,6 +258,7 @@ export default function LeadSalesSettings() {
           telnyx_assistant_id: telnyxAssistantId.trim(),
           prompt_description: description,
           system_prompt: systemPrompt,
+          telnyx_greeting: telnyxGreeting,
           kb_file_ids: selectedKbIds,
           calling_hour_start: Number(callingHourStart),
           calling_hour_end: Number(callingHourEnd),
@@ -498,9 +501,25 @@ export default function LeadSalesSettings() {
               placeholder='Generate master script with AI using KB files above'
             />
             {telnyxAssistantId.trim() ? (
+              <>
+                <label className='label' style={{ marginTop: 14 }}>
+                  Opening greeting (Telnyx — first line Adam speaks)
+                </label>
+                <textarea
+                  className='input frontpageDescTextarea'
+                  rows={3}
+                  value={telnyxGreeting}
+                  onChange={(e) => setTelnyxGreeting(e.target.value)}
+                  placeholder='Hi {{first_name}}, this is Adam from VoxBulk following up on your website enquiry. Is now a good time?'
+                />
+              </>
+            ) : null}
+            {telnyxAssistantId.trim() ? (
               <TelnyxPromptPreview
                 previewUrl='/admin/frontpage/lead-sales/settings/telnyx-preview'
                 resyncUrl='/admin/frontpage/lead-sales/settings/resync-telnyx'
+                pullGreetingUrl='/admin/frontpage/lead-sales/settings/pull-telnyx-greeting'
+                onPullGreeting={(g) => setTelnyxGreeting(g || '')}
                 onResyncDone={(result) => {
                   if (result?.telnyx_sync_warning) setMsg(`Telnyx resync warning: ${result.telnyx_sync_warning}`)
                   else if (result?.telnyx_synced) setMsg(`Telnyx synced (${result.synced_instructions_chars || '?'} instruction chars).`)

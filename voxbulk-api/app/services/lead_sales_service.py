@@ -59,6 +59,7 @@ def lead_sales_settings_out(row: LeadSalesSetting) -> dict[str, Any]:
         "telnyx_assistant_id": row.telnyx_assistant_id,
         "prompt_description": row.prompt_description,
         "system_prompt": row.system_prompt,
+        "telnyx_greeting": row.telnyx_greeting,
         "kb_file_ids": parse_kb_file_ids(row.kb_file_ids),
         "kb_context_chars": len(row.kb_context or ""),
         "calling_hour_start": int(row.calling_hour_start or 9),
@@ -175,18 +176,29 @@ def build_sales_runtime_instructions(
     return refresh_sales_prompt_kb_tail(base, settings.kb_context)
 
 
-def sales_call_opening_greeting_for_instructions(instructions: str, *, contact_name: str | None) -> str:
+def sales_call_opening_greeting_for_instructions(
+    instructions: str,
+    *,
+    contact_name: str | None,
+    saved_greeting: str | None = None,
+) -> str:
     """Telnyx greeting field — separate from system instructions."""
-    first = str(contact_name or "").strip().split()[0] if str(contact_name or "").strip() else "there"
-    derived = derive_greeting_from_prompt(instructions)
-    if derived:
-        line = (
-            derived.replace("Hi there,", f"Hi {first},")
-            .replace("Hi there", f"Hi {first}")
-            .replace("Hi,", f"Hi {first},")
-        )
+    from app.services.telnyx_assistant_service import derive_greeting_from_prompt, personalize_greeting
+
+    saved = str(saved_greeting or "").strip()
+    if saved:
+        line = personalize_greeting(saved, first_name=contact_name)
     else:
-        line = f"Hi {first}, this is Adam from VoxBulk following up on your website enquiry. Is now still a good time?"
+        first = str(contact_name or "").strip().split()[0] if str(contact_name or "").strip() else "there"
+        derived = derive_greeting_from_prompt(instructions)
+        if derived:
+            line = (
+                derived.replace("Hi there,", f"Hi {first},")
+                .replace("Hi there", f"Hi {first}")
+                .replace("Hi,", f"Hi {first},")
+            )
+        else:
+            line = f"Hi {first}, this is Adam from VoxBulk following up on your website enquiry. Is now still a good time?"
     if "recorded" not in line.lower():
         line = f"{line} This call is recorded for quality — see voxbulk.com for privacy."
     return line
@@ -198,12 +210,19 @@ def sales_telnyx_preview(
     assistant_id: str,
     instructions: str,
     contact_name: str | None = None,
+    saved_greeting: str | None = None,
 ) -> dict[str, Any]:
     """Compare what we intend to send vs what Telnyx currently stores."""
     clean_id = str(assistant_id or "").strip()
-    greeting = sales_call_opening_greeting_for_instructions(instructions, contact_name=contact_name)
+    saved = str(saved_greeting or "").strip()
+    greeting = saved or sales_call_opening_greeting_for_instructions(
+        instructions,
+        contact_name=contact_name,
+        saved_greeting=None,
+    )
     out: dict[str, Any] = {
         "assistant_id": clean_id,
+        "saved_greeting": saved,
         "planned_instructions": instructions,
         "planned_instructions_chars": len(instructions or ""),
         "planned_greeting": greeting,
@@ -224,7 +243,10 @@ def sales_telnyx_preview(
         out["live_greeting_chars"] = len(out["live_greeting"])
         out["in_sync"] = (
             out["live_instructions"].strip() == str(instructions or "").strip()
-            and out["live_greeting"].strip() == greeting.strip()
+            and (
+                (not saved and not greeting)
+                or out["live_greeting"].strip() == greeting.strip()
+            )
         )
     except Exception as exc:
         out["live_error"] = str(exc)
@@ -242,19 +264,21 @@ def sync_lead_sales_telnyx_assistant(db: Session, settings: LeadSalesSetting | N
     if not sync_prompt:
         return {"telnyx_synced": False, "telnyx_sync_warning": "Master sales script is empty"}
     try:
-        greeting = sales_call_opening_greeting_for_instructions(sync_prompt, contact_name="there")
+        saved = str(settings.telnyx_greeting or "").strip()
         sync_telnyx_assistant_instructions(
             db,
             agent_id,
             sync_prompt,
-            greeting=greeting,
+            greeting=saved or None,
+            sync_greeting=bool(saved),
             enable_web_calls=False,
         )
         return {
             "telnyx_synced": True,
             "telnyx_sync_warning": None,
             "synced_instructions_chars": len(sync_prompt),
-            "synced_greeting": greeting,
+            "synced_greeting": saved or None,
+            "greeting_pushed": bool(saved),
         }
     except Exception as exc:
         return {"telnyx_synced": False, "telnyx_sync_warning": str(exc)}
@@ -269,12 +293,18 @@ def sync_sales_task_to_telnyx(db: Session, task: LeadSalesTask) -> dict[str, Any
         return {"ok": False, "error": "Telnyx sales assistant ID is not configured"}
     if not instructions:
         return {"ok": False, "error": "Sales prompt is empty — generate the prompt first"}
-    greeting = sales_call_opening_greeting_for_instructions(instructions, contact_name=task.contact_name)
+    saved = str(settings.telnyx_greeting or "").strip()
+    greeting = saved or sales_call_opening_greeting_for_instructions(
+        instructions,
+        contact_name=task.contact_name,
+        saved_greeting=None,
+    )
     sync_telnyx_assistant_instructions(
         db,
         assistant_id,
         instructions,
-        greeting=greeting,
+        greeting=saved or None,
+        sync_greeting=bool(saved),
         enable_web_calls=False,
     )
     preview = sales_telnyx_preview(
@@ -282,6 +312,7 @@ def sync_sales_task_to_telnyx(db: Session, task: LeadSalesTask) -> dict[str, Any
         assistant_id=assistant_id,
         instructions=instructions,
         contact_name=task.contact_name,
+        saved_greeting=saved or None,
     )
     return {"ok": True, "instructions_chars": len(instructions), "greeting": greeting, "preview": preview}
 
@@ -473,11 +504,13 @@ def _parse_scheduled_at(value: str | None, tz_name: str | None) -> datetime | No
         return dt
 
 
-def sales_call_opening_greeting(task: LeadSalesTask) -> str:
+def sales_call_opening_greeting(task: LeadSalesTask, *, settings: LeadSalesSetting | None = None) -> str:
     """First line the sales agent speaks as soon as the callee answers (Telnyx greeting field)."""
+    saved = str(settings.telnyx_greeting or "").strip() if settings else ""
     return sales_call_opening_greeting_for_instructions(
         str(task.sales_prompt or ""),
         contact_name=task.contact_name,
+        saved_greeting=saved or None,
     )
 
 
@@ -680,12 +713,18 @@ def prepare_sales_outbound_call(
         db.add(task)
         db.commit()
         db.refresh(task)
-    greeting = sales_call_opening_greeting_for_instructions(instructions, contact_name=task.contact_name)
+    saved = str(settings.telnyx_greeting or "").strip()
+    greeting = sales_call_opening_greeting_for_instructions(
+        instructions,
+        contact_name=task.contact_name,
+        saved_greeting=saved or None,
+    )
     sync_telnyx_assistant_instructions(
         db,
         assistant_id,
         instructions,
-        greeting=greeting,
+        greeting=saved or None,
+        sync_greeting=bool(saved),
         enable_web_calls=False,
     )
     return assistant_id, instructions, greeting
@@ -857,7 +896,7 @@ def handle_lead_sales_telnyx_event(db: Session, payload: dict[str, Any]) -> None
     if "answered" in event_type:
         if assistant_id:
             config = _telnyx_config(db)
-            greeting = str(parsed.get("sales_greeting") or "").strip() or sales_call_opening_greeting(task)
+            greeting = str(parsed.get("sales_greeting") or "").strip() or sales_call_opening_greeting(task, settings=settings)
             settings = get_lead_sales_settings(db)
             prompt = build_sales_runtime_instructions(db, task, settings)
             if not prompt:
