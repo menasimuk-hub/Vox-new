@@ -507,7 +507,7 @@ export default function Integrations() {
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxTestNumber, setTelnyxTestNumber] = useState('')
   const [telnyxWaTemplateName, setTelnyxWaTemplateName] = useState('')
-  const [telnyxWaTemplateLang, setTelnyxWaTemplateLang] = useState('en_GB')
+  const [telnyxWaTemplateLang, setTelnyxWaTemplateLang] = useState('en_US')
   const [telnyxActiveCallId, setTelnyxActiveCallId] = useState('')
   const [telnyxCallBusy, setTelnyxCallBusy] = useState(false)
   const [telnyxAccountNumbers, setTelnyxAccountNumbers] = useState([])
@@ -1025,7 +1025,7 @@ export default function Integrations() {
       const templateName = telnyxWaTemplateName.trim()
       if (templateName) {
         payload.template_name = templateName
-        payload.template_language = telnyxWaTemplateLang.trim() || 'en_GB'
+        payload.template_language = telnyxWaTemplateLang.trim() || 'en_US'
       }
       const result = await apiFetch('/admin/integrations/telnyx/test-whatsapp', {
         method: 'POST',

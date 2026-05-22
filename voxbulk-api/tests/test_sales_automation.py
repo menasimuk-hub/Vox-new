@@ -116,6 +116,35 @@ def test_should_auto_offer_after_real_conversation():
     assert SalesAutomationService._should_auto_offer(task, outcome, call_status="completed") is True
 
 
+def test_should_auto_offer_completed_call_without_transcript():
+    task = LeadSalesTask(
+        lead_id="x",
+        status="completed",
+        phone="+447700900123",
+        email="alex@example.com",
+        outcome_json='{"deal_stage":"no_answer"}',
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    outcome = SalesAutomationService._parse_outcome(task)
+    assert SalesAutomationService._should_auto_offer(task, outcome, call_status="completed") is True
+
+
+def test_build_test_whatsapp_components_for_sales_templates():
+    from app.services.sales_whatsapp_telnyx_service import build_test_components_for_template_name
+
+    opt_in = build_test_components_for_template_name("voxbulk_sales_opt_in")
+    assert opt_in is not None
+    assert opt_in[0]["type"] == "body"
+    assert len(opt_in[0]["parameters"]) == 1
+
+    offer = build_test_components_for_template_name("voxbulk_sales_offer")
+    assert offer is not None
+    assert len(offer[0]["parameters"]) == 3
+    assert offer[1]["type"] == "button"
+    assert build_test_components_for_template_name("unknown_template") is None
+
+
 def test_process_due_followups_skips_redeemed(app_client, monkeypatch):
     monkeypatch.setattr(
         "app.services.sales_automation_service.SalesAutomationService._send_whatsapp",

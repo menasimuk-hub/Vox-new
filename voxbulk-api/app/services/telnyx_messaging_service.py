@@ -172,7 +172,7 @@ class TelnyxMessagingService:
                 template["template_id"] = resolved_id
             else:
                 template["name"] = resolved_name
-                lang = str(template_language or "en_GB").strip() or "en_GB"
+                lang = str(template_language or "en_US").strip() or "en_US"
                 template["language"] = {"policy": "deterministic", "code": lang}
             if template_components:
                 template["components"] = template_components

@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
+from sqlalchemy.orm import Session
+
 # Approved template names in Telnyx → WhatsApp → Templates (must match exactly).
 TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
     "sales_opt_in": "voxbulk_sales_opt_in",
@@ -13,8 +15,55 @@ TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
     "sales_offer_keyword_confirm": "voxbulk_sales_keyword_confirm",
 }
 
-TELNYX_SALES_TEMPLATE_LANGUAGE = "en_GB"
+TELNYX_SALES_TEMPLATE_LANGUAGE = "en_US"
 
+# Sample values for Integrations → test WhatsApp (and Telnyx portal parity checks).
+TEST_TEMPLATE_VARIABLES: dict[str, str] = {
+    "first_name": "Alex",
+    "offer_line": "15-day free trial",
+    "offer_summary": "Dental plan · £99/mo · includes calls and WhatsApp",
+    "signup_url": "https://voxbulk.com/signin?promo=TEST123",
+}
+
+_LANGUAGE_FALLBACKS = ("en_US", "en_GB", "en")
+
+
+def resolve_whatsapp_template_languages(db: Session | None = None) -> list[str]:
+    """Language codes to try when sending Meta templates (portal may use en_GB or en_US)."""
+    configured = ""
+    if db is not None:
+        try:
+            from app.services.provider_settings import ProviderSettingsService
+
+            cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+            if enabled and isinstance(cfg, dict):
+                configured = str(cfg.get("whatsapp_template_language") or "").strip()
+        except Exception:
+            configured = ""
+    ordered: list[str] = []
+    for candidate in (configured, TELNYX_SALES_TEMPLATE_LANGUAGE, *_LANGUAGE_FALLBACKS):
+        code = str(candidate or "").strip()
+        if code and code not in ordered:
+            ordered.append(code)
+    return ordered or [TELNYX_SALES_TEMPLATE_LANGUAGE]
+
+
+def template_key_for_telnyx_name(template_name: str | None) -> str | None:
+    name = str(template_name or "").strip().lower()
+    if not name:
+        return None
+    for key, meta_name in TELNYX_SALES_TEMPLATE_NAMES.items():
+        if meta_name.lower() == name:
+            return key
+    return None
+
+
+def build_test_components_for_template_name(template_name: str | None) -> list[dict[str, Any]] | None:
+    """Build sample {{1}}/{{2}} parameters for known VOXBULK sales templates."""
+    key = template_key_for_telnyx_name(template_name)
+    if not key:
+        return None
+    return build_telnyx_components(key, TEST_TEMPLATE_VARIABLES)
 
 def signup_url_query_suffix(signup_url: str) -> str:
     """Meta URL button dynamic part for https://voxbulk.com/signin?{{1}}"""

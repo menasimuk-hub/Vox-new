@@ -233,16 +233,10 @@ def finalize_sales_task_after_call(db: Session, task: LeadSalesTask, *, status: 
     automation_result: dict[str, Any] = {"skipped": True}
     transcript = str(task.sales_transcript_text or "").strip()
     if status == "completed" and not transcript:
-        task.last_error = "Waiting for Telnyx transcript before sending offer (retry scheduled)."
-        task.updated_at = datetime.utcnow()
-        db.add(task)
-        db.commit()
-        schedule_post_call_automation_retry(task.id, delay_seconds=90)
         logger.info(
-            "sales_post_call_deferred_no_transcript",
+            "sales_post_call_no_transcript_yet",
             extra={"task_id": task.id, "status": status},
         )
-        return
 
     try:
         from app.services.sales_automation_service import SalesAutomationService
@@ -269,3 +263,6 @@ def finalize_sales_task_after_call(db: Session, task: LeadSalesTask, *, status: 
             pass
         elif not automation_result.get("ok"):
             schedule_post_call_automation_retry(task.id)
+        elif not transcript:
+            # Transcript may land after hangup — re-sync outcome and send offer if still missing.
+            schedule_post_call_automation_retry(task.id, delay_seconds=90)

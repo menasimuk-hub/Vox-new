@@ -711,20 +711,50 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
     body = str(payload.get("body") or "VOXBULK Telnyx WhatsApp test").strip()
     template_name = str(payload.get("template_name") or "").strip() or None
     template_id = str(payload.get("template_id") or "").strip() or None
-    template_language = str(payload.get("template_language") or "en_GB").strip() or None
+    template_language = str(payload.get("template_language") or "").strip() or None
     if not to_number:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
     template_error = TelnyxMessagingService.validate_whatsapp_template_ref(template_name, template_id)
     if template_error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=template_error)
-    result = TelnyxMessagingService.send_whatsapp(
-        db,
-        to_number=to_number,
-        body=body,
-        template_name=template_name,
-        template_id=template_id,
-        template_language=template_language,
-    )
+
+    template_components = payload.get("template_components")
+    if not template_components and template_name and not template_id:
+        from app.services.sales_whatsapp_telnyx_service import build_test_components_for_template_name
+
+        template_components = build_test_components_for_template_name(template_name)
+
+    components = template_components if isinstance(template_components, list) else None
+    result = None
+    if template_name and not template_id:
+        from app.services.sales_whatsapp_telnyx_service import resolve_whatsapp_template_languages
+
+        langs = [template_language] if template_language else resolve_whatsapp_template_languages(db)
+        for lang in langs:
+            if not lang:
+                continue
+            attempt = TelnyxMessagingService.send_whatsapp(
+                db,
+                to_number=to_number,
+                body=body,
+                template_name=template_name,
+                template_language=lang,
+                template_components=components,
+            )
+            if attempt.ok:
+                result = attempt
+                break
+            result = attempt
+    else:
+        result = TelnyxMessagingService.send_whatsapp(
+            db,
+            to_number=to_number,
+            body=body,
+            template_name=template_name,
+            template_id=template_id,
+            template_language=template_language or "en_US",
+            template_components=components,
+        )
     if not result.ok:
         detail = result.detail or result.status
         if not (template_name or template_id):

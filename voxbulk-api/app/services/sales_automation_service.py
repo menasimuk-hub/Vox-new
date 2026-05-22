@@ -250,9 +250,10 @@ class SalesAutomationService:
         if stage in {"won_intent", "demo_booked", "qualified", "follow_up"}:
             return True
         transcript = str(task.sales_transcript_text or "").strip()
-        if len(transcript) >= 60 and stage != "not_interested":
+        if len(transcript) >= 60:
             return True
-        return False
+        # Completed outbound call — send offer even when Telnyx transcript is still syncing.
+        return bool(task.email or task.phone)
 
     @staticmethod
     def _set_task_error(db: Session, task: LeadSalesTask, message: str | None) -> None:
