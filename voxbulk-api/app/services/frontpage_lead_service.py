@@ -167,21 +167,16 @@ def intake_call_opening_greeting(
     saved_greeting: str | None = None,
 ) -> str:
     """First line the intake agent speaks as soon as the browser call connects."""
-    from app.services.telnyx_assistant_service import derive_greeting_from_prompt, personalize_greeting
+    from app.services.telnyx_assistant_service import TELNYX_RECORDING_NOTICE, personalize_greeting
 
+    _ = system_prompt
     saved = str(saved_greeting or "").strip()
     if saved:
         line = personalize_greeting(saved, first_name=first_name)
-    else:
-        first = str(first_name or "").strip() or "there"
-        derived = derive_greeting_from_prompt(system_prompt)
-        if derived:
-            line = derived.replace("Hi there,", f"Hi {first},").replace("Hi there", f"Hi {first}")
-        else:
-            line = f"Hi {first}, thanks for contacting VOXBULK. How can I help you today?"
-    if "recorded" not in line.lower():
-        line = f"{line} This call is recorded for quality — see voxbulk.com for privacy."
-    return line
+        if "recorded" not in line.lower():
+            line = f"{line} {TELNYX_RECORDING_NOTICE}"
+        return line
+    return TELNYX_RECORDING_NOTICE
 
 
 def recording_abs_path(rel_path: str) -> Path:

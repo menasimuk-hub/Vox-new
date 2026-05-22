@@ -22,7 +22,7 @@ from app.services.knowledge_base_service import (
 from app.services.lead_sales_prompt_generator import generate_lead_sales_prompt
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
 from app.services.telnyx_assistant_service import (
-    derive_greeting_from_prompt,
+    TELNYX_RECORDING_NOTICE,
     normalize_telnyx_assistant_id,
     resolve_telnyx_assistant_runtime,
     sync_telnyx_assistant_instructions,
@@ -193,25 +193,16 @@ def sales_call_opening_greeting_for_instructions(
     saved_greeting: str | None = None,
 ) -> str:
     """Telnyx greeting field — separate from system instructions."""
-    from app.services.telnyx_assistant_service import derive_greeting_from_prompt, personalize_greeting
+    from app.services.telnyx_assistant_service import personalize_greeting
 
+    _ = instructions
     saved = str(saved_greeting or "").strip()
     if saved:
         line = personalize_greeting(saved, first_name=contact_name)
-    else:
-        first = str(contact_name or "").strip().split()[0] if str(contact_name or "").strip() else "there"
-        derived = derive_greeting_from_prompt(instructions)
-        if derived:
-            line = (
-                derived.replace("Hi there,", f"Hi {first},")
-                .replace("Hi there", f"Hi {first}")
-                .replace("Hi,", f"Hi {first},")
-            )
-        else:
-            line = f"Hi {first}, this is Adam from VoxBulk following up on your website enquiry. Is now still a good time?"
-    if "recorded" not in line.lower():
-        line = f"{line} This call is recorded for quality — see voxbulk.com for privacy."
-    return line
+        if "recorded" not in line.lower():
+            line = f"{line} {TELNYX_RECORDING_NOTICE}"
+        return line
+    return TELNYX_RECORDING_NOTICE
 
 
 def sales_telnyx_preview(

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import httpx
@@ -8,6 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
 from app.services.telnyx_api_key import require_telnyx_api_key
+
+TELNYX_RECORDING_NOTICE = (
+    "This call is recorded for quality — see voxbulk.com for privacy."
+)
 
 
 def _telnyx_headers(api_key: str) -> dict[str, str]:
@@ -152,17 +155,10 @@ def ensure_telnyx_webrtc_call_ready(db: Session, assistant_id: str) -> dict[str,
     }
 
 
-def derive_greeting_from_prompt(instructions: str) -> str | None:
-    """First spoken line on WebRTC — match agent name from saved prompt."""
-    text = str(instructions or "")
-    name_match = re.search(r"(?:your name is|you are)\s+([A-Za-z][A-Za-z'-]{0,30})", text, re.I)
-    if not name_match:
-        return None
-    agent_name = name_match.group(1).strip()
-    return (
-        f"Hi, I'm {agent_name} from VoxBulk — thanks for reaching out. "
-        "Is now a good time for a quick chat?"
-    )
+def derive_greeting_from_prompt(instructions: str) -> str:
+    """Telnyx greeting field — recording notice only; agent intro lives in system prompt."""
+    _ = instructions
+    return TELNYX_RECORDING_NOTICE
 
 
 def personalize_greeting(greeting: str, *, first_name: str | None = None) -> str:

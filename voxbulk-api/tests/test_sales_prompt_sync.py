@@ -6,6 +6,7 @@ from app.services.lead_sales_service import (
     refresh_sales_prompt_kb_tail,
     sales_call_opening_greeting_for_instructions,
 )
+from app.services.telnyx_assistant_service import TELNYX_RECORDING_NOTICE
 
 
 def test_assemble_sales_call_instructions_includes_kb_and_lead_context():
@@ -48,6 +49,15 @@ def test_refresh_sales_prompt_kb_tail_replaces_old_kb():
 def test_greeting_is_separate_from_instructions():
     instructions = "Hi, I'm Adam from VoxBulk — thanks for taking our call. Is now a good time?"
     greeting = sales_call_opening_greeting_for_instructions(instructions, contact_name="Jane Smith")
-    assert "Jane" in greeting
-    assert "recorded" in greeting.lower()
+    assert greeting == TELNYX_RECORDING_NOTICE
     assert greeting != instructions
+
+
+def test_greeting_saved_custom_appends_recording_notice():
+    greeting = sales_call_opening_greeting_for_instructions(
+        "Master script",
+        contact_name="Jane Smith",
+        saved_greeting="Hi {{first_name}}, welcome back.",
+    )
+    assert "Jane" in greeting
+    assert TELNYX_RECORDING_NOTICE in greeting
