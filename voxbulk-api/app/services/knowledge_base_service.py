@@ -134,6 +134,37 @@ async def upload_kb_file(
     return kb_file_out(row)
 
 
+def _prune_kb_file_from_agent_settings(db: Session, file_id: str) -> None:
+    """Drop deleted file IDs from Jode/Adam settings and refresh cached KB context."""
+    from app.models.frontpage_call_setting import FrontpageCallSetting
+    from app.models.lead_sales_setting import LeadSalesSetting
+    from app.services.frontpage_lead_service import dump_kb_file_ids, parse_kb_file_ids
+
+    clean_id = str(file_id or "").strip()
+    if not clean_id:
+        return
+
+    frontpage = db.get(FrontpageCallSetting, "default")
+    if frontpage is not None:
+        ids = [fid for fid in parse_kb_file_ids(frontpage.kb_file_ids) if fid != clean_id]
+        if ids != parse_kb_file_ids(frontpage.kb_file_ids):
+            ids = sanitize_kb_file_ids(db, ids, scope=KB_SCOPE_LEAD)
+            frontpage.kb_file_ids = dump_kb_file_ids(ids)
+            files = get_kb_files_by_ids(db, ids, scope=KB_SCOPE_LEAD)
+            frontpage.kb_context = build_kb_context_text(files) or None
+            db.add(frontpage)
+
+    sales = db.get(LeadSalesSetting, "default")
+    if sales is not None:
+        ids = [fid for fid in parse_kb_file_ids(sales.kb_file_ids) if fid != clean_id]
+        if ids != parse_kb_file_ids(sales.kb_file_ids):
+            ids = sanitize_kb_file_ids(db, ids, scope=KB_SCOPE_SALES)
+            sales.kb_file_ids = dump_kb_file_ids(ids)
+            files = get_kb_files_by_ids(db, ids, scope=KB_SCOPE_SALES)
+            sales.kb_context = build_kb_context_text(files) or None
+            db.add(sales)
+
+
 def delete_kb_file(db: Session, *, file_id: str) -> None:
     row = db.execute(select(KnowledgeBaseFile).where(KnowledgeBaseFile.id == file_id)).scalar_one_or_none()
     if row is None:
@@ -147,6 +178,7 @@ def delete_kb_file(db: Session, *, file_id: str) -> None:
             pass
 
     db.execute(delete(AgentKnowledgeFile).where(AgentKnowledgeFile.knowledge_base_file_id == file_id))
+    _prune_kb_file_from_agent_settings(db, file_id)
     db.delete(row)
     db.commit()
 

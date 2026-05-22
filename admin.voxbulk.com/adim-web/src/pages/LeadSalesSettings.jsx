@@ -29,6 +29,7 @@ export default function LeadSalesSettings() {
   const [offerTemplates, setOfferTemplates] = useState([])
   const [kbPreview, setKbPreview] = useState(null)
   const [loadingKbId, setLoadingKbId] = useState('')
+  const [deletingKbId, setDeletingKbId] = useState('')
 
   const selectedKb = useMemo(
     () => kbFiles.filter((f) => selectedKbIds.includes(f.id)),
@@ -41,11 +42,13 @@ export default function LeadSalesSettings() {
     try {
       const data = await apiFetch('/admin/frontpage/lead-sales/settings')
       const s = data?.settings || {}
-      setKbFiles(data?.kb_files || [])
+      const files = data?.kb_files || []
+      const allowedIds = new Set(files.map((f) => f.id))
+      setKbFiles(files)
       setTelnyxAssistantId(s.telnyx_assistant_id || '')
       setDescription(s.prompt_description || DEFAULT_DESCRIPTION)
       setSystemPrompt(s.system_prompt || '')
-      setSelectedKbIds(s.kb_file_ids || [])
+      setSelectedKbIds((s.kb_file_ids || []).filter((id) => allowedIds.has(id)))
       setCallingHourStart(s.calling_hour_start ?? 9)
       setCallingHourEnd(s.calling_hour_end ?? 18)
       setCallingDays(s.calling_days || '1,2,3,4,5')
@@ -128,8 +131,9 @@ export default function LeadSalesSettings() {
   const viewKbFile = async (file) => {
     setLoadingKbId(file.id)
     try {
-      const data = await apiFetch(`/admin/knowledge-base/${file.id}`)
+      const data = await apiFetch(`/admin/knowledge-base/${file.id}?scope=sales`)
       setKbPreview({
+        id: file.id,
         name: file.original_filename,
         content: String(data?.file?.content || '').trim() || '(empty)',
       })
@@ -137,6 +141,23 @@ export default function LeadSalesSettings() {
       setMsg(err?.message || 'Could not load file')
     } finally {
       setLoadingKbId('')
+    }
+  }
+
+  const deleteKb = async (file) => {
+    if (!window.confirm(`Delete "${file.original_filename}"? This removes it from Adam's sales library only.`)) return
+    setDeletingKbId(file.id)
+    setMsg('')
+    try {
+      await apiFetch(`/admin/knowledge-base/${file.id}`, { method: 'DELETE' })
+      setSelectedKbIds((prev) => prev.filter((id) => id !== file.id))
+      if (kbPreview?.id === file.id) setKbPreview(null)
+      await load()
+      setMsg(`Deleted ${file.original_filename}. Save settings if you changed the master script.`)
+    } catch (err) {
+      setMsg(err?.message || 'Delete failed')
+    } finally {
+      setDeletingKbId('')
     }
   }
 
@@ -189,6 +210,10 @@ export default function LeadSalesSettings() {
           rewrite: true,
         }),
       })
+      if (result?.skipped) {
+        setMsg('Generate skipped — a master script already exists. Edit it below or clear it, then generate again.')
+        return
+      }
       const prompt = String(result?.system_prompt || '').trim()
       if (!prompt) {
         setMsg('No prompt returned. Check Integrations → DeepSeek.')
@@ -362,7 +387,7 @@ export default function LeadSalesSettings() {
       <div className='grid two frontpageConfigureRow' style={{ marginTop: 18 }}>
         <section className='card'>
           <div className='cardHead'>
-            <h3>Knowledge base · sales agent</h3>
+            <h3>Adam knowledge base (sales only)</h3>
             <span className='pill p-cyan'>{selectedKb.length} selected</span>
           </div>
           <div className='cardBody'>
@@ -371,7 +396,7 @@ export default function LeadSalesSettings() {
               <input type='file' accept='.md,text/markdown' multiple hidden onChange={uploadKb} disabled={uploading} />
             </label>
             <p className='muted' style={{ marginTop: 0, marginBottom: 10 }}>
-              Files here are <strong>only for the outbound sales agent</strong>. Website lead agent has its own library under Front page call leads.
+              Files here are <strong>only for Adam (outbound sales)</strong>. Jode (website lead agent) has a separate library under Front page call leads — uploads do not cross over.
             </p>
             {!kbFiles.length ? (
               <p className='muted'>No KB files yet.</p>
@@ -393,9 +418,26 @@ export default function LeadSalesSettings() {
                         </td>
                         <td>{file.original_filename}</td>
                         <td>
-                          <button type='button' className='btn soft' style={{ padding: '4px 8px', fontSize: 12 }} disabled={loadingKbId === file.id} onClick={() => viewKbFile(file)}>
-                            View
-                          </button>
+                          <div className='actions' style={{ gap: 6 }}>
+                            <button
+                              type='button'
+                              className='btn soft'
+                              style={{ padding: '4px 8px', fontSize: 12 }}
+                              disabled={loadingKbId === file.id}
+                              onClick={() => viewKbFile(file)}
+                            >
+                              {loadingKbId === file.id ? '…' : 'View'}
+                            </button>
+                            <button
+                              type='button'
+                              className='btn soft'
+                              style={{ padding: '4px 8px', fontSize: 12 }}
+                              disabled={deletingKbId === file.id}
+                              onClick={() => deleteKb(file)}
+                            >
+                              {deletingKbId === file.id ? '…' : 'Delete'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

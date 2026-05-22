@@ -80,6 +80,9 @@ def _sales_playbook_block(settings: LeadSalesSetting) -> str:
     playbook = str(settings.prompt_description or "").strip()
     if playbook:
         parts.append(f"Operator notes:\n{playbook}")
+    kb = str(settings.kb_context or "").strip()
+    if kb:
+        parts.append(f"Sales knowledge base (Adam library only — authoritative):\n{kb}")
     return "\n\n".join(parts)
 
 
@@ -425,6 +428,8 @@ def create_sales_task_from_lead(db: Session, lead_id: str) -> tuple[LeadSalesTas
 
 def regenerate_sales_prompt(db: Session, task: LeadSalesTask) -> LeadSalesTask:
     settings = get_lead_sales_settings(db)
+    refresh_lead_sales_kb(settings, db)
+    db.add(settings)
     lead = db.get(FrontpageLeadCall, task.lead_id)
     payload: dict[str, Any] = {}
     transcript = ""

@@ -20,7 +20,9 @@ _META = (
     "- Handle objections calmly; aim to book a clear next step or close if they are ready.\n"
     "- If they are not interested, thank them and end politely.\n"
     "- Before ending a soft no, say you will WhatsApp them and they can reply SEND OFFER anytime to receive their trial link.\n"
-    "- Do not invent pricing or contract terms not provided in the lead data.\n"
+    "- Do not invent pricing or contract terms not provided in the lead data or sales knowledge base.\n"
+    "- The outbound agent is Adam. The website intake agent is Jode — do not use other names unless in the transcript.\n"
+    "- Jode schedules a callback; Adam does not live-transfer mid-call.\n"
     f"- Include this rule verbatim: {SALES_RECORDING_NOTICE_SHORT}"
 )
 

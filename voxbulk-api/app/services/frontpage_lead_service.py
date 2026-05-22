@@ -123,9 +123,9 @@ def build_runtime_system_prompt(
     settings_prompt: str | None,
     kb_context: str | None = None,
     lead_context: str | None = None,
-    include_kb: bool = False,
+    include_kb: bool = True,
 ) -> str:
-    """Live calls use the saved system prompt only; KB files are not re-injected unless include_kb=True."""
+    """Assemble live voice prompt: saved script + optional cached KB + per-call visitor context."""
     parts: list[str] = []
     base = str(settings_prompt or "").strip()
     if base:
@@ -133,11 +133,27 @@ def build_runtime_system_prompt(
     if include_kb:
         kb = str(kb_context or "").strip()
         if kb:
-            parts.append(f"Knowledge base:\n{kb}")
+            parts.append(f"Knowledge base (lead library — follow closely):\n{kb}")
     lead = str(lead_context or "").strip()
     if lead:
         parts.append(lead)
     return "\n\n".join(parts).strip() or AgentManager.format_lead_context(contact_name="there", company_name="their company", email="", phone=None)
+
+
+def build_lead_runtime_prompt(
+    settings: FrontpageCallSetting,
+    *,
+    settings_prompt: str | None = None,
+    lead_context: str | None = None,
+) -> str:
+    """Website lead (Jode) runtime prompt: system prompt + lead-scoped KB cache + visitor context."""
+    base = settings_prompt if settings_prompt is not None else settings.system_prompt
+    return build_runtime_system_prompt(
+        settings_prompt=base,
+        kb_context=settings.kb_context,
+        lead_context=lead_context,
+        include_kb=True,
+    )
 
 
 def recording_abs_path(rel_path: str) -> Path:

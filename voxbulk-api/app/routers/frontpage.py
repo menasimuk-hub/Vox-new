@@ -25,6 +25,7 @@ from app.services.agents.manager import AgentManager
 from app.services.frontpage_lead_prompt_generator import generate_frontpage_lead_prompt
 from app.services.frontpage_lead_service import (
     apply_lead_intelligence,
+    build_lead_runtime_prompt,
     build_runtime_system_prompt,
     combined_lead_transcript,
     enrich_lead_after_transcript_update,
@@ -199,13 +200,8 @@ def _refresh_frontpage_kb(settings: FrontpageCallSetting, db: Session) -> None:
 
 
 def _frontpage_sync_prompt(settings: FrontpageCallSetting, *, lead_context: str | None = None) -> str:
-    """Telnyx/Vapi runtime: saved system prompt + per-call lead context only (not raw KB files)."""
-    base = str(settings.system_prompt or "").strip()
-    return build_runtime_system_prompt(
-        settings_prompt=base,
-        lead_context=lead_context,
-        include_kb=False,
-    )
+    """Telnyx/Vapi runtime: saved system prompt + lead-scoped KB cache + visitor context."""
+    return build_lead_runtime_prompt(settings, lead_context=lead_context)
 
 
 def _settings_out(settings: FrontpageCallSetting, agent: AgentDefinition | None = None) -> dict[str, Any]:
@@ -358,11 +354,7 @@ def _lead_runtime_prompt(
             phone_raw=str(phone_raw or payload.phone or ""),
         )
     base_prompt = resolve_frontpage_base_prompt(db, settings=settings, agent=agent)
-    system_prompt = build_runtime_system_prompt(
-        settings_prompt=base_prompt,
-        lead_context=lead_context,
-        include_kb=False,
-    )
+    system_prompt = build_lead_runtime_prompt(settings, settings_prompt=base_prompt, lead_context=lead_context)
     first_name = str(payload.contact_name or "").strip().split()[0] if payload.contact_name else "there"
     return {
         "assistant_id": settings.provider_agent_id,
@@ -656,13 +648,9 @@ async def frontpage_talk_to_us_voice(websocket: WebSocket, call_id: str):
             except Exception:
                 telnyx_runtime = {}
         base_prompt = resolve_frontpage_base_prompt(db, settings=settings, agent=agent)
-        system_prompt = build_runtime_system_prompt(
-            settings_prompt=base_prompt,
-            lead_context=lead_context,
-            include_kb=False,
-        )
-        if not str(base_prompt or "").strip():
-            await websocket.send_json({"type": "error", "message": "Agent prompt is not configured. Save a system prompt or Telnyx assistant ID in admin."})
+        system_prompt = build_lead_runtime_prompt(settings, settings_prompt=base_prompt, lead_context=lead_context)
+        if not str(system_prompt or "").strip():
+            await websocket.send_json({"type": "error", "message": "Agent prompt is not configured. Save a system prompt and/or select lead KB files in admin."})
             await websocket.close(code=1008)
             return
         org_id = settings.org_id or db.execute(select(Organisation.id).order_by(Organisation.created_at.asc()).limit(1)).scalar_one_or_none()
@@ -915,7 +903,7 @@ def update_frontpage_talk_to_us_settings(payload: FrontpageSettingsIn, db: Sessi
 
             sync_prompt = ensure_telnyx_variables_block(_frontpage_sync_prompt(settings))
             if not sync_prompt.strip():
-                raise ValueError("System prompt is empty after merging knowledge base.")
+                raise ValueError("System prompt is empty after merging lead knowledge base.")
             telnyx_sync = sync_telnyx_assistant_instructions(db, effective_agent_id, sync_prompt)
         except Exception as exc:
             telnyx_sync_warning = str(exc)

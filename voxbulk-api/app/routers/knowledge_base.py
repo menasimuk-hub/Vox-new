@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from app.core.database import get_db
 from app.models.user import User
@@ -30,8 +30,18 @@ def list_knowledge_base(
 
 
 @router.get("/{file_id}")
-def get_knowledge_base_file(file_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+def get_knowledge_base_file(
+    file_id: str,
+    scope: str | None = Query(default=None, description="Required scope guard: lead, sales, or org"),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_platform_admin),
+):
     row = get_kb_file(db, file_id)
+    if scope is not None and str(row.get("scope") or "") != normalize_kb_scope(scope):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Knowledge base file not found in this agent library",
+        )
     return {"file": row}
 
 

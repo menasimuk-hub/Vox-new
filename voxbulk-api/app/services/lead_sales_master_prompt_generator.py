@@ -19,7 +19,8 @@ Output rules:
 - British English. Consultative, never deceptive.
 - The agent must confirm the callback time, reference the website enquiry, handle objections, and secure a next step.
 - Do not invent pricing or terms not in the knowledge base.
-- If the knowledge base defines the outbound agent's name (e.g. Adam) and the intake agent (e.g. Jode), use those exact names only — never Sarah/Alex unless that is the name in the KB."""
+- If the knowledge base defines the outbound agent's name (e.g. Adam) and the intake agent (e.g. Jode), use those exact names only — never Sarah/Alex unless that is the name in the KB.
+- Use only the sales-scoped knowledge base — Adam's library is separate from Jode's lead library."""
 
 _INSTRUCTION = (
     "Write the master outbound sales agent system prompt using the operator description and knowledge base. "

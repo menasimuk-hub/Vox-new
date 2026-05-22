@@ -28,7 +28,9 @@ Output rules (critical):
 - Confirm their company and what they need help with.
 - Do not invent pricing or features not supported by the knowledge base.
 - Keep every turn short (one or two sentences). Do not repeat the same question.
-- If the knowledge base defines the agent's name (e.g. "Your name is Jode"), use ONLY that name. Never substitute Sarah, Alex, or other names from other documents."""
+- If the knowledge base defines the agent's name (e.g. "Your name is Jode"), use ONLY that name. Never substitute Sarah, Alex, or other names from other documents.
+- Jode qualifies leads on the website only. She schedules a callback with sales (Adam) — she does not live-transfer the call.
+- Use only facts from the lead-scoped knowledge base below — ignore sales-agent content."""
 
 _INSTRUCTION = (
     "Write the system prompt for a website Talk to us voice agent that qualifies inbound leads "

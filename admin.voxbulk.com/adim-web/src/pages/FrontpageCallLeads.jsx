@@ -37,14 +37,16 @@ export default function FrontpageCallLeads() {
   const loadSettings = async () => {
     const data = await apiFetch('/admin/frontpage/talk-to-us')
     const s = data?.settings || {}
+    const files = data?.kb_files || []
+    const allowedIds = new Set(files.map((f) => f.id))
     setSettings(s)
     setVoiceProvider(s.voice_provider || 'vapi')
     setProviderAgentId(s.provider_agent_id || '')
     setDescription(s.prompt_description || DEFAULT_DESCRIPTION)
     setSystemPrompt(s.system_prompt || '')
-    setSelectedKbIds(s.kb_file_ids || [])
+    setSelectedKbIds((s.kb_file_ids || []).filter((id) => allowedIds.has(id)))
     setLlmProvider(s.llm_provider || 'groq')
-    setKbFiles(data?.kb_files || [])
+    setKbFiles(files)
     if (s.system_prompt) setShowPromptPreview(true)
   }
 
@@ -75,7 +77,7 @@ export default function FrontpageCallLeads() {
     setLoadingKbId(file.id)
     setMsg('')
     try {
-      const data = await apiFetch(`/admin/knowledge-base/${file.id}`)
+      const data = await apiFetch(`/admin/knowledge-base/${file.id}?scope=lead`)
       const content = String(data?.file?.content || '').trim()
       setKbPreview({
         id: file.id,
@@ -112,9 +114,9 @@ export default function FrontpageCallLeads() {
       if (result?.telnyx_sync_warning) {
         setMsg(`Saved. Talk to us uses your prompt + KB. Telnyx sync warning: ${result.telnyx_sync_warning}`)
       } else if (result?.telnyx_synced) {
-        setMsg('Saved. Prompt (with knowledge base) synced to Telnyx. Test Talk to us on the website.')
+        setMsg('Saved. Jode prompt + lead KB synced to Telnyx. Test Talk to us on the website.')
       } else {
-        setMsg('Lead capture settings saved. You can test Talk to us on the public website.')
+        setMsg('Saved. Jode uses lead KB only (Adam has a separate library under Sales setup). Test Talk to us on the site.')
       }
     } catch (e) {
       setMsg(e?.message || 'Could not save settings')
@@ -174,6 +176,10 @@ export default function FrontpageCallLeads() {
           rewrite: true,
         }),
       })
+      if (result?.skipped) {
+        setMsg('Generate skipped — a prompt already exists. Edit it below or clear it, then generate again.')
+        return
+      }
       const prompt = String(result?.system_prompt || '').trim()
       if (!prompt) {
         setMsg('No prompt returned. Check Integrations → DeepSeek API key, then try again.')
@@ -314,15 +320,15 @@ export default function FrontpageCallLeads() {
             </div>
             <p className='muted frontpageVoiceHint'>
               {voiceProvider === 'telnyx'
-                ? 'Live calls use only the saved system prompt below (plus visitor form details). Save settings to sync that text to Telnyx — not a separate copy of every KB file. Telnyx API key under Integrations.'
-                : 'Integrations → Vapi: public key required. The saved system prompt below overrides the Vapi assistant on each call.'}
+                ? 'Live calls use the saved system prompt plus ticked lead KB files (Adam’s sales KB is separate). Save settings to sync to Telnyx.'
+                : 'Integrations → Vapi: public key required. Each call uses the saved prompt plus lead KB files.'}
             </p>
           </div>
         </section>
 
         <section className='card'>
           <div className='cardHead'>
-            <h3>Knowledge base · website lead agent</h3>
+            <h3>Jode knowledge base (lead only)</h3>
             <span className='pill p-cyan'>{selectedKb.length} selected · {kbContextChars.toLocaleString()} chars cached</span>
           </div>
           <div className='cardBody'>
