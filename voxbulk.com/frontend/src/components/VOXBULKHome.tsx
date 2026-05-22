@@ -4,8 +4,7 @@ import logoNormal from "@/assets/logonormal.svg";
 import { Link } from "@tanstack/react-router";
 import { useAuthModal } from "@/components/AuthModal";
 import { AmbientBackdrop } from "@/components/BackgroundDecor";
-import Vapi from "@vapi-ai/web";
-import { TelnyxAIAgent } from "@telnyx/ai-agent-lib";
+import { DeferredMount } from "@/components/DeferredMount";
 import {
   completeFrontpageTalkToUsCall,
   startFrontpageTalkToUsCall,
@@ -92,7 +91,15 @@ function Navbar() {
       >
         <div className="max-w-[1320px] mx-auto h-[60px] md:h-[64px] flex items-center justify-between pl-5 pr-2 md:pl-6 md:pr-2.5 relative">
           <a href="#hero" className="flex items-center group">
-            <img src={logoLight} alt="VOXBULK" className="h-7 md:h-[28px] w-auto object-contain" />
+            <img
+              src={logoLight}
+              alt="VOXBULK"
+              width={140}
+              height={28}
+              decoding="async"
+              fetchPriority="high"
+              className="h-7 md:h-[28px] w-auto object-contain"
+            />
           </a>
 
           <nav className="hidden lg:flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
@@ -2290,13 +2297,21 @@ function TalkToUs() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
-  const telnyxAgentRef = useRef<TelnyxAIAgent | null>(null);
+  const telnyxAgentRef = useRef<{
+    endConversation(): Promise<void>;
+    disconnect(): Promise<void>;
+  } | null>(null);
   const telnyxAudioRef = useRef<HTMLAudioElement | null>(null);
   const telnyxConnectTimeoutRef = useRef<number | null>(null);
   const telnyxStartingRef = useRef(false);
   const telnyxMixAudioContextRef = useRef<AudioContext | null>(null);
   const telnyxRecorderStartedRef = useRef(false);
-  const vapiRef = useRef<Vapi | null>(null);
+  const vapiRef = useRef<{
+    stop(): void;
+    start(assistantId: string, overrides?: unknown): Promise<void>;
+    on(event: string, handler: (...args: unknown[]) => void): void;
+    send?(payload: unknown): void;
+  } | null>(null);
   const transcriptPartsRef = useRef<string[]>([]);
   const agentPartsRef = useRef<string[]>([]);
   const conversationLinesRef = useRef<string[]>([]);
@@ -2547,6 +2562,7 @@ function TalkToUs() {
 
     await unlockAudioPlayback();
 
+    const { default: Vapi } = await import("@vapi-ai/web");
     const vapi = new Vapi(publicKey);
 
     vapi.on("call-start", () => {
@@ -2741,6 +2757,7 @@ function TalkToUs() {
     try {
       await unlockAudioPlayback();
 
+      const { TelnyxAIAgent } = await import("@telnyx/ai-agent-lib");
       const agent = new TelnyxAIAgent({
         agentId: cleanAssistantId,
         environment: "production",
@@ -3267,18 +3284,27 @@ export default function VOXBULKHome() {
       <Navbar />
       <main>
         <Hero />
-        <TalkToUs />
+        <DeferredMount minHeight={420}>
+          <TalkToUs />
+        </DeferredMount>
         <TrustBar />
         <Problem />
         <HowItWorks />
         <Features />
         <Transparency />
-        <Pricing />
-        <ROICalc />
-        <DemoWizard />
+        <DeferredMount minHeight={520}>
+          <Pricing />
+        </DeferredMount>
+        <DeferredMount minHeight={480}>
+          <ROICalc />
+        </DeferredMount>
+        <DeferredMount minHeight={560}>
+          <DemoWizard />
+        </DeferredMount>
         <Industries />
         <Testimonial />
         <BottomCTA />
+        <DemoCTA />
       </main>
       <Footer />
     </div>

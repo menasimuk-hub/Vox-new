@@ -11,5 +11,16 @@ export default defineConfig({
     preview: {
       allowedHosts: ["voxbulk.com", "www.voxbulk.com", "452f9ed0.voxbulk.com"],
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes("@vapi-ai/web")) return "vapi";
+            if (id.includes("@telnyx/ai-agent-lib")) return "telnyx";
+            if (id.includes("node_modules/lucide-react")) return "icons";
+          },
+        },
+      },
+    },
   },
 });

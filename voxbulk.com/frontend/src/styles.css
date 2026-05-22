@@ -1,6 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Instrument+Serif&display=swap');
 @import "tailwindcss" source(none);
-@source "../src";
+@source "../src/routes";
+@source "../src/router.tsx";
+@source "../src/components/VOXBULKHome.tsx";
+@source "../src/components/BackgroundDecor.tsx";
+@source "../src/components/AuthModal.tsx";
+@source "../src/components/AuthModalPanel.tsx";
+@source "../src/components/SiteShell.tsx";
+@source "../src/components/LegalPoliciesPage.tsx";
+@source "../src/components/LegalPageView.tsx";
+@source "../src/components/LottiePlayers.tsx";
+@source "../src/components/DeferredMount.tsx";
+@source "../src/components/ui/sonner.tsx";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
@@ -290,6 +300,18 @@ input[type="range"].premium-slider::-moz-range-thumb {
 
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 .spin-slow { animation: spin-slow 24s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .float-a,
+  .float-b,
+  .float-c,
+  .spin-slow,
+  .animate-float-up,
+  .animate-marquee,
+  .text-shine {
+    animation: none !important;
+  }
+}
 
 /* Number stamp */
 .num-stamp {
