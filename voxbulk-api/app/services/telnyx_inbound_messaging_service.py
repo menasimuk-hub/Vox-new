@@ -32,12 +32,20 @@ def _format_delivery_errors(record: dict[str, Any]) -> str | None:
             continue
         code = str(item.get("code") or "").strip()
         detail = str(item.get("detail") or item.get("title") or "").strip()
+        meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+        meta_bits = []
+        for key in ("error_user_msg", "error_user_title", "reason", "message"):
+            val = str(meta.get(key) or "").strip()
+            if val:
+                meta_bits.append(val)
         if code and detail:
             parts.append(f"{code}: {detail}")
         elif detail:
             parts.append(detail)
         elif code:
             parts.append(code)
+        if meta_bits:
+            parts.append(" — ".join(meta_bits))
     return " · ".join(parts) if parts else None
 
 

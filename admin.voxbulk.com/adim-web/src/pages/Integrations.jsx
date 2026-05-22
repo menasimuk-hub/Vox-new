@@ -505,6 +505,7 @@ export default function Integrations() {
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
   const [telnyxSmsTestResult, setTelnyxSmsTestResult] = useState('')
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
+  const [telnyxMessageDetailBusy, setTelnyxMessageDetailBusy] = useState('')
   const [telnyxTestNumber, setTelnyxTestNumber] = useState('')
   const [telnyxWaTemplateName, setTelnyxWaTemplateName] = useState('')
   const [telnyxWaTemplateId, setTelnyxWaTemplateId] = useState('')
@@ -1107,6 +1108,44 @@ export default function Integrations() {
     }
   }
 
+  const fetchTelnyxMessageDetail = async (messageId) => {
+    const mid = String(messageId || '').trim()
+    if (!mid) return
+    setProviderError('')
+    setTelnyxMessageDetailBusy(mid)
+    try {
+      const detail = await apiFetch(`/admin/integrations/telnyx/messages/${encodeURIComponent(mid)}`)
+      const errLines = Array.isArray(detail.errors)
+        ? detail.errors
+            .map((e) => {
+              const code = String(e?.code || '').trim()
+              const text = String(e?.detail || e?.title || '').trim()
+              const meta = e?.meta && typeof e.meta === 'object' ? e.meta : {}
+              const metaBits = ['whatsapp_error_code', 'whatsapp_error_title', 'error_user_msg', 'error_user_title', 'reason', 'message']
+                .map((k) => String(meta[k] || '').trim())
+                .filter(Boolean)
+              const base = code && text ? `${code}: ${text}` : text || code
+              return metaBits.length ? `${base}\n  Meta: ${metaBits.join(' · ')}` : base
+            })
+            .filter(Boolean)
+        : []
+      const summary = [
+        `Telnyx message ${detail.id || mid}`,
+        `Status: ${detail.status || 'unknown'}`,
+        detail.error_summary ? `Error: ${detail.error_summary}` : null,
+        errLines.length ? `Errors:\n${errLines.join('\n')}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n')
+      window.alert(summary || 'No extra details from Telnyx.')
+      await loadTelnyxInboundMessages(true)
+    } catch (e) {
+      setProviderError(e?.message || 'Telnyx message lookup failed')
+    } finally {
+      setTelnyxMessageDetailBusy('')
+    }
+  }
+
   useEffect(() => {
     if (activeProvider !== 'telnyx') return
     if (!summaries.telnyx?.exists) return
@@ -1203,6 +1242,8 @@ export default function Integrations() {
           telnyxTestResult={telnyxTestResult}
           telnyxSmsTestResult={telnyxSmsTestResult}
           telnyxInboundMessages={telnyxInboundMessages}
+          telnyxMessageDetailBusy={telnyxMessageDetailBusy}
+          fetchTelnyxMessageDetail={fetchTelnyxMessageDetail}
           telnyxActiveCallId={telnyxActiveCallId}
           telnyxCallBusy={telnyxCallBusy}
           telnyxAccountNumbers={telnyxAccountNumbers}

@@ -89,6 +89,8 @@ export default function TelnyxIntegration({
   telnyxTestResult,
   telnyxSmsTestResult,
   telnyxInboundMessages,
+  telnyxMessageDetailBusy,
+  fetchTelnyxMessageDetail,
   telnyxActiveCallId,
   telnyxCallBusy,
   telnyxAccountNumbers,
@@ -463,6 +465,7 @@ export default function TelnyxIntegration({
                     <th>To</th>
                     <th>Message</th>
                     <th>Status</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -476,9 +479,28 @@ export default function TelnyxIntegration({
                       </td>
                       <td>{m.from_number || '—'}</td>
                       <td>{m.to_number || '—'}</td>
-                      <td className='telnyxMessageBody'>{String(m.body || '').trim() || '—'}</td>
+                      <td className='telnyxMessageBody'>
+                        {String(m.body || '').trim() || '—'}
+                        {m.delivery_error ? (
+                          <div className='muted telnyxDeliveryError'>Delivery error: {m.delivery_error}</div>
+                        ) : null}
+                      </td>
                       <td>
                         <span className={`pill ${messageStatusClass(m.status)}`}>{m.status || 'received'}</span>
+                      </td>
+                      <td>
+                        {m.external_message_id ? (
+                          <button
+                            type='button'
+                            className='btn soft'
+                            disabled={providerSaving || telnyxMessageDetailBusy === m.external_message_id}
+                            onClick={() => fetchTelnyxMessageDetail(m.external_message_id)}
+                          >
+                            {telnyxMessageDetailBusy === m.external_message_id ? 'Loading…' : 'Telnyx detail'}
+                          </button>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                     </tr>
                   ))}

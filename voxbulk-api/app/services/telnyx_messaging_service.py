@@ -112,6 +112,110 @@ class TelnyxMessagingService:
         )
 
     @staticmethod
+    def _get_json(db: Session, url: str) -> tuple[dict[str, Any] | None, str | None]:
+        config = TelnyxMessagingService._config(db)
+        api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
+        if not api_key:
+            api_key, _ = require_telnyx_api_key(db)
+        try:
+            with httpx.Client(timeout=20.0, verify=httpx_ssl_verify()) as client:
+                response = client.get(url, headers=_telnyx_headers(api_key))
+                response.raise_for_status()
+                body = response.json()
+                return (body if isinstance(body, dict) else {"data": body}), None
+        except httpx.HTTPStatusError as e:
+            return None, _telnyx_http_error_detail(e)
+        except Exception as e:
+            return None, str(e)
+
+    @staticmethod
+    def format_message_errors(errors: Any) -> list[dict[str, Any]]:
+        if not isinstance(errors, list):
+            return []
+        out: list[dict[str, Any]] = []
+        for item in errors:
+            if not isinstance(item, dict):
+                continue
+            meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+            out.append(
+                {
+                    "code": str(item.get("code") or "").strip(),
+                    "title": str(item.get("title") or "").strip(),
+                    "detail": str(item.get("detail") or "").strip(),
+                    "meta": meta,
+                }
+            )
+        return out
+
+    @staticmethod
+    def _error_line(error: dict[str, Any]) -> str:
+        code = str(error.get("code") or "").strip()
+        detail = str(error.get("detail") or error.get("title") or "").strip()
+        meta = error.get("meta") if isinstance(error.get("meta"), dict) else {}
+        meta_bits = []
+        for key in ("whatsapp_error_code", "whatsapp_error_title", "error_user_msg", "error_user_title", "reason", "message"):
+            val = str(meta.get(key) or "").strip()
+            if val:
+                meta_bits.append(val)
+        base = f"{code}: {detail}".strip(": ") if code or detail else ""
+        if meta_bits:
+            return f"{base} — {' · '.join(meta_bits)}".strip(" —")
+        return base
+
+    @staticmethod
+    def message_detail_from_data(data: dict[str, Any]) -> dict[str, Any]:
+        to_entries = data.get("to")
+        to_status = ""
+        to_errors: list[dict[str, Any]] = []
+        if isinstance(to_entries, list) and to_entries and isinstance(to_entries[0], dict):
+            first_to = to_entries[0]
+            to_status = str(first_to.get("status") or "").strip()
+            to_errors = TelnyxMessagingService.format_message_errors(first_to.get("errors"))
+        from_obj = data.get("from")
+        from_number = ""
+        if isinstance(from_obj, dict):
+            from_number = str(from_obj.get("phone_number") or from_obj.get("number") or "").strip()
+        errors = TelnyxMessagingService.format_message_errors(data.get("errors"))
+        if to_errors:
+            seen = {(e.get("code"), e.get("detail")) for e in errors}
+            for item in to_errors:
+                key = (item.get("code"), item.get("detail"))
+                if key not in seen:
+                    errors.append(item)
+                    seen.add(key)
+        error_summary = " · ".join(filter(None, [TelnyxMessagingService._error_line(e) for e in errors]))
+        return {
+            "id": str(data.get("id") or "").strip(),
+            "status": to_status or str(data.get("status") or "").strip(),
+            "direction": str(data.get("direction") or "").strip(),
+            "type": str(data.get("type") or "").strip(),
+            "from_number": from_number,
+            "to": to_entries if isinstance(to_entries, list) else [],
+            "errors": errors,
+            "error_summary": error_summary or None,
+            "created_at": data.get("created_at"),
+            "updated_at": data.get("updated_at"),
+            "whatsapp_message": data.get("whatsapp_message"),
+            "raw": data,
+        }
+
+    @staticmethod
+    def retrieve_message(db: Session, message_id: str) -> dict[str, Any]:
+        mid = str(message_id or "").strip()
+        if not mid:
+            return {"ok": False, "error": "message_id is required"}
+        url = f"{TELNYX_MESSAGES_URL}/{mid}"
+        body, err = TelnyxMessagingService._get_json(db, url)
+        if err:
+            return {"ok": False, "error": err, "message_id": mid}
+        data = body.get("data") if isinstance(body, dict) else {}
+        if not isinstance(data, dict):
+            return {"ok": False, "error": "Unexpected Telnyx response", "message_id": mid}
+        detail = TelnyxMessagingService.message_detail_from_data(data)
+        detail["ok"] = True
+        return detail
+
+    @staticmethod
     def _post_message(db: Session, payload: dict[str, Any]) -> TelnyxMessageResult:
         return TelnyxMessagingService._request_message(
             db,

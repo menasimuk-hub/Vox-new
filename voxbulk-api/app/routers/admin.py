@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import HTMLResponse, Response
 from datetime import datetime, timedelta
+import json
 import secrets
 import uuid
 import httpx
@@ -858,6 +859,40 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
 def list_telnyx_inbound_messages(limit: int = 50, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     rows = LogService.list_platform_message_logs(db, limit=limit)
     return {"ok": True, "messages": rows[: max(1, min(limit, 200))]}
+
+
+@router.get("/integrations/telnyx/messages/{message_id}")
+def get_telnyx_message_detail(message_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    """Fetch live delivery status + Meta/Telnyx errors from GET /v2/messages/{id}."""
+    detail = TelnyxMessagingService.retrieve_message(db, message_id)
+    if not detail.get("ok"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail.get("error") or "Telnyx message lookup failed")
+
+    try:
+        from sqlalchemy import select
+        from app.models.whatsapp_log import WhatsAppLog
+
+        row = db.execute(
+            select(WhatsAppLog).where(WhatsAppLog.external_message_id == message_id).limit(1)
+        ).scalar_one_or_none()
+        if row is not None:
+            status = str(detail.get("status") or row.status or "").strip()
+            if status:
+                row.status = status
+            err_summary = str(detail.get("error_summary") or "").strip()
+            if err_summary and "Delivery error:" not in str(row.body or ""):
+                row.body = f"{row.body or ''}\nDelivery error: {err_summary}".strip()
+            elif err_summary:
+                row.body = str(row.body or "")
+                if err_summary not in row.body:
+                    row.body = f"{row.body}\nDelivery error: {err_summary}".strip()
+            row.raw_payload = json.dumps(detail.get("raw") or detail, ensure_ascii=False)[:8000]
+            db.add(row)
+            db.commit()
+    except Exception:
+        pass
+
+    return detail
 
 
 @router.get("/social-login/providers")

@@ -160,21 +160,28 @@ class LogService:
     @staticmethod
     def list_platform_message_logs(db: Session, *, limit: int = 100) -> list[dict]:
         rows = db.execute(select(WhatsAppLog).order_by(WhatsAppLog.id.desc()).limit(max(1, min(limit, 500)))).scalars().all()
-        return [
-            {
-                "id": row.id,
-                "org_id": row.org_id,
-                "provider": row.provider,
-                "external_message_id": row.external_message_id,
-                "status": row.status,
-                "direction": row.direction,
-                "to_number": row.to_number,
-                "from_number": row.from_number,
-                "body": row.body,
-                "created_at": row.created_at,
-            }
-            for row in rows
-        ]
+        out: list[dict] = []
+        for row in rows:
+            body = str(row.body or "")
+            delivery_error = None
+            if "Delivery error:" in body:
+                delivery_error = body.split("Delivery error:", 1)[1].strip().split("\n")[0].strip()
+            out.append(
+                {
+                    "id": row.id,
+                    "org_id": row.org_id,
+                    "provider": row.provider,
+                    "external_message_id": row.external_message_id,
+                    "status": row.status,
+                    "direction": row.direction,
+                    "to_number": row.to_number,
+                    "from_number": row.from_number,
+                    "body": row.body,
+                    "delivery_error": delivery_error,
+                    "created_at": row.created_at,
+                }
+            )
+        return out
 
     @staticmethod
     def create_whatsapp_log(db: Session, org_id: str, **kwargs) -> WhatsAppLog:
