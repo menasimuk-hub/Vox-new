@@ -527,7 +527,9 @@ class TelnyxExecutionService:
 
             handle_lead_sales_telnyx_event(db, payload)
         except Exception:
-            pass
+            import logging
+
+            logging.getLogger(__name__).exception("lead_sales_telnyx_event_failed")
 
         data = payload.get("data") or payload
         event_type = str(data.get("event_type") or payload.get("event_type") or "").lower()

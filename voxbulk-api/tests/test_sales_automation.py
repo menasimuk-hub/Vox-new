@@ -100,7 +100,20 @@ def test_should_auto_offer_when_demo_agreed():
         updated_at=datetime.utcnow(),
     )
     outcome = SalesAutomationService._parse_outcome(task)
-    assert SalesAutomationService._should_auto_offer(task, outcome) is True
+    assert SalesAutomationService._should_auto_offer(task, outcome, call_status="completed") is True
+
+
+def test_should_auto_offer_after_real_conversation():
+    task = LeadSalesTask(
+        lead_id="x",
+        status="completed",
+        sales_transcript_text="Agent: Hi Alex. Prospect: Yes we want to try the dental plan for our clinic.",
+        outcome_json='{"deal_stage":"no_answer"}',
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    outcome = SalesAutomationService._parse_outcome(task)
+    assert SalesAutomationService._should_auto_offer(task, outcome, call_status="completed") is True
 
 
 def test_process_due_followups_skips_redeemed(app_client, monkeypatch):

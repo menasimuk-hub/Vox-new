@@ -896,8 +896,8 @@ def handle_lead_sales_telnyx_event(db: Session, payload: dict[str, Any]) -> None
     if "answered" in event_type:
         if assistant_id:
             config = _telnyx_config(db)
-            greeting = str(parsed.get("sales_greeting") or "").strip() or sales_call_opening_greeting(task, settings=settings)
             settings = get_lead_sales_settings(db)
+            greeting = str(parsed.get("sales_greeting") or "").strip() or sales_call_opening_greeting(task, settings=settings)
             prompt = build_sales_runtime_instructions(db, task, settings)
             if not prompt:
                 prompt = str(task.sales_prompt or "").strip()

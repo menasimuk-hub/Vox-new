@@ -172,3 +172,54 @@ def resolve_template_for_task(
     want_type = offer_type_by_cat.get(cat, "dental_trial")
     active = [row for row in list_templates(db, active_only=True) if _normalize_offer_type(row.offer_type) == want_type]
     return active[0] if active else None
+
+
+def ensure_default_offer_templates(db: Session) -> bool:
+    """Seed subscription/survey/interview templates when missing (e.g. migration 0062 not applied)."""
+    if list_templates(db):
+        return False
+
+    settings = get_lead_sales_settings(db)
+    now = datetime.utcnow()
+    created = False
+    mapping: dict[str, str] = {}
+    rows = [
+        ("subscription", "Subscription sale 1", "dental_trial", "dental_1", 15, 0, 0, 10),
+        ("survey", "Survey sale 1", "survey_credits", None, 0, 3, 0, 20),
+        ("interview", "Interview sale 1", "interview_credits", None, 0, 0, 3, 30),
+    ]
+    for key, name, offer_type, plan, trial, survey, interview, order in rows:
+        tid = str(uuid.uuid4())
+        db.add(
+            SalesOfferTemplate(
+                id=tid,
+                name=name,
+                offer_type=offer_type,
+                plan_code=plan,
+                trial_days=trial,
+                survey_contacts_included=survey,
+                interview_contacts_included=interview,
+                free_call_credits=0,
+                expires_in_days=30,
+                is_active=True,
+                sort_order=order,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        mapping[key] = tid
+        created = True
+
+    if not created:
+        return False
+
+    if not getattr(settings, "sales_template_subscription_id", None):
+        settings.sales_template_subscription_id = mapping["subscription"]
+    if not getattr(settings, "sales_template_survey_id", None):
+        settings.sales_template_survey_id = mapping["survey"]
+    if not getattr(settings, "sales_template_interview_id", None):
+        settings.sales_template_interview_id = mapping["interview"]
+    settings.updated_at = now
+    db.add(settings)
+    db.commit()
+    return True

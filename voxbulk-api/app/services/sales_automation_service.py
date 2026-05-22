@@ -239,11 +239,20 @@ class SalesAutomationService:
             return {}
 
     @staticmethod
-    def _should_auto_offer(task: LeadSalesTask, outcome: dict[str, Any]) -> bool:
+    def _should_auto_offer(task: LeadSalesTask, outcome: dict[str, Any], *, call_status: str = "completed") -> bool:
+        if call_status != "completed":
+            return False
         stage = str(outcome.get("deal_stage") or "").strip().lower()
+        if stage == "not_interested":
+            return False
         if outcome.get("interested_to_buy") or outcome.get("demo_agreed"):
             return True
-        return stage in {"won_intent", "demo_booked", "qualified"}
+        if stage in {"won_intent", "demo_booked", "qualified", "follow_up"}:
+            return True
+        transcript = str(task.sales_transcript_text or "").strip()
+        if len(transcript) >= 60 and stage != "not_interested":
+            return True
+        return False
 
     @staticmethod
     def _set_task_error(db: Session, task: LeadSalesTask, message: str | None) -> None:
@@ -425,14 +434,50 @@ class SalesAutomationService:
 
         template = resolve_template_for_task(db, task, template_id=template_id)
         if template is None:
-            category = SalesAutomationService._parse_outcome(task).get("recommended_offer") or "subscription"
-            return {
-                "ok": False,
-                "error": (
-                    f"No active offer template for {category}. "
-                    "Add one under Lead sales → Offer templates and map it in Sales setup."
-                ),
-            }
+            settings = get_lead_sales_settings(db)
+            try:
+                result = SalesOfferSendService.send_for_task(
+                    db,
+                    task=task,
+                    offer_type=str(settings.sales_auto_offer_type or "dental_trial"),
+                    plan_code=str(settings.sales_auto_plan_code or "dental_1"),
+                    trial_days=int(settings.sales_auto_trial_days or 15),
+                    send_email=bool(task.email),
+                    send_whatsapp=bool(task.phone),
+                )
+            except SalesOfferSendError as exc:
+                category = SalesAutomationService._parse_outcome(task).get("recommended_offer") or "subscription"
+                SalesAutomationService._set_task_error(db, task, str(exc))
+                return {
+                    "ok": False,
+                    "error": (
+                        f"{exc} Also check Lead sales → Offer templates for {category} "
+                        "and Admin → Email settings (SMTP)."
+                    ),
+                }
+            result["template_id"] = None
+            result["template_name"] = "Settings default offer"
+            result["offer_type"] = str(settings.sales_auto_offer_type or "dental_trial")
+            result["recommended_offer"] = SalesAutomationService._parse_outcome(task).get("recommended_offer")
+            promo = None
+            if task.offer_promo_code:
+                promo = db.execute(select(PromoOffer).where(PromoOffer.code == task.offer_promo_code)).scalar_one_or_none()
+            SalesAutomationService.mark_offer_sent(db, task=task, promo=promo)
+            meta = {"last_offer_source": source}
+            row = SalesAutomationService.get_state(db, task.id)
+            if row is not None:
+                row.meta_json = json.dumps(meta)
+                row.last_error = None
+                db.add(row)
+                db.commit()
+            task.last_error = None
+            if result.get("partial_errors"):
+                task.last_error = "; ".join(result["partial_errors"])[:2000]
+                db.add(task)
+                db.commit()
+            result["automation"] = True
+            result["ok"] = True
+            return result
 
         try:
             result = SalesOfferSendService.send_for_task_with_template(
@@ -475,18 +520,42 @@ class SalesAutomationService:
     def handle_post_call(db: Session, task: LeadSalesTask, *, call_status: str = "completed") -> dict[str, Any]:
         settings = get_lead_sales_settings(db)
         if not settings.sales_automation_enabled or task.automation_paused:
-            return {"ok": False, "skipped": True}
+            reason = "automation_disabled" if not settings.sales_automation_enabled else "automation_paused"
+            logger.info(
+                "post_call_automation_skipped",
+                extra={"task_id": task.id, "reason": reason},
+            )
+            return {"ok": False, "skipped": True, "reason": reason}
 
         outcome = SalesAutomationService._parse_outcome(task)
         if task.offer_sent_at:
             return {"ok": False, "skipped": True, "reason": "offer_already_sent"}
 
-        if SalesAutomationService._should_auto_offer(task, outcome):
+        if not task.email and not task.phone:
+            logger.info(
+                "post_call_automation_skipped",
+                extra={"task_id": task.id, "reason": "no_contact_details"},
+            )
+            return {"ok": False, "skipped": True, "reason": "no_contact_details"}
+
+        if SalesAutomationService._should_auto_offer(task, outcome, call_status=call_status):
+            logger.info(
+                "post_call_automation_send_offer",
+                extra={"task_id": task.id, "deal_stage": outcome.get("deal_stage")},
+            )
             return SalesAutomationService.send_offer_for_task(db, task, source="post_call_auto_offer")
 
         if SalesAutomationService._should_send_opt_in(task, outcome, call_status=call_status):
+            logger.info(
+                "post_call_automation_send_opt_in",
+                extra={"task_id": task.id, "deal_stage": outcome.get("deal_stage"), "call_status": call_status},
+            )
             return SalesAutomationService.send_opt_in(db, task)
 
+        logger.info(
+            "post_call_automation_no_action",
+            extra={"task_id": task.id, "deal_stage": outcome.get("deal_stage"), "call_status": call_status},
+        )
         return {"ok": False, "skipped": True, "reason": "no_action_for_outcome"}
 
     @staticmethod

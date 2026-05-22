@@ -184,15 +184,33 @@ def sync_sales_task_outcome(db: Session, task: LeadSalesTask) -> LeadSalesTask:
 
 def schedule_post_call_automation_retry(task_id: str, *, delay_seconds: int = 180) -> None:
     """Retry sync + auto-offer when Telnyx transcript was not ready at hangup."""
-    try:
-        from app.workers.sales_tasks import retry_post_call_automation_task
+    from app.workers.sales_tasks import retry_post_call_automation_task
 
-        retry_post_call_automation_task.apply_async(args=[task_id], countdown=max(30, int(delay_seconds)))
+    countdown = max(30, int(delay_seconds))
+
+    def _run_retry() -> None:
+        try:
+            retry_post_call_automation_task(task_id)
+        except Exception:
+            logger.exception("post_call_automation_retry_failed", extra={"task_id": task_id})
+
+    try:
+        retry_post_call_automation_task.apply_async(args=[task_id], countdown=countdown)
+        return
     except Exception as exc:
         logger.warning(
-            "schedule_post_call_automation_retry_failed",
+            "schedule_post_call_automation_retry_celery_failed",
             extra={"task_id": task_id, "error": str(exc)},
         )
+
+    import threading
+    import time
+
+    def _delayed() -> None:
+        time.sleep(countdown)
+        _run_retry()
+
+    threading.Thread(target=_delayed, daemon=True, name=f"sales-retry-{task_id[:8]}").start()
 
 
 def finalize_sales_task_after_call(db: Session, task: LeadSalesTask, *, status: str = "completed") -> None:
@@ -213,6 +231,19 @@ def finalize_sales_task_after_call(db: Session, task: LeadSalesTask, *, status: 
         db.refresh(task)
 
     automation_result: dict[str, Any] = {"skipped": True}
+    transcript = str(task.sales_transcript_text or "").strip()
+    if status == "completed" and not transcript:
+        task.last_error = "Waiting for Telnyx transcript before sending offer (retry scheduled)."
+        task.updated_at = datetime.utcnow()
+        db.add(task)
+        db.commit()
+        schedule_post_call_automation_retry(task.id, delay_seconds=90)
+        logger.info(
+            "sales_post_call_deferred_no_transcript",
+            extra={"task_id": task.id, "status": status},
+        )
+        return
+
     try:
         from app.services.sales_automation_service import SalesAutomationService
 
@@ -227,7 +258,14 @@ def finalize_sales_task_after_call(db: Session, task: LeadSalesTask, *, status: 
     db.refresh(task)
     if status == "completed" and not task.offer_sent_at:
         reason = str(automation_result.get("reason") or "").strip()
-        if automation_result.get("skipped") and reason in {"no_action_for_outcome", "offer_already_sent"}:
+        skip_retry = reason in {
+            "no_action_for_outcome",
+            "offer_already_sent",
+            "automation_disabled",
+            "automation_paused",
+            "no_contact_details",
+        }
+        if automation_result.get("skipped") and skip_retry:
             pass
         elif not automation_result.get("ok"):
             schedule_post_call_automation_retry(task.id)

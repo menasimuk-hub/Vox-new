@@ -136,6 +136,15 @@ async def lifespan(app: FastAPI):
         ensure_schema_hotfixes()
     except Exception:
         logger.exception("schema_hotfixes failed — run: alembic upgrade head")
+    try:
+        from app.core.database import get_sessionmaker
+        from app.services.sales_offer_template_service import ensure_default_offer_templates
+
+        with get_sessionmaker()() as db:
+            if ensure_default_offer_templates(db):
+                logger.info("seeded_default_sales_offer_templates")
+    except Exception:
+        logger.exception("ensure_default_offer_templates failed")
     stop_event = asyncio.Event()
     scheduler_task = asyncio.create_task(lead_sales_scheduler_loop(stop_event))
     yield
