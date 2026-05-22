@@ -11,6 +11,7 @@ from app.services.knowledge_base_service import (
     get_kb_file,
     list_kb_files,
     normalize_kb_scope,
+    resync_telnyx_after_kb_delete,
     upload_kb_file,
 )
 from sqlalchemy.orm import Session
@@ -58,5 +59,6 @@ async def upload_knowledge_base(
 
 @router.delete("/{file_id}")
 def remove_knowledge_base(file_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
-    delete_kb_file(db, file_id=file_id)
-    return {"ok": True, "deleted_file_id": file_id}
+    result = delete_kb_file(db, file_id=file_id)
+    telnyx = resync_telnyx_after_kb_delete(db, scope=str(result.get("scope") or ""))
+    return {"ok": True, **result, **telnyx}

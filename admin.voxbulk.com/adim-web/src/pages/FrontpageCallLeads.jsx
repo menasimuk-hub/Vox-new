@@ -260,11 +260,17 @@ export default function FrontpageCallLeads() {
     setDeletingKbId(file.id)
     setMsg('')
     try {
-      await apiFetch(`/admin/knowledge-base/${file.id}`, { method: 'DELETE' })
+      const result = await apiFetch(`/admin/knowledge-base/${file.id}`, { method: 'DELETE' })
       setSelectedKbIds((prev) => prev.filter((id) => id !== file.id))
       if (kbPreview?.id === file.id) setKbPreview(null)
       await loadSettings()
-      setMsg(`Deleted ${file.original_filename}.`)
+      if (result?.telnyx_sync_warning) {
+        setMsg(`Deleted ${file.original_filename}. Telnyx resync warning: ${result.telnyx_sync_warning}`)
+      } else if (result?.telnyx_synced) {
+        setMsg(`Deleted ${file.original_filename}. Jode's Telnyx assistant was resynced without that file.`)
+      } else {
+        setMsg(`Deleted ${file.original_filename}. KB cache updated.${voiceProvider === 'telnyx' ? ' Save settings if Telnyx did not resync.' : ''}`)
+      }
     } catch (e) {
       setMsg(e?.message || 'Delete failed')
     } finally {

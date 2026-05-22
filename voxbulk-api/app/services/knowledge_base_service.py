@@ -165,10 +165,12 @@ def _prune_kb_file_from_agent_settings(db: Session, file_id: str) -> None:
             db.add(sales)
 
 
-def delete_kb_file(db: Session, *, file_id: str) -> None:
+def delete_kb_file(db: Session, *, file_id: str) -> dict[str, str]:
     row = db.execute(select(KnowledgeBaseFile).where(KnowledgeBaseFile.id == file_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base file not found")
+
+    deleted_scope = normalize_kb_scope(str(row.scope or KB_SCOPE_ORG))
 
     abs_path = _REPO_ROOT / row.storage_path
     if abs_path.is_file():
@@ -181,6 +183,43 @@ def delete_kb_file(db: Session, *, file_id: str) -> None:
     _prune_kb_file_from_agent_settings(db, file_id)
     db.delete(row)
     db.commit()
+    return {"deleted_file_id": file_id, "scope": deleted_scope}
+
+
+def resync_telnyx_after_kb_delete(db: Session, *, scope: str) -> dict[str, object]:
+    """Push updated prompt + KB cache to Telnyx after a scoped KB file is deleted."""
+    kb_scope = normalize_kb_scope(scope)
+    synced = False
+    warning: str | None = None
+
+    try:
+        if kb_scope == KB_SCOPE_LEAD:
+            from app.models.frontpage_call_setting import FrontpageCallSetting
+            from app.services.frontpage_lead_service import build_lead_runtime_prompt
+            from app.services.telnyx_assistant_service import sync_telnyx_assistant_instructions
+            from app.services.telnyx_lead_variables import ensure_telnyx_variables_block
+
+            settings = db.get(FrontpageCallSetting, "default")
+            if settings is not None and str(settings.voice_provider or "vapi").strip().lower() == "telnyx":
+                agent_id = str(settings.provider_agent_id or "").strip()
+                sync_prompt = ensure_telnyx_variables_block(build_lead_runtime_prompt(settings))
+                if agent_id and sync_prompt.strip():
+                    sync_telnyx_assistant_instructions(db, agent_id, sync_prompt)
+                    synced = True
+        elif kb_scope == KB_SCOPE_SALES:
+            from app.services.lead_sales_service import _sales_playbook_block, get_lead_sales_settings
+            from app.services.telnyx_assistant_service import sync_telnyx_assistant_instructions
+
+            settings = get_lead_sales_settings(db)
+            agent_id = str(settings.telnyx_assistant_id or "").strip()
+            sync_prompt = _sales_playbook_block(settings).strip()
+            if agent_id and sync_prompt:
+                sync_telnyx_assistant_instructions(db, agent_id, sync_prompt, enable_web_calls=False)
+                synced = True
+    except Exception as exc:
+        warning = str(exc)
+
+    return {"telnyx_synced": synced, "telnyx_sync_warning": warning}
 
 
 def get_kb_files_by_ids(db: Session, file_ids: list[str], *, scope: str | None = None) -> list[KnowledgeBaseFile]:

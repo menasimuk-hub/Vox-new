@@ -149,11 +149,17 @@ export default function LeadSalesSettings() {
     setDeletingKbId(file.id)
     setMsg('')
     try {
-      await apiFetch(`/admin/knowledge-base/${file.id}`, { method: 'DELETE' })
+      const result = await apiFetch(`/admin/knowledge-base/${file.id}`, { method: 'DELETE' })
       setSelectedKbIds((prev) => prev.filter((id) => id !== file.id))
       if (kbPreview?.id === file.id) setKbPreview(null)
       await load()
-      setMsg(`Deleted ${file.original_filename}. Save settings if you changed the master script.`)
+      if (result?.telnyx_sync_warning) {
+        setMsg(`Deleted ${file.original_filename}. Telnyx resync warning: ${result.telnyx_sync_warning}`)
+      } else if (result?.telnyx_synced) {
+        setMsg(`Deleted ${file.original_filename}. Adam's Telnyx assistant was resynced without that file. Regenerate per-lead scripts on open tasks if needed.`)
+      } else {
+        setMsg(`Deleted ${file.original_filename}. KB cache updated. Set Telnyx sales assistant ID and save to enable auto-resync on delete.`)
+      }
     } catch (err) {
       setMsg(err?.message || 'Delete failed')
     } finally {
