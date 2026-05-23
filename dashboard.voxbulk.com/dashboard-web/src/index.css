@@ -549,37 +549,60 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   padding:3px 0;
   line-height:1.4;
 }
+.plan-g-billing .plan-card-features{
+  flex:1 1 auto;
+  margin-bottom:12px;
+}
+.plan-g-billing .plan-card-footer{
+  flex-shrink:0;
+  margin-top:auto;
+  padding-top:4px;
+}
 .plan-g-billing .plan-billing.plan-current{
   border-color:var(--grn);
   background:linear-gradient(180deg,var(--gd,#ecfdf5) 0%,var(--s1,#fff) 55%);
   box-shadow:0 0 0 2px var(--gd2,rgba(16,185,129,.25));
 }
-.plan-g-billing .plan-action-btn{
+.plan-g-billing .plan-action-btn,
+.plan-g-billing .plan-card-footer .pbtn{
+  display:block;
   width:100%;
-  margin-top:auto;
+  margin-top:0;
   padding:11px 10px;
   font-size:13px;
   font-weight:700;
   line-height:1.3;
   white-space:normal;
-  min-height:42px;
+  min-height:44px;
   border-radius:10px;
+  cursor:pointer;
+  flex-shrink:0;
 }
-.plan-g-billing .plan-action-btn.pg{
+.plan-g-billing .plan-action-btn:disabled,
+.plan-g-billing .plan-card-footer .pbtn:disabled{
+  cursor:default;
+  opacity:1;
+}
+.plan-g-billing .plan-action-btn.pg,
+.plan-g-billing .plan-card-footer .pbtn.pg{
   background:var(--grn);
   color:#fff;
   border-color:var(--grn);
   box-shadow:0 2px 8px rgba(0,158,118,.25);
 }
-.plan-g-billing .plan-action-btn.pg:hover{background:var(--grn2)}
-.plan-g-billing .plan-action-btn.pd{
+.plan-g-billing .plan-action-btn.pg:hover,
+.plan-g-billing .plan-card-footer .pbtn.pg:hover{background:var(--grn2)}
+.plan-g-billing .plan-action-btn.pd,
+.plan-g-billing .plan-card-footer .pbtn.pd{
   border-color:var(--amb,#d97706);
   color:var(--amb,#d97706);
   background:var(--ad,#fffbeb);
   font-weight:700;
 }
-.plan-g-billing .plan-action-btn.pd:hover{background:#fef3c7}
-.plan-g-billing .plan-action-btn.pcur{
+.plan-g-billing .plan-action-btn.pd:hover,
+.plan-g-billing .plan-card-footer .pbtn.pd:hover{background:#fef3c7}
+.plan-g-billing .plan-action-btn.pcur,
+.plan-g-billing .plan-card-footer .pbtn.pcur{
   background:var(--s2);
   color:var(--t3);
   border-color:var(--b2);

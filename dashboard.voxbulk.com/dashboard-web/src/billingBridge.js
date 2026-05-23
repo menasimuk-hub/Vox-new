@@ -282,6 +282,25 @@ function titleCaseCode(code) {
   return raw.charAt(0).toUpperCase() + raw.slice(1)
 }
 
+const TIER_CALLS_TO_CODE = { 100: 'starter', 300: 'practice', 600: 'group' }
+
+function findPlanIndex(list, plan) {
+  if (!plan || !Array.isArray(list) || !list.length) return -1
+  let i = list.findIndex((p) => String(p.id) === String(plan.id))
+  if (i >= 0) return i
+  const code = String(plan.code || '').toLowerCase()
+  if (code) {
+    i = list.findIndex((p) => String(p.code || '').toLowerCase() === code)
+    if (i >= 0) return i
+  }
+  const name = String(plan.name || '').toLowerCase()
+  if (name) {
+    i = list.findIndex((p) => String(p.name || '').toLowerCase() === name)
+    if (i >= 0) return i
+  }
+  return -1
+}
+
 function resolveCurrentPlan(subRes = state.subscription, plans = state.plans, usage = state.usage, usagePlan = state.usagePlan) {
   const direct = subRes?.plan
   if (direct?.id) return direct
@@ -307,6 +326,21 @@ function resolveCurrentPlan(subRes = state.subscription, plans = state.plans, us
   if (callsIncluded > 0 && Array.isArray(plans) && plans.length) {
     const matches = plans.filter((p) => Number(p.calls_included || 0) === callsIncluded)
     if (matches.length === 1) return matches[0]
+
+    const codeGuess = String(usage?.plan_code || TIER_CALLS_TO_CODE[callsIncluded] || '').toLowerCase()
+    if (codeGuess) {
+      const byTier = plans.find((p) => String(p.code || '').toLowerCase() === codeGuess)
+      if (byTier) return byTier
+    }
+
+    const ordered = [...plans].sort(
+      (a, b) =>
+        Number(a.sort_order || 0) - Number(b.sort_order || 0) ||
+        Number(a.price_gbp_pence || 0) - Number(b.price_gbp_pence || 0),
+    )
+    if (callsIncluded >= 600 && ordered[2]) return ordered[2]
+    if (callsIncluded >= 300 && ordered[1]) return ordered[1]
+    if (ordered[0]) return ordered[0]
   }
 
   return null
@@ -342,8 +376,20 @@ function planRank(plan) {
   return Number(plan?.sort_order || 0) * 1_000_000 + Number(plan?.price_gbp_pence || 0)
 }
 
-function planButtonLabel(plan, currentPlan) {
+function planButtonLabel(plan, currentPlan, actionCtx = {}) {
   if (state.busyPlanId === plan.id) return 'Redirecting to GoCardless…'
+
+  const { billingGrid = false, sortedPlansList = [] } = actionCtx
+  if (billingGrid && currentPlan && sortedPlansList.length) {
+    const curIdx = findPlanIndex(sortedPlansList, currentPlan)
+    const idx = findPlanIndex(sortedPlansList, plan)
+    if (curIdx >= 0 && idx >= 0) {
+      if (idx === curIdx) return 'Current plan'
+      if (idx > curIdx) return `Upgrade to ${plan.name}`
+      if (idx < curIdx) return `Downgrade to ${plan.name}`
+    }
+  }
+
   if (!currentPlan) return `Choose ${plan.name}`
   if (String(plan.id) === String(currentPlan.id)) return 'Current plan'
   const oldRank = planRank(currentPlan)
@@ -353,19 +399,43 @@ function planButtonLabel(plan, currentPlan) {
   return `Switch to ${plan.name}`
 }
 
-function planButtonClass(plan, currentPlan) {
-  if (currentPlan && String(plan.id) === String(currentPlan.id)) return 'pbtn pcur'
-  if (!currentPlan) return 'pbtn'
+function planButtonClass(plan, currentPlan, actionCtx = {}) {
+  const { billingGrid = false, sortedPlansList = [] } = actionCtx
+
+  if (billingGrid && currentPlan && sortedPlansList.length) {
+    const curIdx = findPlanIndex(sortedPlansList, currentPlan)
+    const idx = findPlanIndex(sortedPlansList, plan)
+    if (curIdx >= 0 && idx >= 0) {
+      if (idx === curIdx) return 'pbtn pcur plan-action-btn'
+      if (idx > curIdx) return 'pbtn pg plan-action-btn'
+      if (idx < curIdx) return 'pbtn pd plan-action-btn'
+    }
+  }
+
+  if (currentPlan && String(plan.id) === String(currentPlan.id)) return 'pbtn pcur plan-action-btn'
+  if (!currentPlan) return 'pbtn plan-action-btn'
   const oldRank = planRank(currentPlan)
   const newRank = planRank(plan)
-  if (newRank > oldRank) return 'pbtn pg'
-  if (newRank < oldRank) return 'pbtn pd'
-  return 'pbtn'
+  if (newRank > oldRank) return 'pbtn pg plan-action-btn'
+  if (newRank < oldRank) return 'pbtn pd plan-action-btn'
+  return 'pbtn plan-action-btn'
+}
+
+function isSamePlan(plan, currentPlan, sortedPlansList = []) {
+  if (!plan || !currentPlan) return false
+  if (String(plan.id) === String(currentPlan.id)) return true
+  if (sortedPlansList.length) {
+    const a = findPlanIndex(sortedPlansList, plan)
+    const b = findPlanIndex(sortedPlansList, currentPlan)
+    if (a >= 0 && b >= 0 && a === b) return true
+  }
+  return String(plan.code || '').toLowerCase() === String(currentPlan.code || '').toLowerCase()
 }
 
 function renderPlanCard(plan, index, currentPlan, onSelect, options = {}) {
-  const { compact = false, billingGrid = false } = options
-  const isCurrent = currentPlan && String(plan.id) === String(currentPlan.id)
+  const { compact = false, billingGrid = false, sortedPlansList = [] } = options
+  const actionCtx = { billingGrid, sortedPlansList }
+  const isCurrent = isSamePlan(plan, currentPlan, sortedPlansList)
   const isBusy = state.busyPlanId === plan.id
   const isFeatured = !compact && !billingGrid && index === 1 && (state.plans?.length || 0) >= 2 && !isCurrent
   const features = parseFeatures(plan)
@@ -378,8 +448,8 @@ function renderPlanCard(plan, index, currentPlan, onSelect, options = {}) {
   const visibleFeatures = billingGrid ? features : compact ? features.slice(0, 2) : features
   const showIcon = billingGrid || !compact || isCurrent
   const showDescription = billingGrid || !compact
-  const btnLabel = planButtonLabel(plan, currentPlan)
-  const btnClass = planButtonClass(plan, currentPlan)
+  const btnLabel = planButtonLabel(plan, currentPlan, actionCtx)
+  const btnClass = planButtonClass(plan, currentPlan, actionCtx)
 
   const card = document.createElement('div')
   card.className = `plan${compact ? ' plan-compact' : ''}${billingGrid ? ' plan-billing' : ''}${isCurrent ? ' plan-current' : ''}${isFeatured ? ' ft' : ''}`
@@ -390,10 +460,14 @@ function renderPlanCard(plan, index, currentPlan, onSelect, options = {}) {
     <div class="pfor">${escapeHtml(plan.code)}</div>
     <div class="ppr">${fmtGbp(plan.price_gbp_pence)}<span>${interval}</span></div>
     ${showDescription ? `<div class="pcr">${escapeHtml(creditLine)}</div>` : ''}
-    ${visibleFeatures.map((f) => `<div class="pfe"><i class="ti ti-check ck"></i>${escapeHtml(f)}</div>`).join('')}
-    <button class="${btnClass} plan-action-btn" type="button" ${isCurrent || isBusy || Boolean(state.busyPlanId) ? 'disabled' : ''}>
-      ${escapeHtml(btnLabel)}
-    </button>
+    <div class="plan-card-features">
+      ${visibleFeatures.map((f) => `<div class="pfe"><i class="ti ti-check ck"></i>${escapeHtml(f)}</div>`).join('')}
+    </div>
+    <div class="plan-card-footer">
+      <button class="${btnClass}" type="button" ${isCurrent || isBusy || Boolean(state.busyPlanId) ? 'disabled' : ''}>
+        ${escapeHtml(btnLabel)}
+      </button>
+    </div>
   `
 
   const btn = card.querySelector('button')
@@ -448,6 +522,7 @@ function renderPlanGrid(containerId, onSelect) {
       renderPlanCard(plan, index, currentPlan, onSelect, {
         compact: false,
         billingGrid: isBillingGrid,
+        sortedPlansList: plans,
       }),
     )
   })
@@ -601,7 +676,8 @@ async function loadBillingData() {
 function purchaseSubscriptionPlan(plan) {
   if (state.busyPlanId) return
 
-  if (state.currentPlan && String(plan.id) === String(state.currentPlan.id)) {
+  const plans = sortedPlans()
+  if (isSamePlan(plan, state.currentPlan, plans)) {
     return
   }
 
@@ -612,7 +688,7 @@ function purchaseSubscriptionPlan(plan) {
     return
   }
 
-  const label = planButtonLabel(plan, state.currentPlan)
+  const label = planButtonLabel(plan, state.currentPlan, { billingGrid: true, sortedPlansList: plans })
   const confirmed = window.confirm(
     `${label}?\n\nYou will be redirected to GoCardless to set up your subscription payment.`,
   )
