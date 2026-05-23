@@ -31,11 +31,18 @@ function substitutePlaceholders(template, variables) {
   return out
 }
 
-function statusClass(status) {
+function statusPillClass(status) {
   const s = String(status || '').toLowerCase()
-  if (s === 'paid') return 'invoiceCardPaid'
-  if (s === 'failed') return 'invoiceCardFailed'
-  return 'invoiceCardPending'
+  if (s === 'paid') return 'p-green'
+  if (s === 'failed') return 'p-red'
+  if (s === 'issued' || s === 'open') return 'p-amber'
+  return ''
+}
+
+function truncate(text, max = 48) {
+  const s = String(text || '').trim()
+  if (!s) return '—'
+  return s.length > max ? `${s.slice(0, max)}…` : s
 }
 
 export default function InvoicesAdmin() {
@@ -105,15 +112,6 @@ export default function InvoicesAdmin() {
     return { count: invoices.length, paid: paidRows.length, paidTotal, total: invoices.reduce((s, r) => s + Number(r.amount_gbp_pence || 0), 0) }
   }, [invoices])
 
-  const paidInvoices = useMemo(
-    () => invoices.filter((r) => String(r.status || '').toLowerCase() === 'paid'),
-    [invoices],
-  )
-
-  const otherInvoices = useMemo(
-    () => invoices.filter((r) => String(r.status || '').toLowerCase() !== 'paid'),
-    [invoices],
-  )
 
   const downloadPdf = async (invoiceId, invoiceNumber) => {
     setBusy(invoiceId)
@@ -222,42 +220,72 @@ export default function InvoicesAdmin() {
     }
   }
 
-  const renderInvoiceCard = (row) => {
+  const sortedInvoices = useMemo(() => {
+    const rank = (status) => {
+      const s = String(status || '').toLowerCase()
+      if (s === 'paid') return 0
+      if (s === 'issued' || s === 'open') return 1
+      if (s === 'failed') return 2
+      return 3
+    }
+    return [...invoices].sort((a, b) => {
+      const byRank = rank(a.status) - rank(b.status)
+      if (byRank !== 0) return byRank
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    })
+  }, [invoices])
+
+  const renderInvoiceRow = (row) => {
     const number = row.invoice_number || row.external_invoice_id
-    const isPaid = String(row.status || '').toLowerCase() === 'paid'
+    const isBusy = busy === row.id
     return (
-      <article key={row.id} className={`invoiceCard ${statusClass(row.status)}`}>
-        <div className="invoiceCardTop">
-          <div className="invoiceCardIdBlock">
-            <span className="invoiceCardLabel">Invoice</span>
-            <code className="invoiceCardId">{number}</code>
+      <tr key={row.id} className="invoiceListRow">
+        <td>
+          <code className="invoiceIdPill" title={number}>{number}</code>
+        </td>
+        <td className="invoiceListDate muted">{dateShort(row.created_at)}</td>
+        <td className="invoiceListOrg" title={row.organisation_name || ''}>
+          {truncate(row.organisation_name, 28)}
+        </td>
+        <td className="invoiceListEmail muted" title={row.client_email}>
+          {truncate(row.client_email, 26)}
+        </td>
+        <td className="invoiceListAmount">
+          <strong>{money(row.amount_gbp_pence, row.currency)}</strong>
+        </td>
+        <td>
+          <span className={`pill invoiceStatusPill ${statusPillClass(row.status)}`}>{row.status || '—'}</span>
+        </td>
+        <td className="invoiceListTags">
+          <span className="invoiceTag">{row.provider || 'internal'}</span>
+          {row.country_code ? <span className="invoiceTag">{row.country_code}</span> : null}
+          {row.tax_rate_percent != null ? <span className="invoiceTag">VAT {row.tax_rate_percent}%</span> : null}
+          {row.payment_method ? <span className="invoiceTag">{row.payment_method}</span> : null}
+          {row.emailed_at ? (
+            <span className="invoiceTag invoiceTagOk" title={dateText(row.emailed_at)}>
+              <i className="ti ti-mail-check" /> Sent
+            </span>
+          ) : (
+            <span className="invoiceTag invoiceTagMuted">Not sent</span>
+          )}
+        </td>
+        <td className="invoiceListDesc muted" title={row.description || ''}>
+          {truncate(row.description, 36)}
+        </td>
+        <td className="invoiceListActions">
+          <div className="actions invoiceRowActions">
+            <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => viewHtml(row.id)} title="View HTML">
+              <i className="ti ti-eye" />
+            </button>
+            <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => downloadPdf(row.id, number)} title="Download PDF">
+              <i className="ti ti-download" />
+            </button>
+            <button type="button" className="btn primary xs" disabled={isBusy} onClick={() => resendEmail(row.id)} title="Resend email">
+              <i className="ti ti-send" />
+            </button>
           </div>
-          <span className={`pill ${isPaid ? 'p-green' : 'p-amber'}`}>{row.status}</span>
-        </div>
-        <div className="invoiceCardAmount">{money(row.amount_gbp_pence, row.currency)}</div>
-        <div className="invoiceCardMeta">
-          <div><i className="ti ti-building" /> {row.organisation_name || '—'}</div>
-          <div><i className="ti ti-mail" /> {row.client_email}</div>
-          <div><i className="ti ti-calendar" /> {dateShort(row.created_at)}</div>
-          {row.description ? <div><i className="ti ti-file-description" /> {row.description}</div> : null}
-          <div className="invoiceCardTags">
-            {row.tax_rate_percent != null ? <span className="invoiceTag">VAT {row.tax_rate_percent}%</span> : null}
-            <span className="invoiceTag">{row.provider}</span>
-            {row.emailed_at ? <span className="invoiceTag invoiceTagOk"><i className="ti ti-check" /> Emailed</span> : <span className="invoiceTag">Not emailed</span>}
-          </div>
-        </div>
-        <div className="invoiceCardActions">
-          <button type="button" className="btn soft xs" disabled={busy === row.id} onClick={() => viewHtml(row.id)}>
-            <i className="ti ti-eye" /> View
-          </button>
-          <button type="button" className="btn soft xs" disabled={busy === row.id} onClick={() => downloadPdf(row.id, number)}>
-            <i className="ti ti-download" /> PDF
-          </button>
-          <button type="button" className="btn primary xs" disabled={busy === row.id} onClick={() => resendEmail(row.id)}>
-            <i className="ti ti-send" /> Email
-          </button>
-        </div>
-      </article>
+        </td>
+      </tr>
     )
   }
 
@@ -296,75 +324,80 @@ export default function InvoicesAdmin() {
 
       {tab === 'invoices' ? (
         <>
-          <div className="grid-3" style={{ marginBottom: 14 }}>
-            <div className="card stat" style={{ '--accent': '#0f766e' }}>
-              <div className="muted">Invoices</div>
-              <div className="statValue">{stats.count}</div>
-            </div>
-            <div className="card stat" style={{ '--accent': '#059669' }}>
-              <div className="muted">Paid</div>
-              <div className="statValue">{stats.paid}</div>
-              <span className="pill p-green">{money(stats.paidTotal)} collected</span>
-            </div>
-            <div className="card stat" style={{ '--accent': '#7c3aed' }}>
-              <div className="muted">Listed total</div>
-              <div className="statValue">{money(stats.total)}</div>
-            </div>
+          <div className="invoiceStatsBar">
+            <span className="invoiceStatChip">
+              <i className="ti ti-receipt" />
+              <strong>{stats.count}</strong> invoices
+            </span>
+            <span className="invoiceStatChip invoiceStatPaid">
+              <i className="ti ti-circle-check" />
+              <strong>{stats.paid}</strong> paid
+              <span className="muted">({money(stats.paidTotal)})</span>
+            </span>
+            <span className="invoiceStatChip">
+              <i className="ti ti-sum" />
+              Total <strong>{money(stats.total)}</strong>
+            </span>
           </div>
 
-          <div className="card invoiceHubFilters">
+          <div className="card invoiceHubFilters invoiceHubFiltersCompact">
             <div className="cardBody invoiceFilterGrid">
               <label className="msgFieldBlockTight">
-                <span className="label">Search invoice ID, email, org</span>
+                <span className="label">Search</span>
                 <input
-                  className="input"
+                  className="input inputCompact"
                   value={filters.search}
                   onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                  placeholder="INV-2026-0001 or email"
+                  placeholder="Invoice #, email, org"
+                  onKeyDown={(e) => e.key === 'Enter' && loadInvoices()}
                 />
               </label>
               <label className="msgFieldBlockTight">
                 <span className="label">Status</span>
-                <select className="input" value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
+                <select className="input inputCompact" value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
                   {STATUS_OPTIONS.map((s) => (
-                    <option key={s || 'all'} value={s}>{s || 'All statuses'}</option>
+                    <option key={s || 'all'} value={s}>{s || 'All'}</option>
                   ))}
                 </select>
               </label>
               <label className="msgFieldBlockTight">
                 <span className="label">Provider</span>
-                <input className="input" value={filters.provider} onChange={(e) => setFilters((f) => ({ ...f, provider: e.target.value }))} placeholder="gocardless" />
+                <input className="input inputCompact" value={filters.provider} onChange={(e) => setFilters((f) => ({ ...f, provider: e.target.value }))} placeholder="gocardless" />
               </label>
-              <button type="button" className="btn primary" onClick={loadInvoices}>Apply</button>
+              <button type="button" className="btn primary btnCompact" onClick={loadInvoices}>Apply</button>
             </div>
           </div>
 
-          {loading ? <div className="muted" style={{ marginTop: 16 }}>Loading…</div> : null}
-          {!loading && !invoices.length ? (
-            <div className="card" style={{ marginTop: 14 }}>
-              <div className="cardBody muted">No invoices yet. Complete a GoCardless sandbox payment to create one.</div>
+          <div className="card invoiceListCard">
+            <div className="cardHead invoiceListHead">
+              <h3>All invoices</h3>
+              <span className="pill p-cyan">{sortedInvoices.length} shown</span>
             </div>
-          ) : null}
-
-          {!loading && paidInvoices.length ? (
-            <section className="invoiceSection">
-              <div className="invoiceSectionHead">
-                <h3><i className="ti ti-circle-check" /> Paid invoices</h3>
-                <span className="muted">{paidInvoices.length} invoice{paidInvoices.length === 1 ? '' : 's'}</span>
-              </div>
-              <div className="invoiceCardGrid">{paidInvoices.map(renderInvoiceCard)}</div>
-            </section>
-          ) : null}
-
-          {!loading && otherInvoices.length ? (
-            <section className="invoiceSection">
-              <div className="invoiceSectionHead">
-                <h3><i className="ti ti-clock" /> Other invoices</h3>
-                <span className="muted">{otherInvoices.length} invoice{otherInvoices.length === 1 ? '' : 's'}</span>
-              </div>
-              <div className="invoiceCardGrid invoiceCardGridCompact">{otherInvoices.map(renderInvoiceCard)}</div>
-            </section>
-          ) : null}
+            <div className="cardBody invoiceTableWrap">
+              {loading ? <div className="muted invoiceListEmpty">Loading…</div> : null}
+              {!loading && !sortedInvoices.length ? (
+                <div className="muted invoiceListEmpty">No invoices yet. Complete a GoCardless payment to create one.</div>
+              ) : null}
+              {!loading && sortedInvoices.length ? (
+                <table className="table invoiceDenseTable invoiceListTable">
+                  <thead>
+                    <tr>
+                      <th>Invoice</th>
+                      <th>Date</th>
+                      <th>Organisation</th>
+                      <th>Email</th>
+                      <th>Amount</th>
+                      <th>Status</th>
+                      <th>Tags</th>
+                      <th>Description</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>{sortedInvoices.map(renderInvoiceRow)}</tbody>
+                </table>
+              ) : null}
+            </div>
+          </div>
         </>
       ) : null}
 

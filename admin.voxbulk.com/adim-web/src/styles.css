@@ -4724,6 +4724,158 @@ body.dark .matrix th {
   overflow-x: auto;
 }
 
+.invoiceStatsBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.invoiceStatChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text, #0f172a);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.invoiceStatChip i {
+  font-size: 14px;
+  opacity: 0.75;
+}
+
+.invoiceStatChip strong {
+  font-weight: 700;
+}
+
+.invoiceStatPaid {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.22);
+  color: #047857;
+}
+
+.invoiceHubFiltersCompact .cardBody {
+  padding: 10px 14px;
+}
+
+.invoiceHubFiltersCompact .inputCompact {
+  padding: 6px 10px;
+  font-size: 12px;
+  min-height: 32px;
+}
+
+.invoiceHubFiltersCompact .btnCompact {
+  padding: 6px 14px;
+  font-size: 12px;
+  min-height: 32px;
+}
+
+.invoiceListCard {
+  margin-top: 10px;
+}
+
+.invoiceListHead {
+  padding: 10px 14px;
+}
+
+.invoiceListHead h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.invoiceListEmpty {
+  padding: 20px 14px;
+  font-size: 12px;
+}
+
+.invoiceListTable {
+  margin: 0;
+}
+
+.invoiceListTable th,
+.invoiceListTable td {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.invoiceListTable tbody tr.invoiceListRow:hover {
+  background: rgba(15, 118, 110, 0.04);
+}
+
+.invoiceListTable tbody tr.invoiceListRow:nth-child(even) {
+  background: rgba(148, 163, 184, 0.04);
+}
+
+.invoiceListTable tbody tr.invoiceListRow:nth-child(even):hover {
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.invoiceListDate,
+.invoiceListEmail,
+.invoiceListDesc {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.invoiceListOrg {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.invoiceListAmount {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.invoiceListAmount strong {
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.invoiceListTags {
+  min-width: 120px;
+  max-width: 220px;
+}
+
+.invoiceListTags .invoiceTag {
+  margin: 0 4px 4px 0;
+}
+
+.invoiceListActions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.invoiceStatusPill {
+  font-size: 10px;
+  padding: 3px 8px;
+  text-transform: lowercase;
+}
+
+.invoiceStatusPill:not(.p-green):not(.p-red):not(.p-amber) {
+  background: rgba(148, 163, 184, 0.16);
+  color: #475569;
+}
+
+.invoiceTagMuted {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+}
+
+.invoiceRowActions {
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
 .invoiceDenseTable {
   width: 100%;
   font-size: 12px;
