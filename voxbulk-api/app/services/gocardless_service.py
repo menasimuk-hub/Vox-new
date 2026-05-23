@@ -420,6 +420,22 @@ class BillingService:
         }
 
     @staticmethod
+    def _api_public_origin() -> str:
+        settings = get_settings()
+        dash = str(settings.dashboard_app_origin or "").rstrip("/")
+        if "dashboard." in dash:
+            return dash.replace("dashboard.", "api.", 1)
+        return "http://127.0.0.1:8000"
+
+    @staticmethod
+    def _gocardless_browser_return_url(session_token: str, *, billing: str) -> str:
+        from urllib.parse import urlencode
+
+        api_origin = BillingService._api_public_origin().rstrip("/")
+        query = urlencode({"session_token": session_token, "billing": billing})
+        return f"{api_origin}/billing/subscription/gocardless/browser-return?{query}"
+
+    @staticmethod
     def _default_success_url(config: dict[str, Any]) -> str:
         configured = str(config.get("success_redirect_url") or "").strip()
         if configured:
@@ -490,8 +506,16 @@ class BillingService:
 
         config = BillingService._get_gocardless_config(db)
         session_token = secrets.token_urlsafe(32)
-        success_url = BillingService._default_success_url(config)
-        cancel_url = BillingService._default_cancel_url(config)
+        configured_success = str(config.get("success_redirect_url") or "").strip()
+        configured_cancel = str(config.get("cancel_redirect_url") or "").strip()
+        if configured_success:
+            success_url = configured_success
+        else:
+            success_url = BillingService._gocardless_browser_return_url(session_token, billing="success")
+        if configured_cancel:
+            cancel_url = configured_cancel
+        else:
+            cancel_url = BillingService._gocardless_browser_return_url(session_token, billing="cancelled")
         payload = {
             "redirect_flows": {
                 "description": f"VOXBULK.COM {plan.name} subscription",

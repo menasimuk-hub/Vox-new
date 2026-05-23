@@ -4,6 +4,8 @@ const GC_FLOW_KEY = 'voxbulk_gc_redirect_flow_id'
 const PLAN_ICONS = ['ti-rocket', 'ti-trending-up', 'ti-building-skyscraper']
 const PLAN_ICON_CLASS = ['pig', 'pip', 'pia']
 
+let completeReturnInFlight = false
+
 const state = {
   plans: [],
   plansLoading: false,
@@ -14,7 +16,7 @@ const state = {
   invoices: [],
   busyPlanId: null,
   paymentOptions: null,
-  checkoutStatus: 'idle', // idle | loading | error | return-error
+  checkoutStatus: 'idle', // idle | loading | success | error | return-error | cancelled
   checkoutMessage: '',
 }
 
@@ -34,6 +36,30 @@ function billingQueryParam(name) {
   }
 }
 
+function readBillingReturnParams() {
+  return {
+    billing: (billingQueryParam('billing') || '').trim().toLowerCase(),
+    redirectFlowId: (billingQueryParam('redirect_flow_id') || '').trim(),
+  }
+}
+
+function resolveRedirectFlowId(params = readBillingReturnParams()) {
+  if (params.redirectFlowId) return params.redirectFlowId
+  try {
+    return (sessionStorage.getItem(GC_FLOW_KEY) || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+function clearBillingReturnState() {
+  try {
+    sessionStorage.removeItem(GC_FLOW_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 function clearBillingQuery() {
   try {
     const url = new URL(window.location.href)
@@ -45,6 +71,14 @@ function clearBillingQuery() {
   }
 }
 
+function showPackagesPage() {
+  if (typeof window.go === 'function') window.go('packages')
+}
+
+function showBillingPage() {
+  if (typeof window.go === 'function') window.go('billing')
+}
+
 function setCheckoutStatus(status, message = '') {
   state.checkoutStatus = status
   state.checkoutMessage = message
@@ -52,72 +86,136 @@ function setCheckoutStatus(status, message = '') {
 }
 
 function renderCheckoutStatus() {
-  const el = document.getElementById('packages-checkout-status')
-  if (!el) return
-
   const { checkoutStatus, checkoutMessage } = state
-  if (checkoutStatus === 'idle' || !checkoutMessage) {
-    el.hidden = true
-    el.textContent = ''
-    el.className = 'billing-checkout-status'
-    return
-  }
+  const hidden = checkoutStatus === 'idle' || !checkoutMessage
 
-  el.hidden = false
-  el.textContent = checkoutMessage
-  el.className = `billing-checkout-status billing-checkout-status--${checkoutStatus}`
+  for (const id of ['packages-checkout-status', 'billing-checkout-status']) {
+    const el = document.getElementById(id)
+    if (!el) continue
+    if (hidden) {
+      el.hidden = true
+      el.textContent = ''
+      el.className = 'billing-checkout-status'
+      continue
+    }
+    el.hidden = false
+    el.textContent = checkoutMessage
+    el.className = `billing-checkout-status billing-checkout-status--${checkoutStatus}`
+  }
 }
 
 function logBilling(event, detail = {}) {
   console.info(`[billing] ${event}`, detail)
 }
 
+function handleCancelledReturn() {
+  logBilling('gocardless_return_cancelled')
+  clearBillingReturnState()
+  clearBillingQuery()
+  const msg = 'Checkout was cancelled. You can choose a plan again whenever you are ready.'
+  setCheckoutStatus('cancelled', msg)
+  if (typeof window.toast === 'function') window.toast('Payment setup cancelled.', 'tw')
+}
+
 async function completeGocardlessReturn() {
-  const billing = billingQueryParam('billing')
+  const params = readBillingReturnParams()
+  const { billing } = params
+
+  if (!billing) return
+  if (completeReturnInFlight) return
+
+  logBilling('gocardless_return_detected', {
+    billing,
+    redirectFlowIdFromUrl: params.redirectFlowId || null,
+    redirectFlowIdFromStorage: resolveRedirectFlowId({ billing, redirectFlowId: '' }) || null,
+  })
+
+  showPackagesPage()
+  renderCheckoutStatus()
+
   if (billing === 'cancelled') {
-    sessionStorage.removeItem(GC_FLOW_KEY)
-    clearBillingQuery()
-    setCheckoutStatus('error', 'Payment setup was cancelled. You can choose a plan again when ready.')
-    if (typeof window.toast === 'function') window.toast('Payment setup cancelled.', 'tw')
+    handleCancelledReturn()
     return
   }
+
+  if (billing === 'error') {
+    const msg = 'Payment return failed. Please try choosing a plan again or contact support.'
+    setCheckoutStatus('return-error', msg)
+    clearBillingQuery()
+    logBilling('gocardless_complete_failed', { reason: 'browser_return_error_param' })
+    return
+  }
+
   if (billing !== 'success') return
 
-  const redirectFlowId = sessionStorage.getItem(GC_FLOW_KEY) || billingQueryParam('redirect_flow_id')
-  sessionStorage.removeItem(GC_FLOW_KEY)
-  clearBillingQuery()
+  const redirectFlowId = resolveRedirectFlowId(params)
   if (!redirectFlowId) {
-    const msg = 'Payment completed at GoCardless, but no checkout session was found. Please refresh or contact support.'
+    const msg =
+      'Payment completed at GoCardless, but no checkout session was found. Please contact support if your plan did not update.'
     setCheckoutStatus('return-error', msg)
-    logBilling('complete_skipped_missing_redirect_flow_id')
+    logBilling('gocardless_complete_failed', { reason: 'missing_redirect_flow_id' })
     if (typeof window.toast === 'function') window.toast(msg, 'tw')
     return
   }
 
+  completeReturnInFlight = true
   setCheckoutStatus('loading', 'Completing your subscription…')
+  logBilling('gocardless_complete_request', { redirectFlowId, source: params.redirectFlowId ? 'url' : 'sessionStorage' })
 
   try {
     const result = await apiFetch('/billing/subscription/gocardless/complete', {
       method: 'POST',
       body: JSON.stringify({ redirect_flow_id: redirectFlowId }),
     })
+
     state.currentPlan = result?.plan || state.currentPlan
     state.subscription = {
       ...(state.subscription || {}),
       subscription: result?.subscription || state.subscription?.subscription,
       plan: result?.plan || state.currentPlan,
     }
+
+    if (window.__voxbulkSession) {
+      window.__voxbulkSession = {
+        ...window.__voxbulkSession,
+        subscription: state.subscription,
+      }
+    }
+
+    clearBillingReturnState()
+    clearBillingQuery()
+
     await loadBillingData()
     renderAll()
-    setCheckoutStatus('idle')
-    const planName = result?.plan?.name || 'your new plan'
-    if (typeof window.toast === 'function') window.toast(`Subscription updated to ${planName}.`, 'tg')
+
+    const planName = result?.plan?.name || 'your plan'
+    const successMsg = `Subscription activated successfully — you are now on ${planName}.`
+    setCheckoutStatus('success', successMsg)
+    logBilling('gocardless_complete_success', {
+      redirectFlowId,
+      planId: result?.plan?.id || null,
+      planCode: result?.plan?.code || null,
+      subscriptionStatus: result?.subscription?.status || null,
+    })
+
+    if (typeof window.toast === 'function') window.toast('Subscription activated successfully.', 'tg')
+
+    showBillingPage()
+    renderCheckoutStatus()
   } catch (e) {
     const message = e?.message || 'Could not complete GoCardless checkout'
     setCheckoutStatus('return-error', message)
-    logBilling('complete_failed', { redirectFlowId, message, status: e?.status })
+    logBilling('gocardless_complete_failed', {
+      redirectFlowId,
+      message,
+      status: e?.status,
+      data: e?.data || null,
+    })
+    console.error('[billing] gocardless_complete_failed detail', e)
     if (typeof window.toast === 'function') window.toast(message, 'tr')
     else window.alert(message)
+  } finally {
+    completeReturnInFlight = false
   }
 }
 
@@ -443,6 +541,11 @@ export async function initBillingBridge(session) {
 
   state.subscription = session.subscription || null
   state.currentPlan = session.subscription?.plan || null
+
+  const returnParams = readBillingReturnParams()
+  if (returnParams.billing) {
+    showPackagesPage()
+  }
 
   await completeGocardlessReturn()
   await refreshBillingViews()

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_principal
+from app.models.billing_redirect_flow import BillingRedirectFlow
 from app.models.plan import Plan
 from app.schemas.dashboard import (
     BillingRedirectCompleteIn,
@@ -189,6 +193,39 @@ def complete_gocardless_checkout(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except GoCardlessProviderError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
+@router.get("/subscription/gocardless/browser-return")
+def gocardless_browser_return(
+    session_token: str,
+    billing: str = "success",
+    db: Session = Depends(get_db),
+):
+    """
+    GoCardless success/cancel hop: resolve session_token → redirect_flow_id, then send the
+    browser to the dashboard with billing query params (works in fresh tabs).
+    """
+    token = str(session_token or "").strip()
+    if not token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="session_token required")
+
+    row = db.execute(
+        select(BillingRedirectFlow).where(BillingRedirectFlow.session_token == token)
+    ).scalar_one_or_none()
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    billing_state = str(billing or "success").strip().lower()
+    if billing_state not in {"success", "cancelled"}:
+        billing_state = "success"
+
+    if row is None:
+        query = urlencode({"billing": "error"})
+        return RedirectResponse(url=f"{origin}/packages?{query}", status_code=302)
+
+    params = {"billing": billing_state}
+    if billing_state == "success":
+        params["redirect_flow_id"] = row.redirect_flow_id
+    query = urlencode(params)
+    return RedirectResponse(url=f"{origin}/packages?{query}", status_code=302)
 
 
 @router.get("/usage-summary")

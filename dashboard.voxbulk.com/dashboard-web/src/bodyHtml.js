@@ -954,6 +954,7 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
 
       <!-- ══ BILLING ══ -->
       <div class="pg" id="pg-billing">
+        <div id="billing-checkout-status" class="billing-checkout-status" hidden aria-live="polite"></div>
         <div class="kg2" style="margin-bottom:12px">
           <div class="kpi"><div class="kl">Current plan</div><div class="kv" style="font-size:17px" id="billing-plan-name">—</div><div class="kd ne" id="billing-plan-renew">—</div></div>
           <div class="kpi"><div class="kl">Call usage</div><div class="kv" style="color:var(--grn)" id="billing-calls-used">—</div><div class="kd ne" id="billing-calls-label">—</div></div>
