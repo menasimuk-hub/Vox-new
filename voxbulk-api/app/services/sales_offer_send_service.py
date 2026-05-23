@@ -6,14 +6,14 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.data.sales_offer_email_default import SALES_OFFER_EMAIL_BODY, SALES_OFFER_EMAIL_SUBJECT, SALES_OFFER_WHATSAPP_BODY
+from app.data.sales_offer_email_default import SALES_OFFER_WHATSAPP_BODY
 from app.models.lead_sales_task import LeadSalesTask
 from app.models.plan import Plan
 from app.models.promo_offer import PromoOffer
 from app.services.promo_offer_service import PromoOfferService
 from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
-from app.services.transactional_email_service import TransactionalEmailService, substitute_placeholders
+from app.services.transactional_email_service import TransactionalEmailService
 
 
 class SalesOfferSendError(RuntimeError):
@@ -177,26 +177,19 @@ class SalesOfferSendService:
 
     @staticmethod
     def _send_email(db: Session, *, to_addr: str, variables: dict[str, str]) -> None:
-        from app.services.email_template_service import EmailTemplateService
-
-        row = EmailTemplateService.get(db, key="sales_offer")
-        if row is not None and row.is_enabled:
-            sent, err = TransactionalEmailService.send_templated_optional(
-                db,
-                template_key="sales_offer",
-                to_email=to_addr,
-                variables=variables,
-            )
-            if sent:
-                return
-            raise SmtpMailerError(err or "sales_offer email could not be sent — check SMTP settings.")
-        if row is not None and not row.is_enabled:
+        sent, err = TransactionalEmailService.send_templated_optional(
+            db,
+            template_key="sales_offer",
+            to_email=to_addr,
+            variables=variables,
+        )
+        if sent:
+            return
+        if err in (None, "unknown_template"):
             raise SmtpMailerError(
                 "sales_offer email template is disabled. Enable it under Admin → Email settings."
             )
-        subject = substitute_placeholders(SALES_OFFER_EMAIL_SUBJECT, variables)
-        body = substitute_placeholders(SALES_OFFER_EMAIL_BODY, variables)
-        SmtpMailerService.send_html(db, to_addr=to_addr, subject=subject, body=body)
+        raise SmtpMailerError(err or "sales_offer email could not be sent — check SMTP settings.")
 
     @staticmethod
     def send_for_task(

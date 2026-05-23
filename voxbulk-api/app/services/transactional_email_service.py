@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.services.email_template_service import EMAIL_TEMPLATE_KEYS, EmailTemplateService
 from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
+from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,25 @@ class TransactionalEmailService:
     """Sends SMTP mail using persisted templates + simple {{placeholder}} substitution."""
 
     @staticmethod
+    def load_template_fields(db: Session, *, template_key: str) -> tuple[str, str, bool]:
+        """Admin DB template with system defaults for empty subject/body."""
+        k = (template_key or "").strip().lower()
+        EmailTemplateService.ensure_system_templates(db)
+        row = EmailTemplateService.get(db, key=k)
+        defaults = SYSTEM_EMAIL_DEFAULTS.get(k, {})
+        if row is None:
+            return (
+                str(defaults.get("subject") or ""),
+                str(defaults.get("body") or ""),
+                True,
+            )
+        return (
+            str(row.subject or defaults.get("subject") or ""),
+            str(row.body or defaults.get("body") or ""),
+            bool(row.is_enabled),
+        )
+
+    @staticmethod
     def send_templated_optional(
         db: Session,
         *,
@@ -101,7 +121,8 @@ class TransactionalEmailService:
         attachments: list[dict[str, Any]] | None = None,
     ) -> tuple[bool, str | None]:
         """
-        Sends if template exists, is enabled, and SMTP works.
+        Sends using the admin email template when enabled.
+        Ensures system templates exist, then renders saved subject/body from the DB.
         Never raises SMTP errors to callers (product flows stay stable).
 
         Returns: (attempted_mail_send, error_message_or_none)
@@ -110,22 +131,26 @@ class TransactionalEmailService:
         if k not in EMAIL_TEMPLATE_KEYS:
             return False, "unknown_template"
 
-        row = EmailTemplateService.get(db, key=k)
-        if row is None or not row.is_enabled:
+        subject_tpl, body_tpl, is_enabled = TransactionalEmailService.load_template_fields(db, template_key=k)
+        if not is_enabled:
             logger.info("transactional_skip_disabled", extra={"template": k})
             return False, None
+        if not str(subject_tpl).strip() and not str(body_tpl).strip():
+            logger.warning("transactional_skip_empty", extra={"template": k})
+            return False, "empty_template"
 
         to_addr = (to_email or "").strip().lower()
         if not to_addr:
             return False, "missing_recipient"
 
-        subject = substitute_placeholders(row.subject or "", variables)
-        body = substitute_placeholders(row.body or "", variables)
+        subject = substitute_placeholders(subject_tpl, variables).strip() or k.replace("_", " ").title()
+        body = substitute_placeholders(body_tpl, variables)
         try:
             _deliver_message(db, to_addr=to_addr, subject=subject, body=body, attachments=attachments)
         except SmtpMailerError as e:
             logger.warning("transactional_smtp_failed", extra={"template": k, "err": str(e)})
             return False, str(e)
+        logger.info("transactional_email_sent", extra={"template": k, "to_email": to_addr})
         return True, None
 
     @staticmethod
@@ -140,6 +165,7 @@ class TransactionalEmailService:
     ) -> tuple[bool, str | None]:
         """Send a test email using draft or saved template content with dummy placeholder data."""
         k = (template_key or "").strip().lower()
+        EmailTemplateService.ensure_system_templates(db)
         row = EmailTemplateService.get(db, key=k)
         if row is None:
             return False, "Template not found"

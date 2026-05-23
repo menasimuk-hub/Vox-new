@@ -216,3 +216,29 @@ def test_smtp_test_send_success_mocked(app_client):
     assert r.status_code == 200
     assert r.json().get("ok") is True
     spy.assert_called_once()
+
+
+def test_send_templated_optional_uses_admin_template_from_db():
+    from app.services.smtp_mailer_service import SmtpMailerService
+    from app.services.transactional_email_service import TransactionalEmailService
+
+    with get_sessionmaker()() as db:
+        EmailTemplateService.upsert(
+            db,
+            key="new_invoice",
+            subject="Admin invoice {{invoice_number}}",
+            body="<p>Custom admin invoice for {{amount}}</p>",
+            is_enabled=True,
+        )
+        with patch.object(SmtpMailerService, "send_html") as spy:
+            sent, err = TransactionalEmailService.send_templated_optional(
+                db,
+                template_key="new_invoice",
+                to_email="billing@example.com",
+                variables={"invoice_number": "INV-9", "amount": "£10.00"},
+            )
+        assert sent is True
+        assert err is None
+        kwargs = spy.call_args.kwargs
+        assert kwargs["subject"] == "Admin invoice INV-9"
+        assert "Custom admin invoice for £10.00" in kwargs["body"]

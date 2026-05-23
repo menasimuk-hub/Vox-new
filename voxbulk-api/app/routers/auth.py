@@ -143,7 +143,16 @@ def accept_invite(payload: dict, db: Session = Depends(get_db)):
     if is_new_user:
         try:
             with get_sessionmaker()() as s2:
-                ProductEmailTriggers.send_new_user_welcome(s2, to_email=str(user.email))
+                org = s2.get(Organisation, inv.org_id)
+                ProductEmailTriggers.send_new_user_welcome(
+                    s2,
+                    to_email=str(user.email),
+                    extra_variables={
+                        "organisation_name": (org.name if org else "") or "",
+                        "user_name": str(user.email).split("@")[0],
+                        "first_name": str(user.email).split("@")[0],
+                    },
+                )
         except Exception:
             pass
 
@@ -228,7 +237,15 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
 
     try:
         with get_sessionmaker()() as s2:
-            ProductEmailTriggers.send_new_user_welcome(s2, to_email=str(user.email))
+            ProductEmailTriggers.send_new_user_welcome(
+                s2,
+                to_email=str(user.email),
+                extra_variables={
+                    "organisation_name": org.name or "",
+                    "user_name": str(user.email).split("@")[0],
+                    "first_name": str(user.email).split("@")[0],
+                },
+            )
     except Exception:
         pass
 
@@ -543,8 +560,17 @@ async def oauth_callback(
             try:
                 with get_sessionmaker()() as s2:
                     wel_email = s2.execute(select(User.email).where(User.id == user_id)).scalar_one_or_none()
+                    org_name = s2.execute(select(Organisation.name).where(Organisation.id == org_id)).scalar_one_or_none()
                     if wel_email:
-                        ProductEmailTriggers.send_new_user_welcome(s2, to_email=str(wel_email))
+                        ProductEmailTriggers.send_new_user_welcome(
+                            s2,
+                            to_email=str(wel_email),
+                            extra_variables={
+                                "organisation_name": str(org_name or ""),
+                                "user_name": str(wel_email).split("@")[0],
+                                "first_name": str(wel_email).split("@")[0],
+                            },
+                        )
             except Exception:
                 pass
     except Exception as e:

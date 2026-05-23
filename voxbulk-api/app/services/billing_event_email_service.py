@@ -13,7 +13,6 @@ from app.models.organisation import Organisation
 from app.models.payment_event import PaymentEvent
 from app.services.invoice_service import InvoiceDocumentService
 from app.services.product_email_triggers import ProductEmailTriggers
-from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
 
 logger = logging.getLogger(__name__)
 
@@ -137,46 +136,16 @@ class BillingEventEmailService:
                 extra={"to_email": to_email, "invoice_number": variables.get("invoice_number"), "template": "new_invoice"},
             )
             return True, None
-        if err is not None:
-            logger.warning(
-                "invoice_email_template_failed",
-                extra={"to_email": to_email, "invoice_number": variables.get("invoice_number"), "error": err},
-            )
-            return False, err
-
-        number = variables.get("invoice_number") or variables.get("invoice_id") or "invoice"
-        amount = variables.get("amount") or ""
-        dashboard_url = variables.get("dashboard_invoice_url") or ""
-        subject = f"Invoice {number}"
-        body_lines = [
-            "Hello,",
-            "",
-            f"Your invoice {number} for {amount} is ready.",
-            "The PDF is attached to this email.",
-        ]
-        if dashboard_url:
-            body_lines.extend(["", f"View in dashboard: {dashboard_url}"])
-        body_lines.extend(["", "Thank you."])
-        body = "\n".join(body_lines)
-        try:
-            SmtpMailerService.send_plain(
-                db,
-                to_addr=to_email,
-                subject=subject,
-                body=body,
-                attachments=attachments,
-            )
-            logger.info(
-                "invoice_email_fallback_sent",
-                extra={"to_email": to_email, "invoice_number": number},
-            )
-            return True, None
-        except SmtpMailerError as exc:
-            logger.warning(
-                "invoice_email_fallback_failed",
-                extra={"to_email": to_email, "invoice_number": number, "error": str(exc)},
-            )
-            return False, str(exc)
+        logger.warning(
+            "invoice_email_failed",
+            extra={
+                "to_email": to_email,
+                "invoice_number": variables.get("invoice_number"),
+                "template": "new_invoice",
+                "error": err or "template_disabled_or_empty",
+            },
+        )
+        return False, err
 
     @staticmethod
     def send_invoice_email(db: Session, *, invoice: BillingInvoice) -> tuple[bool, str | None]:

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.data.invoice_document_default import INVOICE_DOCUMENT_BODY
+from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
 from app.models.billing_invoice import BillingInvoice
 from app.models.organisation import Organisation
 from app.services.country_vat_service import CountryVatService
@@ -145,8 +146,10 @@ class InvoiceDocumentService:
 
     @staticmethod
     def render_html(db: Session, *, invoice: BillingInvoice, org: Organisation | None = None) -> str:
+        EmailTemplateService.ensure_system_templates(db)
         row = EmailTemplateService.get(db, key="invoice_document")
-        template_body = (row.body if row and row.body else None) or INVOICE_DOCUMENT_BODY
+        defaults = SYSTEM_EMAIL_DEFAULTS.get("invoice_document", {})
+        template_body = (row.body if row and row.body else None) or defaults.get("body") or INVOICE_DOCUMENT_BODY
         variables = InvoiceDocumentService.build_variables(db, invoice=invoice, org=org)
         return substitute_placeholders(template_body, variables)
 
