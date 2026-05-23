@@ -13,6 +13,7 @@ from app.models.organisation import Organisation
 from app.models.payment_event import PaymentEvent
 from app.services.invoice_service import InvoiceDocumentService
 from app.services.product_email_triggers import ProductEmailTriggers
+from app.services.transactional_email_service import TransactionalEmailService
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,18 @@ class BillingEventEmailService:
         variables: dict[str, str],
         attachments: list[dict[str, Any]] | None = None,
     ) -> tuple[bool, str | None]:
+        vars_plain = {str(k): "" if v is None else str(v) for k, v in (variables or {}).items()}
+        subject_tpl, body_tpl, is_enabled = TransactionalEmailService.load_template_fields(db, template_key="new_invoice")
+        logger.info(
+            "invoice_email_prepare",
+            extra={
+                "to_email": to_email,
+                "template": "new_invoice",
+                "is_enabled": is_enabled,
+                "subject_len": len(subject_tpl),
+                "body_len": len(body_tpl),
+            },
+        )
         ok, err = ProductEmailTriggers.notify_new_invoice(
             db,
             to_email=to_email,

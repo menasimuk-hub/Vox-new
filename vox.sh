@@ -18,6 +18,12 @@ stop_public() {
   pkill -f "npm run preview.*5173" 2>/dev/null || true
 }
 
+restart_celery() {
+  if command -v supervisorctl >/dev/null 2>&1; then
+    supervisorctl restart retover-celery 2>/dev/null && echo "Celery restarted (retover-celery)" || true
+  fi
+}
+
 start_api() {
   cd "$API_DIR"
   # shellcheck disable=SC1091
@@ -69,6 +75,7 @@ case "${1:-}" in
     start_api
     sleep 1
     start_public
+    restart_celery
     sleep 2
     status
     ;;

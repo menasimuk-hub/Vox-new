@@ -68,6 +68,21 @@ class EmailTemplateService:
         return k
 
     @staticmethod
+    def get_send_content(db: Session, *, key: str) -> tuple[str, str, bool]:
+        """
+        Load subject/body for outbound mail or PDF rendering.
+        When a DB row exists, use saved admin content only (no silent merge with code defaults).
+        """
+        k = EmailTemplateService.normalize_key(key)
+        EmailTemplateService.ensure_system_templates(db)
+        row = EmailTemplateService.get(db, key=k)
+        if row is not None:
+            db.refresh(row)
+            return str(row.subject or ""), str(row.body or ""), bool(row.is_enabled)
+        defaults = SYSTEM_EMAIL_DEFAULTS.get(k, {})
+        return str(defaults.get("subject") or ""), str(defaults.get("body") or ""), True
+
+    @staticmethod
     def list_all(db: Session) -> list[dict[str, Any]]:
         EmailTemplateService.ensure_system_templates(db)
         rows = db.execute(select(EmailTemplate).order_by(EmailTemplate.template_key.asc())).scalars().all()

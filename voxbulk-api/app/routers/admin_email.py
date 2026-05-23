@@ -93,7 +93,7 @@ def post_send_templated_notification(
         )
 
     vars_plain = {str(k): "" if v is None else str(v) for k, v in (payload.variables or {}).items()}
-    ok, err = TransactionalEmailService.send_template_test(
+    ok, err = TransactionalEmailService.send_templated_optional(
         db,
         template_key=key,
         to_email=str(payload.to),

@@ -94,22 +94,8 @@ class TransactionalEmailService:
 
     @staticmethod
     def load_template_fields(db: Session, *, template_key: str) -> tuple[str, str, bool]:
-        """Admin DB template with system defaults for empty subject/body."""
-        k = (template_key or "").strip().lower()
-        EmailTemplateService.ensure_system_templates(db)
-        row = EmailTemplateService.get(db, key=k)
-        defaults = SYSTEM_EMAIL_DEFAULTS.get(k, {})
-        if row is None:
-            return (
-                str(defaults.get("subject") or ""),
-                str(defaults.get("body") or ""),
-                True,
-            )
-        return (
-            str(row.subject or defaults.get("subject") or ""),
-            str(row.body or defaults.get("body") or ""),
-            bool(row.is_enabled),
-        )
+        """Admin DB template for outbound email."""
+        return EmailTemplateService.get_send_content(db, key=template_key)
 
     @staticmethod
     def send_templated_optional(
@@ -150,7 +136,15 @@ class TransactionalEmailService:
         except SmtpMailerError as e:
             logger.warning("transactional_smtp_failed", extra={"template": k, "err": str(e)})
             return False, str(e)
-        logger.info("transactional_email_sent", extra={"template": k, "to_email": to_addr})
+        logger.info(
+            "transactional_email_sent",
+            extra={
+                "template": k,
+                "to_email": to_addr,
+                "subject_len": len(subject),
+                "body_len": len(body),
+            },
+        )
         return True, None
 
     @staticmethod

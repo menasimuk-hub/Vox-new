@@ -242,3 +242,36 @@ def test_send_templated_optional_uses_admin_template_from_db():
         kwargs = spy.call_args.kwargs
         assert kwargs["subject"] == "Admin invoice INV-9"
         assert "Custom admin invoice for £10.00" in kwargs["body"]
+
+
+def test_invoice_document_render_uses_admin_template_from_db():
+    from app.models.billing_invoice import BillingInvoice
+    from app.services.invoice_service import InvoiceDocumentService
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="PDF Org")
+        db.add(org)
+        db.flush()
+        EmailTemplateService.upsert(
+            db,
+            key="invoice_document",
+            subject="Doc subject",
+            body="<html><body><h1>ADMIN-PDF-MARKER {{invoice_number}}</h1></body></html>",
+            is_enabled=True,
+        )
+        invoice = BillingInvoice(
+            org_id=org.id,
+            provider="gocardless",
+            external_invoice_id="pay:test",
+            client_email="bill@example.com",
+            amount_gbp_pence=1000,
+            currency="GBP",
+            status="paid",
+            invoice_number="INV-ADMIN-1",
+        )
+        db.add(invoice)
+        db.commit()
+        db.refresh(invoice)
+
+        html = InvoiceDocumentService.render_html(db, invoice=invoice, org=org)
+        assert "ADMIN-PDF-MARKER INV-ADMIN-1" in html
