@@ -436,6 +436,18 @@ class BillingService:
         return f"{origin}/packages?billing=cancelled"
 
     @staticmethod
+    def _gocardless_metadata(**fields: str) -> dict[str, str]:
+        """GoCardless allows at most 3 metadata keys per resource."""
+        out: dict[str, str] = {}
+        for key, value in fields.items():
+            text = str(value or "").strip()
+            if text:
+                out[key] = text
+            if len(out) >= 3:
+                break
+        return out
+
+    @staticmethod
     def _raise_for_gocardless_error(response: httpx.Response) -> None:
         if response.status_code < 400:
             return
@@ -443,7 +455,16 @@ class BillingService:
             payload = response.json()
         except Exception:
             payload = {"error": response.text[:500]}
-        raise GoCardlessProviderError(f"GoCardless API error {response.status_code}: {payload}")
+        message = payload.get("message") if isinstance(payload, dict) else None
+        if not message and isinstance(payload, dict):
+            errors = payload.get("errors")
+            if isinstance(errors, list) and errors:
+                first = errors[0]
+                if isinstance(first, dict) and first.get("message"):
+                    field = str(first.get("field") or "").strip()
+                    message = f"{field}: {first['message']}" if field else str(first["message"])
+        detail = message or str(payload)
+        raise GoCardlessProviderError(f"GoCardless API error {response.status_code}: {detail}")
 
     @staticmethod
     def start_gocardless_redirect_flow(
@@ -477,12 +498,11 @@ class BillingService:
                 "session_token": session_token,
                 "success_redirect_url": success_url,
                 "prefilled_customer": {"email": user.email},
-                "metadata": {
-                    "org_id": org_id,
-                    "user_id": user_id,
-                    "plan_id": plan.id,
-                    "plan_code": plan.code,
-                },
+                "metadata": BillingService._gocardless_metadata(
+                    org_id=org_id,
+                    plan_id=plan.id,
+                    client_email=user.email,
+                ),
             }
         }
 
@@ -568,6 +588,10 @@ class BillingService:
         if not mandate_id:
             raise GoCardlessProviderError("GoCardless did not return a mandate")
 
+        user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+        prefilled_email = str((completed_flow.get("prefilled_customer") or {}).get("email") or "").strip()
+        client_email = prefilled_email or (user.email if user else "")
+
         subscription_payload = {
             "subscriptions": {
                 "amount": int(plan.price_gbp_pence or 0),
@@ -575,13 +599,11 @@ class BillingService:
                 "name": f"VOXBULK.COM {plan.name}",
                 "interval_unit": "monthly" if plan.interval == "monthly" else str(plan.interval or "monthly"),
                 "links": {"mandate": mandate_id},
-                "metadata": {
-                    "org_id": org_id,
-                    "user_id": user_id,
-                    "plan_id": plan.id,
-                    "plan_code": plan.code,
-                    "client_email": str((completed_flow.get("prefilled_customer") or {}).get("email") or ""),
-                },
+                "metadata": BillingService._gocardless_metadata(
+                    org_id=org_id,
+                    plan_id=plan.id,
+                    client_email=client_email,
+                ),
             }
         }
         with httpx.Client(timeout=20) as client:
@@ -618,11 +640,11 @@ class BillingService:
 
         try:
             from app.models.organisation import Organisation
-            from app.models.user import User
             from app.services.invoice_service import InvoiceService
 
             org = db.get(Organisation, org_id)
-            user = db.get(User, user_id)
+            if user is None:
+                user = db.get(User, user_id)
             prefilled_email = str((completed_flow.get("prefilled_customer") or {}).get("email") or "").strip()
             client_email = prefilled_email or (org.contact_email if org else "") or (user.email if user else "")
             if client_email:
@@ -698,12 +720,11 @@ class BillingService:
                 "session_token": session_token,
                 "success_redirect_url": success_url,
                 "prefilled_customer": {"email": user.email},
-                "metadata": {
-                    "org_id": org_id,
-                    "user_id": user_id,
-                    "service_order_id": order.id,
-                    "service_code": order.service_code,
-                },
+                "metadata": BillingService._gocardless_metadata(
+                    org_id=org_id,
+                    service_order_id=order.id,
+                    client_email=user.email,
+                ),
             }
         }
 
@@ -797,11 +818,11 @@ class BillingService:
                 "currency": "GBP",
                 "description": f"VOXBULK {order.service_code} — {order.title}"[:255],
                 "links": {"mandate": mandate_id},
-                "metadata": {
-                    "org_id": org_id,
-                    "service_order_id": order.id,
-                    "service_code": order.service_code,
-                },
+                "metadata": BillingService._gocardless_metadata(
+                    org_id=org_id,
+                    service_order_id=order.id,
+                    client_email=str((completed_flow.get("prefilled_customer") or {}).get("email") or ""),
+                ),
             }
         }
         with httpx.Client(timeout=20) as client:
