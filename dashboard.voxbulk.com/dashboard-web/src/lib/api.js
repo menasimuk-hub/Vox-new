@@ -1,11 +1,36 @@
+function productionApiOrigin() {
+  if (typeof window === 'undefined') return ''
+  if (window.location.hostname === 'dashboard.voxbulk.com') return 'https://api.voxbulk.com'
+  return ''
+}
+
 export function getApiBaseUrl() {
   const raw = (import.meta?.env?.VITE_API_BASE_URL || import.meta?.env?.VITE_RETOVER_API_BASE_URL || '')
     .trim()
     .replace(/\/+$/, '')
-  if (raw) return raw
+
+  if (raw) {
+    try {
+      const configured = new URL(raw.includes('://') ? raw : `https://${raw}`)
+      if (
+        typeof window !== 'undefined' &&
+        configured.hostname === window.location.hostname
+      ) {
+        // Misconfigured build (e.g. VITE_API_BASE_URL=https://dashboard.voxbulk.com) — static nginx returns 405 on PATCH.
+        const fallback = productionApiOrigin()
+        if (fallback) return fallback
+      }
+      return configured.origin
+    } catch {
+      /* use defaults below */
+    }
+  }
+
   if (typeof window !== 'undefined') {
     const h = window.location.hostname
     if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return ''
+    const prod = productionApiOrigin()
+    if (prod) return prod
   }
   return ''
 }
