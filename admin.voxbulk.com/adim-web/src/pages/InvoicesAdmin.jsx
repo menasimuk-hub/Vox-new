@@ -409,7 +409,7 @@ export default function InvoicesAdmin() {
                       <th>Amount</th>
                       <th>Status</th>
                       <th>Tags</th>
-                      <th>Email</th>
+                      <th>Sent</th>
                       <th>Description</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
