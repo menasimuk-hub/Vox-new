@@ -6,12 +6,16 @@ const PLAN_ICON_CLASS = ['pig', 'pip', 'pia']
 
 const state = {
   plans: [],
+  plansLoading: false,
+  plansError: '',
   subscription: null,
   currentPlan: null,
   usage: null,
   invoices: [],
   busyPlanId: null,
   paymentOptions: null,
+  checkoutStatus: 'idle', // idle | loading | error | return-error
+  checkoutMessage: '',
 }
 
 function paymentOptions() {
@@ -20,10 +24,6 @@ function paymentOptions() {
 
 function gocardlessAvailable() {
   return Boolean(paymentOptions().gocardless_available || state.subscription?.gocardless_checkout_available)
-}
-
-function cashAvailable() {
-  return paymentOptions().cash_available !== false
 }
 
 function billingQueryParam(name) {
@@ -38,10 +38,38 @@ function clearBillingQuery() {
   try {
     const url = new URL(window.location.href)
     url.searchParams.delete('billing')
+    url.searchParams.delete('redirect_flow_id')
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
   } catch {
     /* ignore */
   }
+}
+
+function setCheckoutStatus(status, message = '') {
+  state.checkoutStatus = status
+  state.checkoutMessage = message
+  renderCheckoutStatus()
+}
+
+function renderCheckoutStatus() {
+  const el = document.getElementById('packages-checkout-status')
+  if (!el) return
+
+  const { checkoutStatus, checkoutMessage } = state
+  if (checkoutStatus === 'idle' || !checkoutMessage) {
+    el.hidden = true
+    el.textContent = ''
+    el.className = 'billing-checkout-status'
+    return
+  }
+
+  el.hidden = false
+  el.textContent = checkoutMessage
+  el.className = `billing-checkout-status billing-checkout-status--${checkoutStatus}`
+}
+
+function logBilling(event, detail = {}) {
+  console.info(`[billing] ${event}`, detail)
 }
 
 async function completeGocardlessReturn() {
@@ -49,6 +77,7 @@ async function completeGocardlessReturn() {
   if (billing === 'cancelled') {
     sessionStorage.removeItem(GC_FLOW_KEY)
     clearBillingQuery()
+    setCheckoutStatus('error', 'Payment setup was cancelled. You can choose a plan again when ready.')
     if (typeof window.toast === 'function') window.toast('Payment setup cancelled.', 'tw')
     return
   }
@@ -58,9 +87,14 @@ async function completeGocardlessReturn() {
   sessionStorage.removeItem(GC_FLOW_KEY)
   clearBillingQuery()
   if (!redirectFlowId) {
-    if (typeof window.toast === 'function') window.toast('Payment completed — refresh if your plan did not update.', 'tw')
+    const msg = 'Payment completed at GoCardless, but no checkout session was found. Please refresh or contact support.'
+    setCheckoutStatus('return-error', msg)
+    logBilling('complete_skipped_missing_redirect_flow_id')
+    if (typeof window.toast === 'function') window.toast(msg, 'tw')
     return
   }
+
+  setCheckoutStatus('loading', 'Completing your subscription…')
 
   try {
     const result = await apiFetch('/billing/subscription/gocardless/complete', {
@@ -75,26 +109,34 @@ async function completeGocardlessReturn() {
     }
     await loadBillingData()
     renderAll()
+    setCheckoutStatus('idle')
     const planName = result?.plan?.name || 'your new plan'
     if (typeof window.toast === 'function') window.toast(`Subscription updated to ${planName}.`, 'tg')
   } catch (e) {
     const message = e?.message || 'Could not complete GoCardless checkout'
+    setCheckoutStatus('return-error', message)
+    logBilling('complete_failed', { redirectFlowId, message, status: e?.status })
     if (typeof window.toast === 'function') window.toast(message, 'tr')
     else window.alert(message)
   }
 }
 
 async function startGocardlessUpgrade(plan) {
+  logBilling('gocardless_start_request', { planId: plan.id, planCode: plan.code })
+
   const result = await apiFetch('/billing/subscription/gocardless/start', {
     method: 'POST',
     body: JSON.stringify({ plan_id: plan.id }),
   })
+
   const redirectFlowId = result?.redirect_flow_id
   const authorizationUrl = result?.authorization_url
   if (!redirectFlowId || !authorizationUrl) {
     throw new Error('GoCardless did not return a checkout URL')
   }
+
   sessionStorage.setItem(GC_FLOW_KEY, redirectFlowId)
+  logBilling('gocardless_start_redirect', { planId: plan.id, redirectFlowId, environment: result?.environment })
   window.location.assign(authorizationUrl)
 }
 
@@ -131,13 +173,14 @@ function parseFeatures(plan) {
 }
 
 function planButtonLabel(plan, currentPlan) {
+  if (state.busyPlanId === plan.id) return 'Redirecting to GoCardless…'
   if (!currentPlan) return `Choose ${plan.name}`
   if (plan.id === currentPlan.id) return 'Current plan'
   const oldPrice = Number(currentPlan.price_gbp_pence || 0)
   const newPrice = Number(plan.price_gbp_pence || 0)
   if (newPrice > oldPrice) return `Upgrade to ${plan.name}`
   if (newPrice < oldPrice) return `Downgrade to ${plan.name}`
-  return 'Current plan'
+  return `Switch to ${plan.name}`
 }
 
 function planButtonClass(plan, currentPlan) {
@@ -149,11 +192,12 @@ function planButtonClass(plan, currentPlan) {
 
 function renderPlanCard(plan, index, currentPlan, onSelect) {
   const isCurrent = currentPlan && plan.id === currentPlan.id
+  const isBusy = state.busyPlanId === plan.id
   const isFeatured = index === 1 && (state.plans?.length || 0) >= 2
   const features = parseFeatures(plan)
   const icon = PLAN_ICONS[index % PLAN_ICONS.length]
   const iconClass = PLAN_ICON_CLASS[index % PLAN_ICON_CLASS.length]
-  const interval = plan.interval === 'year' ? '/yr' : '/mo'
+  const interval = plan.interval === 'year' || plan.interval === 'yearly' ? '/yr' : '/mo'
   const creditLine = plan.overage_per_min_pence
     ? `Extra usage at ${fmtGbpPrecise(plan.overage_per_min_pence)}/min`
     : plan.description || 'Monthly subscription'
@@ -168,17 +212,14 @@ function renderPlanCard(plan, index, currentPlan, onSelect) {
     <div class="ppr">${fmtGbp(plan.price_gbp_pence)}<span>${interval}</span></div>
     <div class="pcr">${escapeHtml(creditLine)}</div>
     ${features.map((f) => `<div class="pfe"><i class="ti ti-check ck"></i>${escapeHtml(f)}</div>`).join('')}
-    <button class="${planButtonClass(plan, currentPlan)}" type="button" ${isCurrent ? 'disabled' : ''}>
+    <button class="${planButtonClass(plan, currentPlan)}" type="button" ${isCurrent || isBusy || Boolean(state.busyPlanId) ? 'disabled' : ''}>
       ${escapeHtml(planButtonLabel(plan, currentPlan))}
     </button>
   `
 
   const btn = card.querySelector('button')
-  if (btn && !isCurrent) {
-    btn.disabled = Boolean(state.busyPlanId)
+  if (btn && !isCurrent && !state.busyPlanId) {
     btn.addEventListener('click', () => onSelect(plan))
-  } else if (btn && state.busyPlanId) {
-    btn.disabled = true
   }
   return card
 }
@@ -201,6 +242,16 @@ function renderPlanGrid(containerId, onSelect) {
   if (!grid) return
   grid.innerHTML = ''
 
+  if (state.plansLoading) {
+    grid.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--t3);font-size:13px">Loading subscription plans…</div>'
+    return
+  }
+
+  if (state.plansError) {
+    grid.innerHTML = `<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--red,#dc2626);font-size:13px">${escapeHtml(state.plansError)}</div>`
+    return
+  }
+
   if (!state.plans.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--t3);font-size:13px">No subscription plans available.</div>'
     return
@@ -214,8 +265,7 @@ function renderPlanGrid(containerId, onSelect) {
 function renderBillingSummary() {
   const plan = state.currentPlan
   const sub = state.subscription?.subscription || state.subscription
-  const pending = state.subscription?.pending_plan
-  setText('billing-plan-name', pending ? `${plan?.name || 'No plan'} (pending: ${pending.name})` : (plan?.name || 'No plan'))
+  setText('billing-plan-name', plan?.name || 'No plan')
   setText(
     'billing-plan-renew',
     sub?.current_period_end ? `Renews ${fmtDate(sub.current_period_end)}` : 'No renewal date',
@@ -252,7 +302,6 @@ function renderBillingSummary() {
   }
 
   const planEl = document.querySelector('.uplan')
-  const orgName = document.querySelector('.unm')?.textContent || 'Your clinic'
   const email = planEl?.textContent?.includes('·') ? planEl.textContent.split('·').slice(1).join('·').trim() : ''
   if (planEl && plan?.name) {
     planEl.textContent = email ? `${plan.name} · ${email}` : `${plan.name} · Profile area`
@@ -300,92 +349,82 @@ function renderInvoicesList() {
 }
 
 async function loadBillingData() {
-  const [plansRes, subRes, usageRes, optionsRes, invoicesRes] = await Promise.all([
-    apiFetch('/billing/plans').catch(() => []),
-    apiFetch('/billing/subscription').catch(() => null),
-    apiFetch('/billing/usage-summary').catch(() => null),
-    apiFetch('/billing/payment-options').catch(() => null),
-    apiFetch('/billing/invoices').catch(() => []),
-  ])
+  state.plansLoading = true
+  state.plansError = ''
+  renderPlanGrid('packages-plan-grid', purchaseSubscriptionPlan)
+  renderPlanGrid('billing-plan-grid', purchaseSubscriptionPlan)
 
-  state.plans = Array.isArray(plansRes) ? plansRes : []
-  state.subscription = subRes
-  state.currentPlan = subRes?.plan || null
-  state.usage = usageRes?.usage || null
-  state.paymentOptions = optionsRes || subRes?.payment_options || null
-  state.invoices = Array.isArray(invoicesRes) ? invoicesRes : []
+  try {
+    const [plansRes, subRes, usageRes, optionsRes, invoicesRes] = await Promise.all([
+      apiFetch('/billing/plans'),
+      apiFetch('/billing/subscription').catch(() => null),
+      apiFetch('/billing/usage-summary').catch(() => null),
+      apiFetch('/billing/payment-options').catch(() => null),
+      apiFetch('/billing/invoices').catch(() => []),
+    ])
+
+    state.plans = Array.isArray(plansRes) ? plansRes : []
+    state.subscription = subRes
+    state.currentPlan = subRes?.plan || null
+    state.usage = usageRes?.usage || null
+    state.paymentOptions = optionsRes || subRes?.payment_options || null
+    state.invoices = Array.isArray(invoicesRes) ? invoicesRes : []
+    state.plansError = ''
+  } catch (e) {
+    state.plans = []
+    state.plansError = e?.message || 'Could not load subscription plans'
+    logBilling('plans_load_failed', { message: state.plansError })
+  } finally {
+    state.plansLoading = false
+  }
 }
 
-function confirmPlanChange(plan) {
-  const label = planButtonLabel(plan, state.currentPlan)
-  const gc = gocardlessAvailable()
-  const cash = cashAvailable()
-  const pending = state.subscription?.pending_plan
-
-  if (pending && pending.id === plan.id) {
-    const msg = 'This plan change is already submitted and waiting for admin approval (cash payment).'
-    if (typeof window.toast === 'function') window.toast(msg, 'tw')
-    else window.alert(msg)
-    return
-  }
-
-  if (gc && cash) {
-    const useGc = window.confirm(
-      `${label}?\n\nOK = Pay with GoCardless (sandbox, activates automatically)\nCancel = Pay cash (testing, admin approval required)`,
-    )
-    applyPlanChange(plan, useGc ? 'gocardless' : 'cash')
-    return
-  }
-
-  if (gc) {
-    applyPlanChange(plan, 'gocardless')
-    return
-  }
-
-  const msg = `${label}? Cash payment requires admin approval before your plan changes.`
-  if (typeof window.showConfirm === 'function') {
-    window.showConfirm('Cash payment (testing)', msg, 'Submit for approval', () => applyPlanChange(plan, 'cash'))
-    return
-  }
-  if (window.confirm(msg)) applyPlanChange(plan, 'cash')
-}
-
-async function applyPlanChange(plan, method = 'cash') {
+function purchaseSubscriptionPlan(plan) {
   if (state.busyPlanId) return
+
+  if (state.currentPlan && plan.id === state.currentPlan.id) {
+    return
+  }
+
+  if (!gocardlessAvailable()) {
+    const msg = 'Online checkout is not available yet. Ask your admin to enable GoCardless in Integrations.'
+    setCheckoutStatus('error', msg)
+    if (typeof window.toast === 'function') window.toast(msg, 'tw')
+    return
+  }
+
+  const label = planButtonLabel(plan, state.currentPlan)
+  const confirmed = window.confirm(
+    `${label}?\n\nYou will be redirected to GoCardless to set up your subscription payment.`,
+  )
+  if (!confirmed) return
+
+  void startPlanPurchase(plan)
+}
+
+async function startPlanPurchase(plan) {
+  if (state.busyPlanId) return
+
   state.busyPlanId = plan.id
+  setCheckoutStatus('loading', `Starting GoCardless checkout for ${plan.name}…`)
   renderAll()
 
   try {
-    if (method === 'gocardless') {
-      await startGocardlessUpgrade(plan)
-      return
-    }
-
-    const result = await apiFetch('/billing/subscription/change-plan', {
-      method: 'POST',
-      body: JSON.stringify({ plan_id: plan.id }),
-    })
-    await loadBillingData()
-    renderAll()
-
-    const pendingName = result?.pending_plan?.name || plan.name
-    const message = result?.awaiting_admin_approval
-      ? `Cash payment submitted for ${pendingName}. An admin must approve before it activates.`
-      : `Plan change submitted for ${pendingName}.`
-    if (typeof window.toast === 'function') window.toast(message, 'tg')
+    await startGocardlessUpgrade(plan)
   } catch (e) {
-    const message = e?.message || 'Could not change plan'
-    if (typeof window.toast === 'function') window.toast(message, 'tr')
-    else window.alert(message)
-  } finally {
+    const message = e?.message || 'Could not start GoCardless checkout'
     state.busyPlanId = null
+    setCheckoutStatus('error', message)
+    logBilling('gocardless_start_failed', { planId: plan.id, message, status: e?.status })
     renderAll()
+    if (typeof window.toast === 'function') window.toast(message, 'tr')
   }
 }
 
 function renderAll() {
-  renderPlanGrid('packages-plan-grid', confirmPlanChange)
-  renderPlanGrid('billing-plan-grid', confirmPlanChange)
+  renderCheckoutStatus()
+  renderPlanGrid('packages-plan-grid', purchaseSubscriptionPlan)
+  renderPlanGrid('billing-plan-grid', purchaseSubscriptionPlan)
   renderBillingSummary()
   renderInvoicesList()
 }

@@ -448,6 +448,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tog.off .togth{left:2.5px}
 
 /* ─── PRICING ─── */
+.billing-checkout-status{
+  margin-bottom:12px;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5;
+  border:1.5px solid var(--b2);background:var(--s2);color:var(--t1);
+}
+.billing-checkout-status--loading{border-color:var(--blu,#2563eb);background:var(--bd,#eff6ff);color:var(--t1)}
+.billing-checkout-status--error,
+.billing-checkout-status--return-error{border-color:#fecaca;background:#fef2f2;color:#991b1b}
 .plan-g{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:18px}
 .plan{border:1.5px solid var(--b1);border-radius:14px;padding:18px;background:var(--s1);position:relative;transition:var(--transition)}
 .plan:hover{border-color:var(--b2);box-shadow:0 4px 16px rgba(0,0,0,.06)}

@@ -906,7 +906,7 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
             <div style="background:var(--s2);border:1.5px solid var(--b2);border-radius:20px;padding:5px 13px;font-size:11.5px;color:var(--t2);display:flex;align-items:center;gap:5px;font-weight:500"><i class="ti ti-check" style="color:var(--grn);font-size:13px"></i>Overage shown before billing</div>
           </div>
         </div>
-        <div class="tgl-r"><span class="tgl-l on" id="tl-m">Monthly</span><div class="tgl-tr" id="tgl" onclick="tb()"><div class="tgl-th"></div></div><span class="tgl-l" id="tl-y">Yearly <span class="stag">Save 20%</span></span></div>
+        <div id="packages-checkout-status" class="billing-checkout-status" hidden aria-live="polite"></div>
         <div class="plan-g" id="packages-plan-grid">
           <div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--t3);font-size:13px">Loading subscription plans…</div>
         </div>
