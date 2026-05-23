@@ -402,11 +402,11 @@ export default function LeadSources() {
   }
 
   return (
-    <>
+    <div className='leadSourcesPage'>
       <div className='pageTop'>
         <div>
           <h1>Lead sources</h1>
-          <p>Website Talk to us calls — Vapi and Telnyx leads load full transcript and recording from their APIs (same as their dashboards).</p>
+          <p className='leadSourcesIntro'>Talk-to-us intake calls — transcript and recording from Vapi or Telnyx.</p>
         </div>
         <div className='actions'>
           <select className='input' style={{ width: 'auto', minWidth: 160 }} value={filterSales} onChange={(e) => setFilterSales(e.target.value)}>
@@ -430,14 +430,14 @@ export default function LeadSources() {
             <table className='leadSourcesTable'>
               <thead>
                 <tr>
-                  <th>Lead</th>
-                  <th>Lead code</th>
-                  <th>Duration</th>
-                  <th>Interest</th>
-                  <th>Status</th>
-                  <th>Sentiment</th>
-                  <th>Sales</th>
-                  <th>Call</th>
+                  <th className='col-lead'>Lead</th>
+                  <th className='col-code'>Code</th>
+                  <th className='col-duration'>Time</th>
+                  <th className='col-interest'>Interest</th>
+                  <th className='col-status'>Status</th>
+                  <th className='col-sentiment'>Feel</th>
+                  <th className='col-sales'>Sales</th>
+                  <th className='col-call'>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -447,23 +447,27 @@ export default function LeadSources() {
                   const canOpen = Boolean(lead.provider_call_id || lead.transcript_available || lead.recording_available)
                   return (
                     <tr key={lead.id} className={active ? 'isActive' : ''} onClick={() => setSelectedId(lead.id)}>
-                      <td>
+                      <td className='col-lead'>
                         <div className='leadIdentity'>
                           <span className='leadAvatar'>{initials(lead.contact_name, lead.company_name)}</span>
-                          <span>
-                            <strong>{lead.contact_name || 'Unknown'}</strong>
-                            <span className='muted leadSub'>{lead.company_name}</span>
+                          <span className='leadIdentityText'>
+                            <span className='leadName'>{lead.contact_name || 'Unknown'}</span>
+                            <span className='muted leadSub'>{lead.company_name || '—'}</span>
                           </span>
                         </div>
                       </td>
-                      <td><code className='leadCode'>{lead.lead_code || '—'}</code></td>
-                      <td><span className='leadDuration'>⏱ {lead.duration_label || '—'}</span></td>
-                      <td className='leadTask'>{interest}</td>
-                      <td><span className={pillClass('recommendation', lead.recommendation)}>{lead.recommendation || 'hold'}</span></td>
-                      <td><span className={pillClass('sentiment', lead.sentiment)}>{lead.sentiment || 'neutral'}</span></td>
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td className='col-code'><code className='leadCode'>{lead.lead_code || '—'}</code></td>
+                      <td className='col-duration'><span className='leadDuration'>{lead.duration_label || '—'}</span></td>
+                      <td className='leadTask col-interest' title={interest}>{interest}</td>
+                      <td className='col-status'><span className={pillClass('recommendation', lead.recommendation)}>{lead.recommendation || 'hold'}</span></td>
+                      <td className='col-sentiment'><span className={pillClass('sentiment', lead.sentiment)}>{lead.sentiment || 'neutral'}</span></td>
+                      <td className='col-sales' onClick={(e) => e.stopPropagation()}>
                         {lead.sales_task?.id ? (
-                          <Link className='leadPlayBtn' to={`/marketing/lead-sales/${lead.sales_task.id}`}>
+                          <Link
+                            className='leadPlayBtn leadPlayBtnLink'
+                            to={`/marketing/lead-sales/${lead.sales_task.id}`}
+                            title={lead.sales_task.outcome_label || lead.sales_task.status || 'Open sales task'}
+                          >
                             {lead.sales_task.outcome_label || lead.sales_task.status || 'Open'}
                           </Link>
                         ) : lead.wants_sales_call ? (
@@ -473,28 +477,41 @@ export default function LeadSources() {
                             disabled={creatingSalesTask}
                             onClick={() => createSalesTask(lead)}
                           >
-                            Create task
+                            + Task
                           </button>
                         ) : (
-                          <span className='muted'>—</span>
+                          <span className='leadMutedDash'>—</span>
                         )}
                       </td>
-                      <td>
+                      <td className='col-call'>
                         <div className='leadCallActions' onClick={(e) => e.stopPropagation()}>
-                          <button type='button' className='leadPlayBtn' disabled={!canOpen} onClick={() => openTranscriptModal(lead)}>
-                            Transcript
+                          <button
+                            type='button'
+                            className='leadPlayBtn'
+                            disabled={!canOpen}
+                            title='View transcript'
+                            onClick={() => openTranscriptModal(lead)}
+                          >
+                            Text
                           </button>
-                          <button type='button' className='leadPlayBtn' disabled={!canOpen} onClick={() => openAudioModal(lead)}>
-                            ▶ Play
+                          <button
+                            type='button'
+                            className='leadPlayBtn'
+                            disabled={!canOpen}
+                            title='Play recording'
+                            onClick={() => openAudioModal(lead)}
+                          >
+                            Play
                           </button>
                           {isTelnyxLead(lead) ? (
                             <button
                               type='button'
-                              className='leadPlayBtn'
+                              className='leadPlayBtn leadPlayBtnSync'
                               disabled={syncingTelnyxId === lead.id}
+                              title='Sync Telnyx transcript and recording'
                               onClick={() => syncTelnyxLead(lead)}
                             >
-                              {syncingTelnyxId === lead.id ? 'Sync…' : 'Sync Telnyx'}
+                              {syncingTelnyxId === lead.id ? '…' : 'Sync'}
                             </button>
                           ) : null}
                         </div>
@@ -663,6 +680,6 @@ export default function LeadSources() {
           ) : null}
         </LeadModal>
       ) : null}
-    </>
+    </div>
   )
 }
