@@ -364,10 +364,10 @@ function planButtonClass(plan, currentPlan) {
 }
 
 function renderPlanCard(plan, index, currentPlan, onSelect, options = {}) {
-  const { compact = false } = options
+  const { compact = false, billingGrid = false } = options
   const isCurrent = currentPlan && String(plan.id) === String(currentPlan.id)
   const isBusy = state.busyPlanId === plan.id
-  const isFeatured = !compact && index === 1 && (state.plans?.length || 0) >= 2 && !isCurrent
+  const isFeatured = !compact && !billingGrid && index === 1 && (state.plans?.length || 0) >= 2 && !isCurrent
   const features = parseFeatures(plan)
   const icon = PLAN_ICONS[index % PLAN_ICONS.length]
   const iconClass = PLAN_ICON_CLASS[index % PLAN_ICON_CLASS.length]
@@ -375,26 +375,33 @@ function renderPlanCard(plan, index, currentPlan, onSelect, options = {}) {
   const creditLine = plan.overage_per_min_pence
     ? `Extra usage at ${fmtGbpPrecise(plan.overage_per_min_pence)}/min`
     : plan.description || 'Monthly subscription'
-  const visibleFeatures = compact ? features.slice(0, 2) : features
+  const visibleFeatures = billingGrid ? features : compact ? features.slice(0, 2) : features
+  const showIcon = billingGrid || !compact || isCurrent
+  const showDescription = billingGrid || !compact
+  const btnLabel = planButtonLabel(plan, currentPlan)
+  const btnClass = planButtonClass(plan, currentPlan)
 
   const card = document.createElement('div')
-  card.className = `plan${compact ? ' plan-compact' : ''}${isCurrent ? ' plan-current' : ''}${isFeatured ? ' ft' : ''}`
+  card.className = `plan${compact ? ' plan-compact' : ''}${billingGrid ? ' plan-billing' : ''}${isCurrent ? ' plan-current' : ''}${isFeatured ? ' ft' : ''}`
   card.innerHTML = `
     ${isCurrent ? '<div class="pptop plan-current-badge">Your plan</div>' : isFeatured ? '<div class="pptop">Popular</div>' : ''}
-    ${compact && !isCurrent ? '' : `<div class="pic ${iconClass}"><i class="ti ${icon}"></i></div>`}
+    ${showIcon ? `<div class="pic ${iconClass}"><i class="ti ${icon}"></i></div>` : ''}
     <div class="pnm">${escapeHtml(plan.name)}</div>
     <div class="pfor">${escapeHtml(plan.code)}</div>
     <div class="ppr">${fmtGbp(plan.price_gbp_pence)}<span>${interval}</span></div>
-    ${compact ? '' : `<div class="pcr">${escapeHtml(creditLine)}</div>`}
+    ${showDescription ? `<div class="pcr">${escapeHtml(creditLine)}</div>` : ''}
     ${visibleFeatures.map((f) => `<div class="pfe"><i class="ti ti-check ck"></i>${escapeHtml(f)}</div>`).join('')}
-    <button class="${planButtonClass(plan, currentPlan)}" type="button" ${isCurrent || isBusy || Boolean(state.busyPlanId) ? 'disabled' : ''}>
-      ${escapeHtml(planButtonLabel(plan, currentPlan))}
+    <button class="${btnClass} plan-action-btn" type="button" ${isCurrent || isBusy || Boolean(state.busyPlanId) ? 'disabled' : ''}>
+      ${escapeHtml(btnLabel)}
     </button>
   `
 
   const btn = card.querySelector('button')
   if (btn && !isCurrent && !state.busyPlanId) {
-    btn.addEventListener('click', () => onSelect(plan))
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      onSelect(plan)
+    })
   }
   return card
 }
@@ -415,9 +422,9 @@ function setText(id, value) {
 function renderPlanGrid(containerId, onSelect) {
   const grid = document.getElementById(containerId)
   if (!grid) return
-  const compact = containerId === 'billing-plan-grid'
+  const isBillingGrid = containerId === 'billing-plan-grid'
   grid.innerHTML = ''
-  grid.className = compact ? 'plan-g plan-g-compact plan-g-inline plan-g-billing' : 'plan-g'
+  grid.className = isBillingGrid ? 'plan-g plan-g-billing' : 'plan-g'
 
   if (state.plansLoading) {
     grid.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--t3);font-size:13px">Loading subscription plans…</div>'
@@ -437,7 +444,12 @@ function renderPlanGrid(containerId, onSelect) {
 
   const currentPlan = syncCurrentPlan()
   plans.forEach((plan, index) => {
-    grid.appendChild(renderPlanCard(plan, index, currentPlan, onSelect, { compact }))
+    grid.appendChild(
+      renderPlanCard(plan, index, currentPlan, onSelect, {
+        compact: false,
+        billingGrid: isBillingGrid,
+      }),
+    )
   })
 }
 
@@ -470,7 +482,7 @@ function renderBillingSummary() {
   const hintEl = document.getElementById('billing-change-plan-hint')
   if (hintEl) {
     if (plan) {
-      hintEl.textContent = 'Use Upgrade or Downgrade on another plan below. Limits update immediately; overage is billed at period end.'
+      hintEl.textContent = 'Each card shows full plan details. Use Upgrade or Downgrade on the plan you want — limits update immediately; overage is billed at period end.'
     } else if (fallbackName) {
       hintEl.textContent = `Your usage is on the ${fallbackName} allowance. Pick a subscription plan below to manage billing and plan changes.`
     } else {
