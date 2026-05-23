@@ -1704,7 +1704,7 @@ def call_now_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), 
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
     try:
-        row = execute_sales_outbound_call(db, row)
+        row = execute_sales_outbound_call(db, row, ignore_calling_hours=True)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     lead = db.get(FrontpageLeadCall, row.lead_id)

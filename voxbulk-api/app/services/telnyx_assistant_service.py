@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
 from app.services.telnyx_api_key import require_telnyx_api_key
+
+logger = logging.getLogger(__name__)
 
 RECORDING_SUFFIX = "This call is recorded for quality — see voxbulk.com for privacy."
 
@@ -183,6 +186,11 @@ def extract_agent_name_from_prompt(instructions: str) -> str:
     return "VoxBulk"
 
 
+def _normalize_greeting_for_compare(text: str) -> str:
+    """Loose compare — Telnyx may normalize punctuation/whitespace after save."""
+    return re.sub(r"\s+", " ", str(text or "").strip().lower())
+
+
 def personalize_greeting(greeting: str, *, first_name: str | None = None) -> str:
     """Apply {{first_name}} and common Hi there placeholders."""
     first = str(first_name or "").strip().split()[0] if str(first_name or "").strip() else "there"
@@ -205,6 +213,7 @@ def sync_telnyx_assistant_instructions(
     greeting: str | None = None,
     sync_greeting: bool = True,
     enable_web_calls: bool = True,
+    verify_live: bool = True,
 ) -> dict[str, Any]:
     """Push admin system prompt (and optional greeting) to the Telnyx assistant."""
     clean_id = normalize_telnyx_assistant_id(assistant_id)
@@ -220,26 +229,39 @@ def sync_telnyx_assistant_instructions(
         if pushed_greeting:
             body["greeting"] = pushed_greeting
     updated = _update_telnyx_assistant(db, clean_id, body)
-    live = resolve_telnyx_assistant_runtime(db, clean_id)
+    out: dict[str, Any] = {
+        **updated,
+        "greeting_pushed": bool(pushed_greeting),
+        "verify_live": verify_live,
+    }
+    if not verify_live:
+        return out
+    try:
+        live = resolve_telnyx_assistant_runtime(db, clean_id)
+    except Exception as exc:
+        logger.warning(
+            "telnyx_assistant_live_verify_skipped assistant_id=%s error=%s",
+            clean_id,
+            exc,
+        )
+        out["verify_warning"] = str(exc)
+        return out
     live_instructions = str(live.get("instructions") or "").strip()
     live_greeting = str(live.get("greeting") or "").strip()
+    out["verified_instructions_chars"] = len(live_instructions)
+    out["verified_greeting"] = live_greeting
+    out["verified_greeting_chars"] = len(live_greeting)
     if live_instructions != clean_instructions:
         raise ValueError(
             "Telnyx did not save instructions — live text differs after sync. "
             "Check assistant ID and API key in Integrations."
         )
-    if pushed_greeting and live_greeting != pushed_greeting:
+    if pushed_greeting and _normalize_greeting_for_compare(live_greeting) != _normalize_greeting_for_compare(pushed_greeting):
         raise ValueError(
             f"Telnyx did not save greeting ({len(pushed_greeting)} chars pushed, {len(live_greeting)} live). "
             "Save your greeting in admin and try again."
         )
-    return {
-        **updated,
-        "verified_instructions_chars": len(live_instructions),
-        "verified_greeting": live_greeting,
-        "verified_greeting_chars": len(live_greeting),
-        "greeting_pushed": bool(pushed_greeting),
-    }
+    return out
 
 
 def prepare_telnyx_webrtc_call(

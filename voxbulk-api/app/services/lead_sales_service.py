@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.frontpage_lead_call import FrontpageLeadCall
 from app.models.lead_sales_setting import LeadSalesSetting
 from app.models.lead_sales_task import LeadSalesTask
+from app.core.logging import get_logger
 from app.services.frontpage_lead_service import dump_kb_file_ids, parse_kb_file_ids
 from app.services.knowledge_base_service import (
     KB_SCOPE_SALES,
@@ -35,6 +36,8 @@ SALES_KB_MARKER = "## Sales knowledge base"
 
 
 TASK_STATUSES = {"scheduled", "calling", "paused", "completed", "failed", "cancelled", "no_answer"}
+
+logger = get_logger(__name__)
 
 
 def get_lead_sales_settings(db: Session) -> LeadSalesSetting:
@@ -726,14 +729,22 @@ def prepare_sales_outbound_call(
         contact_name=task.contact_name,
         saved_greeting=saved or None,
     )
-    sync_telnyx_assistant_instructions(
-        db,
-        assistant_id,
-        instructions,
-        greeting=greeting,
-        sync_greeting=True,
-        enable_web_calls=False,
-    )
+    try:
+        sync_telnyx_assistant_instructions(
+            db,
+            assistant_id,
+            instructions,
+            greeting=saved or None,
+            sync_greeting=bool(saved),
+            enable_web_calls=False,
+            verify_live=False,
+        )
+    except Exception as exc:
+        # Do not block the outbound dial — per-call prompt + greeting are sent on answer.
+        logger.warning(
+            "sales_pre_dial_sync_failed",
+            extra={"task_id": task.id, "assistant_id": assistant_id, "error": str(exc)},
+        )
     return assistant_id, instructions, greeting
 
 
@@ -767,19 +778,25 @@ def reset_sales_task_for_recall(db: Session, task: LeadSalesTask) -> LeadSalesTa
 
 def call_again_sales_task(db: Session, task: LeadSalesTask) -> LeadSalesTask:
     task = reset_sales_task_for_recall(db, task)
-    return execute_sales_outbound_call(db, task)
+    return execute_sales_outbound_call(db, task, ignore_calling_hours=True)
 
 
-def execute_sales_outbound_call(db: Session, task: LeadSalesTask) -> LeadSalesTask:
+def execute_sales_outbound_call(
+    db: Session,
+    task: LeadSalesTask,
+    *,
+    ignore_calling_hours: bool = False,
+) -> LeadSalesTask:
     if task.status == "paused":
         raise ValueError("Task is paused — resume it before calling")
     if task.status in {"cancelled", "completed", "no_answer"}:
         raise ValueError(f"Task is {task.status}")
 
     settings = get_lead_sales_settings(db)
-    ok_hours, hours_err = _within_calling_hours(task, settings)
-    if not ok_hours:
-        raise ValueError(hours_err or "Outside calling hours")
+    if not ignore_calling_hours:
+        ok_hours, hours_err = _within_calling_hours(task, settings)
+        if not ok_hours:
+            raise ValueError(hours_err or "Outside calling hours")
 
     phone = str(task.phone or "").strip()
     if not phone:
@@ -947,14 +964,14 @@ def handle_lead_sales_telnyx_event(db: Session, payload: dict[str, Any]) -> None
                 db.add(task)
                 db.commit()
                 return
-            # Always pass per-call instructions inline — shared Telnyx assistant would otherwise race.
+            # Per-call instructions inline — shared Telnyx assistant must not race between leads.
             result = TelnyxVoiceAdapter.start_ai_assistant(
                 call_control_id=call_id,
                 assistant_id=assistant_id,
                 config=config,
                 instructions=prompt,
                 greeting=greeting,
-                prepared=True,
+                prepared=False,
             )
             if not result.ok:
                 task.last_error = f"AI assistant did not start: {result.detail or result.status}"
