@@ -420,11 +420,51 @@ class BillingService:
         }
 
     @staticmethod
-    def _api_public_origin() -> str:
+    def _usable_dashboard_origin(origin: str) -> bool:
+        raw = str(origin or "").strip().rstrip("/")
+        if not raw.lower().startswith("https://"):
+            return False
+        lowered = raw.lower()
+        if "localhost" in lowered or "127.0.0.1" in lowered:
+            return False
+        if any(port in lowered for port in (":5173", ":5174", ":5175", ":8000")):
+            return False
+        host = lowered.split("://", 1)[-1].split("/")[0].split(":")[0]
+        return host.startswith("dashboard.")
+
+    @staticmethod
+    def _resolved_dashboard_origin() -> str:
         settings = get_settings()
-        dash = str(settings.dashboard_app_origin or "").rstrip("/")
+        configured = str(settings.dashboard_app_origin or "").strip().rstrip("/")
+        if BillingService._usable_dashboard_origin(configured):
+            return configured
+        if str(settings.env).lower() in {"production", "prod", "staging"}:
+            return "https://dashboard.voxbulk.com"
+        return configured or "http://localhost:5175"
+
+    @staticmethod
+    def _configured_redirect_url(config: dict[str, Any], key: str) -> str:
+        from urllib.parse import urlparse
+
+        raw = str(config.get(key) or "").strip()
+        if not raw:
+            return ""
+        parsed = urlparse(raw)
+        if not parsed.scheme or not parsed.netloc:
+            return ""
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        if not BillingService._usable_dashboard_origin(origin):
+            return ""
+        return raw
+
+    @staticmethod
+    def _api_public_origin() -> str:
+        dash = BillingService._resolved_dashboard_origin()
         if "dashboard." in dash:
             return dash.replace("dashboard.", "api.", 1)
+        settings = get_settings()
+        if str(settings.env).lower() in {"production", "prod", "staging"}:
+            return "https://api.voxbulk.com"
         return "http://127.0.0.1:8000"
 
     @staticmethod
@@ -437,18 +477,18 @@ class BillingService:
 
     @staticmethod
     def _default_success_url(config: dict[str, Any]) -> str:
-        configured = str(config.get("success_redirect_url") or "").strip()
+        configured = BillingService._configured_redirect_url(config, "success_redirect_url")
         if configured:
             return configured
-        origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+        origin = BillingService._resolved_dashboard_origin()
         return f"{origin}/packages?billing=success"
 
     @staticmethod
     def _default_cancel_url(config: dict[str, Any]) -> str:
-        configured = str(config.get("cancel_redirect_url") or "").strip()
+        configured = BillingService._configured_redirect_url(config, "cancel_redirect_url")
         if configured:
             return configured
-        origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+        origin = BillingService._resolved_dashboard_origin()
         return f"{origin}/packages?billing=cancelled"
 
     @staticmethod
@@ -506,8 +546,8 @@ class BillingService:
 
         config = BillingService._get_gocardless_config(db)
         session_token = secrets.token_urlsafe(32)
-        configured_success = str(config.get("success_redirect_url") or "").strip()
-        configured_cancel = str(config.get("cancel_redirect_url") or "").strip()
+        configured_success = BillingService._configured_redirect_url(config, "success_redirect_url")
+        configured_cancel = BillingService._configured_redirect_url(config, "cancel_redirect_url")
         if configured_success:
             success_url = configured_success
         else:
@@ -700,13 +740,13 @@ class BillingService:
 
     @staticmethod
     def _service_order_success_url(config: dict[str, Any], service_code: str) -> str:
-        origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+        origin = BillingService._resolved_dashboard_origin()
         path = "survey" if service_code == "survey" else "interview"
         return f"{origin}/{path}?order_billing=success"
 
     @staticmethod
     def _service_order_cancel_url(config: dict[str, Any], service_code: str) -> str:
-        origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+        origin = BillingService._resolved_dashboard_origin()
         path = "survey" if service_code == "survey" else "interview"
         return f"{origin}/{path}?order_billing=cancelled"
 

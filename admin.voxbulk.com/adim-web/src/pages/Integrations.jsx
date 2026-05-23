@@ -613,6 +613,19 @@ export default function Integrations() {
         if (token) config.access_token = token
         const webhookSecret = String(draft.webhook_secret_draft || '').trim()
         if (webhookSecret) config.webhook_secret = webhookSecret
+        for (const key of ['success_redirect_url', 'cancel_redirect_url']) {
+          const value = String(config[key] || '').trim()
+          const lower = value.toLowerCase()
+          const looksInvalid =
+            !value ||
+            lower.includes('localhost') ||
+            lower.includes('127.0.0.1') ||
+            lower.includes(':5173') ||
+            lower.includes(':5174') ||
+            lower.includes(':5175') ||
+            (lower.includes('voxbulk.com') && !lower.includes('dashboard.voxbulk.com'))
+          if (looksInvalid) delete config[key]
+        }
       }
       if (providerKey === 'telnyx') {
         if (config.default_outbound_number && !config.from_phone_number) config.from_phone_number = config.default_outbound_number
@@ -1752,11 +1765,12 @@ export default function Integrations() {
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Success redirect URL</label>
-                      <input className='input' value={String(activeConfig.success_redirect_url || 'http://localhost:5175/packages?billing=success')} onChange={(e) => setProviderField('gocardless', 'success_redirect_url', e.target.value)} />
+                      <input className='input' value={String(activeConfig.success_redirect_url || '')} placeholder='Leave blank — auto: dashboard via api.voxbulk.com hop' onChange={(e) => setProviderField('gocardless', 'success_redirect_url', e.target.value)} />
+                      <div className='muted' style={{ fontSize: 12 }}>Leave empty in production. Blank uses https://dashboard.voxbulk.com automatically.</div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Cancel / retry URL</label>
-                      <input className='input' value={String(activeConfig.cancel_redirect_url || 'http://localhost:5175/packages?billing=cancelled')} onChange={(e) => setProviderField('gocardless', 'cancel_redirect_url', e.target.value)} />
+                      <input className='input' value={String(activeConfig.cancel_redirect_url || '')} placeholder='Leave blank — auto: dashboard via api.voxbulk.com hop' onChange={(e) => setProviderField('gocardless', 'cancel_redirect_url', e.target.value)} />
                     </div>
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('gocardless')} disabled={providerSaving}>

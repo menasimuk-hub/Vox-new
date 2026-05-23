@@ -212,7 +212,7 @@ def gocardless_browser_return(
     row = db.execute(
         select(BillingRedirectFlow).where(BillingRedirectFlow.session_token == token)
     ).scalar_one_or_none()
-    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    origin = BillingService._resolved_dashboard_origin()
     billing_state = str(billing or "success").strip().lower()
     if billing_state not in {"success", "cancelled"}:
         billing_state = "success"
