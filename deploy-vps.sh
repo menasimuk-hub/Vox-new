@@ -82,6 +82,28 @@ api_deps_and_migrate() {
   pip install -q -U pip
   pip install -q -r requirements.txt
 
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+    if ! python -c "from weasyprint import HTML" 2>/dev/null; then
+      if command -v apt-get >/dev/null 2>&1; then
+        info "Installing WeasyPrint system libraries (styled invoice PDFs) …"
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+          libpango-1.0-0 libharfbuzz0b libpangoft2-1.0-0 \
+          libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info libcairo2 \
+          || warn "apt install for WeasyPrint failed — PDF may be plain text"
+      else
+        warn "WeasyPrint system libraries missing — invoice PDFs may be plain text"
+      fi
+      if python -c "from weasyprint import HTML" 2>/dev/null; then
+        info "WeasyPrint ready for invoice PDF rendering"
+      else
+        warn "WeasyPrint still unavailable — check apt packages above"
+      fi
+    fi
+  fi
+
   if [[ "${VOX_SKIP_MIGRATE:-0}" == "1" ]]; then
     warn "VOX_SKIP_MIGRATE=1 — skipping alembic"
     return
@@ -212,6 +234,10 @@ After deploy — manual checks
    - Re-upload on correct page, or SQL: UPDATE knowledge_base_files SET scope='lead'|sales'|org'
 
 5. Telnyx / SMTP secrets live in .env — never commit them.
+
+6. Invoice PDF styling requires WeasyPrint system libraries on Linux:
+   sudo apt-get install -y libpango-1.0-0 libharfbuzz0b libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info libcairo2
+   Then: pip install -r voxbulk-api/requirements.txt && ./vox.sh restart
 
 Known problems to watch:
 - origin vs voxnew remotes may differ; VPS should track voxnew/main

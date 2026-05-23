@@ -21,4 +21,5 @@ certifi
 truststore
 openpyxl
 fpdf2
+weasyprint==68.1
 azure-cognitiveservices-speech
