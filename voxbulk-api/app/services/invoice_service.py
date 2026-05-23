@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -14,6 +15,8 @@ from app.models.organisation import Organisation
 from app.services.country_vat_service import CountryVatService
 from app.services.email_template_service import EmailTemplateService
 from app.services.transactional_email_service import substitute_placeholders
+
+logger = logging.getLogger(__name__)
 
 
 def _money(pence: int, currency: str = "GBP") -> str:
@@ -300,6 +303,16 @@ class InvoiceService:
             country_code=country_code,
         )
         _, _, sent = BillingEventEmailService.issue_payment_invoice(db, invoice=invoice)
+        logger.info(
+            "invoice_issue_from_payment",
+            extra={
+                "org_id": org_id,
+                "external_invoice_id": external_invoice_id,
+                "invoice_id": invoice.id,
+                "created": True,
+                "emailed": sent,
+            },
+        )
         return invoice, True, sent
 
     @staticmethod

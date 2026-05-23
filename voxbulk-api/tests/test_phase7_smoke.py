@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from app.core.database import get_sessionmaker
 from app.core.security import hash_password
 from app.models.appointment import Appointment
+from app.models.billing_invoice import BillingInvoice
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.recovery_job import RecoveryJob
 from app.models.user import User
 from app.models.webhook_event import WebhookEvent
+from sqlalchemy import select
 
 
 def _seed_user(app_client, *, email: str = "phase7_user@example.com", superuser: bool = False):
@@ -87,17 +90,29 @@ def test_gocardless_sandbox_redirect_start_and_complete(app_client, monkeypatch)
     assert start.json()["environment"] == "sandbox"
     assert start.json()["authorization_url"] == "https://pay-sandbox.example/flow"
 
-    complete = app_client.post(
-        "/billing/subscription/gocardless/complete",
-        json={"redirect_flow_id": "RE_PHASE7"},
-        headers=headers,
-    )
+    with patch(
+        "app.services.billing_event_email_service.ProductEmailTriggers.notify_new_invoice",
+        return_value=(True, None),
+    ):
+        complete = app_client.post(
+            "/billing/subscription/gocardless/complete",
+            json={"redirect_flow_id": "RE_PHASE7"},
+            headers=headers,
+        )
     assert complete.status_code == 200
     body = complete.json()
     assert body["status"] == "completed"
     assert body["subscription"]["payment_provider"] == "gocardless"
     assert body["subscription"]["payment_mode"] == "sandbox"
     assert body["subscription"]["external_subscription_id"] == "SB_PHASE7"
+
+    with get_sessionmaker()() as db:
+        inv = db.execute(
+            select(BillingInvoice).where(BillingInvoice.external_invoice_id == "sub:SB_PHASE7:initial")
+        ).scalar_one()
+        assert inv.org_id == org_id
+        assert inv.provider == "gocardless"
+        assert inv.status == "paid"
 
 
 def test_gocardless_test_connection(app_client, monkeypatch):

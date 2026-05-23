@@ -7,9 +7,12 @@ final hosted checkout/redirect decisions before real provider writes are enabled
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from datetime import datetime, timedelta
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from sqlalchemy import func, select
@@ -608,6 +611,32 @@ class BillingService:
         }
 
     @staticmethod
+    def _activation_invoice_external_id(external_subscription_id: str, flow_id: str) -> str:
+        sub_id = str(external_subscription_id or "").strip()
+        if sub_id:
+            return f"sub:{sub_id}:initial"
+        return f"flow:{str(flow_id or '').strip()}:initial"
+
+    @staticmethod
+    def _log_gocardless_http_failure(step: str, *, redirect_flow_id: str, response: httpx.Response) -> None:
+        detail = ""
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                detail = str(payload.get("message") or payload.get("error") or "")[:300]
+        except Exception:
+            detail = (response.text or "")[:300]
+        logger.warning(
+            "gocardless_complete_api_failed",
+            extra={
+                "step": step,
+                "redirect_flow_id": redirect_flow_id,
+                "status_code": response.status_code,
+                "detail": detail,
+            },
+        )
+
+    @staticmethod
     def complete_gocardless_redirect_flow(
         db: Session,
         *,
@@ -619,6 +648,11 @@ class BillingService:
         if not flow_id:
             raise ValueError("redirect_flow_id required")
 
+        logger.info(
+            "gocardless_complete_start",
+            extra={"redirect_flow_id": flow_id, "org_id": org_id, "user_id": user_id},
+        )
+
         row = db.execute(
             select(BillingRedirectFlow).where(
                 BillingRedirectFlow.redirect_flow_id == flow_id,
@@ -626,6 +660,15 @@ class BillingService:
                 BillingRedirectFlow.user_id == user_id,
             )
         ).scalar_one_or_none()
+        logger.info(
+            "gocardless_complete_redirect_lookup",
+            extra={
+                "redirect_flow_id": flow_id,
+                "found": row is not None,
+                "flow_status": row.status if row else None,
+                "plan_id": row.plan_id if row else None,
+            },
+        )
         if row is None:
             raise ValueError("Billing redirect flow not found")
 
@@ -635,6 +678,10 @@ class BillingService:
 
         if row.status == "completed":
             sub = BillingService.get_subscription(db, org_id)
+            logger.info(
+                "gocardless_complete_already_done",
+                extra={"redirect_flow_id": flow_id, "org_id": org_id, "subscription_status": sub.status if sub else None},
+            )
             return {"ok": True, "status": "completed", "subscription": sub, "plan": plan}
 
         config = BillingService._get_gocardless_config(db)
@@ -644,11 +691,25 @@ class BillingService:
                 headers=BillingService._gocardless_headers(config["access_token"]),
                 json={"data": {"session_token": row.session_token}},
             )
+        if complete_response.status_code >= 400:
+            BillingService._log_gocardless_http_failure(
+                "redirect_flow_complete",
+                redirect_flow_id=flow_id,
+                response=complete_response,
+            )
         BillingService._raise_for_gocardless_error(complete_response)
         completed_flow = (complete_response.json().get("redirect_flows") or {})
         links = completed_flow.get("links") or {}
         mandate_id = str(links.get("mandate") or "").strip()
         customer_id = str(links.get("customer") or "").strip()
+        logger.info(
+            "gocardless_complete_api_success",
+            extra={
+                "redirect_flow_id": flow_id,
+                "mandate_id": mandate_id,
+                "customer_id": customer_id or None,
+            },
+        )
         if not mandate_id:
             raise GoCardlessProviderError("GoCardless did not return a mandate")
 
@@ -676,9 +737,23 @@ class BillingService:
                 headers=BillingService._gocardless_headers(config["access_token"]),
                 json=subscription_payload,
             )
+        if subscription_response.status_code >= 400:
+            BillingService._log_gocardless_http_failure(
+                "subscription_create",
+                redirect_flow_id=flow_id,
+                response=subscription_response,
+            )
         BillingService._raise_for_gocardless_error(subscription_response)
         provider_sub = subscription_response.json().get("subscriptions") or {}
         external_subscription_id = str(provider_sub.get("id") or "").strip()
+        logger.info(
+            "gocardless_subscription_created",
+            extra={
+                "redirect_flow_id": flow_id,
+                "mandate_id": mandate_id,
+                "external_subscription_id": external_subscription_id or None,
+            },
+        )
 
         now = datetime.utcnow()
         sub = db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
@@ -701,26 +776,47 @@ class BillingService:
         db.add(row)
         db.commit()
         db.refresh(sub)
+        logger.info(
+            "gocardless_subscription_activated",
+            extra={
+                "redirect_flow_id": flow_id,
+                "org_id": org_id,
+                "subscription_id": sub.id,
+                "subscription_status": sub.status,
+                "external_subscription_id": external_subscription_id or None,
+                "plan_id": plan.id,
+            },
+        )
 
-        try:
-            from app.models.organisation import Organisation
-            from app.services.invoice_service import InvoiceService
+        from app.models.organisation import Organisation
+        from app.services.invoice_service import InvoiceService
 
-            org = db.get(Organisation, org_id)
-            if user is None:
-                user = db.get(User, user_id)
-            prefilled_email = str((completed_flow.get("prefilled_customer") or {}).get("email") or "").strip()
-            client_email = prefilled_email or (org.contact_email if org else "") or (user.email if user else "")
-            if client_email:
-                InvoiceService.issue_from_payment(
+        org = db.get(Organisation, org_id)
+        if user is None:
+            user = db.get(User, user_id)
+        invoice_email = prefilled_email or (org.contact_email if org else "") or (user.email if user else "")
+        external_invoice_id = BillingService._activation_invoice_external_id(external_subscription_id, flow_id)
+        if not invoice_email:
+            logger.warning(
+                "gocardless_activation_invoice_skipped",
+                extra={
+                    "redirect_flow_id": flow_id,
+                    "org_id": org_id,
+                    "reason": "missing_client_email",
+                    "external_invoice_id": external_invoice_id,
+                },
+            )
+        else:
+            try:
+                invoice, created, emailed = InvoiceService.issue_from_payment(
                     db,
                     org_id=org_id,
-                    client_email=client_email,
+                    client_email=invoice_email,
                     subtotal_pence=int(plan.price_gbp_pence or 0),
                     currency="GBP",
                     description=f"{plan.name} — subscription",
                     provider="gocardless",
-                    external_invoice_id=external_subscription_id or flow_id,
+                    external_invoice_id=external_invoice_id,
                     payment_reference=external_subscription_id or mandate_id,
                     payment_method="gocardless",
                     status="paid",
@@ -733,8 +829,27 @@ class BillingService:
                         }
                     ],
                 )
-        except Exception:
-            pass
+                logger.info(
+                    "gocardless_activation_invoice_success",
+                    extra={
+                        "redirect_flow_id": flow_id,
+                        "org_id": org_id,
+                        "invoice_id": invoice.id,
+                        "external_invoice_id": external_invoice_id,
+                        "created": created,
+                        "emailed": emailed,
+                    },
+                )
+            except Exception as exc:
+                logger.exception(
+                    "gocardless_activation_invoice_failed",
+                    extra={
+                        "redirect_flow_id": flow_id,
+                        "org_id": org_id,
+                        "external_invoice_id": external_invoice_id,
+                        "error": str(exc)[:500],
+                    },
+                )
 
         return {"ok": True, "status": "completed", "subscription": sub, "plan": plan}
 

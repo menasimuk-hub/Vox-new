@@ -13,6 +13,7 @@ from app.models.organisation import Organisation
 from app.models.payment_event import PaymentEvent
 from app.services.invoice_service import InvoiceDocumentService
 from app.services.product_email_triggers import ProductEmailTriggers
+from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
 
 logger = logging.getLogger(__name__)
 
@@ -117,14 +118,75 @@ class BillingEventEmailService:
         return row, created, False
 
     @staticmethod
+    def _deliver_new_invoice_email(
+        db: Session,
+        *,
+        to_email: str,
+        variables: dict[str, str],
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> tuple[bool, str | None]:
+        ok, err = ProductEmailTriggers.notify_new_invoice(
+            db,
+            to_email=to_email,
+            extra_variables=variables,
+            attachments=attachments,
+        )
+        if ok:
+            logger.info(
+                "invoice_email_sent",
+                extra={"to_email": to_email, "invoice_number": variables.get("invoice_number"), "template": "new_invoice"},
+            )
+            return True, None
+        if err is not None:
+            logger.warning(
+                "invoice_email_template_failed",
+                extra={"to_email": to_email, "invoice_number": variables.get("invoice_number"), "error": err},
+            )
+            return False, err
+
+        number = variables.get("invoice_number") or variables.get("invoice_id") or "invoice"
+        amount = variables.get("amount") or ""
+        dashboard_url = variables.get("dashboard_invoice_url") or ""
+        subject = f"Invoice {number}"
+        body_lines = [
+            "Hello,",
+            "",
+            f"Your invoice {number} for {amount} is ready.",
+            "The PDF is attached to this email.",
+        ]
+        if dashboard_url:
+            body_lines.extend(["", f"View in dashboard: {dashboard_url}"])
+        body_lines.extend(["", "Thank you."])
+        body = "\n".join(body_lines)
+        try:
+            SmtpMailerService.send_plain(
+                db,
+                to_addr=to_email,
+                subject=subject,
+                body=body,
+                attachments=attachments,
+            )
+            logger.info(
+                "invoice_email_fallback_sent",
+                extra={"to_email": to_email, "invoice_number": number},
+            )
+            return True, None
+        except SmtpMailerError as exc:
+            logger.warning(
+                "invoice_email_fallback_failed",
+                extra={"to_email": to_email, "invoice_number": number, "error": str(exc)},
+            )
+            return False, str(exc)
+
+    @staticmethod
     def send_invoice_email(db: Session, *, invoice: BillingInvoice) -> tuple[bool, str | None]:
         org = db.get(Organisation, invoice.org_id)
         vars_plain = InvoiceDocumentService.build_variables(db, invoice=invoice, org=org)
         attachments = BillingEventEmailService._invoice_pdf_attachment(db, invoice)
-        return ProductEmailTriggers.notify_new_invoice(
+        return BillingEventEmailService._deliver_new_invoice_email(
             db,
             to_email=invoice.client_email,
-            extra_variables=vars_plain,
+            variables=vars_plain,
             attachments=attachments,
         )
 
@@ -197,10 +259,10 @@ class BillingEventEmailService:
                 vars_plain[str(k)] = "" if v is None else str(v)
 
         attachments = BillingEventEmailService._invoice_pdf_attachment(db, row)
-        ok, _err = ProductEmailTriggers.notify_new_invoice(
+        ok, err = BillingEventEmailService._deliver_new_invoice_email(
             db,
             to_email=row.client_email,
-            extra_variables=vars_plain,
+            variables=vars_plain,
             attachments=attachments,
         )
         if ok:
@@ -208,7 +270,25 @@ class BillingEventEmailService:
             db.add(row)
             db.commit()
             db.refresh(row)
+            logger.info(
+                "invoice_created_and_emailed",
+                extra={
+                    "invoice_id": row.id,
+                    "external_invoice_id": row.external_invoice_id,
+                    "org_id": row.org_id,
+                    "created": created,
+                },
+            )
             return row, created, True
+        logger.warning(
+            "invoice_created_email_failed",
+            extra={
+                "invoice_id": row.id,
+                "external_invoice_id": row.external_invoice_id,
+                "org_id": row.org_id,
+                "error": err,
+            },
+        )
         return row, created, False
 
     @staticmethod

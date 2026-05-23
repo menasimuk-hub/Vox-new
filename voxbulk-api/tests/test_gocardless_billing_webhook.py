@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from app.core.database import get_sessionmaker
 from app.core.security import compute_gocardless_signature_hex, hash_password
+from app.models.billing_invoice import BillingInvoice
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.payment_event import PaymentEvent
@@ -246,3 +247,126 @@ def test_gocardless_webhook_uses_provider_settings_secret(app_client):
     ):
         res = app_client.post("/webhooks/gocardless", content=raw, headers={"Webhook-Signature": sig})
     assert res.status_code == 200
+
+
+def test_gocardless_payment_confirmed_creates_invoice(app_client):
+    _, org_id = _billing_super_headers(app_client)
+    body_dict = {
+        "events": [
+            {
+                "id": "EV_PAY_OK_1",
+                "resource_type": "payments",
+                "action": "confirmed",
+                "metadata": {
+                    "org_id": org_id,
+                    "client_email": "tenant@example.com",
+                    "amount_gbp_pence": 9900,
+                },
+                "links": {"payment": "PM_RECUR_1", "subscription": "SB_RECUR_1"},
+            }
+        ]
+    }
+    raw = _signed_body(body_dict)
+    sig = compute_gocardless_signature_hex(secret="gc-test", body=raw)
+
+    with patch(
+        "app.services.billing_event_email_service.ProductEmailTriggers.notify_new_invoice",
+        return_value=(True, None),
+    ):
+        r = app_client.post("/webhooks/gocardless", content=raw, headers={"Webhook-Signature": sig})
+        assert r.status_code == 200
+
+    with get_sessionmaker()() as db:
+        inv = db.execute(
+            select(BillingInvoice).where(BillingInvoice.external_invoice_id == "payment:PM_RECUR_1")
+        ).scalar_one()
+        assert inv.org_id == org_id
+        assert inv.provider == "gocardless"
+        assert inv.status == "paid"
+
+
+def test_gocardless_payment_confirmed_idempotent(app_client):
+    _, org_id = _billing_super_headers(app_client)
+    body_dict = {
+        "events": [
+            {
+                "id": "EV_PAY_IDEM",
+                "resource_type": "payments",
+                "action": "confirmed",
+                "metadata": {
+                    "org_id": org_id,
+                    "client_email": "dup@example.com",
+                    "amount_gbp_pence": 9900,
+                },
+                "links": {"payment": "PM_IDEM", "subscription": "SB_IDEM"},
+            }
+        ]
+    }
+    raw = _signed_body(body_dict)
+    sig = compute_gocardless_signature_hex(secret="gc-test", body=raw)
+
+    with patch(
+        "app.services.billing_event_email_service.ProductEmailTriggers.notify_new_invoice",
+        return_value=(True, None),
+    ) as send_mock:
+        app_client.post("/webhooks/gocardless", content=raw, headers={"Webhook-Signature": sig})
+        app_client.post("/webhooks/gocardless", content=raw, headers={"Webhook-Signature": sig})
+
+    assert send_mock.call_count == 1
+    with get_sessionmaker()() as db:
+        rows = db.execute(
+            select(BillingInvoice).where(BillingInvoice.external_invoice_id == "payment:PM_IDEM")
+        ).scalars().all()
+        assert len(rows) == 1
+
+
+def test_gocardless_payment_confirmed_skips_duplicate_initial(app_client):
+    _, org_id = _billing_super_headers(app_client)
+    amount = 9900
+    with get_sessionmaker()() as db:
+        db.add(
+            BillingInvoice(
+                org_id=org_id,
+                provider="gocardless",
+                external_invoice_id="sub:SB_DUP_INIT:initial",
+                client_email="tenant@example.com",
+                amount_gbp_pence=amount,
+                subtotal_pence=amount,
+                currency="GBP",
+                status="paid",
+            )
+        )
+        db.commit()
+
+    body_dict = {
+        "events": [
+            {
+                "id": "EV_PAY_DUP_INIT",
+                "resource_type": "payments",
+                "action": "confirmed",
+                "metadata": {
+                    "org_id": org_id,
+                    "client_email": "tenant@example.com",
+                    "amount_gbp_pence": amount,
+                },
+                "links": {"payment": "PM_DUP_INIT", "subscription": "SB_DUP_INIT"},
+            }
+        ]
+    }
+    raw = _signed_body(body_dict)
+    sig = compute_gocardless_signature_hex(secret="gc-test", body=raw)
+
+    with patch(
+        "app.services.billing_event_email_service.ProductEmailTriggers.notify_new_invoice",
+        return_value=(True, None),
+    ) as send_mock:
+        app_client.post("/webhooks/gocardless", content=raw, headers={"Webhook-Signature": sig})
+
+    assert send_mock.call_count == 0
+    with get_sessionmaker()() as db:
+        assert (
+            db.execute(
+                select(BillingInvoice).where(BillingInvoice.external_invoice_id == "payment:PM_DUP_INIT")
+            ).scalar_one_or_none()
+            is None
+        )
