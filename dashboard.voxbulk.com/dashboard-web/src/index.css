@@ -511,6 +511,53 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .plan-g-compact .pic{width:28px;height:28px;font-size:14px;margin-bottom:8px}
 .plan-g-compact .pbtn{margin-top:8px;padding:7px 8px;font-size:11px}
 .plan-g-compact .plan:not(.plan-current) .pic{display:none}
+.plan-g-compact .plan-billing .pic{display:flex}
+.plan-g-compact .plan-billing .pfe:nth-child(n+4){display:flex}
+.plan-g-compact .plan-billing{padding:14px 14px 16px}
+.plan-g-compact .plan-billing .pbtn{font-size:11.5px;font-weight:700}
+
+.billing-current-plan-details{margin:0 0 12px}
+.billing-plan-current-box{
+  border:1.5px solid var(--grn);
+  border-radius:12px;
+  padding:14px 16px;
+  background:linear-gradient(180deg,var(--gd,#ecfdf5) 0%,var(--s1,#fff) 70%);
+}
+.billing-plan-current-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.billing-plan-current-name{font-size:16px;font-weight:700;color:var(--t1)}
+.billing-plan-current-price{font-size:12.5px;color:var(--t2);margin-top:3px}
+.billing-plan-current-badge{
+  flex-shrink:0;
+  background:var(--grn);
+  color:#fff;
+  font-size:10px;
+  font-weight:700;
+  padding:4px 10px;
+  border-radius:999px;
+}
+.billing-plan-current-desc{font-size:12.5px;color:var(--t2);line-height:1.5;margin-bottom:10px}
+.billing-plan-current-features{
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:grid;
+  gap:4px;
+}
+.billing-plan-current-features li{
+  display:flex;
+  gap:7px;
+  font-size:12px;
+  color:var(--t1);
+  line-height:1.45;
+}
+.billing-plan-current-features li i{font-size:13px;margin-top:1px;flex-shrink:0}
+.billing-plan-current-meta{
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid var(--b1);
+  font-size:11.5px;
+  color:var(--t3);
+}
 
 /* ─── INTERVIEW BUNDLES ─── */
 .iw{border:1.5px solid var(--b1);border-radius:14px;overflow:hidden;margin-bottom:16px}
