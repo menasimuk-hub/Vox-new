@@ -191,3 +191,59 @@ def test_usage_period_rollover_opens_fresh_period():
         assert int(current.calls_used or 0) == 0
         assert int(current.calls_included or 0) == 50
         assert current.period_end > datetime.utcnow()
+
+
+def test_resolve_active_plan_from_usage_when_subscription_plan_id_stale():
+    from app.services.gocardless_service import BillingService
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Resolve Org")
+        db.add(org)
+        db.flush()
+        plan = Plan(
+            code="starter",
+            name="Starter",
+            price_gbp_pence=9900,
+            interval="monthly",
+            calls_included=100,
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(plan)
+        db.flush()
+        stale_plan_id = "00000000-0000-0000-0000-000000000099"
+        sub = Subscription(
+            org_id=org.id,
+            plan_id=stale_plan_id,
+            status="active",
+            current_period_end=datetime.utcnow() + timedelta(days=30),
+            payment_provider="gocardless",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(sub)
+        db.flush()
+        row = OrgUsagePeriod(
+            org_id=org.id,
+            period_start=datetime.utcnow(),
+            period_end=datetime.utcnow() + timedelta(days=30),
+            status="active",
+            plan_code=plan.code,
+            calls_included=100,
+            calls_used=0,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(row)
+        db.commit()
+        org_id = org.id
+
+        resolved = BillingService.resolve_active_plan(db, org_id)
+        assert resolved is not None
+        assert resolved.id == plan.id
+        assert resolved.code == "starter"
+
+        repaired = BillingService.repair_subscription_plan_id(db, org_id)
+        assert repaired is not None
+        assert repaired.plan_id == plan.id

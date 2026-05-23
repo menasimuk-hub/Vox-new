@@ -13,6 +13,7 @@ const state = {
   subscription: null,
   currentPlan: null,
   usage: null,
+  usagePlan: null,
   invoices: [],
   busyPlanId: null,
   paymentOptions: null,
@@ -261,15 +262,54 @@ function sortedPlans() {
   )
 }
 
-function resolveCurrentPlan(subRes = state.subscription, plans = state.plans) {
+function planIntervalLabel(plan) {
+  return plan?.interval === 'year' || plan?.interval === 'yearly' ? '/yr' : '/mo'
+}
+
+function formatSubStatus(status) {
+  const s = String(status || '').toLowerCase()
+  if (s === 'active') return 'Active'
+  if (s === 'trial') return 'Trial'
+  if (s === 'pending_payment') return 'Pending payment'
+  if (s === 'cancelled') return 'Cancelled'
+  if (!s) return ''
+  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function titleCaseCode(code) {
+  const raw = String(code || '').trim()
+  if (!raw) return ''
+  return raw.charAt(0).toUpperCase() + raw.slice(1)
+}
+
+function resolveCurrentPlan(subRes = state.subscription, plans = state.plans, usage = state.usage, usagePlan = state.usagePlan) {
   const direct = subRes?.plan
   if (direct?.id) return direct
+
+  if (usagePlan?.id) return usagePlan
+
   const planId = subRes?.subscription?.plan_id
   if (planId && Array.isArray(plans) && plans.length) {
     const matched = plans.find((p) => String(p.id) === String(planId))
     if (matched) return matched
   }
-  return direct || null
+
+  const pending = subRes?.pending_plan
+  if (pending?.id) return pending
+
+  const code = usage?.plan_code
+  if (code && Array.isArray(plans) && plans.length) {
+    const byCode = plans.find((p) => String(p.code).toLowerCase() === String(code).toLowerCase())
+    if (byCode) return byCode
+  }
+
+  const callsIncluded = Number(usage?.calls?.included || 0)
+  if (callsIncluded > 0 && Array.isArray(plans) && plans.length) {
+    const matches = plans.filter((p) => Number(p.calls_included || 0) === callsIncluded)
+    if (matches.length === 1) return matches[0]
+  }
+
+  return null
 }
 
 function getCurrentPlan() {
@@ -301,7 +341,7 @@ function parseFeatures(plan) {
 function planButtonLabel(plan, currentPlan) {
   if (state.busyPlanId === plan.id) return 'Redirecting to GoCardless…'
   if (!currentPlan) return `Choose ${plan.name}`
-  if (String(plan.id) === String(currentPlan.id)) return 'Current plan'
+  if (String(plan.id) === String(currentPlan.id)) return `Current plan — ${plan.name}`
   const oldPrice = Number(currentPlan.price_gbp_pence || 0)
   const newPrice = Number(plan.price_gbp_pence || 0)
   if (newPrice > oldPrice) return `Upgrade to ${plan.name}`
@@ -400,21 +440,40 @@ function renderPlanGrid(containerId, onSelect) {
 function renderBillingSummary() {
   const plan = syncCurrentPlan()
   const sub = state.subscription?.subscription || null
-  const planLabel = plan?.name || 'No active plan'
+  const usage = state.usage
+  const fallbackName = usage?.plan_code ? titleCaseCode(usage.plan_code) : ''
+  const planLabel = plan?.name || fallbackName || 'No active plan'
   setText('billing-plan-name', planLabel)
+
+  const detailParts = []
+  if (plan) {
+    detailParts.push(`${fmtGbp(plan.price_gbp_pence)}${planIntervalLabel(plan)}`)
+    if (plan.code) detailParts.push(plan.code)
+  }
+  if (sub?.status) detailParts.push(formatSubStatus(sub.status))
+  if (sub?.current_period_end) {
+    detailParts.push(`Renews ${fmtDate(sub.current_period_end)}`)
+  } else if (usage?.period_end) {
+    detailParts.push(`Period ends ${fmtDate(usage.period_end)}`)
+  } else if (plan && !sub) {
+    detailParts.push('Active usage period')
+  }
   setText(
     'billing-plan-renew',
-    sub?.current_period_end ? `Renews ${fmtDate(sub.current_period_end)}` : plan ? 'Active subscription' : 'Choose a plan below',
+    detailParts.length ? detailParts.join(' · ') : plan ? 'Active subscription' : 'Choose a plan below',
   )
 
   const hintEl = document.getElementById('billing-change-plan-hint')
   if (hintEl) {
-    hintEl.textContent = plan
-      ? `You are on ${plan.name}. Upgrade or downgrade below — usage limits update immediately; overage is calculated at period end.`
-      : 'Choose a subscription plan below. Usage limits apply immediately; overage is calculated at period end.'
+    if (plan) {
+      hintEl.textContent = `You are on ${plan.name} (${fmtGbp(plan.price_gbp_pence)}${planIntervalLabel(plan)}). Use Upgrade or Downgrade on another plan below — limits update immediately; overage is billed at period end.`
+    } else if (fallbackName) {
+      hintEl.textContent = `Your usage is on the ${fallbackName} allowance. Pick a subscription plan below to manage billing and plan changes.`
+    } else {
+      hintEl.textContent = 'Choose a subscription plan below. Usage limits apply immediately; overage is calculated at period end.'
+    }
   }
 
-  const usage = state.usage
   if (usage?.calls) {
     const { used, included } = usage.calls
     setText('billing-calls-used', `${used} / ${included}`)
@@ -508,8 +567,9 @@ async function loadBillingData() {
 
     state.plans = Array.isArray(plansRes) ? plansRes : []
     state.subscription = subRes
-    state.currentPlan = resolveCurrentPlan(subRes, state.plans)
     state.usage = usageRes?.usage || null
+    state.usagePlan = usageRes?.current_plan || null
+    state.currentPlan = resolveCurrentPlan(subRes, state.plans, state.usage, state.usagePlan)
     state.paymentOptions = optionsRes || subRes?.payment_options || null
     state.invoices = Array.isArray(invoicesRes) ? invoicesRes : []
     state.plansError = ''
@@ -585,7 +645,7 @@ export async function initBillingBridge(session) {
   if (!session) return
 
   state.subscription = session.subscription || null
-  state.currentPlan = resolveCurrentPlan(session.subscription, state.plans)
+  state.currentPlan = resolveCurrentPlan(session.subscription, state.plans, state.usage, state.usagePlan)
 
   const returnParams = readBillingReturnParams()
   if (returnParams.billing) {

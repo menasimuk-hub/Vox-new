@@ -69,18 +69,18 @@ def change_subscription_plan(
 @router.get("/subscription", response_model=SubscriptionWithPlanOut)
 def get_my_subscription(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     BillingService.ensure_default_plans(db)
-    sub = BillingService.get_subscription(db, principal.org_id)
-    plan_row = None
-    if sub:
-        plan_row = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
+    sub = BillingService.repair_subscription_plan_id(db, principal.org_id)
+    if sub is None:
+        sub = BillingService.get_subscription(db, principal.org_id)
+    resolved_plan = BillingService.resolve_active_plan(db, principal.org_id)
     gc_cfg, gc_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="gocardless")
     gocardless_checkout_available = bool(gc_enabled and str(gc_cfg.get("access_token") or "").strip())
     pending_plan_row = None
     if sub and getattr(sub, "pending_plan_id", None):
         pending_plan_row = db.execute(select(Plan).where(Plan.id == sub.pending_plan_id)).scalar_one_or_none()
-    active_plan_row = plan_row
+    active_plan_row = resolved_plan
     if sub and sub.status == "pending_payment" and sub.pending_plan_id and pending_plan_row:
-        active_plan_row = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none() or plan_row
+        active_plan_row = resolved_plan or pending_plan_row
     return SubscriptionWithPlanOut(
         subscription=SubscriptionOut.model_validate(sub) if sub else None,
         plan=PlanOut.model_validate(active_plan_row) if active_plan_row else None,
@@ -238,9 +238,18 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
                 row = UsageWalletService.bootstrap_from_plan(db, org_id=principal.org_id, subscription=sub)
             except Exception:
                 row = None
+    current_plan = BillingService.resolve_active_plan(db, principal.org_id)
     if row is None:
-        return {"ok": True, "usage": None}
-    return {"ok": True, "usage": UsageWalletService.summary_dict(row)}
+        return {
+            "ok": True,
+            "usage": None,
+            "current_plan": PlanOut.model_validate(current_plan) if current_plan else None,
+        }
+    return {
+        "ok": True,
+        "usage": UsageWalletService.summary_dict(row),
+        "current_plan": PlanOut.model_validate(current_plan) if current_plan else None,
+    }
 
 
 @router.get("/invoices")

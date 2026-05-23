@@ -108,6 +108,71 @@ class BillingService:
         return db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
 
     @staticmethod
+    def resolve_active_plan(db: Session, org_id: str) -> Plan | None:
+        """Resolve the org's current plan from subscription, usage wallet, or pending checkout."""
+        from app.services.usage_wallet_service import UsageWalletService
+
+        BillingService.ensure_default_plans(db)
+        sub = BillingService.get_subscription(db, org_id)
+
+        if sub is not None and sub.plan_id:
+            plan = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
+            if plan is not None:
+                return plan
+
+        usage = UsageWalletService.get_current(db, org_id)
+        if usage is not None and usage.plan_code:
+            plan = db.execute(
+                select(Plan).where(Plan.code == str(usage.plan_code).strip().lower())
+            ).scalar_one_or_none()
+            if plan is not None:
+                return plan
+
+        if sub is not None and sub.pending_plan_id:
+            plan = db.execute(select(Plan).where(Plan.id == sub.pending_plan_id)).scalar_one_or_none()
+            if plan is not None:
+                return plan
+
+        if usage is not None and int(usage.calls_included or 0) > 0:
+            matches = list(
+                db.execute(
+                    select(Plan).where(
+                        Plan.is_active.is_(True),
+                        Plan.calls_included == int(usage.calls_included),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if len(matches) == 1:
+                return matches[0]
+
+        return None
+
+    @staticmethod
+    def repair_subscription_plan_id(db: Session, org_id: str) -> Subscription | None:
+        """Self-heal stale subscription.plan_id when usage wallet still references a valid plan."""
+        sub = BillingService.get_subscription(db, org_id)
+        if sub is None:
+            return None
+        resolved = BillingService.resolve_active_plan(db, org_id)
+        if resolved is None or str(sub.plan_id) == str(resolved.id):
+            return sub
+        existing = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
+        if existing is not None:
+            return sub
+        sub.plan_id = resolved.id
+        sub.updated_at = datetime.utcnow()
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
+        logger.info(
+            "subscription_plan_id_repaired",
+            extra={"org_id": org_id, "plan_id": resolved.id, "plan_code": resolved.code},
+        )
+        return sub
+
+    @staticmethod
     def list_plans(db: Session, *, active_only: bool = False) -> list[Plan]:
         BillingService.ensure_default_plans(db)
         q = select(Plan).order_by(Plan.sort_order.asc(), Plan.price_gbp_pence.asc())
