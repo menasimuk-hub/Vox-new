@@ -253,6 +253,34 @@ function fmtDate(iso) {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function sortedPlans() {
+  return [...(state.plans || [])].sort(
+    (a, b) =>
+      Number(a.sort_order || 0) - Number(b.sort_order || 0) ||
+      Number(a.price_gbp_pence || 0) - Number(b.price_gbp_pence || 0),
+  )
+}
+
+function resolveCurrentPlan(subRes = state.subscription, plans = state.plans) {
+  const direct = subRes?.plan
+  if (direct?.id) return direct
+  const planId = subRes?.subscription?.plan_id
+  if (planId && Array.isArray(plans) && plans.length) {
+    const matched = plans.find((p) => String(p.id) === String(planId))
+    if (matched) return matched
+  }
+  return direct || null
+}
+
+function getCurrentPlan() {
+  return resolveCurrentPlan(state.subscription, state.plans) || state.currentPlan || null
+}
+
+function syncCurrentPlan() {
+  state.currentPlan = getCurrentPlan()
+  return state.currentPlan
+}
+
 function parseFeatures(plan) {
   try {
     const parsed = JSON.parse(plan.features_json || '[]')
@@ -273,7 +301,7 @@ function parseFeatures(plan) {
 function planButtonLabel(plan, currentPlan) {
   if (state.busyPlanId === plan.id) return 'Redirecting to GoCardless…'
   if (!currentPlan) return `Choose ${plan.name}`
-  if (plan.id === currentPlan.id) return 'Current plan'
+  if (String(plan.id) === String(currentPlan.id)) return 'Current plan'
   const oldPrice = Number(currentPlan.price_gbp_pence || 0)
   const newPrice = Number(plan.price_gbp_pence || 0)
   if (newPrice > oldPrice) return `Upgrade to ${plan.name}`
@@ -282,16 +310,20 @@ function planButtonLabel(plan, currentPlan) {
 }
 
 function planButtonClass(plan, currentPlan) {
-  if (!currentPlan || plan.id === currentPlan.id) return 'pbtn'
+  if (currentPlan && String(plan.id) === String(currentPlan.id)) return 'pbtn pcur'
+  if (!currentPlan) return 'pbtn'
   const oldPrice = Number(currentPlan.price_gbp_pence || 0)
   const newPrice = Number(plan.price_gbp_pence || 0)
-  return newPrice > oldPrice ? 'pbtn pg' : 'pbtn'
+  if (newPrice > oldPrice) return 'pbtn pg'
+  if (newPrice < oldPrice) return 'pbtn pd'
+  return 'pbtn'
 }
 
-function renderPlanCard(plan, index, currentPlan, onSelect) {
-  const isCurrent = currentPlan && plan.id === currentPlan.id
+function renderPlanCard(plan, index, currentPlan, onSelect, options = {}) {
+  const { compact = false } = options
+  const isCurrent = currentPlan && String(plan.id) === String(currentPlan.id)
   const isBusy = state.busyPlanId === plan.id
-  const isFeatured = index === 1 && (state.plans?.length || 0) >= 2
+  const isFeatured = !compact && index === 1 && (state.plans?.length || 0) >= 2 && !isCurrent
   const features = parseFeatures(plan)
   const icon = PLAN_ICONS[index % PLAN_ICONS.length]
   const iconClass = PLAN_ICON_CLASS[index % PLAN_ICON_CLASS.length]
@@ -299,17 +331,18 @@ function renderPlanCard(plan, index, currentPlan, onSelect) {
   const creditLine = plan.overage_per_min_pence
     ? `Extra usage at ${fmtGbpPrecise(plan.overage_per_min_pence)}/min`
     : plan.description || 'Monthly subscription'
+  const visibleFeatures = compact ? features.slice(0, 2) : features
 
   const card = document.createElement('div')
-  card.className = `plan${isFeatured && !isCurrent ? ' ft' : ''}`
+  card.className = `plan${compact ? ' plan-compact' : ''}${isCurrent ? ' plan-current' : ''}${isFeatured ? ' ft' : ''}`
   card.innerHTML = `
-    ${isFeatured && !isCurrent ? '<div class="pptop">Popular</div>' : ''}
-    <div class="pic ${iconClass}"><i class="ti ${icon}"></i></div>
+    ${isCurrent ? '<div class="pptop plan-current-badge">Your plan</div>' : isFeatured ? '<div class="pptop">Popular</div>' : ''}
+    ${compact && !isCurrent ? '' : `<div class="pic ${iconClass}"><i class="ti ${icon}"></i></div>`}
     <div class="pnm">${escapeHtml(plan.name)}</div>
     <div class="pfor">${escapeHtml(plan.code)}</div>
     <div class="ppr">${fmtGbp(plan.price_gbp_pence)}<span>${interval}</span></div>
-    <div class="pcr">${escapeHtml(creditLine)}</div>
-    ${features.map((f) => `<div class="pfe"><i class="ti ti-check ck"></i>${escapeHtml(f)}</div>`).join('')}
+    ${compact ? '' : `<div class="pcr">${escapeHtml(creditLine)}</div>`}
+    ${visibleFeatures.map((f) => `<div class="pfe"><i class="ti ti-check ck"></i>${escapeHtml(f)}</div>`).join('')}
     <button class="${planButtonClass(plan, currentPlan)}" type="button" ${isCurrent || isBusy || Boolean(state.busyPlanId) ? 'disabled' : ''}>
       ${escapeHtml(planButtonLabel(plan, currentPlan))}
     </button>
@@ -338,7 +371,9 @@ function setText(id, value) {
 function renderPlanGrid(containerId, onSelect) {
   const grid = document.getElementById(containerId)
   if (!grid) return
+  const compact = containerId === 'billing-plan-grid'
   grid.innerHTML = ''
+  grid.className = compact ? 'plan-g plan-g-compact plan-g-inline' : 'plan-g'
 
   if (state.plansLoading) {
     grid.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--t3);font-size:13px">Loading subscription plans…</div>'
@@ -350,24 +385,34 @@ function renderPlanGrid(containerId, onSelect) {
     return
   }
 
-  if (!state.plans.length) {
+  const plans = sortedPlans()
+  if (!plans.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--t3);font-size:13px">No subscription plans available.</div>'
     return
   }
 
-  state.plans.forEach((plan, index) => {
-    grid.appendChild(renderPlanCard(plan, index, state.currentPlan, onSelect))
+  const currentPlan = syncCurrentPlan()
+  plans.forEach((plan, index) => {
+    grid.appendChild(renderPlanCard(plan, index, currentPlan, onSelect, { compact }))
   })
 }
 
 function renderBillingSummary() {
-  const plan = state.currentPlan
-  const sub = state.subscription?.subscription || state.subscription
-  setText('billing-plan-name', plan?.name || 'No plan')
+  const plan = syncCurrentPlan()
+  const sub = state.subscription?.subscription || null
+  const planLabel = plan?.name || 'No active plan'
+  setText('billing-plan-name', planLabel)
   setText(
     'billing-plan-renew',
-    sub?.current_period_end ? `Renews ${fmtDate(sub.current_period_end)}` : 'No renewal date',
+    sub?.current_period_end ? `Renews ${fmtDate(sub.current_period_end)}` : plan ? 'Active subscription' : 'Choose a plan below',
   )
+
+  const hintEl = document.getElementById('billing-change-plan-hint')
+  if (hintEl) {
+    hintEl.textContent = plan
+      ? `You are on ${plan.name}. Upgrade or downgrade below — usage limits update immediately; overage is calculated at period end.`
+      : 'Choose a subscription plan below. Usage limits apply immediately; overage is calculated at period end.'
+  }
 
   const usage = state.usage
   if (usage?.calls) {
@@ -463,7 +508,7 @@ async function loadBillingData() {
 
     state.plans = Array.isArray(plansRes) ? plansRes : []
     state.subscription = subRes
-    state.currentPlan = subRes?.plan || null
+    state.currentPlan = resolveCurrentPlan(subRes, state.plans)
     state.usage = usageRes?.usage || null
     state.paymentOptions = optionsRes || subRes?.payment_options || null
     state.invoices = Array.isArray(invoicesRes) ? invoicesRes : []
@@ -480,7 +525,7 @@ async function loadBillingData() {
 function purchaseSubscriptionPlan(plan) {
   if (state.busyPlanId) return
 
-  if (state.currentPlan && plan.id === state.currentPlan.id) {
+  if (state.currentPlan && String(plan.id) === String(state.currentPlan.id)) {
     return
   }
 
@@ -540,7 +585,7 @@ export async function initBillingBridge(session) {
   if (!session) return
 
   state.subscription = session.subscription || null
-  state.currentPlan = session.subscription?.plan || null
+  state.currentPlan = resolveCurrentPlan(session.subscription, state.plans)
 
   const returnParams = readBillingReturnParams()
   if (returnParams.billing) {

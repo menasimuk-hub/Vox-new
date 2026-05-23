@@ -965,12 +965,12 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
         </div>
         <div class="card" id="billing-change-card" style="margin-bottom:12px">
           <div class="ch"><i class="ti ti-switch-horizontal grn"></i>Change plan</div>
-          <p style="font-size:12.5px;color:var(--t2);margin:0 0 12px">Upgrade or downgrade your subscription. Usage limits update immediately; overage is calculated at period end.</p>
-          <div class="plan-g" id="billing-plan-grid">
+          <p id="billing-change-plan-hint" style="font-size:12.5px;color:var(--t2);margin:0 0 12px">Upgrade or downgrade your subscription. Usage limits update immediately; overage is calculated at period end.</p>
+          <div class="plan-g plan-g-compact plan-g-inline" id="billing-plan-grid">
             <div style="grid-column:1/-1;padding:12px;text-align:center;color:var(--t3);font-size:13px">Loading plans…</div>
           </div>
         </div>
-        <div class="card"><div class="ch"><i class="ti ti-credit-card grn"></i>Payment method</div><div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--t1)"><i class="ti ti-credit-card" style="font-size:18px;color:var(--t3)"></i>Visa ending 4242 <span class="bdg bg">Default</span><button class="btn bsm" style="margin-left:auto">Change card</button></div></div>
+        <div class="card" id="billing-payment-method-card" hidden style="display:none"><div class="ch"><i class="ti ti-credit-card grn"></i>Payment method</div><div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--t1)"><i class="ti ti-credit-card" style="font-size:18px;color:var(--t3)"></i>Visa ending 4242 <span class="bdg bg">Default</span><button class="btn bsm" style="margin-left:auto">Change card</button></div></div>
         <div class="card"><div class="ch"><i class="ti ti-file-invoice grn"></i>Invoices</div>
           <div id="billing-invoices-list">
             <div style="padding:12px;font-size:13px;color:var(--t3);">Loading invoices…</div>
