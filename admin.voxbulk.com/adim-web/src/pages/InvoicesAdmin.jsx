@@ -39,10 +39,27 @@ function statusPillClass(status) {
   return ''
 }
 
+function normTag(value) {
+  return String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+}
+
 function truncate(text, max = 48) {
   const s = String(text || '').trim()
   if (!s) return '—'
   return s.length > max ? `${s.slice(0, max)}…` : s
+}
+
+function buildInvoiceTags(row) {
+  const tags = []
+  const provider = row.provider || 'internal'
+  tags.push(provider)
+  if (row.country_code) tags.push(row.country_code)
+  if (row.tax_rate_percent != null) tags.push(`VAT ${row.tax_rate_percent}%`)
+  const paymentMethod = row.payment_method
+  if (paymentMethod && normTag(paymentMethod) !== normTag(provider)) {
+    tags.push(paymentMethod)
+  }
+  return tags
 }
 
 export default function InvoicesAdmin() {
@@ -257,10 +274,13 @@ export default function InvoicesAdmin() {
           <span className={`pill invoiceStatusPill ${statusPillClass(row.status)}`}>{row.status || '—'}</span>
         </td>
         <td className="invoiceListTags">
-          <span className="invoiceTag">{row.provider || 'internal'}</span>
-          {row.country_code ? <span className="invoiceTag">{row.country_code}</span> : null}
-          {row.tax_rate_percent != null ? <span className="invoiceTag">VAT {row.tax_rate_percent}%</span> : null}
-          {row.payment_method ? <span className="invoiceTag">{row.payment_method}</span> : null}
+          <div className="invoiceListTagWrap">
+            {buildInvoiceTags(row).map((label) => (
+              <span key={`${row.id}-${label}`} className="invoiceTag">{label}</span>
+            ))}
+          </div>
+        </td>
+        <td className="invoiceListNotify">
           {row.emailed_at ? (
             <span className="invoiceTag invoiceTagOk" title={dateText(row.emailed_at)}>
               <i className="ti ti-mail-check" /> Sent
@@ -389,6 +409,7 @@ export default function InvoicesAdmin() {
                       <th>Amount</th>
                       <th>Status</th>
                       <th>Tags</th>
+                      <th>Email</th>
                       <th>Description</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>

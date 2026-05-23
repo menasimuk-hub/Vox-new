@@ -4842,12 +4842,28 @@ body.dark .matrix th {
 }
 
 .invoiceListTags {
-  min-width: 120px;
-  max-width: 220px;
+  width: 140px;
+  max-width: 140px;
+  vertical-align: middle;
+}
+
+.invoiceListTagWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 140px;
+  overflow: hidden;
+}
+
+.invoiceListNotify {
+  width: 72px;
+  max-width: 72px;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 .invoiceListTags .invoiceTag {
-  margin: 0 4px 4px 0;
+  margin: 0;
 }
 
 .invoiceListActions {
