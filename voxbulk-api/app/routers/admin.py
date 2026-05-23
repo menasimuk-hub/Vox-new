@@ -2188,12 +2188,13 @@ def admin_resend_billing_invoice_email(
     row = db.get(BillingInvoice, invoice_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
-    row.emailed_at = None
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-    _, _, sent = BillingEventEmailService.issue_payment_invoice(db, invoice=row)
-    return {"ok": True, "sent": sent}
+    ok, err = BillingEventEmailService.send_invoice_email(db, invoice=row)
+    if ok:
+        row.emailed_at = datetime.utcnow()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+    return {"ok": ok, "sent": ok, "error": err}
 
 
 @router.get("/billing/vat-rates")

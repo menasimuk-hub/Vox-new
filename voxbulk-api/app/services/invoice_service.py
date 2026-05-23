@@ -285,8 +285,7 @@ class InvoiceService:
 
         existing = InvoiceService.get_by_external(db, provider=provider, external_invoice_id=external_invoice_id)
         if existing is not None:
-            _, _, sent = BillingEventEmailService.issue_payment_invoice(db, invoice=existing)
-            return existing, False, sent
+            return existing, False, False
 
         invoice = InvoiceService.create_from_payment(
             db,

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from sqlalchemy import select
+
 from app.core.database import get_sessionmaker
 from app.core.security import hash_password
 from app.models.membership import OrganisationMembership
@@ -275,3 +277,80 @@ def test_invoice_document_render_uses_admin_template_from_db():
 
         html = InvoiceDocumentService.render_html(db, invoice=invoice, org=org)
         assert "ADMIN-PDF-MARKER INV-ADMIN-1" in html
+
+
+def test_admin_resend_invoice_email_sends_once(app_client):
+    from app.models.billing_invoice import BillingInvoice
+
+    headers = _bootstrap_super(app_client)
+    with get_sessionmaker()() as db:
+        org = db.execute(select(Organisation).order_by(Organisation.created_at.desc())).scalar_one()
+        org_id = org.id
+        row = BillingInvoice(
+            org_id=org_id,
+            provider="gocardless",
+            external_invoice_id="payment:PM-RESEND-1",
+            client_email="resend@example.com",
+            amount_gbp_pence=2500,
+            currency="GBP",
+            status="paid",
+            invoice_number="INV-RESEND-1",
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        invoice_id = row.id
+
+    with patch(
+        "app.services.billing_event_email_service.ProductEmailTriggers.notify_new_invoice",
+        return_value=(True, None),
+    ) as send_mock:
+        r = app_client.post(
+            f"/admin/billing/invoices/{invoice_id}/resend-email",
+            headers=headers,
+        )
+    assert r.status_code == 200
+    assert r.json()["sent"] is True
+    assert send_mock.call_count == 1
+
+
+def test_issue_from_payment_existing_invoice_does_not_resend_email():
+    from app.models.billing_invoice import BillingInvoice
+    from app.services.invoice_service import InvoiceService
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Existing Invoice Org")
+        db.add(org)
+        db.flush()
+        existing = BillingInvoice(
+            org_id=org.id,
+            provider="gocardless",
+            external_invoice_id="payment:PM-EXISTING",
+            client_email="existing@example.com",
+            amount_gbp_pence=9900,
+            currency="GBP",
+            status="paid",
+            emailed_at=None,
+        )
+        db.add(existing)
+        db.commit()
+        db.refresh(existing)
+
+        with patch(
+            "app.services.billing_event_email_service.ProductEmailTriggers.notify_new_invoice",
+            return_value=(True, None),
+        ) as send_mock:
+            invoice, created, sent = InvoiceService.issue_from_payment(
+                db,
+                org_id=org.id,
+                client_email="existing@example.com",
+                subtotal_pence=9900,
+                currency="GBP",
+                description="Plan",
+                provider="gocardless",
+                external_invoice_id="payment:PM-EXISTING",
+            )
+        assert invoice.id == existing.id
+        assert created is False
+        assert sent is False
+        assert send_mock.call_count == 0
