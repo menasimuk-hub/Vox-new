@@ -965,7 +965,6 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
         </div>
         <div class="card" id="billing-change-card" style="margin-bottom:12px">
           <div class="ch"><i class="ti ti-switch-horizontal grn"></i>Change plan</div>
-          <div id="billing-current-plan-details" class="billing-current-plan-details" hidden></div>
           <p id="billing-change-plan-hint" style="font-size:12.5px;color:var(--t2);margin:0 0 12px">Upgrade or downgrade your subscription. Usage limits update immediately; overage is calculated at period end.</p>
           <div class="plan-g plan-g-compact plan-g-inline" id="billing-plan-grid">
             <div style="grid-column:1/-1;padding:12px;text-align:center;color:var(--t3);font-size:13px">Loading plans…</div>
