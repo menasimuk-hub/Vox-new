@@ -1046,3 +1046,61 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   text-align:center;
 }
 .dark .setup-banner{background:#431407;color:#fdba74;border-color:#9a3412}
+
+/* ─── VALIDATION & ERRORS ─── */
+.fg input.error,
+.fg textarea.error,
+.fg select.error {
+  border-color: var(--red) !important;
+  background-color: var(--rd);
+}
+
+.fg input.error:focus,
+.fg textarea.error:focus,
+.fg select.error:focus {
+  border-color: var(--red) !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.2);
+}
+
+.validation-error {
+  background: var(--rd);
+  color: var(--red);
+  padding: 11px 13px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.validation-error i {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.validation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.validation-list li {
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.validation-list li:before {
+  content: "✕";
+  color: var(--red);
+  font-weight: 700;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+

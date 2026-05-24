@@ -385,41 +385,74 @@ async function schedulePaidSurveyOrder(order) {
 async function runSurveyLaunchFlow() {
   if (surveyLaunch.paying) return
 
-  if (!state.surveyFile) {
-    window.toast?.('Upload a CSV or Excel contact list first', 'tr')
-    return
-  }
-
-  const sched = schedulePayload('sur')
-  if (!sched.scheduled_start_at) {
-    window.toast?.('Please set a start and end date first', 'tr')
-    return
-  }
-
+  // Collect validation errors
+  const errors = []
+  
+  // Check approval
   if (!state.surveyScriptApproved) {
-    const scriptEl = document.getElementById('sur-ai-script')
-    if (!scriptEl?.value?.trim()) {
-      window.toast?.('Generate your AI script, read it, then click Approve before paying', 'tr')
-    } else {
-      window.toast?.('❗ Please click the Approve button to confirm the script before paying', 'tr')
-    }
-    showAiPanel('sur', true)
-    scriptEl?.focus()
-    return
+    errors.push('Prompt not approved')
+  }
+
+  // Check dates and times
+  const startDateEl = document.getElementById('sur-start-date')
+  const startTimeEl = document.getElementById('sur-start-time')
+  const endDateEl = document.getElementById('sur-end-date')
+  const endTimeEl = document.getElementById('sur-end-time')
+
+  const startDate = startDateEl?.value?.trim()
+  const startTime = startTimeEl?.value?.trim()
+  const endDate = endDateEl?.value?.trim()
+  const endTime = endTimeEl?.value?.trim()
+
+  if (!startDate) {
+    errors.push('Start date not selected')
+    startDateEl?.classList.add('error')
+  } else {
+    startDateEl?.classList.remove('error')
+  }
+
+  if (!startTime) {
+    errors.push('Start time not selected')
+    startTimeEl?.classList.add('error')
+  } else {
+    startTimeEl?.classList.remove('error')
+  }
+
+  if (!endDate) {
+    errors.push('End date not selected')
+    endDateEl?.classList.add('error')
+  } else {
+    endDateEl?.classList.remove('error')
+  }
+
+  if (!endTime) {
+    errors.push('End time not selected')
+    endTimeEl?.classList.add('error')
+  } else {
+    endTimeEl?.classList.remove('error')
+  }
+
+  // Check other required fields
+  if (!state.surveyFile) {
+    errors.push('Contact list not uploaded')
   }
 
   if (!surveyLaunch.selectedPackageId) {
-    window.toast?.('Select an AI call package first', 'tr')
-    return
+    errors.push('AI call package not selected')
   }
 
   const agent = selectedSurveyAgent()
   if (!agent && surveyLaunch.surveyAgents.length) {
-    window.toast?.('Select an AI voice agent first', 'tr')
-    document.getElementById('sur-agent-select')?.focus()
+    errors.push('AI voice agent not selected')
+  }
+
+  // If there are validation errors, show them clearly
+  if (errors.length > 0) {
+    showSurveyValidationErrors(errors)
     return
   }
 
+  // All validation passed, proceed to payment flow
   surveyLaunch.paying = true
   renderSurveyQuoteUi()
   logSurvey('launch_start')
@@ -458,7 +491,7 @@ async function runSurveyLaunchFlow() {
     order = await uploadRecipients(order.id, state.surveyFile)
     await api(`/service-orders/${order.id}`, {
       method: 'PATCH',
-      body: JSON.stringify(sched),
+      body: JSON.stringify(schedulePayload('sur')),
     })
     order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
 
@@ -476,6 +509,47 @@ async function runSurveyLaunchFlow() {
     surveyLaunch.paying = false
     renderSurveyQuoteUi()
   }
+}
+
+function showSurveyValidationErrors(errors) {
+  const errorContainer = document.createElement('div')
+  errorContainer.className = 'validation-error'
+  
+  let html = '<i class="ti ti-alert-circle"></i>'
+  if (errors.length === 1) {
+    html += `<span>${esc(errors[0])}</span>`
+  } else {
+    html += `
+      <div>
+        <div style="font-weight:700;margin-bottom:6px">Please fix ${errors.length} issue${errors.length > 1 ? 's' : ''}:</div>
+        <ul class="validation-list">
+          ${errors.map(e => `<li>${esc(e)}</li>`).join('')}
+        </ul>
+      </div>
+    `
+  }
+  errorContainer.innerHTML = html
+
+  // Find the pricing panel or a suitable place to show the error
+  const pricingPanel = document.getElementById('sur-launch-pricing')
+  if (pricingPanel) {
+    // Remove any existing error
+    const existing = pricingPanel.querySelector('.validation-error')
+    if (existing) existing.remove()
+    pricingPanel.insertBefore(errorContainer, pricingPanel.firstChild)
+  }
+
+  // Scroll to the error
+  errorContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  window.toast?.('Please fix the highlighted issues before continuing', 'tr')
+}
+
+function esc(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 async function offerSurveyPayment(order) {
