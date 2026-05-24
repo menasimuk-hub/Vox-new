@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch, apiUpload } from '../lib/api'
+import { AgentVoiceFields, PlatformVoiceSettings, serviceBadges, voiceAgentDefaults } from '../components/agents/AgentVoiceFields'
 
 const emptyAgent = {
   name: '',
@@ -10,6 +11,7 @@ const emptyAgent = {
   call_workflow: '',
   knowledge_file_ids: [],
   is_active: true,
+  ...voiceAgentDefaults,
 }
 
 function hasWorkflow(agent) {
@@ -43,6 +45,7 @@ export default function Agents() {
   const [busy, setBusy] = useState(false)
   const [kbUploading, setKbUploading] = useState(false)
   const [genPhase, setGenPhase] = useState('')
+  const [platformVoice, setPlatformVoice] = useState(null)
   const lastSyncedAgentId = useRef('')
 
   const isEditPage = Boolean(agentId) || location.pathname.endsWith('/new')
@@ -65,10 +68,12 @@ export default function Agents() {
 
   const load = async () => {
     setMsg('')
-    const [agentRows, orgRows] = await Promise.all([
+    const [agentRows, orgRows, platformRows] = await Promise.all([
       apiFetch('/admin/agents'),
       apiFetch('/admin/organisations?limit=500').catch(() => []),
+      apiFetch('/admin/agents/platform-voice-settings').catch(() => null),
     ])
+    setPlatformVoice(platformRows)
     setAgents(agentRows?.agents || [])
     setAssignments(agentRows?.assignments || [])
     setOrgs(Array.isArray(orgRows) ? orgRows : [])
@@ -114,6 +119,25 @@ export default function Agents() {
 
   const setField = (field, value) => setDraft((s) => ({ ...s, [field]: value }))
 
+  const savePlatformVoice = async () => {
+    if (!platformVoice) return
+    setBusy(true)
+    try {
+      const saved = await apiFetch('/admin/agents/platform-voice-settings', {
+        method: 'PUT',
+        body: JSON.stringify(platformVoice),
+      })
+      setPlatformVoice(saved)
+      setMsg('Shared voice settings saved.')
+    } catch (e) {
+      setMsg(e?.message || 'Could not save shared voice settings')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const serviceBadgeHtml = (agent) => serviceBadges(agent).join(' · ')
+
   const assignedOrgNames = (agent) => {
     const rows = assignmentsByAgent[agent.id] || []
     if (!rows.length) return '-'
@@ -152,6 +176,27 @@ export default function Agents() {
         call_workflow: draft.call_workflow,
         knowledge_file_ids: validKnowledgeFileIds,
         is_active: draft.is_active,
+        voice_label: draft.voice_label,
+        voice_type_label: draft.voice_type_label,
+        telnyx_assistant_id: draft.telnyx_assistant_id,
+        base_role: draft.base_role,
+        service_survey_role: draft.service_survey_role,
+        service_interview_role: draft.service_interview_role,
+        service_lead_sales_role: draft.service_lead_sales_role,
+        opening_disclosure_template: draft.opening_disclosure_template,
+        retry_policy_notes: draft.retry_policy_notes,
+        interruption_behavior_notes: draft.interruption_behavior_notes,
+        voicemail_behavior: draft.voicemail_behavior,
+        opt_out_policy_notes: draft.opt_out_policy_notes,
+        supports_survey: draft.supports_survey,
+        supports_interview: draft.supports_interview,
+        supports_lead_sales: draft.supports_lead_sales,
+        is_default_survey: draft.is_default_survey,
+        is_default_interview: draft.is_default_interview,
+        is_default_lead_sales: draft.is_default_lead_sales,
+        disclosure_for_survey: draft.disclosure_for_survey,
+        disclosure_for_interview: draft.disclosure_for_interview,
+        disclosure_mandatory: draft.disclosure_mandatory,
       }
       const saved = selectedId
         ? await apiFetch(`/admin/agents/${selectedId}`, { method: 'PUT', body: JSON.stringify(body) })
@@ -426,7 +471,7 @@ export default function Agents() {
         <div className='pageTop'>
           <div>
             <h1>Agents</h1>
-            <p>Create voice agents, attach knowledge base files, and assign them to organisations.</p>
+            <p>Manage Telnyx voice agents, layered prompts, service assignment, and knowledge for surveys and interviews.</p>
           </div>
           <div className='actions'>
             <button type='button' className='btn soft' onClick={() => load().catch((e) => setMsg(e.message))} disabled={busy}>
@@ -438,6 +483,13 @@ export default function Agents() {
           </div>
         </div>
         {msg ? <div className='note' style={{ marginBottom: 16 }}>{msg}</div> : null}
+
+        <PlatformVoiceSettings
+          settings={platformVoice}
+          onChange={setPlatformVoice}
+          onSave={savePlatformVoice}
+          busy={busy}
+        />
 
         <section className='card' style={{ marginBottom: 16 }}>
           <div className='cardHead'>
@@ -498,7 +550,8 @@ export default function Agents() {
               <table className='table'>
                 <thead>
                   <tr>
-                    <th>Name</th>
+                    <th>Agent</th>
+                    <th>Services</th>
                     <th>Organisations</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -508,9 +561,16 @@ export default function Agents() {
                   {agents.map((agent) => (
                     <tr key={agent.id}>
                       <td>
-                        <strong>{agent.name}</strong>
+                        <strong>{agent.voice_label || agent.name}</strong>
                         <div className='muted' style={{ fontSize: 12 }}>
-                          {agent.slug}
+                          {agent.name} · {agent.slug}
+                        </div>
+                      </td>
+                      <td>
+                        <div className='voiceServiceBadges'>
+                          {serviceBadges(agent).map((b) => (
+                            <span key={b} className='pill p-cyan' style={{ fontSize: 11 }}>{b}</span>
+                          ))}
                         </div>
                       </td>
                       <td>{assignedOrgNames(agent)}</td>
@@ -638,6 +698,8 @@ export default function Agents() {
             </div>
           </div>
         </section>
+
+        <AgentVoiceFields draft={draft} setField={setField} />
 
         <div className='agentEditRow2'>
           <section className='card'>

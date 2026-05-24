@@ -20,6 +20,12 @@ from app.services.survey_call_dispatch_service import (
 
 @pytest.fixture()
 def db():
+    from app.core.database import Base, get_engine
+    import app.models  # noqa: F401
+
+    engine = get_engine()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
     with get_sessionmaker()() as session:
         PlatformCatalogService.ensure_defaults(session)
         yield session
@@ -83,8 +89,8 @@ def test_start_campaign_marks_running(db, monkeypatch):
     db.commit()
 
     monkeypatch.setattr(
-        "app.services.survey_call_dispatch_service.get_survey_telnyx_assistant_id",
-        lambda _db: "assistant-123",
+        "app.services.survey_voice_agent_service.resolve_survey_telnyx_assistant_id",
+        lambda _db, _order, _config: ("assistant-123", None),
     )
     monkeypatch.setattr(
         "app.services.survey_call_dispatch_service._order_window_ok",
@@ -123,8 +129,8 @@ def test_dial_next_recipient_sets_calling(db, monkeypatch):
         detail = None
 
     monkeypatch.setattr(
-        "app.services.survey_call_dispatch_service.get_survey_telnyx_assistant_id",
-        lambda _db: "assistant-123",
+        "app.services.survey_voice_agent_service.resolve_survey_telnyx_assistant_id",
+        lambda _db, _order, _config: ("assistant-123", None),
     )
     monkeypatch.setattr(
         "app.services.survey_call_dispatch_service._order_window_ok",

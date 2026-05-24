@@ -34,6 +34,10 @@ const surveyLaunch = {
   quoting: false,
   quoteError: '',
   paying: false,
+  surveyAgents: [],
+  agentsLoaded: false,
+  selectedAgentId: null,
+  agentManual: false,
 }
 
 const LOG_SURVEY = '[survey]'
@@ -92,6 +96,55 @@ async function loadSurveyLaunchPackages() {
     logSurvey('packages_failed', { message: e.message })
     throw e
   }
+}
+
+async function loadSurveyAgents() {
+  if (surveyLaunch.agentsLoaded && surveyLaunch.surveyAgents.length) return surveyLaunch.surveyAgents
+  try {
+    const data = await api('/service-orders/survey-agents')
+    surveyLaunch.surveyAgents = data?.agents || []
+    surveyLaunch.agentsLoaded = true
+    if (!surveyLaunch.selectedAgentId && surveyLaunch.surveyAgents.length) {
+      const preferred =
+        surveyLaunch.surveyAgents.find((a) => a.is_default_for_org) ||
+        surveyLaunch.surveyAgents.find((a) => a.is_platform_default) ||
+        surveyLaunch.surveyAgents[0]
+      surveyLaunch.selectedAgentId = preferred?.id || null
+    }
+    renderSurveyAgentSelect()
+    logSurvey('agents_loaded', { count: surveyLaunch.surveyAgents.length })
+    return surveyLaunch.surveyAgents
+  } catch (e) {
+    logSurvey('agents_failed', { message: e.message })
+    const select = document.getElementById('sur-agent-select')
+    if (select) {
+      select.innerHTML = '<option value="">No agents available</option>'
+    }
+    return []
+  }
+}
+
+function renderSurveyAgentSelect() {
+  const select = document.getElementById('sur-agent-select')
+  if (!select) return
+  const agents = surveyLaunch.surveyAgents
+  if (!agents.length) {
+    select.innerHTML = '<option value="">No survey agents configured</option>'
+    return
+  }
+  select.innerHTML = agents
+    .map((agent) => {
+      const label = agent.voice_type_label
+        ? `${agent.voice_label} (${agent.voice_type_label})`
+        : agent.voice_label
+      const suffix = agent.is_default_for_org ? ' · your default' : agent.is_platform_default ? ' · default' : ''
+      return `<option value="${agent.id}"${String(agent.id) === String(surveyLaunch.selectedAgentId) ? ' selected' : ''}>${label}${suffix}</option>`
+    })
+    .join('')
+}
+
+function selectedSurveyAgent() {
+  return surveyLaunch.surveyAgents.find((a) => String(a.id) === String(surveyLaunch.selectedAgentId)) || null
 }
 
 async function countContactsInFile(file) {
@@ -307,6 +360,12 @@ function bindSurveyLaunchUi() {
     void refreshSurveyQuote()
   })
 
+  document.getElementById('sur-agent-select')?.addEventListener('change', (e) => {
+    surveyLaunch.selectedAgentId = e.target.value || null
+    surveyLaunch.agentManual = true
+    logSurvey('agent_selected', { agent_id: surveyLaunch.selectedAgentId })
+  })
+
   document.getElementById('sur-pay-schedule')?.addEventListener('click', () => {
     void runSurveyLaunchFlow()
   })
@@ -349,6 +408,13 @@ async function runSurveyLaunchFlow() {
     return
   }
 
+  const agent = selectedSurveyAgent()
+  if (!agent && surveyLaunch.surveyAgents.length) {
+    window.toast?.('Select an AI voice agent first', 'tr')
+    document.getElementById('sur-agent-select')?.focus()
+    return
+  }
+
   surveyLaunch.paying = true
   renderSurveyQuoteUi()
   logSurvey('launch_start')
@@ -369,6 +435,14 @@ async function runSurveyLaunchFlow() {
     organisation_name: branding.organisation_name,
     survey_organiser_name: branding.survey_organiser_name,
     clinic_name: branding.organisation_name,
+  }
+  if (agent) {
+    config.agent_id = agent.id
+    config.agent_voice_label = agent.voice_label
+  }
+  if (!state.surveyScriptApproved && state.surveyScriptPayload?.script_text) {
+    config.generated_script_draft = state.surveyScriptPayload.script_text
+    config.generated_script_at = new Date().toISOString()
   }
 
   try {
@@ -774,8 +848,10 @@ async function generateServiceScript(serviceCode) {
     if (scriptBox) scriptBox.value = materialised.script_text || ''
     showAiPanel(prefix, true)
     markScriptDraft(prefix, serviceCode)
-    if (isSurvey) state.surveyScriptPayload = materialised
-    else state.interviewScriptPayload = materialised
+    if (isSurvey) {
+      state.surveyScriptApproved = false
+      state.surveyScriptPayload = materialised
+    } else state.interviewScriptPayload = materialised
     syncSurveyWhatsAppUi()
     window.toast?.('Script ready — read it below and click Approve when happy', 'tg')
     scriptBox?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -1311,5 +1387,6 @@ export function initServiceOrdersBridge() {
   completeGocardlessOrderReturn()
   loadOrdersIntoUi()
   void loadSurveyLaunchPackages().catch(() => {})
+  void loadSurveyAgents().catch(() => {})
   renderSurveyQuoteUi()
 }

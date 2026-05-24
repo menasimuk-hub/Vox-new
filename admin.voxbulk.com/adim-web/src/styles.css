@@ -1620,6 +1620,51 @@ textarea.input{
   grid-template-columns:1fr 1fr;
   gap:20px;
   min-width:0;
+  margin-bottom:16px;
+}
+
+.voiceAgentPlatformCard{
+  margin-bottom:16px;
+}
+
+.voiceAgentHelp{
+  font-size:12px;
+  line-height:1.5;
+  margin:0;
+}
+
+.voiceServiceBadges{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+.agentServiceToggles{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.agentServiceToggleRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:8px 0;
+  border-bottom:1px solid var(--border);
+}
+
+.agentServiceToggleRow:last-child{
+  border-bottom:none;
+}
+
+.agentDefaultToggle{
+  opacity:.85;
+  font-size:12px;
+}
+
+.agentDefaultToggle input:disabled + span{
+  opacity:.45;
 }
 
 .agentFieldGrid3{

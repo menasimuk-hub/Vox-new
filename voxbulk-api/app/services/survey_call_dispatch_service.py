@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 LOG_PREFIX = "[survey-call]"
 
 VOICE_PENDING = {"pending", ""}
-VOICE_TERMINAL = {"completed", "no_answer", "failed", "busy", "skipped", "cancelled"}
+VOICE_TERMINAL = {"completed", "no_answer", "failed", "busy", "skipped", "cancelled", "opted_out"}
 VOICE_ACTIVE = {"calling"}
 
 
@@ -30,7 +30,13 @@ def _log(event: str, **detail: Any) -> None:
     logger.info("%s %s", LOG_PREFIX, event, extra=detail)
 
 
-def get_survey_telnyx_assistant_id(db: Session) -> str:
+def get_survey_telnyx_assistant_id(db: Session, order: ServiceOrder | None = None) -> str:
+    """Backward-compatible helper; prefer resolve_survey_telnyx_assistant_id with order context."""
+    if order is not None:
+        from app.services.survey_voice_agent_service import resolve_survey_telnyx_assistant_id
+
+        assistant_id, _agent = resolve_survey_telnyx_assistant_id(db, order, _order_config(order))
+        return assistant_id
     from app.core.config import get_settings
     from app.services.lead_sales_service import get_lead_sales_settings
 
@@ -240,9 +246,15 @@ class SurveyCallDispatchService:
         if order.payment_status != "approved":
             return False
 
-        assistant_id = get_survey_telnyx_assistant_id(db)
+        config = _order_config(order)
+        from app.services.survey_voice_agent_service import resolve_survey_telnyx_assistant_id
+
+        assistant_id, agent = resolve_survey_telnyx_assistant_id(db, order, config)
         if not assistant_id:
             _log("assistant_missing", order_id=order.id)
+            return False
+        if not config.get("script_approved") and not str(config.get("approved_script") or "").strip():
+            _log("script_not_approved", order_id=order.id)
             return False
 
         ok, reason = _order_window_ok(order)
@@ -250,10 +262,21 @@ class SurveyCallDispatchService:
             _log("window_blocked_at_start", order_id=order.id, reason=reason)
             return False
 
-        config = _order_config(order)
-        if not config.get("script_approved") and not str(config.get("approved_script") or "").strip():
-            _log("script_not_approved", order_id=order.id)
-            return False
+        from app.services.survey_voice_agent_service import clear_survey_generated_script_on_launch
+
+        if agent:
+            config["agent_id"] = agent.id
+            config["agent_voice_label"] = agent.voice_label or agent.name
+        runtime_script = str(config.get("approved_script") or config.get("generated_script_draft") or "").strip()
+        if runtime_script:
+            config["survey_runtime_prompt"] = runtime_script
+        config = clear_survey_generated_script_on_launch(config)
+        order.config_json = json.dumps(config, ensure_ascii=False)
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        if agent:
+            _log("agent_assigned", order_id=order.id, agent_id=agent.id, voice_label=config.get("agent_voice_label"))
 
         now = datetime.utcnow()
         order.status = "running"
@@ -288,7 +311,16 @@ class SurveyCallDispatchService:
         if order.status != "running":
             return None
 
-        assistant_id = get_survey_telnyx_assistant_id(db)
+        config = _order_config(order)
+        from app.services.survey_voice_agent_service import (
+            build_survey_opening_greeting,
+            build_survey_runtime_instructions,
+            resolve_survey_telnyx_assistant_id,
+            should_skip_recipient_for_opt_out,
+            should_wait_for_retry,
+        )
+
+        assistant_id, agent = resolve_survey_telnyx_assistant_id(db, order, config)
         if not assistant_id:
             return None
 
@@ -301,10 +333,17 @@ class SurveyCallDispatchService:
         if _any_recipient_calling(recipients):
             return None
 
-        next_recipient = next(
-            (r for r in recipients if str(r.status or "pending").lower() in VOICE_PENDING),
-            None,
-        )
+        next_recipient = None
+        for candidate in recipients:
+            status = str(candidate.status or "pending").lower()
+            if status not in VOICE_PENDING:
+                continue
+            if should_skip_recipient_for_opt_out(candidate):
+                continue
+            if should_wait_for_retry(candidate):
+                continue
+            next_recipient = candidate
+            break
         if next_recipient is None:
             _finalize_order_if_done(db, order)
             return None
@@ -316,8 +355,12 @@ class SurveyCallDispatchService:
             _log("caller_id_missing", order_id=order.id)
             return None
 
-        instructions = build_survey_call_instructions(config, recipient_name=next_recipient.name)
-        greeting = build_survey_call_greeting(config, recipient_name=next_recipient.name)
+        instructions = build_survey_runtime_instructions(
+            db, order=order, config=config, recipient=next_recipient, agent=agent
+        )
+        greeting = build_survey_opening_greeting(
+            db, agent=agent, config=config, recipient_name=next_recipient.name
+        )
         to_number = normalize_telnyx_e164(str(next_recipient.phone or ""))
 
         result = TelnyxVoiceAdapter.start_outbound_call(
@@ -329,6 +372,7 @@ class SurveyCallDispatchService:
                 "service_order_id": order.id,
                 "recipient_id": next_recipient.id,
                 "org_id": order.org_id,
+                "agent_id": agent.id if agent else None,
                 "telnyx_assistant_id": assistant_id,
                 "survey_greeting": greeting,
                 "survey_instructions": instructions[:4000],
@@ -434,17 +478,29 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
     if str(recipient.status or "").lower() in VOICE_TERMINAL:
         return True
 
-    assistant_id = str(parsed.get("telnyx_assistant_id") or get_survey_telnyx_assistant_id(db) or "").strip()
-    config = _telnyx_config(db)
+    assistant_id = str(parsed.get("telnyx_assistant_id") or get_survey_telnyx_assistant_id(db, order) or "").strip()
+    telnyx_config = _telnyx_config(db)
 
     if "answered" in event_type:
         config_order = _order_config(order)
-        instructions = str(parsed.get("survey_instructions") or "").strip() or build_survey_call_instructions(
-            config_order,
-            recipient_name=recipient.name,
+        from app.services.survey_voice_agent_service import (
+            build_survey_opening_greeting,
+            build_survey_runtime_instructions,
+            resolve_survey_agent_for_order,
         )
-        greeting = str(parsed.get("survey_greeting") or "").strip() or build_survey_call_greeting(
-            config_order,
+
+        agent = resolve_survey_agent_for_order(db, order, config_order)
+        instructions = str(parsed.get("survey_instructions") or "").strip() or build_survey_runtime_instructions(
+            db,
+            order=order,
+            config=config_order,
+            recipient=recipient,
+            agent=agent,
+        )
+        greeting = str(parsed.get("survey_greeting") or "").strip() or build_survey_opening_greeting(
+            db,
+            agent=agent,
+            config=config_order,
             recipient_name=recipient.name,
         )
         if not assistant_id:
@@ -460,7 +516,7 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
         result = TelnyxVoiceAdapter.start_ai_assistant(
             call_control_id=call_id,
             assistant_id=assistant_id,
-            config=config,
+            config=telnyx_config,
             instructions=instructions,
             greeting=greeting,
             prepared=False,
@@ -533,6 +589,29 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
             "duration_seconds": duration_seconds,
         }
 
+        from app.services.survey_voice_agent_service import (
+            detect_opt_out_text,
+            mark_recipient_opted_out,
+            schedule_recipient_retry,
+        )
+
+        if transcript and detect_opt_out_text(transcript):
+            mark_recipient_opted_out(db, recipient, source_text=transcript)
+            _log("recipient_opted_out", order_id=order.id, recipient_id=recipient.id)
+            try:
+                from app.services.survey_analysis_service import SurveyAnalysisService
+
+                SurveyAnalysisService.process_recipient_post_call(
+                    db,
+                    order=order,
+                    recipient=recipient,
+                    terminal_status="opted_out",
+                    hangup_extra=hangup_extra,
+                )
+            except Exception:
+                logger.exception("survey_opt_out_analysis_failed")
+            return True
+
         SurveyCallDispatchService.finalize_recipient_after_call(
             db,
             order=order,
@@ -558,6 +637,13 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
                 schedule_survey_analysis_retry(order.id, recipient.id)
         except Exception:
             logger.exception("survey_post_call_analysis_failed")
+
+        if terminal in {"no_answer", "busy"} and str(recipient.status or "").lower() != "opted_out":
+            try:
+                schedule_recipient_retry(db, recipient)
+                _log("recipient_retry_scheduled", order_id=order.id, recipient_id=recipient.id, status=terminal)
+            except Exception:
+                logger.exception("survey_recipient_retry_failed")
 
         _log(
             "call_ended",

@@ -113,6 +113,16 @@ def create_order(payload: dict, db: Session = Depends(get_db), principal=Depends
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/survey-agents")
+def list_survey_agents_for_dashboard(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.survey_voice_agent_service import list_dashboard_agents_for_service
+    from app.core.agent_services import SERVICE_SURVEY
+
+    return {
+        "agents": list_dashboard_agents_for_service(db, service_key=SERVICE_SURVEY, org_id=principal.org_id),
+    }
+
+
 @router.get("/{order_id}")
 def get_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)

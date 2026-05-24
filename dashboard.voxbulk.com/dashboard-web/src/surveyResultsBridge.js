@@ -1,4 +1,4 @@
-import { api, getAccessToken } from './lib/api.js'
+import { apiFetch, getAccessToken } from './lib/api.js'
 
 const LOG = '[survey-results]'
 
@@ -36,6 +36,7 @@ function starsHtml(score10) {
 function statusBadge(status) {
   const clean = String(status || 'pending').toLowerCase()
   if (clean === 'completed') return '<span class="bdg bg">Completed</span>'
+  if (clean === 'opted_out') return '<span class="bdg br">Opted out</span>'
   if (clean === 'no_answer' || clean === 'busy') return '<span class="bdg ba">No answer</span>'
   if (clean === 'failed') return '<span class="bdg br">Failed</span>'
   if (clean === 'calling') return '<span class="bdg bb">Calling</span>'
@@ -189,7 +190,7 @@ async function loadSurveyResults(orderId) {
   log('load_started', { orderId })
 
   try {
-    const payload = await api(`/service-orders/${orderId}/survey-results`)
+    const payload = await apiFetch(`/service-orders/${orderId}/survey-results`)
     state.payload = payload
     renderSurveyResultsPage(payload)
     log('load_saved', {
@@ -220,7 +221,7 @@ async function openSurveyRecipientDetail(recipientId) {
   if (!state.orderId) return
   log('recipient_open_started', { orderId: state.orderId, recipientId })
   try {
-    const payload = await api(
+    const payload = await apiFetch(
       `/service-orders/${state.orderId}/recipients/${recipientId}/survey-detail`,
     )
     const row = payload.recipient || {}

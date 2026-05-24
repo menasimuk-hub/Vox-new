@@ -71,6 +71,8 @@ def _status_badge(status: str) -> str:
     clean = str(status or "pending").lower()
     if clean == "completed":
         return '<span class="bdg bg">Completed</span>'
+    if clean == "opted_out":
+        return '<span class="bdg br">Opted out</span>'
     if clean in {"no_answer", "busy"}:
         return '<span class="bdg ba">No answer</span>'
     if clean == "failed":

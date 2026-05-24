@@ -30,6 +30,7 @@ from app.models.onboarding_setting import OnboardingSetting  # noqa: F401
 from app.models.organisation_invite import OrganisationInvite  # noqa: F401
 from app.models.category import Category  # noqa: F401
 from app.models.agent import AgentAssignment, AgentDefinition  # noqa: F401
+from app.models.voice_agent_platform_settings import VoiceAgentPlatformSettings  # noqa: F401
 from app.models.agent_service_assignment import AgentServiceAssignment  # noqa: F401
 from app.models.knowledge_base_file import KnowledgeBaseFile  # noqa: F401
 from app.models.agent_knowledge_file import AgentKnowledgeFile  # noqa: F401

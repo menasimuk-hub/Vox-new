@@ -24,6 +24,14 @@ from app.services.knowledge_base_service import (
     refresh_agent_kb_context,
     set_agent_knowledge_files,
 )
+from app.services.survey_voice_agent_service import (
+    _clear_other_defaults,
+    _default_field,
+    agent_to_voice_dict,
+    get_platform_voice_settings,
+    platform_settings_to_dict,
+    update_platform_voice_settings,
+)
 
 router = APIRouter(prefix="/admin/agents", tags=["admin-agents"])
 
@@ -38,19 +46,11 @@ def _slugify(raw: str) -> str:
 
 
 def _agent_out(db: Session, agent: AgentDefinition) -> dict:
-    return {
-        "id": agent.id,
-        "name": agent.name,
-        "slug": agent.slug,
-        "description": agent.description,
-        "system_prompt": agent.system_prompt,
-        "call_workflow": agent.call_workflow,
-        "is_active": bool(agent.is_active),
-        "knowledge_file_ids": agent_knowledge_file_ids(db, agent.id),
-        "kb_context_cached": bool(str(agent.kb_context or "").strip()),
-        "created_at": agent.created_at,
-        "updated_at": agent.updated_at,
-    }
+    data = agent_to_voice_dict(agent)
+    data["knowledge_file_ids"] = agent_knowledge_file_ids(db, agent.id)
+    data["created_at"] = agent.created_at
+    data["updated_at"] = agent.updated_at
+    return data
 
 
 def _service_assignment_out(row: AgentServiceAssignment) -> dict:
@@ -92,13 +92,47 @@ def _apply_agent_payload(agent: AgentDefinition, payload: dict) -> None:
         agent.call_workflow = str(raw).strip() if raw is not None and str(raw).strip() else None
     if "is_active" in payload:
         agent.is_active = bool(payload["is_active"])
-    for key in ["default_model", "default_voice", "allow_lookup_tool", "allow_booking_tool", "allow_reschedule_tool", "allow_cancel_tool"]:
+
+    text_fields = [
+        "voice_label",
+        "voice_type_label",
+        "telnyx_assistant_id",
+        "base_role",
+        "service_survey_role",
+        "service_interview_role",
+        "service_lead_sales_role",
+        "opening_disclosure_template",
+        "retry_policy_notes",
+        "interruption_behavior_notes",
+        "voicemail_behavior",
+        "opt_out_policy_notes",
+        "default_model",
+        "default_voice",
+    ]
+    for key in text_fields:
         if key in payload:
-            if key.startswith("allow_"):
-                setattr(agent, key, bool(payload[key]))
-            else:
-                raw = payload.get(key)
-                setattr(agent, key, str(raw).strip() if raw is not None and str(raw).strip() else None)
+            raw = payload.get(key)
+            setattr(agent, key, str(raw).strip() if raw is not None and str(raw).strip() else None)
+
+    bool_fields = [
+        "supports_survey",
+        "supports_interview",
+        "supports_lead_sales",
+        "is_default_survey",
+        "is_default_interview",
+        "is_default_lead_sales",
+        "disclosure_for_survey",
+        "disclosure_for_interview",
+        "disclosure_mandatory",
+        "allow_lookup_tool",
+        "allow_booking_tool",
+        "allow_reschedule_tool",
+        "allow_cancel_tool",
+    ]
+    for key in bool_fields:
+        if key in payload:
+            setattr(agent, key, bool(payload[key]))
+
     agent.updated_at = datetime.utcnow()
 
 
@@ -132,6 +166,10 @@ def create_agent(payload: dict, db: Session = Depends(get_db), _admin=Depends(re
     now = datetime.utcnow()
     agent = AgentDefinition(name=name, slug=slug, system_prompt=system_prompt, created_at=now, updated_at=now)
     _apply_agent_payload(agent, payload)
+    for service_key in ("survey", "interview", "lead_sales"):
+        field = _default_field(service_key)
+        if field:
+            _clear_other_defaults(db, agent, field)
     db.add(agent)
     db.commit()
     db.refresh(agent)
@@ -146,6 +184,20 @@ def agent_services_catalog(_admin=Depends(require_agent_admin)):
     return {
         "services": [{"key": key, "label": AGENT_SERVICE_LABELS[key]} for key in AGENT_SERVICE_KEYS],
     }
+
+
+@router.get("/platform-voice-settings")
+def get_platform_voice_settings_route(db: Session = Depends(get_db), _admin=Depends(require_agent_admin)):
+    return platform_settings_to_dict(get_platform_voice_settings(db))
+
+
+@router.put("/platform-voice-settings")
+def update_platform_voice_settings_route(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_agent_admin),
+):
+    return platform_settings_to_dict(update_platform_voice_settings(db, payload))
 
 
 @router.get("/service-assignments")
@@ -300,6 +352,10 @@ def update_agent(agent_id: str, payload: dict, db: Session = Depends(get_db), _a
         if clash:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent slug already exists")
     _apply_agent_payload(agent, payload)
+    for service_key in ("survey", "interview", "lead_sales"):
+        field = _default_field(service_key)
+        if field:
+            _clear_other_defaults(db, agent, field)
     db.add(agent)
     db.commit()
     db.refresh(agent)
