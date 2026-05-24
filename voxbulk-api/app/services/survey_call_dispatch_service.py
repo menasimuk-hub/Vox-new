@@ -15,7 +15,7 @@ from app.services.survey_dispatch_service import _first_name, _personalize, _sur
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
 from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id
 from app.services.telnyx_voice_service import TelnyxVoiceAdapter, _decode_client_state, _telnyx_config
-from app.utils.ofcom import is_within_calling_window, now_uk
+from app.utils.ofcom import now_uk, org_calling_allowed
 
 logger = get_logger(__name__)
 
@@ -125,12 +125,15 @@ def build_survey_call_greeting(config: dict[str, Any], *, recipient_name: str) -
     return f"Hi {first}, this is a quick survey call from {org_name}."
 
 
-def _order_window_ok(order: ServiceOrder, *, now: datetime | None = None) -> tuple[bool, str | None]:
+def _order_window_ok(db: Session, order: ServiceOrder, *, now: datetime | None = None) -> tuple[bool, str | None]:
     now = now or datetime.utcnow()
+    if order.scheduled_start_at and now < order.scheduled_start_at:
+        return False, "Survey calling window has not started"
     if order.scheduled_end_at and now >= order.scheduled_end_at:
         return False, "Survey calling window has ended"
-    if not is_within_calling_window(now_uk()):
-        return False, "Outside UK calling hours"
+    allowed, reason = org_calling_allowed(db, order.org_id, now=now_uk())
+    if not allowed:
+        return False, reason or "Outside calling hours"
     return True, None
 
 
@@ -257,7 +260,7 @@ class SurveyCallDispatchService:
             _log("script_not_approved", order_id=order.id)
             return False
 
-        ok, reason = _order_window_ok(order)
+        ok, reason = _order_window_ok(db, order)
         if not ok:
             _log("window_blocked_at_start", order_id=order.id, reason=reason)
             return False
@@ -293,7 +296,7 @@ class SurveyCallDispatchService:
     def tick_running_order(db: Session, order: ServiceOrder) -> None:
         if order.status != "running":
             return
-        ok, reason = _order_window_ok(order)
+        ok, reason = _order_window_ok(db, order)
         if not ok:
             _complete_order_window_expired(db, order, reason=reason or "window_ended")
             return
@@ -324,7 +327,7 @@ class SurveyCallDispatchService:
         if not assistant_id:
             return None
 
-        ok, reason = _order_window_ok(order)
+        ok, reason = _order_window_ok(db, order)
         if not ok:
             _complete_order_window_expired(db, order, reason=reason or "window_ended")
             return None
@@ -370,7 +373,7 @@ class SurveyCallDispatchService:
         if not assistant_id:
             raise ValueError("Survey voice agent is not configured")
 
-        ok, reason = _order_window_ok(order)
+        ok, reason = _order_window_ok(db, order)
         if not ok:
             raise ValueError(reason or "Outside the survey calling window")
 
@@ -421,7 +424,7 @@ class SurveyCallDispatchService:
             db, order=order, config=config, recipient=recipient, agent=agent
         )
         greeting = build_survey_opening_greeting(
-            db, agent=agent, config=config, recipient_name=recipient.name
+            db, agent=agent, config=config, recipient_name=recipient.name, org_id=order.org_id
         )
         to_number = normalize_telnyx_e164(str(recipient.phone or ""))
 
@@ -504,7 +507,7 @@ class SurveyCallDispatchService:
 
         recipients = ServiceOrderService.get_recipients(db, order.id)
         if order.status == "running" and not _any_recipient_calling(recipients):
-            ok, reason = _order_window_ok(order)
+            ok, reason = _order_window_ok(db, order)
             if not ok:
                 _complete_order_window_expired(db, order, reason=reason or "window_ended")
             elif _all_recipients_terminal(recipients):
@@ -564,6 +567,7 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
             agent=agent,
             config=config_order,
             recipient_name=recipient.name,
+            org_id=order.org_id,
         )
         if not assistant_id:
             SurveyCallDispatchService.finalize_recipient_after_call(
@@ -702,7 +706,10 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
 
         if terminal in {"no_answer", "busy"} and str(recipient.status or "").lower() != "opted_out":
             try:
-                schedule_recipient_retry(db, recipient)
+                from app.services.survey_voice_agent_service import resolve_survey_retry_settings
+
+                max_retries, delay_seconds = resolve_survey_retry_settings(db, order)
+                schedule_recipient_retry(db, recipient, delay_seconds=delay_seconds, max_retries=max_retries)
                 _log("recipient_retry_scheduled", order_id=order.id, recipient_id=recipient.id, status=terminal)
             except Exception:
                 logger.exception("survey_recipient_retry_failed")

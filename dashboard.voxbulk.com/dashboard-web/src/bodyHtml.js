@@ -596,6 +596,7 @@ const bodyHtml = `<div class="app" id="app">
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px" id="sur-detail-actions">
               <button class="btn btng bsm" type="button" id="sur-detail-pay"><i class="ti ti-credit-card"></i>Pay</button>
+              <button class="btn btng bsm" type="button" id="sur-detail-start"><i class="ti ti-player-play"></i>Start survey</button>
               <button class="btn bsm" type="button" id="sur-detail-edit"><i class="ti ti-edit"></i>Edit</button>
               <button class="btn bsm" type="button" id="sur-detail-duplicate"><i class="ti ti-copy"></i>Duplicate</button>
               <button class="btn bsm" type="button" id="sur-detail-results"><i class="ti ti-chart-bar"></i>View report</button>
@@ -648,7 +649,7 @@ const bodyHtml = `<div class="app" id="app">
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <button class="btn bsm" onclick="goNav('surveys')"><i class="ti ti-arrow-left"></i>Back to surveys</button>
-          <div style="display:flex;gap:8px"><button class="btn btng bsm" disabled title="Coming soon"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm" disabled title="Coming soon"><i class="ti ti-table"></i>Export CSV</button></div>
+          <div style="display:flex;gap:8px"><button class="btn bsm" type="button" id="sur-results-export-pdf"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm" type="button" id="sur-results-export-csv"><i class="ti ti-table"></i>Export CSV</button></div>
         </div>
         <div id="sur-results-loading" class="inf g" style="display:none"><i class="ti ti-loader"></i>Loading survey results…</div>
         <div id="sur-results-error" class="inf r" style="display:none"></div>
@@ -659,6 +660,10 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Would recommend</div><div class="kv" id="sur-kpi-recommend">—</div><div class="kd" id="sur-kpi-nps">—</div></div>
           <div class="kpi"><div class="kl">Responded</div><div class="kv" id="sur-kpi-responded">—</div><div class="kd" id="sur-kpi-response-rate">—</div></div>
           <div class="kpi"><div class="kl">Avg call length</div><div class="kv" id="sur-kpi-duration">—</div></div>
+        </div>
+        <div class="card" style="margin-top:12px">
+          <div class="ch"><i class="ti ti-chart-bar grn"></i>Anonymous answer summary — no names shown</div>
+          <div id="sur-results-aggregates"><div class="muted" style="font-size:12px;padding:8px 0">Results will appear after calls complete.</div></div>
         </div>
         <div class="card">
           <div class="ch"><i class="ti ti-users grn"></i>Respondents — click to view transcript</div>
@@ -1130,8 +1135,24 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
     <div class="confirm-title"><i class="ti ti-alert-triangle" style="color:var(--amb);font-size:18px"></i><span id="confirm-title-text">Are you sure?</span></div>
     <div class="confirm-msg" id="confirm-msg-text">This action cannot be undone.</div>
     <div class="confirm-btns">
-      <button class="btn bsm" onclick="closeConfirm()">Cancel</button>
-      <button class="btn bsm btnr" id="confirm-ok-btn">Confirm</button>
+      <button class="btn bsm" type="button" id="confirm-cancel-btn">Cancel</button>
+      <button class="btn bsm btnr" type="button" id="confirm-ok-btn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ PAYMENT MODAL ═══ -->
+<div id="payment-overlay">
+  <div class="payment-box">
+    <div class="payment-title"><i class="ti ti-credit-card" style="color:var(--grn);font-size:18px"></i><span id="payment-title-text">Pay for survey</span></div>
+    <div class="payment-amount" id="payment-amount-text">£0.00</div>
+    <div class="payment-breakdown" id="payment-breakdown"></div>
+    <div class="payment-note" id="payment-note-text"></div>
+    <div class="payment-actions">
+      <button class="btn btng bsm" type="button" id="payment-gc-btn"><i class="ti ti-building-bank"></i>Pay with GoCardless</button>
+      <button class="btn bsm" type="button" id="payment-cash-btn"><i class="ti ti-cash"></i>Pay cash — admin approves</button>
+      <button class="btn bsm" type="button" id="payment-promo-btn"><i class="ti ti-ticket"></i>Use promo credits</button>
+      <button class="btn bsm" type="button" id="payment-cancel-btn">Cancel</button>
     </div>
   </div>
 </div>

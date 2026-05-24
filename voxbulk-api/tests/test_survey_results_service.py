@@ -11,6 +11,8 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import PlatformCatalogService
 from app.services.survey_results_service import (
     SurveyResultsService,
+    build_answer_aggregates,
+    build_survey_results_html,
     derive_survey_recommendations,
 )
 
@@ -144,3 +146,42 @@ def test_recipient_detail_payload(db):
     detail = SurveyResultsService.get_recipient_detail(db, order, recipient)
     assert detail["recipient"]["transcript"].startswith("User:")
     assert detail["recipient"]["extracted_answers"][0]["answer"] == "Good"
+
+
+def test_build_answer_aggregates_anonymous():
+    recipients = [
+        ServiceOrderRecipient(
+            order_id="o1",
+            row_number=1,
+            name="Jane",
+            phone="+441",
+            status="completed",
+            result_json=json.dumps(
+                {
+                    "analysis": {
+                        "extracted_answers": [
+                            {"question": "Rating?", "answer": "Good"},
+                            {"question": "Rating?", "answer": "Fair"},
+                        ]
+                    }
+                }
+            ),
+        )
+    ]
+    aggregates = build_answer_aggregates(recipients)
+    assert aggregates[0]["question"] == "Rating?"
+    assert aggregates[0]["total"] == 2
+
+
+def test_build_survey_results_html():
+    html = build_survey_results_html(
+        {
+            "order": {"title": "May survey", "goal": "Satisfaction"},
+            "summary": {"completed_count": 3, "response_rate_pct": 75, "average_satisfaction_5": 4.2},
+            "aggregates": [{"question": "Rating?", "total": 2, "responses": [{"answer": "Good", "count": 2}]}],
+            "recommendations": [{"text": "Review wait times."}],
+        }
+    )
+    assert "May survey" in html
+    assert "Anonymous answer summary" in html
+    assert "Rating?" in html

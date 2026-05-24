@@ -286,6 +286,47 @@ def admin_call_recipient_now(
     return ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
 
 
+@router.post("/orders/{order_id}/reanalyze")
+def admin_reanalyze_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.survey_analysis_service import SurveyAnalysisService
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        result = SurveyAnalysisService.reanalyze_order(db, order=order)
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        payload = ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
+        payload["reanalyze"] = result
+        return payload
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/orders/{order_id}/recipients/{recipient_id}/reanalyze")
+def admin_reanalyze_recipient(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.survey_analysis_service import SurveyAnalysisService
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    try:
+        SurveyAnalysisService.reanalyze_recipient(db, order=order, recipient=recipient)
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        return ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/orders/{order_id}/start")
 def admin_start_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     order = ServiceOrderService.get_order(db, order_id)

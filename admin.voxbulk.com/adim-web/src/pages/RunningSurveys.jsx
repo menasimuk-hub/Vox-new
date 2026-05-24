@@ -2,6 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, ClipboardList, Pause, Phone, PhoneCall, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 
+function surveyResponded(report) {
+  return Number(report?.completed ?? report?.sent ?? 0)
+}
+
 const EMPTY_CONTACT = { name: '', phone: '', email: '', status: '' }
 
 function fmtWhen(iso) {
@@ -200,9 +204,48 @@ export default function RunningSurveys() {
     }
   }
 
+  const reanalyzeOrder = async () => {
+    if (!selected?.id) return
+    setBusyKey('reanalyze-order')
+    setError('')
+    try {
+      const row = await apiFetch(
+        `/admin/platform-services/orders/${encodeURIComponent(selected.id)}/reanalyze`,
+        { method: 'POST' },
+      )
+      setSelected(row)
+    } catch (e) {
+      setError(e?.message || 'Could not re-analyze survey')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const reanalyzeContact = async (recipientId) => {
+    if (!selected?.id) return
+    setBusyKey(`reanalyze-${recipientId}`)
+    setError('')
+    try {
+      const row = await apiFetch(
+        `/admin/platform-services/orders/${encodeURIComponent(selected.id)}/recipients/${encodeURIComponent(recipientId)}/reanalyze`,
+        { method: 'POST' },
+      )
+      setSelected(row)
+      const detail = await apiFetch(
+        `/admin/platform-services/orders/${encodeURIComponent(selected.id)}/recipients/${encodeURIComponent(recipientId)}`,
+      )
+      setContactDetail(detail)
+    } catch (e) {
+      setError(e?.message || 'Could not re-analyze contact')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
   const recipients = selected?.recipients || []
   const config = selected?.config || {}
   const report = selected?.report || {}
+  const analysis = report?.analysis || {}
   const isRunning = selected?.status === 'running'
 
   const overviewCards = useMemo(
@@ -279,7 +322,7 @@ export default function RunningSurveys() {
                 </thead>
                 <tbody>
                   {orders.map((o) => {
-                    const sent = o.report?.sent || 0
+                    const sent = surveyResponded(o.report)
                     const total = o.recipient_count || 0
                     return (
                       <tr key={o.id} className={selected?.id === o.id ? 'isSelected' : ''}>
@@ -339,6 +382,9 @@ export default function RunningSurveys() {
               <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'stop', { reason: 'Stopped by admin' })}>
                 <Square size={14} /> Stop
               </button>
+              <button type="button" className="btn soft bsm" disabled={busyKey === 'reanalyze-order'} onClick={reanalyzeOrder}>
+                <RefreshCw size={14} /> Re-analyze all
+              </button>
               {selected.org_phone ? (
                 <a className="btn soft bsm" href={`tel:${selected.org_phone}`}><Phone size={14} /> Phone clinic</a>
               ) : null}
@@ -377,7 +423,11 @@ export default function RunningSurveys() {
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Call progress</div>
-                  <div>{report.sent || 0} responded · {report.failed || 0} failed · {Math.max(0, (selected.recipient_count || 0) - (report.sent || 0) - (report.failed || 0))} pending</div>
+                  <div>{surveyResponded(report)} responded · {report.failed || 0} failed · {Math.max(0, (selected.recipient_count || 0) - surveyResponded(report) - (report.failed || 0))} pending</div>
+                </div>
+                <div className="runningSurveyMetaBlock">
+                  <div className="runningSurveyMetaLabel">AI analysis</div>
+                  <div>{analysis.analyzed_count ?? 0} analysed · {analysis.pending_analysis ?? 0} pending</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Started</div>
@@ -397,10 +447,23 @@ export default function RunningSurveys() {
                         <strong>{contactDetail.contact?.name || contactDetail.recipient?.name}</strong>
                         <div className="muted">{contactDetail.contact?.phone} · {contactDetail.contact?.email || 'No email'}</div>
                       </div>
-                      <button type="button" className="btn soft bsm" onClick={() => setContactDetail(null)}>Close</button>
+                      <div className="runningSurveyRowActions">
+                        <button
+                          type="button"
+                          className="btn soft bsm"
+                          disabled={busyKey === `reanalyze-${contactDetail.recipient?.id}`}
+                          onClick={() => reanalyzeContact(contactDetail.recipient?.id)}
+                        >
+                          {busyKey === `reanalyze-${contactDetail.recipient?.id}` ? 'Re-analysing…' : 'Re-analyze'}
+                        </button>
+                        <button type="button" className="btn soft bsm" onClick={() => setContactDetail(null)}>Close</button>
+                      </div>
                     </div>
                     <div className="muted">Status: {contactDetail.contact?.status || contactDetail.recipient?.status}</div>
-                    {contactDetail.recipient?.call_summary ? <p>{contactDetail.recipient.call_summary}</p> : null}
+                    {contactDetail.recipient?.short_summary ? <p><strong>Summary:</strong> {contactDetail.recipient.short_summary}</p> : null}
+                    {contactDetail.recipient?.analysis_error ? (
+                      <p className="note">Analysis error: {contactDetail.recipient.analysis_error}</p>
+                    ) : null}
                     {contactDetail.recipient?.transcript ? (
                       <pre className="runningSurveyTranscript">{contactDetail.recipient.transcript}</pre>
                     ) : null}

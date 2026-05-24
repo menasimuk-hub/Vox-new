@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -147,6 +148,154 @@ def derive_survey_recommendations(
     return recs[:5]
 
 
+def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dict[str, Any]]:
+    """Anonymous roll-up of extracted answers — no respondent names."""
+    buckets: dict[str, Counter[str]] = {}
+
+    for row in recipients:
+        if str(row.status or "").lower() != "completed":
+            continue
+        result = _recipient_result(row)
+        analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+        answers = (
+            analysis.get("extracted_answers")
+            or analysis.get("answers")
+            or result.get("extracted_answers")
+            or []
+        )
+        if not isinstance(answers, list):
+            continue
+        for item in answers:
+            if not isinstance(item, dict):
+                continue
+            question = str(item.get("question") or "General").strip()
+            answer = str(item.get("answer") or "").strip()
+            if not question or not answer:
+                continue
+            buckets.setdefault(question, Counter())[answer] += 1
+
+    aggregates: list[dict[str, Any]] = []
+    for question, counter in buckets.items():
+        total = sum(counter.values())
+        responses = [{"answer": label, "count": count} for label, count in counter.most_common(12)]
+        aggregates.append({"question": question, "total": total, "responses": responses})
+
+    aggregates.sort(key=lambda row: (-int(row.get("total") or 0), str(row.get("question") or "")))
+    return aggregates
+
+
+def build_survey_results_csv(payload: dict[str, Any]) -> str:
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Survey", payload.get("order", {}).get("title", "Survey")])
+    summary = payload.get("summary") or {}
+    writer.writerow(["Completed responses", summary.get("completed_count", 0)])
+    writer.writerow(["Response rate %", summary.get("response_rate_pct", 0)])
+    writer.writerow(["Average satisfaction /5", summary.get("average_satisfaction_5", "")])
+    writer.writerow(["NPS", (summary.get("nps_score") if isinstance(summary.get("nps_score"), dict) else summary.get("nps_score")) or ""])
+    writer.writerow([])
+    writer.writerow(["Question", "Answer", "Count"])
+    for block in payload.get("aggregates") or []:
+        question = block.get("question") or "Question"
+        for row in block.get("responses") or []:
+            writer.writerow([question, row.get("answer"), row.get("count")])
+    return buf.getvalue()
+
+
+def _html_esc(text: Any) -> str:
+    return (
+        str(text if text is not None else "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def build_survey_results_html(payload: dict[str, Any]) -> str:
+    order = payload.get("order") or {}
+    summary = payload.get("summary") or {}
+    title = _html_esc(order.get("title") or "Survey results")
+    goal = _html_esc(order.get("goal") or "")
+
+    kpi_rows = [
+        ("Overall satisfaction", f"{summary.get('average_satisfaction_5') or '—'}/5"),
+        ("Would recommend", f"{summary.get('recommend_pct') or '—'}%"),
+        ("Responded", str(summary.get("completed_count") or 0)),
+        ("Response rate", f"{summary.get('response_rate_pct') or '—'}%"),
+        ("Avg call length", _html_esc(summary.get("average_call_duration_label") or "—")),
+        ("NPS", str(summary.get("nps_score") if summary.get("nps_score") is not None else "—")),
+    ]
+    kpi_html = "".join(
+        f"<tr><td>{_html_esc(label)}</td><td><strong>{_html_esc(value)}</strong></td></tr>"
+        for label, value in kpi_rows
+    )
+
+    agg_blocks: list[str] = []
+    for block in payload.get("aggregates") or []:
+        question = _html_esc(block.get("question") or "Question")
+        total = int(block.get("total") or 0)
+        rows = []
+        for row in block.get("responses") or []:
+            answer = _html_esc(row.get("answer"))
+            count = int(row.get("count") or 0)
+            rows.append(f"<tr><td>{answer}</td><td>{count}</td></tr>")
+        agg_blocks.append(
+            f"<h3>{question} <span style='color:#666'>({total} responses)</span></h3>"
+            f"<table><thead><tr><th>Answer</th><th>Count</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        )
+
+    issue_rows = []
+    completed = max(1, int(summary.get("completed_count") or 1))
+    for item in summary.get("top_issues") or []:
+        label = _html_esc(item.get("label"))
+        count = int(item.get("count") or 0)
+        pct = round((count / completed) * 100)
+        issue_rows.append(f"<tr><td>{label}</td><td>{count}</td><td>{pct}%</td></tr>")
+
+    rec_items = "".join(
+        f"<li>{_html_esc(rec.get('text'))}</li>" for rec in (payload.get("recommendations") or [])
+    )
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<style>
+body {{ font-family: Helvetica, Arial, sans-serif; color: #111; margin: 28px; font-size: 12px; }}
+h1 {{ font-size: 22px; margin: 0 0 6px; }}
+h2 {{ font-size: 15px; margin: 22px 0 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }}
+h3 {{ font-size: 13px; margin: 14px 0 6px; }}
+.meta {{ color: #666; margin-bottom: 18px; }}
+table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; }}
+th, td {{ border: 1px solid #ddd; padding: 6px 8px; text-align: left; }}
+th {{ background: #f5f5f5; }}
+ul {{ margin: 0; padding-left: 18px; }}
+.footer {{ margin-top: 24px; color: #888; font-size: 10px; }}
+</style></head><body>
+<h1>{title}</h1>
+<div class="meta">Goal: {goal or '—'} · Anonymous aggregate report · Generated by VOXBULK</div>
+<h2>Summary</h2>
+<table>{kpi_html}</table>
+<h2>Anonymous answer summary</h2>
+{''.join(agg_blocks) if agg_blocks else '<p>No aggregated answers yet.</p>'}
+<h2>Top issues</h2>
+<table><thead><tr><th>Issue</th><th>Count</th><th>% of completed</th></tr></thead>
+<tbody>{''.join(issue_rows) if issue_rows else '<tr><td colspan="3">No recurring issues yet.</td></tr>'}</tbody></table>
+<h2>Recommendations</h2>
+<ul>{rec_items if rec_items else '<li>Recommendations will appear once enough calls are analysed.</li>'}</ul>
+<div class="footer">Respondent names and transcripts are not included in this export.</div>
+</body></html>"""
+
+
+def build_survey_results_pdf(payload: dict[str, Any]) -> bytes:
+    from app.services.invoice_pdf_service import render_html_to_pdf_bytes
+
+    html = build_survey_results_html(payload)
+    return render_html_to_pdf_bytes(html)
+
+
 def recipient_summary_row(recipient: ServiceOrderRecipient, *, goal: str) -> dict[str, Any]:
     result = _recipient_result(recipient)
     analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
@@ -209,6 +358,7 @@ def recipient_detail_payload(recipient: ServiceOrderRecipient) -> dict[str, Any]
         "recommend_score": analysis.get("recommend_score", result.get("recommend_score")),
         "call_control_id": result.get("call_control_id"),
         "telnyx_conversation_id": result.get("telnyx_conversation_id"),
+        "analysis_error": result.get("analysis_error"),
     }
 
 
@@ -279,6 +429,7 @@ def build_survey_results_payload(db: Session, order: ServiceOrder) -> dict[str, 
         top_tags=summary["top_tags"],
         completed_count=completed_count,
     )
+    aggregates = build_answer_aggregates(recipients)
 
     return {
         "ok": True,
@@ -294,6 +445,7 @@ def build_survey_results_payload(db: Session, order: ServiceOrder) -> dict[str, 
             "completed_at": order.completed_at.isoformat() if order.completed_at else None,
         },
         "summary": summary,
+        "aggregates": aggregates,
         "respondents": [recipient_summary_row(r, goal=goal) for r in recipients],
         "recommendations": recommendations,
     }
@@ -303,6 +455,16 @@ class SurveyResultsService:
     @staticmethod
     def get_results(db: Session, order: ServiceOrder) -> dict[str, Any]:
         return build_survey_results_payload(db, order)
+
+    @staticmethod
+    def export_results_csv(db: Session, order: ServiceOrder) -> str:
+        payload = build_survey_results_payload(db, order)
+        return build_survey_results_csv(payload)
+
+    @staticmethod
+    def export_results_pdf(db: Session, order: ServiceOrder) -> bytes:
+        payload = build_survey_results_payload(db, order)
+        return build_survey_results_pdf(payload)
 
     @staticmethod
     def get_recipient_detail(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> dict[str, Any]:

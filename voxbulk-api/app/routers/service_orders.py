@@ -349,6 +349,46 @@ def get_survey_results(order_id: str, db: Session = Depends(get_db), principal=D
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/{order_id}/survey-results/export.csv")
+def export_survey_results_csv(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.survey_results_service import SurveyResultsService
+    from fastapi.responses import Response
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        csv_text = SurveyResultsService.export_results_csv(db, order)
+        filename = f"survey-results-{order_id[:8]}.csv"
+        return Response(
+            content=csv_text,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/survey-results/export.pdf")
+def export_survey_results_pdf(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.survey_results_service import SurveyResultsService
+    from fastapi.responses import Response
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        pdf_bytes = SurveyResultsService.export_results_pdf(db, order)
+        filename = f"survey-results-{order_id[:8]}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/{order_id}/recipients/{recipient_id}/survey-detail")
 def get_survey_recipient_detail(
     order_id: str,

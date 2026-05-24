@@ -324,24 +324,33 @@ window.toast = toast;
 
 // ── CONFIRM DIALOG ──
 var confirmCb=null;
-function showConfirm(title,msg,okLabel,cb){
+var confirmCancelCb=null;
+function showConfirm(title,msg,okLabel,cb,cancelCb,cancelLabel){
   document.getElementById('confirm-title-text').textContent=title;
   document.getElementById('confirm-msg-text').textContent=msg;
   document.getElementById('confirm-ok-btn').textContent=okLabel||'Confirm';
+  var cancelBtn=document.getElementById('confirm-cancel-btn');
+  if(cancelBtn) cancelBtn.textContent=cancelLabel||'Cancel';
   confirmCb=cb;
+  confirmCancelCb=cancelCb||null;
   document.getElementById('confirm-overlay').classList.add('show');
 }
 window.showConfirm = showConfirm;
-function closeConfirm(){
+function closeConfirm(didConfirm){
   document.getElementById('confirm-overlay').classList.remove('show');
+  if(didConfirm && confirmCb) confirmCb();
+  else if(!didConfirm && confirmCancelCb) confirmCancelCb();
   confirmCb=null;
+  confirmCancelCb=null;
 }
 document.getElementById('confirm-ok-btn').addEventListener('click',function(){
-  if(confirmCb) confirmCb();
-  closeConfirm();
+  closeConfirm(true);
+});
+document.getElementById('confirm-cancel-btn')?.addEventListener('click',function(){
+  closeConfirm(false);
 });
 document.getElementById('confirm-overlay').addEventListener('click',function(e){
-  if(e.target===this) closeConfirm();
+  if(e.target===this) closeConfirm(false);
 });
 
 // ── INIT ──

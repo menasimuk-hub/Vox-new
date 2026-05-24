@@ -65,6 +65,9 @@ function App({ session }) {
 
       if (cancelled) return
 
+      const { initModalBridge } = await import('./modalBridge.js')
+      initModalBridge()
+
       const { initServiceOrdersBridge } = await import('./serviceOrdersBridge.js')
       initServiceOrdersBridge()
 

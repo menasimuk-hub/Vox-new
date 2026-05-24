@@ -244,14 +244,29 @@ def build_opening_disclosure(
     agent: AgentDefinition | None,
     config: dict[str, Any],
     service_key: str = SERVICE_SURVEY,
+    org_id: str | None = None,
 ) -> str:
     platform = get_platform_voice_settings(db)
     org_name = _org_name_from_config(config)
     agent_name = _agent_display_name(agent)
 
+    org_template = ""
+    if org_id:
+        from sqlalchemy import select
+
+        from app.models.organisation_ai_config import OrganisationComplianceConfig
+
+        compliance = db.execute(
+            select(OrganisationComplianceConfig).where(OrganisationComplianceConfig.org_id == org_id)
+        ).scalar_one_or_none()
+        if compliance and str(compliance.ai_disclosure_wording or "").strip():
+            org_template = str(compliance.ai_disclosure_wording).strip()
+
     template = ""
     if agent and str(agent.opening_disclosure_template or "").strip():
         template = str(agent.opening_disclosure_template).strip()
+    elif org_template:
+        template = org_template
     elif platform.opening_disclosure_template:
         template = str(platform.opening_disclosure_template).strip()
     else:
@@ -323,10 +338,24 @@ def build_survey_runtime_instructions(
     if agent and str(agent.opt_out_policy_notes or "").strip():
         behavior.append(str(agent.opt_out_policy_notes).strip())
     else:
-        behavior.append(
-            "If the recipient asks to be removed, stop calling, or opts out, acknowledge politely, end the call, "
-            "and do not continue the survey."
-        )
+        from sqlalchemy import select
+
+        from app.models.organisation_ai_config import OrganisationComplianceConfig
+
+        org_opt_out = ""
+        if order.org_id:
+            compliance = db.execute(
+                select(OrganisationComplianceConfig).where(OrganisationComplianceConfig.org_id == order.org_id)
+            ).scalar_one_or_none()
+            if compliance and str(compliance.opt_out_wording or "").strip():
+                org_opt_out = str(compliance.opt_out_wording).strip()
+        if org_opt_out:
+            behavior.append(org_opt_out)
+        else:
+            behavior.append(
+                "If the recipient asks to be removed, stop calling, or opts out, acknowledge politely, end the call, "
+                "and do not continue the survey."
+            )
     if agent and str(agent.retry_policy_notes or "").strip():
         behavior.append(f"Retry policy notes: {agent.retry_policy_notes.strip()}")
     if agent and str(agent.voicemail_behavior or "").strip():
@@ -342,8 +371,11 @@ def build_survey_opening_greeting(
     agent: AgentDefinition | None,
     config: dict[str, Any],
     recipient_name: str,
+    org_id: str | None = None,
 ) -> str:
-    disclosure = build_opening_disclosure(db, agent=agent, config=config, service_key=SERVICE_SURVEY)
+    disclosure = build_opening_disclosure(
+        db, agent=agent, config=config, service_key=SERVICE_SURVEY, org_id=org_id
+    )
     if disclosure:
         return disclosure
     org_name = _org_name_from_config(config)
@@ -387,10 +419,44 @@ def should_wait_for_retry(recipient: ServiceOrderRecipient, *, now: datetime | N
     return now < retry_at
 
 
-def schedule_recipient_retry(db: Session, recipient: ServiceOrderRecipient, *, delay_seconds: int = DEFAULT_RETRY_AFTER_SECONDS) -> None:
+def resolve_survey_retry_settings(
+    db: Session,
+    order: ServiceOrder,
+    *,
+    agent: AgentDefinition | None = None,
+    config: dict[str, Any] | None = None,
+) -> tuple[int, int]:
+    import re
+
+    max_retries = MAX_SURVEY_RETRIES
+    delay_seconds = DEFAULT_RETRY_AFTER_SECONDS
+    if agent is None:
+        _, agent = resolve_survey_telnyx_assistant_id(db, order, config or {})
+    notes = str(getattr(agent, "retry_policy_notes", None) or "")
+    if re.search(r"\bonce\b", notes, re.I):
+        max_retries = 1
+    count_match = re.search(r"(\d+)\s*(?:retries?|times?)", notes, re.I)
+    if count_match:
+        max_retries = max(0, min(5, int(count_match.group(1))))
+    hour_match = re.search(r"(\d+)\s*(?:hour|hr|hours)", notes, re.I)
+    if hour_match:
+        delay_seconds = int(hour_match.group(1)) * 3600
+    minute_match = re.search(r"(\d+)\s*(?:minute|min|mins)", notes, re.I)
+    if minute_match:
+        delay_seconds = int(minute_match.group(1)) * 60
+    return max_retries, delay_seconds
+
+
+def schedule_recipient_retry(
+    db: Session,
+    recipient: ServiceOrderRecipient,
+    *,
+    delay_seconds: int = DEFAULT_RETRY_AFTER_SECONDS,
+    max_retries: int = MAX_SURVEY_RETRIES,
+) -> None:
     result = recipient_result_dict(recipient)
     retry_count = int(result.get("retry_count") or 0)
-    if retry_count >= MAX_SURVEY_RETRIES:
+    if retry_count >= max_retries:
         return
     result["retry_count"] = retry_count + 1
     result["next_retry_at"] = (datetime.utcnow() + timedelta(seconds=delay_seconds)).isoformat()

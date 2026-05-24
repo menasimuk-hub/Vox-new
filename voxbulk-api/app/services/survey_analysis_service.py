@@ -429,13 +429,15 @@ def run_survey_analysis_if_needed(
     *,
     order: ServiceOrder,
     recipient: ServiceOrderRecipient,
+    force: bool = False,
 ) -> dict[str, Any]:
     """Run DeepSeek analysis idempotently when transcript is ready."""
     existing = _recipient_result(recipient)
-    if existing.get("analysis_saved_at") and str(existing.get("analysis_version") or "") == ANALYSIS_VERSION:
-        analysis = existing.get("analysis")
-        if isinstance(analysis, dict) and analysis.get("short_summary"):
-            return existing
+    if not force:
+        if existing.get("analysis_saved_at") and str(existing.get("analysis_version") or "") == ANALYSIS_VERSION:
+            analysis = existing.get("analysis")
+            if isinstance(analysis, dict) and analysis.get("short_summary"):
+                return existing
 
     transcript = str(existing.get("transcript") or "").strip()
     if len(transcript) < MIN_TRANSCRIPT_CHARS:
@@ -574,6 +576,7 @@ def build_order_survey_report(order: ServiceOrder, recipients: list[ServiceOrder
         "total": len(recipients),
         "counts": counts,
         "completed": counts.get("completed", 0),
+        "sent": counts.get("completed", 0),
         "no_answer": counts.get("no_answer", 0),
         "failed": counts.get("failed", 0),
         "busy": counts.get("busy", 0),
@@ -660,6 +663,51 @@ class SurveyAnalysisService:
             refresh_order_survey_report(db, order)
             processed += 1
         return processed
+
+    @staticmethod
+    def reanalyze_recipient(
+        db: Session,
+        *,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+    ) -> dict[str, Any]:
+        if not is_ai_call_survey_order(order):
+            raise ValueError("Re-analyze is available for AI-call surveys only")
+        if recipient.order_id != order.id:
+            raise ValueError("Recipient does not belong to this order")
+        if str(recipient.status or "").lower() != "completed":
+            raise ValueError("Recipient call must be completed before re-analyze")
+        ensure_survey_transcript(db, order=order, recipient=recipient)
+        db.refresh(recipient)
+        run_survey_analysis_if_needed(db, order=order, recipient=recipient, force=True)
+        refresh_order_survey_report(db, order)
+        return {"ok": True, "recipient_id": recipient.id}
+
+    @staticmethod
+    def reanalyze_order(db: Session, *, order: ServiceOrder) -> dict[str, Any]:
+        if not is_ai_call_survey_order(order):
+            raise ValueError("Re-analyze is available for AI-call surveys only")
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        rerun = 0
+        for recipient in recipients:
+            if str(recipient.status or "").lower() != "completed":
+                continue
+            ensure_survey_transcript(db, order=order, recipient=recipient)
+            db.refresh(recipient)
+            result = _recipient_result(recipient)
+            if len(str(result.get("transcript") or "")) < MIN_TRANSCRIPT_CHARS:
+                continue
+            run_survey_analysis_if_needed(db, order=order, recipient=recipient, force=True)
+            rerun += 1
+        refresh_order_survey_report(db, order)
+        report = build_order_survey_report(order, ServiceOrderService.get_recipients(db, order.id))
+        analysis = report.get("analysis") if isinstance(report.get("analysis"), dict) else {}
+        return {
+            "ok": True,
+            "reanalyzed_count": rerun,
+            "analyzed_count": analysis.get("analyzed_count") or 0,
+            "pending_analysis": analysis.get("pending_analysis") or 0,
+        }
 
 
 def schedule_survey_analysis_retry(order_id: str, recipient_id: str, *, delay_seconds: int = 90) -> None:

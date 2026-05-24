@@ -1,4 +1,4 @@
-import { apiFetch, getAccessToken } from './lib/api.js'
+import { apiFetch, downloadAuthenticatedFile, getAccessToken } from './lib/api.js'
 
 const LOG = '[survey-results]'
 
@@ -117,6 +117,36 @@ function renderProblems(summary, completedCount) {
     .join('')
 }
 
+function renderAggregates(aggregates) {
+  const host = document.getElementById('sur-results-aggregates')
+  if (!host) return
+  if (!aggregates?.length) {
+    host.innerHTML =
+      '<div style="font-size:12px;color:var(--t3);padding:6px 0">No aggregated answers yet — complete a few calls first.</div>'
+    return
+  }
+  host.innerHTML = aggregates
+    .map((block) => {
+      const total = Math.max(1, Number(block.total) || 1)
+      const rows = (block.responses || [])
+        .map((row) => {
+          const count = Number(row.count) || 0
+          const pct = Math.round((count / total) * 100)
+          return `<div class="sur-agg-row">
+            <div class="lbl">${esc(row.answer)}</div>
+            <div class="track"><div class="fill" style="width:${Math.max(6, pct)}%"></div></div>
+            <div class="val">${count}</div>
+          </div>`
+        })
+        .join('')
+      return `<div class="sur-agg-block">
+        <div class="sur-agg-q">${esc(block.question)} <span style="color:var(--t3);font-weight:500">(${total} responses)</span></div>
+        ${rows}
+      </div>`
+    })
+    .join('')
+}
+
 function renderRecommendations(recommendations) {
   const host = document.getElementById('sur-results-recommendations')
   if (!host) return
@@ -165,9 +195,10 @@ function renderAnswers(answers) {
 }
 
 function renderSurveyResultsPage(payload) {
-  const { order, summary, respondents, recommendations } = payload
+  const { order, summary, respondents, recommendations, aggregates } = payload
   document.getElementById('sur-results-breadcrumb').textContent = order.title || 'Survey results'
   renderKpis(summary)
+  renderAggregates(aggregates)
   renderRespondents(respondents)
   renderProblems(summary, summary.completed_count)
   renderRecommendations(recommendations)
@@ -260,6 +291,36 @@ export function initSurveyResultsBridge() {
   window.showSurveyRec = (name, dur) => {
     log('legacy_showSurveyRec_ignored', { name, dur })
   }
+  document.getElementById('sur-results-export-csv')?.addEventListener('click', async () => {
+    if (!state.orderId) {
+      window.toast?.('Open a survey results page first', 'tw')
+      return
+    }
+    try {
+      await downloadAuthenticatedFile(
+        `/service-orders/${encodeURIComponent(state.orderId)}/survey-results/export.csv`,
+        `survey-results-${state.orderId.slice(0, 8)}.csv`,
+      )
+      window.toast?.('CSV downloaded', 'tg')
+    } catch (err) {
+      window.toast?.(err?.message || 'Export failed', 'tr')
+    }
+  })
+  document.getElementById('sur-results-export-pdf')?.addEventListener('click', async () => {
+    if (!state.orderId) {
+      window.toast?.('Open a survey results page first', 'tw')
+      return
+    }
+    try {
+      await downloadAuthenticatedFile(
+        `/service-orders/${encodeURIComponent(state.orderId)}/survey-results/export.pdf`,
+        `survey-results-${state.orderId.slice(0, 8)}.pdf`,
+      )
+      window.toast?.('PDF downloaded', 'tg')
+    } catch (err) {
+      window.toast?.(err?.message || 'Export failed', 'tr')
+    }
+  })
   bindSurveyResultsNav()
   log('bridge_ready')
 }

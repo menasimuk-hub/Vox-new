@@ -1,3 +1,5 @@
+import { showLaunchSummaryModal, showSurveyPaymentModal } from './modalBridge.js'
+import { surveyRespondedCount } from './surveyUtils.js'
 import {
   apiFetch,
   apiUploadFile,
@@ -719,23 +721,24 @@ function formatScheduleLabel(isoValue) {
   })
 }
 
-function confirmSurveyLaunchSummary({ agent, sched, quoteText }) {
+async function confirmSurveyLaunchSummary({ agent, sched, quoteText }) {
   const contactLine = surveyLaunch.contactCountKnown
     ? `${surveyLaunch.contactCount} contacts`
     : state.surveyFile?.name || 'Uploaded file'
-  const lines = [
-    'Please confirm your survey launch:',
-    '',
-    'Prompt: Approved',
-    `Contacts: ${contactLine}`,
-    `Start: ${formatScheduleLabel(sched.scheduled_start_at)}`,
-    `End: ${formatScheduleLabel(sched.scheduled_end_at)}`,
-    `Voice agent: ${agent?.name || agent?.voice_label || 'Default'}`,
-    `Total: ${quoteText}`,
-    '',
-    'Click OK to continue to payment.',
-  ]
-  return window.confirm(lines.join('\n'))
+  return showLaunchSummaryModal({
+    lines: [
+      'Please confirm your survey launch:',
+      '',
+      'Prompt: Approved',
+      `Contacts: ${contactLine}`,
+      `Start: ${formatScheduleLabel(sched.scheduled_start_at)}`,
+      `End: ${formatScheduleLabel(sched.scheduled_end_at)}`,
+      `Voice agent: ${agent?.name || agent?.voice_label || 'Default'}`,
+      `Total: ${quoteText}`,
+      '',
+      'You will choose how to pay on the next step.',
+    ],
+  })
 }
 
 function collectSurveyLaunchValidationErrors() {
@@ -827,46 +830,43 @@ async function offerSurveyPayment(order) {
     }
   }
 
+  let promoAvailable = false
+  let promoCredits = 0
   try {
     const credits = await api('/service-orders/credits')
-    const available = Number(credits?.survey_credits || 0)
-    if (available >= Number(order.recipient_count || 0) && order.recipient_count > 0) {
-      const usePromo = window.confirm(
-        `You have ${available} promo survey credit(s).\nThis order needs ${order.recipient_count}.\n\nUse promo credits instead of paying?`,
-      )
-      if (usePromo) {
-        await submitSurveyPromoCreditPayment(order.id)
-        return
-      }
-    }
+    promoCredits = Number(credits?.survey_credits || 0)
+    promoAvailable = promoCredits >= Number(order.recipient_count || 0) && order.recipient_count > 0
   } catch {
-    /* fall through */
+    /* ignore */
   }
 
   const gc = Boolean(state.paymentOptions?.gocardless_available)
   const cash = state.paymentOptions?.cash_available !== false
-  const quoteText = (order.quote_breakdown || []).map((l) => l.detail || l.label).join('\n')
+  const breakdown = (order.quote_breakdown || []).map((l) => l.detail || l.label).filter(Boolean)
   const amountLabel = order.quote_total_gbp || fmtGbp(order.quote_total_pence)
 
-  if (gc && cash) {
-    const useGc = window.confirm(
-      `${amountLabel} due now\n\n${quoteText}\n\nOK = Pay with GoCardless\nCancel = Pay cash (admin approval)`,
-    )
-    if (useGc) {
-      await startGocardlessOrderPayment(order.id)
-      return
-    }
-    await submitSurveyCashPayment(order.id)
+  const choice = await showSurveyPaymentModal({
+    title: 'Pay for survey',
+    amountLabel,
+    breakdown,
+    note: cash
+      ? 'Cash payments need admin approval before calls can start. GoCardless is instant when configured.'
+      : 'Choose your payment method below.',
+    gocardlessAvailable: gc,
+    cashAvailable: cash,
+    promoAvailable,
+    promoLabel: promoAvailable ? `Use ${promoCredits} promo credits` : '',
+  })
+
+  if (choice === 'promo' && promoAvailable) {
+    await submitSurveyPromoCreditPayment(order.id)
     return
   }
-
-  if (gc) {
+  if (choice === 'gocardless' && gc) {
     await startGocardlessOrderPayment(order.id)
     return
   }
-
-  const cashMsg = `Total ${amountLabel}\n\n${quoteText}\n\nAfter you pay cash, admin must approve before the survey is scheduled.\n\nClick OK to confirm cash payment.`
-  if (window.confirm(cashMsg)) {
+  if (choice === 'cash' && cash) {
     await submitSurveyCashPayment(order.id)
   }
 }
@@ -1310,7 +1310,7 @@ function renderOrderRow(order) {
   const icon = order.service_code === 'interview' ? 'ti-briefcase' : 'ti-clipboard-list'
   const dispatch =
     order.report && order.status === 'running'
-      ? ` · ${order.report.sent || 0} sent${order.report.failed ? `, ${order.report.failed} failed` : ''}${order.report.skipped ? `, ${order.report.skipped} skipped` : ''}`
+      ? ` · ${surveyRespondedCount(order.report)} sent${order.report.failed ? `, ${order.report.failed} failed` : ''}${order.report.skipped ? `, ${order.report.skipped} skipped` : ''}`
       : ''
   const meta = `${order.recipient_count} contacts · ${order.quote_total_gbp}${order.payment_status === 'pending_approval' ? ' · payment pending' : ''}${dispatch}`
   const clickHandler =
@@ -1517,51 +1517,48 @@ async function submitPromoCreditPayment(orderId) {
 }
 
 async function offerOrderPayment(order, quoteText) {
+  let promoAvailable = false
+  let promoCredits = 0
   try {
     const credits = await api('/service-orders/credits')
-    const available =
+    promoCredits =
       order.service_code === 'survey'
         ? Number(credits?.survey_credits || 0)
         : Number(credits?.interview_credits || 0)
-    if (available >= Number(order.recipient_count || 0) && order.recipient_count > 0) {
-      const usePromo = window.confirm(
-        `You have ${available} promo ${order.service_code} credit(s).\nThis order needs ${order.recipient_count}.\n\nUse promo credits instead of paying?`,
-      )
-      if (usePromo) {
-        await submitPromoCreditPayment(order.id)
-        return
-      }
-    }
+    promoAvailable = promoCredits >= Number(order.recipient_count || 0) && order.recipient_count > 0
   } catch {
     // fall through to normal payment options
   }
 
   const gc = Boolean(state.paymentOptions?.gocardless_available)
   const cash = state.paymentOptions?.cash_available !== false
+  const breakdown = String(quoteText || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
 
-  if (gc && cash) {
-    const useGc = window.confirm(
-      `${quoteText}\n\nOK = Pay with GoCardless (sandbox, no admin approval)\nCancel = Pay cash (testing, admin approval required)`,
-    )
-    if (useGc) {
-      await startGocardlessOrderPayment(order.id)
-      return
-    }
-    await submitCashOrderPayment(order.id)
+  const choice = await showSurveyPaymentModal({
+    title: order.service_code === 'survey' ? 'Pay for survey' : 'Pay for campaign',
+    amountLabel: order.quote_total_gbp || fmtGbp(order.quote_total_pence),
+    breakdown,
+    note: cash ? 'Cash payments need admin approval.' : '',
+    gocardlessAvailable: gc,
+    cashAvailable: cash,
+    promoAvailable,
+    promoLabel: promoAvailable ? `Use ${promoCredits} promo credits` : '',
+  })
+
+  if (choice === 'promo' && promoAvailable) {
+    await submitPromoCreditPayment(order.id)
     return
   }
-
-  if (gc) {
+  if (choice === 'gocardless' && gc) {
     await startGocardlessOrderPayment(order.id)
     return
   }
-
-  window.showConfirm?.(
-    `Total ${order.quote_total_gbp}`,
-    `${quoteText}\n\nAfter you pay cash, admin must approve before the campaign can start.`,
-    'I paid cash',
-    () => submitCashOrderPayment(order.id),
-  )
+  if (choice === 'cash' && cash) {
+    await submitCashOrderPayment(order.id)
+  }
 }
 
 async function submitCashOrderPayment(orderId) {

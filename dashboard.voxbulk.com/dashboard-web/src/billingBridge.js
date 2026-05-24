@@ -1,4 +1,5 @@
 import { apiFetch, downloadAuthenticatedFile } from './lib/api.js'
+import { confirmDialog } from './modalBridge.js'
 
 const GC_FLOW_KEY = 'voxbulk_gc_redirect_flow_id'
 const PLAN_ICONS = ['ti-rocket', 'ti-trending-up', 'ti-building-skyscraper']
@@ -673,7 +674,7 @@ async function loadBillingData() {
   }
 }
 
-function purchaseSubscriptionPlan(plan) {
+async function purchaseSubscriptionPlan(plan) {
   if (state.busyPlanId) return
 
   const plans = sortedPlans()
@@ -689,9 +690,12 @@ function purchaseSubscriptionPlan(plan) {
   }
 
   const label = planButtonLabel(plan, state.currentPlan, { billingGrid: true, sortedPlansList: plans })
-  const confirmed = window.confirm(
-    `${label}?\n\nYou will be redirected to GoCardless to set up your subscription payment.`,
-  )
+  const confirmed = await confirmDialog({
+    title: `${label}?`,
+    message: 'You will be redirected to GoCardless to set up your subscription payment.',
+    okLabel: label,
+    cancelLabel: 'Cancel',
+  })
   if (!confirmed) return
 
   void startPlanPurchase(plan)

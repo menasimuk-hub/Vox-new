@@ -1,4 +1,6 @@
 import { apiFetch, getAccessToken } from './lib/api.js'
+import { confirmDialog } from './modalBridge.js'
+import { surveyRespondedCount, surveyFailedCount } from './surveyUtils.js'
 
 const hub = {
   orders: [],
@@ -73,7 +75,7 @@ function renderHubTrend(orders) {
   if (!host) return
   const active = orders.filter((o) => ['running', 'paused', 'scheduled', 'completed'].includes(o.status))
   const items = active.slice(0, 5).map((o) => {
-    const sent = Number(o.report?.sent || 0)
+    const sent = surveyRespondedCount(o.report)
     const total = Number(o.recipient_count || 0)
     const pct = total > 0 ? Math.round((sent / total) * 100) : 0
     return { label: o.title, pct }
@@ -89,7 +91,7 @@ function renderOrderRow(order) {
     : ''
   const dispatch =
     order.report && order.status === 'running'
-      ? ` · ${order.report.sent || 0} sent${order.report.failed ? `, ${order.report.failed} failed` : ''}`
+      ? ` · ${surveyRespondedCount(order.report)} sent${order.report.failed ? `, ${order.report.failed} failed` : ''}`
       : ''
   return `<div class="proj-row" data-survey-order-id="${order.id}">
     <div class="proj-ic ci-b"><i class="ti ti-clipboard-list"></i></div>
@@ -150,7 +152,7 @@ function renderLiveBanner(orders) {
   const sub = document.getElementById('sur-live-banner-sub')
   if (title) title.textContent = running.title
   if (sub) {
-    const sent = running.report?.sent || 0
+    const sent = surveyRespondedCount(running.report)
     const total = running.recipient_count || 0
     sub.textContent = `${sent} of ${total} responded · ${running.status === 'paused' ? 'Paused' : 'Live now'}`
   }
@@ -253,8 +255,8 @@ function renderDetailBilling(order) {
 function renderDetailTrend(order) {
   const host = document.getElementById('sur-detail-trend')
   if (!host) return
-  const sent = Number(order.report?.sent || 0)
-  const failed = Number(order.report?.failed || 0)
+  const sent = surveyRespondedCount(order.report)
+  const failed = surveyFailedCount(order.report)
   const pending = Math.max(0, Number(order.recipient_count || 0) - sent - failed)
   const total = sent + failed + pending || 1
   host.innerHTML = renderTrendBars(
@@ -348,6 +350,7 @@ function renderDetail(order) {
 
   const action = na.action || ''
   setBtnVisible('sur-detail-pay', ['pay'].includes(action))
+  setBtnVisible('sur-detail-start', action === 'start')
   setBtnVisible('sur-detail-edit', order.is_live)
   setBtnVisible('sur-detail-duplicate', true)
   setBtnVisible('sur-detail-results', order.is_finished || order.status === 'running' || order.status === 'completed')
@@ -430,18 +433,35 @@ function bindDetailActions() {
   document.getElementById('sur-detail-results')?.addEventListener('click', () => {
     if (typeof window.openSurveyResults === 'function') window.openSurveyResults(hub.selectedId)
   })
+  document.getElementById('sur-detail-start')?.addEventListener('click', () => {
+    void detailAction('POST', '/start')
+      .then(() => window.toast?.('Survey started — AI calls will begin in your schedule window', 'tg'))
+      .catch((e) => window.toast?.(e.message, 'tr'))
+  })
   document.getElementById('sur-detail-pause')?.addEventListener('click', () => {
     void detailAction('POST', '/pause').catch((e) => window.toast?.(e.message, 'tr'))
   })
   document.getElementById('sur-detail-resume')?.addEventListener('click', () => {
     void detailAction('POST', '/resume').catch((e) => window.toast?.(e.message, 'tr'))
   })
-  document.getElementById('sur-detail-stop')?.addEventListener('click', () => {
-    if (!window.confirm('Stop this survey? Outbound calls will halt.')) return
+  document.getElementById('sur-detail-stop')?.addEventListener('click', async () => {
+    const ok = await confirmDialog({
+      title: 'Stop survey?',
+      message: 'Outbound calls will halt. Contacts already on a call may finish naturally.',
+      okLabel: 'Stop survey',
+      danger: true,
+    })
+    if (!ok) return
     void detailAction('POST', '/stop', { reason: 'Stopped from dashboard' }).catch((e) => window.toast?.(e.message, 'tr'))
   })
-  document.getElementById('sur-detail-delete')?.addEventListener('click', () => {
-    if (!window.confirm('Delete this survey? This cannot be undone.')) return
+  document.getElementById('sur-detail-delete')?.addEventListener('click', async () => {
+    const ok = await confirmDialog({
+      title: 'Delete survey?',
+      message: 'This cannot be undone.',
+      okLabel: 'Delete',
+      danger: true,
+    })
+    if (!ok) return
     const id = hub.selectedId
     void api(`/service-orders/${encodeURIComponent(id)}`, { method: 'DELETE' })
       .then(() => {
