@@ -1,882 +1,308 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { apiFetch, apiUpload } from '../lib/api'
-import { AgentVoiceFields, PlatformVoiceSettings, serviceBadges, voiceAgentDefaults } from '../components/agents/AgentVoiceFields'
-
-const emptyAgent = {
-  name: '',
-  slug: '',
-  description: '',
-  system_prompt: '',
-  call_workflow: '',
-  knowledge_file_ids: [],
-  is_active: true,
-  ...voiceAgentDefaults,
-}
-
-function hasWorkflow(agent) {
-  return Boolean(String(agent?.call_workflow || '').trim())
-}
-
-function isPlaceholderPrompt(prompt) {
-  const text = String(prompt || '').trim().toLowerCase()
-  if (!text) return true
-  return text.includes('not configured')
-}
-
-function hasSystemPrompt(agent) {
-  return !isPlaceholderPrompt(agent?.system_prompt)
-}
+﻿import React, { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { apiFetch } from '../lib/api'
+import AgentEditPage from './AgentEditPage'
 
 export default function Agents() {
   const navigate = useNavigate()
-  const location = useLocation()
-  const { agentId } = useParams()
   const [agents, setAgents] = useState([])
-  const [assignments, setAssignments] = useState([])
-  const [orgs, setOrgs] = useState([])
-  const [kbFiles, setKbFiles] = useState([])
-  const [assignmentSearch, setAssignmentSearch] = useState('')
-  const [orgsToAdd, setOrgsToAdd] = useState([])
-  const [orgsToRemove, setOrgsToRemove] = useState([])
-  const [selectedId, setSelectedId] = useState('')
-  const [draft, setDraft] = useState(emptyAgent)
+  const [loading, setLoading] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [editingAgentId, setEditingAgentId] = useState(null)
   const [msg, setMsg] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [kbUploading, setKbUploading] = useState(false)
-  const [genPhase, setGenPhase] = useState('')
-  const [platformVoice, setPlatformVoice] = useState(null)
-  const lastSyncedAgentId = useRef('')
 
-  const isEditPage = Boolean(agentId) || location.pathname.endsWith('/new')
-  const selected = useMemo(() => agents.find((a) => a.id === selectedId) || null, [agents, selectedId])
-  const orgById = useMemo(() => Object.fromEntries(orgs.map((o) => [o.id, o])), [orgs])
-  const assignmentsByAgent = useMemo(() => {
-    const out = {}
-    assignments.forEach((row) => {
-      if (!row.agent_id || !row.org_id) return
-      if (!out[row.agent_id]) out[row.agent_id] = []
-      out[row.agent_id].push(row)
-    })
-    return out
-  }, [assignments])
-
-  const loadKb = async () => {
-    const data = await apiFetch('/admin/knowledge-base?scope=org')
-    setKbFiles(data?.files || [])
-  }
-
-  const load = async () => {
-    setMsg('')
-    const [agentRows, orgRows, platformRows] = await Promise.all([
-      apiFetch('/admin/agents'),
-      apiFetch('/admin/organisations?limit=500').catch(() => []),
-      apiFetch('/admin/agents/platform-voice-settings').catch(() => null),
-    ])
-    setPlatformVoice(platformRows)
-    setAgents(agentRows?.agents || [])
-    setAssignments(agentRows?.assignments || [])
-    setOrgs(Array.isArray(orgRows) ? orgRows : [])
-    await loadKb()
-
-    if (agentId && agentId !== selectedId) {
-      const found = agentRows?.agents?.find((a) => a.id === agentId)
-      if (found) {
-        setSelectedId(found.id)
-        setDraft({ ...emptyAgent, ...found, knowledge_file_ids: found.knowledge_file_ids || [] })
-      }
-    } else if (!selectedId && !location.pathname.endsWith('/new') && agentRows?.agents?.[0]) {
-      setSelectedId(agentRows.agents[0].id)
-      setDraft({ ...emptyAgent, ...agentRows.agents[0], knowledge_file_ids: agentRows.agents[0].knowledge_file_ids || [] })
+  // Load agents list
+  const loadAgents = async () => {
+    setLoading(true)
+    try {
+      const data = await apiFetch('/admin/agents')
+      setAgents(data?.agents || [])
+    } catch (e) {
+      setMsg(e?.message || 'Failed to load agents')
+    } finally {
+      setLoading(false)
     }
   }
 
   useEffect(() => {
-    load().catch((e) => setMsg(e?.message || 'Could not load agents'))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadAgents()
   }, [])
 
-  useEffect(() => {
-    if (!selected?.id) return
-    if (lastSyncedAgentId.current === selected.id) return
-    lastSyncedAgentId.current = selected.id
-    setDraft({ ...emptyAgent, ...selected, knowledge_file_ids: selected.knowledge_file_ids || [] })
-  }, [selected])
-
-  useEffect(() => {
-    if (location.pathname.endsWith('/new')) {
-      setSelectedId('')
-      setDraft(emptyAgent)
-      return
+  // Filtered agents
+  const filtered = useMemo(() => {
+    let list = agents
+    if (statusFilter === 'active') list = list.filter(a => a.is_active)
+    if (statusFilter === 'frozen') list = list.filter(a => !a.is_active)
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase()
+      list = list.filter(a => 
+        a.name.toLowerCase().includes(term) ||
+        a.slug.toLowerCase().includes(term)
+      )
     }
-    if (!agentId || !agents.length) return
-    const found = agents.find((a) => a.id === agentId)
-    if (found) {
-      setSelectedId(found.id)
-      setDraft({ ...emptyAgent, ...found, knowledge_file_ids: found.knowledge_file_ids || [] })
-    }
-  }, [agentId, agents, location.pathname])
+    return list
+  }, [agents, searchTerm, statusFilter])
 
-  const setField = (field, value) => setDraft((s) => ({ ...s, [field]: value }))
+  // KPIs
+  const kpis = useMemo(() => ({
+    total: agents.length,
+    active: agents.filter(a => a.is_active).length,
+    frozen: agents.filter(a => !a.is_active).length,
+  }), [agents])
 
-  const savePlatformVoice = async () => {
-    if (!platformVoice) return
-    setBusy(true)
-    try {
-      const saved = await apiFetch('/admin/agents/platform-voice-settings', {
-        method: 'PUT',
-        body: JSON.stringify(platformVoice),
-      })
-      setPlatformVoice(saved)
-      setMsg('Shared voice settings saved.')
-    } catch (e) {
-      setMsg(e?.message || 'Could not save shared voice settings')
-    } finally {
-      setBusy(false)
+  // Service badges
+  const serviceBadges = (agent) => {
+    const badges = []
+    if (agent.supports_survey) badges.push('Survey')
+    if (agent.supports_interview) badges.push('Interview')
+    if (agent.supports_lead_sales) badges.push('Lead / Sales')
+    if (agent.is_default_survey || agent.is_default_interview || agent.is_default_lead_sales) {
+      badges.push('Default')
     }
+    return badges
   }
 
-  const serviceBadgeHtml = (agent) => serviceBadges(agent).join(' · ')
-
-  const assignedOrgNames = (agent) => {
-    const rows = assignmentsByAgent[agent.id] || []
-    if (!rows.length) return '-'
-    return rows.map((row) => orgById[row.org_id]?.name || 'Organisation').join(', ')
-  }
-
-  const selectedOrgAssignments = useMemo(() => assignmentsByAgent[selectedId] || [], [assignmentsByAgent, selectedId])
-  const selectedOrgIds = useMemo(() => selectedOrgAssignments.map((row) => row.org_id).filter(Boolean), [selectedOrgAssignments])
-  const assignableOrgs = useMemo(() => {
-    const assigned = new Set(selectedOrgAssignments.map((row) => row.org_id))
-    const term = assignmentSearch.trim().toLowerCase()
-    return orgs
-      .filter((org) => !assigned.has(org.id))
-      .filter((org) => !term || String(org.name || '').toLowerCase().includes(term))
-      .slice(0, 20)
-  }, [assignmentSearch, orgs, selectedOrgAssignments])
-
-  const toggleKbFile = (fileId) => {
-    setDraft((s) => {
-      const ids = new Set(s.knowledge_file_ids || [])
-      if (ids.has(fileId)) ids.delete(fileId)
-      else ids.add(fileId)
-      return { ...s, knowledge_file_ids: Array.from(ids) }
-    })
-  }
-
-  const save = async () => {
-    setBusy(true)
-    setMsg('')
-    try {
-      const body = {
-        name: draft.name,
-        slug: draft.slug,
-        description: draft.description,
-        system_prompt: draft.system_prompt,
-        call_workflow: draft.call_workflow,
-        knowledge_file_ids: validKnowledgeFileIds,
-        is_active: draft.is_active,
-        voice_label: draft.voice_label,
-        voice_type_label: draft.voice_type_label,
-        telnyx_assistant_id: draft.telnyx_assistant_id,
-        base_role: draft.base_role,
-        service_survey_role: draft.service_survey_role,
-        service_interview_role: draft.service_interview_role,
-        service_lead_sales_role: draft.service_lead_sales_role,
-        opening_disclosure_template: draft.opening_disclosure_template,
-        retry_policy_notes: draft.retry_policy_notes,
-        interruption_behavior_notes: draft.interruption_behavior_notes,
-        voicemail_behavior: draft.voicemail_behavior,
-        opt_out_policy_notes: draft.opt_out_policy_notes,
-        supports_survey: draft.supports_survey,
-        supports_interview: draft.supports_interview,
-        supports_lead_sales: draft.supports_lead_sales,
-        is_default_survey: draft.is_default_survey,
-        is_default_interview: draft.is_default_interview,
-        is_default_lead_sales: draft.is_default_lead_sales,
-        disclosure_for_survey: draft.disclosure_for_survey,
-        disclosure_for_interview: draft.disclosure_for_interview,
-        disclosure_mandatory: draft.disclosure_mandatory,
-      }
-      const saved = selectedId
-        ? await apiFetch(`/admin/agents/${selectedId}`, { method: 'PUT', body: JSON.stringify(body) })
-        : await apiFetch('/admin/agents', { method: 'POST', body: JSON.stringify(body) })
-      setSelectedId(saved.id)
-      setMsg('Agent saved.')
-      await load()
-      navigate(`/ai/agents/${saved.id}/edit`)
-    } catch (e) {
-      setMsg(e?.message || 'Could not save agent')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const validKnowledgeFileIds = useMemo(
-    () => (draft.knowledge_file_ids || []).filter((id) => kbFiles.some((f) => f.id === id)),
-    [draft.knowledge_file_ids, kbFiles],
-  )
-
-  useEffect(() => {
-    if (!kbFiles.length) return
-    setDraft((s) => {
-      const filtered = (s.knowledge_file_ids || []).filter((id) => kbFiles.some((f) => f.id === id))
-      if (filtered.length === (s.knowledge_file_ids || []).length) return s
-      return { ...s, knowledge_file_ids: filtered }
-    })
-  }, [kbFiles])
-
-  const generationPayload = (rewrite) => ({
-    description: String(draft.description || '').trim(),
-    name: draft.name,
-    knowledge_file_ids: validKnowledgeFileIds,
-    rewrite,
-  })
-
-  const generateWorkflow = async () => {
-    const description = String(draft.description || '').trim()
-    if (!description) {
-      setMsg('Add a description first, then generate the call workflow.')
-      return
-    }
-    const rewrite = hasWorkflow(draft)
-    if (rewrite && !window.confirm('Replace the existing call workflow?')) {
-      setMsg('Workflow generation cancelled.')
-      return
-    }
-    setBusy(true)
-    setGenPhase('workflow')
-    setMsg('Generating call workflow with AI (reads your knowledge base files)...')
-    try {
-      const path = selectedId ? `/admin/agents/${selectedId}/generate-workflow` : '/admin/agents/generate-workflow'
-      const generated = await apiFetch(path, { method: 'POST', body: JSON.stringify(generationPayload(rewrite)) })
-      const workflow = generated.call_workflow || ''
-      setDraft((s) => ({ ...s, call_workflow: workflow || s.call_workflow }))
-      if (selectedId && workflow) {
-        await apiFetch(`/admin/agents/${selectedId}`, {
-          method: 'PUT',
-          body: JSON.stringify({ call_workflow: workflow }),
-        })
-        setAgents((rows) => rows.map((a) => (a.id === selectedId ? { ...a, call_workflow: workflow } : a)))
-      }
-      setMsg('Call workflow generated. Check the Call workflow box below, then click 2. Generate prompt.')
-    } catch (e) {
-      if (e?.status === 409 && window.confirm(`${e.message}\n\nReplace anyway?`)) {
-        const generated = await apiFetch(
-          selectedId ? `/admin/agents/${selectedId}/generate-workflow` : '/admin/agents/generate-workflow',
-          { method: 'POST', body: JSON.stringify(generationPayload(true)) },
-        )
-        setDraft((s) => ({ ...s, call_workflow: generated.call_workflow || s.call_workflow }))
-        setMsg('Call workflow regenerated.')
-      } else {
-        setMsg(e?.message || 'Workflow generation failed')
-      }
-    } finally {
-      setBusy(false)
-      setGenPhase('')
-    }
-  }
-
-  const generatePrompt = async () => {
-    const description = String(draft.description || '').trim()
-    const workflow = String(draft.call_workflow || '').trim()
-    if (!description) {
-      setMsg('Add a description first.')
-      return
-    }
-    if (!workflow) {
-      setMsg('Generate the call workflow first (step 1), or paste workflow text into the Call workflow field.')
-      return
-    }
-    setBusy(true)
-    setGenPhase('prompt')
-    setMsg('Generating system prompt (30-60 seconds)...')
-    const path = selectedId ? `/admin/agents/${selectedId}/generate-prompt` : '/admin/agents/generate-prompt'
-    try {
-      const generated = await apiFetch(path, {
-        method: 'POST',
-        body: JSON.stringify({
-          ...generationPayload(true),
-          call_workflow: workflow,
-        }),
-      })
-      const prompt = String(generated?.system_prompt || '').trim()
-      if (!prompt) {
-        setMsg('AI returned an empty system prompt. Check DeepSeek under Integrations and try again.')
-        return
-      }
-      setDraft((s) => ({ ...s, system_prompt: prompt }))
-      if (selectedId) {
-        await apiFetch(`/admin/agents/${selectedId}`, {
-          method: 'PUT',
-          body: JSON.stringify({ system_prompt: prompt, call_workflow: workflow }),
-        })
-        setAgents((rows) => rows.map((a) => (a.id === selectedId ? { ...a, system_prompt: prompt, call_workflow: workflow } : a)))
-      }
-      setMsg('System prompt generated. Review the System prompt field below, then Save agent.')
-    } catch (e) {
-      const detail = e?.data?.detail
-      const extra = typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : ''
-      setMsg(extra ? `${e?.message || 'Prompt generation failed'} — ${extra}` : e?.message || 'Prompt generation failed')
-    } finally {
-      setBusy(false)
-      setGenPhase('')
-    }
-  }
-
-  const uploadKb = async (event) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-    if (!file.name.toLowerCase().endsWith('.md')) {
-      setMsg('Only .md files are allowed.')
-      return
-    }
-    setKbUploading(true)
-    setMsg('')
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      await apiUpload('/admin/knowledge-base/upload?scope=org', form)
-      setMsg(`Uploaded ${file.name}.`)
-      await loadKb()
-    } catch (e) {
-      setMsg(e?.message || 'Upload failed')
-    } finally {
-      setKbUploading(false)
-    }
-  }
-
-  const deleteKb = async (file) => {
-    if (!window.confirm(`Delete "${file.original_filename}" from the library? Agents will lose this link.`)) return
-    setBusy(true)
-    try {
-      await apiFetch(`/admin/knowledge-base/${file.id}`, { method: 'DELETE' })
-      setDraft((s) => ({
-        ...s,
-        knowledge_file_ids: (s.knowledge_file_ids || []).filter((id) => id !== file.id),
-      }))
-      await loadKb()
-      setMsg('Knowledge base file deleted.')
-    } catch (e) {
-      setMsg(e?.message || 'Could not delete file')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const setAgentOrganisationAssignments = async (nextOrgIds, successMessage) => {
-    if (!selectedId) {
-      setMsg('Save the agent first, then assign organisations.')
-      return
-    }
-    setBusy(true)
-    try {
-      const result = await apiFetch(`/admin/agents/${selectedId}/organisation-assignments`, {
-        method: 'PUT',
-        body: JSON.stringify({ org_ids: nextOrgIds }),
-      })
-      setAssignments((rows) => [
-        ...rows.filter((row) => !(row.agent_id === selectedId && row.org_id)),
-        ...((result?.assignments || []).map((row) => ({ ...row, agent_id: selectedId }))),
-      ])
-      setOrgsToAdd([])
-      setOrgsToRemove([])
-      setMsg(successMessage || 'Organisation assignments saved.')
-      await load()
-    } catch (e) {
-      setMsg(e?.message || 'Could not save organisation assignments')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const removeOrgAssignment = async (assignment) => {
-    const previous = assignments
-    setAssignments((rows) => rows.filter((row) => row.id !== assignment.id))
-    setBusy(true)
-    try {
-      await apiFetch(`/admin/agents/assignments/${assignment.id}`, { method: 'DELETE' })
-      setMsg('Organisation removed.')
-    } catch (e) {
-      setAssignments(previous)
-      setMsg(e?.message || 'Could not remove organisation')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const newAgent = () => {
-    setSelectedId('')
-    setDraft(emptyAgent)
-    navigate('/ai/agents/new')
-  }
-
-  const duplicateAgent = async (agent) => {
-    setBusy(true)
-    try {
-      const copy = {
-        name: `${agent.name} Copy`,
-        slug: `${agent.slug || 'agent'}-copy-${Date.now().toString().slice(-5)}`,
-        description: agent.description,
-        system_prompt: agent.system_prompt,
-        call_workflow: agent.call_workflow,
-        knowledge_file_ids: agent.knowledge_file_ids || [],
-        is_active: false,
-      }
-      const saved = await apiFetch('/admin/agents', { method: 'POST', body: JSON.stringify(copy) })
-      setMsg('Agent duplicated.')
-      await load()
-      navigate(`/ai/agents/${saved.id}/edit`)
-    } catch (e) {
-      setMsg(e?.message || 'Could not duplicate agent')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const deleteAgent = async (agent) => {
-    if (!window.confirm(`Delete agent "${agent.name}"? This cannot be undone.`)) return
-    setBusy(true)
-    try {
-      await apiFetch(`/admin/agents/${agent.id}`, { method: 'DELETE' })
-      setMsg('Agent deleted.')
-      setSelectedId('')
-      setDraft(emptyAgent)
-      await load()
-      navigate('/ai/agents')
-    } catch (e) {
-      setMsg(e?.message || 'Could not delete agent')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const toggleFreeze = async (agent) => {
-    setBusy(true)
-    try {
-      await apiFetch(`/admin/agents/${agent.id}/${agent.is_active ? 'deactivate' : 'activate'}`, { method: 'POST' })
-      setMsg(agent.is_active ? 'Agent frozen.' : 'Agent activated.')
-      await load()
-    } catch (e) {
-      setMsg(e?.message || 'Could not update agent status')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (!isEditPage) {
+  // If editing, show edit page
+  if (editingAgentId) {
     return (
-      <>
-        <div className='pageTop'>
-          <div>
-            <h1>Agents</h1>
-            <p>Manage Telnyx voice agents, layered prompts, service assignment, and knowledge for surveys and interviews.</p>
-          </div>
-          <div className='actions'>
-            <button type='button' className='btn soft' onClick={() => load().catch((e) => setMsg(e.message))} disabled={busy}>
-              {busy ? 'Working...' : 'Reload'}
-            </button>
-            <button type='button' className='btn primary' onClick={newAgent}>
-              New agent
-            </button>
-          </div>
-        </div>
-        {msg ? <div className='note' style={{ marginBottom: 16 }}>{msg}</div> : null}
-
-        <PlatformVoiceSettings
-          settings={platformVoice}
-          onChange={setPlatformVoice}
-          onSave={savePlatformVoice}
-          busy={busy}
-        />
-
-        <section className='card' style={{ marginBottom: 16 }}>
-          <div className='cardHead'>
-            <h3>Knowledge base library</h3>
-            <span className='pill p-cyan'>{kbFiles.length} files</span>
-          </div>
-          <div className='cardBody stack'>
-            <p className='muted'>Upload Markdown files (.md, max 2 MB each). Only clinic/org voice agents use this library — lead and sales agents have separate KB libraries.</p>
-            <div className='actions'>
-              <label className='btn soft' style={{ cursor: 'pointer' }}>
-                {kbUploading ? 'Uploading...' : 'Upload .md file'}
-                <input type='file' accept='.md,text/markdown' hidden onChange={uploadKb} disabled={kbUploading} />
-              </label>
-            </div>
-            <div className='tableWrap'>
-              <table className='table'>
-                <thead>
-                  <tr>
-                    <th>File</th>
-                    <th>Server path</th>
-                    <th>Size</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {kbFiles.map((file) => (
-                    <tr key={file.id}>
-                      <td>{file.original_filename}</td>
-                      <td className='muted' style={{ fontSize: 12 }}>{file.storage_path}</td>
-                      <td>{Math.round((file.size_bytes || 0) / 1024)} KB</td>
-                      <td>
-                        <button type='button' className='btn soft' onClick={() => deleteKb(file)} disabled={busy}>
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!kbFiles.length ? (
-                    <tr>
-                      <td colSpan={4} className='muted'>
-                        No knowledge base files yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section className='card'>
-          <div className='cardHead'>
-            <h3>All agents</h3>
-            <span className='pill p-cyan'>{agents.length}</span>
-          </div>
-          <div className='cardBody'>
-            <div className='tableWrap'>
-              <table className='table'>
-                <thead>
-                  <tr>
-                    <th>Agent</th>
-                    <th>Services</th>
-                    <th>Organisations</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {agents.map((agent) => (
-                    <tr key={agent.id}>
-                      <td>
-                        <strong>{agent.voice_label || agent.name}</strong>
-                        <div className='muted' style={{ fontSize: 12 }}>
-                          {agent.name} · {agent.slug}
-                        </div>
-                      </td>
-                      <td>
-                        <div className='voiceServiceBadges'>
-                          {serviceBadges(agent).map((b) => (
-                            <span key={b} className='pill p-cyan' style={{ fontSize: 11 }}>{b}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td>{assignedOrgNames(agent)}</td>
-                      <td>
-                        <span className={`pill ${agent.is_active ? 'p-green' : 'p-amber'}`}>{agent.is_active ? 'Active' : 'Frozen'}</span>
-                      </td>
-                      <td>
-                        <div className='actions'>
-                          <button type='button' className='btn soft' onClick={() => duplicateAgent(agent)} disabled={busy}>
-                            Duplicate
-                          </button>
-                          <button type='button' className='btn soft' onClick={() => navigate(`/ai/agents/${agent.id}/edit`)}>
-                            Edit
-                          </button>
-                          <button type='button' className='btn soft' onClick={() => toggleFreeze(agent)} disabled={busy}>
-                            {agent.is_active ? 'Freeze' : 'Unfreeze'}
-                          </button>
-                          <button type='button' className='btn soft' onClick={() => deleteAgent(agent)} disabled={busy}>
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {!agents.length ? (
-                    <tr>
-                      <td colSpan={4} className='muted'>
-                        No agents yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      </>
+      <AgentEditPage
+        agentId={editingAgentId}
+        onClose={() => {
+          setEditingAgentId(null)
+          loadAgents()
+        }}
+      />
     )
   }
 
-  const kbSelectedCount = (draft.knowledge_file_ids || []).length
-
+  // Main list view
   return (
-    <div className='agentEditPage'>
-      <header className='agentEditHero'>
+    <div style={styles.wrap}>
+      <div style={styles.top}>
         <div>
-          <h1>{selectedId ? draft.name || 'Edit agent' : 'Create agent'}</h1>
-          <p>Describe the role, generate prompts with AI, attach knowledge files, and assign organisations.</p>
-          <div className='agentEditHeroMeta'>
-            <span className={`pill ${draft.is_active ? 'p-green' : 'p-amber'}`}>{draft.is_active ? 'Active' : 'Frozen'}</span>
-            {draft.slug ? <span className='pill p-cyan'>{draft.slug}</span> : null}
-            <span className='pill'>{kbSelectedCount} KB file{kbSelectedCount === 1 ? '' : 's'}</span>
-            <span className='pill'>{selectedOrgAssignments.length} org{selectedOrgAssignments.length === 1 ? '' : 's'}</span>
-          </div>
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/') }} style={styles.crumb}>
+            <i className="ti ti-arrow-left"></i> Dashboard
+          </a>
+          <h1 style={styles.title}>Main agents</h1>
+          <div style={styles.sub}>Manage voice agents, Telnyx IDs, layered prompts, and service assignment.</div>
         </div>
-        <div className='actions'>
-          <button type='button' className='btn soft' onClick={() => navigate('/ai/agents')}>
-            Back to list
-          </button>
-          <button type='button' className='btn primary' onClick={save} disabled={busy || !draft.name?.trim()}>
-            {busy ? 'Saving...' : 'Save agent'}
-          </button>
+        <button
+          style={{ ...styles.btn, ...styles.btnPrimary }}
+          onClick={() => setEditingAgentId('new')}
+        >
+          <i className="ti ti-plus"></i> New agent
+        </button>
+      </div>
+
+      {msg && (
+        <div style={{ ...styles.msg, marginBottom: 16, padding: '12px 16px' }}>
+          {msg}
         </div>
-      </header>
-      {msg ? <div className='note' style={{ marginBottom: 20 }}>{msg}</div> : null}
+      )}
 
-      <div className='agentEditStack'>
-        <section className='card'>
-          <div className='cardHead'>
-            <h3>Basics</h3>
+      <div style={styles.kpis}>
+        <div style={styles.kpi}>
+          <div style={styles.kpiLabel}>Total agents</div>
+          <div style={styles.kpiValue}>{kpis.total}</div>
+        </div>
+        <div style={styles.kpi}>
+          <div style={styles.kpiLabel}>Active agents</div>
+          <div style={styles.kpiValue}>{kpis.active}</div>
+        </div>
+        <div style={styles.kpi}>
+          <div style={styles.kpiLabel}>Frozen agents</div>
+          <div style={styles.kpiValue}>{kpis.frozen}</div>
+        </div>
+      </div>
+
+      <div style={styles.panel}>
+        <div style={styles.toolbar}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <i className="ti ti-list-details" style={{ color: '#2563eb' }}></i> Agents
+            </div>
+            <div style={styles.sub}>Manage voice agents, organisations, status, and actions.</div>
           </div>
-          <div className='cardBody stack'>
-            <div className='agentFieldGrid3'>
-              <label>
-                <span className='label'>Name</span>
-                <input className='input' value={draft.name || ''} onChange={(e) => setField('name', e.target.value)} placeholder='Vox Sales' />
-              </label>
-              <label>
-                <span className='label'>Slug</span>
-                <input className='input' value={draft.slug || ''} onChange={(e) => setField('slug', e.target.value)} placeholder='vox-sales' />
-              </label>
-              <label className='agentActiveToggle'>
-                <input type='checkbox' checked={Boolean(draft.is_active)} onChange={(e) => setField('is_active', e.target.checked)} />
-                <span>Agent is active</span>
-              </label>
-            </div>
-            <label>
-              <span className='label'>What should this agent do?</span>
-              <textarea
-                className='input'
-                style={{ minHeight: 96 }}
-                value={draft.description || ''}
-                onChange={(e) => setField('description', e.target.value)}
-                placeholder='e.g. Qualify inbound leads, explain VOXBULK, collect company name and email.'
-              />
-            </label>
-            <div className='agentEditToolbar'>
-              <p>
-                Step 1: workflow from description + knowledge base. Step 2: system prompt from that workflow.
-                DeepSeek must be configured under Integrations.
-              </p>
-              <div className='actions'>
-                <button
-                  type='button'
-                  className='btn soft'
-                  onClick={generateWorkflow}
-                  disabled={busy || !String(draft.description || '').trim()}
-                >
-                  {genPhase === 'workflow' ? 'Generating workflow...' : hasWorkflow(draft) ? 'Regenerate workflow' : '1. Generate workflow'}
-                </button>
-                <button
-                  type='button'
-                  className='btn primary'
-                  onClick={generatePrompt}
-                  disabled={busy || !String(draft.description || '').trim() || !hasWorkflow(draft)}
-                >
-                  {genPhase === 'prompt' ? 'Generating prompt...' : hasSystemPrompt(draft) ? 'Regenerate prompt' : '2. Generate prompt'}
-                </button>
-              </div>
-              {!hasWorkflow(draft) ? (
-                <p className='muted' style={{ margin: '10px 0 0', fontSize: 12 }}>
-                  Step 2 unlocks when the Call workflow field (below) has text.
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </section>
-
-        <AgentVoiceFields draft={draft} setField={setField} />
-
-        <div className='agentEditRow2'>
-          <section className='card'>
-            <div className='cardHead'>
-              <h3>Call workflow</h3>
-              <span className='pill p-cyan'>Step 1</span>
-            </div>
-            <div className='cardBody'>
-              <textarea
-                className='input agentPromptArea'
-                value={draft.call_workflow || ''}
-                onChange={(e) => setField('call_workflow', e.target.value)}
-                placeholder='Step-by-step call flow: greeting, questions, handoff, close...'
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', width: '100%', maxWidth: 520 }}>
+            <div style={styles.search}>
+              <input
+                type="search"
+                placeholder="Search agents, slugs..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{ ...styles.searchInput, width: '100%' }}
               />
             </div>
-          </section>
-          <section className='card'>
-            <div className='cardHead'>
-              <h3>System prompt</h3>
-              <span className='pill p-cyan'>Step 2</span>
-            </div>
-            <div className='cardBody'>
-              <textarea
-                className='input agentPromptArea'
-                value={draft.system_prompt || ''}
-                onChange={(e) => setField('system_prompt', e.target.value)}
-                placeholder='Generated or hand-written instructions for the agent...'
-              />
-            </div>
-          </section>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              style={{ ...styles.select, maxWidth: 180 }}
+            >
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="frozen">Frozen</option>
+            </select>
+          </div>
         </div>
 
-        <div className='agentEditRow2'>
-          <section className='card'>
-            <div className='cardHead'>
-              <h3>Knowledge base</h3>
-              <span className='pill p-cyan'>{kbSelectedCount} selected</span>
-            </div>
-            <div className='cardBody stack'>
-              <p className='muted' style={{ margin: 0, fontSize: 13 }}>
-                Upload .md files on the agents list page. Click a file to attach it to this agent.
-              </p>
-              <div className='agentKbPanel'>
-                {kbFiles.length ? (
-                  kbFiles.map((file) => {
-                    const selected = (draft.knowledge_file_ids || []).includes(file.id)
-                    return (
-                      <div
-                        key={file.id}
-                        role='button'
-                        tabIndex={0}
-                        className={`agentKbItem${selected ? ' is-selected' : ''}`}
-                        onClick={() => toggleKbFile(file.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            toggleKbFile(file.id)
-                          }
-                        }}
-                      >
-                        <input type='checkbox' checked={selected} readOnly tabIndex={-1} />
-                        <span>
-                          <strong>{file.original_filename}</strong>
-                          <div className='muted'>{file.storage_path}</div>
-                        </span>
-                      </div>
-                    )
-                  })
-                ) : (
-                  <p className='muted' style={{ margin: 0 }}>No files yet. Upload on the agents list.</p>
-                )}
-              </div>
-            </div>
-          </section>
-
-          <section className='card'>
-            <div className='cardHead'>
-              <h3>Organisations</h3>
-              <span className='pill p-cyan'>{selectedOrgAssignments.length} assigned</span>
-            </div>
-            <div className='cardBody stack'>
-              <div>
-                <span className='label'>Currently assigned</span>
-                <div className='agentOrgAssigned'>
-                  {selectedOrgAssignments.length ? (
-                    selectedOrgAssignments.map((row) => {
-                      const org = orgById[row.org_id]
-                      return (
-                        <div key={row.id} className='agentOrgRow'>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-                            <input
-                              type='checkbox'
-                              checked={orgsToRemove.includes(row.org_id)}
-                              onChange={() =>
-                                setOrgsToRemove((ids) =>
-                                  ids.includes(row.org_id) ? ids.filter((x) => x !== row.org_id) : [...ids, row.org_id],
-                                )
-                              }
-                            />
-                            <strong>{org?.name || 'Unknown'}</strong>
-                          </label>
-                          <button type='button' className='btn soft' onClick={() => removeOrgAssignment(row)} disabled={busy}>
-                            Remove
-                          </button>
+        {loading ? (
+          <div style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+            <i className="ti ti-loader"></i> Loading agents...
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+            <i className="ti ti-inbox"></i> No agents found
+          </div>
+        ) : (
+          <div style={styles.tableWrap}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Agent</th>
+                  <th style={styles.th}>Services</th>
+                  <th style={styles.th}>Voice label</th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((agent) => (
+                  <tr key={agent.id} style={styles.tr}>
+                    <td style={styles.td}>
+                      <div style={styles.agentName}>
+                        <div style={styles.avatar}>
+                          {(agent.name || 'A')[0].toUpperCase()}
                         </div>
-                      )
-                    })
-                  ) : (
-                    <p className='muted' style={{ margin: 0, fontSize: 13 }}>No organisations assigned yet.</p>
-                  )}
-                </div>
-                {selectedOrgAssignments.length ? (
-                  <div className='actions' style={{ marginTop: 10 }}>
-                    <button
-                      type='button'
-                      className='btn soft'
-                      onClick={() =>
-                        setAgentOrganisationAssignments(
-                          selectedOrgIds.filter((id) => !orgsToRemove.includes(id)),
-                          'Removed selected organisations.',
-                        )
-                      }
-                      disabled={busy || !orgsToRemove.length}
-                    >
-                      Remove selected
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-              <div>
-                <span className='label'>Add organisations</span>
-                <input
-                  className='input'
-                  style={{ width: '100%', minWidth: 0, marginBottom: 10 }}
-                  value={assignmentSearch}
-                  onChange={(e) => setAssignmentSearch(e.target.value)}
-                  placeholder='Search by name...'
-                />
-                <div className='agentOrgPicker'>
-                  {assignableOrgs.length ? (
-                    assignableOrgs.map((org) => (
-                      <label key={org.id}>
-                        <input
-                          type='checkbox'
-                          checked={orgsToAdd.includes(org.id)}
-                          onChange={() =>
-                            setOrgsToAdd((ids) => (ids.includes(org.id) ? ids.filter((x) => x !== org.id) : [...ids, org.id]))
-                          }
-                          disabled={!selectedId}
-                        />
-                        {org.name}
-                      </label>
-                    ))
-                  ) : (
-                    <span className='muted' style={{ fontSize: 13 }}>No more organisations to add, or save the agent first.</span>
-                  )}
-                </div>
-                <div className='actions' style={{ marginTop: 12 }}>
-                  <button
-                    type='button'
-                    className='btn primary'
-                    onClick={() => setAgentOrganisationAssignments([...selectedOrgIds, ...orgsToAdd])}
-                    disabled={!selectedId || busy || !orgsToAdd.length}
-                  >
-                    Add selected organisations
-                  </button>
-                </div>
-                {!selectedId ? (
-                  <p className='muted' style={{ margin: '10px 0 0', fontSize: 12 }}>Save the agent before assigning organisations.</p>
-                ) : null}
-              </div>
-            </div>
-          </section>
-        </div>
+                        <div>
+                          <div style={styles.name}>{agent.name} <span style={styles.chip}>{agent.slug}</span></div>
+                          <div style={styles.slug}>{agent.description || '—'}</div>
+                          <div style={styles.chips}>
+                            {serviceBadges(agent).map((b) => (
+                              <span key={b} style={styles.chip}>{b}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={styles.td}>
+                      {serviceBadges(agent).filter(b => b !== 'Default').map((b) => (
+                        <span key={b} style={styles.chip}>{b}</span>
+                      ))}
+                    </td>
+                    <td style={styles.td}>{agent.voice_label || '—'}</td>
+                    <td style={styles.td}>
+                      <span style={{
+                        ...styles.status,
+                        ...(agent.is_active ? styles.statusActive : styles.statusFrozen)
+                      }}>
+                        <i className={`ti ${agent.is_active ? 'ti-circle-check' : 'ti-lock'}`}></i>
+                        {agent.is_active ? ' Active' : ' Frozen'}
+                      </span>
+                    </td>
+                    <td style={styles.td}>
+                      <div style={styles.actions}>
+                        <button
+                          style={{ ...styles.actionBtn }}
+                          onClick={() => {
+                            const newAgent = JSON.parse(JSON.stringify(agent))
+                            newAgent.id = null
+                            newAgent.slug = newAgent.slug + '-copy-' + Math.random().toString(36).slice(2, 8)
+                            setEditingAgentId('new')
+                          }}
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          style={{ ...styles.actionBtn, ...styles.actionBtnPrimary }}
+                          onClick={() => setEditingAgentId(agent.id)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          style={{ ...styles.actionBtn }}
+                          onClick={() => {
+                            if (window.confirm(`${agent.is_active ? 'Freeze' : 'Unfreeze'} ${agent.name}?`)) {
+                              apiFetch(`/admin/agents/${agent.id}`, {
+                                method: 'PUT',
+                                body: JSON.stringify({ is_active: !agent.is_active }),
+                              }).then(loadAgents).catch(e => setMsg(e?.message))
+                            }
+                          }}
+                        >
+                          {agent.is_active ? 'Freeze' : 'Unfreeze'}
+                        </button>
+                        <button
+                          style={{ ...styles.actionBtn, ...styles.actionBtnWarn }}
+                          onClick={() => {
+                            if (window.confirm(`Delete ${agent.name}? This cannot be undone.`)) {
+                              apiFetch(`/admin/agents/${agent.id}`, { method: 'DELETE' })
+                                .then(loadAgents)
+                                .catch(e => setMsg(e?.message))
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
+const styles = {
+  wrap: { maxWidth: 1400, margin: '0 auto', padding: '0 28px 28px' },
+  top: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 16,
+    padding: '16px 0 14px',
+    borderBottom: '1px solid #e3e8f0',
+    position: 'sticky',
+    top: 0,
+    background: '#f7f9fc',
+    zIndex: 10,
+    backdropFilter: 'blur(2px)',
+  },
+  title: { fontSize: 17, fontWeight: 800, letterSpacing: '-.03em', margin: 0 },
+  sub: { marginTop: 3, fontSize: 11, color: '#64748b' },
+  crumb: { fontSize: 12, color: '#64748b', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' },
+  btn: { border: '1px solid #e3e8f0', background: '#fff', color: '#0f172a', padding: '8px 14px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', gap: 7, alignItems: 'center' },
+  btnPrimary: { background: '#2563eb', borderColor: '#2563eb', color: '#fff' },
+  kpis: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, margin: '16px 0 14px' },
+  kpi: { background: '#fff', border: '1px solid #e3e8f0', borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 3px rgba(15,23,42,.05)' },
+  kpiLabel: { fontSize: 11, color: '#64748b' },
+  kpiValue: { fontSize: 22, fontWeight: 800, lineHeight: 1.1, marginTop: 4 },
+  panel: { background: '#fff', border: '1px solid #e3e8f0', borderRadius: 18, boxShadow: '0 1px 3px rgba(15,23,42,.05)' },
+  toolbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '18px 20px 16px', paddingBottom: 16, borderBottom: '1px solid #e3e8f0' },
+  search: { flex: 1, minWidth: 240, maxWidth: 380 },
+  searchInput: { border: '1px solid #e3e8f0', background: '#f1f5fb', color: '#0f172a', borderRadius: 12, padding: '9px 12px', font: 'inherit', fontSize: 12 },
+  select: { width: '100%', border: '1px solid #e3e8f0', background: '#f1f5fb', color: '#0f172a', borderRadius: 12, padding: '9px 12px', font: 'inherit', fontSize: 12 },
+  tableWrap: { overflowX: 'auto' },
+  table: { width: '100%', borderCollapse: 'collapse' },
+  th: { textAlign: 'left', padding: '11px 10px', fontSize: 11, color: '#64748b', borderBottom: '1px solid #e3e8f0', whiteSpace: 'nowrap' },
+  tr: { borderBottom: '1px solid #e3e8f0' },
+  td: { padding: '14px 10px', borderBottom: '1px solid #e3e8f0', verticalAlign: 'middle', fontSize: 12 },
+  agentName: { display: 'flex', alignItems: 'flex-start', gap: 10 },
+  avatar: { width: 36, height: 36, borderRadius: 12, display: 'grid', placeItems: 'center', fontWeight: 800, background: '#e7efff', color: '#2563eb', flex: 'none' },
+  name: { fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  slug: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  chips: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 },
+  chip: { padding: '4px 8px', borderRadius: 999, background: '#f1f5fb', fontSize: 10, color: '#334155', fontWeight: 700 },
+  status: { padding: '4px 10px', borderRadius: 999, fontSize: 10, fontWeight: 800, display: 'inline-flex', gap: 6, alignItems: 'center' },
+  statusActive: { background: '#e6f6f0', color: '#0f7b5a' },
+  statusFrozen: { background: '#eef2ff', color: '#6d28d9' },
+  actions: { display: 'flex', gap: 6, flexWrap: 'wrap' },
+  actionBtn: { border: '1px solid #e3e8f0', background: '#fff', color: '#0f172a', padding: '6px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer' },
+  actionBtnPrimary: { background: '#2563eb', borderColor: '#2563eb', color: '#fff' },
+  actionBtnWarn: { color: '#e11d48' },
+  msg: { background: '#fef2f2', borderLeft: '4px solid #e11d48', color: '#991b1b', borderRadius: 8 },
+}
