@@ -548,139 +548,105 @@ async function runSurveyLaunchFlow() {
     if (surveyLaunch.paying) return
 
     clearSurveyValidationUi()
-    const errors = []
+    const errors = collectSurveyLaunchValidationErrors()
 
-  const scriptEl = document.getElementById('sur-ai-script')
-  const approveBtn = document.getElementById('sur-ai-approve')
-  const startDateEl = document.getElementById('sur-start-date')
-  const startTimeEl = document.getElementById('sur-start-time')
-  const endDateEl = document.getElementById('sur-end-date')
-  const endTimeEl = document.getElementById('sur-end-time')
-
-  if (!state.surveyScriptApproved) {
-    errors.push('Please approve the prompt before continuing.')
-    scriptEl?.classList.add('error')
-    approveBtn?.classList.add('error')
-    showAiPanel('sur', true)
-  }
-
-  if (!startDateEl?.value?.trim()) {
-    errors.push('Please select a date.')
-    startDateEl?.classList.add('error')
-  }
-  if (!startTimeEl?.value?.trim()) {
-    errors.push('Please select a time.')
-    startTimeEl?.classList.add('error')
-  }
-  if (!endDateEl?.value?.trim()) {
-    errors.push('Please select an end date.')
-    endDateEl?.classList.add('error')
-  }
-  if (!endTimeEl?.value?.trim()) {
-    errors.push('Please select an end time.')
-    endTimeEl?.classList.add('error')
-  }
-  if (!state.surveyFile) {
-    errors.push('Please upload a contact list.')
-    document.getElementById('sur-upload-zone')?.classList.add('error')
-  }
-
-  if (errors.length > 0) {
-    showSurveyValidationErrors(errors)
-    return
-  }
-
-  let agent = selectedSurveyAgent()
-  try {
-    await ensureAuthenticatedSession()
-    await loadSurveyLaunchPackages()
-    if (!surveyLaunch.selectedPackageId && surveyLaunch.packages.length) {
-      const picked = autoPickSurveyPackage(surveyLaunch.contactCount, surveyLaunch.packages)
-      surveyLaunch.selectedPackageId = picked?.id || surveyLaunch.packages[0]?.id || null
-      renderSurveyPackageSelect()
-      await refreshSurveyQuote()
-    }
-    if (!surveyLaunch.selectedPackageId) {
-      showSurveyValidationErrors(['Please select an AI call package.'])
-      return
-    }
-    if (!agent && surveyLaunch.surveyAgents.length) {
-      showSurveyValidationErrors(['Please select an AI voice agent.'])
-      document.getElementById('sur-agent-select')?.classList.add('error')
+    if (errors.length > 0) {
+      showSurveyValidationErrors(errors)
       return
     }
 
-    const sched = schedulePayload('sur')
-    if (!sched.scheduled_start_at) {
-      showSurveyValidationErrors(['Please check your schedule dates and times.'])
+    let agent = selectedSurveyAgent()
+    try {
+      await ensureAuthenticatedSession()
+      await loadSurveyLaunchPackages()
+      await loadSurveyAgents()
+      agent = selectedSurveyAgent()
+      if (!surveyLaunch.selectedPackageId && surveyLaunch.packages.length) {
+        const picked = autoPickSurveyPackage(surveyLaunch.contactCount, surveyLaunch.packages)
+        surveyLaunch.selectedPackageId = picked?.id || surveyLaunch.packages[0]?.id || null
+        renderSurveyPackageSelect()
+        await refreshSurveyQuote()
+      }
+      if (!surveyLaunch.selectedPackageId) {
+        showSurveyValidationErrors(['Please select an AI call package.'])
+        return
+      }
+      if (!agent && surveyLaunch.surveyAgents.length) {
+        const msg = 'Please select an AI voice agent.'
+        showSurveyValidationErrors([msg])
+        markSurveyFieldError('sur-agent-select', 'sur-hint-agent', msg)
+        return
+      }
+
+      const sched = schedulePayload('sur')
+      if (!sched.scheduled_start_at) {
+        showSurveyValidationErrors(['Please check your schedule dates and times.'])
+        return
+      }
+
+      const quoteText = surveyLaunch.quote
+        ? surveyLaunch.quote.total_gbp || fmtGbp(surveyLaunch.quote.total_pence)
+        : 'Quoted at checkout'
+      if (!confirmSurveyLaunchSummary({ agent, sched, quoteText })) return
+    } catch (e) {
+      reportSurveyFlowError(e, 'Could not prepare survey checkout')
       return
     }
 
-    const quoteText = surveyLaunch.quote
-      ? `${surveyLaunch.quote.total_gbp || fmtGbp(surveyLaunch.quote.total_pence)} · ${surveyLaunch.contactCountKnown ? surveyLaunch.contactCount : '?'} contacts`
-      : 'Your survey will be quoted at checkout.'
-    const proceed = window.confirm(
-      `Ready to pay and schedule?\n\n${quoteText}\n\nAgent: ${agent?.name || agent?.voice_label || 'Default'}\n\nClick OK to continue to payment.`,
-    )
-    if (!proceed) return
-  } catch (e) {
-    reportSurveyFlowError(e, 'Could not prepare survey checkout')
-    return
-  }
-
-  surveyLaunch.paying = true
-  renderSurveyQuoteUi()
-  logSurvey('launch_start')
-
-  const title = (document.getElementById('sur-goal')?.value || 'Survey campaign').trim().slice(0, 120)
-  const branding = getClientContextForApi()
-  agent = selectedSurveyAgent()
-  const config = {
-    goal: document.getElementById('sur-goal')?.value || '',
-    survey_channel: 'ai_call',
-    package_id: surveyLaunch.selectedPackageId,
-    channels: ['call'],
-    contact_method: 'AI phone call',
-    script_mode: scriptModeFromButtons('survey'),
-    approved_script: state.surveyScriptPayload?.script_text || '',
-    script_questions: state.surveyScriptPayload?.questions || [],
-    system_prompt: state.surveyScriptPayload?.system_prompt || '',
-    script_approved: state.surveyScriptApproved,
-    organisation_name: branding.organisation_name,
-    survey_organiser_name: agent?.name || agent?.voice_label || branding.survey_organiser_name,
-    clinic_name: branding.organisation_name,
-  }
-  if (agent) {
-    config.agent_id = agent.id
-    config.agent_voice_label = agent.voice_label
-  }
-
-  try {
-    let order = await api('/service-orders', {
-      method: 'POST',
-      body: JSON.stringify({ service_code: 'survey', title, config }),
-    })
-    order = await uploadRecipients(order.id, state.surveyFile)
-    await api(`/service-orders/${order.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(schedulePayload('sur')),
-    })
-    order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
-
-    logSurvey('order_quoted', {
-      order_id: order.id,
-      total: order.quote_total_gbp,
-      contacts: order.recipient_count,
-    })
-
-    await offerSurveyPayment(order)
-  } catch (e) {
-    reportSurveyFlowError(e, 'Could not create survey order')
-    logSurvey('launch_failed', { message: e.message, status: e.status })
-  } finally {
-    surveyLaunch.paying = false
+    surveyLaunch.paying = true
     renderSurveyQuoteUi()
-  }
+    logSurvey('launch_start')
+
+    const title = (document.getElementById('sur-goal')?.value || 'Survey campaign').trim().slice(0, 120)
+    const branding = getClientContextForApi()
+    agent = selectedSurveyAgent()
+    const agentLabel = agent?.name || agent?.voice_label || ''
+    const config = {
+      goal: document.getElementById('sur-goal')?.value || '',
+      survey_channel: 'ai_call',
+      package_id: surveyLaunch.selectedPackageId,
+      channels: ['call'],
+      contact_method: 'AI phone call',
+      script_mode: scriptModeFromButtons('survey'),
+      approved_script: state.surveyScriptPayload?.script_text || '',
+      script_questions: state.surveyScriptPayload?.questions || [],
+      system_prompt: state.surveyScriptPayload?.system_prompt || '',
+      script_approved: state.surveyScriptApproved,
+      organisation_name: branding.organisation_name,
+      survey_organiser_name: agentLabel || branding.survey_organiser_name,
+      clinic_name: branding.organisation_name,
+    }
+    if (agent) {
+      config.agent_id = agent.id
+      config.agent_voice_label = agent.voice_label
+    }
+
+    try {
+      let order = await api('/service-orders', {
+        method: 'POST',
+        body: JSON.stringify({ service_code: 'survey', title, config }),
+      })
+      order = await uploadRecipients(order.id, state.surveyFile)
+      await api(`/service-orders/${order.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(schedulePayload('sur')),
+      })
+      order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+
+      logSurvey('order_quoted', {
+        order_id: order.id,
+        total: order.quote_total_gbp,
+        contacts: order.recipient_count,
+      })
+
+      await offerSurveyPayment(order)
+    } catch (e) {
+      reportSurveyFlowError(e, 'Could not create survey order')
+      logSurvey('launch_failed', { message: e.message, status: e.status })
+    } finally {
+      surveyLaunch.paying = false
+      renderSurveyQuoteUi()
+    }
   } catch (err) {
     console.error('[survey] launch_unhandled', err)
     reportSurveyFlowError(err, 'Pay and schedule failed — please try again')
@@ -715,6 +681,114 @@ function clearSurveyValidationUi() {
     'sur-agent-select',
     'sur-upload-zone',
   ].forEach((id) => document.getElementById(id)?.classList.remove('error'))
+  ;[
+    'sur-hint-script',
+    'sur-hint-approve',
+    'sur-hint-start-date',
+    'sur-hint-start-time',
+    'sur-hint-end-date',
+    'sur-hint-end-time',
+    'sur-hint-upload',
+    'sur-hint-agent',
+  ].forEach((id) => setSurveyFieldHint(id, ''))
+}
+
+function setSurveyFieldHint(hintId, message) {
+  const el = document.getElementById(hintId)
+  if (!el) return
+  el.textContent = message || ''
+  el.classList.toggle('error-hint', Boolean(message))
+}
+
+function markSurveyFieldError(fieldId, hintId, message) {
+  document.getElementById(fieldId)?.classList.add('error')
+  if (hintId) setSurveyFieldHint(hintId, message)
+}
+
+function formatScheduleLabel(isoValue) {
+  if (!isoValue) return 'Not set'
+  const dt = new Date(isoValue)
+  if (Number.isNaN(dt.getTime())) return isoValue
+  return dt.toLocaleString(undefined, {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function confirmSurveyLaunchSummary({ agent, sched, quoteText }) {
+  const contactLine = surveyLaunch.contactCountKnown
+    ? `${surveyLaunch.contactCount} contacts`
+    : state.surveyFile?.name || 'Uploaded file'
+  const lines = [
+    'Please confirm your survey launch:',
+    '',
+    'Prompt: Approved',
+    `Contacts: ${contactLine}`,
+    `Start: ${formatScheduleLabel(sched.scheduled_start_at)}`,
+    `End: ${formatScheduleLabel(sched.scheduled_end_at)}`,
+    `Voice agent: ${agent?.name || agent?.voice_label || 'Default'}`,
+    `Total: ${quoteText}`,
+    '',
+    'Click OK to continue to payment.',
+  ]
+  return window.confirm(lines.join('\n'))
+}
+
+function collectSurveyLaunchValidationErrors() {
+  const errors = []
+  const scriptEl = document.getElementById('sur-ai-script')
+  const approveBtn = document.getElementById('sur-ai-approve')
+  const startDateEl = document.getElementById('sur-start-date')
+  const startTimeEl = document.getElementById('sur-start-time')
+  const endDateEl = document.getElementById('sur-end-date')
+  const endTimeEl = document.getElementById('sur-end-time')
+
+  if (startDateEl?.value && !endDateEl?.value) {
+    endDateEl.value = startDateEl.value
+  }
+
+  if (!state.surveyScriptApproved) {
+    const msg = 'Please approve the prompt before continuing.'
+    errors.push(msg)
+    scriptEl?.classList.add('error')
+    approveBtn?.classList.add('error')
+    setSurveyFieldHint('sur-hint-script', msg)
+    setSurveyFieldHint('sur-hint-approve', msg)
+    showAiPanel('sur', true)
+  }
+
+  if (!startDateEl?.value?.trim()) {
+    const msg = 'Please select a date.'
+    errors.push(msg)
+    markSurveyFieldError('sur-start-date', 'sur-hint-start-date', msg)
+  }
+  if (!startTimeEl?.value?.trim()) {
+    const msg = 'Please select a time.'
+    errors.push(msg)
+    markSurveyFieldError('sur-start-time', 'sur-hint-start-time', msg)
+  }
+  if (!endDateEl?.value?.trim()) {
+    const msg = 'Please select an end date.'
+    errors.push(msg)
+    markSurveyFieldError('sur-end-date', 'sur-hint-end-date', msg)
+  }
+  if (!endTimeEl?.value?.trim()) {
+    const msg = 'Please select an end time.'
+    errors.push(msg)
+    markSurveyFieldError('sur-end-time', 'sur-hint-end-time', msg)
+  }
+  if (!state.surveyFile) {
+    const msg = 'Please upload a contact list.'
+    errors.push(msg)
+    document.getElementById('sur-upload-zone')?.classList.add('error')
+    setSurveyFieldHint('sur-hint-upload', msg)
+  }
+
+  return errors
 }
 
 function showSurveyValidationErrors(errors) {
@@ -1090,8 +1164,11 @@ async function generateServiceScript(serviceCode) {
       window.toast?.('Add your Company name in Profile settings first', 'tr')
       return
     }
-    if (!document.getElementById('prof-organiser-name')?.value?.trim()) {
-      window.toast?.('Add Survey organiser in Profile settings (name heard on the call)', 'tr')
+    await loadSurveyAgents()
+    const agent = selectedSurveyAgent()
+    if (!agent) {
+      window.toast?.('Select an AI voice agent before generating the script', 'tr')
+      document.getElementById('sur-agent-select')?.focus()
       return
     }
   }
@@ -1132,9 +1209,12 @@ async function generateServiceScript(serviceCode) {
         max_call_length: selectValue(document.getElementById('sur-max-length')),
         agent_id: agentId,
         client_context: {
-          ...clientCtx,
+          organisation_name: clientCtx.organisation_name,
+          assistant_name: agentName || clientCtx.assistant_name,
+          terminology_label: clientCtx.terminology_label,
           agent_id: agentId,
-          survey_organiser_name: agentName || clientCtx.survey_organiser_name,
+          survey_organiser_name: agentName,
+          contact_name: agentName,
         },
       }
     : {

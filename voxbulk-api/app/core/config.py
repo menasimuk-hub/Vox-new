@@ -85,6 +85,7 @@ class Settings(BaseSettings):
 
     # Bootstrap
     bootstrap_token: str = Field(default="", alias="BOOTSTRAP_TOKEN")
+    enable_test_cash_billing: bool = Field(default=False, alias="ENABLE_TEST_CASH_BILLING")
 
     # Invite links returned by admin API (public sign-in origin)
     public_app_origin: str = Field(default="http://localhost:5173", alias="PUBLIC_APP_ORIGIN")
@@ -132,7 +133,7 @@ class Settings(BaseSettings):
             # LAN access (e.g. http://192.168.x.x:5174) otherwise hits TrustedHostMiddleware before CORS.
             resolved = ["*"]
         else:
-            resolved = ["localhost", "127.0.0.1"]
+            resolved = ["localhost", "127.0.0.1", "api.voxbulk.com"]
         # Starlette TestClient uses "testserver" as Host by default.
         if "*" not in resolved and "testserver" not in resolved:
             resolved.append("testserver")

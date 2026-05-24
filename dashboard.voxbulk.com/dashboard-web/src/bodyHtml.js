@@ -317,31 +317,33 @@ const bodyHtml = `<div class="app" id="app">
           <div class="sur-launch-note"><i class="ti ti-phone"></i> AI phone call surveys · Phase 1</div>
           <div class="fg"><label>What do you want to learn?</label><textarea id="sur-goal" rows="2" style="resize:none" placeholder="e.g. Patient satisfaction — experience, wait times, likelihood to recommend"></textarea></div>
           <div class="fg"><label>Max call length</label><select id="sur-max-length"><option selected>3 minutes</option><option>5 minutes</option><option>10 minutes</option></select></div>
-          <div class="fg" id="sur-agent-field" style="margin-bottom:10px"><label>AI voice agent</label><select id="sur-agent-select"><option value="">Loading agents…</option></select><div class="muted" style="font-size:11px;margin-top:4px">Friendly voice shown on your survey calls — no technical IDs.</div></div>
+          <div class="fg" id="sur-agent-field" style="margin-bottom:10px"><label>AI voice agent</label><select id="sur-agent-select"><option value="">Loading agents…</option></select><div class="muted" style="font-size:11px;margin-top:4px">Friendly voice shown on your survey calls — no technical IDs.</div><div class="field-hint" id="sur-hint-agent"></div></div>
           <input type="file" id="sur-file-input" accept=".csv,.xlsx,.xls" hidden/>
           <div class="standalone-upload" id="sur-upload-zone" style="margin-bottom:6px"><label for="sur-file-input" class="sur-upload-trigger"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Upload contact list · CSV/Excel: name, phone, email</label><a href="#" id="sur-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a></div>
           <div id="sur-upload-filename" class="muted" style="font-size:11px;margin-bottom:12px;display:none"></div>
+          <div class="field-hint" id="sur-hint-upload"></div>
           <div id="sur-ai-panel" style="display:none;margin-bottom:10px;background:var(--s2);border-radius:11px;padding:13px;border:1.5px solid var(--b2)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
               <span style="font-size:12px;font-weight:700;color:var(--t1)"><i class="ti ti-sparkles" style="color:var(--grn)"></i> AI-generated survey script</span>
               <span class="bdg ba" id="sur-ai-status">Draft</span>
             </div>
-            <div class="fg" style="margin-bottom:8px"><label>Review and edit before approving</label><textarea id="sur-ai-script" rows="10" style="resize:vertical;font-size:12px;line-height:1.6" placeholder="Click AI write survey script to generate questions you can read here…"></textarea></div>
+            <div class="fg" style="margin-bottom:8px"><label>Review and edit before approving</label><textarea id="sur-ai-script" rows="10" style="resize:vertical;font-size:12px;line-height:1.6" placeholder="Click AI write survey script to generate questions you can read here…"></textarea><div class="field-hint" id="sur-hint-script"></div></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btng bsm" type="button" id="sur-ai-approve"><i class="ti ti-check"></i>Approve script</button>
               <button class="btn bsm" type="button" id="sur-ai-regen"><i class="ti ti-refresh"></i>Regenerate</button>
             </div>
+            <div class="field-hint" id="sur-hint-approve"></div>
           </div>
           <!-- CALLING WINDOW -->
           <div style="background:var(--s2);border-radius:11px;padding:13px;margin-bottom:10px">
             <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px"><i class="ti ti-clock" style="color:var(--grn);font-size:14px"></i>AI calling window — system stops automatically at end time</div>
             <div class="fg2">
-              <div class="fg" style="margin-bottom:0"><label><i class="ti ti-player-play" style="color:var(--grn);font-size:12px;margin-right:3px"></i>Start date</label><input type="date" id="sur-start-date" oninput="updateSurWindow()"/></div>
-              <div class="fg" style="margin-bottom:0"><label>Start time</label><input type="time" id="sur-start-time" value="09:00" oninput="updateSurWindow()"/></div>
+              <div class="fg" style="margin-bottom:0"><label><i class="ti ti-player-play" style="color:var(--grn);font-size:12px;margin-right:3px"></i>Start date</label><input type="date" id="sur-start-date" oninput="updateSurWindow()"/><div class="field-hint" id="sur-hint-start-date"></div></div>
+              <div class="fg" style="margin-bottom:0"><label>Start time</label><input type="time" id="sur-start-time" value="09:00" oninput="updateSurWindow()"/><div class="field-hint" id="sur-hint-start-time"></div></div>
             </div>
             <div class="fg2" style="margin-top:8px">
-              <div class="fg" style="margin-bottom:0"><label><i class="ti ti-player-stop" style="color:var(--red);font-size:12px;margin-right:3px"></i>End date</label><input type="date" id="sur-end-date" oninput="updateSurWindow()"/></div>
-              <div class="fg" style="margin-bottom:0"><label>End time</label><input type="time" id="sur-end-time" value="17:00" oninput="updateSurWindow()"/></div>
+              <div class="fg" style="margin-bottom:0"><label><i class="ti ti-player-stop" style="color:var(--red);font-size:12px;margin-right:3px"></i>End date</label><input type="date" id="sur-end-date" oninput="updateSurWindow()"/><div class="field-hint" id="sur-hint-end-date"></div></div>
+              <div class="fg" style="margin-bottom:0"><label>End time</label><input type="time" id="sur-end-time" value="17:00" oninput="updateSurWindow()"/><div class="field-hint" id="sur-hint-end-time"></div></div>
             </div>
             <div id="sur-window-preview" style="display:none;margin-top:10px;background:var(--gd);border-radius:8px;padding:8px 11px;font-size:11.5px;color:var(--grn);font-weight:500;align-items:center;gap:7px">
               <i class="ti ti-check"></i><span id="sur-window-text"></span>

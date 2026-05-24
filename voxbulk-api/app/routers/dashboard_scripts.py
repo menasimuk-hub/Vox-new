@@ -43,14 +43,16 @@ def _client_branding(db: Session, org_id: str, payload: dict) -> dict:
         if agent:
             agent_name = str(agent.name or agent.voice_label or "").strip()
 
-    organiser = str(
-        agent_name
-        or ctx.get("survey_organiser_name")
-        or ctx.get("contact_name")
-        or (org.contact_name if org else "")
-        or identity.get("assistant_name")
-        or client_name
-    ).strip()
+    if agent_name:
+        organiser = agent_name
+    else:
+        organiser = str(
+            ctx.get("survey_organiser_name")
+            or ctx.get("contact_name")
+            or (org.contact_name if org else "")
+            or identity.get("assistant_name")
+            or client_name
+        ).strip()
     if "voxbulk" in organiser.lower():
         organiser = client_name
     assistant = str(ctx.get("assistant_name") or ctx.get("survey_organiser_name") or identity.get("assistant_name") or organiser).strip()

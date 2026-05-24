@@ -82,10 +82,30 @@ export function buildAuthHeaders(extraHeaders) {
 }
 
 export function authErrorMessage(err) {
+  if (err?.isNetworkError) {
+    const base = getApiBaseUrl() || 'the API server'
+    return `Could not reach ${base}. Check the API is running (./vox.sh status on VPS) and sign in again if needed.`
+  }
   if (err?.status === 401 || /invalid authentication credentials/i.test(String(err?.message || ''))) {
     return 'Your session expired. Please sign in again.'
   }
+  if (/failed to fetch/i.test(String(err?.message || ''))) {
+    const base = getApiBaseUrl() || 'the API server'
+    return `Network error — could not reach ${base}.`
+  }
   return err?.message || 'Request failed'
+}
+
+async function requestFetch(url, options = {}) {
+  try {
+    return await fetch(url, options)
+  } catch (cause) {
+    const err = new Error(typeof cause?.message === 'string' ? cause.message : 'Failed to fetch')
+    err.isNetworkError = true
+    err.cause = cause
+    err.requestUrl = url
+    throw err
+  }
 }
 
 export function handleUnauthorizedApiError(err, { redirect = true } = {}) {
@@ -102,7 +122,7 @@ export async function downloadAuthenticatedFile(path, filename) {
   const baseUrl = getApiBaseUrl()
   const url = baseUrl ? `${baseUrl}${path}` : path
   const headers = buildAuthHeaders()
-  const res = await fetch(url, { headers })
+  const res = await requestFetch(url, { headers })
   if (!res.ok) {
     const text = await res.text()
     let message = `${res.status} ${res.statusText}`.trim()
@@ -141,7 +161,7 @@ export async function apiFetch(path, options = {}) {
     headers.set('Content-Type', 'application/json')
   }
 
-  const res = await fetch(url, { ...options, headers })
+  const res = await requestFetch(url, { ...options, headers })
   const text = await res.text()
   const data = text ? safeJson(text) : null
 
@@ -166,7 +186,7 @@ export async function apiUploadFile(path, file, fieldName = 'file') {
   const fd = new FormData()
   fd.append(fieldName, file)
   const headers = buildAuthHeaders()
-  const res = await fetch(url, { method: 'POST', headers, body: fd })
+  const res = await requestFetch(url, { method: 'POST', headers, body: fd })
   const text = await res.text()
   const data = text ? safeJson(text) : null
   if (!res.ok) {
