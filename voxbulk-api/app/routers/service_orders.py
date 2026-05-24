@@ -19,6 +19,22 @@ def list_catalog(db: Session = Depends(get_db), _principal=Depends(get_current_p
     services = PlatformCatalogService.list_services(db)
     out = []
     for svc in services:
+        if svc.code == "survey":
+            survey_catalog = PlatformCatalogService.survey_packages_for_service(db, svc, active_only=True)
+            out.append(
+                {
+                    "id": svc.id,
+                    "code": svc.code,
+                    "name": svc.name,
+                    "description": svc.description,
+                    "service_kind": svc.service_kind,
+                    "setup_fee_pence": survey_catalog["setup_fee_pence"],
+                    "setup_fee_gbp": survey_catalog["setup_fee_gbp"],
+                    "packages": survey_catalog["packages"],
+                }
+            )
+            continue
+
         rules = PlatformCatalogService.list_rules_for_service(db, svc.id)
         out.append(
             {
@@ -27,22 +43,18 @@ def list_catalog(db: Session = Depends(get_db), _principal=Depends(get_current_p
                 "name": svc.name,
                 "description": svc.description,
                 "service_kind": svc.service_kind,
-                "pricing_rules": [
-                    {
-                        "id": r.id,
-                        "channel": r.channel,
-                        "rule_type": r.rule_type,
-                        "label": r.label,
-                        "base_fee_pence": r.base_fee_pence,
-                        "unit_price_pence": r.unit_price_pence,
-                        "bundle_size": r.bundle_size,
-                        "bundle_price_pence": r.bundle_price_pence,
-                    }
-                    for r in rules
-                ],
+                "pricing_rules": [PlatformCatalogService.rule_to_dict(r) for r in rules],
             }
         )
     return out
+
+
+@router.get("/survey-packages")
+def list_survey_packages(db: Session = Depends(get_db), _principal=Depends(get_current_principal)):
+    svc = PlatformCatalogService.get_service_by_code(db, "survey")
+    if svc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey service not found")
+    return PlatformCatalogService.survey_packages_for_service(db, svc, active_only=True)
 
 
 @router.get("/credits")

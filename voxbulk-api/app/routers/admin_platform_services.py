@@ -17,23 +17,7 @@ router = APIRouter(prefix="/admin/platform-services", tags=["admin-platform-serv
 
 
 def _rule_out(r: ServicePricingRule) -> dict:
-    return {
-        "id": r.id,
-        "service_id": r.service_id,
-        "channel": r.channel,
-        "rule_type": r.rule_type,
-        "label": r.label,
-        "base_fee_pence": r.base_fee_pence,
-        "unit_price_pence": r.unit_price_pence,
-        "bundle_size": r.bundle_size,
-        "bundle_price_pence": r.bundle_price_pence,
-        "included_units": r.included_units,
-        "overage_unit_price_pence": r.overage_unit_price_pence,
-        "currency": r.currency,
-        "is_active": r.is_active,
-        "sort_order": r.sort_order,
-        "notes": r.notes,
-    }
+    return PlatformCatalogService.rule_to_dict(r, include_internal=True)
 
 
 @router.get("")
@@ -95,7 +79,7 @@ def admin_create_pricing_rule(service_id: str, payload: dict, db: Session = Depe
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
     row = ServicePricingRule(
         service_id=svc.id,
-        channel=str(payload.get("channel") or "default"),
+        channel=PlatformCatalogService.normalize_survey_channel(str(payload.get("channel") or "default")),
         rule_type=str(payload.get("rule_type") or "per_person"),
         label=str(payload.get("label") or "Pricing rule"),
         base_fee_pence=int(payload.get("base_fee_pence") or 0),
@@ -120,13 +104,14 @@ def admin_update_pricing_rule(rule_id: str, payload: dict, db: Session = Depends
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pricing rule not found")
     for field in (
-        "channel",
         "rule_type",
         "label",
         "notes",
     ):
         if field in payload:
             setattr(row, field, str(payload[field]).strip())
+    if "channel" in payload:
+        row.channel = PlatformCatalogService.normalize_survey_channel(str(payload["channel"]))
     for field in (
         "base_fee_pence",
         "unit_price_pence",

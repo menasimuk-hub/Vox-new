@@ -76,6 +76,10 @@ function App({ session }) {
         initBillingBridge(session)
       })
 
+      import('./surveyPricingBridge.js').then(({ initSurveyPricingBridge }) => {
+        initSurveyPricingBridge()
+      })
+
       const nameEl = document.querySelector('.unm')
       const planEl = document.querySelector('.uplan')
       const avatarEl = document.querySelector('.uav')

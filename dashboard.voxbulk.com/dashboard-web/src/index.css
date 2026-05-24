@@ -639,6 +639,50 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .ri i{font-size:13px;color:var(--grn)}
 .ri strong{color:var(--t1)}
 
+/* ─── SURVEY PACKAGES (dynamic pricing) ─── */
+.survey-pkg-shell{display:flex;flex-direction:column;gap:14px;margin-bottom:16px}
+.survey-pkg-intro h2{font-size:15px;font-weight:700;color:var(--t1);margin:0 0 4px}
+.survey-pkg-intro p{font-size:12px;margin:0 0 8px}
+.survey-pkg-setup{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--t2);background:var(--s2);border:1px solid var(--b1);border-radius:999px;padding:5px 10px}
+.survey-pkg-setup i{color:var(--blu);font-size:14px}
+.survey-pkg-channel{border:1.5px solid var(--b1);border-radius:14px;overflow:hidden;background:var(--s1)}
+.survey-pkg-channelHead{display:flex;align-items:flex-start;gap:11px;padding:12px 14px;border-bottom:1px solid var(--b1);background:var(--s2)}
+.survey-pkg-channelIcon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.survey-pkg-channelIcon.isAiCall{background:var(--bd);color:var(--blu)}
+.survey-pkg-channelIcon.isWhatsApp{background:rgba(37,211,102,.12);color:#25d366}
+.survey-pkg-channelHead h3{font-size:13.5px;font-weight:700;color:var(--t1);margin:0 0 2px}
+.survey-pkg-channelHead p{font-size:11.5px;color:var(--t3);margin:0;line-height:1.35}
+.survey-pkg-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.survey-pkg-grid.isWide{grid-template-columns:repeat(4,minmax(0,1fr))}
+.survey-pkg-card{padding:12px 10px;border-right:1px solid var(--b1);text-align:center;transition:background .15s}
+.survey-pkg-card:last-child{border-right:none}
+.survey-pkg-card.isSelected{background:var(--gd)}
+.survey-pkg-size{font-size:20px;font-weight:700;color:var(--t1);line-height:1}
+.survey-pkg-unit{font-size:10px;color:var(--t3);margin:2px 0 6px}
+.survey-pkg-name{font-size:10.5px;color:var(--t2);margin-bottom:6px;min-height:14px}
+.survey-pkg-price{font-size:17px;font-weight:700;color:var(--grn);margin-bottom:2px}
+.survey-pkg-each{font-size:10px;color:var(--t3);margin-bottom:4px}
+.survey-pkg-overage{font-size:9.5px;color:var(--t2);margin-bottom:8px;line-height:1.3}
+.survey-pkg-btn{width:100%;padding:6px;font-size:11px;border-radius:7px;border:1.5px solid var(--b2);background:transparent;color:var(--t1);cursor:pointer;font-family:inherit;font-weight:600;transition:var(--transition)}
+.survey-pkg-btn:hover{background:var(--s2)}
+.survey-pkg-btn.isSelected,.survey-pkg-card.isSelected .survey-pkg-btn{background:var(--grn);color:#fff;border-color:var(--grn)}
+.survey-pkg-loading,.survey-pkg-empty{padding:14px 0;font-size:12px;text-align:center}
+.survey-pkg-error{padding:12px;border:1px solid var(--rd);background:rgba(239,68,68,.06);border-radius:10px;font-size:12px}
+.survey-pkg-error p{margin:0 0 8px;color:var(--t2)}
+.survey-pkg-summary{font-size:12px}
+.survey-pkg-summaryHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.survey-pkg-summaryHead strong{font-size:13px;color:var(--t1)}
+.survey-pkg-summaryLink{font-size:11px;color:var(--grn);text-decoration:none;font-weight:600}
+.survey-pkg-summarySetup{font-size:11px;margin-bottom:8px}
+.survey-pkg-summaryBlock{margin-bottom:8px}
+.survey-pkg-summaryLabel{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--t2);font-weight:600;margin-bottom:6px}
+.survey-pkg-summaryLabel i{font-size:13px}
+.survey-pkg-miniRow{display:flex;flex-wrap:wrap;gap:6px}
+.survey-pkg-mini{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:7px 10px;border:1px solid var(--b1);border-radius:8px;background:var(--s2);cursor:pointer;font-family:inherit;font-size:10.5px;color:var(--t2);transition:var(--transition)}
+.survey-pkg-mini strong{font-size:12px;color:var(--grn)}
+.survey-pkg-mini.isSelected{border-color:var(--grn);background:var(--gd)}
+.survey-pkg-summarySelected{margin-top:8px;padding-top:8px;border-top:1px solid var(--b1);font-size:11.5px;color:var(--t2)}
+
 /* ─── PRICING TOGGLE ─── */
 .tgl-r{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px}
 .tgl-l{font-size:12.5px;color:var(--t2);font-weight:500}
@@ -797,6 +841,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   .ovgi{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bun-g-3{grid-template-columns:1fr 1fr}
   .bun-g-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .survey-pkg-grid,.survey-pkg-grid.isWide{grid-template-columns:1fr 1fr}
   .cres{grid-template-columns:1fr 1fr}
   .roi-card{flex-direction:column;gap:10px}
   .roi-actions{flex-direction:row}

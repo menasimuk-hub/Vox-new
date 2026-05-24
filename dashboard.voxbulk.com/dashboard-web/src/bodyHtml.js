@@ -311,12 +311,14 @@ const bodyHtml = `<div class="app" id="app">
             </div>
           </div>
         </div>
+        <!-- SURVEY PRICING SUMMARY -->
+        <div id="sur-pricing-summary" class="card" style="margin-bottom:12px;padding:14px 16px"></div>
         <!-- NEW CAMPAIGN FORM -->
         <div class="card">
           <div class="ch"><i class="ti ti-plus grn"></i>New survey campaign</div>
           <div class="fg"><label>What do you want to learn?</label><textarea id="sur-goal" rows="2" style="resize:none" placeholder="e.g. Patient satisfaction — experience, wait times, likelihood to recommend"></textarea></div>
           <div class="fg2">
-            <div class="fg"><label>Contact method</label><select id="sur-contact-method"><option selected>AI phone call</option><option>WhatsApp</option><option>Both</option></select></div>
+            <div class="fg"><label>Contact method</label><select id="sur-contact-method"><option selected>AI phone call</option><option>WhatsApp</option></select></div>
             <div class="fg"><label>Max call length</label><select id="sur-max-length"><option selected>3 minutes</option><option>5 minutes</option><option>10 minutes</option></select></div>
           </div>
           <div class="standalone-upload" id="sur-upload-zone" style="margin-bottom:12px;cursor:pointer"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Upload contact list · CSV/Excel: name, phone, email (phone used for WhatsApp)<br/><a href="#" id="sur-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a><input type="file" id="sur-file-input" accept=".csv,.xlsx,.xls" style="display:none"/></div>
@@ -925,14 +927,9 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
         </div>
 
         <div style="font-size:15px;font-weight:700;color:var(--t1);margin-bottom:4px">Survey bundles — pay as you go</div>
-        <div style="font-size:12px;color:var(--t3);margin-bottom:11px">Average 3-minute calls. Full transcript included. WhatsApp surveys also available at flat rate.</div>
-        <div class="iw" style="margin-bottom:16px">
-          <div class="iwh"><div class="iwic" style="background:var(--bd)"><i class="ti ti-clipboard-list" style="color:var(--blu);font-size:17px"></i></div><div><div style="font-size:13.5px;font-weight:700;color:var(--t1)">Survey contact bundles</div><div style="font-size:11.5px;color:var(--t3)">All-in rate £0.15/min · WhatsApp surveys £0.20 per contact</div></div></div>
-          <div class="bun-g bun-g-3">
-            <div class="bun" onclick="cbS(50,29)"><div class="bcnt">50</div><div class="bunt">contacts</div><div class="bprc">£29</div><div class="bper">£0.58 each</div><button class="bunbtn">Buy bundle</button></div>
-            <div class="bun bst" onclick="cbS(100,49)"><div class="bbst">Best value</div><div class="bcnt">100</div><div class="bunt">contacts</div><div class="bprc">£49</div><div class="bper">£0.49 each</div><button class="bunbtn">Buy bundle</button></div>
-            <div class="bun" onclick="cbS(250,99)"><div class="bcnt">250</div><div class="bunt">contacts</div><div class="bprc">£99</div><div class="bper">£0.40 each</div><button class="bunbtn">Buy bundle</button></div>
-          </div>
+        <p id="packages-survey-setup-note" style="font-size:12px;color:var(--t3);margin-bottom:11px">Loading survey package pricing…</p>
+        <div id="survey-packages-section">
+          <div class="survey-pkg-loading muted">Loading survey packages…</div>
         </div>
 
         <div class="ovg">
