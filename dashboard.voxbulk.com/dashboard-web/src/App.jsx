@@ -68,6 +68,9 @@ function App({ session }) {
       const { initServiceOrdersBridge } = await import('./serviceOrdersBridge.js')
       initServiceOrdersBridge()
 
+      const { initSurveyHubBridge } = await import('./surveyHubBridge.js')
+      initSurveyHubBridge()
+
       const { initDashboardBridge } = await import('./dashboardBridge.js')
       initDashboardBridge()
 

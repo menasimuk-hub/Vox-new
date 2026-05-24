@@ -1330,18 +1330,11 @@ function renderOrderRow(order) {
 async function loadOrdersIntoUi() {
   if (!getAccessToken()) return
   try {
-    const [surveys, interviews] = await Promise.all([
-      api('/service-orders?service_code=survey'),
-      api('/service-orders?service_code=interview'),
-    ])
-    const surHost = document.getElementById('sur-live-orders')
-    const intHost = document.getElementById('int-live-orders')
-    if (surHost) {
-      const surRows = (surveys || []).slice(0, 8).map(renderOrderRow).join('')
-      surHost.innerHTML = surRows
-      const surEmpty = document.getElementById('sur-projects-empty')
-      if (surEmpty) surEmpty.style.display = surRows ? 'none' : ''
+    if (typeof window.reloadSurveyHub === 'function') {
+      await window.reloadSurveyHub()
     }
+    const interviews = await api('/service-orders?service_code=interview')
+    const intHost = document.getElementById('int-live-orders')
     if (intHost) {
       const intRows = (interviews || []).slice(0, 8).map(renderOrderRow).join('')
       intHost.innerHTML = intRows
@@ -1351,6 +1344,34 @@ async function loadOrdersIntoUi() {
     state.ordersLoaded = true
   } catch {
     /* keep static preview */
+  }
+}
+
+async function payExistingSurveyOrder(order) {
+  await offerSurveyPayment(order)
+}
+
+async function duplicateSurveyOrder(orderId) {
+  if (!orderId) return
+  try {
+    const order = await api(`/service-orders/${encodeURIComponent(orderId)}`)
+    const goalEl = document.getElementById('sur-goal')
+    if (goalEl) goalEl.value = order.config?.goal || order.title || ''
+    if (order.config?.approved_script) {
+      state.surveyScriptPayload = {
+        script_text: order.config.approved_script,
+        questions: order.config.script_questions || [],
+        system_prompt: order.config.system_prompt || '',
+      }
+      state.surveyScriptApproved = Boolean(order.config.script_approved)
+      const scriptEl = document.getElementById('sur-ai-script')
+      if (scriptEl) scriptEl.value = order.config.approved_script
+      showAiPanel('sur', true)
+      setAiStatus('sur', state.surveyScriptApproved)
+    }
+    window.toast?.('Survey copied into new campaign form — upload contacts and pay to launch.', 'tg')
+  } catch (e) {
+    window.toast?.(e.message || 'Could not duplicate survey', 'tr')
   }
 }
 
@@ -1710,6 +1731,8 @@ export function initServiceOrdersBridge() {
   window.openSurveyWaPreview = openSurveyWaPreview
   window.closeSurveyWaPreview = closeSurveyWaPreview
   window.resetSurveyWaPreview = resetSurveyWaPreview
+  window.payExistingSurveyOrder = payExistingSurveyOrder
+  window.duplicateSurveyOrder = duplicateSurveyOrder
   document.getElementById('sur-wa-preview-overlay')?.addEventListener('click', (e) => {
     if (e.target?.id === 'sur-wa-preview-overlay') closeSurveyWaPreview()
   })

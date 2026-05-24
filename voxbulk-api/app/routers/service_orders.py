@@ -252,6 +252,66 @@ def complete_gocardless_order_payment(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
 
 
+@router.delete("/{order_id}")
+def delete_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        ServiceOrderService.delete_order(db, order)
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/pause")
+def pause_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        order = ServiceOrderService.pause_order(db, order)
+        return ServiceOrderService.order_to_dict(order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/resume")
+def resume_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        order = ServiceOrderService.resume_order(db, order)
+        return ServiceOrderService.order_to_dict(order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/stop")
+def stop_order(order_id: str, payload: dict | None = None, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        order = ServiceOrderService.stop_order(db, order, reason=str((payload or {}).get("reason") or ""))
+        return ServiceOrderService.order_to_dict(order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/complete")
+def complete_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        order = ServiceOrderService.complete_order(db, order)
+        return ServiceOrderService.order_to_dict(order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/{order_id}/schedule")
 def schedule_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)

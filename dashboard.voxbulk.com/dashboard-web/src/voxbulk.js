@@ -8,6 +8,7 @@ var titles={
   offers:['Offer campaigns','Fill empty slots with targeted offers'],
   interviews:['Interviews','AI phone or Zoom interview screening'],
   surveys:['Surveys','AI-powered phone and WhatsApp surveys'],
+  'survey-detail':['Survey detail','Review, pay, and manage your campaign'],
   'results-i':['Interview results','Candidate scoring, recordings and analysis'],
   'results-s':['Survey results','Problem analysis, transcripts and insights'],
   reports:['Reports','Performance analytics and cost breakdown'],

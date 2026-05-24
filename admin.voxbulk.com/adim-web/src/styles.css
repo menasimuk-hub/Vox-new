@@ -6248,3 +6248,58 @@ body.dark .matrix th {
   min-height: 100%;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
+
+/* Running surveys control panel */
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.kpiCard {
+  background: var(--s1);
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+}
+.kpiLabel { font-size: 12px; color: var(--t3); margin-bottom: 4px; }
+.kpiValue { font-size: 22px; font-weight: 700; color: var(--t1); }
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.tabRow { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabBtn {
+  border: 1px solid var(--b2);
+  background: var(--s2);
+  color: var(--t2);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tabBtn.on { background: var(--gd); border-color: var(--grn); color: var(--grn); }
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.formGrid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--t2); }
+.formGrid input {
+  border: 1px solid var(--b2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--s1);
+  color: var(--t1);
+}
+.table.compact td, .table.compact th { padding: 8px 10px; font-size: 12px; }
+tr.rowActive td { background: var(--gd); }
+.pill.ok { background: rgba(22,163,74,.12); color: #15803d; }
+.pill.warn { background: var(--ad); color: var(--amb); }
+.pill.bad { background: var(--rd); color: var(--red); }
+@media (max-width: 960px) {
+  .kpiGrid, .grid2, .formGrid { grid-template-columns: 1fr; }
+}
+

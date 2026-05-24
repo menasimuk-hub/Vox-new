@@ -145,10 +145,73 @@ def admin_quote_preview(payload: dict, db: Session = Depends(get_db), _admin=Dep
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/surveys/overview")
+def admin_surveys_overview(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    return ServiceOrderService.survey_operations_overview(db)
+
+
+@router.get("/orders/{order_id}/audit")
+def admin_order_audit(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    return {"order_id": order.id, "timeline": ServiceOrderService.order_audit_timeline(order)}
+
+
+@router.get("/orders/{order_id}/recipients/{recipient_id}")
+def admin_get_recipient_detail(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.survey_results_service import SurveyResultsService
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    try:
+        detail = SurveyResultsService.get_recipient_detail(db, order, recipient)
+        detail["contact"] = ServiceOrderService.recipient_to_dict(recipient)
+        return detail
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.patch("/orders/{order_id}/recipients/{recipient_id}")
+def admin_update_recipient(
+    order_id: str,
+    recipient_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.service_order import ServiceOrderRecipient
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    try:
+        recipient = ServiceOrderService.update_recipient(db, order, recipient, payload or {})
+        return {"ok": True, "recipient": ServiceOrderService.recipient_to_dict(recipient)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/orders")
 def admin_list_orders(
     payment_status: str | None = None,
     status_filter: str | None = None,
+    service_code: str | None = None,
+    org_id: str | None = None,
+    live_only: bool = False,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
@@ -157,8 +220,71 @@ def admin_list_orders(
         stmt = stmt.where(ServiceOrder.payment_status == payment_status)
     if status_filter:
         stmt = stmt.where(ServiceOrder.status == status_filter)
+    if service_code:
+        stmt = stmt.where(ServiceOrder.service_code == service_code)
+    if org_id:
+        stmt = stmt.where(ServiceOrder.org_id == org_id)
     rows = list(db.execute(stmt).scalars())
-    return [ServiceOrderService.order_to_dict(r) for r in rows]
+    if live_only:
+        rows = [r for r in rows if r.service_code == "survey" and ServiceOrderService.is_live_survey(r)]
+    return [ServiceOrderService.order_to_admin_dict(db, r) for r in rows]
+
+
+@router.get("/orders/{order_id}")
+def admin_get_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipients = ServiceOrderService.get_recipients(db, order.id)
+    return ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
+
+
+@router.post("/orders/{order_id}/start")
+def admin_start_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        order = ServiceOrderService.start_order(db, order)
+        return ServiceOrderService.order_to_admin_dict(db, order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/orders/{order_id}/pause")
+def admin_pause_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        order = ServiceOrderService.pause_order(db, order)
+        return ServiceOrderService.order_to_admin_dict(db, order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/orders/{order_id}/resume")
+def admin_resume_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        order = ServiceOrderService.resume_order(db, order)
+        return ServiceOrderService.order_to_admin_dict(db, order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/orders/{order_id}/stop")
+def admin_stop_order(order_id: str, payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        order = ServiceOrderService.stop_order(db, order, reason=str((payload or {}).get("reason") or "Stopped by admin"))
+        return ServiceOrderService.order_to_admin_dict(db, order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post("/orders/{order_id}/approve-payment")
@@ -173,7 +299,7 @@ def admin_approve_order_payment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
         order = ServiceOrderService.admin_approve_payment(db, order, note=str((payload or {}).get("note") or ""))
-        return ServiceOrderService.order_to_dict(order)
+        return ServiceOrderService.order_to_admin_dict(db, order)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -190,7 +316,7 @@ def admin_reject_order_payment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
         order = ServiceOrderService.admin_reject_payment(db, order, note=str((payload or {}).get("note") or ""))
-        return ServiceOrderService.order_to_dict(order)
+        return ServiceOrderService.order_to_admin_dict(db, order)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

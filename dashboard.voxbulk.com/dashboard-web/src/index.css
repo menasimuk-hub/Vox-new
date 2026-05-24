@@ -921,6 +921,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .stat-live{background:var(--gd2);color:var(--grn);font-size:9.5px;padding:3px 9px;border-radius:20px;font-weight:700;display:inline-flex;align-items:center;gap:4px;flex-shrink:0}
 .stat-sched{background:var(--bd);color:var(--blu);font-size:9.5px;padding:3px 9px;border-radius:20px;font-weight:700;flex-shrink:0;display:inline-flex;align-items:center;gap:4px}
 .stat-done{background:var(--s2);color:var(--t3);font-size:9.5px;padding:3px 9px;border-radius:20px;font-weight:700;flex-shrink:0}
+.stat-wait{background:var(--bd);color:var(--blu);font-size:9.5px;padding:3px 9px;border-radius:20px;font-weight:700;flex-shrink:0;display:inline-flex;align-items:center;gap:4px}
+.stat-fail{background:rgba(220,38,38,.12);color:var(--red);font-size:9.5px;padding:3px 9px;border-radius:20px;font-weight:700;flex-shrink:0}
+.sur-next-action{display:flex;align-items:flex-start;gap:10px;background:var(--gd);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:12px;color:var(--t1)}
+.sur-next-action.is-error{background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.25);color:var(--red)}
+.sur-trend-bar{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px}
+.sur-trend-bar .lbl{min-width:90px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sur-trend-bar .track{flex:1;height:8px;background:var(--s2);border-radius:6px;overflow:hidden}
+.sur-trend-bar .fill{height:100%;background:var(--grn);border-radius:6px}
+.sur-trend-bar .val{min-width:36px;text-align:right;color:var(--t3);font-size:11px}
+
 /* ─── QUICK ACTIONS ─── */
 .qa-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .qa-btn{flex:1;min-width:110px;padding:11px 14px;border-radius:12px;border:1.5px solid var(--b1);background:var(--s1);cursor:pointer;font-family:inherit;transition:var(--transition);display:flex;flex-direction:column;align-items:flex-start;gap:3px;font-size:12.5px;font-weight:600;color:var(--t1)}

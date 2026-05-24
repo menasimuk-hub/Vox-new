@@ -290,24 +290,50 @@ const bodyHtml = `<div class="app" id="app">
 
       <!-- ══ SURVEYS ══ -->
       <div class="pg" id="pg-surveys">
-        <!-- LIVE BANNER -->
+        <div class="kg4" id="sur-kpi-row" style="margin-bottom:12px">
+          <div class="kpi gt"><div class="kl">Live surveys</div><div class="kv" id="sur-kpi-live">0</div><div class="kd ne" id="sur-kpi-live-sub">Active campaigns</div></div>
+          <div class="kpi"><div class="kl">Finished</div><div class="kv" id="sur-kpi-finished">0</div><div class="kd ne" id="sur-kpi-finished-sub">Completed or cancelled</div></div>
+          <div class="kpi"><div class="kl">Quoted / unpaid</div><div class="kv" id="sur-kpi-quoted">0</div><div class="kd ne" id="sur-kpi-quoted-sub">Need payment</div></div>
+          <div class="kpi"><div class="kl">Failed payments</div><div class="kv" id="sur-kpi-failed">0</div><div class="kd dn" id="sur-kpi-failed-sub">Action required</div></div>
+        </div>
+        <div class="g2" style="margin-bottom:12px">
+          <div class="card" style="margin:0">
+            <div class="ch"><i class="ti ti-activity grn"></i>Survey activity</div>
+            <div id="sur-activity-feed"><div class="muted" style="font-size:12px;padding:8px 0">Activity will appear when you create or run surveys.</div></div>
+          </div>
+          <div class="card" style="margin:0">
+            <div class="ch"><i class="ti ti-chart-bar grn"></i>Response progress</div>
+            <div id="sur-trend-chart"><div class="muted" style="font-size:12px;padding:8px 0">No response data yet.</div></div>
+          </div>
+        </div>
         <div class="live-banner" id="sur-live-banner" style="display:none">
           <div class="live-pulse"></div>
           <div class="lb-info">
-            <div class="lb-title">No live survey</div>
-            <div class="lb-sub">0 of 0 responded · No active window</div>
+            <div class="lb-title" id="sur-live-banner-title">No live survey</div>
+            <div class="lb-sub" id="sur-live-banner-sub">0 of 0 responded · No active window</div>
           </div>
-          <button class="btn bsm btnr" onclick="showConfirm('Stop this survey?','This will halt all outbound survey calls. Results collected so far will be saved.','Stop survey',function(){toast('Survey stopped','ta');})"><i class="ti ti-player-stop"></i>Stop</button>
+          <button class="btn bsm btnr" type="button" id="sur-live-stop-btn"><i class="ti ti-player-stop"></i>Stop</button>
         </div>
-        <!-- ACTIVE PROJECTS -->
         <div class="card">
-          <div class="ch"><i class="ti ti-clipboard-list grn"></i>Survey projects</div>
-          <div id="sur-live-orders"></div>
-          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b1)" id="sur-projects-empty">
-            <div class="empty-state" style="padding:16px 0">
-              <i class="ti ti-plus-circle"></i>
-              <div class="es-title">No survey projects yet</div>
-              <div class="es-sub">Create a new survey campaign below — upload your contact list and launch when ready.</div>
+          <div class="ch"><i class="ti ti-clipboard-list grn"></i>Your surveys</div>
+          <div class="tbrow" id="sur-tabs">
+            <div class="tb on" data-sur-tab="live" id="sur-tab-live"><i class="ti ti-broadcast"></i>Live surveys</div>
+            <div class="tb" data-sur-tab="finished" id="sur-tab-finished"><i class="ti ti-archive"></i>Finished surveys</div>
+          </div>
+          <div class="tpcont on" id="sur-panel-live">
+            <div id="sur-live-orders"></div>
+            <div id="sur-live-empty" class="empty-state" style="padding:16px 0;display:none">
+              <i class="ti ti-broadcast"></i>
+              <div class="es-title">No live surveys</div>
+              <div class="es-sub">Create a campaign below or pay a quoted survey to get started.</div>
+            </div>
+          </div>
+          <div class="tpcont" id="sur-panel-finished">
+            <div id="sur-finished-orders"></div>
+            <div id="sur-finished-empty" class="empty-state" style="padding:16px 0;display:none">
+              <i class="ti ti-archive"></i>
+              <div class="es-title">No finished surveys yet</div>
+              <div class="es-sub">Completed and cancelled surveys will appear here.</div>
             </div>
           </div>
         </div>
@@ -541,6 +567,88 @@ const bodyHtml = `<div class="app" id="app">
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px"><button class="btn btng bsm"><i class="ti ti-download"></i>Export PDF report</button><button class="btn bsm"><i class="ti ti-table"></i>Export CSV</button></div>
+      </div>
+
+      <!-- ══ SURVEY DETAIL ══ -->
+      <div class="pg" id="pg-survey-detail">
+        <div class="breadcrumb">
+          <span class="bc-link" onclick="goNav('surveys')"><i class="ti ti-clipboard-list" style="font-size:11px"></i> Surveys</span>
+          <span class="bc-sep">›</span>
+          <span id="sur-detail-bc">Survey detail</span>
+        </div>
+        <div id="sur-detail-loading" class="inf b" style="display:none"><i class="ti ti-loader"></i> Loading survey…</div>
+        <div id="sur-detail-error" class="validation-error" style="display:none"></div>
+        <div id="sur-detail-content" style="display:none">
+          <div class="card">
+            <div class="ch" style="justify-content:space-between;align-items:center">
+              <span><i class="ti ti-clipboard-list grn"></i><span id="sur-detail-title">Survey</span></span>
+              <span id="sur-detail-status-badge" class="stat-wait">Quoted</span>
+            </div>
+            <div id="sur-detail-next-action" class="sur-next-action" style="display:none"></div>
+            <div class="kg4" style="margin-top:10px">
+              <div class="kpi"><div class="kl">Contacts</div><div class="kv" id="sur-detail-contacts">0</div></div>
+              <div class="kpi"><div class="kl">Quote</div><div class="kv" id="sur-detail-quote">£0.00</div></div>
+              <div class="kpi"><div class="kl">Prompt</div><div class="kv" id="sur-detail-prompt">—</div></div>
+              <div class="kpi"><div class="kl">Payment</div><div class="kv" id="sur-detail-payment">—</div></div>
+            </div>
+            <div class="g2" style="margin-top:12px">
+              <div>
+                <div class="fg"><label>Schedule start</label><div id="sur-detail-start" class="muted">—</div></div>
+                <div class="fg"><label>Schedule end</label><div id="sur-detail-end" class="muted">—</div></div>
+              </div>
+              <div>
+                <div class="fg"><label>Notes &amp; history</label><div id="sur-detail-notes" class="muted" style="font-size:12px;line-height:1.6">—</div></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px" id="sur-detail-actions">
+              <button class="btn btng bsm" type="button" id="sur-detail-pay"><i class="ti ti-credit-card"></i>Pay</button>
+              <button class="btn bsm" type="button" id="sur-detail-edit"><i class="ti ti-edit"></i>Edit</button>
+              <button class="btn bsm" type="button" id="sur-detail-duplicate"><i class="ti ti-copy"></i>Duplicate</button>
+              <button class="btn bsm" type="button" id="sur-detail-results"><i class="ti ti-chart-bar"></i>View report</button>
+              <button class="btn bsm" type="button" id="sur-detail-pause"><i class="ti ti-player-pause"></i>Pause</button>
+              <button class="btn bsm" type="button" id="sur-detail-resume"><i class="ti ti-player-play"></i>Resume</button>
+              <button class="btn bsm btnr" type="button" id="sur-detail-delete"><i class="ti ti-trash"></i>Delete</button>
+              <button class="btn bsm btnr" type="button" id="sur-detail-stop"><i class="ti ti-player-stop"></i>Stop</button>
+            </div>
+          </div>
+          <div id="sur-detail-inline-edit" class="card" style="display:none;margin-top:12px">
+            <div class="ch"><i class="ti ti-edit grn"></i>Edit survey</div>
+            <div class="fg"><label>Campaign title</label><input type="text" id="sur-edit-title" placeholder="Survey title"/></div>
+            <div class="fg2">
+              <div class="fg"><label>Start</label><input type="datetime-local" id="sur-edit-start"/></div>
+              <div class="fg"><label>End</label><input type="datetime-local" id="sur-edit-end"/></div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btng bsm" type="button" id="sur-edit-save"><i class="ti ti-check"></i>Save changes</button>
+              <button class="btn bsm" type="button" id="sur-edit-cancel">Cancel</button>
+            </div>
+          </div>
+          <div class="g2" style="margin-top:12px">
+            <div class="card" style="margin:0">
+              <div class="ch"><i class="ti ti-credit-card grn"></i>Billing</div>
+              <div id="sur-detail-billing" class="muted" style="font-size:12px;line-height:1.7">—</div>
+            </div>
+            <div class="card" style="margin:0">
+              <div class="ch"><i class="ti ti-chart-bar grn"></i>Call progress</div>
+              <div id="sur-detail-trend"></div>
+            </div>
+          </div>
+          <div class="g2" style="margin-top:12px">
+            <div class="card" style="margin:0">
+              <div class="ch"><i class="ti ti-activity grn"></i>Activity</div>
+              <div id="sur-detail-activity"></div>
+            </div>
+            <div class="card" style="margin:0">
+              <div class="ch"><i class="ti ti-users grn"></i>Contact list</div>
+              <div id="sur-detail-contacts-wrap" style="max-height:280px;overflow:auto">
+                <table class="res-table">
+                  <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
+                  <tbody id="sur-detail-contacts-list"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ══ SURVEY RESULTS ══ -->

@@ -602,6 +602,8 @@ class ServiceOrderService:
             report = None
         out = {
             "id": order.id,
+            "org_id": order.org_id,
+            "user_id": order.user_id,
             "service_code": order.service_code,
             "title": order.title,
             "status": order.status,
@@ -626,18 +628,300 @@ class ServiceOrderService:
             "updated_at": order.updated_at.isoformat() if order.updated_at else None,
         }
         if include_recipients:
-            out["recipients"] = [
-                {
-                    "id": r.id,
-                    "row_number": r.row_number,
-                    "name": r.name,
-                    "phone": r.phone,
-                    "email": r.email,
-                    "status": r.status,
-                }
-                for r in (recipients or [])
-            ]
+            out["recipients"] = [ServiceOrderService.recipient_to_dict(r) for r in (recipients or [])]
+        if order.service_code == "survey":
+            out["next_action"] = ServiceOrderService.survey_next_action(order)
+            out["status_label"] = ServiceOrderService.survey_status_label(order)
+            out["is_live"] = ServiceOrderService.is_live_survey(order)
+            out["is_finished"] = ServiceOrderService.is_finished_survey(order)
+            out["audit_timeline"] = ServiceOrderService.order_audit_timeline(order)
         return out
+
+    @staticmethod
+    def recipient_to_dict(recipient: ServiceOrderRecipient) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        try:
+            if recipient.result_json:
+                parsed = json.loads(recipient.result_json)
+                if isinstance(parsed, dict):
+                    result = parsed
+        except Exception:
+            result = {}
+        analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+        return {
+            "id": recipient.id,
+            "row_number": recipient.row_number,
+            "name": recipient.name,
+            "phone": recipient.phone,
+            "email": recipient.email,
+            "status": recipient.status,
+            "duration_seconds": result.get("duration_seconds"),
+            "call_summary": result.get("call_summary"),
+            "sentiment": analysis.get("sentiment") or result.get("sentiment"),
+            "short_summary": analysis.get("short_summary") or result.get("short_summary"),
+            "created_at": recipient.created_at.isoformat() if recipient.created_at else None,
+        }
+
+    @staticmethod
+    def order_audit_timeline(order: ServiceOrder) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+
+        def add(at, kind, label, detail=""):
+            if not at:
+                return
+            events.append(
+                {
+                    "at": at.isoformat() if hasattr(at, "isoformat") else str(at),
+                    "kind": kind,
+                    "label": label,
+                    "detail": detail or None,
+                }
+            )
+
+        add(order.created_at, "created", "Survey created")
+        add(order.updated_at, "updated", "Last updated")
+        if order.payment_status == "pending_approval":
+            add(order.updated_at, "payment", "Cash payment submitted", order.payment_note)
+        if order.payment_status == "approved":
+            add(order.updated_at, "payment", "Payment approved", order.admin_decision_note or order.payment_note)
+        if order.payment_status == "rejected":
+            add(order.updated_at, "payment", "Payment rejected", order.admin_decision_note or order.payment_note)
+        add(order.scheduled_start_at, "schedule", "Scheduled start")
+        add(order.scheduled_end_at, "schedule", "Scheduled end")
+        add(order.started_at, "status", "Survey started")
+        add(order.completed_at, "status", "Survey finished")
+        if order.status == "paused":
+            add(order.updated_at, "status", "Survey paused")
+        if order.status == "cancelled":
+            add(order.completed_at or order.updated_at, "status", "Survey cancelled", order.admin_decision_note)
+        events.sort(key=lambda e: e["at"] or "")
+        return events
+
+    @staticmethod
+    def update_recipient(
+        db: Session,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+        payload: dict[str, Any],
+    ) -> ServiceOrderRecipient:
+        if recipient.order_id != order.id:
+            raise ValueError("Recipient does not belong to this order")
+        if order.status == "completed":
+            raise ValueError("Cannot edit contacts on a completed survey")
+        if "name" in payload:
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                raise ValueError("Name is required")
+            recipient.name = name
+        if "phone" in payload:
+            phone = str(payload.get("phone") or "").strip()
+            if not phone:
+                raise ValueError("Phone is required")
+            recipient.phone = phone
+        if "email" in payload:
+            email = str(payload.get("email") or "").strip()
+            recipient.email = email or None
+        if "status" in payload and str(payload.get("status") or "").strip():
+            recipient.status = str(payload.get("status")).strip()
+        db.add(recipient)
+        order.updated_at = datetime.utcnow()
+        db.add(order)
+        db.commit()
+        db.refresh(recipient)
+        return recipient
+
+    @staticmethod
+    def survey_operations_overview(db: Session) -> dict[str, Any]:
+        rows = list(
+            db.execute(select(ServiceOrder).where(ServiceOrder.service_code == "survey")).scalars()
+        )
+        running = sum(1 for r in rows if r.status == "running")
+        paused = sum(1 for r in rows if r.status == "paused")
+        completed = sum(1 for r in rows if r.status == "completed")
+        failed_pay = sum(1 for r in rows if r.payment_status == "rejected")
+        live = sum(1 for r in rows if ServiceOrderService.is_live_survey(r))
+        scheduled = sum(1 for r in rows if r.status == "scheduled")
+        pending = sum(1 for r in rows if r.payment_status == "pending_approval")
+        return {
+            "total": len(rows),
+            "live": live,
+            "running": running,
+            "paused": paused,
+            "scheduled": scheduled,
+            "completed": completed,
+            "failed_payments": failed_pay,
+            "pending_payment_approval": pending,
+        }
+
+    @staticmethod
+    def is_finished_survey(order: ServiceOrder) -> bool:
+        return order.service_code == "survey" and str(order.status or "") in {"completed", "cancelled"}
+
+    @staticmethod
+    def is_live_survey(order: ServiceOrder) -> bool:
+        return order.service_code == "survey" and not ServiceOrderService.is_finished_survey(order)
+
+    @staticmethod
+    def survey_status_label(order: ServiceOrder) -> str:
+        ps = str(order.payment_status or "")
+        st = str(order.status or "")
+        if ps == "pending_approval":
+            return "Pending payment"
+        if ps == "rejected":
+            return "Payment failed"
+        if st == "draft":
+            return "Draft"
+        if st == "quoted":
+            return "Quoted"
+        if st == "awaiting_payment":
+            return "Awaiting payment"
+        if st == "scheduled":
+            return "Scheduled"
+        if st == "running":
+            return "Running"
+        if st == "paused":
+            return "Paused"
+        if st == "paid":
+            return "Paid — ready"
+        if st == "completed":
+            return "Finished"
+        if st == "cancelled":
+            return "Cancelled"
+        return st.replace("_", " ").title()
+
+    @staticmethod
+    def survey_next_action(order: ServiceOrder) -> dict[str, Any]:
+        config: dict[str, Any] = {}
+        try:
+            config = json.loads(order.config_json or "{}")
+        except Exception:
+            config = {}
+        ps = str(order.payment_status or "")
+        st = str(order.status or "")
+
+        if st == "completed":
+            return {"action": "view_report", "label": "View report", "hint": "Open results and transcripts."}
+        if st == "cancelled":
+            return {"action": "reopen", "label": "Reopen survey", "hint": "Duplicate this survey to launch again."}
+        if ps == "rejected":
+            reason = (order.admin_decision_note or order.payment_note or "Payment was rejected.").strip()
+            return {"action": "pay", "label": "Retry payment", "hint": reason, "reason": reason}
+        if ps == "pending_approval":
+            return {
+                "action": "wait",
+                "label": "Waiting for approval",
+                "hint": "Admin must approve your cash payment before the survey can start.",
+            }
+        if ps == "unpaid" and st in {"draft", "quoted", "awaiting_payment"}:
+            if not config.get("script_approved"):
+                return {"action": "approve_prompt", "label": "Approve prompt", "hint": "Approve the AI script before paying."}
+            if not order.scheduled_start_at:
+                return {"action": "set_schedule", "label": "Set date and time", "hint": "Choose when calls should start and end."}
+            if order.recipient_count <= 0:
+                return {"action": "upload_contacts", "label": "Upload contacts", "hint": "Add a contact list to continue."}
+            return {
+                "action": "pay",
+                "label": "Pay now",
+                "hint": f"Total due: £{int(order.quote_total_pence or 0) / 100:.2f}",
+            }
+        if ps == "approved" and st in {"paid", "scheduled"}:
+            if order.run_mode == "scheduled" and order.scheduled_start_at:
+                return {"action": "wait", "label": "Scheduled", "hint": "Survey will start automatically at the scheduled time."}
+            return {"action": "start", "label": "Start survey", "hint": "Payment approved — start outbound calls."}
+        if st == "running":
+            return {"action": "pause", "label": "Pause survey", "hint": "Pause outbound calls. You can resume later."}
+        if st == "paused":
+            return {"action": "resume", "label": "Resume survey", "hint": "Continue outbound calls."}
+        return {"action": "edit", "label": "Review survey", "hint": "Open details to review settings."}
+
+    @staticmethod
+    def order_to_admin_dict(
+        db: Session,
+        order: ServiceOrder,
+        *,
+        include_recipients: bool = False,
+        recipients: list[ServiceOrderRecipient] | None = None,
+    ) -> dict[str, Any]:
+        from app.models.organisation import Organisation
+        from app.models.user import User
+
+        out = ServiceOrderService.order_to_dict(order, include_recipients=include_recipients, recipients=recipients)
+        org = db.get(Organisation, order.org_id)
+        user = db.get(User, order.user_id)
+        out["org_name"] = org.name if org else None
+        out["org_phone"] = getattr(org, "contact_phone", None) if org else None
+        out["owner_email"] = user.email if user else None
+        return out
+
+    @staticmethod
+    def delete_order(db: Session, order: ServiceOrder) -> None:
+        if order.status in {"running", "paused"}:
+            raise ValueError("Stop the survey before deleting")
+        if order.payment_status == "approved" and order.status not in {"completed", "cancelled", "draft", "quoted"}:
+            raise ValueError("Cannot delete a paid survey that has started")
+        db.execute(delete(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id))
+        db.delete(order)
+        db.commit()
+
+    @staticmethod
+    def pause_order(db: Session, order: ServiceOrder) -> ServiceOrder:
+        if order.status != "running":
+            raise ValueError("Only running surveys can be paused")
+        order.status = "paused"
+        order.updated_at = datetime.utcnow()
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return order
+
+    @staticmethod
+    def resume_order(db: Session, order: ServiceOrder) -> ServiceOrder:
+        if order.status != "paused":
+            raise ValueError("Survey is not paused")
+        if order.payment_status != "approved":
+            raise ValueError("Payment must be approved before resuming")
+        order.status = "running"
+        order.updated_at = datetime.utcnow()
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return order
+
+    @staticmethod
+    def stop_order(db: Session, order: ServiceOrder, *, reason: str | None = None) -> ServiceOrder:
+        if order.status not in {"running", "paused", "scheduled", "paid"}:
+            raise ValueError("Survey is not active")
+        now = datetime.utcnow()
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        for recipient in recipients:
+            if str(recipient.status or "pending").lower() in {"pending", "calling"}:
+                recipient.status = "cancelled"
+                db.add(recipient)
+        order.status = "cancelled" if order.started_at else "cancelled"
+        if not order.started_at and order.payment_status == "approved":
+            order.status = "cancelled"
+        order.completed_at = now
+        order.updated_at = now
+        note = (reason or "").strip()
+        if note:
+            order.admin_decision_note = note
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return order
+
+    @staticmethod
+    def complete_order(db: Session, order: ServiceOrder) -> ServiceOrder:
+        if order.status not in {"running", "paused"}:
+            raise ValueError("Only running surveys can be finished")
+        now = datetime.utcnow()
+        order.status = "completed"
+        order.completed_at = now
+        order.updated_at = now
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return order
 
     @staticmethod
     def create_order(
@@ -796,6 +1080,8 @@ class ServiceOrderService:
     def start_order(db: Session, order: ServiceOrder) -> ServiceOrder:
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved by admin before starting")
+        if order.status == "paused":
+            raise ValueError("Survey is paused — use resume instead")
         if order.status in {"running", "completed"}:
             raise ValueError("Order is already running or completed")
         now = datetime.utcnow()
