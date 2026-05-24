@@ -60,6 +60,7 @@ export default function ServicesPricing() {
   const [savingRuleId, setSavingRuleId] = useState('')
   const [creating, setCreating] = useState('')
   const [surveyTab, setSurveyTab] = useState('ai_call')
+  const [editingSetup, setEditingSetup] = useState(false)
 
   const load = useCallback(async () => {
     setError('')
@@ -192,8 +193,8 @@ export default function ServicesPricing() {
           <Link to='/billing/products' className='muted' style={{ fontSize: 13 }}>
             ← Products hub
           </Link>
-          <h1 style={{ marginTop: 8 }}>Survey &amp; service pricing</h1>
-          <p className='muted'>Manage AI call and WhatsApp survey packages, overage rates, and setup fee.</p>
+          <h1 style={{ marginTop: 8 }}>Survey pricing</h1>
+          <p className='muted'>Manage AI call and WhatsApp survey packages, setup fee, and overage rates.</p>
         </div>
         <div className='actions'>
           <button type='button' className='btn soft' onClick={load} disabled={loading}>
@@ -208,37 +209,59 @@ export default function ServicesPricing() {
 
       {!loading && surveyService ? (
         <div className='svcPriceLayout'>
+          {/* SETUP FEE */}
           <section className='card svcPriceService'>
             <div className='svcPriceServiceHead'>
               <div>
-                <h3>Survey packages</h3>
-                <p className='muted'>Single source of truth for dashboard survey pricing.</p>
+                <h3>Setup fee</h3>
+                <p className='muted'>One-time charge per survey order</p>
               </div>
-              <span className='pill p-cyan'>{surveyRules.length} rules</span>
             </div>
 
             {baseRule ? (
               <div className='svcPriceSetupRow'>
-                <div className='svcPriceSetupCopy'>
-                  <strong>Setup fee</strong>
-                  <span className='muted'>Applied once per survey order</span>
-                </div>
-                <div className='svcPriceSetupFields'>
-                  <Field label='Label'>
-                    <input className='input inputCompact' value={baseRule.label || ''} onChange={(e) => patchRule(baseRule.id, 'label', e.target.value)} />
-                  </Field>
-                  <Field label='Fee (pence)'>
-                    <input className='input inputCompact' type='number' min={0} value={baseRule.base_fee_pence ?? 0} onChange={(e) => patchRule(baseRule.id, 'base_fee_pence', Number(e.target.value))} />
-                  </Field>
-                  <Field label='Active'>
-                    <Toggle checked={baseRule.is_active !== false} onChange={(v) => patchRule(baseRule.id, 'is_active', v)} label='Setup fee active' />
-                  </Field>
-                </div>
-                <button type='button' className='btn primary bsm' disabled={savingRuleId === baseRule.id} onClick={() => saveRule(baseRule)}>
-                  {savingRuleId === baseRule.id ? 'Saving…' : 'Save setup fee'}
-                </button>
+                {!editingSetup ? (
+                  <div className='svcPriceSetupDisplay'>
+                    <div className='svcPriceSetupValue'>{money(baseRule.base_fee_pence)}</div>
+                    <div className='svcPriceSetupLabel'>{baseRule.label || 'Setup fee'}</div>
+                    <button type='button' className='btn soft bsm' onClick={() => setEditingSetup(true)}>
+                      Edit
+                    </button>
+                  </div>
+                ) : (
+                  <div className='svcPriceSetupEdit'>
+                    <Field label='Label'>
+                      <input className='input inputCompact' value={baseRule.label || ''} onChange={(e) => patchRule(baseRule.id, 'label', e.target.value)} />
+                    </Field>
+                    <Field label='Fee (pence)'>
+                      <input className='input inputCompact' type='number' min={0} value={baseRule.base_fee_pence ?? 0} onChange={(e) => patchRule(baseRule.id, 'base_fee_pence', Number(e.target.value))} />
+                    </Field>
+                    <Field label='Active'>
+                      <Toggle checked={baseRule.is_active !== false} onChange={(v) => patchRule(baseRule.id, 'is_active', v)} label='Setup fee active' />
+                    </Field>
+                    <div className='svcPriceSetupActions'>
+                      <button type='button' className='btn primary bsm' disabled={savingRuleId === baseRule.id} onClick={() => saveRule(baseRule)}>
+                        {savingRuleId === baseRule.id ? 'Saving…' : 'Save'}
+                      </button>
+                      <button type='button' className='btn soft bsm' onClick={() => setEditingSetup(false)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : null}
+          </section>
+
+          {/* PACKAGES */}
+          <section className='card svcPriceService'>
+            <div className='svcPriceServiceHead'>
+              <div>
+                <h3>Survey packages</h3>
+                <p className='muted'>Choose channel and manage bundle sizes, prices, and overage rates.</p>
+              </div>
+              <span className='pill p-cyan'>{surveyRules.filter(r => r.rule_type === 'bundle').length} packages</span>
+            </div>
 
             <div className='svcPriceChannelTabs' role='tablist'>
               {SURVEY_CHANNELS.map(({ key, label, icon }) => (
@@ -266,56 +289,44 @@ export default function ServicesPricing() {
               </button>
             </div>
 
-            <div className='svcPricePackageTableWrap'>
-              <table className='svcPricePackageTable'>
-                <thead>
-                  <tr>
-                    <th>Label</th>
-                    <th>Size</th>
-                    <th>Price (p)</th>
-                    <th>Overage (p)</th>
-                    <th>Sort</th>
-                    <th>Active</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {channelPackages.map((rule) => (
-                    <tr key={rule.id} className={rule.is_active === false ? 'isOff' : ''}>
-                      <td>
-                        <input className='input inputCompact' value={rule.label || ''} onChange={(e) => patchRule(rule.id, 'label', e.target.value)} />
-                      </td>
-                      <td>
-                        <input className='input inputCompact' type='number' min={1} value={rule.bundle_size ?? ''} onChange={(e) => patchRule(rule.id, 'bundle_size', Number(e.target.value) || null)} />
-                      </td>
-                      <td>
-                        <input className='input inputCompact' type='number' min={0} value={rule.bundle_price_pence ?? ''} onChange={(e) => patchRule(rule.id, 'bundle_price_pence', Number(e.target.value) || null)} />
-                      </td>
-                      <td>
-                        <input className='input inputCompact' type='number' min={0} value={rule.overage_unit_price_pence ?? ''} onChange={(e) => patchRule(rule.id, 'overage_unit_price_pence', Number(e.target.value) || null)} />
-                      </td>
-                      <td>
-                        <input className='input inputCompact' type='number' value={rule.sort_order ?? 100} onChange={(e) => patchRule(rule.id, 'sort_order', Number(e.target.value) || 100)} />
-                      </td>
-                      <td>
-                        <Toggle checked={rule.is_active !== false} onChange={(v) => patchRule(rule.id, 'is_active', v)} label={`${rule.label || 'Package'} active`} />
-                      </td>
-                      <td>
-                        <button type='button' className='btn primary bsm' disabled={savingRuleId === rule.id} onClick={() => saveRule(rule)}>
-                          {savingRuleId === rule.id ? '…' : 'Save'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!channelPackages.length ? (
-                    <tr>
-                      <td colSpan={7} className='muted svcPriceEmptyCell'>
-                        No packages for this channel yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
+            <div className='svcPricePackageCards'>
+              {channelPackages.map((rule) => (
+                <div key={rule.id} className={`svcPricePackageCard${rule.is_active === false ? ' isOff' : ''}`}>
+                  <div className='svcPricePackageHeader'>
+                    <input className='svcPriceCardInput svcPriceCardInputLabel' value={rule.label || ''} onChange={(e) => patchRule(rule.id, 'label', e.target.value)} placeholder='Package label' />
+                    <Toggle checked={rule.is_active !== false} onChange={(v) => patchRule(rule.id, 'is_active', v)} label={`${rule.label || 'Package'} active`} />
+                  </div>
+
+                  <div className='svcPriceCardBody'>
+                    <div className='svcPriceCardField'>
+                      <label>Bundle size</label>
+                      <input className='input inputCompact' type='number' min={1} value={rule.bundle_size ?? ''} onChange={(e) => patchRule(rule.id, 'bundle_size', Number(e.target.value) || null)} />
+                    </div>
+                    <div className='svcPriceCardField'>
+                      <label>Price (pence)</label>
+                      <input className='input inputCompact' type='number' min={0} value={rule.bundle_price_pence ?? ''} onChange={(e) => patchRule(rule.id, 'bundle_price_pence', Number(e.target.value) || null)} />
+                      {rule.bundle_size ? <span className='svcPriceCardCalc'>£{((Number(rule.bundle_price_pence || 0) / 100) / (Number(rule.bundle_size) || 1)).toFixed(2)} each</span> : null}
+                    </div>
+                    <div className='svcPriceCardField'>
+                      <label>Overage per contact (pence)</label>
+                      <input className='input inputCompact' type='number' min={0} value={rule.overage_unit_price_pence ?? ''} onChange={(e) => patchRule(rule.id, 'overage_unit_price_pence', Number(e.target.value) || null)} />
+                    </div>
+                    <div className='svcPriceCardField'>
+                      <label>Sort order</label>
+                      <input className='input inputCompact' type='number' value={rule.sort_order ?? 100} onChange={(e) => patchRule(rule.id, 'sort_order', Number(e.target.value) || 100)} />
+                    </div>
+                  </div>
+
+                  <button type='button' className='btn primary bsm svcPriceCardSave' disabled={savingRuleId === rule.id} onClick={() => saveRule(rule)}>
+                    {savingRuleId === rule.id ? 'Saving…' : 'Save package'}
+                  </button>
+                </div>
+              ))}
+              {!channelPackages.length ? (
+                <div className='svcPriceEmptyState'>
+                  <p className='muted'>No packages for this channel yet. Click "Add package" to get started.</p>
+                </div>
+              ) : null}
             </div>
           </section>
 

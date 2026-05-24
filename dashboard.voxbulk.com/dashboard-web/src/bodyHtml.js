@@ -926,12 +926,6 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
           <div class="iwf"><div class="ri"><i class="ti ti-phone"></i>Call: <strong>£0.10/min</strong></div><div class="ri"><i class="ti ti-cpu"></i>AI: <strong>£0.05/min</strong></div><div class="ri"><i class="ti ti-brand-whatsapp" style="color:#25D366"></i>WhatsApp: <strong>£0.20/msg</strong></div><div class="ri"><i class="ti ti-alert-circle" style="color:var(--amb)"></i>Extra mins over 10: <strong>£0.15/min — separate invoice</strong></div></div>
         </div>
 
-        <div style="font-size:15px;font-weight:700;color:var(--t1);margin-bottom:4px">Survey bundles — pay as you go</div>
-        <p id="packages-survey-setup-note" style="font-size:12px;color:var(--t3);margin-bottom:11px">Loading survey package pricing…</p>
-        <div id="survey-packages-section">
-          <div class="survey-pkg-loading muted">Loading survey packages…</div>
-        </div>
-
         <div class="ovg">
           <div style="display:flex;align-items:flex-start;gap:12px"><div style="width:36px;height:36px;border-radius:9px;background:var(--ad);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-receipt" style="font-size:17px;color:var(--amb)"></i></div><div><div style="font-size:14px;font-weight:700;color:var(--t1);margin-bottom:4px">Overage billing — always transparent</div><div style="font-size:12px;color:var(--t2);line-height:1.6">Overage is calculated at month end, shown in your dashboard with a 3-day review window, then issued as a separate invoice. You will always receive an email alert when overage exceeds £10.</div></div></div>
           <div class="ovgi">
