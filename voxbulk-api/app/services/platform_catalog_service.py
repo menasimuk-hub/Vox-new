@@ -814,9 +814,16 @@ class ServiceOrderService:
         db.commit()
         db.refresh(order)
         if order.service_code == "survey":
-            from app.services.survey_dispatch_service import SurveyDispatchService
+            config = {}
+            try:
+                config = json.loads(order.config_json or "{}")
+            except Exception:
+                config = {}
+            channel = PlatformCatalogService.resolve_survey_channel(config)
+            if channel != "ai_call":
+                from app.services.survey_dispatch_service import SurveyDispatchService
 
-            SurveyDispatchService.dispatch_survey_order(db, order)
+                SurveyDispatchService.dispatch_survey_order(db, order)
             db.refresh(order)
         return order
 

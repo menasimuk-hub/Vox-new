@@ -525,6 +525,15 @@ class TelnyxExecutionService:
     @staticmethod
     def log_call_event(db: Session, *, payload: dict[str, Any], org_id: str | None = None) -> CallLog | None:
         try:
+            from app.services.survey_call_dispatch_service import handle_survey_telnyx_event
+
+            handle_survey_telnyx_event(db, payload)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("survey_call_telnyx_event_failed")
+
+        try:
             from app.services.lead_sales_service import handle_lead_sales_telnyx_event
 
             handle_lead_sales_telnyx_event(db, payload)
