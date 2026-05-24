@@ -495,6 +495,15 @@ async function offerSurveyPayment(order) {
     /* fall through */
   }
 
+  // Ensure paymentOptions is initialized
+  if (!state.paymentOptions) {
+    try {
+      await loadPaymentOptions()
+    } catch {
+      state.paymentOptions = { cash_available: true, gocardless_available: false }
+    }
+  }
+
   const gc = Boolean(state.paymentOptions?.gocardless_available)
   const cash = state.paymentOptions?.cash_available !== false
   const quoteText = (order.quote_breakdown || []).map((l) => l.detail || l.label).join('\n')
@@ -545,6 +554,7 @@ async function submitSurveyCashPayment(orderId) {
       method: 'POST',
       body: JSON.stringify({ note: 'Cash payment submitted from dashboard' }),
     })
+    logSurvey('cash_payment_submitted', { order_id: orderId, payment_status: paid.payment_status })
     if (paid.payment_status === 'approved') {
       const scheduled = await schedulePaidSurveyOrder(paid)
       window.toast?.(
@@ -557,6 +567,7 @@ async function submitSurveyCashPayment(orderId) {
     await loadOrdersIntoUi()
     resetSurveyLaunchForm()
   } catch (e) {
+    logSurvey('cash_payment_failed', { order_id: orderId, error: e.message })
     window.toast?.(e.message || 'Payment submit failed', 'tr')
   }
 }
