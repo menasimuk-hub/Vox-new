@@ -264,3 +264,38 @@ def start_order(order_id: str, db: Session = Depends(get_db), principal=Depends(
         return ServiceOrderService.order_to_dict(order)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/survey-results")
+def get_survey_results(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.survey_results_service import SurveyResultsService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        return SurveyResultsService.get_results(db, order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/recipients/{recipient_id}/survey-detail")
+def get_survey_recipient_detail(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.survey_results_service import SurveyResultsService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    try:
+        return SurveyResultsService.get_recipient_detail(db, order, recipient)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

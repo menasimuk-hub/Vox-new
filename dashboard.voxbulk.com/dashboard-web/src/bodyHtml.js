@@ -542,86 +542,57 @@ const bodyHtml = `<div class="app" id="app">
         <div class="breadcrumb">
           <span class="bc-link" onclick="goNav('surveys')"><i class="ti ti-clipboard-list" style="font-size:11px"></i> Surveys</span>
           <span class="bc-sep">›</span>
-          <span class="bc-cur">May patient satisfaction survey</span>
+          <span class="bc-cur" id="sur-results-breadcrumb">Survey results</span>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <button class="btn bsm" onclick="goNav('surveys')"><i class="ti ti-arrow-left"></i>Back to surveys</button>
-          <div style="display:flex;gap:8px"><button class="btn btng bsm"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm"><i class="ti ti-table"></i>Export CSV</button></div>
+          <div style="display:flex;gap:8px"><button class="btn btng bsm" disabled title="Coming soon"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm" disabled title="Coming soon"><i class="ti ti-table"></i>Export CSV</button></div>
         </div>
+        <div id="sur-results-loading" class="inf g" style="display:none"><i class="ti ti-loader"></i>Loading survey results…</div>
+        <div id="sur-results-error" class="inf r" style="display:none"></div>
+        <div id="sur-results-empty" class="inf b" style="display:none"><i class="ti ti-info-circle"></i>Select a survey from the Surveys page to view results.</div>
+        <div id="sur-results-content" style="display:none">
         <div class="kg4">
-          <div class="kpi gt"><div class="kl">Overall satisfaction</div><div class="kv" style="color:var(--grn)">4.1/5</div><div class="kd up">Good</div></div>
-          <div class="kpi"><div class="kl">Would recommend</div><div class="kv">78%</div><div class="kd up">NPS +42</div></div>
-          <div class="kpi"><div class="kl">Responded</div><div class="kv">61</div><div class="kd up">73% rate</div></div>
-          <div class="kpi"><div class="kl">Avg call length</div><div class="kv">3m 12s</div></div>
+          <div class="kpi gt"><div class="kl">Overall satisfaction</div><div class="kv" id="sur-kpi-satisfaction" style="color:var(--grn)">—</div><div class="kd" id="sur-kpi-satisfaction-sub">—</div></div>
+          <div class="kpi"><div class="kl">Would recommend</div><div class="kv" id="sur-kpi-recommend">—</div><div class="kd" id="sur-kpi-nps">—</div></div>
+          <div class="kpi"><div class="kl">Responded</div><div class="kv" id="sur-kpi-responded">—</div><div class="kd" id="sur-kpi-response-rate">—</div></div>
+          <div class="kpi"><div class="kl">Avg call length</div><div class="kv" id="sur-kpi-duration">—</div></div>
         </div>
-        <!-- Survey call list -->
         <div class="card">
           <div class="ch"><i class="ti ti-users grn"></i>Respondents — click to view transcript</div>
           <table class="res-table">
             <thead><tr><th>Name</th><th>Duration</th><th>Task</th><th>Satisfaction</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              <tr onclick="showSurveyRec('Emma Richards','3m 05s')">
-                <td><div style="display:flex;align-items:center;gap:9px"><div class="av av-g" style="width:28px;height:28px;font-size:10px">ER</div>Emma Richards</div></td>
-                <td><i class="ti ti-clock" style="color:var(--t3);font-size:12px"></i> 3m 05s</td>
-                <td>Patient satisfaction</td>
-                <td><div class="stars"><i class="ti ti-star star"></i><i class="ti ti-star star"></i><i class="ti ti-star star"></i><i class="ti ti-star star"></i><i class="ti ti-star star e"></i></div></td>
-                <td><span class="bdg bg">Completed</span></td>
-                <td><button class="btn bsm bxsm"><i class="ti ti-player-play"></i>Play</button></td>
-              </tr>
-              <tr onclick="showSurveyRec('Marco Rossi','2m 48s')">
-                <td><div style="display:flex;align-items:center;gap:9px"><div class="av av-p" style="width:28px;height:28px;font-size:10px">MR</div>Marco Rossi</div></td>
-                <td><i class="ti ti-clock" style="color:var(--t3);font-size:12px"></i> 2m 48s</td>
-                <td>Patient satisfaction</td>
-                <td><div class="stars"><i class="ti ti-star star"></i><i class="ti ti-star star"></i><i class="ti ti-star star"></i><i class="ti ti-star star e"></i><i class="ti ti-star star e"></i></div></td>
-                <td><span class="bdg bg">Completed</span></td>
-                <td><button class="btn bsm bxsm"><i class="ti ti-player-play"></i>Play</button></td>
-              </tr>
-            </tbody>
+            <tbody id="sur-results-respondents"></tbody>
           </table>
         </div>
         <div class="rec-card" id="srec-panel" style="display:none">
           <div class="rec-head">
-            <div class="av av-g" style="width:40px;height:40px;font-size:13px" id="srec-av">ER</div>
+            <div class="av av-g" style="width:40px;height:40px;font-size:13px" id="srec-av">—</div>
             <div class="rec-meta">
-              <div class="rec-name" id="srec-name">Emma Richards</div>
+              <div class="rec-name" id="srec-name">—</div>
               <div class="rec-info">
-                <div class="rec-info-item"><i class="ti ti-clock"></i><span id="srec-dur">3m 05s</span></div>
-                <div class="rec-info-item"><i class="ti ti-tag"></i>Patient satisfaction survey</div>
-                <div class="rec-info-item"><i class="ti ti-mood-happy"></i>Positive</div>
+                <div class="rec-info-item"><i class="ti ti-clock"></i><span id="srec-dur">—</span></div>
+                <div class="rec-info-item"><i class="ti ti-tag"></i><span id="srec-goal">—</span></div>
+                <div class="rec-info-item"><i class="ti ti-mood-happy"></i><span id="srec-sentiment">—</span></div>
               </div>
             </div>
             <button class="btn bsm" onclick="document.getElementById('srec-panel').style.display='none'"><i class="ti ti-x"></i>Close</button>
           </div>
-          <div class="audio-player">
-            <div class="play-btn"><i class="ti ti-player-play"></i></div>
-            <div class="wave-track" id="swave-track"></div>
-            <span class="wave-time" id="srec-time">3:05</span>
-          </div>
-          <div class="transcript-box">
-            <div class="trans-line"><span class="trans-ai">Aria:</span> <span class="trans-pt">Hi Emma, I'm Aria, an AI from Bright Smiles Dental. This call may be recorded. I'd love to ask you 3 quick questions about your recent visit — just 2 minutes. Is that ok?</span></div>
-            <div class="trans-line"><span class="trans-ai">Emma:</span> <span class="trans-pt">Yes, of course.</span></div>
-            <div class="trans-line"><span class="trans-ai">Aria:</span> <span class="trans-pt">How would you rate your overall experience on a scale of 1 to 5?</span></div>
-            <div class="trans-line"><span class="trans-ai">Emma:</span> <span class="trans-pt">I'd say a 4. Dr Ahmed was lovely but the wait was quite long.</span></div>
-            <div class="trans-line"><span class="trans-ai">Aria:</span> <span class="trans-pt">Thank you. How long did you wait approximately?</span></div>
-            <div class="trans-line"><span class="trans-ai">Emma:</span> <span class="trans-pt">About 25 minutes past my appointment time.</span></div>
-          </div>
-          <div class="retention-notice"><i class="ti ti-clock" style="font-size:15px"></i>This recording and transcript will be automatically deleted on <strong>14 Aug 2026</strong> (90 days). Access restricted to Managers and Owners. All access is logged.</div>
+          <div id="srec-summary" style="font-size:12px;color:var(--t2);margin:0 0 10px;line-height:1.6"></div>
+          <div class="transcript-box" id="srec-transcript"></div>
+          <div id="srec-answers" style="margin-top:10px"></div>
+          <div class="retention-notice"><i class="ti ti-clock" style="font-size:15px"></i>Call transcripts are retained per your organisation policy. Access is logged in the Audit log.</div>
         </div>
         <div class="card" style="margin-top:12px">
           <div class="ch"><i class="ti ti-alert-circle red"></i>Problem list — AI ranked by frequency</div>
-          <div class="prob-row"><div class="prob-lbl">Wait times exceeding 20 minutes</div><div class="prob-bar"><div class="prob-fill" style="width:64%"></div></div><div class="prob-pct">34%</div></div>
-          <div class="prob-row"><div class="prob-lbl">Parking availability</div><div class="prob-bar"><div class="prob-fill" style="width:41%"></div></div><div class="prob-pct">22%</div></div>
-          <div class="prob-row"><div class="prob-lbl">Communication after treatment</div><div class="prob-bar"><div class="prob-fill" style="width:32%"></div></div><div class="prob-pct">17%</div></div>
-          <div class="prob-row"><div class="prob-lbl">Appointment availability</div><div class="prob-bar"><div class="prob-fill" style="width:24%"></div></div><div class="prob-pct">13%</div></div>
+          <div id="sur-results-problems"></div>
         </div>
         <div class="card">
           <div class="ch"><i class="ti ti-bulb amb"></i>AI action suggestions</div>
-          <div style="font-size:12px;color:var(--t1);line-height:1.8">
-            <div style="margin-bottom:8px;display:flex;gap:8px"><i class="ti ti-arrow-right" style="color:var(--grn);margin-top:2px;flex-shrink:0"></i>Review appointment scheduling — 34% mentioned wait times over 20 minutes. Consider adding 5-min buffer slots between appointments.</div>
-            <div style="display:flex;gap:8px"><i class="ti ti-arrow-right" style="color:var(--grn);margin-top:2px;flex-shrink:0"></i>Add parking info to reminder messages — 22% were unaware of the nearby NCP car park on Wimpole Street.</div>
-          </div>
+          <div id="sur-results-recommendations" style="font-size:12px;color:var(--t1);line-height:1.8"></div>
         </div>
-        <div style="display:flex;gap:8px"><button class="btn btng bsm"><i class="ti ti-download"></i>Export PDF report</button><button class="btn bsm"><i class="ti ti-table"></i>Export CSV</button></div>
+        <div style="display:flex;gap:8px"><button class="btn btng bsm" disabled title="Coming soon"><i class="ti ti-download"></i>Export PDF report</button><button class="btn bsm" disabled title="Coming soon"><i class="ti ti-table"></i>Export CSV</button></div>
+        </div>
       </div>
 
       <!-- ══ REMINDERS ══ -->

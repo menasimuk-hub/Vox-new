@@ -852,13 +852,16 @@ function statusBadge(status, paymentStatus) {
 
 function renderOrderRow(order) {
   const icon = order.service_code === 'interview' ? 'ti-briefcase' : 'ti-clipboard-list'
-  const target = order.service_code === 'interview' ? 'results-i' : 'results-s'
   const dispatch =
     order.report && order.status === 'running'
       ? ` · ${order.report.sent || 0} sent${order.report.failed ? `, ${order.report.failed} failed` : ''}${order.report.skipped ? `, ${order.report.skipped} skipped` : ''}`
       : ''
   const meta = `${order.recipient_count} contacts · ${order.quote_total_gbp}${order.payment_status === 'pending_approval' ? ' · payment pending' : ''}${dispatch}`
-  return `<div class="proj-row" onclick="goNav('${target}')">
+  const clickHandler =
+    order.service_code === 'interview'
+      ? "goNav('results-i')"
+      : `window.openSurveyResults('${order.id}')`
+  return `<div class="proj-row" onclick="${clickHandler}">
     <div class="proj-ic ci-b"><i class="ti ${icon}"></i></div>
     <div class="proj-info">
       <div class="proj-name">${order.title}</div>

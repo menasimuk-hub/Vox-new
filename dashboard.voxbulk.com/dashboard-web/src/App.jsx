@@ -80,6 +80,10 @@ function App({ session }) {
         initSurveyPricingBridge()
       })
 
+      import('./surveyResultsBridge.js').then(({ initSurveyResultsBridge }) => {
+        initSurveyResultsBridge()
+      })
+
       const nameEl = document.querySelector('.unm')
       const planEl = document.querySelector('.uplan')
       const avatarEl = document.querySelector('.uav')

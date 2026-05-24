@@ -1,0 +1,311 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
+from app.services.survey_analysis_service import _recipient_result, is_ai_call_survey_order
+
+
+def _parse_report(order: ServiceOrder) -> dict[str, Any]:
+    try:
+        data = json.loads(order.report_json or "{}")
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _order_config(order: ServiceOrder) -> dict[str, Any]:
+    try:
+        data = json.loads(order.config_json or "{}")
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _format_duration(seconds: int | None) -> str:
+    if seconds is None or seconds <= 0:
+        return "—"
+    minutes, secs = divmod(int(seconds), 60)
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
+
+
+def _initials(name: str) -> str:
+    parts = [p for p in str(name or "").strip().split() if p]
+    if len(parts) >= 2:
+        return f"{parts[0][0]}{parts[1][0]}".upper()
+    return (parts[0][:2] if parts else "??").upper()
+
+
+def _avatar_class(name: str) -> str:
+    return "av-g" if sum(ord(c) for c in name) % 2 == 0 else "av-p"
+
+
+def _sentiment_label(sentiment: str | None) -> str:
+    clean = str(sentiment or "neutral").strip().lower()
+    mapping = {
+        "positive": "Positive",
+        "neutral": "Neutral",
+        "negative": "Negative",
+        "mixed": "Mixed",
+    }
+    return mapping.get(clean, "Neutral")
+
+
+def _stars_html(score_10: float | None) -> str:
+    if score_10 is None:
+        return '<span style="color:var(--t3);font-size:11px">—</span>'
+    filled = max(0, min(5, round(float(score_10) / 2)))
+    stars = []
+    for i in range(5):
+        stars.append(f'<i class="ti ti-star star{" e" if i >= filled else ""}"></i>')
+    return f'<div class="stars">{"".join(stars)}</div>'
+
+
+def _status_badge(status: str) -> str:
+    clean = str(status or "pending").lower()
+    if clean == "completed":
+        return '<span class="bdg bg">Completed</span>'
+    if clean in {"no_answer", "busy"}:
+        return '<span class="bdg ba">No answer</span>'
+    if clean == "failed":
+        return '<span class="bdg br">Failed</span>'
+    if clean == "calling":
+        return '<span class="bdg bb">Calling</span>'
+    if clean == "cancelled":
+        return '<span class="bdg ba">Cancelled</span>'
+    return f'<span class="bdg ba">{clean.replace("_", " ").title()}</span>'
+
+
+def _recommend_pct(recommend_scores: list[float]) -> int | None:
+    if not recommend_scores:
+        return None
+    promoters = sum(1 for s in recommend_scores if s >= 7)
+    return round((promoters / len(recommend_scores)) * 100)
+
+
+def derive_survey_recommendations(
+    *,
+    top_issues: list[dict[str, Any]],
+    top_tags: list[dict[str, Any]],
+    completed_count: int,
+) -> list[dict[str, str]]:
+    """Lightweight deterministic recommendations from aggregated analysis."""
+    recs: list[dict[str, str]] = []
+    total = max(1, int(completed_count or 0))
+
+    for item in top_issues[:4]:
+        label = str(item.get("label") or "").strip()
+        count = int(item.get("count") or 0)
+        if not label or count <= 0:
+            continue
+        pct = round((count / total) * 100)
+        recs.append(
+            {
+                "text": (
+                    f"Review {label} — raised by {count} respondent{'s' if count != 1 else ''} "
+                    f"({pct}% of completed calls). Consider a targeted operational follow-up."
+                ),
+                "source": "issue",
+                "label": label,
+            }
+        )
+
+    for item in top_tags[:2]:
+        label = str(item.get("label") or "").strip()
+        count = int(item.get("count") or 0)
+        if not label or count <= 0:
+            continue
+        if any(r.get("label") == label for r in recs):
+            continue
+        recs.append(
+            {
+                "text": (
+                    f"Theme: {label.replace('_', ' ')} — mentioned in {count} call{'s' if count != 1 else ''}. "
+                    "Review related messaging or process steps."
+                ),
+                "source": "tag",
+                "label": label,
+            }
+        )
+
+    if not recs and completed_count:
+        recs.append(
+            {
+                "text": "No recurring issues detected yet. Review individual transcripts for qualitative insights.",
+                "source": "default",
+                "label": "",
+            }
+        )
+    return recs[:5]
+
+
+def recipient_summary_row(recipient: ServiceOrderRecipient, *, goal: str) -> dict[str, Any]:
+    result = _recipient_result(recipient)
+    analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    duration_seconds = result.get("duration_seconds")
+    try:
+        duration_seconds = int(duration_seconds) if duration_seconds is not None else None
+    except (TypeError, ValueError):
+        duration_seconds = None
+
+    satisfaction = analysis.get("satisfaction_score", result.get("satisfaction_score"))
+    sentiment = analysis.get("sentiment", result.get("sentiment"))
+    short_summary = analysis.get("short_summary", result.get("short_summary"))
+
+    return {
+        "id": recipient.id,
+        "name": recipient.name,
+        "initials": _initials(recipient.name),
+        "avatar_class": _avatar_class(recipient.name),
+        "status": recipient.status,
+        "status_label": str(recipient.status or "pending").replace("_", " ").title(),
+        "duration_seconds": duration_seconds,
+        "duration_label": _format_duration(duration_seconds),
+        "goal": goal,
+        "satisfaction_score": satisfaction,
+        "sentiment": sentiment,
+        "sentiment_label": _sentiment_label(str(sentiment or "")),
+        "short_summary": str(short_summary or "").strip() or None,
+        "has_transcript": bool(str(result.get("transcript") or "").strip()),
+        "has_analysis": bool(result.get("analysis_saved_at")),
+    }
+
+
+def recipient_detail_payload(recipient: ServiceOrderRecipient) -> dict[str, Any]:
+    result = _recipient_result(recipient)
+    analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    duration_seconds = result.get("duration_seconds")
+    try:
+        duration_seconds = int(duration_seconds) if duration_seconds is not None else None
+    except (TypeError, ValueError):
+        duration_seconds = None
+
+    return {
+        "id": recipient.id,
+        "name": recipient.name,
+        "initials": _initials(recipient.name),
+        "avatar_class": _avatar_class(recipient.name),
+        "status": recipient.status,
+        "duration_seconds": duration_seconds,
+        "duration_label": _format_duration(duration_seconds),
+        "transcript": str(result.get("transcript") or "").strip() or None,
+        "call_summary": str(result.get("call_summary") or "").strip() or None,
+        "analysis": analysis or None,
+        "extracted_answers": analysis.get("extracted_answers") or analysis.get("answers") or result.get("extracted_answers") or [],
+        "issues": analysis.get("issues") or result.get("issues") or [],
+        "tags": analysis.get("tags") or result.get("tags") or [],
+        "short_summary": str(analysis.get("short_summary") or result.get("short_summary") or "").strip() or None,
+        "sentiment": analysis.get("sentiment") or result.get("sentiment"),
+        "sentiment_label": _sentiment_label(str(analysis.get("sentiment") or result.get("sentiment") or "")),
+        "satisfaction_score": analysis.get("satisfaction_score", result.get("satisfaction_score")),
+        "recommend_score": analysis.get("recommend_score", result.get("recommend_score")),
+        "call_control_id": result.get("call_control_id"),
+        "telnyx_conversation_id": result.get("telnyx_conversation_id"),
+    }
+
+
+def build_survey_results_payload(db: Session, order: ServiceOrder) -> dict[str, Any]:
+    if order.service_code != "survey":
+        raise ValueError("Not a survey order")
+    if not is_ai_call_survey_order(order):
+        raise ValueError("Survey results are available for AI-call surveys only")
+
+    config = _order_config(order)
+    goal = str(config.get("goal") or "Survey").strip()
+    report = _parse_report(order)
+    analysis = report.get("analysis") if isinstance(report.get("analysis"), dict) else {}
+
+    recipients = ServiceOrderService.get_recipients(db, order.id)
+    completed = [r for r in recipients if str(r.status or "").lower() == "completed"]
+
+    durations: list[int] = []
+    recommend_scores: list[float] = []
+    for row in completed:
+        result = _recipient_result(row)
+        dur = result.get("duration_seconds")
+        try:
+            if dur is not None:
+                durations.append(int(dur))
+        except (TypeError, ValueError):
+            pass
+        rec = result.get("recommend_score")
+        if rec is None and isinstance(result.get("analysis"), dict):
+            rec = result["analysis"].get("recommend_score")
+        if rec is not None:
+            try:
+                recommend_scores.append(float(rec))
+            except (TypeError, ValueError):
+                pass
+
+    total = len(recipients)
+    completed_count = int(report.get("completed") or len(completed))
+    response_rate = round((completed_count / total) * 100) if total else 0
+
+    avg_sat_10 = analysis.get("average_satisfaction")
+    avg_sat_5 = round(float(avg_sat_10) / 2, 1) if avg_sat_10 is not None else None
+
+    avg_duration = round(sum(durations) / len(durations)) if durations else None
+    nps = analysis.get("nps") if isinstance(analysis.get("nps"), dict) else {}
+    recommend_pct = _recommend_pct(recommend_scores)
+
+    summary = {
+        "total_recipients": total,
+        "completed_count": completed_count,
+        "response_rate_pct": response_rate,
+        "average_satisfaction_10": avg_sat_10,
+        "average_satisfaction_5": avg_sat_5,
+        "average_recommend_score": analysis.get("average_recommend_score"),
+        "recommend_pct": recommend_pct,
+        "nps_score": nps.get("score"),
+        "average_call_duration_seconds": avg_duration,
+        "average_call_duration_label": _format_duration(avg_duration),
+        "sentiment_counts": analysis.get("sentiment_counts") or {},
+        "top_issues": analysis.get("top_issues") or [],
+        "top_tags": analysis.get("top_tags") or [],
+        "analyzed_count": analysis.get("analyzed_count") or 0,
+        "pending_analysis": analysis.get("pending_analysis") or 0,
+    }
+
+    recommendations = derive_survey_recommendations(
+        top_issues=summary["top_issues"],
+        top_tags=summary["top_tags"],
+        completed_count=completed_count,
+    )
+
+    return {
+        "ok": True,
+        "order": {
+            "id": order.id,
+            "title": order.title,
+            "status": order.status,
+            "goal": goal,
+            "channel": PlatformCatalogService.resolve_survey_channel(config),
+            "scheduled_start_at": order.scheduled_start_at.isoformat() if order.scheduled_start_at else None,
+            "scheduled_end_at": order.scheduled_end_at.isoformat() if order.scheduled_end_at else None,
+            "started_at": order.started_at.isoformat() if order.started_at else None,
+            "completed_at": order.completed_at.isoformat() if order.completed_at else None,
+        },
+        "summary": summary,
+        "respondents": [recipient_summary_row(r, goal=goal) for r in recipients],
+        "recommendations": recommendations,
+    }
+
+
+class SurveyResultsService:
+    @staticmethod
+    def get_results(db: Session, order: ServiceOrder) -> dict[str, Any]:
+        return build_survey_results_payload(db, order)
+
+    @staticmethod
+    def get_recipient_detail(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> dict[str, Any]:
+        if recipient.order_id != order.id:
+            raise ValueError("Recipient does not belong to this order")
+        if not is_ai_call_survey_order(order):
+            raise ValueError("Survey results are available for AI-call surveys only")
+        return {"ok": True, "recipient": recipient_detail_payload(recipient)}
