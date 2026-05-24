@@ -295,6 +295,33 @@ def test_gocardless_connection(db: Session = Depends(get_db), _admin=Depends(req
     return result
 
 
+@router.get("/billing/subscriptions")
+def admin_list_subscriptions(
+    limit: int = 200,
+    status: str | None = None,
+    provider: str | None = None,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    rows = AdminBillingService.list_subscriptions(
+        db,
+        limit=limit,
+        status=status,
+        provider=provider,
+        search=search,
+    )
+    return [
+        {
+            **row,
+            "current_period_end": row["current_period_end"].isoformat() if row["current_period_end"] else None,
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        }
+        for row in rows
+    ]
+
+
 @router.get("/billing/subscriptions/pending-cash")
 def admin_list_pending_cash_subscriptions(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
     return BillingService.list_pending_cash_subscriptions(db)
