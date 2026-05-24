@@ -163,6 +163,7 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
         out.append(
             {
                 "id": agent.id,
+                "name": agent.name,
                 "voice_label": agent.voice_label or agent.name,
                 "voice_type_label": agent.voice_type_label,
                 "is_default_for_org": bool(assigned and assigned.id == agent.id),
