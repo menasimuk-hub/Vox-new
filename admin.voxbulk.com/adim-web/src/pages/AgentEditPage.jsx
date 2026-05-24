@@ -1,95 +1,254 @@
-import React, { useEffect, useState } from 'react'
-import { apiFetch } from '../lib/api'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { apiFetch, apiUpload } from '../lib/api'
 
-export default function AgentEditPage({ agentId, onClose }) {
-  const [agent, setAgent] = useState(null)
-  const [loading, setLoading] = useState(true)
+const emptyAgent = {
+  name: '',
+  slug: '',
+  description: '',
+  system_prompt: '',
+  call_workflow: '',
+  knowledge_file_ids: [],
+  voice_label: '',
+  voice_type_label: '',
+  telnyx_assistant_id: '',
+  base_role: '',
+  service_survey_role: '',
+  service_interview_role: '',
+  service_lead_sales_role: '',
+  opening_disclosure_template:
+    'Hello, this is {agent_name}, the AI assistant calling from {company_name}. This call is recorded for quality and service purposes.',
+  supports_survey: false,
+  supports_interview: false,
+  supports_lead_sales: false,
+  is_default_survey: false,
+  is_default_interview: false,
+  is_default_lead_sales: false,
+  disclosure_for_survey: true,
+  disclosure_for_interview: true,
+  disclosure_mandatory: true,
+  retry_policy_notes: 'Retry once after 1 hour for busy/no answer.',
+  interruption_behavior_notes: 'If interrupted before disclosure, restart it clearly.',
+  voicemail_behavior: 'hang_up',
+  opt_out_policy_notes: 'If remove me is said, stop and never retry.',
+  is_active: true,
+}
+
+const SERVICE_CATALOG = [
+  { id: 'survey', name: 'Survey', icon: 'ti ti-clipboard-list' },
+  { id: 'interview', name: 'Interview', icon: 'ti ti-microphone' },
+  { id: 'lead_sales', name: 'Lead / Sales', icon: 'ti ti-bolt' },
+]
+
+function hasWorkflow(agent) {
+  return Boolean(String(agent?.call_workflow || '').trim())
+}
+
+function isPlaceholderPrompt(prompt) {
+  const text = String(prompt || '').trim().toLowerCase()
+  return !text || text.includes('not configured')
+}
+
+export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved }) {
+  const [agent, setAgent] = useState(initialDraft || emptyAgent)
+  const [loading, setLoading] = useState(agentId !== 'new')
   const [saving, setSaving] = useState(false)
+  const [kbUploading, setKbUploading] = useState(false)
+  const [genPhase, setGenPhase] = useState('')
   const [msg, setMsg] = useState('')
-  const [knowledgeFiles, setKnowledgeFiles] = useState([])
-  const [generatedPrompt, setGeneratedPrompt] = useState('')
+  const [kbFiles, setKbFiles] = useState([])
+  const fileInputRef = useRef(null)
 
-  const SERVICE_CATALOG = [
-    { id: 'survey', name: 'Survey', icon: 'ti ti-clipboard-list' },
-    { id: 'interview', name: 'Interview', icon: 'ti ti-microphone' },
-    { id: 'lead_sales', name: 'Lead / Sales', icon: 'ti ti-bolt' },
-  ]
-
-  // Load agent if editing
-  useEffect(() => {
-    if (agentId === 'new') {
-      setAgent({
-        name: '',
-        slug: '',
-        description: '',
-        voice_label: '',
-        voice_type_label: '',
-        telnyx_assistant_id: '',
-        base_role: '',
-        service_survey_role: '',
-        service_interview_role: '',
-        service_lead_sales_role: '',
-        opening_disclosure_template: 'Hello, this is {agent_name}, the AI assistant calling from {company_name}. This call is recorded for quality and service purposes.',
-        supports_survey: false,
-        supports_interview: false,
-        supports_lead_sales: false,
-        is_default_survey: false,
-        is_default_interview: false,
-        is_default_lead_sales: false,
-        disclosure_for_survey: true,
-        disclosure_for_interview: true,
-        disclosure_mandatory: true,
-        retry_policy_notes: 'Retry once after 1 hour for busy/no answer.',
-        interruption_behavior_notes: 'If interrupted before disclosure, restart it clearly.',
-        voicemail_behavior: 'hang_up',
-        opt_out_policy_notes: 'If remove me is said, stop and never retry.',
-        is_active: true,
-      })
-      setLoading(false)
-    } else {
-      apiFetch(`/admin/agents/${agentId}`)
-        .then(data => setAgent(data))
-        .catch(e => setMsg(e?.message || 'Failed to load agent'))
-        .finally(() => setLoading(false))
-    }
-  }, [agentId])
-
-  const setField = (field, value) => {
-    setAgent(s => ({ ...s, [field]: value }))
+  const loadKb = async () => {
+    const data = await apiFetch('/admin/knowledge-base?scope=org')
+    setKbFiles(data?.files || [])
   }
 
-  const generateAIPrompt = async () => {
-    const serviceSum = document.getElementById('aiServiceSummary')?.value || ''
-    const audience = document.getElementById('aiTargetAudience')?.value || ''
-    const tone = document.getElementById('aiTone')?.value || 'Friendly and professional'
-    const rules = document.getElementById('aiRules')?.value || ''
+  useEffect(() => {
+    loadKb().catch(() => {})
+  }, [])
 
-    if (!serviceSum.trim()) {
-      setMsg('Please fill in the service summary')
+  useEffect(() => {
+    if (agentId === 'new') {
+      setAgent(initialDraft ? { ...emptyAgent, ...initialDraft } : emptyAgent)
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    apiFetch(`/admin/agents/${agentId}`)
+      .then((data) => setAgent({ ...emptyAgent, ...data, knowledge_file_ids: data.knowledge_file_ids || [] }))
+      .catch((e) => setMsg(e?.message || 'Failed to load agent'))
+      .finally(() => setLoading(false))
+  }, [agentId, initialDraft])
+
+  const setField = (field, value) => {
+    setAgent((s) => ({ ...s, [field]: value }))
+  }
+
+  const validKnowledgeFileIds = useMemo(
+    () => (agent.knowledge_file_ids || []).filter((id) => kbFiles.some((f) => f.id === id)),
+    [agent.knowledge_file_ids, kbFiles],
+  )
+
+  const toggleKbFile = (fileId) => {
+    setAgent((s) => {
+      const ids = new Set(s.knowledge_file_ids || [])
+      if (ids.has(fileId)) ids.delete(fileId)
+      else ids.add(fileId)
+      return { ...s, knowledge_file_ids: Array.from(ids) }
+    })
+  }
+
+  const uploadKb = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.md')) {
+      setMsg('Only .md files are allowed for agent knowledge base.')
+      return
+    }
+    setKbUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const result = await apiUpload('/admin/knowledge-base/upload?scope=org', form)
+      const uploaded = result?.file
+      if (uploaded?.id) {
+        setAgent((s) => ({
+          ...s,
+          knowledge_file_ids: [...new Set([...(s.knowledge_file_ids || []), uploaded.id])],
+        }))
+      }
+      await loadKb()
+      setMsg(`Uploaded ${file.name}. Save agent to persist KB link.`)
+    } catch (e) {
+      setMsg(e?.message || 'Upload failed')
+    } finally {
+      setKbUploading(false)
+    }
+  }
+
+  const deleteKb = async (file) => {
+    if (!window.confirm(`Delete "${file.original_filename}" from the library?`)) return
+    try {
+      await apiFetch(`/admin/knowledge-base/${file.id}`, { method: 'DELETE' })
+      setAgent((s) => ({
+        ...s,
+        knowledge_file_ids: (s.knowledge_file_ids || []).filter((id) => id !== file.id),
+      }))
+      await loadKb()
+      setMsg('Knowledge base file deleted.')
+    } catch (e) {
+      setMsg(e?.message || 'Could not delete file')
+    }
+  }
+
+  const generationPayload = (rewrite) => ({
+    description: String(agent.description || '').trim(),
+    name: agent.name,
+    agent_name: agent.voice_label || agent.name,
+    knowledge_file_ids: validKnowledgeFileIds,
+    rewrite,
+  })
+
+  const generateWorkflow = async () => {
+    const description = String(agent.description || '').trim()
+    if (!description) {
+      setMsg('Add a description first, then generate the call workflow.')
+      return
+    }
+    const rewrite = hasWorkflow(agent)
+    if (rewrite && !window.confirm('Replace the existing call workflow?')) return
+
+    setSaving(true)
+    setGenPhase('workflow')
+    setMsg('Generating call workflow with AI...')
+    const path = agent.id ? `/admin/agents/${agent.id}/generate-workflow` : '/admin/agents/generate-workflow'
+    try {
+      const generated = await apiFetch(path, {
+        method: 'POST',
+        body: JSON.stringify(generationPayload(rewrite)),
+      })
+      const workflow = generated.call_workflow || ''
+      setField('call_workflow', workflow)
+      setMsg('Call workflow generated. Review it, then click Generate prompt.')
+    } catch (e) {
+      setMsg(e?.message || 'Workflow generation failed')
+    } finally {
+      setSaving(false)
+      setGenPhase('')
+    }
+  }
+
+  const generatePrompt = async () => {
+    const description = String(agent.description || '').trim()
+    const workflow = String(agent.call_workflow || '').trim()
+    if (!description) {
+      setMsg('Add a description first.')
+      return
+    }
+    if (!workflow) {
+      setMsg('Generate the call workflow first, or paste workflow text into the Call workflow field.')
       return
     }
 
     setSaving(true)
+    setGenPhase('prompt')
+    setMsg('Generating system prompt (30-60 seconds)...')
+    const path = agent.id ? `/admin/agents/${agent.id}/generate-prompt` : '/admin/agents/generate-prompt'
     try {
-      // Call backend DeepSeek prompt generator
-      const result = await apiFetch('/admin/agents/generate-prompt-legacy', {
+      const generated = await apiFetch(path, {
         method: 'POST',
-        body: JSON.stringify({
-          description: serviceSum,
-          name: agent.name || 'AI Agent',
-          agent_name: agent.voice_label || agent.name || 'the assistant',
-          knowledge_file_ids: knowledgeFiles.filter(f => f.attached).map(f => f.id),
-        }),
+        body: JSON.stringify({ ...generationPayload(true), call_workflow: workflow }),
       })
-
-      setGeneratedPrompt(result?.system_prompt || '')
-      setMsg('AI prompt generated! Review and adapt to Base role if needed.')
+      const prompt = String(generated?.system_prompt || '').trim()
+      if (!prompt) {
+        setMsg('AI returned an empty system prompt.')
+        return
+      }
+      setAgent((s) => ({
+        ...s,
+        system_prompt: prompt,
+        base_role: s.base_role?.trim() ? s.base_role : prompt,
+      }))
+      setMsg('System prompt generated. Review System prompt and Base role, then Save agent.')
     } catch (e) {
-      setMsg(e?.message || 'Failed to generate prompt')
+      setMsg(e?.message || 'Prompt generation failed')
     } finally {
       setSaving(false)
+      setGenPhase('')
     }
   }
+
+  const buildSavePayload = () => ({
+    name: agent.name,
+    slug: agent.slug,
+    description: agent.description,
+    system_prompt: agent.system_prompt,
+    call_workflow: agent.call_workflow,
+    knowledge_file_ids: validKnowledgeFileIds,
+    is_active: agent.is_active,
+    voice_label: agent.voice_label,
+    voice_type_label: agent.voice_type_label,
+    telnyx_assistant_id: agent.telnyx_assistant_id,
+    base_role: agent.base_role,
+    service_survey_role: agent.service_survey_role,
+    service_interview_role: agent.service_interview_role,
+    service_lead_sales_role: agent.service_lead_sales_role,
+    opening_disclosure_template: agent.opening_disclosure_template,
+    retry_policy_notes: agent.retry_policy_notes,
+    interruption_behavior_notes: agent.interruption_behavior_notes,
+    voicemail_behavior: agent.voicemail_behavior,
+    opt_out_policy_notes: agent.opt_out_policy_notes,
+    supports_survey: agent.supports_survey,
+    supports_interview: agent.supports_interview,
+    supports_lead_sales: agent.supports_lead_sales,
+    is_default_survey: agent.is_default_survey,
+    is_default_interview: agent.is_default_interview,
+    is_default_lead_sales: agent.is_default_lead_sales,
+    disclosure_for_survey: agent.disclosure_for_survey,
+    disclosure_for_interview: agent.disclosure_for_interview,
+    disclosure_mandatory: agent.disclosure_mandatory,
+  })
 
   const saveAgent = async () => {
     if (!agent.name?.trim()) {
@@ -104,24 +263,19 @@ export default function AgentEditPage({ agentId, onClose }) {
       setMsg('Telnyx Assistant ID is required')
       return
     }
+    if (agent.supports_survey && !agent.is_active) {
+      setMsg('Warning: frozen agents will not appear in dashboard survey agent dropdown.')
+    }
 
     setSaving(true)
     try {
-      if (agent.id) {
-        await apiFetch(`/admin/agents/${agent.id}`, {
-          method: 'PUT',
-          body: JSON.stringify(agent),
-        })
-        setMsg('Agent updated!')
-      } else {
-        const created = await apiFetch('/admin/agents', {
-          method: 'POST',
-          body: JSON.stringify(agent),
-        })
-        setAgent(created)
-        setMsg('Agent created!')
-      }
-      setTimeout(onClose, 1000)
+      const body = buildSavePayload()
+      const saved = agent.id
+        ? await apiFetch(`/admin/agents/${agent.id}`, { method: 'PUT', body: JSON.stringify(body) })
+        : await apiFetch('/admin/agents', { method: 'POST', body: JSON.stringify(body) })
+      setAgent({ ...emptyAgent, ...saved, knowledge_file_ids: saved.knowledge_file_ids || [] })
+      setMsg('Agent saved.')
+      onSaved?.(saved)
     } catch (e) {
       setMsg(e?.message || 'Failed to save agent')
     } finally {
@@ -130,19 +284,15 @@ export default function AgentEditPage({ agentId, onClose }) {
   }
 
   if (loading) return <div style={{ padding: 32, textAlign: 'center' }}>Loading...</div>
-  if (!agent) return <div style={{ padding: 32, textAlign: 'center', color: '#e11d48' }}>Agent not found</div>
 
-  const enabledServices = SERVICE_CATALOG.filter(s => agent[`supports_${s.id}`])
-  const kbCount = knowledgeFiles.filter(f => f.attached).length
+  const enabledServices = SERVICE_CATALOG.filter((s) => agent[`supports_${s.id}`])
+  const kbCount = validKnowledgeFileIds.length
 
   return (
     <div style={styles.container}>
       <div style={styles.topbar}>
         <div style={styles.topbarLeft}>
-          <button
-            onClick={onClose}
-            style={{ ...styles.backBtn, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, color: '#475569', fontSize: 13, fontWeight: 500 }}
-          >
+          <button type="button" onClick={onClose} style={styles.backBtn}>
             <i className="ti ti-arrow-left"></i> Agents
           </button>
           <div>
@@ -150,81 +300,59 @@ export default function AgentEditPage({ agentId, onClose }) {
               {agent.id ? 'Edit agent' : 'Create agent'}
             </div>
             <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-              Configure voice, prompts, and service assignment
+              Configure voice, prompts, KB files, and survey/interview assignment
             </div>
           </div>
         </div>
         <div style={styles.headerActions}>
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div style={styles.stat}>
-              <i className="ti ti-file-text"></i>
-              <span>{kbCount}</span> KB files
+              <i className="ti ti-file-text"></i> {kbCount} KB
             </div>
             <div style={styles.stat}>
-              <i className="ti ti-building"></i>
-              <span>{enabledServices.length}</span> services
+              <i className="ti ti-building"></i> {enabledServices.length} services
             </div>
+            {agent.supports_survey ? (
+              <div style={{ ...styles.stat, background: '#e7efff', color: '#2563eb' }}>
+                <i className="ti ti-phone"></i> Dashboard survey
+              </div>
+            ) : null}
           </div>
-          <button
-            onClick={saveAgent}
-            disabled={saving}
-            style={{ ...styles.btn, ...styles.btnPrimary }}
-          >
+          <button type="button" onClick={saveAgent} disabled={saving} style={{ ...styles.btn, ...styles.btnPrimary }}>
             <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save agent'}
           </button>
         </div>
       </div>
 
-      {msg && (
-        <div style={{ ...styles.msg, margin: '0 32px 16px', padding: '12px 16px', borderRadius: 8 }}>
-          {msg}
-        </div>
-      )}
+      {msg ? (
+        <div style={{ ...styles.msg, margin: '0 32px 16px', padding: '12px 16px', borderRadius: 8 }}>{msg}</div>
+      ) : null}
 
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 32px' }}>
-        {/* BASICS */}
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 32px 32px' }}>
         <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardTitle}>
-              <i className="ti ti-user-circle" style={{ color: '#2563eb' }}></i> Basics
-            </div>
+          <div style={styles.cardTitle}>
+            <i className="ti ti-user-circle" style={{ color: '#2563eb' }}></i> Basics
           </div>
           <div style={styles.grid2}>
             <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-forms"></i> Agent name
-              </label>
-              <input
-                value={agent.name}
-                onChange={(e) => setField('name', e.target.value)}
-                style={styles.input}
-              />
+              <label style={styles.label}>Agent name</label>
+              <input value={agent.name} onChange={(e) => setField('name', e.target.value)} style={styles.input} />
             </div>
             <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-link"></i> Slug identifier
-              </label>
-              <input
-                value={agent.slug}
-                onChange={(e) => setField('slug', e.target.value)}
-                style={styles.input}
-              />
+              <label style={styles.label}>Slug identifier</label>
+              <input value={agent.slug} onChange={(e) => setField('slug', e.target.value)} style={styles.input} />
             </div>
             <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-id"></i> Voice label
-              </label>
+              <label style={styles.label}>Voice label (shown in dashboard)</label>
               <input
                 value={agent.voice_label || ''}
                 onChange={(e) => setField('voice_label', e.target.value)}
-                placeholder="Sophie, James, etc."
+                placeholder="Sophie, James..."
                 style={styles.input}
               />
             </div>
             <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-microphone"></i> Voice type
-              </label>
+              <label style={styles.label}>Voice type</label>
               <select
                 value={agent.voice_type_label || ''}
                 onChange={(e) => setField('voice_type_label', e.target.value)}
@@ -238,31 +366,48 @@ export default function AgentEditPage({ agentId, onClose }) {
               </select>
             </div>
             <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
-              <label style={styles.label}>
-                <i className="ti ti-info-circle"></i> Description / purpose
-              </label>
+              <label style={styles.label}>Description / purpose (used for AI generation)</label>
               <textarea
                 value={agent.description || ''}
                 onChange={(e) => setField('description', e.target.value)}
-                style={{ ...styles.textarea }}
-                rows="3"
+                style={styles.textarea}
+                rows={3}
               />
             </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <input
+                  type="checkbox"
+                  checked={agent.is_active}
+                  onChange={(e) => setField('is_active', e.target.checked)}
+                  style={{ marginRight: 8 }}
+                />
+                Active (frozen agents hidden from dashboard)
+              </label>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+            <button type="button" onClick={generateWorkflow} disabled={saving || !agent.description?.trim()} style={styles.btn}>
+              {genPhase === 'workflow' ? 'Generating workflow...' : hasWorkflow(agent) ? 'Regenerate workflow' : '1. Generate workflow'}
+            </button>
+            <button
+              type="button"
+              onClick={generatePrompt}
+              disabled={saving || !agent.description?.trim() || !hasWorkflow(agent)}
+              style={{ ...styles.btn, ...styles.btnPrimary }}
+            >
+              {genPhase === 'prompt' ? 'Generating prompt...' : isPlaceholderPrompt(agent.system_prompt) ? '2. Generate prompt' : 'Regenerate prompt'}
+            </button>
           </div>
         </div>
 
-        {/* TELNYX & VOICE */}
         <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardTitle}>
-              <i className="ti ti-microphone" style={{ color: '#d97706' }}></i> Voice identity & Telnyx
-            </div>
+          <div style={styles.cardTitle}>
+            <i className="ti ti-microphone" style={{ color: '#d97706' }}></i> Telnyx & disclosure
           </div>
           <div style={styles.grid2}>
             <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-id-badge"></i> Telnyx Assistant ID
-              </label>
+              <label style={styles.label}>Telnyx Assistant ID</label>
               <input
                 value={agent.telnyx_assistant_id || ''}
                 onChange={(e) => setField('telnyx_assistant_id', e.target.value)}
@@ -271,254 +416,154 @@ export default function AgentEditPage({ agentId, onClose }) {
               />
             </div>
             <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-toggle-left"></i> Is active
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={agent.is_active}
-                  onChange={(e) => setField('is_active', e.target.checked)}
-                />
-                {agent.is_active ? 'Active' : 'Frozen'}
-              </label>
+              <label style={styles.label}>Voicemail behavior</label>
+              <select
+                value={agent.voicemail_behavior || 'hang_up'}
+                onChange={(e) => setField('voicemail_behavior', e.target.value)}
+                style={styles.input}
+              >
+                <option value="hang_up">Hang up</option>
+                <option value="leave_message">Leave message</option>
+              </select>
             </div>
             <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
-              <label style={styles.label}>
-                <i className="ti ti-shield-check"></i> Opening disclosure template
-              </label>
+              <label style={styles.label}>Opening disclosure template</label>
               <textarea
                 value={agent.opening_disclosure_template || ''}
                 onChange={(e) => setField('opening_disclosure_template', e.target.value)}
                 style={styles.textarea}
-                rows="3"
+                rows={3}
               />
-              <div style={styles.sectionNote}>Use {'{agent_name}'} and {'{company_name}'} as placeholders</div>
             </div>
           </div>
         </div>
 
-        {/* KNOWLEDGE BASE */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardTitle}>
-              <i className="ti ti-file-text" style={{ color: '#16a34a' }}></i> Knowledge Base Files
-            </div>
-            <div style={styles.stat}>{kbCount} attached</div>
-          </div>
-          <div style={styles.kbUploadArea}>
-            <i className="ti ti-cloud-upload" style={{ fontSize: 28, color: '#94a3b8' }}></i>
-            <div>
-              <div style={{ fontWeight: 600, color: '#334155', marginBottom: 4 }}>Drop knowledge files here</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>
-                Markdown, PDF, or text files — used to enhance generated prompts
-              </div>
-            </div>
-            <input
-              type="file"
-              multiple
-              accept=".md,.txt,.pdf"
-              onChange={async (e) => {
-                const files = e.currentTarget.files
-                if (!files?.length) return
-                setSaving(true)
-                try {
-                  for (const file of files) {
-                    const form = new FormData()
-                    form.append('file', file)
-                    const result = await apiFetch(`/admin/agents/${agent.id || 'temp'}/knowledge-files`, {
-                      method: 'POST',
-                      body: form,
-                    })
-                    setKnowledgeFiles(s => [...s.filter(f => f.id !== result.id), result])
-                  }
-                  setMsg('Files uploaded!')
-                } catch (err) {
-                  setMsg(err?.message || 'Upload failed')
-                } finally {
-                  setSaving(false)
-                }
-              }}
-              style={{ display: 'none' }}
-            />
-          </div>
-          {kbCount > 0 && (
-            <div style={{ marginTop: 16 }}>
-              {knowledgeFiles.filter(f => f.attached).map((file) => (
-                <div key={file.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
-                  <i className="ti ti-file" style={{ color: '#64748b' }}></i>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: '#0f172a' }}>{file.name}</div>
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{file.size_kb}KB</div>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await apiFetch(`/admin/agents/${agent.id}/knowledge-files/${file.id}`, { method: 'DELETE' })
-                        setKnowledgeFiles(s => s.filter(f => f.id !== file.id))
-                      } catch (err) {
-                        setMsg(err?.message)
-                      }
-                    }}
-                    style={{ background: 'none', border: 'none', color: '#e11d48', cursor: 'pointer' }}
-                  >
-                    <i className="ti ti-trash"></i>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* AI PROMPT GENERATION */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardTitle}>
-              <i className="ti ti-wand" style={{ color: '#5f4be3' }}></i> AI prompt generation
-            </div>
-          </div>
-          <div style={styles.grid2}>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-bulb"></i> Service summary
-              </label>
-              <textarea
-                id="aiServiceSummary"
-                style={styles.textarea}
-                rows="3"
-                placeholder="Run short outbound AI survey calls for customer feedback..."
-              />
-            </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-users"></i> Target audience
-              </label>
-              <input
-                id="aiTargetAudience"
-                placeholder="Customers / patients / leads"
-                style={styles.input}
-              />
-            </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-message"></i> Tone
-              </label>
-              <select id="aiTone" style={styles.input}>
-                <option>Friendly and professional</option>
-                <option>Warm and calm</option>
-                <option>Short and direct</option>
-                <option>Polite and formal</option>
-              </select>
-            </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <i className="ti ti-list"></i> Must ask / must avoid
-              </label>
-              <textarea
-                id="aiRules"
-                style={styles.textarea}
-                rows="2"
-                placeholder="Must say the call is recorded. Do not ask 'is this a good time'..."
-              />
-            </div>
-            <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
-              <label style={styles.label}>
-                <i className="ti ti-rocket"></i> Generated base prompt
-              </label>
-              <textarea
-                value={generatedPrompt}
-                onChange={(e) => setGeneratedPrompt(e.target.value)}
-                style={styles.textarea}
-                rows="10"
-                placeholder="Click Generate to create..."
-              />
-            </div>
-          </div>
-          <div style={styles.sectionNote}>Fill the fields above, then generate a clean base prompt you can edit</div>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
-            <button
-              onClick={() => setGeneratedPrompt('')}
-              style={styles.btn}
-              disabled={saving}
-            >
-              <i className="ti ti-trash"></i> Clear
-            </button>
-            <button
-              onClick={generateAIPrompt}
-              style={{ ...styles.btn, ...styles.btnPrimary }}
-              disabled={saving}
-            >
-              <i className="ti ti-wand"></i> {saving ? 'Generating...' : 'Generate AI prompt'}
-            </button>
-          </div>
-        </div>
-
-        {/* SERVICE ASSIGNMENT */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardTitle}>
-              <i className="ti ti-list-check" style={{ color: '#5f4be3' }}></i> Service assignment
-            </div>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={styles.serviceTable}>
-              <thead>
-                <tr>
-                  <th style={styles.serviceTh}>Service</th>
-                  <th style={styles.serviceTh}>Enable</th>
-                  <th style={styles.serviceTh}>Default</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SERVICE_CATALOG.map((svc) => (
-                  <tr key={svc.id}>
-                    <td style={styles.serviceTd}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 500 }}>
-                        <i className={svc.icon}></i> {svc.name}
-                      </div>
-                    </td>
-                    <td style={styles.serviceTd}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <input
-                          type="checkbox"
-                          checked={agent[`supports_${svc.id}`] || false}
-                          onChange={(e) => setField(`supports_${svc.id}`, e.target.checked)}
-                        />
-                      </label>
-                    </td>
-                    <td style={styles.serviceTd}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <input
-                          type="checkbox"
-                          checked={agent[`is_default_${svc.id}`] || false}
-                          onChange={(e) => setField(`is_default_${svc.id}`, e.target.checked)}
-                          disabled={!agent[`supports_${svc.id}`]}
-                        />
-                      </label>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* PROMPT LAYERS */}
         <div style={styles.grid2}>
           <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardTitle}>
-                <i className="ti ti-sparkles" style={{ color: '#5f4be3' }}></i> Prompt layers
-              </div>
+            <div style={styles.cardTitle}>Call workflow</div>
+            <textarea
+              value={agent.call_workflow || ''}
+              onChange={(e) => setField('call_workflow', e.target.value)}
+              style={styles.textarea}
+              rows={8}
+              placeholder="Step-by-step call flow..."
+            />
+          </div>
+          <div style={styles.card}>
+            <div style={styles.cardTitle}>System prompt</div>
+            <textarea
+              value={agent.system_prompt || ''}
+              onChange={(e) => setField('system_prompt', e.target.value)}
+              style={styles.textarea}
+              rows={8}
+              placeholder="Generated or hand-written instructions..."
+            />
+          </div>
+        </div>
+
+        <div style={styles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={styles.cardTitle}>
+              <i className="ti ti-file-text" style={{ color: '#16a34a' }}></i> Knowledge base
             </div>
+            <label style={{ ...styles.btn, cursor: 'pointer' }}>
+              {kbUploading ? 'Uploading...' : 'Upload .md'}
+              <input ref={fileInputRef} type="file" accept=".md,text/markdown" hidden onChange={uploadKb} disabled={kbUploading} />
+            </label>
+          </div>
+          <div style={styles.sectionNote}>Upload .md files and tick to attach to this agent. Used during AI prompt generation.</div>
+          <div style={{ marginTop: 12 }}>
+            {kbFiles.length ? (
+              kbFiles.map((file) => {
+                const selected = (agent.knowledge_file_ids || []).includes(file.id)
+                return (
+                  <div
+                    key={file.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '10px 0',
+                      borderBottom: '1px solid #e2e8f0',
+                      cursor: 'pointer',
+                      background: selected ? '#f0f7ff' : 'transparent',
+                    }}
+                    onClick={() => toggleKbFile(file.id)}
+                  >
+                    <input type="checkbox" checked={selected} readOnly />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{file.original_filename}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                        {Math.round((file.size_bytes || 0) / 1024)} KB
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        deleteKb(file)
+                      }}
+                      style={{ background: 'none', border: 'none', color: '#e11d48', cursor: 'pointer' }}
+                    >
+                      <i className="ti ti-trash"></i>
+                    </button>
+                  </div>
+                )
+              })
+            ) : (
+              <div style={{ color: '#64748b', fontSize: 13 }}>No KB files yet. Upload a .md file above.</div>
+            )}
+          </div>
+        </div>
+
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>
+            <i className="ti ti-list-check" style={{ color: '#5f4be3' }}></i> Service assignment
+          </div>
+          <div style={styles.sectionNote}>
+            Enable Survey to make this agent appear in the dashboard AI voice survey dropdown.
+          </div>
+          <table style={styles.serviceTable}>
+            <thead>
+              <tr>
+                <th style={styles.serviceTh}>Service</th>
+                <th style={styles.serviceTh}>Enable</th>
+                <th style={styles.serviceTh}>Default</th>
+              </tr>
+            </thead>
+            <tbody>
+              {SERVICE_CATALOG.map((svc) => (
+                <tr key={svc.id}>
+                  <td style={styles.serviceTd}>
+                    <i className={svc.icon}></i> {svc.name}
+                  </td>
+                  <td style={styles.serviceTd}>
+                    <input
+                      type="checkbox"
+                      checked={agent[`supports_${svc.id}`] || false}
+                      onChange={(e) => setField(`supports_${svc.id}`, e.target.checked)}
+                    />
+                  </td>
+                  <td style={styles.serviceTd}>
+                    <input
+                      type="checkbox"
+                      checked={agent[`is_default_${svc.id}`] || false}
+                      onChange={(e) => setField(`is_default_${svc.id}`, e.target.checked)}
+                      disabled={!agent[`supports_${svc.id}`]}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={styles.grid2}>
+          <div style={styles.card}>
+            <div style={styles.cardTitle}>Prompt layers</div>
             <div style={styles.formGroup}>
               <label style={styles.label}>Base role</label>
-              <textarea
-                value={agent.base_role || ''}
-                onChange={(e) => setField('base_role', e.target.value)}
-                style={styles.textarea}
-                rows="4"
-              />
+              <textarea value={agent.base_role || ''} onChange={(e) => setField('base_role', e.target.value)} style={styles.textarea} rows={4} />
             </div>
             <div style={styles.formGroup}>
               <label style={styles.label}>Survey role override</label>
@@ -526,7 +571,7 @@ export default function AgentEditPage({ agentId, onClose }) {
                 value={agent.service_survey_role || ''}
                 onChange={(e) => setField('service_survey_role', e.target.value)}
                 style={styles.textarea}
-                rows="3"
+                rows={3}
               />
             </div>
             <div style={styles.formGroup}>
@@ -535,24 +580,28 @@ export default function AgentEditPage({ agentId, onClose }) {
                 value={agent.service_interview_role || ''}
                 onChange={(e) => setField('service_interview_role', e.target.value)}
                 style={styles.textarea}
-                rows="3"
+                rows={3}
+              />
+            </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Lead / Sales role override</label>
+              <textarea
+                value={agent.service_lead_sales_role || ''}
+                onChange={(e) => setField('service_lead_sales_role', e.target.value)}
+                style={styles.textarea}
+                rows={3}
               />
             </div>
           </div>
-
           <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardTitle}>
-                <i className="ti ti-settings" style={{ color: '#e11d48' }}></i> Behavior settings
-              </div>
-            </div>
+            <div style={styles.cardTitle}>Behavior settings</div>
             <div style={styles.formGroup}>
               <label style={styles.label}>Interruption handling</label>
               <textarea
                 value={agent.interruption_behavior_notes || ''}
                 onChange={(e) => setField('interruption_behavior_notes', e.target.value)}
                 style={styles.textarea}
-                rows="3"
+                rows={3}
               />
             </div>
             <div style={styles.formGroup}>
@@ -561,7 +610,7 @@ export default function AgentEditPage({ agentId, onClose }) {
                 value={agent.opt_out_policy_notes || ''}
                 onChange={(e) => setField('opt_out_policy_notes', e.target.value)}
                 style={styles.textarea}
-                rows="3"
+                rows={3}
               />
             </div>
             <div style={styles.formGroup}>
@@ -570,23 +619,29 @@ export default function AgentEditPage({ agentId, onClose }) {
                 value={agent.retry_policy_notes || ''}
                 onChange={(e) => setField('retry_policy_notes', e.target.value)}
                 style={styles.textarea}
-                rows="2"
+                rows={2}
               />
+            </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <input
+                  type="checkbox"
+                  checked={agent.disclosure_mandatory}
+                  onChange={(e) => setField('disclosure_mandatory', e.target.checked)}
+                  style={{ marginRight: 8 }}
+                />
+                Mandatory opening disclosure
+              </label>
             </div>
           </div>
         </div>
 
-        {/* SAVE */}
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 28, marginBottom: 28 }}>
-          <button onClick={onClose} style={styles.btn}>
-            <i className="ti ti-x"></i> Cancel
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onClose} style={styles.btn}>
+            Cancel
           </button>
-          <button
-            onClick={saveAgent}
-            disabled={saving}
-            style={{ ...styles.btn, ...styles.btnPrimary }}
-          >
-            <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save agent'}
+          <button type="button" onClick={saveAgent} disabled={saving} style={{ ...styles.btn, ...styles.btnPrimary }}>
+            {saving ? 'Saving...' : 'Save agent'}
           </button>
         </div>
       </div>
@@ -606,26 +661,87 @@ const styles = {
     position: 'sticky',
     top: 0,
     zIndex: 40,
-    backdropFilter: 'blur(2px)',
   },
   topbarLeft: { display: 'flex', alignItems: 'center', gap: 24 },
-  backBtn: { color: '#475569', textDecoration: 'none', fontSize: 13, fontWeight: 500 },
+  backBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: 500,
+  },
   headerActions: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
-  stat: { fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, background: '#f1f5f9', padding: '4px 12px', borderRadius: 20 },
-  btn: { display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px', borderRadius: 40, fontWeight: 600, fontSize: 13, border: '1px solid #e2e8f0', cursor: 'pointer', background: '#fff', color: '#0f172a' },
+  stat: {
+    fontSize: 12,
+    color: '#64748b',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    background: '#f1f5f9',
+    padding: '4px 12px',
+    borderRadius: 20,
+  },
+  btn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '8px 18px',
+    borderRadius: 40,
+    fontWeight: 600,
+    fontSize: 13,
+    border: '1px solid #e2e8f0',
+    cursor: 'pointer',
+    background: '#fff',
+    color: '#0f172a',
+  },
   btnPrimary: { background: '#2563eb', color: '#fff', borderColor: '#2563eb' },
   msg: { background: '#fef2f2', borderLeft: '4px solid #e11d48', color: '#991b1b' },
-  card: { background: '#fff', borderRadius: 20, border: '1px solid #e2e8f0', padding: '24px 28px', marginBottom: 28, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
-  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' },
-  cardTitle: { fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 },
+  card: {
+    background: '#fff',
+    borderRadius: 20,
+    border: '1px solid #e2e8f0',
+    padding: '24px 28px',
+    marginBottom: 20,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+  },
+  cardTitle: { fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 },
   grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 },
-  formGroup: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 18 },
-  label: { fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: 6 },
-  input: { background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 14, padding: '10px 14px', fontSize: 13, fontFamily: 'inherit', color: '#0f172a' },
-  textarea: { background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 14, padding: '10px 14px', fontSize: 13, fontFamily: 'inherit', color: '#0f172a', resize: 'vertical', minHeight: 80 },
-  sectionNote: { color: '#64748b', fontSize: 12, marginTop: 8 },
-  serviceTable: { width: '100%', borderCollapse: 'collapse' },
-  serviceTh: { textAlign: 'left', padding: '14px 8px 14px 0', fontWeight: 600, fontSize: 12, color: '#475569', borderBottom: '1px solid #e2e8f0' },
-  serviceTd: { padding: '14px 8px 14px 0', borderBottom: '1px solid #e2e8f0', verticalAlign: 'middle' },
-  kbUploadArea: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '24px', borderRadius: 14, border: '2px dashed #cbd5e1', background: '#f8fafc', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s' },
+  formGroup: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 },
+  label: { fontSize: 12, fontWeight: 600, color: '#475569' },
+  input: {
+    background: '#f1f5f9',
+    border: '1px solid #e2e8f0',
+    borderRadius: 14,
+    padding: '10px 14px',
+    fontSize: 13,
+    fontFamily: 'inherit',
+    color: '#0f172a',
+  },
+  textarea: {
+    background: '#f1f5f9',
+    border: '1px solid #e2e8f0',
+    borderRadius: 14,
+    padding: '10px 14px',
+    fontSize: 13,
+    fontFamily: 'inherit',
+    color: '#0f172a',
+    resize: 'vertical',
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  sectionNote: { color: '#64748b', fontSize: 12 },
+  serviceTable: { width: '100%', borderCollapse: 'collapse', marginTop: 12 },
+  serviceTh: {
+    textAlign: 'left',
+    padding: '10px 8px 10px 0',
+    fontWeight: 600,
+    fontSize: 12,
+    color: '#475569',
+    borderBottom: '1px solid #e2e8f0',
+  },
+  serviceTd: { padding: '10px 8px 10px 0', borderBottom: '1px solid #e2e8f0' },
 }
