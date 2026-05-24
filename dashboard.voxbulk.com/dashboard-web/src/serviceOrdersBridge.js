@@ -846,7 +846,7 @@ async function generateServiceScript(serviceCode) {
         max_call_length: selectValue(document.getElementById('sur-max-length')),
         client_context: {
           ...clientCtx,
-          assistant_name: agentName || clientCtx.assistant_name,
+          survey_organiser_name: agentName || clientCtx.survey_organiser_name,
         },
       }
     : {
