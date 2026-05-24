@@ -357,7 +357,7 @@ const bodyHtml = `<div class="app" id="app">
           <div id="sur-validation-errors" class="validation-error" style="display:none;margin-bottom:10px"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
             <button class="btn btng bsm" type="button" id="sur-ai-generate"><i class="ti ti-sparkles"></i>AI write survey script</button>
-            <button class="btn btng bsm" type="button" id="sur-pay-schedule"><i class="ti ti-credit-card"></i>Pay and schedule survey</button>
+            <button class="btn btng bsm" type="button" id="sur-pay-schedule" onclick="window.payAndScheduleSurvey && window.payAndScheduleSurvey(event)"><i class="ti ti-credit-card"></i>Pay and schedule survey</button>
           </div>
         </div>
       </div>

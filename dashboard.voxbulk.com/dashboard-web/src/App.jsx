@@ -10,7 +10,7 @@ function initialsFromName(name) {
 }
 
 function App({ session }) {
-  const scriptsRan = useRef(false)
+  const voxbulkUiLoaded = useRef(false)
   const profile = session?.profile || {}
   const org = session?.org || {}
   const subscription = session?.subscription || {}
@@ -52,37 +52,36 @@ function App({ session }) {
   }, [])
 
   useEffect(() => {
-    if (scriptsRan.current) return
-    scriptsRan.current = true
+    let cancelled = false
 
-    import('./voxbulk.js?raw').then(({ default: jsCode }) => {
-      const script = document.createElement('script')
-      script.textContent = jsCode
-      document.body.appendChild(script)
+    async function bootDashboardUi() {
+      if (!voxbulkUiLoaded.current) {
+        voxbulkUiLoaded.current = true
+        const { default: jsCode } = await import('./voxbulk.js?raw')
+        const script = document.createElement('script')
+        script.textContent = jsCode
+        document.body.appendChild(script)
+      }
 
-      import('./serviceOrdersBridge.js').then(({ initServiceOrdersBridge }) => {
-        initServiceOrdersBridge()
-      })
+      if (cancelled) return
 
-      import('./dashboardBridge.js').then(({ initDashboardBridge }) => {
-        initDashboardBridge()
-      })
+      const { initServiceOrdersBridge } = await import('./serviceOrdersBridge.js')
+      initServiceOrdersBridge()
 
-      import('./profileBridge.js').then(({ initProfileBridge }) => {
-        initProfileBridge(session)
-      })
+      const { initDashboardBridge } = await import('./dashboardBridge.js')
+      initDashboardBridge()
 
-      import('./billingBridge.js').then(({ initBillingBridge }) => {
-        initBillingBridge(session)
-      })
+      const { initProfileBridge } = await import('./profileBridge.js')
+      initProfileBridge(session)
 
-      import('./surveyPricingBridge.js').then(({ initSurveyPricingBridge }) => {
-        initSurveyPricingBridge()
-      })
+      const { initBillingBridge } = await import('./billingBridge.js')
+      initBillingBridge(session)
 
-      import('./surveyResultsBridge.js').then(({ initSurveyResultsBridge }) => {
-        initSurveyResultsBridge()
-      })
+      const { initSurveyPricingBridge } = await import('./surveyPricingBridge.js')
+      initSurveyPricingBridge()
+
+      const { initSurveyResultsBridge } = await import('./surveyResultsBridge.js')
+      initSurveyResultsBridge()
 
       const nameEl = document.querySelector('.unm')
       const planEl = document.querySelector('.uplan')
@@ -90,26 +89,34 @@ function App({ session }) {
       if (nameEl) nameEl.textContent = orgName
       if (planEl) planEl.textContent = `${planName} · ${profile.email || 'Profile area'}`
       if (avatarEl) avatarEl.textContent = avatar
+    }
 
-      const overlay = document.getElementById('sb-overlay')
-      const sb = document.getElementById('sb')
+    void bootDashboardUi()
 
-      function openMobileSidebar() {
-        sb?.classList.add('mobile-open')
-        overlay?.classList.add('on')
-      }
-      function closeMobileSidebar() {
-        sb?.classList.remove('mobile-open')
-        overlay?.classList.remove('on')
-      }
+    return () => {
+      cancelled = true
+    }
+  }, [avatar, orgName, planName, profile.email, session])
 
-      document.getElementById('mob-ham')?.addEventListener('click', openMobileSidebar)
-      overlay?.addEventListener('click', closeMobileSidebar)
+  useEffect(() => {
+    const overlay = document.getElementById('sb-overlay')
+    const sb = document.getElementById('sb')
 
-      sb?.querySelectorAll('.ni').forEach((ni) => {
-        ni.addEventListener('click', () => {
-          if (window.innerWidth <= 768) closeMobileSidebar()
-        })
+    function openMobileSidebar() {
+      sb?.classList.add('mobile-open')
+      overlay?.classList.add('on')
+    }
+    function closeMobileSidebar() {
+      sb?.classList.remove('mobile-open')
+      overlay?.classList.remove('on')
+    }
+
+    document.getElementById('mob-ham')?.addEventListener('click', openMobileSidebar)
+    overlay?.addEventListener('click', closeMobileSidebar)
+
+    sb?.querySelectorAll('.ni').forEach((ni) => {
+      ni.addEventListener('click', () => {
+        if (window.innerWidth <= 768) closeMobileSidebar()
       })
     })
   }, [avatar, orgName, planName, profile.email])

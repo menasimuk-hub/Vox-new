@@ -353,21 +353,76 @@ async function onSurveyFileSelected(file) {
 }
 
 function bindSurveyLaunchUi() {
-  document.getElementById('sur-package-select')?.addEventListener('change', (e) => {
-    surveyLaunch.selectedPackageId = e.target.value || null
-    surveyLaunch.packageManual = true
-    logSurvey('package_manual', { package_id: surveyLaunch.selectedPackageId })
-    void refreshSurveyQuote()
+  ensureSurveyActionDelegation()
+}
+
+let surveyActionDelegationBound = false
+
+function ensureSurveyActionDelegation() {
+  if (surveyActionDelegationBound) return
+  surveyActionDelegationBound = true
+
+  document.addEventListener('click', (event) => {
+    const payBtn = event.target.closest('#sur-pay-schedule')
+    if (payBtn) {
+      event.preventDefault()
+      event.stopPropagation()
+      void runSurveyLaunchFlow()
+      return
+    }
+
+    const genBtn = event.target.closest('#sur-ai-generate')
+    if (genBtn) {
+      event.preventDefault()
+      void generateServiceScript('survey')
+      return
+    }
+
+    const regenBtn = event.target.closest('#sur-ai-regen')
+    if (regenBtn) {
+      event.preventDefault()
+      void generateServiceScript('survey')
+      return
+    }
+
+    const approveBtn = event.target.closest('#sur-ai-approve')
+    if (approveBtn) {
+      event.preventDefault()
+      approveServiceScript('survey')
+      return
+    }
+
+    const uploadZone = event.target.closest('#sur-upload-zone')
+    if (uploadZone) {
+      event.preventDefault()
+      document.getElementById('sur-file-input')?.click()
+      return
+    }
+
+    const templateLink = event.target.closest('#sur-template-dl')
+    if (templateLink) {
+      event.preventDefault()
+      void downloadAuthenticatedFile('/service-orders/template.csv', 'voxbulk-contacts-template.csv').catch(
+        (err) => notifyUser(err.message || 'Could not download template', 'tr'),
+      )
+    }
   })
 
-  document.getElementById('sur-agent-select')?.addEventListener('change', (e) => {
-    surveyLaunch.selectedAgentId = e.target.value || null
-    surveyLaunch.agentManual = true
-    logSurvey('agent_selected', { agent_id: surveyLaunch.selectedAgentId })
-  })
-
-  document.getElementById('sur-pay-schedule')?.addEventListener('click', () => {
-    void runSurveyLaunchFlow()
+  document.addEventListener('change', (event) => {
+    if (event.target?.id === 'sur-file-input') {
+      void onSurveyFileSelected(event.target.files?.[0] || null)
+    }
+    if (event.target?.id === 'sur-package-select') {
+      surveyLaunch.selectedPackageId = event.target.value || null
+      surveyLaunch.packageManual = true
+      logSurvey('package_manual', { package_id: surveyLaunch.selectedPackageId })
+      void refreshSurveyQuote()
+    }
+    if (event.target?.id === 'sur-agent-select') {
+      surveyLaunch.selectedAgentId = event.target.value || null
+      surveyLaunch.agentManual = true
+      logSurvey('agent_selected', { agent_id: surveyLaunch.selectedAgentId })
+    }
   })
 }
 
@@ -383,10 +438,12 @@ async function schedulePaidSurveyOrder(order) {
 }
 
 async function runSurveyLaunchFlow() {
-  if (surveyLaunch.paying) return
+  logSurvey('pay_button_clicked')
+  try {
+    if (surveyLaunch.paying) return
 
-  clearSurveyValidationUi()
-  const errors = []
+    clearSurveyValidationUi()
+    const errors = []
 
   const scriptEl = document.getElementById('sur-ai-script')
   const approveBtn = document.getElementById('sur-ai-approve')
@@ -515,6 +572,12 @@ async function runSurveyLaunchFlow() {
     notifyUser(e.message || 'Could not create survey order', 'tr')
     logSurvey('launch_failed', { message: e.message })
   } finally {
+    surveyLaunch.paying = false
+    renderSurveyQuoteUi()
+  }
+  } catch (err) {
+    console.error('[survey] launch_unhandled', err)
+    notifyUser(err?.message || 'Pay and schedule failed — please try again', 'tr')
     surveyLaunch.paying = false
     renderSurveyQuoteUi()
   }
@@ -1107,11 +1170,8 @@ async function loadOrdersIntoUi() {
 }
 
 function bindUploads() {
-  const surInput = document.getElementById('sur-file-input')
   const intInput = document.getElementById('int-file-input')
-  const surZone = document.getElementById('sur-upload-zone')
   const intZone = document.getElementById('int-upload-zone')
-  const surTpl = document.getElementById('sur-template-dl')
   const intTpl = document.getElementById('int-template-dl')
 
   async function ingestRecipientFile(file, serviceCode) {
@@ -1126,16 +1186,6 @@ function bindUploads() {
     }
   }
 
-  if (surTpl) {
-    surTpl.addEventListener('click', async (e) => {
-      e.preventDefault()
-      try {
-        await downloadAuthenticatedFile('/service-orders/template.csv', 'voxbulk-contacts-template.csv')
-      } catch (err) {
-        window.toast?.(err.message || 'Could not download template', 'tr')
-      }
-    })
-  }
   if (intTpl) {
     intTpl.addEventListener('click', async (e) => {
       e.preventDefault()
@@ -1144,12 +1194,6 @@ function bindUploads() {
       } catch (err) {
         window.toast?.(err.message || 'Could not download template', 'tr')
       }
-    })
-  }
-  if (surZone && surInput) {
-    surZone.addEventListener('click', () => surInput.click())
-    surInput.addEventListener('change', async () => {
-      await onSurveyFileSelected(surInput.files?.[0] || null)
     })
   }
   if (intZone && intInput) {
@@ -1487,16 +1531,17 @@ function wireHelpChat() {
 }
 
 function wireAiButtons() {
-  document.getElementById('sur-ai-generate')?.addEventListener('click', () => generateServiceScript('survey'))
-  document.getElementById('sur-ai-regen')?.addEventListener('click', () => generateServiceScript('survey'))
-  document.getElementById('sur-ai-approve')?.addEventListener('click', () => approveServiceScript('survey'))
-
   document.getElementById('int-ai-generate')?.addEventListener('click', () => generateServiceScript('interview'))
   document.getElementById('int-ai-regen')?.addEventListener('click', () => generateServiceScript('interview'))
   document.getElementById('int-ai-approve')?.addEventListener('click', () => approveServiceScript('interview'))
 }
 
 export function initServiceOrdersBridge() {
+  ensureSurveyActionDelegation()
+  window.payAndScheduleSurvey = (event) => {
+    event?.preventDefault?.()
+    void runSurveyLaunchFlow()
+  }
   window.launchSurCampaign = () => runSurveyLaunchFlow()
   window.launchIntCampaign = async () => {
     await runOrderFlow('interview')
@@ -1521,4 +1566,12 @@ export function initServiceOrdersBridge() {
   void loadSurveyLaunchPackages().catch(() => {})
   void loadSurveyAgents().catch(() => {})
   renderSurveyQuoteUi()
+}
+
+ensureSurveyActionDelegation()
+if (typeof window !== 'undefined') {
+  window.payAndScheduleSurvey = (event) => {
+    event?.preventDefault?.()
+    void runSurveyLaunchFlow()
+  }
 }
