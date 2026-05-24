@@ -938,10 +938,9 @@ class BillingService:
         user_id: str,
         order_id: str,
     ) -> dict[str, Any]:
-        from app.models.service_order import ServiceOrder
-        from app.services.platform_catalog_service import PlatformCatalogService
+        from app.services.platform_catalog_service import ServiceOrderService
 
-        order = PlatformCatalogService.get_order(db, order_id, org_id=org_id)
+        order = ServiceOrderService.get_order(db, order_id, org_id=org_id)
         if order is None:
             raise ValueError("Order not found")
         if order.status not in {"quoted", "draft"} or order.quote_total_pence <= 0:
@@ -1017,8 +1016,7 @@ class BillingService:
         user_id: str,
         redirect_flow_id: str,
     ) -> dict[str, Any]:
-        from app.models.service_order import ServiceOrder
-        from app.services.platform_catalog_service import PlatformCatalogService
+        from app.services.platform_catalog_service import ServiceOrderService
 
         flow_id = str(redirect_flow_id or "").strip()
         if not flow_id:
@@ -1035,12 +1033,12 @@ class BillingService:
         if row is None:
             raise ValueError("Service order redirect flow not found")
 
-        order = PlatformCatalogService.get_order(db, row.service_order_id or "", org_id=org_id)
+        order = ServiceOrderService.get_order(db, row.service_order_id or "", org_id=org_id)
         if order is None:
             raise ValueError("Order not found")
 
         if row.status == "completed" and order.payment_status == "approved":
-            return {"ok": True, "status": "completed", "order": PlatformCatalogService.order_to_dict(order)}
+            return {"ok": True, "status": "completed", "order": ServiceOrderService.order_to_dict(order)}
 
         config = BillingService._get_gocardless_config(db)
         with httpx.Client(timeout=20) as client:
@@ -1128,5 +1126,5 @@ class BillingService:
         except Exception:
             pass
 
-        return {"ok": True, "status": "completed", "order": PlatformCatalogService.order_to_dict(order)}
+        return {"ok": True, "status": "completed", "order": ServiceOrderService.order_to_dict(order)}
 

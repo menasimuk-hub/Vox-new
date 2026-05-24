@@ -11,6 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.core.config import get_settings
+from app.core.cors_utils import apply_cors_headers
 from app.core.database import get_sessionmaker, init_db, ensure_schema_hotfixes
 from app.core.logging import configure_logging, get_logger
 from app.core.security import hash_password
@@ -195,6 +196,18 @@ if _reg:
 app.add_middleware(CORSMiddleware, **_cors_kw)
 
 
+@app.middleware("http")
+async def ensure_cors_on_all_responses(request: Request, call_next):
+    """CORSMiddleware does not attach ACAO to ServerError 500 responses; fix that here."""
+    settings = get_settings()
+    try:
+        response = await call_next(request)
+    except Exception:
+        get_logger(__name__).exception("unhandled_exception", extra={"path": request.url.path})
+        response = JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    return apply_cors_headers(request, response, settings)
+
+
 def _migration_hint_from_db_error(exc: BaseException) -> str | None:
     msg = str(exc).lower()
     if "unknown column" in msg or "doesn't exist" in msg or "no such table" in msg or "does not exist" in msg:
@@ -206,17 +219,19 @@ def _migration_hint_from_db_error(exc: BaseException) -> str | None:
 
 
 @app.exception_handler(OperationalError)
-async def db_operational_error_handler(_request: Request, exc: OperationalError):
+async def db_operational_error_handler(request: Request, exc: OperationalError):
     hint = _migration_hint_from_db_error(exc)
     detail = hint or "Database error — check API logs and DATABASE_URL."
-    return JSONResponse(status_code=503, content={"detail": detail})
+    response = JSONResponse(status_code=503, content={"detail": detail})
+    return apply_cors_headers(request, response, get_settings())
 
 
 @app.exception_handler(ProgrammingError)
-async def db_programming_error_handler(_request: Request, exc: ProgrammingError):
+async def db_programming_error_handler(request: Request, exc: ProgrammingError):
     hint = _migration_hint_from_db_error(exc)
     detail = hint or "Database error — check API logs."
-    return JSONResponse(status_code=503, content={"detail": detail})
+    response = JSONResponse(status_code=503, content={"detail": detail})
+    return apply_cors_headers(request, response, get_settings())
 
 
 @app.get("/health", tags=["health"])

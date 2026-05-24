@@ -820,6 +820,14 @@ function escHtml(text) {
 
 async function offerSurveyPayment(order) {
   try {
+    await loadPaymentOptions()
+  } catch {
+    if (!state.paymentOptions) {
+      state.paymentOptions = { cash_available: true, gocardless_available: false }
+    }
+  }
+
+  try {
     const credits = await api('/service-orders/credits')
     const available = Number(credits?.survey_credits || 0)
     if (available >= Number(order.recipient_count || 0) && order.recipient_count > 0) {
@@ -835,22 +843,14 @@ async function offerSurveyPayment(order) {
     /* fall through */
   }
 
-  // Ensure paymentOptions is initialized
-  if (!state.paymentOptions) {
-    try {
-      await loadPaymentOptions()
-    } catch {
-      state.paymentOptions = { cash_available: true, gocardless_available: false }
-    }
-  }
-
   const gc = Boolean(state.paymentOptions?.gocardless_available)
   const cash = state.paymentOptions?.cash_available !== false
   const quoteText = (order.quote_breakdown || []).map((l) => l.detail || l.label).join('\n')
+  const amountLabel = order.quote_total_gbp || fmtGbp(order.quote_total_pence)
 
   if (gc && cash) {
     const useGc = window.confirm(
-      `${order.quote_total_gbp} due now\n\n${quoteText}\n\nOK = Pay with GoCardless\nCancel = Pay cash (admin approval)`,
+      `${amountLabel} due now\n\n${quoteText}\n\nOK = Pay with GoCardless\nCancel = Pay cash (admin approval)`,
     )
     if (useGc) {
       await startGocardlessOrderPayment(order.id)
@@ -865,15 +865,7 @@ async function offerSurveyPayment(order) {
     return
   }
 
-  const cashMsg = `Total ${order.quote_total_gbp}\n\n${quoteText}\n\nAfter you pay cash, admin must approve before the survey is scheduled.\n\nClick OK to confirm cash payment.`
-  if (typeof window.showConfirm === 'function') {
-    window.showConfirm('Confirm payment', cashMsg, 'I paid cash', () => submitSurveyCashPayment(order.id))
-    return
-  }
-  if (typeof showConfirm === 'function') {
-    showConfirm('Confirm payment', cashMsg, 'I paid cash', () => submitSurveyCashPayment(order.id))
-    return
-  }
+  const cashMsg = `Total ${amountLabel}\n\n${quoteText}\n\nAfter you pay cash, admin must approve before the survey is scheduled.\n\nClick OK to confirm cash payment.`
   if (window.confirm(cashMsg)) {
     await submitSurveyCashPayment(order.id)
   }
