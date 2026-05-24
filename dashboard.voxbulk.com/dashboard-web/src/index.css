@@ -683,6 +683,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .survey-pkg-mini.isSelected{border-color:var(--grn);background:var(--gd)}
 .survey-pkg-summarySelected{margin-top:8px;padding-top:8px;border-top:1px solid var(--b1);font-size:11.5px;color:var(--t2)}
 
+/* ─── SURVEY LAUNCH FLOW ─── */
+.sur-launch-note{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--t2);background:var(--s2);border:1px solid var(--b1);border-radius:999px;padding:5px 10px;margin-bottom:12px}
+.sur-launch-note i{color:var(--blu);font-size:13px}
+.sur-launch-pricing{background:var(--s2);border:1.5px solid var(--b1);border-radius:11px;padding:12px 13px;margin-bottom:10px}
+.sur-launch-pricing-head{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--t1);margin-bottom:8px}
+.sur-launch-pricing-head i{color:var(--grn);font-size:14px}
+.sur-launch-meta{font-size:11.5px;margin-bottom:8px}
+.sur-quote-breakdown{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+.sur-quote-line{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;color:var(--t2);padding:4px 0;border-bottom:1px solid var(--b1)}
+.sur-quote-line:last-child{border-bottom:none}
+.sur-quote-line strong{color:var(--t1);font-weight:600;text-align:right;white-space:nowrap}
+.sur-quote-line.isExtra strong{color:var(--amb)}
+.sur-quote-total{display:flex;justify-content:space-between;align-items:center;padding-top:8px;margin-top:4px;border-top:1.5px solid var(--b2);font-size:12px;font-weight:700;color:var(--t1)}
+.sur-quote-total span:last-child{font-size:16px;color:var(--grn)}
+.sur-quote-status{font-size:11px;margin-top:6px;min-height:14px}
+
 /* ─── PRICING TOGGLE ─── */
 .tgl-r{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px}
 .tgl-l{font-size:12.5px;color:var(--t2);font-weight:500}

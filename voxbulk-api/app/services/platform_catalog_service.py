@@ -775,6 +775,24 @@ class ServiceOrderService:
         return order
 
     @staticmethod
+    def schedule_order(db: Session, order: ServiceOrder) -> ServiceOrder:
+        """Mark a paid order as scheduled/ready without dispatching calls."""
+        if order.payment_status != "approved":
+            raise ValueError("Payment must be approved before scheduling")
+        if order.status in {"running", "completed"}:
+            raise ValueError("Order is already running or completed")
+        now = datetime.utcnow()
+        if order.run_mode == "scheduled" and order.scheduled_start_at and now < order.scheduled_start_at:
+            order.status = "scheduled"
+        else:
+            order.status = "paid"
+        order.updated_at = now
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return order
+
+    @staticmethod
     def start_order(db: Session, order: ServiceOrder) -> ServiceOrder:
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved by admin before starting")

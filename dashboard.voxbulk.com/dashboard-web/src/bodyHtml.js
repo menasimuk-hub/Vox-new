@@ -311,17 +311,13 @@ const bodyHtml = `<div class="app" id="app">
             </div>
           </div>
         </div>
-        <!-- SURVEY PRICING SUMMARY -->
-        <div id="sur-pricing-summary" class="card" style="margin-bottom:12px;padding:14px 16px"></div>
         <!-- NEW CAMPAIGN FORM -->
         <div class="card">
           <div class="ch"><i class="ti ti-plus grn"></i>New survey campaign</div>
+          <div class="sur-launch-note"><i class="ti ti-phone"></i> AI phone call surveys · Phase 1</div>
           <div class="fg"><label>What do you want to learn?</label><textarea id="sur-goal" rows="2" style="resize:none" placeholder="e.g. Patient satisfaction — experience, wait times, likelihood to recommend"></textarea></div>
-          <div class="fg2">
-            <div class="fg"><label>Contact method</label><select id="sur-contact-method"><option selected>AI phone call</option><option>WhatsApp</option></select></div>
-            <div class="fg"><label>Max call length</label><select id="sur-max-length"><option selected>3 minutes</option><option>5 minutes</option><option>10 minutes</option></select></div>
-          </div>
-          <div class="standalone-upload" id="sur-upload-zone" style="margin-bottom:12px;cursor:pointer"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Upload contact list · CSV/Excel: name, phone, email (phone used for WhatsApp)<br/><a href="#" id="sur-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a><input type="file" id="sur-file-input" accept=".csv,.xlsx,.xls" style="display:none"/></div>
+          <div class="fg"><label>Max call length</label><select id="sur-max-length"><option selected>3 minutes</option><option>5 minutes</option><option>10 minutes</option></select></div>
+          <div class="standalone-upload" id="sur-upload-zone" style="margin-bottom:12px;cursor:pointer"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Upload contact list · CSV/Excel: name, phone, email<br/><a href="#" id="sur-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a><input type="file" id="sur-file-input" accept=".csv,.xlsx,.xls" style="display:none"/></div>
           <div id="sur-ai-panel" style="display:none;margin-bottom:10px;background:var(--s2);border-radius:11px;padding:13px;border:1.5px solid var(--b2)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
               <span style="font-size:12px;font-weight:700;color:var(--t1)"><i class="ti ti-sparkles" style="color:var(--grn)"></i> AI-generated survey script</span>
@@ -331,7 +327,6 @@ const bodyHtml = `<div class="app" id="app">
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btng bsm" type="button" id="sur-ai-approve"><i class="ti ti-check"></i>Approve script</button>
               <button class="btn bsm" type="button" id="sur-ai-regen"><i class="ti ti-refresh"></i>Regenerate</button>
-              <button class="btn bsm" type="button" id="sur-wa-preview-btn" style="display:none;border-color:#25D366;color:#25D366"><i class="ti ti-brand-whatsapp"></i>WhatsApp preview</button>
             </div>
           </div>
           <!-- CALLING WINDOW -->
@@ -349,9 +344,18 @@ const bodyHtml = `<div class="app" id="app">
               <i class="ti ti-check"></i><span id="sur-window-text"></span>
             </div>
           </div>
-          <div style="display:flex;gap:8px">
+          <!-- PACKAGE + QUOTE -->
+          <div id="sur-launch-pricing" class="sur-launch-pricing" hidden>
+            <div class="sur-launch-pricing-head"><i class="ti ti-receipt"></i> Package &amp; pricing</div>
+            <div id="sur-contact-count" class="sur-launch-meta muted"></div>
+            <div class="fg" style="margin-bottom:8px"><label>AI call package</label><select id="sur-package-select"></select></div>
+            <div id="sur-quote-breakdown" class="sur-quote-breakdown"></div>
+            <div id="sur-quote-total" class="sur-quote-total"></div>
+            <div id="sur-quote-status" class="sur-quote-status muted"></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
             <button class="btn btng bsm" type="button" id="sur-ai-generate"><i class="ti ti-sparkles"></i>AI write survey script</button>
-            <button class="btn bsm" onclick="launchSurCampaign()">Launch survey</button>
+            <button class="btn btng bsm" type="button" id="sur-pay-schedule" disabled><i class="ti ti-credit-card"></i>Pay and schedule survey</button>
           </div>
         </div>
       </div>

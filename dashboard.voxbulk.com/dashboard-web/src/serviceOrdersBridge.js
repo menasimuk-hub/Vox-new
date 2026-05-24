@@ -23,6 +23,21 @@ const state = {
   paymentOptions: null,
 }
 
+const surveyLaunch = {
+  packages: [],
+  packagesLoaded: false,
+  contactCount: 0,
+  contactCountKnown: false,
+  selectedPackageId: null,
+  packageManual: false,
+  quote: null,
+  quoting: false,
+  quoteError: '',
+  paying: false,
+}
+
+const LOG_SURVEY = '[survey]'
+
 const GC_ORDER_FLOW_KEY = 'voxbulk_gc_order_redirect_flow_id'
 
 const waPreview = {
@@ -39,6 +54,451 @@ async function api(path, options = {}) {
 
 function fmtGbp(pence) {
   return `£${(Number(pence || 0) / 100).toFixed(2)}`
+}
+
+function logSurvey(event, detail = {}) {
+  console.info(LOG_SURVEY, event, detail)
+}
+
+function autoPickSurveyPackage(count, packages) {
+  const list = (packages || []).filter((p) => p.is_active !== false)
+  if (!list.length) return null
+  const n = Math.max(Number(count || 0), 0)
+  const fitting = list.filter((p) => Number(p.bundle_size || 0) >= n)
+  if (fitting.length) {
+    return fitting.reduce((best, pkg) =>
+      Number(pkg.bundle_size || 0) < Number(best.bundle_size || 0) ? pkg : best,
+    )
+  }
+  return list.reduce((best, pkg) =>
+    Number(pkg.bundle_size || 0) > Number(best.bundle_size || 0) ? pkg : best,
+  )
+}
+
+function packageLabel(pkg) {
+  const size = Number(pkg.bundle_size || 0)
+  return `${pkg.label || 'Package'} — ${size} contacts @ ${fmtGbp(pkg.bundle_price_pence)}`
+}
+
+async function loadSurveyLaunchPackages() {
+  if (surveyLaunch.packagesLoaded && surveyLaunch.packages.length) return surveyLaunch.packages
+  try {
+    const data = await api('/service-orders/survey-packages')
+    surveyLaunch.packages = data?.packages?.ai_call || []
+    surveyLaunch.packagesLoaded = true
+    logSurvey('packages_loaded', { count: surveyLaunch.packages.length })
+    return surveyLaunch.packages
+  } catch (e) {
+    logSurvey('packages_failed', { message: e.message })
+    throw e
+  }
+}
+
+async function countContactsInFile(file) {
+  if (!file) return 0
+  const lower = file.name.toLowerCase()
+  if (!lower.endsWith('.csv')) return null
+  try {
+    const chunk = await file.slice(0, 512 * 1024).text()
+    const lines = chunk.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    if (lines.length < 2) return 0
+    let count = 0
+    for (let i = 1; i < lines.length; i += 1) {
+      const cols = lines[i].split(',').map((c) => c.trim().replace(/^"|"$/g, ''))
+      if (cols.some(Boolean)) count += 1
+    }
+    return count
+  } catch {
+    return null
+  }
+}
+
+function renderSurveyPackageSelect() {
+  const select = document.getElementById('sur-package-select')
+  if (!select) return
+  const pkgs = surveyLaunch.packages
+  select.innerHTML = pkgs
+    .map(
+      (pkg) =>
+        `<option value="${pkg.id}"${String(pkg.id) === String(surveyLaunch.selectedPackageId) ? ' selected' : ''}>${packageLabel(pkg)}</option>`,
+    )
+    .join('')
+}
+
+function renderSurveyQuoteUi() {
+  const panel = document.getElementById('sur-launch-pricing')
+  const countEl = document.getElementById('sur-contact-count')
+  const breakdownEl = document.getElementById('sur-quote-breakdown')
+  const totalEl = document.getElementById('sur-quote-total')
+  const statusEl = document.getElementById('sur-quote-status')
+  const payBtn = document.getElementById('sur-pay-schedule')
+  if (!panel) return
+
+  if (!state.surveyFile) {
+    panel.hidden = true
+    if (payBtn) payBtn.disabled = true
+    return
+  }
+
+  panel.hidden = false
+  if (countEl) {
+    countEl.textContent = surveyLaunch.contactCountKnown
+      ? `${surveyLaunch.contactCount} contacts uploaded`
+      : 'Excel upload — exact contact count confirmed at checkout'
+  }
+
+  if (surveyLaunch.quoting) {
+    if (statusEl) statusEl.textContent = 'Calculating quote…'
+    if (payBtn) payBtn.disabled = true
+    return
+  }
+
+  if (surveyLaunch.quoteError) {
+    if (breakdownEl) breakdownEl.innerHTML = ''
+    if (totalEl) totalEl.innerHTML = ''
+    if (statusEl) statusEl.textContent = surveyLaunch.quoteError
+    if (payBtn) payBtn.disabled = true
+    return
+  }
+
+  const quote = surveyLaunch.quote
+  if (!quote) {
+    if (breakdownEl) breakdownEl.innerHTML = ''
+    if (totalEl) totalEl.innerHTML = ''
+    if (statusEl) statusEl.textContent = surveyLaunch.contactCountKnown
+      ? 'Select a package to see pricing'
+      : 'Upload CSV for live pricing, or continue to checkout'
+    if (payBtn) payBtn.disabled = !surveyLaunch.selectedPackageId
+    return
+  }
+
+  const bundleLine = (quote.lines || []).find((l) => l.kind === 'bundle')
+  const setupLine = (quote.lines || []).find((l) => l.kind === 'setup')
+  const overageLine = (quote.lines || []).find((l) => l.kind === 'overage')
+  const covered = bundleLine?.contacts_included || bundleLine?.bundle_size || 0
+
+  if (breakdownEl) {
+    breakdownEl.innerHTML = [
+      `<div class="sur-quote-line"><span>Uploaded contacts</span><strong>${quote.recipient_count}</strong></div>`,
+      bundleLine
+        ? `<div class="sur-quote-line"><span>${bundleLine.label} (covers ${covered})</span><strong>${fmtGbp(bundleLine.amount_pence)}</strong></div>`
+        : '',
+      overageLine
+        ? `<div class="sur-quote-line isExtra"><span>${overageLine.extra_contacts || ''} extra contacts</span><strong>${fmtGbp(overageLine.amount_pence)}</strong></div>`
+        : '',
+      setupLine
+        ? `<div class="sur-quote-line"><span>${setupLine.label || 'Setup fee'}</span><strong>${fmtGbp(setupLine.amount_pence)}</strong></div>`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('')
+  }
+
+  if (totalEl) {
+    totalEl.innerHTML = `<span>Total due now</span><span>${quote.total_gbp || fmtGbp(quote.total_pence)}</span>`
+  }
+
+  if (statusEl) {
+    statusEl.textContent = surveyLaunch.packageManual
+      ? 'Manual package selected'
+      : 'Best-fit package auto-selected'
+  }
+
+  if (payBtn) payBtn.disabled = surveyLaunch.paying || !surveyLaunch.selectedPackageId
+}
+
+async function refreshSurveyQuote() {
+  if (!state.surveyFile) return
+  await loadSurveyLaunchPackages()
+  renderSurveyPackageSelect()
+
+  if (!surveyLaunch.selectedPackageId && surveyLaunch.packages.length) {
+    const picked = autoPickSurveyPackage(surveyLaunch.contactCount, surveyLaunch.packages)
+    surveyLaunch.selectedPackageId = picked?.id || surveyLaunch.packages[0]?.id || null
+    surveyLaunch.packageManual = false
+    renderSurveyPackageSelect()
+  }
+
+  if (!surveyLaunch.selectedPackageId) {
+    surveyLaunch.quote = null
+    surveyLaunch.quoteError = 'No AI call packages available'
+    renderSurveyQuoteUi()
+    return
+  }
+
+  if (!surveyLaunch.contactCountKnown) {
+    surveyLaunch.quote = null
+    surveyLaunch.quoteError = ''
+    renderSurveyQuoteUi()
+    return
+  }
+
+  surveyLaunch.quoting = true
+  surveyLaunch.quoteError = ''
+  renderSurveyQuoteUi()
+  logSurvey('quote_start', {
+    contacts: surveyLaunch.contactCount,
+    package_id: surveyLaunch.selectedPackageId,
+  })
+
+  try {
+    const quote = await api('/service-orders/quote', {
+      method: 'POST',
+      body: JSON.stringify({
+        service_code: 'survey',
+        recipient_count: surveyLaunch.contactCount,
+        options: {
+          survey_channel: 'ai_call',
+          package_id: surveyLaunch.selectedPackageId,
+        },
+      }),
+    })
+    surveyLaunch.quote = quote
+    logSurvey('quote_ok', { total_pence: quote.total_pence, package_id: quote.selected_package_id })
+  } catch (e) {
+    surveyLaunch.quote = null
+    surveyLaunch.quoteError = e.message || 'Could not calculate quote'
+    logSurvey('quote_failed', { message: surveyLaunch.quoteError })
+  } finally {
+    surveyLaunch.quoting = false
+    renderSurveyQuoteUi()
+  }
+}
+
+async function onSurveyFileSelected(file) {
+  state.surveyFile = file || null
+  surveyLaunch.quote = null
+  surveyLaunch.quoteError = ''
+  if (!file) {
+    surveyLaunch.contactCount = 0
+    surveyLaunch.contactCountKnown = false
+    renderSurveyQuoteUi()
+    return
+  }
+
+  window.toast?.(`Selected ${file.name}`, 'tg')
+  await ingestRecipientFile(file, 'survey')
+
+  const count = await countContactsInFile(file)
+  if (count === null) {
+    surveyLaunch.contactCountKnown = false
+    surveyLaunch.contactCount = 0
+    logSurvey('contacts_unknown', { filename: file.name })
+  } else {
+    surveyLaunch.contactCountKnown = true
+    surveyLaunch.contactCount = count
+    logSurvey('contacts_counted', { count })
+  }
+
+  if (!surveyLaunch.packageManual) {
+    await loadSurveyLaunchPackages()
+    const picked = autoPickSurveyPackage(surveyLaunch.contactCount, surveyLaunch.packages)
+    surveyLaunch.selectedPackageId = picked?.id || null
+  }
+
+  await refreshSurveyQuote()
+}
+
+function bindSurveyLaunchUi() {
+  document.getElementById('sur-package-select')?.addEventListener('change', (e) => {
+    surveyLaunch.selectedPackageId = e.target.value || null
+    surveyLaunch.packageManual = true
+    logSurvey('package_manual', { package_id: surveyLaunch.selectedPackageId })
+    void refreshSurveyQuote()
+  })
+
+  document.getElementById('sur-pay-schedule')?.addEventListener('click', () => {
+    void runSurveyLaunchFlow()
+  })
+}
+
+async function schedulePaidSurveyOrder(order) {
+  try {
+    const scheduled = await api(`/service-orders/${order.id}/schedule`, { method: 'POST' })
+    logSurvey('scheduled', { order_id: order.id, status: scheduled.status })
+    return scheduled
+  } catch (e) {
+    logSurvey('schedule_failed', { order_id: order.id, message: e.message })
+    return order
+  }
+}
+
+async function runSurveyLaunchFlow() {
+  if (surveyLaunch.paying) return
+
+  if (!state.surveyFile) {
+    window.toast?.('Upload a CSV or Excel contact list first', 'tr')
+    return
+  }
+
+  const sched = schedulePayload('sur')
+  if (!sched.scheduled_start_at) {
+    window.toast?.('Please set a start and end date first', 'tr')
+    return
+  }
+
+  if (!state.surveyScriptApproved) {
+    window.toast?.('Generate your AI script, read it, then click Approve before paying', 'tr')
+    showAiPanel('sur', true)
+    document.getElementById('sur-ai-script')?.focus()
+    return
+  }
+
+  if (!surveyLaunch.selectedPackageId) {
+    window.toast?.('Select an AI call package first', 'tr')
+    return
+  }
+
+  surveyLaunch.paying = true
+  renderSurveyQuoteUi()
+  logSurvey('launch_start')
+
+  const title = (document.getElementById('sur-goal')?.value || 'Survey campaign').trim().slice(0, 120)
+  const branding = getClientContextForApi()
+  const config = {
+    goal: document.getElementById('sur-goal')?.value || '',
+    survey_channel: 'ai_call',
+    package_id: surveyLaunch.selectedPackageId,
+    channels: ['call'],
+    contact_method: 'AI phone call',
+    script_mode: scriptModeFromButtons('survey'),
+    approved_script: state.surveyScriptPayload?.script_text || '',
+    script_questions: state.surveyScriptPayload?.questions || [],
+    system_prompt: state.surveyScriptPayload?.system_prompt || '',
+    script_approved: state.surveyScriptApproved,
+    organisation_name: branding.organisation_name,
+    survey_organiser_name: branding.survey_organiser_name,
+    clinic_name: branding.organisation_name,
+  }
+
+  try {
+    let order = await api('/service-orders', {
+      method: 'POST',
+      body: JSON.stringify({ service_code: 'survey', title, config }),
+    })
+    order = await uploadRecipients(order.id, state.surveyFile)
+    await api(`/service-orders/${order.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(sched),
+    })
+    order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+
+    logSurvey('order_quoted', {
+      order_id: order.id,
+      total: order.quote_total_gbp,
+      contacts: order.recipient_count,
+    })
+
+    await offerSurveyPayment(order)
+  } catch (e) {
+    window.toast?.(e.message || 'Could not create survey order', 'tr')
+    logSurvey('launch_failed', { message: e.message })
+  } finally {
+    surveyLaunch.paying = false
+    renderSurveyQuoteUi()
+  }
+}
+
+async function offerSurveyPayment(order) {
+  try {
+    const credits = await api('/service-orders/credits')
+    const available = Number(credits?.survey_credits || 0)
+    if (available >= Number(order.recipient_count || 0) && order.recipient_count > 0) {
+      const usePromo = window.confirm(
+        `You have ${available} promo survey credit(s).\nThis order needs ${order.recipient_count}.\n\nUse promo credits instead of paying?`,
+      )
+      if (usePromo) {
+        await submitSurveyPromoCreditPayment(order.id)
+        return
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+
+  const gc = Boolean(state.paymentOptions?.gocardless_available)
+  const cash = state.paymentOptions?.cash_available !== false
+  const quoteText = (order.quote_breakdown || []).map((l) => l.detail || l.label).join('\n')
+
+  if (gc && cash) {
+    const useGc = window.confirm(
+      `${order.quote_total_gbp} due now\n\n${quoteText}\n\nOK = Pay with GoCardless\nCancel = Pay cash (admin approval)`,
+    )
+    if (useGc) {
+      await startGocardlessOrderPayment(order.id)
+      return
+    }
+    await submitSurveyCashPayment(order.id)
+    return
+  }
+
+  if (gc) {
+    await startGocardlessOrderPayment(order.id)
+    return
+  }
+
+  window.showConfirm?.(
+    `Total ${order.quote_total_gbp}`,
+    `${quoteText}\n\nAfter you pay cash, admin must approve before the survey is scheduled.`,
+    'I paid cash',
+    () => submitSurveyCashPayment(order.id),
+  )
+}
+
+async function submitSurveyPromoCreditPayment(orderId) {
+  try {
+    const paid = await api(`/service-orders/${orderId}/pay-promo-credits`, { method: 'POST' })
+    const scheduled = await schedulePaidSurveyOrder(paid)
+    window.toast?.(
+      scheduled.status === 'scheduled' ? 'Paid — survey scheduled' : 'Paid — survey ready',
+      'tg',
+    )
+    await loadOrdersIntoUi()
+    resetSurveyLaunchForm()
+  } catch (e) {
+    window.toast?.(e.message || 'Could not use promo credits', 'tr')
+  }
+}
+
+async function submitSurveyCashPayment(orderId) {
+  try {
+    const paid = await api(`/service-orders/${orderId}/pay-cash`, {
+      method: 'POST',
+      body: JSON.stringify({ note: 'Cash payment submitted from dashboard' }),
+    })
+    if (paid.payment_status === 'approved') {
+      const scheduled = await schedulePaidSurveyOrder(paid)
+      window.toast?.(
+        scheduled.status === 'scheduled' ? 'Payment approved — survey scheduled' : 'Payment approved — survey ready',
+        'tg',
+      )
+    } else {
+      window.toast?.('Payment submitted — waiting for admin approval', 'tg')
+    }
+    await loadOrdersIntoUi()
+    resetSurveyLaunchForm()
+  } catch (e) {
+    window.toast?.(e.message || 'Payment submit failed', 'tr')
+  }
+}
+
+function resetSurveyLaunchForm() {
+  state.surveyFile = null
+  state.surveyScriptApproved = false
+  state.surveyScriptPayload = null
+  surveyLaunch.contactCount = 0
+  surveyLaunch.contactCountKnown = false
+  surveyLaunch.selectedPackageId = null
+  surveyLaunch.packageManual = false
+  surveyLaunch.quote = null
+  surveyLaunch.quoteError = ''
+  const fileInput = document.getElementById('sur-file-input')
+  if (fileInput) fileInput.value = ''
+  document.getElementById('sur-goal') && (document.getElementById('sur-goal').value = '')
+  document.getElementById('sur-ai-script') && (document.getElementById('sur-ai-script').value = '')
+  showAiPanel('sur', false)
+  setAiStatus('sur', false)
+  renderSurveyQuoteUi()
 }
 
 function deliveryFromInterviewForm() {
@@ -292,7 +752,7 @@ async function generateServiceScript(serviceCode) {
     ? {
         service_code: 'survey',
         goal: goalEl?.value || '',
-        contact_method: selectValue(document.getElementById('sur-contact-method')),
+        contact_method: 'AI phone call',
         max_call_length: selectValue(document.getElementById('sur-max-length')),
         client_context: getClientContextForApi(),
       }
@@ -317,12 +777,7 @@ async function generateServiceScript(serviceCode) {
     if (isSurvey) state.surveyScriptPayload = materialised
     else state.interviewScriptPayload = materialised
     syncSurveyWhatsAppUi()
-    window.toast?.(
-      isSurvey && surveyUsesWhatsApp()
-        ? 'Script ready — review it, use WhatsApp preview, then Approve'
-        : 'Script ready — read it below and click Approve when happy',
-      'tg',
-    )
+    window.toast?.('Script ready — read it below and click Approve when happy', 'tg')
     scriptBox?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   } catch (e) {
     window.toast?.(e.message || 'Could not generate script — check DeepSeek is configured', 'tr')
@@ -355,7 +810,7 @@ function approveServiceScript(serviceCode) {
     state.interviewScriptPayload = approved
   }
   setAiStatus(prefix, true)
-  window.toast?.('Script approved — you can launch when ready', 'tg')
+  window.toast?.('Script approved — you can pay and schedule when ready', 'tg')
 }
 
 function bindScriptEditors() {
@@ -385,8 +840,12 @@ function schedulePayload(prefix) {
 
 function statusBadge(status, paymentStatus) {
   if (paymentStatus === 'pending_approval') return '<span class="stat-wait">Awaiting payment</span>'
+  if (status === 'scheduled') return '<span class="stat-wait">Scheduled</span>'
+  if (status === 'draft') return '<span class="stat-wait">Draft</span>'
+  if (status === 'quoted') return '<span class="stat-wait">Quoted</span>'
+  if (status === 'awaiting_payment') return '<span class="stat-wait">Awaiting payment</span>'
   if (status === 'running') return '<span class="stat-live"><span style="width:6px;height:6px;border-radius:50%;background:var(--grn);display:inline-block;animation:lpulse 1.2s infinite"></span>Live</span>'
-  if (status === 'paid' || status === 'scheduled') return '<span class="stat-wait">Ready to start</span>'
+  if (status === 'paid') return '<span class="stat-wait">Paid — ready</span>'
   if (status === 'completed') return '<span class="stat-done">Completed</span>'
   return `<span class="stat-wait">${status}</span>`
 }
@@ -479,11 +938,7 @@ function bindUploads() {
   if (surZone && surInput) {
     surZone.addEventListener('click', () => surInput.click())
     surInput.addEventListener('change', async () => {
-      state.surveyFile = surInput.files?.[0] || null
-      if (state.surveyFile) {
-        window.toast?.(`Selected ${state.surveyFile.name}`, 'tg')
-        await ingestRecipientFile(state.surveyFile, 'survey')
-      }
+      await onSurveyFileSelected(surInput.files?.[0] || null)
     })
   }
   if (intZone && intInput) {
@@ -568,8 +1023,19 @@ async function completeGocardlessOrderReturn() {
     })
     const order = result?.order
     if (order?.payment_status === 'approved') {
-      await api(`/service-orders/${order.id}/start`, { method: 'POST' })
-      window.toast?.('GoCardless payment approved — campaign started', 'tg')
+      if (order.service_code === 'survey') {
+        const scheduled = await schedulePaidSurveyOrder(order)
+        window.toast?.(
+          scheduled.status === 'scheduled'
+            ? 'GoCardless payment approved — survey scheduled'
+            : 'GoCardless payment approved — survey ready',
+          'tg',
+        )
+        resetSurveyLaunchForm()
+      } else {
+        await api(`/service-orders/${order.id}/start`, { method: 'POST' })
+        window.toast?.('GoCardless payment approved — campaign started', 'tg')
+      }
     } else {
       window.toast?.('GoCardless payment completed', 'tg')
     }
@@ -684,6 +1150,7 @@ async function uploadRecipients(orderId, file) {
 }
 
 async function tryStartPaidOrder(serviceCode) {
+  if (serviceCode === 'survey') return false
   try {
     const orders = await api(`/service-orders?service_code=${encodeURIComponent(serviceCode)}`)
     const paid = (orders || []).find(
@@ -700,7 +1167,12 @@ async function tryStartPaidOrder(serviceCode) {
 }
 
 async function runOrderFlow(serviceCode) {
-  const isSurvey = serviceCode === 'survey'
+  if (serviceCode === 'survey') {
+    await runSurveyLaunchFlow()
+    return
+  }
+
+  const isSurvey = false
   if (await tryStartPaidOrder(serviceCode)) return
   const file = isSurvey ? state.surveyFile : state.interviewFile
   const prefix = isSurvey ? 'sur' : 'int'
@@ -807,8 +1279,6 @@ function wireAiButtons() {
   document.getElementById('sur-ai-generate')?.addEventListener('click', () => generateServiceScript('survey'))
   document.getElementById('sur-ai-regen')?.addEventListener('click', () => generateServiceScript('survey'))
   document.getElementById('sur-ai-approve')?.addEventListener('click', () => approveServiceScript('survey'))
-  document.getElementById('sur-wa-preview-btn')?.addEventListener('click', openSurveyWaPreview)
-  document.getElementById('sur-contact-method')?.addEventListener('change', syncSurveyWhatsAppUi)
 
   document.getElementById('int-ai-generate')?.addEventListener('click', () => generateServiceScript('interview'))
   document.getElementById('int-ai-regen')?.addEventListener('click', () => generateServiceScript('interview'))
@@ -816,7 +1286,7 @@ function wireAiButtons() {
 }
 
 export function initServiceOrdersBridge() {
-  window.launchSurCampaign = () => runOrderFlow('survey')
+  window.launchSurCampaign = () => runSurveyLaunchFlow()
   window.launchIntCampaign = async () => {
     await runOrderFlow('interview')
     const banner = document.getElementById('int-live-banner')
@@ -830,11 +1300,13 @@ export function initServiceOrdersBridge() {
   })
   bindUploads()
   bindScriptEditors()
+  bindSurveyLaunchUi()
   wireHelpChat()
   wireAiButtons()
-  syncSurveyWhatsAppUi()
   syncWaPreviewHeader()
   loadPaymentOptions()
   completeGocardlessOrderReturn()
   loadOrdersIntoUi()
+  void loadSurveyLaunchPackages().catch(() => {})
+  renderSurveyQuoteUi()
 }

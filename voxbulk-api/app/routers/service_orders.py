@@ -242,6 +242,18 @@ def complete_gocardless_order_payment(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
 
 
+@router.post("/{order_id}/schedule")
+def schedule_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        order = ServiceOrderService.schedule_order(db, order)
+        return ServiceOrderService.order_to_dict(order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/{order_id}/start")
 def start_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
