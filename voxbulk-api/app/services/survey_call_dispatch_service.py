@@ -128,32 +128,10 @@ def _order_window_ok(order: ServiceOrder, *, now: datetime | None = None) -> tup
     return True, None
 
 
-def _aggregate_report(order: ServiceOrder, recipients: list[ServiceOrderRecipient]) -> dict[str, Any]:
-    counts: dict[str, int] = {}
-    for row in recipients:
-        status = str(row.status or "pending").lower()
-        counts[status] = counts.get(status, 0) + 1
-    return {
-        "dispatch_at": datetime.utcnow().isoformat(),
-        "provider": "telnyx_voice",
-        "channel": "ai_call",
-        "total": len(recipients),
-        "counts": counts,
-        "completed": counts.get("completed", 0),
-        "no_answer": counts.get("no_answer", 0),
-        "failed": counts.get("failed", 0),
-        "busy": counts.get("busy", 0),
-        "pending": counts.get("pending", 0),
-        "calling": counts.get("calling", 0),
-    }
-
-
 def _refresh_order_report(db: Session, order: ServiceOrder) -> None:
-    recipients = ServiceOrderService.get_recipients(db, order.id)
-    order.report_json = json.dumps(_aggregate_report(order, recipients), ensure_ascii=False)
-    order.updated_at = datetime.utcnow()
-    db.add(order)
-    db.commit()
+    from app.services.survey_analysis_service import refresh_order_survey_report
+
+    refresh_order_survey_report(db, order)
 
 
 def _any_recipient_calling(recipients: list[ServiceOrderRecipient]) -> bool:
@@ -190,7 +168,10 @@ def _complete_order_window_expired(db: Session, order: ServiceOrder, *, reason: 
                 recipient,
                 {"error": reason, "cancelled_at": datetime.utcnow().isoformat()},
             )
-    report = _aggregate_report(order, ServiceOrderService.get_recipients(db, order.id))
+    from app.services.survey_analysis_service import build_order_survey_report
+
+    recipients = ServiceOrderService.get_recipients(db, order.id)
+    report = build_order_survey_report(order, recipients)
     report["note"] = reason
     order.report_json = json.dumps(report, ensure_ascii=False)
     order.status = "completed"
@@ -535,17 +516,49 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
         except Exception:
             pass
 
+        duration_seconds = None
+        for key in ("duration_secs", "duration_seconds", "duration"):
+            raw = record.get(key)
+            if raw is not None:
+                try:
+                    duration_seconds = int(raw)
+                    break
+                except (TypeError, ValueError):
+                    pass
+
+        hangup_extra = {
+            "call_control_id": call_id,
+            "hangup_cause": hangup_cause or None,
+            "transcript": transcript,
+            "duration_seconds": duration_seconds,
+        }
+
         SurveyCallDispatchService.finalize_recipient_after_call(
             db,
             order=order,
             recipient=recipient,
             status=terminal,
-            extra={
-                "call_control_id": call_id,
-                "hangup_cause": hangup_cause or None,
-                "transcript": transcript,
-            },
+            extra=hangup_extra,
         )
+
+        try:
+            from app.services.survey_analysis_service import (
+                SurveyAnalysisService,
+                schedule_survey_analysis_retry,
+            )
+
+            SurveyAnalysisService.process_recipient_post_call(
+                db,
+                order=order,
+                recipient=recipient,
+                terminal_status=terminal,
+                hangup_extra=hangup_extra,
+            )
+            if terminal == "completed" and not str(hangup_extra.get("transcript") or "").strip():
+                schedule_survey_analysis_retry(order.id, recipient.id)
+        except Exception:
+            logger.exception("survey_post_call_analysis_failed")
+
         _log(
             "call_ended",
             order_id=order.id,
@@ -564,6 +577,7 @@ def process_due_survey_call_orders(db: Session) -> int:
 
 async def survey_call_scheduler_loop(stop_event: asyncio.Event) -> None:
     from app.core.database import get_sessionmaker
+    from app.services.survey_analysis_service import SurveyAnalysisService
 
     sessionmaker = get_sessionmaker()
     while not stop_event.is_set():
@@ -572,6 +586,7 @@ async def survey_call_scheduler_loop(stop_event: asyncio.Event) -> None:
                 count = process_due_survey_call_orders(db)
                 if count:
                     logger.info("survey_call_campaigns_started", extra={"count": count})
+                SurveyAnalysisService.process_pending_analysis(db)
         except Exception:
             logger.exception("survey_call_scheduler_tick_failed")
         try:
