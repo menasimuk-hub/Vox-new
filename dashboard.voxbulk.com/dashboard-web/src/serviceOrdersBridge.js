@@ -202,7 +202,7 @@ function renderSurveyQuoteUi() {
 
   if (surveyLaunch.quoting) {
     if (statusEl) statusEl.textContent = 'Calculating quote…'
-    if (payBtn) payBtn.disabled = true
+    if (payBtn) payBtn.disabled = surveyLaunch.paying || !state.surveyFile
     return
   }
 
@@ -210,7 +210,7 @@ function renderSurveyQuoteUi() {
     if (breakdownEl) breakdownEl.innerHTML = ''
     if (totalEl) totalEl.innerHTML = ''
     if (statusEl) statusEl.textContent = surveyLaunch.quoteError
-    if (payBtn) payBtn.disabled = true
+    if (payBtn) payBtn.disabled = surveyLaunch.paying || !state.surveyFile
     return
   }
 
@@ -221,7 +221,7 @@ function renderSurveyQuoteUi() {
     if (statusEl) statusEl.textContent = surveyLaunch.contactCountKnown
       ? 'Select a package to see pricing'
       : 'Upload CSV for live pricing, or continue to checkout'
-    if (payBtn) payBtn.disabled = !surveyLaunch.selectedPackageId
+    if (payBtn) payBtn.disabled = surveyLaunch.paying || !state.surveyFile
     return
   }
 
@@ -257,7 +257,7 @@ function renderSurveyQuoteUi() {
       : 'Best-fit package auto-selected'
   }
 
-  if (payBtn) payBtn.disabled = surveyLaunch.paying || !surveyLaunch.selectedPackageId
+  if (payBtn) payBtn.disabled = surveyLaunch.paying || !state.surveyFile
 }
 
 async function refreshSurveyQuote() {
@@ -385,80 +385,93 @@ async function schedulePaidSurveyOrder(order) {
 async function runSurveyLaunchFlow() {
   if (surveyLaunch.paying) return
 
-  // Collect validation errors
+  clearSurveyValidationUi()
   const errors = []
-  
-  // Check approval
-  if (!state.surveyScriptApproved) {
-    errors.push('Prompt not approved')
-  }
 
-  // Check dates and times
+  const scriptEl = document.getElementById('sur-ai-script')
+  const approveBtn = document.getElementById('sur-ai-approve')
   const startDateEl = document.getElementById('sur-start-date')
   const startTimeEl = document.getElementById('sur-start-time')
   const endDateEl = document.getElementById('sur-end-date')
   const endTimeEl = document.getElementById('sur-end-time')
 
-  const startDate = startDateEl?.value?.trim()
-  const startTime = startTimeEl?.value?.trim()
-  const endDate = endDateEl?.value?.trim()
-  const endTime = endTimeEl?.value?.trim()
+  if (!state.surveyScriptApproved) {
+    errors.push('Please approve the prompt before continuing.')
+    scriptEl?.classList.add('error')
+    approveBtn?.classList.add('error')
+    showAiPanel('sur', true)
+  }
 
-  if (!startDate) {
-    errors.push('Start date not selected')
+  if (!startDateEl?.value?.trim()) {
+    errors.push('Please select a date.')
     startDateEl?.classList.add('error')
-  } else {
-    startDateEl?.classList.remove('error')
   }
-
-  if (!startTime) {
-    errors.push('Start time not selected')
+  if (!startTimeEl?.value?.trim()) {
+    errors.push('Please select a time.')
     startTimeEl?.classList.add('error')
-  } else {
-    startTimeEl?.classList.remove('error')
   }
-
-  if (!endDate) {
-    errors.push('End date not selected')
+  if (!endDateEl?.value?.trim()) {
+    errors.push('Please select an end date.')
     endDateEl?.classList.add('error')
-  } else {
-    endDateEl?.classList.remove('error')
   }
-
-  if (!endTime) {
-    errors.push('End time not selected')
+  if (!endTimeEl?.value?.trim()) {
+    errors.push('Please select an end time.')
     endTimeEl?.classList.add('error')
-  } else {
-    endTimeEl?.classList.remove('error')
   }
-
-  // Check other required fields
   if (!state.surveyFile) {
-    errors.push('Contact list not uploaded')
+    errors.push('Please upload a contact list.')
+    document.getElementById('sur-upload-zone')?.classList.add('error')
   }
 
-  if (!surveyLaunch.selectedPackageId) {
-    errors.push('AI call package not selected')
-  }
-
-  const agent = selectedSurveyAgent()
-  if (!agent && surveyLaunch.surveyAgents.length) {
-    errors.push('AI voice agent not selected')
-  }
-
-  // If there are validation errors, show them clearly
   if (errors.length > 0) {
     showSurveyValidationErrors(errors)
     return
   }
 
-  // All validation passed, proceed to payment flow
+  let agent = selectedSurveyAgent()
+  try {
+    await loadSurveyLaunchPackages()
+    if (!surveyLaunch.selectedPackageId && surveyLaunch.packages.length) {
+      const picked = autoPickSurveyPackage(surveyLaunch.contactCount, surveyLaunch.packages)
+      surveyLaunch.selectedPackageId = picked?.id || surveyLaunch.packages[0]?.id || null
+      renderSurveyPackageSelect()
+      await refreshSurveyQuote()
+    }
+    if (!surveyLaunch.selectedPackageId) {
+      showSurveyValidationErrors(['Please select an AI call package.'])
+      return
+    }
+    if (!agent && surveyLaunch.surveyAgents.length) {
+      showSurveyValidationErrors(['Please select an AI voice agent.'])
+      document.getElementById('sur-agent-select')?.classList.add('error')
+      return
+    }
+
+    const sched = schedulePayload('sur')
+    if (!sched.scheduled_start_at) {
+      showSurveyValidationErrors(['Please check your schedule dates and times.'])
+      return
+    }
+
+    const quoteText = surveyLaunch.quote
+      ? `${surveyLaunch.quote.total_gbp || fmtGbp(surveyLaunch.quote.total_pence)} · ${surveyLaunch.contactCountKnown ? surveyLaunch.contactCount : '?'} contacts`
+      : 'Your survey will be quoted at checkout.'
+    const proceed = window.confirm(
+      `Ready to pay and schedule?\n\n${quoteText}\n\nAgent: ${agent?.name || agent?.voice_label || 'Default'}\n\nClick OK to continue to payment.`,
+    )
+    if (!proceed) return
+  } catch (e) {
+    notifyUser(e.message || 'Could not prepare survey checkout', 'tr')
+    return
+  }
+
   surveyLaunch.paying = true
   renderSurveyQuoteUi()
   logSurvey('launch_start')
 
   const title = (document.getElementById('sur-goal')?.value || 'Survey campaign').trim().slice(0, 120)
   const branding = getClientContextForApi()
+  agent = selectedSurveyAgent()
   const config = {
     goal: document.getElementById('sur-goal')?.value || '',
     survey_channel: 'ai_call',
@@ -471,16 +484,12 @@ async function runSurveyLaunchFlow() {
     system_prompt: state.surveyScriptPayload?.system_prompt || '',
     script_approved: state.surveyScriptApproved,
     organisation_name: branding.organisation_name,
-    survey_organiser_name: branding.survey_organiser_name,
+    survey_organiser_name: agent?.name || agent?.voice_label || branding.survey_organiser_name,
     clinic_name: branding.organisation_name,
   }
   if (agent) {
     config.agent_id = agent.id
     config.agent_voice_label = agent.voice_label
-  }
-  if (!state.surveyScriptApproved && state.surveyScriptPayload?.script_text) {
-    config.generated_script_draft = state.surveyScriptPayload.script_text
-    config.generated_script_at = new Date().toISOString()
   }
 
   try {
@@ -503,7 +512,7 @@ async function runSurveyLaunchFlow() {
 
     await offerSurveyPayment(order)
   } catch (e) {
-    window.toast?.(e.message || 'Could not create survey order', 'tr')
+    notifyUser(e.message || 'Could not create survey order', 'tr')
     logSurvey('launch_failed', { message: e.message })
   } finally {
     surveyLaunch.paying = false
@@ -511,40 +520,48 @@ async function runSurveyLaunchFlow() {
   }
 }
 
-function showSurveyValidationErrors(errors) {
-  const errorContainer = document.createElement('div')
-  errorContainer.className = 'validation-error'
-  
-  let html = '<i class="ti ti-alert-circle"></i>'
-  if (errors.length === 1) {
-    html += `<span>${esc(errors[0])}</span>`
-  } else {
-    html += `
-      <div>
-        <div style="font-weight:700;margin-bottom:6px">Please fix ${errors.length} issue${errors.length > 1 ? 's' : ''}:</div>
-        <ul class="validation-list">
-          ${errors.map(e => `<li>${esc(e)}</li>`).join('')}
-        </ul>
-      </div>
-    `
-  }
-  errorContainer.innerHTML = html
-
-  // Find the pricing panel or a suitable place to show the error
-  const pricingPanel = document.getElementById('sur-launch-pricing')
-  if (pricingPanel) {
-    // Remove any existing error
-    const existing = pricingPanel.querySelector('.validation-error')
-    if (existing) existing.remove()
-    pricingPanel.insertBefore(errorContainer, pricingPanel.firstChild)
-  }
-
-  // Scroll to the error
-  errorContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  window.toast?.('Please fix the highlighted issues before continuing', 'tr')
+function notifyUser(message, type = 'tg') {
+  if (typeof window.toast === 'function') window.toast(message, type)
+  else if (typeof toast === 'function') toast(message, type)
+  else window.alert(message)
 }
 
-function esc(text) {
+function clearSurveyValidationUi() {
+  const banner = document.getElementById('sur-validation-errors')
+  if (banner) banner.style.display = 'none'
+  ;[
+    'sur-ai-script',
+    'sur-ai-approve',
+    'sur-start-date',
+    'sur-start-time',
+    'sur-end-date',
+    'sur-end-time',
+    'sur-agent-select',
+    'sur-upload-zone',
+  ].forEach((id) => document.getElementById(id)?.classList.remove('error'))
+}
+
+function showSurveyValidationErrors(errors) {
+  const unique = [...new Set(errors.filter(Boolean))]
+  const banner = document.getElementById('sur-validation-errors')
+  if (!banner) {
+    notifyUser(unique.join('\n'), 'tr')
+    return
+  }
+
+  let html = '<i class="ti ti-alert-circle"></i>'
+  if (unique.length === 1) {
+    html += `<span>${escHtml(unique[0])}</span>`
+  } else {
+    html += `<div><div style="font-weight:700;margin-bottom:6px">Please fix the following:</div><ul class="validation-list">${unique.map((e) => `<li>${escHtml(e)}</li>`).join('')}</ul></div>`
+  }
+  banner.innerHTML = html
+  banner.style.display = 'flex'
+  banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  notifyUser(unique.length === 1 ? unique[0] : 'Please fix the highlighted items before continuing.', 'tr')
+}
+
+function escHtml(text) {
   return String(text ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -599,12 +616,18 @@ async function offerSurveyPayment(order) {
     return
   }
 
-  window.showConfirm?.(
-    `Total ${order.quote_total_gbp}`,
-    `${quoteText}\n\nAfter you pay cash, admin must approve before the survey is scheduled.`,
-    'I paid cash',
-    () => submitSurveyCashPayment(order.id),
-  )
+  const cashMsg = `Total ${order.quote_total_gbp}\n\n${quoteText}\n\nAfter you pay cash, admin must approve before the survey is scheduled.\n\nClick OK to confirm cash payment.`
+  if (typeof window.showConfirm === 'function') {
+    window.showConfirm('Confirm payment', cashMsg, 'I paid cash', () => submitSurveyCashPayment(order.id))
+    return
+  }
+  if (typeof showConfirm === 'function') {
+    showConfirm('Confirm payment', cashMsg, 'I paid cash', () => submitSurveyCashPayment(order.id))
+    return
+  }
+  if (window.confirm(cashMsg)) {
+    await submitSurveyCashPayment(order.id)
+  }
 }
 
 async function submitSurveyPromoCreditPayment(orderId) {
@@ -914,12 +937,14 @@ async function generateServiceScript(serviceCode) {
 
   const clientCtx = getClientContextForApi()
   
-  // For survey scripts, use the selected agent's name instead of organiser name
+  // For survey scripts, use the selected agent's name from admin profile
   let agentName = ''
+  let agentId = ''
   if (isSurvey) {
     const agent = selectedSurveyAgent()
-    if (agent && agent.name) {
-      agentName = agent.name
+    if (agent) {
+      agentId = agent.id
+      agentName = agent.name || agent.voice_label || ''
     }
   }
 
@@ -929,8 +954,10 @@ async function generateServiceScript(serviceCode) {
         goal: goalEl?.value || '',
         contact_method: 'AI phone call',
         max_call_length: selectValue(document.getElementById('sur-max-length')),
+        agent_id: agentId,
         client_context: {
           ...clientCtx,
+          agent_id: agentId,
           survey_organiser_name: agentName || clientCtx.survey_organiser_name,
         },
       }
@@ -990,7 +1017,8 @@ function approveServiceScript(serviceCode) {
     state.interviewScriptPayload = approved
   }
   setAiStatus(prefix, true)
-  window.toast?.('Script approved — you can pay and schedule when ready', 'tg')
+  clearSurveyValidationUi()
+  notifyUser('Script approved — you can pay and schedule when ready', 'tg')
 }
 
 function bindScriptEditors() {

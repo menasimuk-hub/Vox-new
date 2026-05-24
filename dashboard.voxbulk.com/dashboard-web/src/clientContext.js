@@ -98,9 +98,9 @@ export function getWaPlaceholders({ forPreview = true } = {}) {
   }
 }
 
-/** Strip AI template junk and apply real profile names. */
+/** Strip AI template junk and apply real profile names. Preserves Voxbulk as platform caller. */
 export function applyScriptPlaceholders(text, { forPreview = false } = {}) {
-  const orgName = getOrganisationName()
+  const clientName = getOrganisationName()
   const organiser = getSurveyOrganiserName()
   const vars = getWaPlaceholders({ forPreview })
   vars.organiser_name = organiser
@@ -111,20 +111,15 @@ export function applyScriptPlaceholders(text, { forPreview = false } = {}) {
   const bracketReplacements = [
     [/\[Your Name\]/gi, organiser],
     [/\[your name\]/gi, organiser],
-    [/\[Clinic\/Business Name\]/gi, orgName],
-    [/\[Clinic Name\]/gi, orgName],
-    [/\[Business Name\]/gi, orgName],
-    [/\[Company Name\]/gi, orgName],
-    [/\[Organisation Name\]/gi, orgName],
+    [/\[Clinic\/Business Name\]/gi, clientName],
+    [/\[Clinic Name\]/gi, clientName],
+    [/\[Business Name\]/gi, clientName],
+    [/\[Company Name\]/gi, clientName],
+    [/\[Organisation Name\]/gi, clientName],
   ]
   bracketReplacements.forEach(([pattern, value]) => {
     out = out.replace(pattern, value)
   })
-  out = out.replace(/\bVOXBULK\b/gi, orgName)
-  out = out.replace(/\bVoxbulk\b/g, orgName)
-  out = out.replace(/\bfrom VOXBULK\b/gi, `from ${orgName}`)
-  out = out.replace(/\bon behalf of VOXBULK\b/gi, `on behalf of ${orgName}`)
-  out = out.replace(/\bI'm calling on behalf of \[Clinic\/Business Name\]/gi, `I'm calling on behalf of ${orgName}`)
 
   Object.entries(vars).forEach(([key, value]) => {
     out = out.replaceAll(`{${key}}`, value)

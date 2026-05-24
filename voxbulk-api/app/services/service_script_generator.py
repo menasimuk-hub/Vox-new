@@ -133,26 +133,30 @@ def _is_platform_brand(name: str) -> bool:
     return bool(re.search(r"voxbulk|retover", str(name or ""), re.I))
 
 
-def _scrub_recipient_script(text: str, *, organisation_name: str, organiser_name: str) -> str:
-    org = organisation_name.strip() or "your business"
-    organiser = organiser_name.strip() or org
+def _scrub_recipient_script(
+    text: str,
+    *,
+    organisation_name: str,
+    organiser_name: str,
+    client_name: str = "",
+) -> str:
+    platform = organisation_name.strip() or "Voxbulk"
+    client = str(client_name or "").strip() or platform
+    organiser = organiser_name.strip() or platform
     if not text:
         return text
     out = str(text)
     replacements = [
         (r"\[Your Name\]", organiser),
         (r"\[your name\]", organiser),
-        (r"\[Clinic/Business Name\]", org),
-        (r"\[Clinic Name\]", org),
-        (r"\[Business Name\]", org),
-        (r"\[Company Name\]", org),
-        (r"\[Organisation Name\]", org),
+        (r"\[Clinic/Business Name\]", client),
+        (r"\[Clinic Name\]", client),
+        (r"\[Business Name\]", client),
+        (r"\[Company Name\]", client),
+        (r"\[Organisation Name\]", client),
     ]
     for pattern, value in replacements:
         out = re.sub(pattern, value, out, flags=re.I)
-    out = re.sub(r"\bVOXBULK\b", org, out, flags=re.I)
-    out = re.sub(r"\bfrom VOXBULK\b", f"from {org}", out, flags=re.I)
-    out = re.sub(r"\bon behalf of VOXBULK\b", f"on behalf of {org}", out, flags=re.I)
     return out
 
 
@@ -160,16 +164,17 @@ def _intro_is_invalid(intro: str) -> bool:
     low = str(intro or "").lower()
     if not low.strip():
         return True
-    bad = ("voxbulk", "[your", "[clinic", "[business", "your name", "[company", "[organisation")
+    bad = ("[your", "[clinic", "[business", "your name", "[company", "[organisation")
     return any(token in low for token in bad)
 
 
-def _build_phone_intro(*, organisation_name: str, organiser_name: str) -> str:
+def _build_phone_intro(*, organisation_name: str, organiser_name: str, client_name: str = "") -> str:
     org = organisation_name.strip() or "your business"
+    client = str(client_name or "").strip() or org
     organiser = organiser_name.strip() or org
     return (
         f"Hello, this is {organiser} from {org}. "
-        f"I'm calling on behalf of {org} to get your quick feedback. "
+        f"I'm calling on behalf of {client} to get your quick feedback. "
         "This call may be recorded for quality and training purposes. "
         "It'll only take a minute or two."
     )
@@ -189,29 +194,62 @@ def _apply_org_placeholders(text: str, *, organisation_name: str, assistant_name
     return out
 
 
-def _materialise_script_result(data: dict, *, organisation_name: str, assistant_name: str, organiser_name: str = "") -> dict:
-    org = organisation_name.strip()
-    organiser = (organiser_name or assistant_name).strip() or org
+def _fix_intro_companies(intro: str, *, platform: str, client: str, organiser: str) -> str:
+    out = str(intro or "").strip()
+    if not out:
+        return _build_phone_intro(organisation_name=platform, organiser_name=organiser, client_name=client)
+    organiser_esc = re.escape(organiser)
+    platform_esc = re.escape(platform)
+    client_esc = re.escape(client)
+    out = re.sub(
+        rf"(this is\s+{organiser_esc}\s+from\s+)({client_esc}|{platform_esc}|[A-Za-z0-9][^.]{{0,80}}?)(\.|\s)",
+        rf"\1{platform}\3",
+        out,
+        count=1,
+        flags=re.I,
+    )
+    out = re.sub(
+        r"(on behalf of\s+)([^.]+\.)",
+        rf"\1{client}.",
+        out,
+        count=1,
+        flags=re.I,
+    )
+    return out
+
+
+def _materialise_script_result(
+    data: dict,
+    *,
+    organisation_name: str,
+    assistant_name: str,
+    organiser_name: str = "",
+    client_name: str = "",
+) -> dict:
+    platform = organisation_name.strip() or "Voxbulk"
+    client = str(client_name or "").strip() or platform
+    organiser = (organiser_name or assistant_name).strip() or platform
     out = dict(data)
 
     intro = str(out.get("intro") or "")
     if _intro_is_invalid(intro):
-        intro = _build_phone_intro(organisation_name=org, organiser_name=organiser)
+        intro = _build_phone_intro(organisation_name=platform, organiser_name=organiser, client_name=client)
     else:
-        intro = _scrub_recipient_script(intro, organisation_name=org, organiser_name=organiser)
-    out["intro"] = _apply_org_placeholders(intro, organisation_name=org, assistant_name=organiser)
+        intro = _scrub_recipient_script(intro, organisation_name=platform, organiser_name=organiser, client_name=client)
+    intro = _fix_intro_companies(intro, platform=platform, client=client, organiser=organiser)
+    out["intro"] = _apply_org_placeholders(intro, organisation_name=client, assistant_name=organiser)
 
     for field in ("closing", "system_prompt"):
         if out.get(field):
-            cleaned = _scrub_recipient_script(str(out[field]), organisation_name=org, organiser_name=organiser)
-            out[field] = _apply_org_placeholders(cleaned, organisation_name=org, assistant_name=organiser)
+            cleaned = _scrub_recipient_script(str(out[field]), organisation_name=platform, organiser_name=organiser, client_name=client)
+            out[field] = _apply_org_placeholders(cleaned, organisation_name=client, assistant_name=organiser)
 
     questions = out.get("questions") or []
     if isinstance(questions, list):
         out["questions"] = [
             _apply_org_placeholders(
-                _scrub_recipient_script(str(q), organisation_name=org, organiser_name=organiser),
-                organisation_name=org,
+                _scrub_recipient_script(str(q), organisation_name=platform, organiser_name=organiser, client_name=client),
+                organisation_name=client,
                 assistant_name=organiser,
             )
             for q in questions
@@ -219,8 +257,8 @@ def _materialise_script_result(data: dict, *, organisation_name: str, assistant_
 
     script_text = str(out.get("script_text") or "").strip()
     if script_text:
-        script_text = _scrub_recipient_script(script_text, organisation_name=org, organiser_name=organiser)
-        script_text = _apply_org_placeholders(script_text, organisation_name=org, assistant_name=organiser)
+        script_text = _scrub_recipient_script(script_text, organisation_name=platform, organiser_name=organiser, client_name=client)
+        script_text = _apply_org_placeholders(script_text, organisation_name=client, assistant_name=organiser)
         intro_block = re.search(r"INTRO\s*\r?\n([\s\S]*?)(?=\r?\n\s*QUESTIONS|\r?\n\s*CLOSING|$)", script_text, re.I)
         if not intro_block or _intro_is_invalid(intro_block.group(1)):
             script_text = _format_script(out["intro"], out["questions"], str(out.get("closing") or ""))
@@ -233,11 +271,11 @@ def _materialise_script_result(data: dict, *, organisation_name: str, assistant_
         wa_out = dict(wa)
         for field in ("intro", "closing"):
             if wa_out.get(field):
-                cleaned = _scrub_recipient_script(str(wa_out[field]), organisation_name=org, organiser_name=organiser)
-                wa_out[field] = _apply_org_placeholders(cleaned, organisation_name=org, assistant_name=organiser)
+                cleaned = _scrub_recipient_script(str(wa_out[field]), organisation_name=platform, organiser_name=organiser, client_name=client)
+                wa_out[field] = _apply_org_placeholders(cleaned, organisation_name=client, assistant_name=organiser)
             elif field == "intro":
                 wa_out["intro"] = (
-                    f"Hi {{first_name}}, we're running a quick survey for {org} on WhatsApp. "
+                    f"Hi {{first_name}}, we're running a quick survey for {client} on WhatsApp. "
                     "It takes about 2 minutes — reply to each question below."
                 )
         qs = wa_out.get("questions")
@@ -246,15 +284,15 @@ def _materialise_script_result(data: dict, *, organisation_name: str, assistant_
                 {
                     **q,
                     "text": _apply_org_placeholders(
-                        _scrub_recipient_script(str(q.get("text") or ""), organisation_name=org, organiser_name=organiser),
-                        organisation_name=org,
+                        _scrub_recipient_script(str(q.get("text") or ""), organisation_name=platform, organiser_name=organiser, client_name=client),
+                        organisation_name=client,
                         assistant_name=organiser,
                     ),
                 }
                 if isinstance(q, dict)
                 else _apply_org_placeholders(
-                    _scrub_recipient_script(str(q), organisation_name=org, organiser_name=organiser),
-                    organisation_name=org,
+                    _scrub_recipient_script(str(q), organisation_name=platform, organiser_name=organiser, client_name=client),
+                    organisation_name=client,
                     assistant_name=organiser,
                 )
                 for q in qs
@@ -263,19 +301,28 @@ def _materialise_script_result(data: dict, *, organisation_name: str, assistant_
     return out
 
 
-def _brand_context_block(*, organisation_name: str, assistant_name: str, organiser_name: str = "", terminology_label: str = "customer") -> str:
-    org = organisation_name.strip() or "the client organisation"
-    organiser = (organiser_name or assistant_name).strip() or org
+def _brand_context_block(
+    *,
+    organisation_name: str,
+    assistant_name: str,
+    organiser_name: str = "",
+    client_name: str = "",
+    terminology_label: str = "customer",
+) -> str:
+    platform = organisation_name.strip() or "Voxbulk"
+    client = str(client_name or "").strip() or platform
+    organiser = (organiser_name or assistant_name).strip() or platform
     term = terminology_label.strip() or "customer"
     return (
-        f"Client organisation (company name): {org}\n"
-        f"Survey organiser (caller name): {organiser}\n"
+        f"Platform / caller company (where the AI agent works): {platform}\n"
+        f"Client organisation (survey is on behalf of): {client}\n"
+        f"AI agent name (caller): {organiser}\n"
         f"Refer to recipients as {term}s.\n"
         f"MANDATORY phone intro format (use these exact names, no placeholders):\n"
-        f"\"Hello, this is {organiser} from {org}. I'm calling on behalf of {org} to get your quick feedback...\"\n"
-        f"NEVER use [Your Name], [Clinic/Business Name], VOXBULK, Voxbulk, or any platform name.\n"
-        f"NEVER invent example business names — only use {org} and {organiser}.\n"
-        f"WhatsApp intro must greet {{first_name}} and name {org} directly.\n"
+        f"\"Hello, this is {organiser} from {platform}. I'm calling on behalf of {client} to get your quick feedback...\"\n"
+        f"The agent is FROM {platform} but calling ON BEHALF OF {client} — do not swap these.\n"
+        f"NEVER use [Your Name], [Clinic/Business Name], or other bracket placeholders.\n"
+        f"WhatsApp intro must greet {{first_name}} and name {client} directly.\n"
         f"Only {{first_name}} may remain as a merge field for each contact.\n"
     )
 
@@ -330,6 +377,7 @@ def _parse_script_payload(
     organisation_name: str = "",
     assistant_name: str = "",
     organiser_name: str = "",
+    client_name: str = "",
 ) -> dict:
     data = _extract_json_object(raw)
     intro = str(data.get("intro") or "").strip()
@@ -339,7 +387,7 @@ def _parse_script_payload(
         raise ValueError("questions must be an array")
     questions = [str(q).strip() for q in questions_raw if str(q).strip()]
     if include_whatsapp:
-        wa_flow = _build_whatsapp_flow(intro, questions, closing, data, organisation_name=organisation_name)
+        wa_flow = _build_whatsapp_flow(intro, questions, closing, data, organisation_name=client_name or organisation_name)
         if not wa_flow["questions"]:
             raise ValueError("Generated WhatsApp survey must include questions")
         intro = intro or wa_flow["intro"]
@@ -358,12 +406,13 @@ def _parse_script_payload(
         "system_prompt": system_prompt,
     }
     if include_whatsapp:
-        out["whatsapp_flow"] = _build_whatsapp_flow(intro, questions, closing, data, organisation_name=organisation_name)
+        out["whatsapp_flow"] = _build_whatsapp_flow(intro, questions, closing, data, organisation_name=client_name or organisation_name)
     return _materialise_script_result(
         out,
         organisation_name=organisation_name,
         assistant_name=assistant_name,
         organiser_name=organiser_name,
+        client_name=client_name,
     )
 
 
@@ -388,6 +437,7 @@ def generate_survey_script(
     organisation_name: str = "",
     assistant_name: str = "",
     organiser_name: str = "",
+    client_name: str = "",
     terminology_label: str = "customer",
 ) -> dict:
     goal_text = str(goal or "").strip() or "General customer satisfaction"
@@ -397,6 +447,7 @@ def generate_survey_script(
         organisation_name=organisation_name,
         assistant_name=assistant_name,
         organiser_name=organiser_name,
+        client_name=client_name,
         terminology_label=terminology_label,
     )
     channel_note = (
@@ -418,6 +469,7 @@ def generate_survey_script(
         organisation_name=organisation_name,
         assistant_name=assistant_name,
         organiser_name=organiser_name,
+        client_name=client_name,
     )
 
 
@@ -430,6 +482,7 @@ def generate_interview_script(
     organisation_name: str = "",
     assistant_name: str = "",
     organiser_name: str = "",
+    client_name: str = "",
 ) -> dict:
     role_text = str(role or "").strip() or "Open role"
     criteria_text = str(criteria or "").strip() or "General screening"
@@ -438,6 +491,7 @@ def generate_interview_script(
         organisation_name=organisation_name,
         assistant_name=assistant_name,
         organiser_name=organiser_name,
+        client_name=client_name,
         terminology_label="candidate",
     )
     user = (
@@ -453,4 +507,5 @@ def generate_interview_script(
         organisation_name=organisation_name,
         assistant_name=assistant_name,
         organiser_name=organiser_name,
+        client_name=client_name,
     )

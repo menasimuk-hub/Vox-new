@@ -1050,7 +1050,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* ─── VALIDATION & ERRORS ─── */
 .fg input.error,
 .fg textarea.error,
-.fg select.error {
+.fg select.error,
+.btn.error,
+.standalone-upload.error {
   border-color: var(--red) !important;
   background-color: var(--rd);
 }

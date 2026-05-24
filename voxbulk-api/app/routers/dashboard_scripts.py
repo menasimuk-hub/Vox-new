@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_principal
+from app.models.agent import AgentDefinition
 from app.services.onboarding_service import OrganisationOnboardingService
 from app.services.recovery_service import OrganisationService
 from app.services.service_script_generator import generate_interview_script, generate_survey_script
@@ -30,23 +31,36 @@ def _client_branding(db: Session, org_id: str, payload: dict) -> dict:
     org = OrganisationService.get_org(db, org_id)
     ai_cfg = OrganisationOnboardingService.ai_config(db, org_id)
     identity = ai_cfg.get("ai_identity") or {}
-    org_name = _pick_org_name(ctx, identity, org)
+    
+    # Client name is the customer/clinic calling on behalf of
+    client_name = _pick_org_name(ctx, identity, org)
+    org_name = "Voxbulk"
+
+    agent_id = str(ctx.get("agent_id") or payload.get("agent_id") or "").strip()
+    agent_name = ""
+    if agent_id:
+        agent = db.get(AgentDefinition, agent_id)
+        if agent:
+            agent_name = str(agent.name or agent.voice_label or "").strip()
+
     organiser = str(
-        ctx.get("survey_organiser_name")
+        agent_name
+        or ctx.get("survey_organiser_name")
         or ctx.get("contact_name")
         or (org.contact_name if org else "")
         or identity.get("assistant_name")
-        or org_name
+        or client_name
     ).strip()
     if "voxbulk" in organiser.lower():
-        organiser = org_name
+        organiser = client_name
     assistant = str(ctx.get("assistant_name") or ctx.get("survey_organiser_name") or identity.get("assistant_name") or organiser).strip()
     if "voxbulk" in assistant.lower():
-        assistant = organiser or org_name
+        assistant = organiser or client_name
     return {
         "organisation_name": org_name,
-        "assistant_name": assistant or org_name,
-        "organiser_name": organiser or org_name,
+        "client_name": client_name,
+        "assistant_name": assistant or organiser,
+        "organiser_name": organiser or client_name,
         "terminology_label": str(ctx.get("terminology_label") or identity.get("terminology_label") or "customer").strip() or "customer",
         "contact_name": organiser,
     }
@@ -68,6 +82,7 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
                 organisation_name=branding["organisation_name"],
                 assistant_name=branding["assistant_name"],
                 organiser_name=branding["organiser_name"],
+                client_name=branding.get("client_name", ""),
                 terminology_label=branding["terminology_label"],
             )
         else:
@@ -79,6 +94,7 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
                 organisation_name=branding["organisation_name"],
                 assistant_name=branding["assistant_name"],
                 organiser_name=branding["organiser_name"],
+                client_name=branding.get("client_name", ""),
             )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e

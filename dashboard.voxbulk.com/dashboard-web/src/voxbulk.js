@@ -319,6 +319,7 @@ function toast(msg,cls){
   requestAnimationFrame(function(){requestAnimationFrame(function(){t.classList.add('show');});});
   setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},300);},3000);
 }
+window.toast = toast;
 
 // ── CONFIRM DIALOG ──
 var confirmCb=null;
@@ -329,6 +330,7 @@ function showConfirm(title,msg,okLabel,cb){
   confirmCb=cb;
   document.getElementById('confirm-overlay').classList.add('show');
 }
+window.showConfirm = showConfirm;
 function closeConfirm(){
   document.getElementById('confirm-overlay').classList.remove('show');
   confirmCb=null;
