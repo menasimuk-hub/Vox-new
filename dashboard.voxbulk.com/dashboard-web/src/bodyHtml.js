@@ -913,7 +913,12 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
           <div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--t3);font-size:13px">Loading subscription plans…</div>
         </div>
 
-        <div style="font-size:15px;font-weight:700;color:var(--t1);margin-bottom:4px">Interview bundles — pay as you go</div>
+        <div style="font-size:15px;font-weight:700;color:var(--t1);margin-bottom:4px;margin-top:20px">Survey packages — pay as you go</div>
+        <div id="survey-packages-section">
+          <div class="survey-pkg-loading muted">Loading survey packages…</div>
+        </div>
+
+        <div style="font-size:15px;font-weight:700;color:var(--t1);margin-bottom:4px;margin-top:20px">Interview bundles — pay as you go</div>
         <div style="font-size:12px;color:var(--t3);margin-bottom:11px">No subscription needed. Buy credits, upload your list, we call. Credits valid 90 days. Calls over 10 minutes are billed separately.</div>
         <div class="iw" style="margin-bottom:16px">
           <div class="iwh"><div class="iwic" style="background:var(--pd)"><i class="ti ti-briefcase" style="color:var(--pur);font-size:17px"></i></div><div><div style="font-size:13.5px;font-weight:700;color:var(--t1)">Interview call bundles</div><div style="font-size:11.5px;color:var(--t3)">Each bundle covers calls up to 10 min · Extra minutes invoiced separately at month end at £0.15/min</div></div></div>
