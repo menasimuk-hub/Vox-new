@@ -73,6 +73,8 @@ Verify: `curl -s https://admin.voxbulk.com/ | grep assets` — JS hash must matc
 | `alembic` not found | Script uses `python -m alembic` inside `.venv` |
 | API 404 on `/admin/messaging/*` | `./vox.sh restart` after pull |
 | Port 8000 in use | `./vox.sh stop` then redeploy |
+| `./vox.sh status` says API not responding but uvicorn running | API still starting (wait 10–20s) or check `/tmp/voxbulk-api.log`; set `TRUSTED_HOSTS=api.voxbulk.com,localhost,127.0.0.1` in `voxbulk-api/.env` |
+| `retover-celery: ERROR (no such process)` | Optional — only if you use Celery via supervisor; safe to ignore otherwise |
 | KB files wrong library | Re-upload on Lead or Sales page (scoped upload) |
 | `git pull` unrelated histories | `git fetch voxnew && git reset --hard voxnew/main` (destroys local VPS edits) |
 | Admin blank after deploy | Set `VOX_ADMIN_DIST` and point nginx `root` to `dist` |

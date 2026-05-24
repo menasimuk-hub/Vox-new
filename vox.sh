@@ -19,8 +19,40 @@ stop_public() {
 }
 
 restart_celery() {
-  if command -v supervisorctl >/dev/null 2>&1; then
-    supervisorctl restart retover-celery 2>/dev/null && echo "Celery restarted (retover-celery)" || true
+  if ! command -v supervisorctl >/dev/null 2>&1; then
+    return
+  fi
+  if supervisorctl status retover-celery >/dev/null 2>&1; then
+    supervisorctl restart retover-celery && echo "Celery restarted (retover-celery)"
+  else
+    echo "Celery not configured in supervisor (optional — only needed for background invoice/email jobs)"
+  fi
+}
+
+wait_for_http() {
+  local url="$1"
+  local host_header="${2:-}"
+  local attempts="${3:-20}"
+  local i=0
+  while (( i < attempts )); do
+    if [[ -n "$host_header" ]]; then
+      curl -sf -H "Host: $host_header" "$url" >/dev/null 2>&1 && return 0
+    else
+      curl -sf "$url" >/dev/null 2>&1 && return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+show_log_tail() {
+  local file="$1"
+  local label="$2"
+  if [[ -f "$file" ]]; then
+    echo "--- last lines of $label ($file) ---"
+    tail -n 20 "$file" || true
+    echo "---"
   fi
 }
 
@@ -44,15 +76,48 @@ start_public() {
 }
 
 status() {
+  local wait_attempts="${1:-15}"
+  local api_ok=0
+  local public_ok=0
+
   echo "=== API (8000) ==="
-  curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health && echo || echo "API not responding"
+  # Direct localhost check (works when TRUSTED_HOSTS is localhost-only on VPS)
+  if wait_for_http "http://127.0.0.1:8000/health" "127.0.0.1" "$wait_attempts"; then
+    curl -sf -H "Host: 127.0.0.1" http://127.0.0.1:8000/health && echo
+    api_ok=1
+  elif wait_for_http "http://127.0.0.1:8000/health" "api.voxbulk.com" "$wait_attempts"; then
+    curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health && echo
+    api_ok=1
+  else
+    echo "API not responding on /health"
+    show_log_tail "$API_LOG" "API"
+    echo "Tip: set TRUSTED_HOSTS=api.voxbulk.com,localhost,127.0.0.1 in voxbulk-api/.env if nginx uses Host: api.voxbulk.com"
+  fi
+
   echo ""
   echo "=== Public (5173) ==="
-  curl -sf -I http://127.0.0.1:5173/ | head -1 || echo "Public preview not responding"
+  if wait_for_http "http://127.0.0.1:5173/" "" "$wait_attempts"; then
+    curl -sf -I http://127.0.0.1:5173/ | head -1
+    public_ok=1
+  else
+    echo "Public preview not responding"
+    show_log_tail "$PUBLIC_LOG" "public preview"
+  fi
+
+  echo ""
+  echo "=== Static sites (nginx wwwroot — not managed by vox.sh) ==="
+  echo "  admin:      /www/wwwroot/admin.voxbulk.com"
+  echo "  dashboard:  /www/wwwroot/dashboard.voxbulk.com"
+  echo "  Deploy UI:  ./deploy-vps.sh  (build + rsync + restart)"
+
   echo ""
   echo "=== Processes ==="
   pgrep -af "uvicorn main:app" || echo "no uvicorn"
   pgrep -af "vite preview" || echo "no vite preview"
+
+  if [[ "$api_ok" -eq 0 || "$public_ok" -eq 0 ]]; then
+    return 1
+  fi
 }
 
 case "${1:-}" in
@@ -73,11 +138,11 @@ case "${1:-}" in
     stop_api
     sleep 1
     start_api
-    sleep 1
+    sleep 2
     start_public
     restart_celery
-    sleep 2
-    status
+    echo "Waiting for API and public preview to become ready…"
+    status || true
     ;;
   status)
     status
