@@ -194,11 +194,6 @@ export function renderPackagesPage() {
 
   root.innerHTML = `
     <div class="survey-pkg-shell">
-      <div class="survey-pkg-intro">
-        <h2>Survey packages — pay as you go</h2>
-        <p class="muted">Prices are managed by your admin team and update automatically here.</p>
-        ${setupFee > 0 ? `<div class="survey-pkg-setup"><i class="ti ti-receipt"></i> Setup fee: <strong>${fmtGbp(setupFee)}</strong> per order</div>` : ''}
-      </div>
       ${renderChannelSection('ai_call', catalog.packages?.ai_call)}
       ${renderChannelSection('whatsapp', catalog.packages?.whatsapp)}
     </div>
