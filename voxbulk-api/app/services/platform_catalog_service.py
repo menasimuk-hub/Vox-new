@@ -885,6 +885,11 @@ class ServiceOrderService:
         db.add(order)
         db.commit()
         db.refresh(order)
+        if order.service_code == "survey":
+            from app.services.survey_call_dispatch_service import SurveyCallDispatchService, is_ai_call_survey_order
+
+            if is_ai_call_survey_order(order):
+                SurveyCallDispatchService.dial_next_recipient(db, order)
         return order
 
     @staticmethod
@@ -1093,12 +1098,6 @@ class ServiceOrderService:
                 db.commit()
                 db.refresh(order)
                 return order
-        order.status = "running"
-        order.started_at = now
-        order.updated_at = now
-        db.add(order)
-        db.commit()
-        db.refresh(order)
         if order.service_code == "survey":
             config = {}
             try:
@@ -1106,11 +1105,34 @@ class ServiceOrderService:
             except Exception:
                 config = {}
             channel = PlatformCatalogService.resolve_survey_channel(config)
-            if channel != "ai_call":
+            if channel == "ai_call":
+                from app.services.survey_call_dispatch_service import SurveyCallDispatchService, is_ai_call_survey_order
+
+                if is_ai_call_survey_order(order):
+                    if not SurveyCallDispatchService.start_campaign(db, order):
+                        raise ValueError(
+                            "Could not start AI calls — check payment, approved script, voice agent, and calling window."
+                        )
+                    db.refresh(order)
+                    return order
+            elif channel != "ai_call":
                 from app.services.survey_dispatch_service import SurveyDispatchService
 
+                order.status = "running"
+                order.started_at = now
+                order.updated_at = now
+                db.add(order)
+                db.commit()
+                db.refresh(order)
                 SurveyDispatchService.dispatch_survey_order(db, order)
-            db.refresh(order)
+                db.refresh(order)
+                return order
+        order.status = "running"
+        order.started_at = now
+        order.updated_at = now
+        db.add(order)
+        db.commit()
+        db.refresh(order)
         return order
 
     @staticmethod

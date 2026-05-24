@@ -55,13 +55,6 @@ function statusBadgeClass(order) {
   return 'stat-wait'
 }
 
-function activityIcon(kind) {
-  if (kind === 'payment') return 'af-a'
-  if (kind === 'status') return 'af-g'
-  if (kind === 'schedule') return 'af-b'
-  return 'af-p'
-}
-
 function renderTrendBars(items, emptyText) {
   if (!items.length) return `<div class="muted" style="font-size:12px;padding:8px 0">${esc(emptyText)}</div>`
   return items
@@ -73,44 +66,6 @@ function renderTrendBars(items, emptyText) {
     </div>`,
     )
     .join('')
-}
-
-function renderActivityItems(events, limit = 8) {
-  if (!events.length) {
-    return '<div class="muted" style="font-size:12px;padding:8px 0">No activity yet.</div>'
-  }
-  return events
-    .slice(0, limit)
-    .map(
-      (ev) => `<div class="af">
-      <div class="af-ic ${activityIcon(ev.kind)}"><i class="ti ti-point"></i></div>
-      <div>
-        <div class="at">${esc(ev.label)}</div>
-        <div class="as">${esc(fmtSchedule(ev.at))}${ev.detail ? ` · ${esc(ev.detail)}` : ''}</div>
-      </div>
-    </div>`,
-    )
-    .join('')
-}
-
-function collectActivity(orders) {
-  const events = []
-  for (const order of orders) {
-    for (const ev of order.audit_timeline || []) {
-      events.push({ ...ev, survey: order.title })
-    }
-  }
-  events.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))
-  return events.map((ev) => ({
-    ...ev,
-    label: ev.survey ? `${ev.label} — ${ev.survey}` : ev.label,
-  }))
-}
-
-function renderHubActivity(orders) {
-  const host = document.getElementById('sur-activity-feed')
-  if (!host) return
-  host.innerHTML = renderActivityItems(collectActivity(orders), 6)
 }
 
 function renderHubTrend(orders) {
@@ -215,7 +170,6 @@ function renderLists(orders) {
   if (finEmpty) finEmpty.style.display = finished.length ? 'none' : 'block'
   renderKpis(orders)
   renderLiveBanner(orders)
-  renderHubActivity(orders)
   renderHubTrend(orders)
 }
 
@@ -313,12 +267,6 @@ function renderDetailTrend(order) {
   )
 }
 
-function renderDetailActivity(order) {
-  const host = document.getElementById('sur-detail-activity')
-  if (!host) return
-  host.innerHTML = renderActivityItems(order.audit_timeline || [], 12)
-}
-
 function renderDetailContacts(order) {
   const host = document.getElementById('sur-detail-contacts-list')
   if (!host) return
@@ -389,7 +337,6 @@ function renderDetail(order) {
 
   renderDetailBilling(order)
   renderDetailTrend(order)
-  renderDetailActivity(order)
   renderDetailContacts(order)
 
   const titleInput = document.getElementById('sur-edit-title')

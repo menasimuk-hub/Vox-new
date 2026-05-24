@@ -348,7 +348,69 @@ class SurveyCallDispatchService:
             _finalize_order_if_done(db, order)
             return None
 
+        return SurveyCallDispatchService._dial_recipient(db, order, next_recipient, agent=agent, assistant_id=assistant_id)
+
+    @staticmethod
+    def dial_recipient(
+        db: Session,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+        *,
+        retry: bool = False,
+    ) -> ServiceOrderRecipient:
+        if order.status != "running":
+            raise ValueError("Survey must be running before placing AI calls")
+        if recipient.order_id != order.id:
+            raise ValueError("Contact does not belong to this survey")
+
         config = _order_config(order)
+        from app.services.survey_voice_agent_service import resolve_survey_telnyx_assistant_id
+
+        assistant_id, agent = resolve_survey_telnyx_assistant_id(db, order, config)
+        if not assistant_id:
+            raise ValueError("Survey voice agent is not configured")
+
+        ok, reason = _order_window_ok(order)
+        if not ok:
+            raise ValueError(reason or "Outside the survey calling window")
+
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        if _any_recipient_calling(recipients):
+            active = next((r for r in recipients if str(r.status or "").lower() == "calling"), None)
+            if active and active.id != recipient.id:
+                raise ValueError("Another contact is already being called")
+
+        status = str(recipient.status or "pending").lower()
+        if status == "calling":
+            raise ValueError("This contact is already being called")
+        if status == "completed" and not retry:
+            raise ValueError("Contact already completed — use call again to retry")
+        if retry and status in VOICE_TERMINAL:
+            recipient.status = "pending"
+            db.add(recipient)
+            db.commit()
+            db.refresh(recipient)
+
+        row = SurveyCallDispatchService._dial_recipient(db, order, recipient, agent=agent, assistant_id=assistant_id)
+        if row is None:
+            raise ValueError("Could not place AI call")
+        return row
+
+    @staticmethod
+    def _dial_recipient(
+        db: Session,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+        *,
+        agent,
+        assistant_id: str,
+    ) -> ServiceOrderRecipient | None:
+        config = _order_config(order)
+        from app.services.survey_voice_agent_service import (
+            build_survey_opening_greeting,
+            build_survey_runtime_instructions,
+        )
+
         telnyx_config = _telnyx_config(db)
         from_number = telnyx_outbound_caller_id(telnyx_config)
         if not from_number:
@@ -356,12 +418,12 @@ class SurveyCallDispatchService:
             return None
 
         instructions = build_survey_runtime_instructions(
-            db, order=order, config=config, recipient=next_recipient, agent=agent
+            db, order=order, config=config, recipient=recipient, agent=agent
         )
         greeting = build_survey_opening_greeting(
-            db, agent=agent, config=config, recipient_name=next_recipient.name
+            db, agent=agent, config=config, recipient_name=recipient.name
         )
-        to_number = normalize_telnyx_e164(str(next_recipient.phone or ""))
+        to_number = normalize_telnyx_e164(str(recipient.phone or ""))
 
         result = TelnyxVoiceAdapter.start_outbound_call(
             to_number=to_number,
@@ -370,7 +432,7 @@ class SurveyCallDispatchService:
             client_state={
                 "survey_call": True,
                 "service_order_id": order.id,
-                "recipient_id": next_recipient.id,
+                "recipient_id": recipient.id,
                 "org_id": order.org_id,
                 "agent_id": agent.id if agent else None,
                 "telnyx_assistant_id": assistant_id,
@@ -381,10 +443,10 @@ class SurveyCallDispatchService:
 
         now = datetime.utcnow()
         if not result.ok or not result.external_id:
-            next_recipient.status = "failed"
+            recipient.status = "failed"
             _set_recipient_result(
                 db,
-                next_recipient,
+                recipient,
                 {
                     "channel": "ai_call",
                     "error": result.detail or result.status or "dial_failed",
@@ -392,13 +454,13 @@ class SurveyCallDispatchService:
                 },
             )
             _refresh_order_report(db, order)
-            _log("dial_failed", order_id=order.id, recipient_id=next_recipient.id, detail=result.detail)
-            return next_recipient
+            _log("dial_failed", order_id=order.id, recipient_id=recipient.id, detail=result.detail)
+            return recipient
 
-        next_recipient.status = "calling"
+        recipient.status = "calling"
         _set_recipient_result(
             db,
-            next_recipient,
+            recipient,
             {
                 "channel": "ai_call",
                 "call_control_id": result.external_id,
@@ -410,10 +472,10 @@ class SurveyCallDispatchService:
         _log(
             "dial_started",
             order_id=order.id,
-            recipient_id=next_recipient.id,
+            recipient_id=recipient.id,
             call_control_id=result.external_id,
         )
-        return next_recipient
+        return recipient
 
     @staticmethod
     def finalize_recipient_after_call(

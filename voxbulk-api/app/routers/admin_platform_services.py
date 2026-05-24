@@ -239,6 +239,53 @@ def admin_get_order(order_id: str, db: Session = Depends(get_db), _admin=Depends
     return ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
 
 
+@router.post("/orders/{order_id}/dial-next")
+def admin_dial_next(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.survey_call_dispatch_service import SurveyCallDispatchService
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.status != "running":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Survey must be running")
+    row = SurveyCallDispatchService.dial_next_recipient(db, order)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No contact ready to dial")
+    recipients = ServiceOrderService.get_recipients(db, order.id)
+    return ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
+
+
+@router.post("/orders/{order_id}/recipients/{recipient_id}/call-now")
+def admin_call_recipient_now(
+    order_id: str,
+    recipient_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.survey_call_dispatch_service import SurveyCallDispatchService
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    try:
+        SurveyCallDispatchService.dial_recipient(
+            db,
+            order,
+            recipient,
+            retry=bool((payload or {}).get("retry")),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    db.refresh(order)
+    recipients = ServiceOrderService.get_recipients(db, order.id)
+    return ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
+
+
 @router.post("/orders/{order_id}/start")
 def admin_start_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     order = ServiceOrderService.get_order(db, order_id)

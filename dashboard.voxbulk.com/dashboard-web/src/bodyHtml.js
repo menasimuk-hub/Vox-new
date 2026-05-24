@@ -296,15 +296,9 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Quoted / unpaid</div><div class="kv" id="sur-kpi-quoted">0</div><div class="kd ne" id="sur-kpi-quoted-sub">Need payment</div></div>
           <div class="kpi"><div class="kl">Failed payments</div><div class="kv" id="sur-kpi-failed">0</div><div class="kd dn" id="sur-kpi-failed-sub">Action required</div></div>
         </div>
-        <div class="g2" style="margin-bottom:12px">
-          <div class="card" style="margin:0">
-            <div class="ch"><i class="ti ti-activity grn"></i>Survey activity</div>
-            <div id="sur-activity-feed"><div class="muted" style="font-size:12px;padding:8px 0">Activity will appear when you create or run surveys.</div></div>
-          </div>
-          <div class="card" style="margin:0">
-            <div class="ch"><i class="ti ti-chart-bar grn"></i>Response progress</div>
-            <div id="sur-trend-chart"><div class="muted" style="font-size:12px;padding:8px 0">No response data yet.</div></div>
-          </div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch"><i class="ti ti-chart-bar grn"></i>Response progress</div>
+          <div id="sur-trend-chart" style="padding:4px 0"><div class="muted" style="font-size:12px;padding:8px 0">No response data yet.</div></div>
         </div>
         <div class="live-banner" id="sur-live-banner" style="display:none">
           <div class="live-pulse"></div>
@@ -633,19 +627,13 @@ const bodyHtml = `<div class="app" id="app">
               <div id="sur-detail-trend"></div>
             </div>
           </div>
-          <div class="g2" style="margin-top:12px">
-            <div class="card" style="margin:0">
-              <div class="ch"><i class="ti ti-activity grn"></i>Activity</div>
-              <div id="sur-detail-activity"></div>
-            </div>
-            <div class="card" style="margin:0">
-              <div class="ch"><i class="ti ti-users grn"></i>Contact list</div>
-              <div id="sur-detail-contacts-wrap" style="max-height:280px;overflow:auto">
-                <table class="res-table">
-                  <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
-                  <tbody id="sur-detail-contacts-list"></tbody>
-                </table>
-              </div>
+          <div class="card" style="margin-top:12px;margin-bottom:0">
+            <div class="ch"><i class="ti ti-users grn"></i>Contact list</div>
+            <div id="sur-detail-contacts-wrap" style="max-height:320px;overflow:auto">
+              <table class="res-table">
+                <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
+                <tbody id="sur-detail-contacts-list"></tbody>
+              </table>
             </div>
           </div>
         </div>
