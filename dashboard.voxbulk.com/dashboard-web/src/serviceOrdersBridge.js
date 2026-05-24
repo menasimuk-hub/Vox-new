@@ -397,9 +397,14 @@ async function runSurveyLaunchFlow() {
   }
 
   if (!state.surveyScriptApproved) {
-    window.toast?.('Generate your AI script, read it, then click Approve before paying', 'tr')
+    const scriptEl = document.getElementById('sur-ai-script')
+    if (!scriptEl?.value?.trim()) {
+      window.toast?.('Generate your AI script, read it, then click Approve before paying', 'tr')
+    } else {
+      window.toast?.('❗ Please click the Approve button to confirm the script before paying', 'tr')
+    }
     showAiPanel('sur', true)
-    document.getElementById('sur-ai-script')?.focus()
+    scriptEl?.focus()
     return
   }
 
@@ -822,20 +827,34 @@ async function generateServiceScript(serviceCode) {
   if (regenBtn) regenBtn.disabled = true
   window.toast?.('AI is writing your script — this may take a few seconds', 'tg')
 
+  const clientCtx = getClientContextForApi()
+  
+  // For survey scripts, use the selected agent's name instead of organiser name
+  let agentName = ''
+  if (isSurvey) {
+    const agent = selectedSurveyAgent()
+    if (agent && agent.name) {
+      agentName = agent.name
+    }
+  }
+
   const payload = isSurvey
     ? {
         service_code: 'survey',
         goal: goalEl?.value || '',
         contact_method: 'AI phone call',
         max_call_length: selectValue(document.getElementById('sur-max-length')),
-        client_context: getClientContextForApi(),
+        client_context: {
+          ...clientCtx,
+          assistant_name: agentName || clientCtx.assistant_name,
+        },
       }
     : {
         service_code: 'interview',
         role: roleEl?.value || '',
         criteria: criteriaEl?.value || '',
         delivery: deliveryFromInterviewForm(),
-        client_context: getClientContextForApi(),
+        client_context: clientCtx,
       }
 
   try {
