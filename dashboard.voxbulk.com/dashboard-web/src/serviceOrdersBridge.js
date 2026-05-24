@@ -189,7 +189,7 @@ function renderSurveyQuoteUi() {
 
   if (!state.surveyFile) {
     panel.hidden = true
-    if (payBtn) payBtn.disabled = true
+    if (payBtn) payBtn.disabled = !!surveyLaunch.paying
     return
   }
 
@@ -202,7 +202,7 @@ function renderSurveyQuoteUi() {
 
   if (surveyLaunch.quoting) {
     if (statusEl) statusEl.textContent = 'Calculating quote…'
-    if (payBtn) payBtn.disabled = surveyLaunch.paying || !state.surveyFile
+    if (payBtn) payBtn.disabled = !!surveyLaunch.paying
     return
   }
 
@@ -210,7 +210,7 @@ function renderSurveyQuoteUi() {
     if (breakdownEl) breakdownEl.innerHTML = ''
     if (totalEl) totalEl.innerHTML = ''
     if (statusEl) statusEl.textContent = surveyLaunch.quoteError
-    if (payBtn) payBtn.disabled = surveyLaunch.paying || !state.surveyFile
+    if (payBtn) payBtn.disabled = !!surveyLaunch.paying
     return
   }
 
@@ -221,7 +221,7 @@ function renderSurveyQuoteUi() {
     if (statusEl) statusEl.textContent = surveyLaunch.contactCountKnown
       ? 'Select a package to see pricing'
       : 'Upload CSV for live pricing, or continue to checkout'
-    if (payBtn) payBtn.disabled = surveyLaunch.paying || !state.surveyFile
+    if (payBtn) payBtn.disabled = !!surveyLaunch.paying
     return
   }
 
@@ -257,7 +257,36 @@ function renderSurveyQuoteUi() {
       : 'Best-fit package auto-selected'
   }
 
-  if (payBtn) payBtn.disabled = surveyLaunch.paying || !state.surveyFile
+  if (payBtn) payBtn.disabled = !!surveyLaunch.paying
+}
+
+async function ingestRecipientFile(file, serviceCode) {
+  if (!file) {
+    if (serviceCode === 'survey') setSampleRecipientFirstName('')
+    return
+  }
+  const firstName = await parseFirstNameFromRecipientFile(file)
+  if (serviceCode === 'survey') setSampleRecipientFirstName(firstName)
+}
+
+function updateSurveyUploadUi(file, { contactCount = null, contactCountKnown = false } = {}) {
+  const zone = document.getElementById('sur-upload-zone')
+  const label = document.getElementById('sur-upload-filename')
+  if (label) {
+    if (file) {
+      const countText =
+        contactCountKnown && contactCount != null ? ` · ${contactCount} contacts` : ''
+      label.textContent = `Selected: ${file.name}${countText}`
+      label.style.display = 'block'
+    } else {
+      label.textContent = ''
+      label.style.display = 'none'
+    }
+  }
+  if (zone) {
+    zone.classList.toggle('has-file', Boolean(file))
+    if (file) zone.classList.remove('error')
+  }
 }
 
 async function refreshSurveyQuote() {
@@ -318,112 +347,165 @@ async function refreshSurveyQuote() {
   }
 }
 
+let surveyHandlersAbort = null
+let surveyFileSelectToken = 0
+let lastSurveyFileKey = ''
+
+function surveyFileKey(file) {
+  if (!file) return ''
+  return `${file.name}:${file.size}:${file.lastModified}`
+}
+
 async function onSurveyFileSelected(file) {
+  const fileKey = surveyFileKey(file)
+  if (file && fileKey === lastSurveyFileKey && state.surveyFile === file) return
+
+  const token = ++surveyFileSelectToken
   state.surveyFile = file || null
   surveyLaunch.quote = null
   surveyLaunch.quoteError = ''
+  updateSurveyUploadUi(file)
   if (!file) {
+    lastSurveyFileKey = ''
     surveyLaunch.contactCount = 0
     surveyLaunch.contactCountKnown = false
     renderSurveyQuoteUi()
     return
   }
 
-  window.toast?.(`Selected ${file.name}`, 'tg')
-  await ingestRecipientFile(file, 'survey')
+  lastSurveyFileKey = fileKey
 
-  const count = await countContactsInFile(file)
-  if (count === null) {
-    surveyLaunch.contactCountKnown = false
-    surveyLaunch.contactCount = 0
-    logSurvey('contacts_unknown', { filename: file.name })
-  } else {
-    surveyLaunch.contactCountKnown = true
-    surveyLaunch.contactCount = count
-    logSurvey('contacts_counted', { count })
+  try {
+    await ingestRecipientFile(file, 'survey')
+    if (token !== surveyFileSelectToken) return
+
+    const count = await countContactsInFile(file)
+    if (token !== surveyFileSelectToken) return
+
+    if (count === null) {
+      surveyLaunch.contactCountKnown = false
+      surveyLaunch.contactCount = 0
+      logSurvey('contacts_unknown', { filename: file.name })
+    } else {
+      surveyLaunch.contactCountKnown = true
+      surveyLaunch.contactCount = count
+      logSurvey('contacts_counted', { count })
+    }
+
+    updateSurveyUploadUi(file, {
+      contactCount: surveyLaunch.contactCount,
+      contactCountKnown: surveyLaunch.contactCountKnown,
+    })
+
+    if (!surveyLaunch.packageManual) {
+      await loadSurveyLaunchPackages()
+      if (token !== surveyFileSelectToken) return
+      const picked = autoPickSurveyPackage(surveyLaunch.contactCount, surveyLaunch.packages)
+      surveyLaunch.selectedPackageId = picked?.id || null
+    }
+
+    await refreshSurveyQuote()
+  } catch (e) {
+    if (token !== surveyFileSelectToken) return
+    console.error('[survey] file_select_failed', e)
+    notifyUser(e?.message || 'Could not read contact file', 'tr')
+    renderSurveyQuoteUi()
   }
-
-  if (!surveyLaunch.packageManual) {
-    await loadSurveyLaunchPackages()
-    const picked = autoPickSurveyPackage(surveyLaunch.contactCount, surveyLaunch.packages)
-    surveyLaunch.selectedPackageId = picked?.id || null
-  }
-
-  await refreshSurveyQuote()
 }
 
-function bindSurveyLaunchUi() {
-  ensureSurveyActionDelegation()
+function bindSurveyControl(id, event, handler, signal) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.addEventListener(event, handler, { signal })
 }
 
-let surveyActionDelegationBound = false
+function bindSurveyPageHandlers() {
+  surveyHandlersAbort?.abort()
+  surveyHandlersAbort = new AbortController()
+  const { signal } = surveyHandlersAbort
 
-function ensureSurveyActionDelegation() {
-  if (surveyActionDelegationBound) return
-  surveyActionDelegationBound = true
-
-  document.addEventListener('click', (event) => {
-    const payBtn = event.target.closest('#sur-pay-schedule')
-    if (payBtn) {
+  bindSurveyControl(
+    'sur-pay-schedule',
+    'click',
+    (event) => {
       event.preventDefault()
-      event.stopPropagation()
       void runSurveyLaunchFlow()
-      return
-    }
-
-    const genBtn = event.target.closest('#sur-ai-generate')
-    if (genBtn) {
+    },
+    signal,
+  )
+  bindSurveyControl(
+    'sur-ai-generate',
+    'click',
+    (event) => {
       event.preventDefault()
       void generateServiceScript('survey')
-      return
-    }
-
-    const regenBtn = event.target.closest('#sur-ai-regen')
-    if (regenBtn) {
+    },
+    signal,
+  )
+  bindSurveyControl(
+    'sur-ai-regen',
+    'click',
+    (event) => {
       event.preventDefault()
       void generateServiceScript('survey')
-      return
-    }
-
-    const approveBtn = event.target.closest('#sur-ai-approve')
-    if (approveBtn) {
+    },
+    signal,
+  )
+  bindSurveyControl(
+    'sur-ai-approve',
+    'click',
+    (event) => {
       event.preventDefault()
       approveServiceScript('survey')
-      return
-    }
-
-    const uploadZone = event.target.closest('#sur-upload-zone')
-    if (uploadZone) {
+    },
+    signal,
+  )
+  bindSurveyControl(
+    'sur-template-dl',
+    'click',
+    (event) => {
       event.preventDefault()
-      document.getElementById('sur-file-input')?.click()
-      return
-    }
-
-    const templateLink = event.target.closest('#sur-template-dl')
-    if (templateLink) {
-      event.preventDefault()
+      event.stopPropagation()
       void downloadAuthenticatedFile('/service-orders/template.csv', 'voxbulk-contacts-template.csv').catch(
         (err) => notifyUser(err.message || 'Could not download template', 'tr'),
       )
-    }
-  })
-
-  document.addEventListener('change', (event) => {
-    if (event.target?.id === 'sur-file-input') {
+    },
+    signal,
+  )
+  bindSurveyControl(
+    'sur-file-input',
+    'change',
+    (event) => {
       void onSurveyFileSelected(event.target.files?.[0] || null)
-    }
-    if (event.target?.id === 'sur-package-select') {
+      event.target.value = ''
+    },
+    signal,
+  )
+  bindSurveyControl(
+    'sur-package-select',
+    'change',
+    (event) => {
       surveyLaunch.selectedPackageId = event.target.value || null
       surveyLaunch.packageManual = true
       logSurvey('package_manual', { package_id: surveyLaunch.selectedPackageId })
       void refreshSurveyQuote()
-    }
-    if (event.target?.id === 'sur-agent-select') {
+    },
+    signal,
+  )
+  bindSurveyControl(
+    'sur-agent-select',
+    'change',
+    (event) => {
       surveyLaunch.selectedAgentId = event.target.value || null
       surveyLaunch.agentManual = true
       logSurvey('agent_selected', { agent_id: surveyLaunch.selectedAgentId })
-    }
-  })
+    },
+    signal,
+  )
+}
+
+function bindSurveyLaunchUi() {
+  bindSurveyPageHandlers()
 }
 
 async function schedulePaidSurveyOrder(order) {
@@ -583,10 +665,17 @@ async function runSurveyLaunchFlow() {
   }
 }
 
+let lastUserNotice = { message: '', type: '', at: 0 }
+
 function notifyUser(message, type = 'tg') {
-  if (typeof window.toast === 'function') window.toast(message, type)
-  else if (typeof toast === 'function') toast(message, type)
-  else window.alert(message)
+  const msg = String(message || '').trim()
+  if (!msg) return
+  const now = Date.now()
+  if (lastUserNotice.message === msg && lastUserNotice.type === type && now - lastUserNotice.at < 2500) return
+  lastUserNotice = { message: msg, type, at: now }
+  if (typeof window.toast === 'function') window.toast(msg, type)
+  else if (typeof toast === 'function') toast(msg, type)
+  else window.alert(msg)
 }
 
 function clearSurveyValidationUi() {
@@ -608,7 +697,7 @@ function showSurveyValidationErrors(errors) {
   const unique = [...new Set(errors.filter(Boolean))]
   const banner = document.getElementById('sur-validation-errors')
   if (!banner) {
-    notifyUser(unique.join('\n'), 'tr')
+    notifyUser(unique.length === 1 ? unique[0] : unique.join('\n'), 'tr')
     return
   }
 
@@ -621,7 +710,6 @@ function showSurveyValidationErrors(errors) {
   banner.innerHTML = html
   banner.style.display = 'flex'
   banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  notifyUser(unique.length === 1 ? unique[0] : 'Please fix the highlighted items before continuing.', 'tr')
 }
 
 function escHtml(text) {
@@ -744,6 +832,7 @@ function resetSurveyLaunchForm() {
   surveyLaunch.quoteError = ''
   const fileInput = document.getElementById('sur-file-input')
   if (fileInput) fileInput.value = ''
+  lastSurveyFileKey = ''
   document.getElementById('sur-goal') && (document.getElementById('sur-goal').value = '')
   document.getElementById('sur-ai-script') && (document.getElementById('sur-ai-script').value = '')
   showAiPanel('sur', false)
@@ -1174,18 +1263,6 @@ function bindUploads() {
   const intZone = document.getElementById('int-upload-zone')
   const intTpl = document.getElementById('int-template-dl')
 
-  async function ingestRecipientFile(file, serviceCode) {
-    if (!file) {
-      if (serviceCode === 'survey') setSampleRecipientFirstName('')
-      return
-    }
-    const firstName = await parseFirstNameFromRecipientFile(file)
-    if (serviceCode === 'survey') setSampleRecipientFirstName(firstName)
-    if (firstName) {
-      window.toast?.(`Preview will use contact: ${firstName}`, 'tg')
-    }
-  }
-
   if (intTpl) {
     intTpl.addEventListener('click', async (e) => {
       e.preventDefault()
@@ -1537,7 +1614,6 @@ function wireAiButtons() {
 }
 
 export function initServiceOrdersBridge() {
-  ensureSurveyActionDelegation()
   window.payAndScheduleSurvey = (event) => {
     event?.preventDefault?.()
     void runSurveyLaunchFlow()
@@ -1568,7 +1644,6 @@ export function initServiceOrdersBridge() {
   renderSurveyQuoteUi()
 }
 
-ensureSurveyActionDelegation()
 if (typeof window !== 'undefined') {
   window.payAndScheduleSurvey = (event) => {
     event?.preventDefault?.()

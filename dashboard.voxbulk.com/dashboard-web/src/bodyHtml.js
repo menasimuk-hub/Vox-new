@@ -318,7 +318,9 @@ const bodyHtml = `<div class="app" id="app">
           <div class="fg"><label>What do you want to learn?</label><textarea id="sur-goal" rows="2" style="resize:none" placeholder="e.g. Patient satisfaction — experience, wait times, likelihood to recommend"></textarea></div>
           <div class="fg"><label>Max call length</label><select id="sur-max-length"><option selected>3 minutes</option><option>5 minutes</option><option>10 minutes</option></select></div>
           <div class="fg" id="sur-agent-field" style="margin-bottom:10px"><label>AI voice agent</label><select id="sur-agent-select"><option value="">Loading agents…</option></select><div class="muted" style="font-size:11px;margin-top:4px">Friendly voice shown on your survey calls — no technical IDs.</div></div>
-          <div class="standalone-upload" id="sur-upload-zone" style="margin-bottom:12px;cursor:pointer"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Upload contact list · CSV/Excel: name, phone, email<br/><a href="#" id="sur-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a><input type="file" id="sur-file-input" accept=".csv,.xlsx,.xls" style="display:none"/></div>
+          <input type="file" id="sur-file-input" accept=".csv,.xlsx,.xls" hidden/>
+          <div class="standalone-upload" id="sur-upload-zone" style="margin-bottom:6px"><label for="sur-file-input" class="sur-upload-trigger"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Upload contact list · CSV/Excel: name, phone, email</label><a href="#" id="sur-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a></div>
+          <div id="sur-upload-filename" class="muted" style="font-size:11px;margin-bottom:12px;display:none"></div>
           <div id="sur-ai-panel" style="display:none;margin-bottom:10px;background:var(--s2);border-radius:11px;padding:13px;border:1.5px solid var(--b2)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
               <span style="font-size:12px;font-weight:700;color:var(--t1)"><i class="ti ti-sparkles" style="color:var(--grn)"></i> AI-generated survey script</span>
@@ -357,7 +359,7 @@ const bodyHtml = `<div class="app" id="app">
           <div id="sur-validation-errors" class="validation-error" style="display:none;margin-bottom:10px"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
             <button class="btn btng bsm" type="button" id="sur-ai-generate"><i class="ti ti-sparkles"></i>AI write survey script</button>
-            <button class="btn btng bsm" type="button" id="sur-pay-schedule" onclick="window.payAndScheduleSurvey && window.payAndScheduleSurvey(event)"><i class="ti ti-credit-card"></i>Pay and schedule survey</button>
+            <button class="btn btng bsm" type="button" id="sur-pay-schedule"><i class="ti ti-credit-card"></i>Pay and schedule survey</button>
           </div>
         </div>
       </div>
