@@ -35,35 +35,73 @@ export function getApiBaseUrl() {
   return ''
 }
 
+function isTokenUsable(token) {
+  const payload = decodeJwtPayload(token)
+  if (!payload?.sub) return false
+  if (payload.exp && payload.exp * 1000 <= Date.now()) return false
+  return true
+}
+
+function syncOrgIdFromToken(token) {
+  const payload = decodeJwtPayload(token)
+  if (!payload?.org_id) return
+  const orgId = String(payload.org_id)
+  if (localStorage.getItem('retover_org_id') !== orgId) {
+    localStorage.setItem('retover_org_id', orgId)
+  }
+}
+
 export function getAccessToken() {
   const candidates = [
     localStorage.getItem('retover_access_token') || '',
     localStorage.getItem('access_token') || '',
   ].filter(Boolean)
-  if (!candidates.length) return ''
 
   const storedOrgId = localStorage.getItem('retover_org_id') || ''
-  const scored = candidates
+  const usable = candidates
+    .filter(isTokenUsable)
     .map((token) => ({ token, payload: decodeJwtPayload(token) }))
-    .filter(({ payload }) => !payload?.exp || payload.exp * 1000 > Date.now())
 
-  const withMatchingOrg = scored.find(({ payload }) => payload?.org_id && String(payload.org_id) === String(storedOrgId))
-  if (withMatchingOrg) return withMatchingOrg.token
+  const withMatchingOrg = usable.find(
+    ({ payload }) => payload?.org_id && String(payload.org_id) === String(storedOrgId),
+  )
+  const picked = withMatchingOrg || usable.find(({ payload }) => payload?.org_id) || usable[0]
+  if (!picked?.token) return ''
 
-  const withOrg = scored.find(({ payload }) => payload?.org_id)
-  if (withOrg) return withOrg.token
+  syncOrgIdFromToken(picked.token)
+  return picked.token
+}
 
-  return scored[0]?.token || candidates[0] || ''
+export function buildAuthHeaders(extraHeaders) {
+  const headers = new Headers(extraHeaders || {})
+  const token = getAccessToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const orgId = localStorage.getItem('retover_org_id')
+  if (orgId && !headers.has('X-Retover-Org-Id')) headers.set('X-Retover-Org-Id', orgId)
+  return headers
+}
+
+export function authErrorMessage(err) {
+  if (err?.status === 401 || /invalid authentication credentials/i.test(String(err?.message || ''))) {
+    return 'Your session expired. Please sign in again.'
+  }
+  return err?.message || 'Request failed'
+}
+
+export function handleUnauthorizedApiError(err, { redirect = true } = {}) {
+  if (err?.status !== 401 && !/invalid authentication credentials/i.test(String(err?.message || ''))) {
+    return false
+  }
+  if (redirect) {
+    setTimeout(() => redirectToSignIn(), 800)
+  }
+  return true
 }
 
 export async function downloadAuthenticatedFile(path, filename) {
   const baseUrl = getApiBaseUrl()
   const url = baseUrl ? `${baseUrl}${path}` : path
-  const headers = new Headers()
-  const token = getAccessToken()
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const orgId = localStorage.getItem('retover_org_id')
-  if (orgId) headers.set('X-Retover-Org-Id', orgId)
+  const headers = buildAuthHeaders()
   const res = await fetch(url, { headers })
   if (!res.ok) {
     const text = await res.text()
@@ -74,7 +112,9 @@ export async function downloadAuthenticatedFile(path, filename) {
     } catch {
       /* ignore */
     }
-    throw new Error(message)
+    const err = new Error(message)
+    err.status = res.status
+    throw err
   }
   const blob = await res.blob()
   const objectUrl = URL.createObjectURL(blob)
@@ -91,7 +131,7 @@ export async function apiFetch(path, options = {}) {
   const baseUrl = getApiBaseUrl()
   const url = baseUrl ? `${baseUrl}${path}` : path
 
-  const headers = new Headers(options.headers || {})
+  const headers = buildAuthHeaders(options.headers || {})
   headers.set('Accept', 'application/json')
   if (
     options.body != null &&
@@ -100,11 +140,6 @@ export async function apiFetch(path, options = {}) {
   ) {
     headers.set('Content-Type', 'application/json')
   }
-
-  const token = getAccessToken()
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const orgId = localStorage.getItem('retover_org_id')
-  if (orgId && !headers.has('X-Retover-Org-Id')) headers.set('X-Retover-Org-Id', orgId)
 
   const res = await fetch(url, { ...options, headers })
   const text = await res.text()
@@ -117,6 +152,31 @@ export async function apiFetch(path, options = {}) {
     const err = new Error(message)
     err.status = res.status
     err.data = data
+    if (res.status === 401 && options.redirectOn401 !== false) {
+      handleUnauthorizedApiError(err)
+    }
+    throw err
+  }
+  return data
+}
+
+export async function apiUploadFile(path, file, fieldName = 'file') {
+  const baseUrl = getApiBaseUrl()
+  const url = baseUrl ? `${baseUrl}${path}` : path
+  const fd = new FormData()
+  fd.append(fieldName, file)
+  const headers = buildAuthHeaders()
+  const res = await fetch(url, { method: 'POST', headers, body: fd })
+  const text = await res.text()
+  const data = text ? safeJson(text) : null
+  if (!res.ok) {
+    const message =
+      (data && (typeof data.detail === 'string' ? data.detail : data.message)) ||
+      `${res.status} ${res.statusText}`.trim()
+    const err = new Error(message)
+    err.status = res.status
+    err.data = data
+    if (res.status === 401) handleUnauthorizedApiError(err)
     throw err
   }
   return data

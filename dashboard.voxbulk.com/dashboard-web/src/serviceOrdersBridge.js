@@ -1,4 +1,11 @@
-import { apiFetch, downloadAuthenticatedFile, getAccessToken, getApiBaseUrl } from './lib/api.js'
+import {
+  apiFetch,
+  apiUploadFile,
+  authErrorMessage,
+  downloadAuthenticatedFile,
+  getAccessToken,
+  handleUnauthorizedApiError,
+} from './lib/api.js'
 import { buildWaFlowFromPayload, createWaPreviewRenderer } from './waSurveyPreview.js'
 import {
   getClientContextForApi,
@@ -508,6 +515,22 @@ function bindSurveyLaunchUi() {
   bindSurveyPageHandlers()
 }
 
+async function ensureAuthenticatedSession() {
+  const token = getAccessToken()
+  if (!token) {
+    const err = new Error('Your session expired. Please sign in again.')
+    err.status = 401
+    throw err
+  }
+  await apiFetch('/auth/me', { redirectOn401: false })
+}
+
+function reportSurveyFlowError(err, fallbackMessage) {
+  const message = authErrorMessage(err) || fallbackMessage
+  notifyUser(message, 'tr')
+  handleUnauthorizedApiError(err)
+}
+
 async function schedulePaidSurveyOrder(order) {
   try {
     const scheduled = await api(`/service-orders/${order.id}/schedule`, { method: 'POST' })
@@ -569,6 +592,7 @@ async function runSurveyLaunchFlow() {
 
   let agent = selectedSurveyAgent()
   try {
+    await ensureAuthenticatedSession()
     await loadSurveyLaunchPackages()
     if (!surveyLaunch.selectedPackageId && surveyLaunch.packages.length) {
       const picked = autoPickSurveyPackage(surveyLaunch.contactCount, surveyLaunch.packages)
@@ -600,7 +624,7 @@ async function runSurveyLaunchFlow() {
     )
     if (!proceed) return
   } catch (e) {
-    notifyUser(e.message || 'Could not prepare survey checkout', 'tr')
+    reportSurveyFlowError(e, 'Could not prepare survey checkout')
     return
   }
 
@@ -651,15 +675,15 @@ async function runSurveyLaunchFlow() {
 
     await offerSurveyPayment(order)
   } catch (e) {
-    notifyUser(e.message || 'Could not create survey order', 'tr')
-    logSurvey('launch_failed', { message: e.message })
+    reportSurveyFlowError(e, 'Could not create survey order')
+    logSurvey('launch_failed', { message: e.message, status: e.status })
   } finally {
     surveyLaunch.paying = false
     renderSurveyQuoteUi()
   }
   } catch (err) {
     console.error('[survey] launch_unhandled', err)
-    notifyUser(err?.message || 'Pay and schedule failed — please try again', 'tr')
+    reportSurveyFlowError(err, 'Pay and schedule failed — please try again')
     surveyLaunch.paying = false
     renderSurveyQuoteUi()
   }
@@ -1465,20 +1489,7 @@ async function submitCashOrderPayment(orderId) {
 }
 
 async function uploadRecipients(orderId, file) {
-  const base = getApiBaseUrl()
-  const url = `${base}/service-orders/${orderId}/recipients/upload`
-  const fd = new FormData()
-  fd.append('file', file)
-  const headers = new Headers()
-  const token = getAccessToken()
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const orgId = localStorage.getItem('retover_org_id')
-  if (orgId) headers.set('X-Retover-Org-Id', orgId)
-  const res = await fetch(url, { method: 'POST', headers, body: fd })
-  const text = await res.text()
-  const data = text ? JSON.parse(text) : null
-  if (!res.ok) throw new Error(data?.detail || 'Upload failed')
-  return data
+  return apiUploadFile(`/service-orders/${orderId}/recipients/upload`, file, 'file')
 }
 
 async function tryStartPaidOrder(serviceCode) {
