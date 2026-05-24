@@ -18,30 +18,38 @@ DEFAULT_DISCLOSURE = (
 )
 
 
+def _has_table(inspector: sa.Inspector, name: str) -> bool:
+    return name in set(inspector.get_table_names())
+
+
+def _has_column(inspector: sa.Inspector, table: str, column: str) -> bool:
+    return column in {col["name"] for col in inspector.get_columns(table)}
+
+
 def upgrade() -> None:
-    op.create_table(
-        "voice_agent_platform_settings",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("global_compliance_role", sa.Text(), nullable=True),
-        sa.Column(
-            "opening_disclosure_template",
-            sa.Text(),
-            nullable=False,
-            server_default=DEFAULT_DISCLOSURE,
-        ),
-        sa.Column("disclosure_mandatory", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("disclosure_for_survey", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("disclosure_for_interview", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.execute(
-        sa.text(
-            "INSERT INTO voice_agent_platform_settings (id, global_compliance_role, opening_disclosure_template, "
-            "disclosure_mandatory, disclosure_for_survey, disclosure_for_interview, updated_at) "
-            f"VALUES ('default', NULL, :tpl, 1, 1, 1, CURRENT_TIMESTAMP)"
-        ).bindparams(tpl=DEFAULT_DISCLOSURE)
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if not _has_table(inspector, "voice_agent_platform_settings"):
+        # MySQL does not allow DEFAULT on TEXT columns — insert default row after create.
+        op.create_table(
+            "voice_agent_platform_settings",
+            sa.Column("id", sa.String(length=36), nullable=False),
+            sa.Column("global_compliance_role", sa.Text(), nullable=True),
+            sa.Column("opening_disclosure_template", sa.Text(), nullable=False),
+            sa.Column("disclosure_mandatory", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+            sa.Column("disclosure_for_survey", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+            sa.Column("disclosure_for_interview", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+            sa.Column("updated_at", sa.DateTime(), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.execute(
+            sa.text(
+                "INSERT INTO voice_agent_platform_settings (id, global_compliance_role, opening_disclosure_template, "
+                "disclosure_mandatory, disclosure_for_survey, disclosure_for_interview, updated_at) "
+                "VALUES ('default', NULL, :tpl, 1, 1, 1, CURRENT_TIMESTAMP)"
+            ).bindparams(tpl=DEFAULT_DISCLOSURE)
+        )
 
     cols = [
         ("voice_label", sa.String(120)),
@@ -58,7 +66,8 @@ def upgrade() -> None:
         ("opt_out_policy_notes", sa.Text()),
     ]
     for name, col_type in cols:
-        op.add_column("agent_definitions", sa.Column(name, col_type, nullable=True))
+        if not _has_column(inspector, "agent_definitions", name):
+            op.add_column("agent_definitions", sa.Column(name, col_type, nullable=True))
 
     for name in (
         "supports_survey",
@@ -71,14 +80,20 @@ def upgrade() -> None:
         "disclosure_for_interview",
         "disclosure_mandatory",
     ):
-        op.add_column(
-            "agent_definitions",
-            sa.Column(name, sa.Boolean(), nullable=False, server_default=sa.false()),
-        )
-    op.execute("UPDATE agent_definitions SET disclosure_mandatory = 1 WHERE disclosure_mandatory = 0")
+        if not _has_column(inspector, "agent_definitions", name):
+            op.add_column(
+                "agent_definitions",
+                sa.Column(name, sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            )
+
+    if _has_column(sa.inspect(bind), "agent_definitions", "disclosure_mandatory"):
+        op.execute("UPDATE agent_definitions SET disclosure_mandatory = 1 WHERE disclosure_mandatory = 0")
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
     for name in (
         "disclosure_mandatory",
         "disclosure_for_interview",
@@ -102,5 +117,8 @@ def downgrade() -> None:
         "voice_type_label",
         "voice_label",
     ):
-        op.drop_column("agent_definitions", name)
-    op.drop_table("voice_agent_platform_settings")
+        if _has_table(inspector, "agent_definitions") and _has_column(inspector, "agent_definitions", name):
+            op.drop_column("agent_definitions", name)
+
+    if _has_table(inspector, "voice_agent_platform_settings"):
+        op.drop_table("voice_agent_platform_settings")
