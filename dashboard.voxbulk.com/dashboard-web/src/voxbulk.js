@@ -53,6 +53,7 @@ function go(id,el){
   closeNotif();
   syncSetupChecklistForPage(id);
   if(typeof window.onSurveyPageNav==='function') window.onSurveyPageNav(id);
+  if(id==='reports'&&typeof window.reloadInterviewReports==='function') window.reloadInterviewReports();
   window.scrollTo(0,0);
 }
 // Convenience nav — finds and highlights correct sidebar item automatically

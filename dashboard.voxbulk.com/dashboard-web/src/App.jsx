@@ -92,6 +92,9 @@ function App({ session }) {
       const { initSurveyResultsBridge } = await import('./surveyResultsBridge.js')
       initSurveyResultsBridge()
 
+      const { initInterviewReportsBridge } = await import('./interviewReportsBridge.js')
+      initInterviewReportsBridge()
+
       const nameEl = document.querySelector('.unm')
       const planEl = document.querySelector('.uplan')
       const avatarEl = document.querySelector('.uav')

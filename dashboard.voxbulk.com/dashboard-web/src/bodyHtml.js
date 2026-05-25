@@ -443,6 +443,35 @@ const bodyHtml = `<div class="app" id="app">
 
       <!-- ══ REPORTS ══ -->
       <div class="pg" id="pg-reports">
+        <div class="tbrow" id="rep-tabs" style="margin-bottom:12px">
+          <div class="tb on" data-rep-tab="interviews"><i class="ti ti-briefcase"></i> Interview batches</div>
+          <div class="tb" data-rep-tab="clinic"><i class="ti ti-stethoscope"></i> Clinic recovery</div>
+        </div>
+        <div id="rep-panel-interviews">
+          <div class="drp" id="int-rep-drp">
+            <span style="font-size:11.5px;color:var(--t2);font-weight:600;margin-right:4px">Period:</span>
+            <button class="drp-opt" data-rep-period="today">Today</button>
+            <button class="drp-opt" data-rep-period="week">This week</button>
+            <button class="drp-opt on" data-rep-period="month">This month</button>
+            <button class="drp-opt" data-rep-period="last_month">Last month</button>
+            <button class="drp-opt" data-rep-period="all">All time</button>
+            <button class="btn btng bsm" id="int-rep-export-csv" style="margin-left:auto"><i class="ti ti-download"></i>Export CSV</button>
+          </div>
+          <div id="int-rep-mock-note" class="inf b" style="display:none;margin:12px 0"><i class="ti ti-info-circle"></i><span>Sample scores shown until live call results are connected (Phase 2).</span></div>
+          <div class="kg4" id="int-rep-kpis">
+            <div class="kpi"><div class="kl">Batches</div><div class="kv" id="int-rep-kpi-batches">—</div><div class="kd ne" id="int-rep-kpi-batches-sub">—</div></div>
+            <div class="kpi"><div class="kl">Candidates</div><div class="kv" id="int-rep-kpi-candidates">—</div><div class="kd up" id="int-rep-kpi-candidates-sub">—</div></div>
+            <div class="kpi"><div class="kl">Recommended</div><div class="kv" style="color:var(--grn)" id="int-rep-kpi-advance">—</div><div class="kd up">Advance</div></div>
+            <div class="kpi"><div class="kl">Total cost</div><div class="kv" id="int-rep-kpi-cost">—</div><div class="kd ne" id="int-rep-kpi-cost-sub">—</div></div>
+          </div>
+          <div class="card">
+            <div class="ch"><i class="ti ti-table grn"></i>Interview batches <span class="muted" style="font-weight:400;font-size:11px;margin-left:6px" id="int-rep-period-label">This month</span></div>
+            <div id="int-rep-table-wrap">
+              <div class="muted" style="font-size:12px;padding:8px 0">Loading interview reports…</div>
+            </div>
+          </div>
+        </div>
+        <div id="rep-panel-clinic" hidden>
         <!-- Date range picker -->
         <div class="drp">
           <span style="font-size:11.5px;color:var(--t2);font-weight:600;margin-right:4px">Period:</span>
@@ -494,6 +523,7 @@ const bodyHtml = `<div class="app" id="app">
             <div class="br-b dm" style="height:60%"></div><div class="br-b on" style="height:100%"></div><div class="br-b" style="height:10%;opacity:.3"></div>
           </div>
           <div class="brl"><span>1 May</span><span>5</span><span>9</span><span>13</span><span>17</span><span style="color:var(--grn);font-weight:700">Today</span></div>
+        </div>
         </div>
       </div>
 

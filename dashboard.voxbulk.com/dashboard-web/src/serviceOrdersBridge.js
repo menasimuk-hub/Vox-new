@@ -431,7 +431,7 @@ async function uploadInterviewFiles(fileList) {
   }
 }
 
-function renderInterviewKpis(orders, credits) {
+function renderInterviewKpis(orders, credits, reportOverview) {
   const creditsEl = document.getElementById('int-kpi-credits')
   const creditsSub = document.getElementById('int-kpi-credits-sub')
   const completedEl = document.getElementById('int-kpi-completed')
@@ -439,6 +439,23 @@ function renderInterviewKpis(orders, credits) {
   const balance = Number(credits?.interview_credits || 0)
   if (creditsEl) creditsEl.textContent = String(balance)
   if (creditsSub) creditsSub.textContent = balance === 1 ? 'promo credit' : 'promo credits'
+
+  if (reportOverview) {
+    const batches = Number(reportOverview.batch_count || 0)
+    const candidates = Number(reportOverview.candidate_count || 0)
+    const reached = Number(reportOverview.reached || 0)
+    const pct = candidates > 0 ? Number(reportOverview.reach_rate_pct || 0) : 0
+    if (completedEl) completedEl.textContent = String(batches)
+    if (completedSub) {
+      completedSub.textContent =
+        batches && candidates
+          ? `${reached} of ${candidates} reached (${pct}%)`
+          : batches
+            ? `${candidates} candidates`
+            : 'No completed campaigns this month'
+    }
+    return
+  }
 
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -2522,11 +2539,12 @@ async function loadOrdersIntoUi() {
     if (typeof window.reloadInterviewHub === 'function') {
       await window.reloadInterviewHub()
     }
-    const [interviews, credits] = await Promise.all([
+    const [interviews, credits, reportPayload] = await Promise.all([
       api('/service-orders?service_code=interview'),
       api('/service-orders/credits').catch(() => ({})),
+      api('/service-orders/interview-reports?period=month').catch(() => null),
     ])
-    renderInterviewKpis(interviews, credits)
+    renderInterviewKpis(interviews, credits, reportPayload?.overview)
     state.ordersLoaded = true
   } catch {
     /* keep static preview */

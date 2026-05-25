@@ -225,6 +225,36 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
     }
 
 
+@router.get("/interview-reports")
+def list_interview_reports(
+    period: str = "month",
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_report_service import InterviewReportService
+
+    return InterviewReportService.list_batches(db, principal.org_id, period=period)
+
+
+@router.get("/interview-reports/export.csv")
+def export_interview_reports_csv(
+    period: str = "month",
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_report_service import InterviewReportService
+    from fastapi.responses import Response
+
+    payload = InterviewReportService.list_batches(db, principal.org_id, period=period)
+    csv_text = InterviewReportService.export_batches_csv(payload)
+    filename = f"interview-batches-{period}.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{order_id}/recipients")
 def list_order_recipients(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_intake_service import intake_summary, list_intake_recipients
@@ -640,6 +670,43 @@ def get_interview_results(order_id: str, db: Session = Depends(get_db), principa
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
         return InterviewResultsService.get_results(db, order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/interview-report")
+def get_interview_batch_report(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.interview_report_service import InterviewReportService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        return InterviewReportService.batch_detail(db, order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/interview-report/export.csv")
+def export_interview_batch_report_csv(
+    order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    from app.services.interview_report_service import InterviewReportService
+    from fastapi.responses import Response
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        detail = InterviewReportService.batch_detail(db, order)
+        csv_text = InterviewReportService.export_batch_csv(detail)
+        ref = str((detail.get("summary") or {}).get("reference_id") or order_id[:8])
+        filename = f"interview-report-{ref}.csv"
+        return Response(
+            content=csv_text,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
