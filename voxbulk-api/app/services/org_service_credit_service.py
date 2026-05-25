@@ -57,6 +57,13 @@ class OrgServiceCreditService:
             raise OrgServiceCreditError("Upload contacts before using promo credits")
         if order.status not in {"quoted", "draft"}:
             raise OrgServiceCreditError("Order is not ready for payment")
+        if order.service_code == "interview":
+            from app.services.interview_cv_email_service import assert_cv_collection_complete
+
+            try:
+                assert_cv_collection_complete(order)
+            except ValueError as e:
+                raise OrgServiceCreditError(str(e)) from e
         if not OrgServiceCreditService.can_cover(org, service_code=order.service_code, recipient_count=order.recipient_count):
             raise OrgServiceCreditError("Not enough promo credits for this order")
 

@@ -40,6 +40,13 @@ function progressLabel(order) {
   if (!total) return '—'
   const done = Number(order.report?.completed || order.report?.reached || 0)
   if (order.status === 'running' && done) return `${done} of ${total} called`
+  const cv = order.cv_collection
+  if (cv?.enabled && !cv?.collection_complete) {
+    return `${total} candidates · CV email open`
+  }
+  if (cv?.enabled && cv?.collection_complete) {
+    return `${total} candidates · CV email closed`
+  }
   return `${total} candidates`
 }
 

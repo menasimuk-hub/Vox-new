@@ -359,6 +359,16 @@ async function refreshInterviewQuoteFromDraft() {
     renderInterviewQuoteUi()
     return
   }
+  const phase = getInterviewCvCollectionPhase()
+  if (phase.blocksLaunch) {
+    interviewLaunch.quote = null
+    interviewLaunch.quoteError = ''
+    interviewLaunch.quoteStatusNote = phase.state === 'open'
+      ? `Pricing available after CV email collection ends (${phase.endLabel})`
+      : 'Pricing available after Step 1 email collection finishes'
+    renderInterviewQuoteUi()
+    return
+  }
   interviewLaunch.quoting = true
   interviewLaunch.quoteError = ''
   renderInterviewQuoteUi()
@@ -1103,6 +1113,7 @@ function renderInterviewCandidateList() {
   interviewLaunch.contactCount = recipients.length
   interviewLaunch.contactCountKnown = true
   void refreshInterviewQuoteFromDraft()
+  updateInterviewLaunchPhaseUi()
 }
 
 async function ensureInterviewDraftOrder() {
@@ -1141,6 +1152,124 @@ function setCvEmailEnabled(on) {
     label.className = on ? 'bdg bg' : 'bdg ba'
   }
   if (typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
+  updateInterviewLaunchPhaseUi()
+}
+
+function getInterviewCvCollectionPhase() {
+  const enabled = isCvEmailEnabled()
+  const count = (interviewLaunch.recipients || []).length
+  if (!enabled) {
+    return { enabled: false, complete: true, blocksLaunch: false, state: 'disabled', endLabel: '', candidateCount: count }
+  }
+  const cv = cvEmailSchedulePayload()
+  if (!cv.cv_email_start_at || !cv.cv_email_end_at) {
+    return { enabled: true, complete: false, blocksLaunch: true, state: 'incomplete', endLabel: '—', candidateCount: count }
+  }
+  const start = new Date(cv.cv_email_start_at)
+  const end = new Date(cv.cv_email_end_at)
+  const now = new Date()
+  const endLabel = end.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return { enabled: true, complete: false, blocksLaunch: true, state: 'incomplete', endLabel: '—', candidateCount: count }
+  }
+  if (now <= end) {
+    return {
+      enabled: true,
+      complete: false,
+      blocksLaunch: true,
+      state: now < start ? 'before' : 'open',
+      endLabel,
+      candidateCount: count,
+    }
+  }
+  return { enabled: true, complete: true, blocksLaunch: false, state: 'after', endLabel, candidateCount: count }
+}
+
+function validateAiCallWindowAfterCvCollection() {
+  const phase = getInterviewCvCollectionPhase()
+  if (phase.blocksLaunch) {
+    if (phase.state === 'before') {
+      return 'CV email collection has not started yet — AI quote and launch unlock after the collection window ends'
+    }
+    if (phase.state === 'open') {
+      return `CV email collection is open until ${phase.endLabel}. Wait for it to finish so pricing uses the final candidate list`
+    }
+    return 'Set CV email collection start and end times, or turn email intake OFF if you only use file upload'
+  }
+  if (!phase.enabled) return null
+  const cv = cvEmailSchedulePayload()
+  const sched = schedulePayload('int')
+  if (!sched.scheduled_start_at || !cv.cv_email_end_at) return null
+  const aiStart = new Date(sched.scheduled_start_at)
+  const cvEnd = new Date(cv.cv_email_end_at)
+  if (aiStart < cvEnd) {
+    return `AI calling must start after CV collection ends (${phase.endLabel})`
+  }
+  return null
+}
+
+function updateInterviewLaunchPhaseUi() {
+  const phase = getInterviewCvCollectionPhase()
+  const banner = document.getElementById('int-cv-phase-banner')
+  const bannerText = document.getElementById('int-cv-phase-banner-text')
+  const previewBtn = document.getElementById('int-preview-open')
+  const blockedNote = document.getElementById('int-launch-blocked-note')
+  const aiWrap = document.getElementById('int-ai-call-window-wrap')
+  const aiLockedNote = document.getElementById('int-ai-call-locked-note')
+  const startDate = document.getElementById('int-start-date')
+
+  if (banner && bannerText) {
+    if (phase.enabled && phase.blocksLaunch) {
+      banner.style.display = ''
+      if (phase.state === 'before') {
+        bannerText.textContent = `Step 1 not started yet. Email CV intake opens soon — ${phase.candidateCount} candidate(s) so far. Quote and AI calls unlock after collection ends (${phase.endLabel}).`
+      } else if (phase.state === 'open') {
+        bannerText.textContent = `Collecting CVs by email until ${phase.endLabel} — ${phase.candidateCount} candidate(s) so far. You cannot quote or launch AI interviews until this window closes.`
+      } else {
+        bannerText.textContent = 'Turn email intake ON and set start/end times for Step 1, or turn it OFF if you only upload files manually.'
+      }
+    } else if (phase.enabled && phase.complete) {
+      banner.style.display = ''
+      bannerText.textContent = `Step 1 complete — email collection ended ${phase.endLabel}. ${phase.candidateCount} candidate(s) ready. You can now preview, quote, pay, and schedule AI calls (Step 2).`
+    } else {
+      banner.style.display = 'none'
+    }
+  }
+
+  const blockLaunch = phase.blocksLaunch
+  if (previewBtn) {
+    previewBtn.disabled = blockLaunch
+    previewBtn.title = blockLaunch ? 'Available after CV email collection ends' : 'Preview final list and get quote'
+  }
+  if (blockedNote) {
+    if (blockLaunch) {
+      blockedNote.style.display = ''
+      blockedNote.textContent = phase.state === 'open'
+        ? `Preview & quote locked until ${phase.endLabel} — final candidate count needed before billing.`
+        : 'Preview & quote locked until Step 1 email collection is configured and finished.'
+    } else {
+      blockedNote.style.display = 'none'
+    }
+  }
+  if (aiWrap) {
+    aiWrap.style.opacity = blockLaunch ? '0.55' : ''
+    aiWrap.style.pointerEvents = blockLaunch ? 'none' : ''
+  }
+  if (aiLockedNote) {
+    aiLockedNote.style.display = blockLaunch ? '' : 'none'
+  }
+  if (startDate && phase.enabled && phase.complete && phase.endLabel) {
+    const cv = cvEmailSchedulePayload()
+    if (cv.cv_email_end_at) {
+      const cvEnd = new Date(cv.cv_email_end_at)
+      if (!Number.isNaN(cvEnd.getTime())) {
+        const pad = (n) => String(n).padStart(2, '0')
+        startDate.min = `${cvEnd.getFullYear()}-${pad(cvEnd.getMonth() + 1)}-${pad(cvEnd.getDate())}`
+      }
+    }
+  } else if (startDate) {
+    startDate.removeAttribute('min')
+  }
 }
 
 function cvEmailSchedulePayload() {
@@ -1236,6 +1365,7 @@ function applyInterviewOrderToForm(order) {
   applyIsoScheduleToForm('int', order.scheduled_start_at, order.scheduled_end_at)
   applyCvEmailFromConfig(cfg)
   updateInterviewReferenceCard(order)
+  updateInterviewLaunchPhaseUi()
 }
 
 async function saveInterviewDraft({ silent = false } = {}) {
@@ -1326,6 +1456,8 @@ async function restoreInterviewDraft() {
 
 function validateInterviewLaunch() {
   const errors = []
+  const cvBlock = validateAiCallWindowAfterCvCollection()
+  if (cvBlock) errors.push(cvBlock)
   const hasDraftList = (interviewLaunch.recipients || []).length > 0
   if (!hasDraftList && !state.interviewFile) {
     errors.push('Upload a candidate list or CV files first')
@@ -1539,7 +1671,11 @@ function bindInterviewLaunchUi() {
   ;['int-cv-start-date', 'int-cv-start-time', 'int-cv-end-date', 'int-cv-end-time'].forEach((id) => {
     document.getElementById(id)?.addEventListener('input', () => {
       if (typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
+      updateInterviewLaunchPhaseUi()
     })
+  })
+  ;['int-start-date', 'int-start-time', 'int-end-date', 'int-end-time'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('input', () => updateInterviewLaunchPhaseUi())
   })
   document.getElementById('int-save-draft')?.addEventListener('click', () => void saveInterviewDraft())
   document.getElementById('int-preview-open')?.addEventListener('click', () => void openInterviewPreview())
@@ -3086,6 +3222,7 @@ export function initServiceOrdersBridge() {
   renderSurveyQuoteUi()
   renderInterviewQuoteUi()
   void restoreInterviewDraft().catch(() => {})
+  updateInterviewLaunchPhaseUi()
 }
 
 if (typeof window !== 'undefined') {

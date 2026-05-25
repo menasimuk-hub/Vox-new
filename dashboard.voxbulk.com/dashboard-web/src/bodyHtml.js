@@ -246,6 +246,7 @@ const bodyHtml = `<div class="app" id="app">
             <button class="btn btng bsm" type="button" id="int-ref-copy"><i class="ti ti-copy"></i>Copy reference</button>
           </div>
           <div class="int-cv-email-block" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--b1)">
+            <div style="font-size:11px;font-weight:700;color:var(--grn);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Step 1 — CV collection by email</div>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
               <div>
                 <div style="font-size:12.5px;font-weight:700;color:var(--t1)">CV collection via email</div>
@@ -302,6 +303,7 @@ const bodyHtml = `<div class="app" id="app">
             <button class="btn bsm btnr" type="button" id="int-delete-draft-btn" hidden><i class="ti ti-trash"></i>Delete draft</button>
           </div>
           <div id="int-form-lock-note" class="inf b" style="display:none;margin-bottom:12px"><i class="ti ti-lock"></i><span id="int-form-lock-text">This task is paid — candidate uploads are locked. You can still adjust the calling window until launch.</span></div>
+          <div id="int-cv-phase-banner" class="inf b" style="display:none;margin-bottom:12px"><i class="ti ti-mail"></i><span id="int-cv-phase-banner-text"></span></div>
           <div class="sur-launch-note"><i class="ti ti-phone"></i> AI phone interviews · Phase 2 — upload candidates before script approval</div>
           <input type="file" id="int-file-input" accept=".csv,.xlsx,.xls,.pdf,.docx,.doc,.txt,.zip" multiple hidden/>
           <div class="standalone-upload" id="int-upload-zone" style="margin-bottom:6px;cursor:pointer">
@@ -338,8 +340,10 @@ const bodyHtml = `<div class="app" id="app">
               <button class="btn bsm" type="button" id="int-ai-regen"><i class="ti ti-refresh"></i>Regenerate</button>
             </div>
           </div>
-          <!-- CALLING WINDOW -->
-          <div style="background:var(--s2);border-radius:11px;padding:13px;margin-bottom:10px">
+          <!-- AI CALLING WINDOW (Step 2 — after CV collection) -->
+          <div id="int-ai-call-window-wrap" style="background:var(--s2);border-radius:11px;padding:13px;margin-bottom:10px">
+            <div style="font-size:11px;font-weight:700;color:var(--grn);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Step 2 — AI interview calls</div>
+            <div id="int-ai-call-locked-note" class="muted" style="font-size:11.5px;margin-bottom:10px">Quote, pay, and schedule AI calls only after Step 1 email collection has finished — pricing uses the final candidate list.</div>
             <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px"><i class="ti ti-clock" style="color:var(--grn);font-size:14px"></i>AI calling window — system stops automatically at end time</div>
             <div class="fg2">
               <div class="fg" style="margin-bottom:0"><label><i class="ti ti-player-play" style="color:var(--grn);font-size:12px;margin-right:3px"></i>Start date</label><input type="date" id="int-start-date" oninput="updateIntWindow()"/></div>
@@ -365,8 +369,9 @@ const bodyHtml = `<div class="app" id="app">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <button class="btn bsm" type="button" id="int-save-draft"><i class="ti ti-device-floppy"></i>Save draft</button>
             <button class="btn btng bsm" type="button" id="int-ai-generate"><i class="ti ti-sparkles"></i>Generate AI questions</button>
-            <button class="btn bsm" type="button" id="int-preview-open"><i class="ti ti-eye"></i>Preview interviews</button>
+            <button class="btn bsm" type="button" id="int-preview-open" disabled title="Available after CV email collection ends"><i class="ti ti-eye"></i>Preview &amp; quote</button>
           </div>
+          <div id="int-launch-blocked-note" class="muted" style="font-size:11px;margin-top:4px;display:none"></div>
           <div id="int-save-status" class="muted" style="font-size:11px;margin-top:8px;display:none"></div>
         </div>
       </div>

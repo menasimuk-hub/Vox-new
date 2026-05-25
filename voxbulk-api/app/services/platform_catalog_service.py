@@ -640,6 +640,9 @@ class ServiceOrderService:
             out["is_live"] = ServiceOrderService.is_live_interview(order)
             out["is_finished"] = ServiceOrderService.is_finished_interview(order)
             out["status_label"] = ServiceOrderService.interview_status_label(order)
+            from app.services.interview_cv_email_service import interview_cv_phase_payload
+
+            out["cv_collection"] = interview_cv_phase_payload(order)
         return out
 
     @staticmethod
@@ -1087,6 +1090,10 @@ class ServiceOrderService:
     def quote_order(db: Session, order: ServiceOrder) -> ServiceOrder:
         if order.recipient_count <= 0:
             raise ValueError("Upload a contact list before requesting a quote")
+        if order.service_code == "interview":
+            from app.services.interview_cv_email_service import assert_cv_collection_complete
+
+            assert_cv_collection_complete(order)
         config = json.loads(order.config_json or "{}")
         quote = PlatformCatalogService.calculate_quote(
             db,
@@ -1169,6 +1176,14 @@ class ServiceOrderService:
             raise ValueError("Survey is paused — use resume instead")
         if order.status in {"running", "completed"}:
             raise ValueError("Order is already running or completed")
+        if order.service_code == "interview":
+            from app.services.interview_cv_email_service import (
+                assert_ai_call_window_after_cv_collection,
+                assert_cv_collection_complete,
+            )
+
+            assert_cv_collection_complete(order)
+            assert_ai_call_window_after_cv_collection(order)
         now = datetime.utcnow()
         if order.run_mode == "scheduled":
             if order.scheduled_start_at and now < order.scheduled_start_at:

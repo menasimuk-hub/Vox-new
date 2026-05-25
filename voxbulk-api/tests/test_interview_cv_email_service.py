@@ -63,3 +63,18 @@ def test_cv_email_window_open_and_closed(db_session: Session):
     assert cv_email_window_state(order, now=now) == "open"
     assert cv_email_window_state(order, now=now + timedelta(hours=2)) == "after"
     assert cv_email_window_state(order, now=now - timedelta(hours=2)) == "before"
+
+
+def test_cv_collection_blocks_quote(db_session: Session):
+    from app.services.interview_cv_email_service import assert_cv_collection_complete
+    from app.services.platform_catalog_service import ServiceOrderService
+
+    now = datetime.utcnow()
+    order = _order_with_cv_window(db_session, enabled=True, start=now - timedelta(hours=1), end=now + timedelta(hours=1))
+    order.recipient_count = 2
+    db_session.add(order)
+    db_session.commit()
+    with pytest.raises(ValueError, match="still open"):
+        assert_cv_collection_complete(order, now=now)
+    with pytest.raises(ValueError, match="still open"):
+        ServiceOrderService.quote_order(db_session, order)
