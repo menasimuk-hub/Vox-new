@@ -676,7 +676,7 @@ class ServiceOrderService:
                     "intake_source": recipient.intake_source,
                     "intake_errors": compute_intake_errors(recipient),
                     "intake_ready": bool(str(recipient.name or "").strip() and str(recipient.phone or "").strip()),
-                    "has_cv_file": bool(recipient.cv_storage_key or recipient.cv_filename),
+                    "has_cv_file": bool(recipient.cv_storage_key or (recipient.cv_text or "").strip()),
                 }
             )
         return out

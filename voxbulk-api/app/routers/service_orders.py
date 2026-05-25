@@ -182,6 +182,18 @@ def get_interview_draft(db: Session = Depends(get_db), principal=Depends(get_cur
     }
 
 
+@router.post("/interview/draft/new")
+def create_new_interview_draft_route(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.interview_intake_service import create_new_interview_draft, intake_summary
+
+    order = create_new_interview_draft(db, org_id=principal.org_id, user_id=principal.user_id)
+    return {
+        "order": ServiceOrderService.order_to_dict(order),
+        "recipients": [],
+        "summary": intake_summary([]),
+    }
+
+
 @router.post("/interview/draft")
 def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_intake_service import ensure_interview_draft_order, intake_summary, list_intake_recipients
@@ -375,7 +387,7 @@ def download_recipient_cv(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, Response
 
     from app.services.career_cv_storage_service import resolve_cv_path
 
@@ -388,10 +400,22 @@ def download_recipient_cv(
     if recipient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
     path = resolve_cv_path(recipient.cv_storage_key or "")
-    if path is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CV file not available for download")
-    filename = recipient.cv_filename or path.name
-    return FileResponse(path, filename=filename, media_type="application/octet-stream")
+    if path is not None:
+        filename = recipient.cv_filename or path.name
+        return FileResponse(path, filename=filename, media_type="application/octet-stream")
+    text = (recipient.cv_text or "").strip()
+    if text:
+        from pathlib import Path as PathLib
+
+        base = recipient.cv_filename or "cv.txt"
+        stem = PathLib(base).stem or "cv"
+        filename = f"{stem}.txt"
+        return Response(
+            content=text.encode("utf-8"),
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CV file not available for download")
 
 
 @router.get("/{order_id}")

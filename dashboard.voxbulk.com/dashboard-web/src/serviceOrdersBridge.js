@@ -816,7 +816,7 @@ async function downloadInterviewRecipientCv(recipientId) {
   const orderId = interviewLaunch.draftOrderId || state.interviewOrderId
   if (!orderId || !recipientId) return
   const recipient = (interviewLaunch.recipients || []).find((r) => r.id === recipientId)
-  const filename = recipient?.cv_filename || `cv-${recipientId}.pdf`
+  const filename = recipient?.cv_filename || `cv-${recipientId}.txt`
   try {
     await downloadAuthenticatedFile(
       `/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(recipientId)}/cv`,
@@ -824,6 +824,74 @@ async function downloadInterviewRecipientCv(recipientId) {
     )
   } catch (e) {
     window.toast?.(e.message || 'Could not download CV', 'tr')
+  }
+}
+
+function resetInterviewFormForNewTask() {
+  ;['int-role', 'int-criteria', 'int-ai-script'].forEach((id) => {
+    const el = document.getElementById(id)
+    if (el) el.value = ''
+  })
+  ;['int-start-date', 'int-start-time', 'int-end-date', 'int-end-time'].forEach((id) => {
+    const el = document.getElementById(id)
+    if (el) el.value = ''
+  })
+  state.interviewFile = null
+  state.interviewOrderId = null
+  state.interviewScriptPayload = null
+  state.interviewScriptApproved = false
+  interviewLaunch.draftOrderId = null
+  interviewLaunch.recipients = []
+  interviewLaunch.intakeSummary = null
+  interviewLaunch.quote = null
+  interviewLaunch.quoteError = ''
+  interviewLaunch.preparedOrder = null
+  interviewLaunch.preparedQuoteText = ''
+  interviewLaunch.contactCount = 0
+  interviewLaunch.contactCountKnown = false
+  const panel = document.getElementById('int-candidate-panel')
+  if (panel) panel.hidden = true
+  const uploadStatus = document.getElementById('int-upload-status')
+  if (uploadStatus) {
+    uploadStatus.style.display = 'none'
+    uploadStatus.textContent = ''
+  }
+  const saveStatus = document.getElementById('int-save-status')
+  if (saveStatus) {
+    saveStatus.style.display = 'none'
+    saveStatus.textContent = ''
+  }
+  showAiPanel('int', false)
+  setAiStatus('int', false)
+  renderInterviewQuoteUi()
+  if (typeof window.updateIntWindow === 'function') window.updateIntWindow()
+}
+
+async function startNewInterviewTask() {
+  const hasWork =
+    (interviewLaunch.recipients || []).length > 0 ||
+    Boolean(document.getElementById('int-role')?.value?.trim()) ||
+    Boolean(document.getElementById('int-criteria')?.value?.trim())
+  if (hasWork) {
+    const ok = window.confirm(
+      'Start a new interview task? Your current draft stays saved under Running interviews → Live.',
+    )
+    if (!ok) return
+  }
+  try {
+    const data = await api('/service-orders/interview/draft/new', { method: 'POST', body: '{}' })
+    resetInterviewFormForNewTask()
+    const order = data?.order
+    if (order?.id) {
+      interviewLaunch.draftOrderId = order.id
+      state.interviewOrderId = order.id
+      localStorage.setItem(INTERVIEW_DRAFT_LS_KEY, order.id)
+      updateInterviewReferenceCard(order)
+    }
+    window.toast?.('New interview task ready — new reference ID assigned', 'tg')
+    if (typeof window.reloadInterviewHub === 'function') void window.reloadInterviewHub()
+  } catch (e) {
+    window.toast?.(e.message || 'Could not create new interview task', 'tr')
   }
 }
 
@@ -856,7 +924,7 @@ function renderInterviewCandidateList() {
           ? `<button type="button" class="int-cell-btn" data-int-edit="${r.id}" data-field="email">${escHtml(r.email)}</button>`
           : `<button type="button" class="int-cell-btn is-missing" data-int-edit="${r.id}" data-field="email">Add email</button>`
         const issues = (r.intake_errors || []).map((e) => escHtml(e)).join('<br/>') || '—'
-        const hasCv = Boolean(r.has_cv_file || r.cv_filename)
+        const hasCv = Boolean(r.has_cv_file)
         const cvActions = hasCv
           ? `<button type="button" class="btn bsm btng int-cv-dl" data-int-cv="${r.id}" title="Download CV"><i class="ti ti-download"></i></button>`
           : ''
@@ -1252,6 +1320,7 @@ function bindInterviewLaunchUi() {
   document.getElementById('int-role')?.addEventListener('focus', () => {
     void ensureInterviewDraftOrder().catch(() => {})
   })
+  document.getElementById('int-new-task-btn')?.addEventListener('click', () => void startNewInterviewTask())
   bindInterviewReferenceCopy()
   document.getElementById('int-save-draft')?.addEventListener('click', () => void saveInterviewDraft())
   document.getElementById('int-preview-open')?.addEventListener('click', () => void openInterviewPreview())
@@ -2766,6 +2835,7 @@ export function initServiceOrdersBridge() {
   window.launchSurCampaign = () => runSurveyLaunchFlow()
   window.openInterviewResults = openInterviewResults
   window.saveInterviewDraft = () => saveInterviewDraft()
+  window.startNewInterviewTask = () => void startNewInterviewTask()
   window.openInterviewPreview = () => openInterviewPreview()
   window.launchIntCampaign = async () => {
     await openInterviewPreview()

@@ -171,6 +171,7 @@ def sync_career_mailbox(db: Session) -> dict[str, Any]:
     processed = 0
     added_cvs = 0
     rejected = 0
+    deleted = 0
 
     try:
         conn = _connect_imap(row)
@@ -190,11 +191,14 @@ def sync_career_mailbox(db: Session) -> dict[str, Any]:
                 added_cvs += count
             elif outcome.startswith("rejected"):
                 rejected += 1
-            conn.store(num, "+FLAGS", "\\Seen")
+            conn.store(num, "+FLAGS", "\\Deleted")
+            deleted += 1
+        if deleted:
+            conn.expunge()
         conn.logout()
-        message = f"Processed {processed} email(s), {added_cvs} CV(s) added, {rejected} rejected"
+        message = f"Processed {processed} email(s), {added_cvs} CV(s) added, {rejected} rejected, {deleted} deleted from inbox"
         CareerMailboxSettingsService.record_sync_result(db, ok=True, message=message)
-        return {"ok": True, "processed": processed, "added_cvs": added_cvs, "rejected": rejected, "message": message}
+        return {"ok": True, "processed": processed, "added_cvs": added_cvs, "rejected": rejected, "deleted": deleted, "message": message}
     except Exception as e:
         msg = f"Sync failed: {e}"
         logger.exception("career_mailbox_sync_failed")

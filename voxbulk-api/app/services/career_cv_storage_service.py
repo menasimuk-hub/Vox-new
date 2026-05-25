@@ -13,7 +13,11 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt"}
 
 def _base_dir() -> Path:
     settings = get_settings()
-    root = Path(getattr(settings, "cv_storage_dir", "") or os.environ.get("CV_STORAGE_DIR", "data/cv_intake"))
+    configured = getattr(settings, "cv_storage_dir", "") or os.environ.get("CV_STORAGE_DIR", "")
+    if configured:
+        root = Path(configured)
+    else:
+        root = Path(__file__).resolve().parents[2] / "data" / "cv_intake"
     root.mkdir(parents=True, exist_ok=True)
     return root
 

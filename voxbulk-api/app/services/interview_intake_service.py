@@ -112,7 +112,7 @@ def recipient_intake_dict(recipient: ServiceOrderRecipient) -> dict[str, Any]:
             "intake_ready": ready,
             "cv_skills": parsed.get("skills") or [],
             "cv_job_titles": parsed.get("job_titles") or [],
-            "has_cv_file": bool(recipient.cv_storage_key or recipient.cv_filename),
+            "has_cv_file": bool(recipient.cv_storage_key or (recipient.cv_text or "").strip()),
         }
     )
     return base
@@ -197,6 +197,26 @@ def ensure_interview_draft_order(
         service_code="interview",
         title=title.strip() or "Interview draft",
         config=config,
+    )
+    from app.services.interview_reference_service import ensure_order_reference_id
+
+    return ensure_order_reference_id(db, order)
+
+
+def create_new_interview_draft(
+    db: Session,
+    *,
+    org_id: str,
+    user_id: str,
+) -> ServiceOrder:
+    """Always create a fresh draft (new reference ID) without touching existing drafts."""
+    order = ServiceOrderService.create_order(
+        db,
+        org_id=org_id,
+        user_id=user_id,
+        service_code="interview",
+        title="Interview draft",
+        config={},
     )
     from app.services.interview_reference_service import ensure_order_reference_id
 

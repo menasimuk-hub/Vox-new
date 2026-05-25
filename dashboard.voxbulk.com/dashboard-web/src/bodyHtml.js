@@ -234,6 +234,9 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Credits remaining</div><div class="kv" id="int-kpi-credits">—</div><div class="kd ne" id="int-kpi-credits-sub">Loading…</div></div>
           <div class="kpi"><div class="kl">Completed this month</div><div class="kv" id="int-kpi-completed">—</div><div class="kd ne" id="int-kpi-completed-sub">—</div></div>
         </div>
+        <div class="int-top-actions" style="display:flex;justify-content:flex-end;margin-bottom:12px">
+          <button class="btn btng bsm" type="button" id="int-new-task-btn"><i class="ti ti-plus"></i> Create new interview task</button>
+        </div>
         <!-- JOB REFERENCE (shown when interview draft exists) -->
         <div class="card int-ref-card-wrap" id="int-ref-card-wrap" style="margin-bottom:12px" hidden>
           <div class="ch"><i class="ti ti-hash grn"></i>Task reference ID</div>

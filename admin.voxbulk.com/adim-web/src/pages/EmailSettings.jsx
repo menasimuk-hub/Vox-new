@@ -438,7 +438,7 @@ export default function EmailSettings() {
                   <div className="span-8 stack" style={{ gap: 14 }}>
                     <div className="note">
                       Candidates email CVs to <strong>careers@voxbulk.com</strong> with a job reference (<code>VB-INT-…</code>) in the subject or body.
-                      Inbound mail is fetched via <strong>IMAP</strong> (receive). Auto-replies use your <strong>SMTP</strong> tab (send).
+                      Inbound mail is fetched via <strong>IMAP</strong> (receive). Auto-replies use your <strong>SMTP</strong> tab (send). Processed emails are deleted from the inbox to keep it clear.
                     </div>
                     <div className="note" style={{ marginBottom: 0 }}>
                       If SMTP uses <strong>port 465 (SSL/TLS)</strong>, set IMAP to <strong>port 993 + SSL/TLS</strong> — same username and password, host is usually <code>imap.</code> instead of <code>smtp.</code>
