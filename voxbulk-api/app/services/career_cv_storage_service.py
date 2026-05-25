@@ -6,12 +6,13 @@ import os
 import uuid
 from pathlib import Path
 
-from app.core.config import settings
+from app.core.config import get_settings
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt"}
 
 
 def _base_dir() -> Path:
+    settings = get_settings()
     root = Path(getattr(settings, "cv_storage_dir", "") or os.environ.get("CV_STORAGE_DIR", "data/cv_intake"))
     root.mkdir(parents=True, exist_ok=True)
     return root
