@@ -227,6 +227,32 @@ async def intake_contacts_file(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/{order_id}/recipients/intake-files")
+async def intake_mixed_uploads(
+    order_id: str,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_intake_service import intake_mixed_files
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if not files:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload at least one file")
+    payload: list[tuple[str, bytes]] = []
+    for upload in files:
+        payload.append((upload.filename or "upload", await upload.read()))
+    try:
+        result = intake_mixed_files(db, order, payload)
+        order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+        result["order"] = ServiceOrderService.order_to_dict(order)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/{order_id}/recipients/intake-cvs")
 async def intake_cv_uploads(
     order_id: str,

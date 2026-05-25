@@ -250,14 +250,16 @@ const bodyHtml = `<div class="app" id="app">
         <div class="card">
           <div class="ch"><i class="ti ti-upload grn"></i>New interview campaign</div>
           <div class="sur-launch-note"><i class="ti ti-phone"></i> AI phone interviews · Phase 2 — upload candidates before script approval</div>
-          <input type="file" id="int-file-input" accept=".csv,.xlsx,.xls" hidden/>
-          <input type="file" id="int-cv-input" accept=".pdf,.docx,.doc,.zip" multiple hidden/>
-          <div class="fg2" style="margin-bottom:8px">
-            <div class="standalone-upload" id="int-upload-zone" style="margin-bottom:0;cursor:pointer"><label for="int-file-input" class="sur-upload-trigger" style="cursor:pointer;display:block"><i class="ti ti-file-spreadsheet" style="font-size:22px;display:block;margin-bottom:6px;color:var(--t3)"></i>CSV / Excel list<br/><span class="muted" style="font-size:11px">name required · phone optional until you fix the list</span></label><a href="#" id="int-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download template</a></div>
-            <div class="standalone-upload" id="int-cv-upload-zone" style="margin-bottom:0;cursor:pointer"><label for="int-cv-input" class="sur-upload-trigger" style="cursor:pointer;display:block"><i class="ti ti-file-text" style="font-size:22px;display:block;margin-bottom:6px;color:var(--t3)"></i>CV files<br/><span class="muted" style="font-size:11px">PDF, DOCX, or ZIP · parsed with PyMuPDF</span></label></div>
+          <input type="file" id="int-file-input" accept=".csv,.xlsx,.xls,.pdf,.docx,.doc,.txt,.zip" multiple hidden/>
+          <div class="standalone-upload" id="int-upload-zone" style="margin-bottom:6px;cursor:pointer">
+            <label for="int-file-input" class="sur-upload-trigger" style="cursor:pointer;display:block">
+              <i class="ti ti-upload" style="font-size:26px;display:block;margin-bottom:6px;color:var(--t3)"></i>
+              Upload candidates — Excel, CSV, PDF, DOCX, or ZIP<br/>
+              <span class="muted" style="font-size:11px">Drop one or many files · we build one list · add missing phones before launch</span>
+            </label>
+            <a href="#" id="int-template-dl" style="font-size:11px;color:var(--grn);margin-top:8px;display:inline-block">Download Excel/CSV template</a>
           </div>
-          <div id="int-upload-filename" class="muted" style="font-size:11px;margin-bottom:8px;display:none"></div>
-          <div id="int-cv-upload-status" class="muted" style="font-size:11px;margin-bottom:12px;display:none"></div>
+          <div id="int-upload-status" class="muted" style="font-size:11px;margin-bottom:12px;display:none"></div>
           <div id="int-candidate-panel" class="sur-launch-pricing" style="margin-bottom:12px" hidden>
             <div class="sur-launch-pricing-head"><i class="ti ti-users"></i> Candidate list — click phone or email to add · no scores yet</div>
             <div id="int-intake-summary" class="sur-launch-meta muted" style="margin-bottom:8px"></div>

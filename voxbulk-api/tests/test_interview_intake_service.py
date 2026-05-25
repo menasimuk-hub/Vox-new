@@ -1,4 +1,5 @@
 import io
+import uuid
 import zipfile
 
 import pytest
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder
 from app.models.user import User
-from app.services.interview_intake_service import intake_cv_files
+from app.services.interview_intake_service import intake_cv_files, intake_mixed_files
 from app.services.platform_catalog_service import ServiceOrderService
 
 
@@ -47,7 +48,7 @@ def db_session():
 @pytest.fixture()
 def interview_order(db_session: Session):
     org = Organisation(name="Test Org")
-    user = User(email="intake@test.com", password_hash="x", is_active=True)
+    user = User(email=f"intake-{uuid.uuid4().hex[:8]}@test.com", password_hash="x", is_active=True)
     db_session.add(org)
     db_session.add(user)
     db_session.flush()
@@ -76,3 +77,22 @@ def test_intake_cv_zip_creates_recipient_rows(db_session: Session, interview_ord
     names = {r["name"] for r in result["recipients"]}
     assert "Jane Doe" in names or "jane doe".title() in names
     assert result["summary"]["total"] == 2
+
+
+def test_intake_mixed_zip_and_csv(db_session: Session, interview_order: ServiceOrder):
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["name", "phone", "email"])
+    writer.writerow(["Alice Example", "+447700900111", "alice@example.com"])
+    csv_bytes = buf.getvalue().encode("utf-8")
+    zip_bytes = _zip_with_docx([("bob_cv.docx", _docx_bytes("Bob Example"))])
+    result = intake_mixed_files(
+        db_session,
+        interview_order,
+        [("list.csv", csv_bytes), ("cvs.zip", zip_bytes)],
+    )
+    assert result["recipient_count"] >= 2
+    assert len(result["recipients"]) >= 2

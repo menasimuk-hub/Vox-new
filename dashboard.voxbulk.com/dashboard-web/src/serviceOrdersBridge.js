@@ -227,21 +227,17 @@ function escHtml(text) {
     .replace(/"/g, '&quot;')
 }
 
-function updateInterviewUploadUi(file, { contactCount = null, contactCountKnown = false } = {}) {
+function updateInterviewUploadUi(fileCount, label) {
   const zone = document.getElementById('int-upload-zone')
-  const label = document.getElementById('int-upload-filename')
-  if (label) {
-    if (file) {
-      const countText =
-        contactCountKnown && contactCount != null ? ` · ${contactCount} contacts` : ''
-      label.textContent = `Selected: ${file.name}${countText}`
-      label.style.display = 'block'
-    } else {
-      label.textContent = ''
-      label.style.display = 'none'
-    }
+  const statusEl = document.getElementById('int-upload-status')
+  if (statusEl && label) {
+    statusEl.textContent = label
+    statusEl.style.display = 'block'
+  } else if (statusEl && !fileCount) {
+    statusEl.textContent = ''
+    statusEl.style.display = 'none'
   }
-  if (zone) zone.classList.toggle('has-file', Boolean(file))
+  if (zone) zone.classList.toggle('has-file', Boolean(fileCount))
 }
 
 function renderInterviewQuoteUi() {
@@ -379,19 +375,44 @@ async function refreshInterviewQuoteFromDraft() {
 
 let interviewFileSelectToken = 0
 
-async function onInterviewFileSelected(file) {
-  const token = ++interviewFileSelectToken
-  updateInterviewUploadUi(file)
-  if (!file) {
-    state.interviewFile = null
-    return
+async function onInterviewFileSelected(fileList) {
+  await uploadInterviewFiles(fileList)
+}
+
+async function uploadInterviewFiles(fileList) {
+  const files = Array.from(fileList || []).filter(Boolean)
+  if (!files.length) return
+  interviewLaunch.intakeLoading = true
+  const statusEl = document.getElementById('int-upload-status')
+  if (statusEl) {
+    statusEl.style.display = 'block'
+    statusEl.textContent = `Processing ${files.length} file(s)…`
   }
-  state.interviewFile = file
   try {
-    await uploadInterviewContactsFile(file)
+    const orderId = await ensureInterviewDraftOrder()
+    if (!orderId) throw new Error('Could not start interview draft')
+    const data = await apiUploadFiles(`/service-orders/${orderId}/recipients/intake-files`, files, 'files')
+    interviewLaunch.recipients = data?.recipients || []
+    interviewLaunch.intakeSummary = data?.summary || null
+    state.interviewFile = files[0] || null
+    renderInterviewCandidateList()
+    const count = interviewLaunch.recipients.length
+    const parsed = data?.parsed_count || 0
+    const contactRows = data?.contact_rows || 0
+    const rejected = (data?.rejected_files || []).length
+    const statusText = `${count} candidates in list${parsed ? ` · ${parsed} CV(s) parsed` : ''}${contactRows ? ` · ${contactRows} spreadsheet row(s)` : ''}${rejected ? ` · ${rejected} file(s) skipped` : ''}`
+    if (statusEl) statusEl.textContent = statusText
+    updateInterviewUploadUi(count, statusText)
+    if (count === 0) {
+      window.toast?.('No candidates added — use Excel, CSV, PDF, DOCX, or ZIP', 'tr')
+    } else {
+      window.toast?.(`${count} candidates in list — add any missing phones`, 'tg')
+    }
   } catch (e) {
-    if (token !== interviewFileSelectToken) return
-    window.toast?.(e?.message || 'Could not read contact file', 'tr')
+    if (statusEl) statusEl.textContent = e.message || 'Upload failed'
+    window.toast?.(e.message || 'Could not process upload', 'tr')
+  } finally {
+    interviewLaunch.intakeLoading = false
   }
 }
 
@@ -536,63 +557,6 @@ async function ensureInterviewDraftOrder() {
   interviewLaunch.intakeSummary = data?.summary || null
   renderInterviewCandidateList()
   return interviewLaunch.draftOrderId
-}
-
-async function uploadInterviewContactsFile(file) {
-  if (!file) return
-  interviewLaunch.intakeLoading = true
-  try {
-    const orderId = await ensureInterviewDraftOrder()
-    if (!orderId) throw new Error('Could not start interview draft')
-    const data = await apiUploadFile(`/service-orders/${orderId}/recipients/intake-contacts`, file, 'file')
-    interviewLaunch.recipients = data?.recipients || []
-    interviewLaunch.intakeSummary = data?.summary || null
-    state.interviewFile = file
-    updateInterviewUploadUi(file, {
-      contactCount: interviewLaunch.recipients.length,
-      contactCountKnown: true,
-    })
-    renderInterviewCandidateList()
-    window.toast?.(`Loaded ${interviewLaunch.recipients.length} candidates — fix any missing phones`, 'tg')
-  } catch (e) {
-    window.toast?.(e.message || 'Could not read contact file', 'tr')
-  } finally {
-    interviewLaunch.intakeLoading = false
-  }
-}
-
-async function uploadInterviewCvFiles(fileList) {
-  const files = Array.from(fileList || []).filter(Boolean)
-  if (!files.length) return
-  interviewLaunch.intakeLoading = true
-  const statusEl = document.getElementById('int-cv-upload-status')
-  if (statusEl) {
-    statusEl.style.display = 'block'
-    statusEl.textContent = `Scanning ${files.length} CV file(s)…`
-  }
-  try {
-    const orderId = await ensureInterviewDraftOrder()
-    if (!orderId) throw new Error('Could not start interview draft')
-    const data = await apiUploadFiles(`/service-orders/${orderId}/recipients/intake-cvs`, files, 'files')
-    interviewLaunch.recipients = data?.recipients || []
-    interviewLaunch.intakeSummary = data?.summary || null
-    renderInterviewCandidateList()
-    const parsed = data?.parsed_count || files.length
-    const count = interviewLaunch.recipients.length
-    if (statusEl) {
-      statusEl.textContent = `Parsed ${parsed} CV(s) · ${count} candidates in list`
-    }
-    if (count === 0 && parsed > 0) {
-      window.toast?.('CVs parsed but no candidates were added — check migration 0068 on server or re-upload', 'tr')
-    } else {
-      window.toast?.(`CV scan complete — ${count} candidates in list. Add any missing phones.`, 'tg')
-    }
-  } catch (e) {
-    if (statusEl) statusEl.textContent = e.message || 'CV upload failed'
-    window.toast?.(e.message || 'Could not parse CV files', 'tr')
-  } finally {
-    interviewLaunch.intakeLoading = false
-  }
 }
 
 async function editInterviewRecipientField(recipientId, field) {
@@ -1885,14 +1849,8 @@ function bindUploads() {
   }
   if (intInput) {
     intInput.addEventListener('change', async () => {
-      await onInterviewFileSelected(intInput.files?.[0] || null)
-    })
-  }
-  const intCvInput = document.getElementById('int-cv-input')
-  if (intCvInput) {
-    intCvInput.addEventListener('change', async () => {
-      await uploadInterviewCvFiles(intCvInput.files)
-      intCvInput.value = ''
+      await onInterviewFileSelected(intInput.files)
+      intInput.value = ''
     })
   }
 }

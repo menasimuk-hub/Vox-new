@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -168,6 +169,167 @@ def _find_match(recipients: list[ServiceOrderRecipient], parsed: ParsedCv) -> Se
     if best and best_score >= MATCH_THRESHOLD:
         return best
     return None
+
+
+CONTACT_EXTENSIONS = (".csv", ".xlsx", ".xls")
+CV_EXTENSIONS = (".pdf", ".docx", ".doc", ".zip", ".txt")
+
+
+def classify_intake_filename(filename: str) -> str:
+    lower = str(filename or "").lower().replace("\\", "/")
+    base = lower.rsplit("/", 1)[-1]
+    for ext in CONTACT_EXTENSIONS:
+        if base.endswith(ext):
+            return "contact"
+    for ext in CV_EXTENSIONS:
+        if base.endswith(ext):
+            return "cv"
+    return "unknown"
+
+
+def _find_match_for_contact(recipients: list[ServiceOrderRecipient], row: dict[str, str | None]) -> ServiceOrderRecipient | None:
+    phone = str(row.get("phone") or "").strip()
+    name = str(row.get("name") or "").strip()
+    if phone:
+        norm_phone = re.sub(r"\D", "", phone)
+        for r in recipients:
+            if norm_phone and norm_phone == re.sub(r"\D", "", str(r.phone or "")):
+                return r
+    if name:
+        best: ServiceOrderRecipient | None = None
+        best_score = 0.0
+        for r in recipients:
+            score = name_similarity(r.name, name)
+            if score > best_score:
+                best_score = score
+                best = r
+        if best and best_score >= MATCH_THRESHOLD:
+            return best
+    return None
+
+
+def intake_contacts_merge(db: Session, order: ServiceOrder, rows: list[dict[str, str | None]]) -> ServiceOrder:
+    _assert_interview_draft(order)
+    recipients = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars())
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        phone = str(row.get("phone") or "").strip() or None
+        email = str(row.get("email") or "").strip() or None
+        if not name and not phone:
+            continue
+        match = _find_match_for_contact(recipients, row)
+        if match:
+            if name and (not match.name or match.name == "Unknown"):
+                match.name = name
+            if phone and not match.phone:
+                match.phone = phone
+            if email and not match.email:
+                match.email = email
+            if match.intake_source == "cv":
+                match.intake_source = "merged"
+            db.add(match)
+            continue
+        recipient = ServiceOrderRecipient(
+            order_id=order.id,
+            row_number=len(recipients) + 1,
+            name=name or "Unknown",
+            phone=phone,
+            email=email,
+            status="pending",
+            cv_quality="missing",
+            intake_source="csv",
+            intake_errors_json=_dumps_json([] if phone else ["Phone missing — click to add"]),
+        )
+        db.add(recipient)
+        recipients.append(recipient)
+    db.flush()
+    recipients = list(
+        db.execute(
+            select(ServiceOrderRecipient)
+            .where(ServiceOrderRecipient.order_id == order.id)
+            .order_by(ServiceOrderRecipient.row_number)
+        ).scalars()
+    )
+    for i, r in enumerate(recipients, start=1):
+        r.row_number = i
+        db.add(r)
+    order.recipient_count = len(recipients)
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+def intake_mixed_files(db: Session, order: ServiceOrder, files: list[tuple[str, bytes]]) -> dict[str, Any]:
+    _assert_interview_draft(order)
+    if not files:
+        raise ValueError("Upload at least one file")
+
+    contact_files: list[tuple[str, bytes]] = []
+    cv_files: list[tuple[str, bytes]] = []
+    rejected: list[dict[str, str]] = []
+
+    for filename, content in files:
+        kind = classify_intake_filename(filename)
+        if kind == "contact":
+            contact_files.append((filename, content))
+        elif kind == "cv":
+            cv_files.append((filename, content))
+        else:
+            rejected.append({"filename": filename, "reason": "Unsupported file type — use Excel, CSV, PDF, DOCX, TXT, or ZIP"})
+
+    contact_rows: list[dict[str, str | None]] = []
+    for filename, content in contact_files:
+        try:
+            rows = parse_contacts_csv_relaxed_from_bytes(content, filename)
+            contact_rows.extend(rows)
+        except ValueError as e:
+            rejected.append({"filename": filename, "reason": str(e)})
+
+    existing = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars())
+    contacts_added = 0
+    if contact_rows:
+        if existing:
+            order = intake_contacts_merge(db, order, contact_rows)
+        else:
+            order = intake_contacts_csv(db, order, contact_rows)
+        contacts_added = len(contact_rows)
+
+    cv_result: dict[str, Any] = {
+        "parsed_count": 0,
+        "unmatched_files": [],
+    }
+    if cv_files:
+        cv_result = intake_cv_files(db, order, cv_files)
+        order = ServiceOrderService.get_order(db, order.id) or order
+
+    final_recipients = list(
+        db.execute(
+            select(ServiceOrderRecipient)
+            .where(ServiceOrderRecipient.order_id == order.id)
+            .order_by(ServiceOrderRecipient.row_number)
+        ).scalars()
+    )
+    recipient_payload = [recipient_intake_dict(r) for r in final_recipients]
+    for u in cv_result.get("unmatched_files") or []:
+        rejected.append({"filename": u.get("filename", ""), "reason": "; ".join(u.get("errors") or [])})
+
+    if not final_recipients and not contact_files and not cv_files:
+        raise ValueError("No supported files in upload")
+    if not final_recipients and rejected and not contact_rows and not cv_files:
+        raise ValueError(rejected[0].get("reason") or "Could not process upload")
+
+    return {
+        "order_id": order.id,
+        "contact_files": len(contact_files),
+        "contact_rows": contacts_added,
+        "parsed_count": cv_result.get("parsed_count", 0),
+        "recipient_count": len(final_recipients),
+        "rejected_files": rejected,
+        "recipients": recipient_payload,
+        "summary": intake_summary(recipient_payload),
+    }
 
 
 def intake_contacts_csv(db: Session, order: ServiceOrder, rows: list[dict[str, str | None]]) -> ServiceOrder:
