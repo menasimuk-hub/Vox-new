@@ -54,8 +54,37 @@ class ParsedCv:
         }
 
 
+def name_from_filename(filename: str) -> str:
+    """Best-effort candidate name from CV filename (e.g. john_smith_cv.pdf)."""
+    base = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+    if "." in base:
+        base = base.rsplit(".", 1)[0]
+    base = re.sub(r"(?i)\b(curriculum vitae|curriculum|resume|cv|profile)\b", " ", base)
+    base = re.sub(r"[_\-]+", " ", base)
+    base = re.sub(r"\s+", " ", base).strip()
+    if not base:
+        return ""
+    words = base.split()
+    if len(words) > 6:
+        return " ".join(words[:4])
+    if base.isupper():
+        return base.title()
+    return base
+
+
 def normalize_name(name: str) -> str:
     return re.sub(r"\s+", " ", str(name or "").strip().lower())
+
+
+def _finalize_parsed_contacts(parsed: ParsedCv) -> None:
+    if parsed.name:
+        return
+    from_filename = name_from_filename(parsed.filename)
+    if from_filename:
+        parsed.name = from_filename
+        parsed.errors = [e for e in parsed.errors if e != "Name not found in CV"]
+    elif "Name not found in CV — edit manually" not in parsed.errors:
+        parsed.errors.append("Name not found in CV — edit manually")
 
 
 def name_similarity(a: str, b: str) -> float:
@@ -212,10 +241,9 @@ def parse_pdf_bytes(content: bytes, filename: str) -> ParsedCv:
     parsed.experience_lines = _extract_experience(parsed.text)
     if parsed.quality == "low_quality":
         parsed.errors.append("Low-quality CV (scanned or very little text)")
-    if not parsed.name:
-        parsed.errors.append("Name not found in CV")
     if not parsed.phone:
         parsed.errors.append("Phone not found in CV — add manually")
+    _finalize_parsed_contacts(parsed)
     return parsed
 
 
@@ -245,10 +273,9 @@ def parse_docx_bytes(content: bytes, filename: str) -> ParsedCv:
     parsed.experience_lines = _extract_experience(parsed.text)
     if parsed.quality == "low_quality":
         parsed.errors.append("Low-quality CV (very little text)")
-    if not parsed.name:
-        parsed.errors.append("Name not found in CV")
     if not parsed.phone:
         parsed.errors.append("Phone not found in CV — add manually")
+    _finalize_parsed_contacts(parsed)
     return parsed
 
 
@@ -277,6 +304,8 @@ def iter_cv_files_from_zip(content: bytes) -> list[tuple[str, bytes]]:
         names = [n for n in zf.namelist() if not n.endswith("/")][:MAX_ZIP_FILES]
         for entry in names:
             lower = entry.lower()
+            if lower.startswith("__macosx/") or "/." in entry:
+                continue
             if not any(lower.endswith(ext) for ext in CV_EXTENSIONS):
                 continue
             try:

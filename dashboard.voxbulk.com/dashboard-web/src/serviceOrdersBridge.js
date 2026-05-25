@@ -578,10 +578,15 @@ async function uploadInterviewCvFiles(fileList) {
     interviewLaunch.intakeSummary = data?.summary || null
     renderInterviewCandidateList()
     const parsed = data?.parsed_count || files.length
+    const count = interviewLaunch.recipients.length
     if (statusEl) {
-      statusEl.textContent = `Parsed ${parsed} CV(s) · ${interviewLaunch.recipients.length} candidates in list`
+      statusEl.textContent = `Parsed ${parsed} CV(s) · ${count} candidates in list`
     }
-    window.toast?.('CV scan complete — review the list and add any missing phones', 'tg')
+    if (count === 0 && parsed > 0) {
+      window.toast?.('CVs parsed but no candidates were added — check migration 0068 on server or re-upload', 'tr')
+    } else {
+      window.toast?.(`CV scan complete — ${count} candidates in list. Add any missing phones.`, 'tg')
+    }
   } catch (e) {
     if (statusEl) statusEl.textContent = e.message || 'CV upload failed'
     window.toast?.(e.message || 'Could not parse CV files', 'tr')

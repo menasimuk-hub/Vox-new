@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
-from app.services.interview_cv_parse_service import ParsedCv, name_similarity, parse_uploaded_cv_files
+from app.services.interview_cv_parse_service import ParsedCv, name_from_filename, name_similarity, parse_uploaded_cv_files
 from app.services.platform_catalog_service import ServiceOrderService
 
 MATCH_THRESHOLD = 0.82
@@ -252,6 +252,7 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
     parsed_list = parse_uploaded_cv_files(files)
     recipients = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars())
     unmatched: list[dict[str, Any]] = []
+    created = 0
 
     for parsed in parsed_list:
         match = _find_match(recipients, parsed)
@@ -259,13 +260,16 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
             _apply_parsed_cv(match, parsed, merge=True)
             db.add(match)
             continue
-        if not parsed.name and parsed.corrupt:
-            unmatched.append({"filename": parsed.filename, "errors": parsed.errors})
+
+        display_name = (parsed.name or name_from_filename(parsed.filename)).strip()
+        if not display_name:
+            unmatched.append({"filename": parsed.filename, "errors": parsed.errors or ["Could not identify candidate name"]})
             continue
+
         recipient = ServiceOrderRecipient(
             order_id=order.id,
-            row_number=len(recipients) + 1,
-            name=parsed.name or parsed.filename.rsplit(".", 1)[0],
+            row_number=len(recipients) + created + 1,
+            name=display_name,
             phone=parsed.phone or None,
             email=parsed.email or None,
             status="pending",
@@ -278,23 +282,42 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
         )
         db.add(recipient)
         recipients.append(recipient)
+        created += 1
 
-    # re-number rows
-    recipients = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id).order_by(ServiceOrderRecipient.row_number)).scalars())
+    db.flush()
+
+    recipients = list(
+        db.execute(
+            select(ServiceOrderRecipient)
+            .where(ServiceOrderRecipient.order_id == order.id)
+            .order_by(ServiceOrderRecipient.row_number)
+        ).scalars()
+    )
     for i, r in enumerate(recipients, start=1):
         r.row_number = i
         db.add(r)
+
     order.recipient_count = len(recipients)
     order.updated_at = datetime.utcnow()
     db.add(order)
     db.commit()
     db.refresh(order)
+
+    final_recipients = list(
+        db.execute(
+            select(ServiceOrderRecipient)
+            .where(ServiceOrderRecipient.order_id == order.id)
+            .order_by(ServiceOrderRecipient.row_number)
+        ).scalars()
+    )
+    recipient_payload = [recipient_intake_dict(r) for r in final_recipients]
     return {
         "order_id": order.id,
         "parsed_count": len(parsed_list),
-        "recipient_count": order.recipient_count,
+        "recipient_count": len(final_recipients),
         "unmatched_files": unmatched,
-        "recipients": [recipient_intake_dict(r) for r in recipients],
+        "recipients": recipient_payload,
+        "summary": intake_summary(recipient_payload),
     }
 
 
