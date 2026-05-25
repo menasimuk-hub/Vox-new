@@ -86,12 +86,14 @@ def _set_recipient_result(db: Session, recipient: ServiceOrderRecipient, payload
 
 
 def build_survey_call_instructions(config: dict[str, Any], *, recipient_name: str) -> str:
+    """Legacy helper for tests — prefer build_survey_runtime_instructions with agent config."""
     org_name = str(config.get("organisation_name") or config.get("clinic_name") or "the organisation").strip()
     organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
     first = _first_name(recipient_name)
     system = str(config.get("system_prompt") or "").strip()
     script = str(config.get("approved_script") or "").strip()
     goal = str(config.get("goal") or "").strip()
+    workflow = str(config.get("call_workflow") or "").strip()
 
     parts: list[str] = []
     if system:
@@ -101,6 +103,8 @@ def build_survey_call_instructions(config: dict[str, Any], *, recipient_name: st
             "You are conducting a short outbound phone survey on behalf of the client's organisation. "
             "Be warm, concise, and professional. Ask the survey questions clearly and listen to answers."
         )
+    if workflow:
+        parts.append(f"Call workflow:\n{workflow}")
     if goal:
         parts.append(f"Survey goal: {goal}")
     parts.append(f"Organisation name: {org_name}")

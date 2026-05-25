@@ -37,11 +37,10 @@ def _client_branding(db: Session, org_id: str, payload: dict) -> dict:
     org_name = "Voxbulk"
 
     agent_id = str(ctx.get("agent_id") or payload.get("agent_id") or "").strip()
+    agent = db.get(AgentDefinition, agent_id) if agent_id else None
     agent_name = ""
-    if agent_id:
-        agent = db.get(AgentDefinition, agent_id)
-        if agent:
-            agent_name = str(agent.name or agent.voice_label or "").strip()
+    if agent:
+        agent_name = str(agent.name or agent.voice_label or "").strip()
 
     if agent_name:
         organiser = agent_name
@@ -65,6 +64,9 @@ def _client_branding(db: Session, org_id: str, payload: dict) -> dict:
         "organiser_name": organiser or client_name,
         "terminology_label": str(ctx.get("terminology_label") or identity.get("terminology_label") or "customer").strip() or "customer",
         "contact_name": organiser,
+        "agent": agent,
+        "agent_id": agent_id,
+        "order_config": ctx,
     }
 
 
@@ -86,6 +88,9 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
                 organiser_name=branding["organiser_name"],
                 client_name=branding.get("client_name", ""),
                 terminology_label=branding["terminology_label"],
+                agent=branding.get("agent"),
+                org_id=principal.org_id,
+                order_config=branding.get("order_config"),
             )
         else:
             result = generate_interview_script(
@@ -97,6 +102,9 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
                 assistant_name=branding["assistant_name"],
                 organiser_name=branding["organiser_name"],
                 client_name=branding.get("client_name", ""),
+                agent=branding.get("agent"),
+                org_id=principal.org_id,
+                order_config=branding.get("order_config"),
             )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e

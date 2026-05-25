@@ -5,15 +5,17 @@ import re
 
 from sqlalchemy.orm import Session
 
+from app.models.agent import AgentDefinition
 from app.services.agents.base import AgentMessage
 from app.services.providers.openai_service import OpenAIProviderService
 
 _SURVEY_META = """You are an expert survey designer for VOXBULK outbound AI phone and WhatsApp surveys.
 Return ONLY valid JSON with these fields:
-- "intro": short opening the AI says on phone (mention recording if phone, friendly British English)
+- "opening_disclosure": optional — usually omit; platform agent config supplies this
+- "intro": short segment AFTER opening disclosure — availability check and warm lead-in (follow agent call workflow)
 - "questions": array of 3-8 clear survey questions as strings
 - "closing": short thank-you and goodbye
-- "script_text": full readable script for the customer to review (intro, numbered questions, closing)
+- "script_text": full readable script with sections OPENING DISCLOSURE, INTRO, QUESTIONS, CLOSING (see agent config)
 - "system_prompt": instructions for the AI agent running the survey (tone, pacing, when to probe)
 
 British English. Practical for clinics and businesses. No markdown fences.
@@ -66,8 +68,11 @@ def _extract_json_object(raw: str) -> dict:
     return data
 
 
-def _format_script(intro: str, questions: list[str], closing: str) -> str:
-    lines = ["INTRO", intro.strip(), "", "QUESTIONS"]
+def _format_script(intro: str, questions: list[str], closing: str, *, opening_disclosure: str = "") -> str:
+    lines: list[str] = []
+    if opening_disclosure.strip():
+        lines.extend(["OPENING DISCLOSURE", opening_disclosure.strip(), ""])
+    lines.extend(["INTRO", intro.strip(), "", "QUESTIONS"])
     for i, q in enumerate(questions, 1):
         lines.append(f"{i}. {str(q).strip()}")
     lines.extend(["", "CLOSING", closing.strip()])
@@ -168,16 +173,74 @@ def _intro_is_invalid(intro: str) -> bool:
     return any(token in low for token in bad)
 
 
-def _build_phone_intro(*, organisation_name: str, organiser_name: str, client_name: str = "") -> str:
+def _build_phone_intro(*, organisation_name: str, organiser_name: str, client_name: str = "", call_workflow: str = "") -> str:
     org = organisation_name.strip() or "your business"
     client = str(client_name or "").strip() or org
     organiser = organiser_name.strip() or org
+    if call_workflow.strip():
+        first_line = call_workflow.strip().split("\n")[0].strip()
+        if first_line:
+            return first_line
     return (
-        f"Hello, this is {organiser} from {org}. "
-        f"I'm calling on behalf of {client} to get your quick feedback. "
-        "This call may be recorded for quality and training purposes. "
-        "It'll only take a minute or two."
+        f"Do you have a couple of minutes now for a quick survey on behalf of {client}? "
+        f"It will only take a minute or two."
     )
+
+
+def _apply_agent_layers_to_script(
+    db: Session,
+    out: dict,
+    *,
+    agent: AgentDefinition | None,
+    config: dict[str, Any],
+    service_key: str,
+    org_id: str | None,
+    organisation_name: str,
+    assistant_name: str,
+    organiser_name: str,
+    client_name: str,
+) -> dict:
+    from app.core.agent_services import SERVICE_SURVEY
+    from app.services.voice_agent_runtime import build_script_generation_agent_block, build_voice_runtime_layers
+
+    gen_config = {
+        **config,
+        "organisation_name": client_name or organisation_name,
+        "survey_organiser_name": organiser_name,
+        "system_prompt": out.get("system_prompt") or config.get("system_prompt") or "",
+    }
+    layers = build_voice_runtime_layers(db, agent=agent, config=gen_config, service_key=service_key, org_id=org_id)
+    disclosure = layers.opening_disclosure.strip()
+    intro = str(out.get("intro") or "").strip()
+    if _intro_is_invalid(intro):
+        intro = _build_phone_intro(
+            organisation_name=organisation_name,
+            organiser_name=organiser_name,
+            client_name=client_name,
+            call_workflow=layers.call_workflow,
+        )
+    else:
+        intro = _scrub_recipient_script(intro, organisation_name=organisation_name, organiser_name=organiser_name, client_name=client_name)
+    intro = _fix_intro_companies(intro, platform=organisation_name, client=client_name, organiser=organiser_name)
+    out["intro"] = _apply_org_placeholders(intro, organisation_name=client_name, assistant_name=organiser_name)
+
+    agent_block = build_script_generation_agent_block(db, agent=agent, config=gen_config, service_key=service_key, org_id=org_id)
+    system_prompt = str(out.get("system_prompt") or "").strip()
+    if system_prompt:
+        out["system_prompt"] = f"{agent_block}\n\n{system_prompt}".strip()
+    else:
+        out["system_prompt"] = agent_block
+
+    questions = out.get("questions") or []
+    closing = str(out.get("closing") or "").strip()
+    script_text = str(out.get("script_text") or "").strip()
+    if not script_text or "OPENING DISCLOSURE" not in script_text.upper():
+        out["script_text"] = _format_script(out["intro"], questions, closing, opening_disclosure=disclosure)
+    else:
+        out["script_text"] = script_text
+    if service_key == SERVICE_SURVEY and disclosure and "OPENING DISCLOSURE" not in str(out["script_text"]).upper():
+        out["script_text"] = _format_script(out["intro"], questions, closing, opening_disclosure=disclosure)
+    return out
 
 
 def _apply_org_placeholders(text: str, *, organisation_name: str, assistant_name: str) -> str:
@@ -439,7 +502,13 @@ def generate_survey_script(
     organiser_name: str = "",
     client_name: str = "",
     terminology_label: str = "customer",
+    agent: AgentDefinition | None = None,
+    org_id: str | None = None,
+    order_config: dict | None = None,
 ) -> dict:
+    from app.core.agent_services import SERVICE_SURVEY
+    from app.services.voice_agent_runtime import build_script_generation_agent_block
+
     goal_text = str(goal or "").strip() or "General customer satisfaction"
     uses_whatsapp = "whatsapp" in str(contact_method or "").lower()
     meta = _SURVEY_WA_META if uses_whatsapp else _SURVEY_META
@@ -450,20 +519,33 @@ def generate_survey_script(
         client_name=client_name,
         terminology_label=terminology_label,
     )
+    gen_config = dict(order_config or {})
+    gen_config.setdefault("organisation_name", client_name or organisation_name)
+    gen_config.setdefault("survey_organiser_name", organiser_name)
+    agent_block = ""
+    if agent is not None:
+        agent_block = build_script_generation_agent_block(
+            db, agent=agent, config=gen_config, service_key=SERVICE_SURVEY, org_id=org_id
+        )
     channel_note = (
         "Design primarily for WhatsApp interactive quick replies. Also include phone script fields."
         if uses_whatsapp
         else "Write a concise survey script the customer can read and approve before launch."
     )
-    user = (
-        f"{brand}\n"
-        f"Survey goal:\n{goal_text}\n\n"
-        f"Contact method: {contact_method}\n"
-        f"Max call length: {max_call_length}\n\n"
-        f"{channel_note}"
+    user_parts = [brand]
+    if agent_block:
+        user_parts.append(agent_block)
+    user_parts.extend(
+        [
+            f"Survey goal:\n{goal_text}",
+            f"Contact method: {contact_method}",
+            f"Max call length: {max_call_length}",
+            channel_note,
+        ]
     )
+    user = "\n\n".join(user_parts)
     raw = _complete_json(db, meta=meta, user=user)
-    return _parse_script_payload(
+    result = _parse_script_payload(
         raw,
         include_whatsapp=uses_whatsapp,
         organisation_name=organisation_name,
@@ -471,6 +553,20 @@ def generate_survey_script(
         organiser_name=organiser_name,
         client_name=client_name,
     )
+    if agent is not None:
+        result = _apply_agent_layers_to_script(
+            db,
+            result,
+            agent=agent,
+            config=gen_config,
+            service_key=SERVICE_SURVEY,
+            org_id=org_id,
+            organisation_name=organisation_name,
+            assistant_name=assistant_name,
+            organiser_name=organiser_name,
+            client_name=client_name,
+        )
+    return result
 
 
 def generate_interview_script(
@@ -483,7 +579,13 @@ def generate_interview_script(
     assistant_name: str = "",
     organiser_name: str = "",
     client_name: str = "",
+    agent: AgentDefinition | None = None,
+    org_id: str | None = None,
+    order_config: dict | None = None,
 ) -> dict:
+    from app.core.agent_services import SERVICE_INTERVIEW
+    from app.services.voice_agent_runtime import build_script_generation_agent_block
+
     role_text = str(role or "").strip() or "Open role"
     criteria_text = str(criteria or "").strip() or "General screening"
     channel = "Zoom video interview with AI" if str(delivery).lower() == "zoom" else "AI phone call"
@@ -494,18 +596,44 @@ def generate_interview_script(
         client_name=client_name,
         terminology_label="candidate",
     )
-    user = (
-        f"{brand}\n"
-        f"Role / position:\n{role_text}\n\n"
-        f"Screening criteria:\n{criteria_text}\n\n"
-        f"Delivery: {channel}\n\n"
-        "Write screening questions the customer can read and approve before launch."
+    gen_config = dict(order_config or {})
+    gen_config.setdefault("organisation_name", client_name or organisation_name)
+    agent_block = ""
+    if agent is not None:
+        agent_block = build_script_generation_agent_block(
+            db, agent=agent, config=gen_config, service_key=SERVICE_INTERVIEW, org_id=org_id
+        )
+    user_parts = [brand]
+    if agent_block:
+        user_parts.append(agent_block)
+    user_parts.extend(
+        [
+            f"Role / position:\n{role_text}",
+            f"Screening criteria:\n{criteria_text}",
+            f"Delivery: {channel}",
+            "Write screening questions the customer can read and approve before launch.",
+        ]
     )
+    user = "\n\n".join(user_parts)
     raw = _complete_json(db, meta=_INTERVIEW_META, user=user)
-    return _parse_script_payload(
+    result = _parse_script_payload(
         raw,
         organisation_name=organisation_name,
         assistant_name=assistant_name,
         organiser_name=organiser_name,
         client_name=client_name,
     )
+    if agent is not None:
+        result = _apply_agent_layers_to_script(
+            db,
+            result,
+            agent=agent,
+            config=gen_config,
+            service_key=SERVICE_INTERVIEW,
+            org_id=org_id,
+            organisation_name=organisation_name,
+            assistant_name=assistant_name,
+            organiser_name=organiser_name,
+            client_name=client_name,
+        )
+    return result

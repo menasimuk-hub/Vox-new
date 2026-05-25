@@ -246,39 +246,10 @@ def build_opening_disclosure(
     service_key: str = SERVICE_SURVEY,
     org_id: str | None = None,
 ) -> str:
-    platform = get_platform_voice_settings(db)
-    org_name = _org_name_from_config(config)
-    agent_name = _agent_display_name(agent)
+    from app.services.voice_agent_runtime import resolve_opening_disclosure_template
 
-    org_template = ""
-    if org_id:
-        from sqlalchemy import select
-
-        from app.models.organisation_ai_config import OrganisationComplianceConfig
-
-        compliance = db.execute(
-            select(OrganisationComplianceConfig).where(OrganisationComplianceConfig.org_id == org_id)
-        ).scalar_one_or_none()
-        if compliance and str(compliance.ai_disclosure_wording or "").strip():
-            org_template = str(compliance.ai_disclosure_wording).strip()
-
-    template = ""
-    if agent and str(agent.opening_disclosure_template or "").strip():
-        template = str(agent.opening_disclosure_template).strip()
-    elif org_template:
-        template = org_template
-    elif platform.opening_disclosure_template:
-        template = str(platform.opening_disclosure_template).strip()
-    else:
-        template = DEFAULT_OPENING_DISCLOSURE
-
-    if service_key == SERVICE_SURVEY and agent and not agent.disclosure_for_survey:
-        return ""
-    if service_key == SERVICE_INTERVIEW and agent and not agent.disclosure_for_interview:
-        return ""
-
-    return _personalize(template, first_name="", org_name=org_name, organiser=agent_name).replace("{agent_name}", agent_name).replace(
-        "{company_name}", org_name
+    return resolve_opening_disclosure_template(
+        db, agent=agent, config=config, service_key=service_key, org_id=org_id
     )
 
 
@@ -290,86 +261,16 @@ def build_survey_runtime_instructions(
     recipient: ServiceOrderRecipient,
     agent: AgentDefinition | None,
 ) -> str:
-    platform = get_platform_voice_settings(db)
-    org_name = _org_name_from_config(config)
-    organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
-    first = _first_name(recipient.name)
-    goal = str(config.get("goal") or "").strip()
-    script = str(config.get("approved_script") or config.get("generated_script_draft") or "").strip()
-    survey_prompt = str(config.get("survey_runtime_prompt") or script).strip()
+    from app.services.voice_agent_runtime import build_service_runtime_instructions
 
-    parts: list[str] = []
-
-    compliance = str(platform.global_compliance_role or "").strip()
-    if compliance:
-        parts.append(compliance)
-
-    base = str((agent.base_role if agent else None) or (agent.system_prompt if agent else "") or "").strip()
-    if base:
-        parts.append(base)
-
-    if agent and str(agent.service_survey_role or "").strip():
-        parts.append(str(agent.service_survey_role).strip())
-    elif str(config.get("system_prompt") or "").strip():
-        parts.append(str(config.get("system_prompt")).strip())
-
-    if agent and str(agent.kb_context or "").strip():
-        parts.append("Reference knowledge:\n" + str(agent.kb_context).strip())
-
-    parts.append(f"Organisation name: {org_name}")
-    parts.append(f"Survey organiser: {organiser}")
-    parts.append(f"Contact first name: {first}")
-    if goal:
-        parts.append(f"Survey goal: {goal}")
-
-    if survey_prompt:
-        parts.append(
-            "Approved survey script (follow this structure):\n"
-            + _personalize(survey_prompt, first_name=first, org_name=org_name, organiser=organiser)
-        )
-
-    parts.append(
-        "This is an anonymous survey. Answers are aggregated without identifying individuals in customer reports."
+    return build_service_runtime_instructions(
+        db,
+        order=order,
+        config=config,
+        recipient=recipient,
+        agent=agent,
+        service_key=SERVICE_SURVEY,
     )
-
-    behavior: list[str] = []
-    if agent and str(agent.interruption_behavior_notes or "").strip():
-        behavior.append(str(agent.interruption_behavior_notes).strip())
-    behavior.append(
-        "If the recipient interrupts before the opening disclosure, stop and repeat the full anonymous opening clearly."
-    )
-    behavior.append(
-        "Opening disclosure must state this is an anonymous survey call, responses are confidential, "
-        "and the call may be recorded for quality."
-    )
-    if agent and str(agent.opt_out_policy_notes or "").strip():
-        behavior.append(str(agent.opt_out_policy_notes).strip())
-    else:
-        from sqlalchemy import select
-
-        from app.models.organisation_ai_config import OrganisationComplianceConfig
-
-        org_opt_out = ""
-        if order.org_id:
-            compliance = db.execute(
-                select(OrganisationComplianceConfig).where(OrganisationComplianceConfig.org_id == order.org_id)
-            ).scalar_one_or_none()
-            if compliance and str(compliance.opt_out_wording or "").strip():
-                org_opt_out = str(compliance.opt_out_wording).strip()
-        if org_opt_out:
-            behavior.append(org_opt_out)
-        else:
-            behavior.append(
-                "If the recipient asks to be removed, stop calling, or opts out, acknowledge politely, end the call, "
-                "and do not continue the survey."
-            )
-    if agent and str(agent.retry_policy_notes or "").strip():
-        behavior.append(f"Retry policy notes: {agent.retry_policy_notes.strip()}")
-    if agent and str(agent.voicemail_behavior or "").strip():
-        behavior.append(f"Voicemail behavior: {agent.voicemail_behavior.strip()}")
-
-    parts.append("Behavior rules:\n" + "\n".join(f"- {line}" for line in behavior if line))
-    return "\n\n".join(parts)
 
 
 def build_survey_opening_greeting(
@@ -380,18 +281,15 @@ def build_survey_opening_greeting(
     recipient_name: str,
     org_id: str | None = None,
 ) -> str:
-    disclosure = build_opening_disclosure(
-        db, agent=agent, config=config, service_key=SERVICE_SURVEY, org_id=org_id
-    )
-    if disclosure:
-        return disclosure
-    org_name = _org_name_from_config(config)
-    first = _first_name(recipient_name)
-    agent_name = _agent_display_name(agent)
-    return (
-        f"Hi {first}, this is {agent_name}, an AI assistant calling from {org_name} "
-        f"for a short anonymous survey. Your answers are confidential and are not linked to your name in reports. "
-        f"This call may be recorded for quality."
+    from app.services.voice_agent_runtime import build_service_opening_greeting
+
+    return build_service_opening_greeting(
+        db,
+        agent=agent,
+        config=config,
+        recipient_name=recipient_name,
+        service_key=SERVICE_SURVEY,
+        org_id=org_id,
     )
 
 
