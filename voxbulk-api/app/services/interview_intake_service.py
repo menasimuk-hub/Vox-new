@@ -84,6 +84,23 @@ def _assert_interview_draft(order: ServiceOrder) -> None:
         raise ValueError("Cannot change candidates while campaign is active or finished")
 
 
+def get_latest_interview_draft(db: Session, *, org_id: str) -> ServiceOrder | None:
+    rows = list(
+        db.execute(
+            select(ServiceOrder)
+            .where(
+                ServiceOrder.org_id == org_id,
+                ServiceOrder.service_code == "interview",
+                ServiceOrder.status == "draft",
+                ServiceOrder.payment_status == "unpaid",
+            )
+            .order_by(ServiceOrder.updated_at.desc())
+            .limit(1)
+        ).scalars()
+    )
+    return rows[0] if rows else None
+
+
 def ensure_interview_draft_order(
     db: Session,
     *,

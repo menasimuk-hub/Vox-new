@@ -234,6 +234,11 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Credits remaining</div><div class="kv" id="int-kpi-credits">—</div><div class="kd ne" id="int-kpi-credits-sub">Loading…</div></div>
           <div class="kpi"><div class="kl">Completed this month</div><div class="kv" id="int-kpi-completed">—</div><div class="kd ne" id="int-kpi-completed-sub">—</div></div>
         </div>
+        <div class="card" id="int-shortlist-card" style="margin-bottom:12px;display:none">
+          <div class="ch"><i class="ti ti-trophy grn"></i>Top candidates — Phase 3 shortlist</div>
+          <div class="inf b" style="margin-bottom:10px"><i class="ti ti-info-circle"></i><span id="int-shortlist-note">Mock scheduling links until Calendly integration (Phase 5).</span></div>
+          <div id="int-shortlist-host"></div>
+        </div>
         <!-- ACTIVE PROJECTS -->
         <div class="card">
           <div class="ch"><i class="ti ti-briefcase grn"></i>Projects</div>
@@ -309,10 +314,12 @@ const bodyHtml = `<div class="app" id="app">
             <div id="int-quote-total" class="sur-quote-total"></div>
             <div id="int-quote-status" class="sur-quote-status muted"></div>
           </div>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn bsm" type="button" id="int-save-draft"><i class="ti ti-device-floppy"></i>Save draft</button>
             <button class="btn btng bsm" type="button" id="int-ai-generate"><i class="ti ti-sparkles"></i>Generate AI questions</button>
-            <button class="btn bsm" onclick="launchIntCampaign()"><i class="ti ti-player-play"></i>Launch interviews</button>
+            <button class="btn bsm" type="button" id="int-preview-open"><i class="ti ti-eye"></i>Preview interviews</button>
           </div>
+          <div id="int-save-status" class="muted" style="font-size:11px;margin-top:8px;display:none"></div>
         </div>
       </div>
 
@@ -479,19 +486,30 @@ const bodyHtml = `<div class="app" id="app">
         </div>
         <div id="int-results-phase-banner" class="inf b" style="display:none;margin-bottom:12px"><i class="ti ti-info-circle"></i><span id="int-results-phase-banner-text">Sample data shown until live call results are available (Phase 2).</span></div>
         <div id="int-results-mock-note" class="muted" style="font-size:11.5px;margin-bottom:12px">Sample candidate data below — connect a project from Interviews to see the campaign name in the breadcrumb.</div>
+        <div class="kg4" id="int-results-kpis">
+          <div class="kpi"><div class="kl">Called</div><div class="kv" id="int-res-kpi-called">—</div></div>
+          <div class="kpi"><div class="kl">Reached</div><div class="kv" id="int-res-kpi-reached">—</div><div class="kd up" id="int-res-kpi-reach-pct"></div></div>
+          <div class="kpi"><div class="kl">Recommended</div><div class="kv" style="color:var(--grn)" id="int-res-kpi-advance">—</div><div class="kd up">Advance</div></div>
+          <div class="kpi"><div class="kl">Avg duration</div><div class="kv" id="int-res-kpi-duration">—</div></div>
+        </div>
+        <div class="card" id="int-results-shortlist-card" style="margin-bottom:12px;display:none">
+          <div class="ch"><i class="ti ti-trophy grn"></i>Top 10 shortlist — send mock scheduling links</div>
+          <div id="int-results-shortlist-host"></div>
+        </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <button class="btn bsm" onclick="goNav('interviews')"><i class="ti ti-arrow-left"></i>Back to interviews</button>
           <div style="display:flex;gap:8px"><button class="btn btng bsm"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm"><i class="ti ti-table"></i>Export CSV</button></div>
         </div>
-        <div class="kg4">
+        <div class="kg4" id="int-results-kpis-legacy" hidden>
           <div class="kpi"><div class="kl">Called</div><div class="kv">8</div></div>
           <div class="kpi"><div class="kl">Reached</div><div class="kv">8</div><div class="kd up">100%</div></div>
           <div class="kpi"><div class="kl">Recommended</div><div class="kv" style="color:var(--grn)">5</div><div class="kd up">Advance</div></div>
           <div class="kpi"><div class="kl">Avg duration</div><div class="kv">7m 20s</div></div>
         </div>
-        <div class="card">
+        <div class="card" id="int-results-table-card">
           <div class="ch"><i class="ti ti-users grn"></i>Candidates — click to view recording &amp; transcript</div>
-          <table class="res-table">
+          <div id="int-results-table-host">
+          <table class="res-table" id="int-results-table-static">
             <thead>
               <tr><th>Candidate</th><th>Duration</th><th>Task</th><th>Score</th><th>Recommendation</th><th>Sentiment</th><th></th></tr>
             </thead>
@@ -534,6 +552,7 @@ const bodyHtml = `<div class="app" id="app">
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
         <!-- Recording detail panel -->
         <div class="rec-card" id="rec-panel" style="display:none">
@@ -1158,6 +1177,26 @@ Please confirm below:</div><div class="wab" id="wb1p">Confirm ✓</div><div clas
     <div class="wa-preview-foot">
       <button class="btn bsm" type="button" onclick="resetSurveyWaPreview()"><i class="ti ti-refresh"></i>Restart preview</button>
       <button class="btn btng bsm" type="button" onclick="closeSurveyWaPreview()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ INTERVIEW PREVIEW MODAL ═══ -->
+<div id="int-preview-overlay">
+  <div class="int-preview-box">
+    <div class="int-preview-hd">
+      <div>
+        <div class="int-preview-title"><i class="ti ti-eye" style="color:var(--grn)"></i> Preview interviews</div>
+        <div class="int-preview-sub muted">Review everything before launch — same theme as your dashboard</div>
+      </div>
+      <button class="btn bsm" type="button" id="int-preview-close-top"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="int-preview-body" id="int-preview-body"></div>
+    <div class="int-preview-foot">
+      <button class="btn bsm" type="button" id="int-preview-close"><i class="ti ti-arrow-left"></i>Back to edit</button>
+      <button class="btn bsm" type="button" id="int-preview-save"><i class="ti ti-device-floppy"></i>Save draft</button>
+      <button class="btn bsm" type="button" id="int-preview-launch"><i class="ti ti-player-play"></i>Launch interviews</button>
+      <button class="btn btng bsm" type="button" id="int-preview-pay"><i class="ti ti-credit-card"></i>Pay</button>
     </div>
   </div>
 </div>

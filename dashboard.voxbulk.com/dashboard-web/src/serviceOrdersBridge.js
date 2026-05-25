@@ -65,7 +65,12 @@ const interviewLaunch = {
   intakeSummary: null,
   intakeLoading: false,
   quoteStatusNote: '',
+  preparedOrder: null,
+  preparedQuoteText: '',
+  saving: false,
 }
+
+const INTERVIEW_DRAFT_LS_KEY = 'voxbulk_interview_draft_id'
 
 const LOG_SURVEY = '[survey]'
 
@@ -408,6 +413,7 @@ async function uploadInterviewFiles(fileList) {
     } else {
       window.toast?.(`${count} candidates in list — add any missing phones`, 'tg')
     }
+    void saveInterviewDraft({ silent: true })
   } catch (e) {
     if (statusEl) statusEl.textContent = e.message || 'Upload failed'
     window.toast?.(e.message || 'Could not process upload', 'tr')
@@ -459,18 +465,159 @@ async function openInterviewResults(orderId) {
   const mockNote = document.getElementById('int-results-mock-note')
 
   try {
-    const order = await api(`/service-orders/${encodeURIComponent(orderId)}`)
-    const title = order.title || 'Interview campaign'
+    const [order, results] = await Promise.all([
+      api(`/service-orders/${encodeURIComponent(orderId)}`),
+      api(`/service-orders/${encodeURIComponent(orderId)}/interview-results`),
+    ])
+    const title = order.title || results.title || 'Interview campaign'
     if (bc) bc.textContent = title
     if (banner) banner.style.display = 'flex'
     if (bannerText) {
-      bannerText.textContent = `${title} — sample data shown until live call results are available (Phase 2).`
+      bannerText.textContent = results.is_mock
+        ? `${title} — Phase 3 shortlist with sample scores until live call results (Phase 2).`
+        : `${title} — live interview results.`
     }
-    if (mockNote) mockNote.style.display = 'none'
+    if (mockNote) mockNote.style.display = results.is_mock ? '' : 'none'
+    renderInterviewResultsPage(results)
   } catch {
     if (bc) bc.textContent = 'Interview campaign'
     if (banner) banner.style.display = 'flex'
     if (mockNote) mockNote.style.display = ''
+  }
+}
+
+function recommendationBadge(rec) {
+  const r = String(rec || 'Hold')
+  if (r === 'Advance') return '<span class="bdg bg">Advance</span>'
+  if (r === 'Decline') return '<span class="bdg br">Decline</span>'
+  return '<span class="bdg ba">Hold</span>'
+}
+
+function sentimentBadge(sent) {
+  const s = String(sent || 'Neutral')
+  if (/enthus/i.test(s)) return '<span class="bdg bp">Enthusiastic</span>'
+  if (/hesit/i.test(s)) return '<span class="bdg br">Hesitant</span>'
+  return '<span class="bdg bb">Neutral</span>'
+}
+
+function scoreStars(score) {
+  const n = Math.max(0, Math.min(5, Math.round(Number(score || 0) / 20)))
+  return `<div class="stars">${[1, 2, 3, 4, 5]
+    .map((i) => `<i class="ti ti-star star${i <= n ? '' : ' e'}"></i>`)
+    .join('')}</div>`
+}
+
+function renderShortlistHost(host, shortlist, { compact = false } = {}) {
+  if (!host) return
+  const rows = shortlist || []
+  if (!rows.length) {
+    host.innerHTML = '<div class="muted" style="font-size:12px;padding:8px 0">No shortlisted candidates yet.</div>'
+    return
+  }
+  host.innerHTML = rows
+    .map((row, idx) => {
+      const rank = idx + 1
+      const wa = row.whatsapp_mock || row.scheduling_url_mock || '#'
+      const email = row.email_body_mock ? `mailto:?subject=${encodeURIComponent(row.email_subject || 'Interview follow-up')}&body=${encodeURIComponent(row.email_body_mock)}` : '#'
+      return `<div class="int-shortlist-row">
+        <div class="int-shortlist-rank">${rank}</div>
+        <div class="int-shortlist-info">
+          <div class="int-shortlist-name">${escHtml(row.name || 'Candidate')}</div>
+          <div class="int-shortlist-meta">${escHtml(row.recommendation || 'Hold')} · score ${row.score ?? '—'} · ${escHtml(row.duration_label || '—')}</div>
+        </div>
+        <div class="int-shortlist-actions">
+          ${compact ? '' : `<button type="button" class="btn bsm bxsm" onclick="window.toast?.('Mock WhatsApp link copied','tg')"><i class="ti ti-brand-whatsapp"></i></button>`}
+          <a class="btn bsm bxsm" href="${escHtml(wa)}" target="_blank" rel="noopener" title="Mock scheduling link"><i class="ti ti-calendar"></i></a>
+          <a class="btn bsm bxsm" href="${escHtml(email)}" title="Mock email"><i class="ti ti-mail"></i></a>
+        </div>
+      </div>`
+    })
+    .join('')
+}
+
+function renderInterviewResultsPage(results) {
+  const kpis = results?.kpis || {}
+  document.getElementById('int-res-kpi-called') && (document.getElementById('int-res-kpi-called').textContent = String(kpis.called ?? '—'))
+  document.getElementById('int-res-kpi-reached') && (document.getElementById('int-res-kpi-reached').textContent = String(kpis.reached ?? '—'))
+  const reachPct = document.getElementById('int-res-kpi-reach-pct')
+  if (reachPct) reachPct.textContent = kpis.reach_rate_pct != null ? `${kpis.reach_rate_pct}%` : ''
+  document.getElementById('int-res-kpi-advance') && (document.getElementById('int-res-kpi-advance').textContent = String(kpis.recommended_advance ?? '—'))
+  document.getElementById('int-res-kpi-duration') && (document.getElementById('int-res-kpi-duration').textContent = kpis.avg_duration_label || '—')
+
+  const shortlistCard = document.getElementById('int-results-shortlist-card')
+  const shortlistHost = document.getElementById('int-results-shortlist-host')
+  if (shortlistCard && shortlistHost) {
+    const list = results?.shortlist || []
+    if (list.length) {
+      shortlistCard.style.display = ''
+      renderShortlistHost(shortlistHost, list)
+    } else {
+      shortlistCard.style.display = 'none'
+    }
+  }
+
+  const staticTable = document.getElementById('int-results-table-static')
+  const tableHost = document.getElementById('int-results-table-host')
+  const candidates = results?.candidates || []
+  if (!tableHost || !candidates.length) return
+  if (staticTable) staticTable.style.display = 'none'
+  tableHost.innerHTML = `<table class="res-table">
+    <thead><tr><th>Candidate</th><th>Duration</th><th>Task</th><th>Score</th><th>Recommendation</th><th>Sentiment</th><th></th></tr></thead>
+    <tbody>${candidates
+      .map((c) => {
+        const initials = (c.name || '?')
+          .split(/\s+/)
+          .slice(0, 2)
+          .map((p) => p[0])
+          .join('')
+          .toUpperCase()
+        return `<tr data-int-res-row="${escHtml(c.id || '')}">
+          <td><div style="display:flex;align-items:center;gap:9px"><div class="av av-g" style="width:28px;height:28px;font-size:10px">${escHtml(initials)}</div>${escHtml(c.name || '—')}</div></td>
+          <td><i class="ti ti-clock" style="color:var(--t3);font-size:12px"></i> ${escHtml(c.duration_label || '—')}</td>
+          <td>${escHtml(c.task || 'Interview screening')}</td>
+          <td>${scoreStars(c.score)}</td>
+          <td>${recommendationBadge(c.recommendation)}</td>
+          <td>${sentimentBadge(c.sentiment)}</td>
+          <td><button class="btn bsm bxsm" type="button"><i class="ti ti-player-play"></i>Play</button></td>
+        </tr>`
+      })
+      .join('')}</tbody></table>`
+  tableHost.querySelectorAll('[data-int-res-row]').forEach((row, idx) => {
+    const c = candidates[idx]
+    if (!c) return
+    row.addEventListener('click', () => {
+      if (typeof window.showRec === 'function') {
+        window.showRec(c.name || '', c.duration_label || '', c.task || '', c.sentiment || '')
+      }
+    })
+  })
+}
+
+async function loadInterviewShortlistPanel() {
+  const card = document.getElementById('int-shortlist-card')
+  const host = document.getElementById('int-shortlist-host')
+  if (!card || !host || !getAccessToken()) return
+  try {
+    const orders = await api('/service-orders?service_code=interview')
+    const pick =
+      (orders || []).find((o) => o.status === 'running') ||
+      (orders || []).find((o) => o.status === 'completed') ||
+      (orders || []).find((o) => o.recipient_count > 0)
+    if (!pick) {
+      card.style.display = 'none'
+      return
+    }
+    const results = await api(`/service-orders/${pick.id}/interview-results`)
+    renderShortlistHost(host, results.shortlist || [], { compact: true })
+    card.style.display = ''
+    const note = document.getElementById('int-shortlist-note')
+    if (note) {
+      note.textContent = results.is_mock
+        ? `Phase 3 preview for “${pick.title}” — mock scheduling links until Calendly (Phase 5).`
+        : `Top candidates from “${pick.title}”.`
+    }
+  } catch {
+    card.style.display = 'none'
   }
 }
 
@@ -559,6 +706,294 @@ async function ensureInterviewDraftOrder() {
   return interviewLaunch.draftOrderId
 }
 
+function collectInterviewConfig() {
+  const agent = selectedInterviewAgent()
+  const scriptText = (document.getElementById('int-ai-script')?.value || '').trim()
+  return {
+    role: (document.getElementById('int-role')?.value || '').trim(),
+    criteria: (document.getElementById('int-criteria')?.value || '').trim(),
+    delivery: deliveryFromInterviewForm(),
+    agent_id: agent?.id || interviewLaunch.selectedAgentId || '',
+    agent_voice_label: agent?.voice_label || agent?.name || '',
+    script_mode: scriptModeFromButtons('interview'),
+    approved_script: scriptText || state.interviewScriptPayload?.script_text || '',
+    script_questions: state.interviewScriptPayload?.questions || [],
+    system_prompt: state.interviewScriptPayload?.system_prompt || '',
+    script_approved: state.interviewScriptApproved,
+  }
+}
+
+function applyIsoScheduleToForm(prefix, startIso, endIso) {
+  if (!startIso || !endIso) return
+  const start = new Date(startIso)
+  const end = new Date(endIso)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return
+  const pad = (n) => String(n).padStart(2, '0')
+  const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const fmtTime = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const sd = document.getElementById(`${prefix}-start-date`)
+  const st = document.getElementById(`${prefix}-start-time`)
+  const ed = document.getElementById(`${prefix}-end-date`)
+  const et = document.getElementById(`${prefix}-end-time`)
+  if (sd) sd.value = fmtDate(start)
+  if (st) st.value = fmtTime(start)
+  if (ed) ed.value = fmtDate(end)
+  if (et) et.value = fmtTime(end)
+  if (prefix === 'int' && typeof window.updateIntWindow === 'function') window.updateIntWindow()
+}
+
+function applyInterviewOrderToForm(order) {
+  const cfg = order?.config || {}
+  const roleEl = document.getElementById('int-role')
+  const criteriaEl = document.getElementById('int-criteria')
+  const scriptEl = document.getElementById('int-ai-script')
+  if (roleEl && cfg.role) roleEl.value = cfg.role
+  if (criteriaEl && cfg.criteria) criteriaEl.value = cfg.criteria
+  if (cfg.agent_id) {
+    interviewLaunch.selectedAgentId = cfg.agent_id
+    const sel = document.getElementById('int-agent-select')
+    if (sel) sel.value = cfg.agent_id
+  }
+  const scriptText = cfg.approved_script || ''
+  if (scriptText) {
+    if (scriptEl) scriptEl.value = scriptText
+    state.interviewScriptPayload = {
+      ...(state.interviewScriptPayload || {}),
+      script_text: scriptText,
+      script_questions: cfg.script_questions || [],
+      system_prompt: cfg.system_prompt || '',
+    }
+    showAiPanel('int', true)
+  }
+  if (cfg.script_approved) {
+    state.interviewScriptApproved = true
+    setAiStatus('int', true)
+  }
+  applyIsoScheduleToForm('int', order.scheduled_start_at, order.scheduled_end_at)
+}
+
+async function saveInterviewDraft({ silent = false } = {}) {
+  if (interviewLaunch.saving) return false
+  interviewLaunch.saving = true
+  const saveBtn = document.getElementById('int-save-draft')
+  if (saveBtn) saveBtn.disabled = true
+  try {
+    await ensureInterviewDraftOrder()
+    const role = (document.getElementById('int-role')?.value || '').trim()
+    const title = role || 'Interview draft'
+    const sched = schedulePayload('int')
+    const data = await api('/service-orders/interview/draft', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        role,
+        criteria: (document.getElementById('int-criteria')?.value || '').trim(),
+        config: collectInterviewConfig(),
+        ...sched,
+      }),
+    })
+    interviewLaunch.draftOrderId = data?.order?.id || interviewLaunch.draftOrderId
+    state.interviewOrderId = interviewLaunch.draftOrderId
+    interviewLaunch.recipients = data?.recipients || interviewLaunch.recipients
+    interviewLaunch.intakeSummary = data?.summary || interviewLaunch.intakeSummary
+    if (interviewLaunch.draftOrderId) {
+      localStorage.setItem(INTERVIEW_DRAFT_LS_KEY, interviewLaunch.draftOrderId)
+    }
+    const statusEl = document.getElementById('int-save-status')
+    if (statusEl) {
+      statusEl.style.display = 'block'
+      const n = (interviewLaunch.recipients || []).length
+      statusEl.textContent = `Saved ${new Date().toLocaleTimeString()} — ${n ? `${n} candidate(s) on server` : 'form saved'} · safe to close this tab`
+    }
+    if (!silent) window.toast?.('Interview draft saved', 'tg')
+    return true
+  } catch (e) {
+    if (!silent) window.toast?.(e.message || 'Could not save draft', 'tr')
+    return false
+  } finally {
+    interviewLaunch.saving = false
+    if (saveBtn) saveBtn.disabled = false
+  }
+}
+
+async function restoreInterviewDraft() {
+  if (!getAccessToken()) return
+  try {
+    const data = await api('/service-orders/interview/draft')
+    const order = data?.order
+    if (!order?.id) return
+    interviewLaunch.draftOrderId = order.id
+    state.interviewOrderId = order.id
+    interviewLaunch.recipients = data.recipients || []
+    interviewLaunch.intakeSummary = data.summary || null
+    applyInterviewOrderToForm(order)
+    renderInterviewCandidateList()
+    localStorage.setItem(INTERVIEW_DRAFT_LS_KEY, order.id)
+    const statusEl = document.getElementById('int-save-status')
+    if (statusEl && interviewLaunch.recipients.length) {
+      statusEl.style.display = 'block'
+      statusEl.textContent = `Draft restored — ${interviewLaunch.recipients.length} candidate(s) ready to continue`
+    }
+  } catch {
+    /* no draft yet */
+  }
+}
+
+function validateInterviewLaunch() {
+  const errors = []
+  const hasDraftList = (interviewLaunch.recipients || []).length > 0
+  if (!hasDraftList && !state.interviewFile) {
+    errors.push('Upload a candidate list or CV files first')
+  }
+  if (hasDraftList) {
+    const ready = interviewIntakeReadyCount()
+    const total = interviewLaunch.recipients.length
+    if (ready === 0) errors.push('Add phone numbers for at least one candidate before launching')
+    else if (ready < total) errors.push(`${total - ready} candidate(s) still missing phone — add or delete them first`)
+  }
+  const sched = schedulePayload('int')
+  if (!sched.scheduled_start_at) errors.push('Please set a start and end date first')
+  if (!state.interviewScriptApproved) errors.push('Generate your AI script, read it, then click Approve before launching')
+  return errors
+}
+
+function buildInterviewPreviewHtml() {
+  const role = (document.getElementById('int-role')?.value || '').trim() || '—'
+  const criteria = (document.getElementById('int-criteria')?.value || '').trim() || '—'
+  const agent = selectedInterviewAgent()
+  const agentLabel = agent?.name || agent?.voice_label || 'Default agent'
+  const sched = schedulePayload('int')
+  const windowLabel = sched.scheduled_start_at
+    ? `${formatScheduleLabel(sched.scheduled_start_at)} → ${formatScheduleLabel(sched.scheduled_end_at)}`
+    : 'Not set — add dates on the form'
+  const recipients = interviewLaunch.recipients || []
+  const summary = interviewLaunch.intakeSummary || {}
+  const scriptText = (document.getElementById('int-ai-script')?.value || state.interviewScriptPayload?.script_text || '').trim()
+  const scriptStatus = state.interviewScriptApproved ? '<span class="bdg bg">Approved</span>' : '<span class="bdg ba">Draft — approve before pay</span>'
+  const quote = interviewLaunch.quote
+  const quoteLines = quote?.lines || []
+  const quoteTotal = quote?.total_gbp || (quote?.total_pence != null ? fmtGbp(quote.total_pence) : interviewLaunch.preparedOrder?.quote_total_gbp || '—')
+
+  const candidateRows = recipients.length
+    ? `<div class="int-preview-table-wrap"><table class="res-table" style="font-size:11.5px"><thead><tr><th>Name</th><th>Phone</th><th>CV</th><th>Ready</th></tr></thead><tbody>${recipients
+        .map(
+          (r) => `<tr>
+            <td>${escHtml(r.name || '—')}</td>
+            <td>${escHtml(r.phone || '—')}</td>
+            <td>${cvQualityBadge(r.cv_quality)}</td>
+            <td>${r.intake_ready ? '<span class="bdg bg">Yes</span>' : '<span class="bdg br">No</span>'}</td>
+          </tr>`,
+        )
+        .join('')}</tbody></table></div>`
+    : '<p class="muted">No candidates uploaded yet.</p>'
+
+  return `
+    <div class="int-preview-section"><h4><i class="ti ti-briefcase"></i> Role &amp; criteria</h4>
+      <div class="int-preview-meta"><strong>Role:</strong> ${escHtml(role)}<br/><strong>Criteria:</strong> ${escHtml(criteria)}</div></div>
+    <div class="int-preview-section"><h4><i class="ti ti-microphone"></i> Voice agent &amp; window</h4>
+      <div class="int-preview-meta"><strong>Agent:</strong> ${escHtml(agentLabel)}<br/><strong>Calling window:</strong> ${escHtml(windowLabel)}</div></div>
+    <div class="int-preview-section"><h4><i class="ti ti-users"></i> Candidates (${summary.total || recipients.length})</h4>${candidateRows}</div>
+    <div class="int-preview-section"><h4><i class="ti ti-script"></i> Interview script ${scriptStatus}</h4>
+      <pre style="max-height:160px;overflow:auto;font-size:11.5px">${escHtml(scriptText || 'No script generated yet.')}</pre></div>
+    <div class="int-preview-section"><h4><i class="ti ti-receipt"></i> Pricing</h4>
+      ${quoteLines.length ? quoteLines.map((l) => `<div class="int-preview-meta">${escHtml(l.detail || l.label || '')}</div>`).join('') : '<div class="muted">Quote updates when candidates are ready — click Launch interviews to refresh.</div>'}
+      <div class="int-preview-quote">${escHtml(String(quoteTotal))}</div></div>`
+}
+
+function closeInterviewPreview() {
+  document.getElementById('int-preview-overlay')?.classList.remove('show')
+}
+
+async function openInterviewPreview() {
+  const role = (document.getElementById('int-role')?.value || '').trim()
+  const hasCandidates = (interviewLaunch.recipients || []).length > 0
+  if (!role && !hasCandidates) {
+    window.toast?.('Add a role or upload candidates before previewing', 'tr')
+    return
+  }
+  await saveInterviewDraft({ silent: true })
+  if (hasCandidates) await refreshInterviewQuoteFromDraft()
+  const body = document.getElementById('int-preview-body')
+  if (body) body.innerHTML = buildInterviewPreviewHtml()
+  const payBtn = document.getElementById('int-preview-pay')
+  if (payBtn) payBtn.disabled = !interviewLaunch.preparedOrder && !interviewLaunch.quote
+  document.getElementById('int-preview-overlay')?.classList.add('show')
+}
+
+async function prepareInterviewLaunchOrder() {
+  const errors = validateInterviewLaunch()
+  if (errors.length) {
+    window.toast?.(errors[0], 'tr')
+    if (errors.some((e) => /script/i.test(e))) {
+      showAiPanel('int', true)
+      document.getElementById('int-ai-script')?.focus()
+    }
+    return null
+  }
+
+  await saveInterviewDraft({ silent: true })
+  const title = (document.getElementById('int-role')?.value || 'Interview campaign').trim().slice(0, 120)
+  const sched = schedulePayload('int')
+  const config = collectInterviewConfig()
+
+  try {
+    let order
+    if (interviewLaunch.draftOrderId) {
+      order = await api(`/service-orders/${interviewLaunch.draftOrderId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title, config, ...sched }),
+      })
+      order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+    } else {
+      order = await api('/service-orders', {
+        method: 'POST',
+        body: JSON.stringify({ service_code: 'interview', title, config }),
+      })
+      if (state.interviewFile) {
+        order = await uploadRecipients(order.id, state.interviewFile)
+      }
+      await api(`/service-orders/${order.id}`, { method: 'PATCH', body: JSON.stringify(sched) })
+      order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+    }
+
+    const quoteText = (order.quote_breakdown || []).map((l) => l.detail || l.label).join('\n')
+    interviewLaunch.preparedOrder = order
+    interviewLaunch.preparedQuoteText = quoteText
+    interviewLaunch.quote = {
+      total_pence: order.quote_total_pence,
+      total_gbp: order.quote_total_gbp,
+      lines: order.quote_breakdown || [],
+    }
+    return order
+  } catch (e) {
+    window.toast?.(e.message || 'Could not prepare launch', 'tr')
+    return null
+  }
+}
+
+async function payPreparedInterviewOrder() {
+  let order = interviewLaunch.preparedOrder
+  if (!order) {
+    order = await prepareInterviewLaunchOrder()
+    if (!order) return
+    const body = document.getElementById('int-preview-body')
+    if (body) body.innerHTML = buildInterviewPreviewHtml()
+  }
+  await offerOrderPayment(order, interviewLaunch.preparedQuoteText)
+  closeInterviewPreview()
+  await loadOrdersIntoUi()
+}
+
+async function launchInterviewFromPreview() {
+  const order = await prepareInterviewLaunchOrder()
+  if (!order) return
+  const body = document.getElementById('int-preview-body')
+  if (body) body.innerHTML = buildInterviewPreviewHtml()
+  const payBtn = document.getElementById('int-preview-pay')
+  if (payBtn) payBtn.disabled = false
+  window.toast?.('Campaign quoted — click Pay to continue', 'tg')
+}
+
 async function editInterviewRecipientField(recipientId, field) {
   const orderId = interviewLaunch.draftOrderId
   if (!orderId || !recipientId) return
@@ -602,6 +1037,20 @@ function interviewIntakeReadyCount() {
 function bindInterviewLaunchUi() {
   document.getElementById('int-agent-select')?.addEventListener('change', (e) => {
     interviewLaunch.selectedAgentId = e.target.value || null
+  })
+  document.getElementById('int-save-draft')?.addEventListener('click', () => void saveInterviewDraft())
+  document.getElementById('int-preview-open')?.addEventListener('click', () => void openInterviewPreview())
+  document.getElementById('int-preview-close')?.addEventListener('click', closeInterviewPreview)
+  document.getElementById('int-preview-close-top')?.addEventListener('click', closeInterviewPreview)
+  document.getElementById('int-preview-save')?.addEventListener('click', async () => {
+    await saveInterviewDraft()
+    const body = document.getElementById('int-preview-body')
+    if (body) body.innerHTML = buildInterviewPreviewHtml()
+  })
+  document.getElementById('int-preview-launch')?.addEventListener('click', () => void launchInterviewFromPreview())
+  document.getElementById('int-preview-pay')?.addEventListener('click', () => void payPreparedInterviewOrder())
+  document.getElementById('int-preview-overlay')?.addEventListener('click', (e) => {
+    if (e.target?.id === 'int-preview-overlay') closeInterviewPreview()
   })
 
   if (typeof window.updateIntWindow === 'function') window.updateIntWindow()
@@ -1799,6 +2248,7 @@ async function loadOrdersIntoUi() {
       if (intEmpty) intEmpty.style.display = intRows ? 'none' : ''
     }
     state.ordersLoaded = true
+    void loadInterviewShortlistPanel()
   } catch {
     /* keep static preview */
   }
@@ -2058,105 +2508,10 @@ async function runOrderFlow(serviceCode) {
     return
   }
 
-  const isSurvey = false
   if (await tryStartPaidOrder(serviceCode)) return
-  const prefix = isSurvey ? 'sur' : 'int'
-  const hasDraftList = (interviewLaunch.recipients || []).length > 0
-  const file = isSurvey ? state.surveyFile : state.interviewFile
-  if (!isSurvey && !hasDraftList && !file) {
-    window.toast?.('Upload a candidate list or CV files first', 'tr')
-    return
-  }
-  if (!isSurvey && hasDraftList) {
-    const ready = interviewIntakeReadyCount()
-    const total = interviewLaunch.recipients.length
-    if (ready === 0) {
-      window.toast?.('Add phone numbers for at least one candidate before launching', 'tr')
-      return
-    }
-    if (ready < total) {
-      window.toast?.(`${total - ready} candidate(s) still missing phone — add or delete them first`, 'tr')
-      return
-    }
-  } else if (!isSurvey && !file) {
-    window.toast?.('Upload a CSV or Excel contact list first', 'tr')
-    return
-  }
-
-  const sched = schedulePayload(prefix)
-  if (!sched.scheduled_start_at) {
-    window.toast?.('Please set a start and end date first', 'tr')
-    return
-  }
-
-  const title = isSurvey
-    ? (document.getElementById('sur-goal')?.value || 'Survey campaign').trim().slice(0, 120)
-    : (document.getElementById('int-role')?.value || 'Interview campaign').trim().slice(0, 120)
-
-  const branding = getClientContextForApi()
-  const config = isSurvey
-    ? {
-        goal: document.getElementById('sur-goal')?.value || '',
-        channels: surveyChannels(),
-        contact_method: selectValue(document.getElementById('sur-contact-method')),
-        script_mode: scriptModeFromButtons('survey'),
-        approved_script: state.surveyScriptPayload?.script_text || '',
-        script_questions: state.surveyScriptPayload?.questions || [],
-        system_prompt: state.surveyScriptPayload?.system_prompt || '',
-        whatsapp_flow: state.surveyScriptPayload?.whatsapp_flow || null,
-        script_approved: state.surveyScriptApproved,
-        organisation_name: branding.organisation_name,
-        survey_organiser_name: branding.survey_organiser_name,
-        clinic_name: branding.organisation_name,
-      }
-    : {
-        role: document.getElementById('int-role')?.value || '',
-        delivery: deliveryFromInterviewForm(),
-        criteria: document.getElementById('int-criteria')?.value || '',
-        script_mode: scriptModeFromButtons('interview'),
-        approved_script: state.interviewScriptPayload?.script_text || '',
-        script_questions: state.interviewScriptPayload?.questions || [],
-        system_prompt: state.interviewScriptPayload?.system_prompt || '',
-        script_approved: state.interviewScriptApproved,
-      }
-
-  const scriptOk = isSurvey ? state.surveyScriptApproved : state.interviewScriptApproved
-  if (!scriptOk) {
-    window.toast?.('Generate your AI script, read it, then click Approve before launching', 'tr')
-    showAiPanel(prefix, true)
-    document.getElementById(`${prefix}-ai-script`)?.focus()
-    return
-  }
-
-  try {
-    let order
-    if (!isSurvey && interviewLaunch.draftOrderId) {
-      order = await api(`/service-orders/${interviewLaunch.draftOrderId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ title, config, ...sched }),
-      })
-      order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
-    } else {
-      order = await api('/service-orders', {
-        method: 'POST',
-        body: JSON.stringify({ service_code: serviceCode, title, config }),
-      })
-      order = await uploadRecipients(order.id, file)
-      await api(`/service-orders/${order.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(sched),
-      })
-      order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
-    }
-
-    const quoteText = (order.quote_breakdown || [])
-      .map((l) => l.detail || l.label)
-      .join('\n')
-
-    await offerOrderPayment(order, quoteText)
-  } catch (e) {
-    window.toast?.(e.message || 'Could not create order', 'tr')
-  }
+  const order = await prepareInterviewLaunchOrder()
+  if (!order) return
+  await offerOrderPayment(order, interviewLaunch.preparedQuoteText)
 }
 
 function wireHelpChat() {
@@ -2200,10 +2555,10 @@ export function initServiceOrdersBridge() {
   }
   window.launchSurCampaign = () => runSurveyLaunchFlow()
   window.openInterviewResults = openInterviewResults
+  window.saveInterviewDraft = () => saveInterviewDraft()
+  window.openInterviewPreview = () => openInterviewPreview()
   window.launchIntCampaign = async () => {
-    await runOrderFlow('interview')
-    const banner = document.getElementById('int-live-banner')
-    if (banner) banner.style.display = 'none'
+    await openInterviewPreview()
   }
   window.openSurveyWaPreview = openSurveyWaPreview
   window.closeSurveyWaPreview = closeSurveyWaPreview
@@ -2228,6 +2583,7 @@ export function initServiceOrdersBridge() {
   void loadInterviewAgents().catch(() => {})
   renderSurveyQuoteUi()
   renderInterviewQuoteUi()
+  void restoreInterviewDraft().catch(() => {})
 }
 
 if (typeof window !== 'undefined') {

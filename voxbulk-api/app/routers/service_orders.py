@@ -167,6 +167,21 @@ def list_interview_agents_for_dashboard(db: Session = Depends(get_db), principal
     }
 
 
+@router.get("/interview/draft")
+def get_interview_draft(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.interview_intake_service import get_latest_interview_draft, intake_summary, list_intake_recipients
+
+    order = get_latest_interview_draft(db, org_id=principal.org_id)
+    if order is None:
+        return {"order": None, "recipients": [], "summary": intake_summary([])}
+    recipients = list_intake_recipients(db, order)
+    return {
+        "order": ServiceOrderService.order_to_dict(order),
+        "recipients": recipients,
+        "summary": intake_summary(recipients),
+    }
+
+
 @router.post("/interview/draft")
 def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_intake_service import ensure_interview_draft_order, intake_summary, list_intake_recipients
@@ -179,6 +194,17 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
         role=str(payload.get("role") or ""),
         criteria=str(payload.get("criteria") or ""),
     )
+    config_patch = payload.get("config")
+    if isinstance(config_patch, dict) and config_patch:
+        order = ServiceOrderService.update_order(db, order, {"config": config_patch})
+    sched_patch = {}
+    for key in ("run_mode", "scheduled_start_at", "scheduled_end_at"):
+        if payload.get(key):
+            sched_patch[key] = payload[key]
+    if sched_patch:
+        order = ServiceOrderService.update_order(db, order, sched_patch)
+    if payload.get("title"):
+        order = ServiceOrderService.update_order(db, order, {"title": str(payload.get("title"))})
     recipients = list_intake_recipients(db, order)
     return {
         "order": ServiceOrderService.order_to_dict(order),
@@ -551,6 +577,19 @@ def start_order(order_id: str, db: Session = Depends(get_db), principal=Depends(
     try:
         order = ServiceOrderService.start_order(db, order)
         return ServiceOrderService.order_to_dict(order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/interview-results")
+def get_interview_results(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.interview_results_service import InterviewResultsService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        return InterviewResultsService.get_results(db, order)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
