@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Seed a completed dummy AI-call survey with anonymous aggregate results.
 
-Usage:
+Usage (server / local — must use the API virtualenv, not system python3):
+
   cd voxbulk-api
+  source .venv/bin/activate
   python scripts/seed_dummy_survey.py
-  python scripts/seed_dummy_survey.py --email menasimuk@gmail.com
+
+  # one-liner on VPS:
+  .venv/bin/python scripts/seed_dummy_survey.py --email menasimuk@gmail.com
 """
 
 from __future__ import annotations
@@ -20,7 +24,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sqlalchemy import select
+try:
+    from sqlalchemy import select
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing Python dependencies (run inside voxbulk-api/.venv, not system python3):\n"
+        "  cd /www/voxbulk/voxbulk-api\n"
+        "  source .venv/bin/activate\n"
+        "  python scripts/seed_dummy_survey.py\n"
+        "Or: .venv/bin/python scripts/seed_dummy_survey.py"
+    ) from exc
 
 from app.core.database import get_sessionmaker
 from app.models.membership import OrganisationMembership
