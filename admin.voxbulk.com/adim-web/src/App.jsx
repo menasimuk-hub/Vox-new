@@ -43,6 +43,7 @@ import PromoOfferCreate from './pages/PromoOfferCreate'
 import ServicesPricing from './pages/ServicesPricing'
 import ServiceOrdersAdmin from './pages/ServiceOrdersAdmin'
 import RunningSurveys from './pages/RunningSurveys'
+import RunningInterviews from './pages/RunningInterviews'
 import { defaultAdminHome } from './lib/adminPaths'
 import { useAdminProfile } from './context/AdminProfileContext'
 
@@ -84,6 +85,7 @@ export default function App() {
         <Route path='/onboarding/checklist' element={G('Go-live checklist')} />
 
         <Route path='/operations/running-surveys' element={<RunningSurveys />} />
+        <Route path='/operations/running-interviews' element={<RunningInterviews />} />
         <Route path='/operations/call-queue' element={<OperationsQueue title='Call queue' />} />
         <Route path='/operations/whatsapp-queue' element={<OperationsQueue title='WhatsApp queue' />} />
         <Route path='/operations/failed-jobs' element={<OperationsQueue title='Failed jobs' />} />

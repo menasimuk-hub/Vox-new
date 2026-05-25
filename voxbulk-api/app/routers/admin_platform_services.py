@@ -150,12 +150,56 @@ def admin_surveys_overview(db: Session = Depends(get_db), _admin=Depends(require
     return ServiceOrderService.survey_operations_overview(db)
 
 
+@router.get("/interviews/overview")
+def admin_interviews_overview(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    return ServiceOrderService.interview_operations_overview(db)
+
+
 @router.get("/orders/{order_id}/audit")
 def admin_order_audit(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     order = ServiceOrderService.get_order(db, order_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     return {"order_id": order.id, "timeline": ServiceOrderService.order_audit_timeline(order)}
+
+
+@router.get("/orders/{order_id}/recipients/{recipient_id}/cv")
+def admin_download_recipient_cv(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from fastapi.responses import FileResponse, Response
+
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.career_cv_storage_service import resolve_cv_path
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "interview":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CV download is only for interview orders")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    path = resolve_cv_path(recipient.cv_storage_key or "")
+    if path is not None:
+        filename = recipient.cv_filename or path.name
+        return FileResponse(path, filename=filename, media_type="application/octet-stream")
+    text = (recipient.cv_text or "").strip()
+    if text:
+        from pathlib import Path as PathLib
+
+        base = recipient.cv_filename or "cv.txt"
+        stem = PathLib(base).stem or "cv"
+        filename = f"{stem}.txt"
+        return Response(
+            content=text.encode("utf-8"),
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CV file not available for download")
 
 
 @router.get("/orders/{order_id}/recipients/{recipient_id}")

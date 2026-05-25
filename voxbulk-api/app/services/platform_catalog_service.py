@@ -697,7 +697,13 @@ class ServiceOrderService:
                 }
             )
 
-        add(order.created_at, "created", "Survey created")
+        label_created = "Interview created" if order.service_code == "interview" else "Survey created"
+        label_started = "Interview started" if order.service_code == "interview" else "Survey started"
+        label_finished = "Interview finished" if order.service_code == "interview" else "Survey finished"
+        label_paused = "Interview paused" if order.service_code == "interview" else "Survey paused"
+        label_cancelled = "Interview cancelled" if order.service_code == "interview" else "Survey cancelled"
+
+        add(order.created_at, "created", label_created)
         add(order.updated_at, "updated", "Last updated")
         if order.payment_status == "pending_approval":
             add(order.updated_at, "payment", "Cash payment submitted", order.payment_note)
@@ -707,12 +713,12 @@ class ServiceOrderService:
             add(order.updated_at, "payment", "Payment rejected", order.admin_decision_note or order.payment_note)
         add(order.scheduled_start_at, "schedule", "Scheduled start")
         add(order.scheduled_end_at, "schedule", "Scheduled end")
-        add(order.started_at, "status", "Survey started")
-        add(order.completed_at, "status", "Survey finished")
+        add(order.started_at, "status", label_started)
+        add(order.completed_at, "status", label_finished)
         if order.status == "paused":
-            add(order.updated_at, "status", "Survey paused")
+            add(order.updated_at, "status", label_paused)
         if order.status == "cancelled":
-            add(order.completed_at or order.updated_at, "status", "Survey cancelled", order.admin_decision_note)
+            add(order.completed_at or order.updated_at, "status", label_cancelled, order.admin_decision_note)
         events.sort(key=lambda e: e["at"] or "")
         return events
 
@@ -770,6 +776,31 @@ class ServiceOrderService:
             "completed": completed,
             "failed_payments": failed_pay,
             "pending_payment_approval": pending,
+        }
+
+    @staticmethod
+    def interview_operations_overview(db: Session) -> dict[str, Any]:
+        rows = list(
+            db.execute(select(ServiceOrder).where(ServiceOrder.service_code == "interview")).scalars()
+        )
+        running = sum(1 for r in rows if r.status == "running")
+        paused = sum(1 for r in rows if r.status == "paused")
+        completed = sum(1 for r in rows if r.status == "completed")
+        failed_pay = sum(1 for r in rows if r.payment_status == "rejected")
+        live = sum(1 for r in rows if ServiceOrderService.is_live_interview(r))
+        scheduled = sum(1 for r in rows if r.status == "scheduled")
+        pending = sum(1 for r in rows if r.payment_status == "pending_approval")
+        drafts = sum(1 for r in rows if r.status == "draft")
+        return {
+            "total": len(rows),
+            "live": live,
+            "running": running,
+            "paused": paused,
+            "scheduled": scheduled,
+            "completed": completed,
+            "failed_payments": failed_pay,
+            "pending_payment_approval": pending,
+            "drafts": drafts,
         }
 
     @staticmethod
