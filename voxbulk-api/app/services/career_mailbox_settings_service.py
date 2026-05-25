@@ -42,6 +42,7 @@ class CareerMailboxSettingsService:
             "imap_host": row.imap_host or "",
             "imap_port": int(row.imap_port or 993),
             "imap_use_ssl": bool(row.imap_use_ssl),
+            "imap_use_tls": bool(getattr(row, "imap_use_tls", False)),
             "imap_username": row.imap_username or "",
             "sync_interval_minutes": int(row.sync_interval_minutes or 15),
             "is_enabled": bool(row.is_enabled),
@@ -62,6 +63,7 @@ class CareerMailboxSettingsService:
         imap_host: str,
         imap_port: int,
         imap_use_ssl: bool,
+        imap_use_tls: bool,
         imap_username: str | None,
         sync_interval_minutes: int,
         is_enabled: bool,
@@ -72,6 +74,7 @@ class CareerMailboxSettingsService:
         row.imap_host = (imap_host or "").strip()
         row.imap_port = int(imap_port or 993)
         row.imap_use_ssl = bool(imap_use_ssl)
+        row.imap_use_tls = bool(imap_use_tls) and not bool(imap_use_ssl)
         row.imap_username = (imap_username or "").strip() or None
         row.sync_interval_minutes = max(5, min(int(sync_interval_minutes or 15), 240))
         row.is_enabled = bool(is_enabled)

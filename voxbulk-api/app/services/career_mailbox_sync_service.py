@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import email.utils
+import imaplib
 import logging
 import re
+from email import message_from_bytes
 from email.header import decode_header
 from email.message import Message
 from typing import Any
@@ -124,6 +126,17 @@ def _process_message(db: Session, msg: Message) -> tuple[str, int]:
     return "accepted", added
 
 
+def _connect_imap(row) -> imaplib.IMAP4:
+    host = (row.imap_host or "").strip()
+    port = int(row.imap_port or (993 if row.imap_use_ssl else 143))
+    if row.imap_use_ssl:
+        return imaplib.IMAP4_SSL(host, port)
+    conn = imaplib.IMAP4(host, port)
+    if getattr(row, "imap_use_tls", False):
+        conn.starttls()
+    return conn
+
+
 def test_imap_connection(db: Session) -> tuple[bool, str]:
     row = CareerMailboxSettingsService.get_row(db)
     configured, missing = CareerMailboxSettingsService.compute_status(row)
@@ -133,12 +146,8 @@ def test_imap_connection(db: Session) -> tuple[bool, str]:
     if not password:
         return False, "Mailbox password not configured"
     user = (row.imap_username or row.mailbox_email or "").strip()
-    host = (row.imap_host or "").strip()
     try:
-        if row.imap_use_ssl:
-            conn = imaplib.IMAP4_SSL(host, int(row.imap_port or 993))
-        else:
-            conn = imaplib.IMAP4(host, int(row.imap_port or 143))
+        conn = _connect_imap(row)
         conn.login(user, password)
         conn.logout()
         return True, "Connected successfully"
@@ -159,16 +168,12 @@ def sync_career_mailbox(db: Session) -> dict[str, Any]:
 
     password = CareerMailboxSettingsService.get_decrypted_password(db)
     user = (row.imap_username or row.mailbox_email or "").strip()
-    host = (row.imap_host or "").strip()
     processed = 0
     added_cvs = 0
     rejected = 0
 
     try:
-        if row.imap_use_ssl:
-            conn = imaplib.IMAP4_SSL(host, int(row.imap_port or 993))
-        else:
-            conn = imaplib.IMAP4(host, int(row.imap_port or 143))
+        conn = _connect_imap(row)
         conn.login(user, password or "")
         conn.select("INBOX")
         _typ, data = conn.search(None, "UNSEEN")
@@ -178,7 +183,7 @@ def sync_career_mailbox(db: Session) -> dict[str, Any]:
             if not msg_data or not msg_data[0]:
                 continue
             raw = msg_data[0][1]
-            msg = email.message_from_bytes(raw)
+            msg = message_from_bytes(raw)
             outcome, count = _process_message(db, msg)
             processed += 1
             if outcome == "accepted":

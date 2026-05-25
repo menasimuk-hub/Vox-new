@@ -23,6 +23,7 @@ class CareerMailboxSettingsUpdate(BaseModel):
     imap_host: str = Field(default="")
     imap_port: int = Field(default=993, ge=1, le=65535)
     imap_use_ssl: bool = True
+    imap_use_tls: bool = False
     imap_username: str | None = Field(default="")
     password: str | None = None
     sync_interval_minutes: int = Field(default=15, ge=5, le=240)

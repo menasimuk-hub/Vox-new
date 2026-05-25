@@ -60,6 +60,25 @@ function flagsFromSecureMode(mode) {
   return { use_tls: false, use_ssl: false }
 }
 
+function imapDefaultsForSecureMode(mode) {
+  const flags = flagsFromSecureMode(mode)
+  return {
+    imap_use_ssl: flags.use_ssl,
+    imap_use_tls: flags.use_tls,
+    imap_port: mode === 'ssl' ? 993 : 143,
+  }
+}
+
+function smtpHostToImapHost(host) {
+  const h = String(host || '').trim()
+  if (!h) return ''
+  if (/^smtp\./i.test(h)) return h.replace(/^smtp\./i, 'imap.')
+  if (/^mail\./i.test(h)) return h.replace(/^mail\./i, 'imap.')
+  const parts = h.split('.')
+  if (parts.length >= 2) return `imap.${parts.slice(-2).join('.')}`
+  return `imap.${h}`
+}
+
 function smtpTestResultMessage(payload) {
   if (payload != null && typeof payload === 'object') {
     if (typeof payload.message === 'string' && payload.message.trim()) return payload.message.trim()
@@ -97,6 +116,7 @@ export default function EmailSettings() {
 
   const [careerMailbox, setCareerMailbox] = useState(null)
   const [careerPasswordDraft, setCareerPasswordDraft] = useState('')
+  const [careerSecureMode, setCareerSecureMode] = useState('ssl')
   const [careerSaving, setCareerSaving] = useState(false)
   const [careerTestBusy, setCareerTestBusy] = useState(false)
   const [careerSyncBusy, setCareerSyncBusy] = useState(false)
@@ -117,6 +137,7 @@ export default function EmailSettings() {
   const loadCareerMailbox = useCallback(async () => {
     const data = await apiFetch('/admin/email/career-mailbox')
     setCareerMailbox(data)
+    setCareerSecureMode(secureModeFromFlags(Boolean(data?.imap_use_tls), Boolean(data?.imap_use_ssl)))
   }, [])
 
   const loadLists = useCallback(async () => {
@@ -205,11 +226,13 @@ export default function EmailSettings() {
     setCareerSaving(true)
     setSaveError('')
     try {
+      const enc = imapDefaultsForSecureMode(careerSecureMode)
       const payload = {
         mailbox_email: String(careerMailbox?.mailbox_email || 'careers@voxbulk.com'),
         imap_host: String(careerMailbox?.imap_host || ''),
-        imap_port: Number(careerMailbox?.imap_port || 993),
-        imap_use_ssl: Boolean(careerMailbox?.imap_use_ssl),
+        imap_port: Number(careerMailbox?.imap_port || enc.imap_port),
+        imap_use_ssl: enc.imap_use_ssl,
+        imap_use_tls: enc.imap_use_tls,
         imap_username: String(careerMailbox?.imap_username || ''),
         sync_interval_minutes: Number(careerMailbox?.sync_interval_minutes || 15),
         is_enabled: Boolean(careerMailbox?.is_enabled),
@@ -218,11 +241,34 @@ export default function EmailSettings() {
       const data = await apiFetch('/admin/email/career-mailbox', { method: 'PUT', body: JSON.stringify(payload) })
       setCareerMailbox(data)
       setCareerPasswordDraft('')
+      setCareerSecureMode(secureModeFromFlags(Boolean(data?.imap_use_tls), Boolean(data?.imap_use_ssl)))
     } catch (e) {
       setSaveError(e?.message || 'Save failed')
     } finally {
       setCareerSaving(false)
     }
+  }
+
+  const copyCareerFromSmtp = () => {
+    if (!smtp) return
+    const smtpMode = secureModeFromFlags(Boolean(smtp.use_tls), Boolean(smtp.use_ssl))
+    const imapMode = smtpMode === 'ssl' ? 'ssl' : smtpMode === 'starttls' ? 'starttls' : 'none'
+    const enc = imapDefaultsForSecureMode(imapMode)
+    setCareerSecureMode(imapMode)
+    setCareerMailbox((s) => ({
+      ...(s || {}),
+      imap_host: smtpHostToImapHost(smtp.host) || String(smtp.host || ''),
+      imap_username: String(smtp.username || smtp.from_email || ''),
+      mailbox_email: String(smtp.from_email || s?.mailbox_email || 'careers@voxbulk.com'),
+      imap_port: enc.imap_port,
+      imap_use_ssl: enc.imap_use_ssl,
+      imap_use_tls: enc.imap_use_tls,
+    }))
+    setCareerActionMsg(
+      smtpMode === 'ssl'
+        ? 'Copied from SMTP (port 465). Use IMAP port 993 with SSL/TLS — same username; enter the same mailbox password below if not saved yet.'
+        : 'Copied host and username from SMTP — check IMAP port and encryption match your provider.',
+    )
   }
 
   const testCareerMailbox = async () => {
@@ -392,7 +438,10 @@ export default function EmailSettings() {
                   <div className="span-8 stack" style={{ gap: 14 }}>
                     <div className="note">
                       Candidates email CVs to <strong>careers@voxbulk.com</strong> with a job reference (<code>VB-INT-…</code>) in the subject or body.
-                      Inbound mail is fetched via IMAP; missing references get an auto-reply via SMTP.
+                      Inbound mail is fetched via <strong>IMAP</strong> (receive). Auto-replies use your <strong>SMTP</strong> tab (send).
+                    </div>
+                    <div className="note" style={{ marginBottom: 0 }}>
+                      If SMTP uses <strong>port 465 (SSL/TLS)</strong>, set IMAP to <strong>port 993 + SSL/TLS</strong> — same username and password, host is usually <code>imap.</code> instead of <code>smtp.</code>
                     </div>
                     <div className="miniGrid">
                       <div className="mini">
@@ -425,6 +474,11 @@ export default function EmailSettings() {
                         Career mailbox sync enabled
                       </span>
                     </label>
+                    <div className="actions" style={{ marginTop: 4 }}>
+                      <button type="button" className="btn soft" onClick={copyCareerFromSmtp} disabled={!smtp?.host}>
+                        <i className="ti ti-copy" /> Copy from SMTP settings
+                      </button>
+                    </div>
                     <div className="emailFormGrid">
                       <div className="span-2">
                         <label className="label">Mailbox address</label>
@@ -436,7 +490,24 @@ export default function EmailSettings() {
                       </div>
                       <div>
                         <label className="label">IMAP port</label>
-                        <input className="input" type="number" min={1} max={65535} value={careerMailbox?.imap_port ?? 993} onChange={(e) => setCareerMailbox((s) => ({ ...s, imap_port: Number(e.target.value) }))} />
+                        <input className="input" type="number" min={1} max={65535} value={careerMailbox?.imap_port ?? imapDefaultsForSecureMode(careerSecureMode).imap_port} onChange={(e) => setCareerMailbox((s) => ({ ...s, imap_port: Number(e.target.value) }))} />
+                      </div>
+                      <div>
+                        <label className="label">Encryption</label>
+                        <select
+                          className="input"
+                          value={careerSecureMode}
+                          onChange={(e) => {
+                            const mode = e.target.value
+                            const enc = imapDefaultsForSecureMode(mode)
+                            setCareerSecureMode(mode)
+                            setCareerMailbox((s) => ({ ...s, imap_port: enc.imap_port, imap_use_ssl: enc.imap_use_ssl, imap_use_tls: enc.imap_use_tls }))
+                          }}
+                        >
+                          <option value="starttls">STARTTLS (143)</option>
+                          <option value="ssl">SSL / TLS (993) — same as SMTP 465</option>
+                          <option value="none">None</option>
+                        </select>
                       </div>
                       <div>
                         <label className="label">IMAP username</label>
@@ -444,18 +515,11 @@ export default function EmailSettings() {
                       </div>
                       <div>
                         <label className="label">Password</label>
-                        <input className="input" type="password" value={careerPasswordDraft} onChange={(e) => setCareerPasswordDraft(e.target.value)} placeholder={careerMailbox?.password_set ? 'Leave blank to keep' : 'IMAP password'} autoComplete="new-password" />
+                        <input className="input" type="password" value={careerPasswordDraft} onChange={(e) => setCareerPasswordDraft(e.target.value)} placeholder={careerMailbox?.password_set ? 'Leave blank to keep' : 'Same as SMTP mailbox password'} autoComplete="new-password" />
                       </div>
                       <div>
                         <label className="label">Sync every (minutes)</label>
                         <input className="input" type="number" min={5} max={240} value={careerMailbox?.sync_interval_minutes ?? 15} onChange={(e) => setCareerMailbox((s) => ({ ...s, sync_interval_minutes: Number(e.target.value) }))} />
-                      </div>
-                      <div>
-                        <label className="label">SSL</label>
-                        <select className="input" value={careerMailbox?.imap_use_ssl ? 'ssl' : 'none'} onChange={(e) => setCareerMailbox((s) => ({ ...s, imap_use_ssl: e.target.value === 'ssl' }))}>
-                          <option value="ssl">SSL/TLS (993)</option>
-                          <option value="none">None</option>
-                        </select>
                       </div>
                     </div>
                     <div className="actions">

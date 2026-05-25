@@ -96,6 +96,7 @@ def put_career_mailbox_settings(
         imap_host=payload.imap_host,
         imap_port=payload.imap_port,
         imap_use_ssl=payload.imap_use_ssl,
+        imap_use_tls=payload.imap_use_tls,
         imap_username=payload.imap_username,
         sync_interval_minutes=payload.sync_interval_minutes,
         is_enabled=payload.is_enabled,

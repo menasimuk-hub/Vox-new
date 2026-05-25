@@ -18,6 +18,7 @@ class CareerMailboxSettings(Base):
     imap_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
     imap_port: Mapped[int] = mapped_column(Integer, nullable=False, default=993)
     imap_use_ssl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    imap_use_tls: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     imap_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     sync_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=15)
