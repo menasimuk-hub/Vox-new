@@ -3,6 +3,7 @@ import { apiFetch, getAccessToken } from './lib/api.js'
 const hub = {
   orders: [],
   tab: 'live',
+  selectedId: null,
 }
 
 function api(path, options = {}) {
@@ -42,16 +43,50 @@ function progressLabel(order) {
   return `${total} candidates`
 }
 
+function canEditOrder(order) {
+  return Boolean(order?.is_live && !['running', 'paused'].includes(order.status))
+}
+
+function canViewResults(order) {
+  return Boolean(
+    order?.is_finished ||
+      ['running', 'paused', 'completed', 'cancelled'].includes(String(order?.status || '')),
+  )
+}
+
+function canDeleteOrder(order) {
+  return Boolean(order?.is_live && !['running', 'paused'].includes(order.status))
+}
+
+function primaryAction(order) {
+  if (canViewResults(order) && !canEditOrder(order)) return 'results'
+  if (canEditOrder(order)) return 'edit'
+  if (canViewResults(order)) return 'results'
+  return 'edit'
+}
+
 function renderOrderRow(order) {
   const ref = order.reference_id ? `<span class="bdg bb" style="margin-left:6px">${esc(order.reference_id)}</span>` : ''
-  const click = order.service_code === 'interview' ? `window.openInterviewResults('${order.id}')` : ''
-  return `<div class="proj-row" onclick="${click}">
+  const selected = hub.selectedId === order.id ? ' int-hub-row-selected' : ''
+  const editBtn = canEditOrder(order)
+    ? `<button type="button" class="btn bsm btng int-hub-act" data-int-action="edit" data-order-id="${esc(order.id)}" title="Edit draft"><i class="ti ti-edit"></i></button>`
+    : ''
+  const resultsBtn = canViewResults(order)
+    ? `<button type="button" class="btn bsm int-hub-act" data-int-action="results" data-order-id="${esc(order.id)}" title="View results"><i class="ti ti-chart-bar"></i></button>`
+    : ''
+  const deleteBtn = canDeleteOrder(order)
+    ? `<button type="button" class="btn bsm btnr int-hub-act" data-int-action="delete" data-order-id="${esc(order.id)}" title="Delete"><i class="ti ti-trash"></i></button>`
+    : ''
+  return `<div class="proj-row int-hub-row${selected}" data-order-id="${esc(order.id)}" data-int-primary="${primaryAction(order)}">
     <div class="proj-ic ci-b"><i class="ti ti-briefcase"></i></div>
     <div class="proj-info">
       <div class="proj-name">${esc(order.title || 'Interview task')}${ref}</div>
       <div class="proj-meta">${esc(order.status_label || order.status)} · ${esc(fmtSchedule(order.scheduled_start_at, order.scheduled_end_at))} · ${esc(intakeSourceLabel(order))} · ${esc(progressLabel(order))}</div>
     </div>
-    <span class="stat-wait">${esc(order.status_label || order.status)}</span>
+    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+      ${editBtn}${resultsBtn}${deleteBtn}
+      <span class="stat-wait">${esc(order.status_label || order.status)}</span>
+    </div>
   </div>`
 }
 
@@ -78,6 +113,54 @@ function renderLists() {
   if (finEmpty) finEmpty.style.display = finished.length ? 'none' : ''
 }
 
+async function handleRowAction(orderId, action) {
+  if (!orderId) return
+  if (action === 'delete') {
+    if (typeof window.deleteInterviewOrder === 'function') {
+      await window.deleteInterviewOrder(orderId)
+    }
+    return
+  }
+  if (action === 'results') {
+    if (typeof window.openInterviewResults === 'function') {
+      await window.openInterviewResults(orderId)
+    }
+    return
+  }
+  if (action === 'edit') {
+    if (typeof window.openInterviewDraft === 'function') {
+      await window.openInterviewDraft(orderId)
+    }
+  }
+}
+
+function bindListClicks() {
+  const hosts = ['int-live-orders', 'int-finished-orders']
+  hosts.forEach((hostId) => {
+    document.getElementById(hostId)?.addEventListener('click', (event) => {
+      const actionBtn = event.target.closest('.int-hub-act')
+      if (actionBtn) {
+        event.stopPropagation()
+        void handleRowAction(
+          actionBtn.getAttribute('data-order-id'),
+          actionBtn.getAttribute('data-int-action'),
+        )
+        return
+      }
+      const row = event.target.closest('.int-hub-row')
+      if (!row) return
+      const orderId = row.getAttribute('data-order-id')
+      const action = row.getAttribute('data-int-primary') || 'edit'
+      void handleRowAction(orderId, action)
+    })
+  })
+}
+
+export function setInterviewHubSelection(orderId) {
+  hub.selectedId = orderId || null
+  renderLists()
+}
+
 export async function loadInterviewOrders() {
   if (!getAccessToken()) return
   hub.loading = true
@@ -99,6 +182,8 @@ function bindTabs() {
 
 export function initInterviewHubBridge() {
   window.reloadInterviewHub = loadInterviewOrders
+  window.setInterviewHubSelection = setInterviewHubSelection
   bindTabs()
+  bindListClicks()
   void loadInterviewOrders()
 }

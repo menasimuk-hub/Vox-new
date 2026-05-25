@@ -272,8 +272,12 @@ const bodyHtml = `<div class="app" id="app">
           </div>
         </div>
         <!-- NEW CAMPAIGN FORM -->
-        <div class="card">
-          <div class="ch"><i class="ti ti-upload grn"></i>New interview campaign</div>
+        <div class="card" id="int-form-card">
+          <div class="ch" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+            <span><i class="ti ti-upload grn"></i> <span id="int-form-title">New interview campaign</span></span>
+            <button class="btn bsm btnr" type="button" id="int-delete-draft-btn" hidden><i class="ti ti-trash"></i>Delete draft</button>
+          </div>
+          <div id="int-form-lock-note" class="inf b" style="display:none;margin-bottom:12px"><i class="ti ti-lock"></i><span id="int-form-lock-text">This task is paid — candidate uploads are locked. You can still adjust the calling window until launch.</span></div>
           <div class="sur-launch-note"><i class="ti ti-phone"></i> AI phone interviews · Phase 2 — upload candidates before script approval</div>
           <input type="file" id="int-file-input" accept=".csv,.xlsx,.xls,.pdf,.docx,.doc,.txt,.zip" multiple hidden/>
           <div class="standalone-upload" id="int-upload-zone" style="margin-bottom:6px;cursor:pointer">

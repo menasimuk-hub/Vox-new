@@ -973,6 +973,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* ─── PROJECT ROWS ─── */
 .proj-row{border:1.5px solid var(--b1);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;background:var(--s1);transition:var(--transition);cursor:pointer}
 .proj-row:hover{border-color:var(--b2);box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.int-hub-row-selected{border-color:var(--grn);box-shadow:0 0 0 1px rgba(34,197,94,.25)}
+.int-hub-act{flex-shrink:0;padding:4px 8px!important;min-width:0}
 .proj-ic{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
 .proj-info{flex:1;min-width:0}.proj-name{font-size:13px;font-weight:700;color:var(--t1)}.proj-meta{font-size:10.5px;color:var(--t3);margin-top:2px}
 .proj-win{font-size:10px;color:var(--grn);margin-top:3px;display:flex;align-items:center;gap:4px;font-weight:500}

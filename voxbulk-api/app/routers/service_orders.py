@@ -198,14 +198,24 @@ def create_new_interview_draft_route(db: Session = Depends(get_db), principal=De
 def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_intake_service import ensure_interview_draft_order, intake_summary, list_intake_recipients
 
-    order = ensure_interview_draft_order(
-        db,
-        org_id=principal.org_id,
-        user_id=principal.user_id,
-        title=str(payload.get("title") or "Interview draft"),
-        role=str(payload.get("role") or ""),
-        criteria=str(payload.get("criteria") or ""),
-    )
+    order_id = str(payload.get("order_id") or "").strip()
+    if order_id:
+        order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+        if order is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+        if order.service_code != "interview":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an interview order")
+        if order.status in {"running", "completed", "cancelled"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot edit a running or finished interview")
+    else:
+        order = ensure_interview_draft_order(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            title=str(payload.get("title") or "Interview draft"),
+            role=str(payload.get("role") or ""),
+            criteria=str(payload.get("criteria") or ""),
+        )
     config_patch = payload.get("config")
     if isinstance(config_patch, dict) and config_patch:
         order = ServiceOrderService.update_order(db, order, {"config": config_patch})

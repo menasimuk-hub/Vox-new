@@ -808,7 +808,7 @@ function updateInterviewReferenceCard(order) {
   const codeEl = document.getElementById('int-ref-id')
   const ref = String(order?.reference_id || '').trim()
   if (!wrap || !codeEl) return
-  if (!ref) {
+  if (!order || !ref) {
     wrap.hidden = true
     return
   }
@@ -845,6 +845,12 @@ async function downloadInterviewRecipientCv(recipientId) {
 }
 
 function resetInterviewFormForNewTask() {
+  clearInterviewFormFields()
+  interviewLaunch.draftOrderId = null
+  updateInterviewFormChrome(null)
+}
+
+function clearInterviewFormFields() {
   ;['int-role', 'int-criteria', 'int-ai-script'].forEach((id) => {
     const el = document.getElementById(id)
     if (el) el.value = ''
@@ -857,7 +863,6 @@ function resetInterviewFormForNewTask() {
   state.interviewOrderId = null
   state.interviewScriptPayload = null
   state.interviewScriptApproved = false
-  interviewLaunch.draftOrderId = null
   interviewLaunch.recipients = []
   interviewLaunch.intakeSummary = null
   interviewLaunch.quote = null
@@ -882,6 +887,116 @@ function resetInterviewFormForNewTask() {
   setAiStatus('int', false)
   renderInterviewQuoteUi()
   if (typeof window.updateIntWindow === 'function') window.updateIntWindow()
+  setInterviewFormLocked(false)
+}
+
+function updateInterviewFormChrome(order) {
+  const titleEl = document.getElementById('int-form-title')
+  const deleteBtn = document.getElementById('int-delete-draft-btn')
+  if (!order?.id) {
+    if (titleEl) titleEl.textContent = 'New interview campaign'
+    if (deleteBtn) deleteBtn.hidden = true
+    if (typeof window.setInterviewHubSelection === 'function') window.setInterviewHubSelection(null)
+    return
+  }
+  const editable = order.is_live && !['running', 'paused'].includes(order.status)
+  if (titleEl) {
+    titleEl.textContent = editable
+      ? order.status === 'draft'
+        ? 'Edit interview draft'
+        : 'Edit interview task'
+      : order.title || 'Interview task'
+  }
+  if (deleteBtn) deleteBtn.hidden = !editable
+  if (typeof window.setInterviewHubSelection === 'function') window.setInterviewHubSelection(order.id)
+}
+
+function setInterviewFormLocked(locked) {
+  const note = document.getElementById('int-form-lock-note')
+  const zone = document.getElementById('int-upload-zone')
+  const fileInput = document.getElementById('int-file-input')
+  if (note) note.style.display = locked ? '' : 'none'
+  if (zone) zone.style.opacity = locked ? '0.55' : ''
+  if (zone) zone.style.pointerEvents = locked ? 'none' : ''
+  if (fileInput) fileInput.disabled = Boolean(locked)
+}
+
+async function openInterviewDraft(orderId, { silent = false, scroll = true } = {}) {
+  if (!orderId || !getAccessToken()) return false
+  try {
+    const order = await api(`/service-orders/${encodeURIComponent(orderId)}`)
+    if (order.service_code !== 'interview') throw new Error('Not an interview task')
+
+    if (order.is_finished || ['running', 'paused'].includes(order.status)) {
+      await openInterviewResults(orderId)
+      return true
+    }
+
+    if (typeof window.goNav === 'function') window.goNav('interviews')
+
+    clearInterviewFormFields()
+    interviewLaunch.draftOrderId = order.id
+    state.interviewOrderId = order.id
+    localStorage.setItem(INTERVIEW_DRAFT_LS_KEY, order.id)
+
+    const recipData = await api(`/service-orders/${encodeURIComponent(orderId)}/recipients`)
+    interviewLaunch.recipients = recipData?.recipients || order.recipients || []
+    interviewLaunch.intakeSummary = recipData?.summary || null
+
+    applyInterviewOrderToForm(order)
+    renderInterviewCandidateList()
+    updateInterviewFormChrome(order)
+
+    const paidLocked = order.payment_status === 'approved'
+    setInterviewFormLocked(paidLocked)
+
+    const statusEl = document.getElementById('int-save-status')
+    if (statusEl) {
+      statusEl.style.display = 'block'
+      const n = interviewLaunch.recipients.length
+      statusEl.textContent = n
+        ? `Editing saved task — ${n} candidate(s) loaded`
+        : 'Editing saved task — add candidates below'
+    }
+
+    if (scroll) {
+      document.getElementById('int-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    if (!silent) window.toast?.('Draft loaded — edit below and save', 'tg')
+    if (typeof window.reloadInterviewHub === 'function') void window.reloadInterviewHub()
+    return true
+  } catch (e) {
+    if (!silent) window.toast?.(e.message || 'Could not open draft', 'tr')
+    return false
+  }
+}
+
+async function deleteInterviewOrder(orderId, { clearForm = true } = {}) {
+  if (!orderId || !getAccessToken()) return false
+  const ok = await confirmDialog({
+    title: 'Delete interview task?',
+    message: 'This removes the task, candidates, and uploaded CVs. This cannot be undone.',
+    okLabel: 'Delete',
+    danger: true,
+  })
+  if (!ok) return false
+  try {
+    await api(`/service-orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' })
+    if (clearForm && (interviewLaunch.draftOrderId === orderId || state.interviewOrderId === orderId)) {
+      clearInterviewFormFields()
+      interviewLaunch.draftOrderId = null
+      state.interviewOrderId = null
+      localStorage.removeItem(INTERVIEW_DRAFT_LS_KEY)
+      updateInterviewReferenceCard(null)
+      updateInterviewFormChrome(null)
+    }
+    if (typeof window.reloadInterviewHub === 'function') await window.reloadInterviewHub()
+    window.toast?.('Interview task deleted', 'tg')
+    return true
+  } catch (e) {
+    window.toast?.(e.message || 'Could not delete task', 'tr')
+    return false
+  }
 }
 
 async function startNewInterviewTask() {
@@ -904,6 +1019,7 @@ async function startNewInterviewTask() {
       state.interviewOrderId = order.id
       localStorage.setItem(INTERVIEW_DRAFT_LS_KEY, order.id)
       updateInterviewReferenceCard(order)
+      updateInterviewFormChrome(order)
     }
     window.toast?.('New interview task ready — new reference ID assigned', 'tg')
     if (typeof window.reloadInterviewHub === 'function') void window.reloadInterviewHub()
@@ -1062,6 +1178,9 @@ function applyInterviewOrderToForm(order) {
   if (cfg.script_approved) {
     state.interviewScriptApproved = true
     setAiStatus('int', true)
+  } else {
+    state.interviewScriptApproved = false
+    setAiStatus('int', false)
   }
   applyIsoScheduleToForm('int', order.scheduled_start_at, order.scheduled_end_at)
   updateInterviewReferenceCard(order)
@@ -1080,6 +1199,7 @@ async function saveInterviewDraft({ silent = false } = {}) {
     const data = await api('/service-orders/interview/draft', {
       method: 'POST',
       body: JSON.stringify({
+        order_id: interviewLaunch.draftOrderId || undefined,
         title,
         role,
         criteria: (document.getElementById('int-criteria')?.value || '').trim(),
@@ -1092,6 +1212,7 @@ async function saveInterviewDraft({ silent = false } = {}) {
     interviewLaunch.recipients = data?.recipients || interviewLaunch.recipients
     interviewLaunch.intakeSummary = data?.summary || interviewLaunch.intakeSummary
     updateInterviewReferenceCard(data?.order)
+    updateInterviewFormChrome(data?.order)
     if (interviewLaunch.draftOrderId) {
       localStorage.setItem(INTERVIEW_DRAFT_LS_KEY, interviewLaunch.draftOrderId)
     }
@@ -1102,6 +1223,7 @@ async function saveInterviewDraft({ silent = false } = {}) {
       statusEl.textContent = `Saved ${new Date().toLocaleTimeString()} — ${n ? `${n} candidate(s) on server` : 'form saved'} · safe to close this tab`
     }
     if (!silent) window.toast?.('Interview draft saved', 'tg')
+    if (typeof window.reloadInterviewHub === 'function') void window.reloadInterviewHub()
     return true
   } catch (e) {
     if (!silent) window.toast?.(e.message || 'Could not save draft', 'tr')
@@ -1114,6 +1236,12 @@ async function saveInterviewDraft({ silent = false } = {}) {
 
 async function restoreInterviewDraft() {
   if (!getAccessToken()) return
+  const savedId = localStorage.getItem(INTERVIEW_DRAFT_LS_KEY)
+  if (savedId) {
+    const ok = await openInterviewDraft(savedId, { silent: true, scroll: false })
+    if (ok) return
+    localStorage.removeItem(INTERVIEW_DRAFT_LS_KEY)
+  }
   try {
     const data = await api('/service-orders/interview/draft')
     const order = data?.order
@@ -1124,6 +1252,8 @@ async function restoreInterviewDraft() {
     interviewLaunch.intakeSummary = data.summary || null
     applyInterviewOrderToForm(order)
     renderInterviewCandidateList()
+    updateInterviewFormChrome(order)
+    setInterviewFormLocked(order.payment_status === 'approved')
     localStorage.setItem(INTERVIEW_DRAFT_LS_KEY, order.id)
     const statusEl = document.getElementById('int-save-status')
     if (statusEl && interviewLaunch.recipients.length) {
@@ -1338,6 +1468,11 @@ function bindInterviewLaunchUi() {
     void ensureInterviewDraftOrder().catch(() => {})
   })
   document.getElementById('int-new-task-btn')?.addEventListener('click', () => void startNewInterviewTask())
+  document.getElementById('int-delete-draft-btn')?.addEventListener('click', () => {
+    const id = interviewLaunch.draftOrderId
+    if (!id) return
+    void deleteInterviewOrder(id)
+  })
   bindInterviewReferenceCopy()
   document.getElementById('int-save-draft')?.addEventListener('click', () => void saveInterviewDraft())
   document.getElementById('int-preview-open')?.addEventListener('click', () => void openInterviewPreview())
@@ -2852,6 +2987,8 @@ export function initServiceOrdersBridge() {
   }
   window.launchSurCampaign = () => runSurveyLaunchFlow()
   window.openInterviewResults = openInterviewResults
+  window.openInterviewDraft = openInterviewDraft
+  window.deleteInterviewOrder = deleteInterviewOrder
   window.saveInterviewDraft = () => saveInterviewDraft()
   window.startNewInterviewTask = () => void startNewInterviewTask()
   window.openInterviewPreview = () => openInterviewPreview()
