@@ -13,6 +13,7 @@ from app.services.survey_voice_agent_service import build_survey_runtime_instruc
 from app.services.voice_agent_runtime import (
     build_script_generation_agent_block,
     build_voice_runtime_layers,
+    disclosure_mandatory,
     resolve_opening_disclosure_template,
 )
 
@@ -140,3 +141,59 @@ def test_layers_merge_campaign_system_prompt(db):
     )
     assert layers.service_role == "Survey specialist."
     assert layers.campaign_system_prompt == "Mention parking."
+
+
+def test_mandatory_disclosure_uses_default_when_templates_empty(db):
+    from app.services.survey_voice_agent_service import get_platform_voice_settings
+
+    platform = get_platform_voice_settings(db)
+    platform.disclosure_mandatory = True
+    platform.opening_disclosure_template = ""
+    db.add(platform)
+    db.commit()
+
+    agent = _agent(opening_disclosure_template="", disclosure_mandatory=True)
+    text = resolve_opening_disclosure_template(
+        db,
+        agent=agent,
+        config={"organisation_name": "Acme"},
+        service_key="survey",
+    )
+    assert text.strip()
+    assert "AI assistant" in text or "Acme" in text
+
+
+def test_mandatory_disclosure_respects_agent_opt_out(db):
+    from app.services.survey_voice_agent_service import get_platform_voice_settings
+
+    platform = get_platform_voice_settings(db)
+    platform.disclosure_mandatory = True
+    db.add(platform)
+    db.commit()
+
+    agent = _agent(disclosure_mandatory=False)
+    assert disclosure_mandatory(platform, agent) is False
+
+
+def test_script_block_notes_mandatory_disclosure(db):
+    from app.services.survey_voice_agent_service import get_platform_voice_settings
+
+    platform = get_platform_voice_settings(db)
+    platform.disclosure_mandatory = True
+    db.add(platform)
+    db.commit()
+
+    agent = _agent(
+        opening_disclosure_template="Hi, I am {agent_name} from {company_name}. Recorded line.",
+        disclosure_mandatory=True,
+    )
+    db.add(agent)
+    db.commit()
+
+    block = build_script_generation_agent_block(
+        db,
+        agent=agent,
+        config={"organisation_name": "Acme Clinic"},
+        service_key="survey",
+    )
+    assert "mandatory" in block.lower()

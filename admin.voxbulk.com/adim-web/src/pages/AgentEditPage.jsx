@@ -424,10 +424,15 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
               >
                 <option value="hang_up">Hang up</option>
                 <option value="leave_message">Leave message</option>
+                <option value="retry_later">Mark for retry</option>
               </select>
             </div>
             <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
               <label style={styles.label}>Opening disclosure template</label>
+              <div style={styles.sectionNote}>
+                Leave blank to use the platform default from Main agents → Shared voice compliance.
+                Changes apply to new script generation and live calls; regenerate approved survey scripts after editing.
+              </div>
               <textarea
                 value={agent.opening_disclosure_template || ''}
                 onChange={(e) => setField('opening_disclosure_template', e.target.value)}
@@ -441,6 +446,9 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
         <div style={styles.grid2}>
           <div style={styles.card}>
             <div style={styles.cardTitle}>Call workflow</div>
+            <div style={styles.sectionNote}>
+              Step-by-step flow after the opening disclosure (e.g. ask if they have time now). Leave blank to rely on generated script defaults.
+            </div>
             <textarea
               value={agent.call_workflow || ''}
               onChange={(e) => setField('call_workflow', e.target.value)}

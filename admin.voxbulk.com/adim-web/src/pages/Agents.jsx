@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
-import { serviceBadges } from '../components/agents/AgentVoiceFields'
+import { serviceBadges, PlatformVoiceSettings } from '../components/agents/AgentVoiceFields'
 import AgentEditPage from './AgentEditPage'
 
 function agentInitial(agent) {
@@ -24,8 +24,36 @@ export default function Agents() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [msg, setMsg] = useState('')
   const [msgError, setMsgError] = useState(false)
+  const [platformSettings, setPlatformSettings] = useState(null)
+  const [platformBusy, setPlatformBusy] = useState(false)
 
   const isEditPage = Boolean(agentId) || window.location.pathname.endsWith('/new')
+
+  const loadPlatformSettings = async () => {
+    try {
+      const data = await apiFetch('/admin/agents/platform-voice-settings')
+      setPlatformSettings(data || null)
+    } catch (e) {
+      flash(e?.message || 'Failed to load shared voice settings', true)
+    }
+  }
+
+  const savePlatformSettings = async () => {
+    if (!platformSettings) return
+    setPlatformBusy(true)
+    try {
+      const saved = await apiFetch('/admin/agents/platform-voice-settings', {
+        method: 'PUT',
+        body: JSON.stringify(platformSettings),
+      })
+      setPlatformSettings(saved)
+      flash('Shared voice settings saved.')
+    } catch (e) {
+      flash(e?.message || 'Could not save shared voice settings', true)
+    } finally {
+      setPlatformBusy(false)
+    }
+  }
 
   const loadAgents = async () => {
     setLoading(true)
@@ -42,6 +70,7 @@ export default function Agents() {
 
   useEffect(() => {
     loadAgents()
+    loadPlatformSettings()
   }, [])
 
   const filtered = useMemo(() => {
@@ -169,6 +198,13 @@ export default function Agents() {
       </div>
 
       {msg ? <div className={`agentsMsg${msgError ? ' is-error' : ''}`}>{msg}</div> : null}
+
+      <PlatformVoiceSettings
+        settings={platformSettings}
+        onChange={setPlatformSettings}
+        onSave={savePlatformSettings}
+        busy={platformBusy}
+      />
 
       <div className="agentsKpis">
         <div className="agentsKpi">

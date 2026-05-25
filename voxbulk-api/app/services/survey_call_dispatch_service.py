@@ -430,6 +430,7 @@ class SurveyCallDispatchService:
         greeting = build_survey_opening_greeting(
             db, agent=agent, config=config, recipient_name=recipient.name, org_id=order.org_id
         )
+        voicemail_behavior = _resolve_voicemail_behavior({}, agent)
         to_number = normalize_telnyx_e164(str(recipient.phone or ""))
 
         result = TelnyxVoiceAdapter.start_outbound_call(
@@ -445,6 +446,7 @@ class SurveyCallDispatchService:
                 "telnyx_assistant_id": assistant_id,
                 "survey_greeting": greeting,
                 "survey_instructions": instructions[:4000],
+                "voicemail_behavior": voicemail_behavior,
             },
         )
 
@@ -520,6 +522,118 @@ class SurveyCallDispatchService:
                 SurveyCallDispatchService.dial_next_recipient(db, order)
 
 
+_VOICEMAIL_BEHAVIORS = frozenset({"hang_up", "leave_message", "retry_later"})
+
+
+def _resolve_voicemail_behavior(parsed: dict[str, Any], agent) -> str:
+    behavior = str(parsed.get("voicemail_behavior") or "").strip().lower()
+    if behavior in _VOICEMAIL_BEHAVIORS:
+        return behavior
+    if agent is not None:
+        behavior = str(getattr(agent, "voicemail_behavior", None) or "").strip().lower()
+        if behavior in _VOICEMAIL_BEHAVIORS:
+            return behavior
+    return "hang_up"
+
+
+def _is_voicemail_telnyx_event(event_type: str, record: dict[str, Any]) -> bool:
+    et = str(event_type or "").lower()
+    if "machine" in et and ("detection" in et or "detected" in et):
+        result = str(
+            record.get("result")
+            or record.get("machine_detection_result")
+            or record.get("machine_detection")
+            or ""
+        ).lower()
+        if result in {"machine", "fax", "voicemail", "answering_machine"}:
+            return True
+        if "ended" in et and result and result not in {"human", "not_sure", "unknown", ""}:
+            return True
+    hangup_cause = str(record.get("hangup_cause") or record.get("sip_hangup_cause") or "").lower()
+    return any(token in hangup_cause for token in ("machine", "answering_machine", "voicemail"))
+
+
+def _voicemail_message(config: dict[str, Any], *, recipient_name: str, agent) -> str:
+    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "the organisation").strip()
+    first = _first_name(recipient_name)
+    agent_name = str(getattr(agent, "voice_label", None) or getattr(agent, "name", None) or "your AI assistant").strip()
+    return (
+        f"Hi {first}, this is {agent_name} calling from {org_name} with a brief survey request. "
+        "We'll try again later. Thank you."
+    )
+
+
+def _handle_survey_voicemail(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    call_id: str,
+    parsed: dict[str, Any],
+    agent,
+    config_order: dict[str, Any],
+    telnyx_config: dict[str, Any],
+    assistant_id: str,
+    behavior: str,
+) -> bool:
+    """Apply agent voicemail policy. Returns True when the event is fully handled."""
+    behavior = behavior if behavior in _VOICEMAIL_BEHAVIORS else "hang_up"
+    extra = {
+        "call_control_id": call_id,
+        "voicemail_detected": True,
+        "voicemail_behavior": behavior,
+    }
+
+    if behavior == "leave_message" and assistant_id:
+        greeting = _voicemail_message(config_order, recipient_name=recipient.name, agent=agent)
+        instructions = (
+            "You reached voicemail. Leave ONLY this brief message, then end the call immediately. "
+            "Do not ask survey questions.\n\n"
+            f"Message to leave:\n{greeting}"
+        )
+        result = TelnyxVoiceAdapter.start_ai_assistant(
+            call_control_id=call_id,
+            assistant_id=assistant_id,
+            config=telnyx_config,
+            instructions=instructions,
+            greeting=greeting,
+            prepared=False,
+        )
+        if result.ok:
+            _set_recipient_result(
+                db,
+                recipient,
+                {
+                    **extra,
+                    "voicemail_message_started_at": datetime.utcnow().isoformat(),
+                    "assistant_status": result.status,
+                },
+            )
+            _log("voicemail_message_started", order_id=order.id, recipient_id=recipient.id, call_control_id=call_id)
+            return True
+        extra["error"] = result.detail or result.status
+
+    TelnyxVoiceAdapter.hangup_call(call_control_id=call_id, config=telnyx_config)
+    SurveyCallDispatchService.finalize_recipient_after_call(
+        db,
+        order=order,
+        recipient=recipient,
+        status="no_answer",
+        extra=extra,
+    )
+    if behavior == "retry_later":
+        try:
+            from app.services.survey_voice_agent_service import resolve_survey_retry_settings, schedule_recipient_retry
+
+            max_retries, delay_seconds = resolve_survey_retry_settings(db, order)
+            schedule_recipient_retry(db, recipient, delay_seconds=delay_seconds, max_retries=max_retries)
+            _log("voicemail_retry_scheduled", order_id=order.id, recipient_id=recipient.id)
+        except Exception:
+            logger.exception("survey_voicemail_retry_failed")
+    _log("voicemail_hung_up", order_id=order.id, recipient_id=recipient.id, behavior=behavior, call_control_id=call_id)
+    return True
+
+
 def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
     """Return True if payload was handled as a survey voice call."""
     data = payload.get("data") or payload
@@ -549,16 +663,32 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
 
     assistant_id = str(parsed.get("telnyx_assistant_id") or get_survey_telnyx_assistant_id(db, order) or "").strip()
     telnyx_config = _telnyx_config(db)
+    config_order = _order_config(order)
+    from app.services.survey_voice_agent_service import resolve_survey_agent_for_order
+
+    agent = resolve_survey_agent_for_order(db, order, config_order)
+    voicemail_behavior = _resolve_voicemail_behavior(parsed, agent)
+
+    if _is_voicemail_telnyx_event(event_type, record):
+        return _handle_survey_voicemail(
+            db,
+            order=order,
+            recipient=recipient,
+            call_id=call_id,
+            parsed=parsed,
+            agent=agent,
+            config_order=config_order,
+            telnyx_config=telnyx_config,
+            assistant_id=assistant_id,
+            behavior=voicemail_behavior,
+        )
 
     if "answered" in event_type:
-        config_order = _order_config(order)
         from app.services.survey_voice_agent_service import (
             build_survey_opening_greeting,
             build_survey_runtime_instructions,
-            resolve_survey_agent_for_order,
         )
 
-        agent = resolve_survey_agent_for_order(db, order, config_order)
         instructions = str(parsed.get("survey_instructions") or "").strip() or build_survey_runtime_instructions(
             db,
             order=order,
@@ -616,6 +746,26 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
         return True
 
     if "hangup" in event_type or "ended" in event_type:
+        prior = _recipient_result(recipient)
+        if (
+            _is_voicemail_telnyx_event(event_type, record)
+            and not prior.get("assistant_started_at")
+            and not prior.get("voicemail_message_started_at")
+            and str(recipient.status or "").lower() == "calling"
+        ):
+            return _handle_survey_voicemail(
+                db,
+                order=order,
+                recipient=recipient,
+                call_id=call_id,
+                parsed=parsed,
+                agent=agent,
+                config_order=config_order,
+                telnyx_config=telnyx_config,
+                assistant_id=assistant_id,
+                behavior=voicemail_behavior,
+            )
+
         hangup_cause = str(record.get("hangup_cause") or record.get("sip_hangup_cause") or "").lower()
         no_answer_causes = {"no_answer", "originator_cancel", "timeout", "unallocated_number"}
         busy_causes = {"user_busy", "busy"}

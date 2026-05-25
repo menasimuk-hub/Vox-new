@@ -201,7 +201,13 @@ def _apply_agent_layers_to_script(
     client_name: str,
 ) -> dict:
     from app.core.agent_services import SERVICE_SURVEY
-    from app.services.voice_agent_runtime import build_script_generation_agent_block, build_voice_runtime_layers
+    from app.services.voice_agent_runtime import (
+        build_script_generation_agent_block,
+        build_voice_runtime_layers,
+        disclosure_mandatory,
+        resolve_opening_disclosure_template,
+        _platform_settings,
+    )
 
     gen_config = {
         **config,
@@ -211,6 +217,11 @@ def _apply_agent_layers_to_script(
     }
     layers = build_voice_runtime_layers(db, agent=agent, config=gen_config, service_key=service_key, org_id=org_id)
     disclosure = layers.opening_disclosure.strip()
+    if not disclosure:
+        disclosure = resolve_opening_disclosure_template(
+            db, agent=agent, config=gen_config, service_key=service_key, org_id=org_id
+        ).strip()
+    mandatory = disclosure_mandatory(_platform_settings(db), agent)
     intro = str(out.get("intro") or "").strip()
     if _intro_is_invalid(intro):
         intro = _build_phone_intro(
@@ -239,6 +250,8 @@ def _apply_agent_layers_to_script(
     else:
         out["script_text"] = script_text
     if service_key == SERVICE_SURVEY and disclosure and "OPENING DISCLOSURE" not in str(out["script_text"]).upper():
+        out["script_text"] = _format_script(out["intro"], questions, closing, opening_disclosure=disclosure)
+    elif mandatory and disclosure and "OPENING DISCLOSURE" not in str(out["script_text"]).upper():
         out["script_text"] = _format_script(out["intro"], questions, closing, opening_disclosure=disclosure)
     return out
 

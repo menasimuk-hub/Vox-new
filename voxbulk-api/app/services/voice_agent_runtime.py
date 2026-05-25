@@ -44,6 +44,18 @@ def _service_role(agent: AgentDefinition | None, service_key: str) -> str:
     return ""
 
 
+def disclosure_mandatory(
+    platform: VoiceAgentPlatformSettings,
+    agent: AgentDefinition | None,
+) -> bool:
+    """Opening disclosure must be included when enabled for the service."""
+    if not platform.disclosure_mandatory:
+        return False
+    if agent is not None and not agent.disclosure_mandatory:
+        return False
+    return True
+
+
 def disclosure_enabled(
     platform: VoiceAgentPlatformSettings,
     agent: AgentDefinition | None,
@@ -73,6 +85,7 @@ def resolve_opening_disclosure_template(
     if not disclosure_enabled(platform, agent, service_key=service_key):
         return ""
 
+    mandatory = disclosure_mandatory(platform, agent)
     org_name = str(config.get("organisation_name") or config.get("clinic_name") or "the organisation").strip()
     agent_name = str((agent.voice_label if agent else None) or (agent.name if agent else None) or "your AI assistant").strip()
 
@@ -96,8 +109,19 @@ def resolve_opening_disclosure_template(
     else:
         template = DEFAULT_OPENING_DISCLOSURE
 
+    if mandatory and not template.strip():
+        template = DEFAULT_OPENING_DISCLOSURE
+
     rendered = _personalize(template, first_name="", org_name=org_name, organiser=agent_name)
-    return rendered.replace("{agent_name}", agent_name).replace("{company_name}", org_name)
+    rendered = rendered.replace("{agent_name}", agent_name).replace("{company_name}", org_name)
+    if mandatory and not rendered.strip():
+        rendered = _personalize(
+            DEFAULT_OPENING_DISCLOSURE,
+            first_name="",
+            org_name=org_name,
+            organiser=agent_name,
+        ).replace("{agent_name}", agent_name).replace("{company_name}", org_name)
+    return rendered
 
 
 def build_voice_runtime_layers(
@@ -165,11 +189,24 @@ def build_script_generation_agent_block(
             "Call workflow (include in script INTRO — e.g. ask if they have time now before questions):\n"
             + layers.call_workflow
         )
+    platform = _platform_settings(db)
+    mandatory = disclosure_mandatory(platform, agent)
     if layers.opening_disclosure:
+        mandatory_note = (
+            " This section is mandatory — do not omit or shorten it."
+            if mandatory
+            else ""
+        )
         parts.append(
             "Opening disclosure (spoken first on the phone call as a separate greeting — "
-            "put this verbatim under OPENING DISCLOSURE in script_text, do NOT repeat in INTRO):\n"
+            "put this verbatim under OPENING DISCLOSURE in script_text, do NOT repeat in INTRO"
+            + mandatory_note
+            + "):\n"
             + layers.opening_disclosure
+        )
+    elif mandatory and disclosure_enabled(platform, agent, service_key=service_key):
+        parts.append(
+            "Opening disclosure is mandatory. Include an OPENING DISCLOSURE section using the platform default wording."
         )
     if layers.kb_context:
         parts.append(f"Reference knowledge:\n{layers.kb_context}")
@@ -242,11 +279,18 @@ def build_service_runtime_instructions(
             + _personalize(survey_prompt, first_name=first, org_name=org_name, organiser=organiser)
         )
 
+    platform = _platform_settings(db)
+    mandatory = disclosure_mandatory(platform, agent)
     if layers.opening_disclosure:
         parts.append(
             "The opening disclosure has already been spoken to the recipient as the call greeting. "
             "Do NOT repeat the disclosure. Continue with the INTRO section from the approved script "
             "(availability check / call workflow), then the survey questions."
+        )
+    elif mandatory and disclosure_enabled(platform, agent, service_key=service_key):
+        parts.append(
+            "Opening disclosure is mandatory for this agent. If it was not spoken yet, deliver it verbatim "
+            "before continuing with the INTRO section."
         )
     else:
         parts.append(
