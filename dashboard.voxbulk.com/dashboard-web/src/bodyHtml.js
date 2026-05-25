@@ -245,6 +245,30 @@ const bodyHtml = `<div class="app" id="app">
             <code id="int-ref-id" class="int-ref-code">VB-INT-…</code>
             <button class="btn btng bsm" type="button" id="int-ref-copy"><i class="ti ti-copy"></i>Copy reference</button>
           </div>
+          <div class="int-cv-email-block" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--b1)">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+              <div>
+                <div style="font-size:12.5px;font-weight:700;color:var(--t1)">CV collection via email</div>
+                <div class="muted" style="font-size:11px;margin-top:2px">When ON, careers@voxbulk.com accepts CVs with this Task ID during the window below.</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span id="int-cv-email-state-label" class="bdg ba">OFF</span>
+                <div class="tog off" id="int-cv-email-toggle" role="switch" aria-checked="false" title="Toggle CV email collection"><div class="togth"></div></div>
+              </div>
+            </div>
+            <div id="int-cv-email-window" hidden>
+              <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px"><i class="ti ti-mail" style="color:var(--grn);font-size:14px"></i>Email collection window</div>
+              <div class="fg2">
+                <div class="fg" style="margin-bottom:0"><label>Start date</label><input type="date" id="int-cv-start-date"/></div>
+                <div class="fg" style="margin-bottom:0"><label>Start time</label><input type="time" id="int-cv-start-time" value="09:00"/></div>
+              </div>
+              <div class="fg2" style="margin-top:8px">
+                <div class="fg" style="margin-bottom:0"><label>End date</label><input type="date" id="int-cv-end-date"/></div>
+                <div class="fg" style="margin-bottom:0"><label>End time</label><input type="time" id="int-cv-end-time" value="17:00"/></div>
+              </div>
+              <div id="int-cv-window-preview" class="muted" style="font-size:11px;margin-top:8px"></div>
+            </div>
+          </div>
           <p class="int-ref-hint">Share this ID with candidates. They must include it when emailing their CV — otherwise the application is rejected automatically. You can also upload files below; email intake runs in the background every few minutes.</p>
         </div>
         <!-- RUNNING INTERVIEWS -->

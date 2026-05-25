@@ -807,13 +807,15 @@ function updateInterviewReferenceCard(order) {
   const wrap = document.getElementById('int-ref-card-wrap')
   const codeEl = document.getElementById('int-ref-id')
   const ref = String(order?.reference_id || '').trim()
+  const hasDraft = Boolean(order?.id || interviewLaunch.draftOrderId)
   if (!wrap || !codeEl) return
-  if (!order || !ref) {
+  if (!hasDraft) {
     wrap.hidden = true
     return
   }
-  codeEl.textContent = ref
+  codeEl.textContent = ref || 'Save draft to generate…'
   wrap.hidden = false
+  if (typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
 }
 
 function bindInterviewReferenceCopy() {
@@ -888,6 +890,11 @@ function clearInterviewFormFields() {
   renderInterviewQuoteUi()
   if (typeof window.updateIntWindow === 'function') window.updateIntWindow()
   setInterviewFormLocked(false)
+  setCvEmailEnabled(false)
+  ;['int-cv-start-date', 'int-cv-start-time', 'int-cv-end-date', 'int-cv-end-time'].forEach((id) => {
+    const el = document.getElementById(id)
+    if (el) el.value = id.includes('time') ? (id.includes('start') ? '09:00' : '17:00') : ''
+  })
 }
 
 function updateInterviewFormChrome(order) {
@@ -1116,9 +1123,50 @@ async function ensureInterviewDraftOrder() {
   return interviewLaunch.draftOrderId
 }
 
+function isCvEmailEnabled() {
+  return document.getElementById('int-cv-email-toggle')?.classList.contains('on') ?? false
+}
+
+function setCvEmailEnabled(on) {
+  const toggle = document.getElementById('int-cv-email-toggle')
+  const panel = document.getElementById('int-cv-email-window')
+  const label = document.getElementById('int-cv-email-state-label')
+  if (!toggle) return
+  toggle.classList.toggle('on', on)
+  toggle.classList.toggle('off', !on)
+  toggle.setAttribute('aria-checked', on ? 'true' : 'false')
+  if (panel) panel.hidden = !on
+  if (label) {
+    label.textContent = on ? 'ON' : 'OFF'
+    label.className = on ? 'bdg bg' : 'bdg ba'
+  }
+  if (typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
+}
+
+function cvEmailSchedulePayload() {
+  const sd = document.getElementById('int-cv-start-date')
+  const st = document.getElementById('int-cv-start-time')
+  const ed = document.getElementById('int-cv-end-date')
+  const et = document.getElementById('int-cv-end-time')
+  if (!sd?.value || !ed?.value) return {}
+  return {
+    cv_email_start_at: `${sd.value}T${st?.value || '09:00'}:00`,
+    cv_email_end_at: `${ed.value}T${et?.value || '17:00'}:00`,
+  }
+}
+
+function applyCvEmailFromConfig(cfg) {
+  setCvEmailEnabled(Boolean(cfg?.cv_email_enabled))
+  if (cfg?.cv_email_enabled && cfg.cv_email_start_at && cfg.cv_email_end_at) {
+    applyIsoScheduleToForm('int-cv', cfg.cv_email_start_at, cfg.cv_email_end_at)
+    if (typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
+  }
+}
+
 function collectInterviewConfig() {
   const agent = selectedInterviewAgent()
   const scriptText = (document.getElementById('int-ai-script')?.value || '').trim()
+  const cvOn = isCvEmailEnabled()
   return {
     role: (document.getElementById('int-role')?.value || '').trim(),
     criteria: (document.getElementById('int-criteria')?.value || '').trim(),
@@ -1130,6 +1178,8 @@ function collectInterviewConfig() {
     script_questions: state.interviewScriptPayload?.questions || [],
     system_prompt: state.interviewScriptPayload?.system_prompt || '',
     script_approved: state.interviewScriptApproved,
+    cv_email_enabled: cvOn,
+    ...(cvOn ? cvEmailSchedulePayload() : {}),
   }
 }
 
@@ -1150,6 +1200,7 @@ function applyIsoScheduleToForm(prefix, startIso, endIso) {
   if (ed) ed.value = fmtDate(end)
   if (et) et.value = fmtTime(end)
   if (prefix === 'int' && typeof window.updateIntWindow === 'function') window.updateIntWindow()
+  if (prefix === 'int-cv' && typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
 }
 
 function applyInterviewOrderToForm(order) {
@@ -1183,6 +1234,7 @@ function applyInterviewOrderToForm(order) {
     setAiStatus('int', false)
   }
   applyIsoScheduleToForm('int', order.scheduled_start_at, order.scheduled_end_at)
+  applyCvEmailFromConfig(cfg)
   updateInterviewReferenceCard(order)
 }
 
@@ -1193,6 +1245,13 @@ async function saveInterviewDraft({ silent = false } = {}) {
   if (saveBtn) saveBtn.disabled = true
   try {
     await ensureInterviewDraftOrder()
+    if (isCvEmailEnabled()) {
+      const cv = cvEmailSchedulePayload()
+      if (!cv.cv_email_start_at || !cv.cv_email_end_at) {
+        window.toast?.('CV collection via email is ON — set start and end date/time on the Task reference card', 'tr')
+        return false
+      }
+    }
     const role = (document.getElementById('int-role')?.value || '').trim()
     const title = role || 'Interview draft'
     const sched = schedulePayload('int')
@@ -1474,6 +1533,14 @@ function bindInterviewLaunchUi() {
     void deleteInterviewOrder(id)
   })
   bindInterviewReferenceCopy()
+  document.getElementById('int-cv-email-toggle')?.addEventListener('click', () => {
+    setCvEmailEnabled(!isCvEmailEnabled())
+  })
+  ;['int-cv-start-date', 'int-cv-start-time', 'int-cv-end-date', 'int-cv-end-time'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('input', () => {
+      if (typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
+    })
+  })
   document.getElementById('int-save-draft')?.addEventListener('click', () => void saveInterviewDraft())
   document.getElementById('int-preview-open')?.addEventListener('click', () => void openInterviewPreview())
   document.getElementById('int-preview-close')?.addEventListener('click', closeInterviewPreview)

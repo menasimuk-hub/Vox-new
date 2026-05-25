@@ -18,20 +18,24 @@ from app.services.career_cv_storage_service import save_cv_bytes, storage_key_fo
 from app.services.career_mailbox_settings_service import CareerMailboxSettingsService
 from app.services.interview_cv_parse_service import ParsedCv, parse_uploaded_cv_files
 from app.services.interview_intake_service import intake_email_cv_for_order
+from app.services.interview_cv_email_service import (
+    CV_EMAIL_ALLOWED_EXTENSIONS,
+    cv_email_window_state,
+    format_cv_email_end_label,
+)
 from app.services.interview_reference_service import extract_reference_id, find_interview_order_by_reference
 from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
 
 logger = logging.getLogger(__name__)
 
-CV_EXTENSIONS = (".pdf", ".docx", ".doc", ".txt")
-AUTO_REPLY_SUBJECT = "Application not delivered — missing Job Reference Number"
-AUTO_REPLY_BODY = (
-    "Thank you for your interest.\n\n"
-    "We could not deliver your application because your email is missing a valid Job Reference Number.\n\n"
-    "Please ask your recruiter for the reference (format VB-INT-XXXXXXXX) and resend your CV to "
-    "careers@voxbulk.com with that reference in the subject or message body.\n\n"
-    "Best regards,\nVOXBULK Careers"
+CV_EXTENSIONS = CV_EMAIL_ALLOWED_EXTENSIONS
+AUTO_REPLY_INVALID_SUBJECT = "Your CV could not be processed"
+AUTO_REPLY_INVALID_BODY = (
+    "We did not find a valid Interview Task ID in your email. "
+    "Please check the instructions and resend with the correct Task ID.\n\n"
+    "Your CV was not stored."
 )
+AUTO_REPLY_CLOSED_SUBJECT = "Collection is closed"
 
 
 def _decode_mime(value: str | None) -> str:
@@ -80,18 +84,31 @@ def _extract_attachments(msg: Message) -> list[tuple[str, bytes]]:
     return files
 
 
-def _reply_missing_reference(db: Session, *, to_addr: str, subject: str) -> None:
+def _send_auto_reply(db: Session, *, to_addr: str, subject: str, body: str) -> None:
     if not to_addr or "@" not in to_addr:
         return
     try:
         SmtpMailerService.send_plain(
             db,
             to_addr=to_addr.strip(),
-            subject=f"Re: {subject}"[:180] if subject else AUTO_REPLY_SUBJECT,
-            body=AUTO_REPLY_BODY,
+            subject=subject[:180],
+            body=body,
         )
     except SmtpMailerError as e:
         logger.warning("career_mailbox_auto_reply_failed", extra={"err": str(e)})
+
+
+def _reply_invalid_reference(db: Session, *, to_addr: str) -> None:
+    _send_auto_reply(db, to_addr=to_addr, subject=AUTO_REPLY_INVALID_SUBJECT, body=AUTO_REPLY_INVALID_BODY)
+
+
+def _reply_collection_closed(db: Session, *, to_addr: str, order: ServiceOrder) -> None:
+    end_label = format_cv_email_end_label(order)
+    body = (
+        f"CV collection for this task ended on {end_label}. Your CV cannot be added.\n\n"
+        "Your CV was not stored."
+    )
+    _send_auto_reply(db, to_addr=to_addr, subject=AUTO_REPLY_CLOSED_SUBJECT, body=body)
 
 
 def _process_message(db: Session, msg: Message) -> tuple[str, int]:
@@ -101,13 +118,22 @@ def _process_message(db: Session, msg: Message) -> tuple[str, int]:
     body_text = _collect_text(msg)
     ref = extract_reference_id(subject) or extract_reference_id(body_text)
     if not ref:
-        _reply_missing_reference(db, to_addr=reply_to, subject=subject)
+        _reply_invalid_reference(db, to_addr=reply_to)
         return "rejected_no_reference", 0
 
     order = find_interview_order_by_reference(db, ref)
     if order is None:
-        _reply_missing_reference(db, to_addr=reply_to, subject=subject)
+        _reply_invalid_reference(db, to_addr=reply_to)
         return "rejected_invalid_reference", 0
+
+    window = cv_email_window_state(order)
+    if window == "disabled":
+        return "skipped_email_disabled", 0
+    if window == "before":
+        return "skipped_before_window", 0
+    if window == "after":
+        _reply_collection_closed(db, to_addr=reply_to, order=order)
+        return "rejected_window_closed", 0
 
     attachments = _extract_attachments(msg)
     if not attachments:

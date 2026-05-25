@@ -288,6 +288,25 @@ function updateIntWindow(){
 }
 window.intFmtSoon=intFmtSoon;
 
+function updateIntCvEmailWindow(){
+  var sd=document.getElementById('int-cv-start-date');
+  var st=document.getElementById('int-cv-start-time');
+  var ed=document.getElementById('int-cv-end-date');
+  var et=document.getElementById('int-cv-end-time');
+  var prev=document.getElementById('int-cv-window-preview');
+  var toggle=document.getElementById('int-cv-email-toggle');
+  var on=toggle&&toggle.classList.contains('on');
+  if(!prev) return;
+  if(on&&sd&&sd.value&&ed&&ed.value){
+    prev.textContent='CVs by email accepted: '+sd.value+' '+(st&&st.value?st.value:'09:00')+' → '+ed.value+' '+(et&&et.value?et.value:'17:00')+' (your local time).';
+  } else if(on){
+    prev.textContent='Set start and end date/time — required when email collection is ON.';
+  } else {
+    prev.textContent='Email intake is OFF — careers@voxbulk.com will ignore CVs for this task.';
+  }
+}
+window.updateIntCvEmailWindow=updateIntCvEmailWindow;
+
 // ── SURVEY WINDOW PREVIEW ──
 function updateSurWindow(){
   var sd=document.getElementById('sur-start-date');
