@@ -344,7 +344,7 @@ def get_survey_results(order_id: str, db: Session = Depends(get_db), principal=D
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
-        return SurveyResultsService.get_results(db, order)
+        return SurveyResultsService.get_results(db, order, anonymous=True)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -402,10 +402,7 @@ def get_survey_recipient_detail(
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    recipient = db.get(ServiceOrderRecipient, recipient_id)
-    if recipient is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
-    try:
-        return SurveyResultsService.get_recipient_detail(db, order, recipient)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Individual call transcripts are not available on the customer dashboard. View anonymous aggregate results instead.",
+    )

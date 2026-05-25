@@ -8,6 +8,7 @@ const hub = {
   selectedId: null,
   selectedOrder: null,
   loading: false,
+  searchQuery: '',
 }
 
 function api(path, options = {}) {
@@ -83,12 +84,38 @@ function renderHubTrend(orders) {
   host.innerHTML = renderTrendBars(items, 'No response data yet.')
 }
 
+function paymentLabel(order) {
+  if (order.payment_status === 'rejected') return 'Payment failed'
+  if (order.payment_status === 'pending_approval') return 'Pending approval'
+  if (['quoted', 'awaiting_payment', 'draft'].includes(order.status) && order.payment_status !== 'approved') {
+    return 'Quoted'
+  }
+  if (order.status === 'scheduled' || (order.payment_status === 'approved' && ['paid', 'scheduled'].includes(order.status))) {
+    return 'Scheduled'
+  }
+  if (order.is_finished || order.status === 'completed') return 'Finished'
+  if (order.status === 'running') return 'Live'
+  if (order.status === 'paused') return 'Paused'
+  return order.status_label || order.status || '—'
+}
+
+function matchesSearch(order, query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return true
+  const company = order.config?.organisation_name || order.config?.clinic_name || ''
+  return (
+    String(order.title || '').toLowerCase().includes(q) ||
+    String(company).toLowerCase().includes(q)
+  )
+}
+
 function renderOrderRow(order) {
   const na = order.next_action || {}
   const hint = na.hint ? `<div class="proj-meta" style="color:var(--red);margin-top:2px">${esc(na.hint)}</div>` : ''
   const actionChip = na.label
     ? `<span class="bdg ${order.payment_status === 'rejected' ? 'br' : 'ba'}" style="margin-left:8px">${esc(na.label)}</span>`
     : ''
+  const payChip = `<span class="bdg ${order.payment_status === 'rejected' ? 'br' : order.is_finished ? 'bg' : 'ba'}" style="margin-left:6px">${esc(paymentLabel(order))}</span>`
   const dispatch =
     order.report && order.status === 'running'
       ? ` · ${surveyRespondedCount(order.report)} sent${order.report.failed ? `, ${order.report.failed} failed` : ''}`
@@ -96,7 +123,7 @@ function renderOrderRow(order) {
   return `<div class="proj-row" data-survey-order-id="${order.id}">
     <div class="proj-ic ci-b"><i class="ti ti-clipboard-list"></i></div>
     <div class="proj-info">
-      <div class="proj-name">${esc(order.title)}${actionChip}</div>
+      <div class="proj-name">${esc(order.title)}${payChip}${actionChip}</div>
       <div class="proj-meta">${order.recipient_count} contacts · ${order.quote_total_gbp}${dispatch}</div>
       ${hint}
     </div>
@@ -160,8 +187,9 @@ function renderLiveBanner(orders) {
 }
 
 function renderLists(orders) {
-  const live = orders.filter((o) => o.is_live)
-  const finished = orders.filter((o) => o.is_finished)
+  const filtered = orders.filter((o) => matchesSearch(o, hub.searchQuery))
+  const live = filtered.filter((o) => o.is_live)
+  const finished = filtered.filter((o) => o.is_finished)
   const liveHost = document.getElementById('sur-live-orders')
   const finHost = document.getElementById('sur-finished-orders')
   const liveEmpty = document.getElementById('sur-live-empty')
@@ -269,26 +297,6 @@ function renderDetailTrend(order) {
   )
 }
 
-function renderDetailContacts(order) {
-  const host = document.getElementById('sur-detail-contacts-list')
-  if (!host) return
-  const rows = order.recipients || []
-  if (!rows.length) {
-    host.innerHTML = '<tr><td colspan="4" class="muted">No contacts uploaded.</td></tr>'
-    return
-  }
-  host.innerHTML = rows
-    .map(
-      (r) => `<tr>
-      <td>${esc(r.name)}</td>
-      <td>${esc(r.phone)}</td>
-      <td>${esc(r.status || '—')}</td>
-      <td>${r.phone ? `<a class="btn bsm" href="tel:${esc(r.phone)}">Call</a>` : '—'}</td>
-    </tr>`,
-    )
-    .join('')
-}
-
 function renderDetail(order) {
   hub.selectedId = order.id
   hub.selectedOrder = order
@@ -339,7 +347,6 @@ function renderDetail(order) {
 
   renderDetailBilling(order)
   renderDetailTrend(order)
-  renderDetailContacts(order)
 
   const titleInput = document.getElementById('sur-edit-title')
   const startInput = document.getElementById('sur-edit-start')
@@ -482,6 +489,15 @@ function bindDetailActions() {
 export function initSurveyHubBridge() {
   window.openSurveyDetail = openSurveyDetail
   window.reloadSurveyHub = loadSurveyOrders
+  window.onSurveyPageNav = (pageId) => {
+    const show = ['surveys', 'survey-detail', 'results-s'].includes(pageId)
+    const wrap = document.getElementById('global-search-wrap')
+    if (wrap) wrap.style.display = show ? 'flex' : 'none'
+  }
+  document.getElementById('global-search')?.addEventListener('input', (e) => {
+    hub.searchQuery = e.target.value || ''
+    renderLists(hub.orders)
+  })
   bindTabs()
   bindListClicks()
   bindDetailActions()

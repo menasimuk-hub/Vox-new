@@ -183,5 +183,5 @@ def test_build_survey_results_html():
         }
     )
     assert "May survey" in html
-    assert "Anonymous answer summary" in html
+    assert "Answer summary" in html
     assert "Rating?" in html

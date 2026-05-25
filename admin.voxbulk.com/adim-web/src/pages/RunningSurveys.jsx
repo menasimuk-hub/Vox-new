@@ -47,6 +47,8 @@ export default function RunningSurveys() {
   const [selected, setSelected] = useState(null)
   const [audit, setAudit] = useState([])
   const [panelTab, setPanelTab] = useState('overview')
+  const [listTab, setListTab] = useState('running')
+  const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyKey, setBusyKey] = useState('')
@@ -58,7 +60,7 @@ export default function RunningSurveys() {
   const load = useCallback(async () => {
     setError('')
     const [rows, stats] = await Promise.all([
-      apiFetch('/admin/platform-services/orders?service_code=survey&live_only=true'),
+      apiFetch('/admin/platform-services/orders?service_code=survey'),
       apiFetch('/admin/platform-services/surveys/overview'),
     ])
     setOrders(Array.isArray(rows) ? rows : [])
@@ -260,17 +262,36 @@ export default function RunningSurveys() {
 
   const timeline = audit.length ? audit : selected?.audit_timeline || []
 
+  const filteredOrders = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    return orders.filter((o) => {
+      if (listTab === 'running' && !o.is_live) return false
+      if (listTab === 'finished' && !o.is_finished) return false
+      if (!q) return true
+      return (
+        String(o.title || '').toLowerCase().includes(q) ||
+        String(o.org_name || '').toLowerCase().includes(q)
+      )
+    })
+  }, [orders, listTab, searchQuery])
+
   return (
     <>
       <div className="pageTop">
         <div>
-          <h1>Running surveys</h1>
+          <h1>Survey operations</h1>
           <p>
-            Operate customer AI phone surveys. Use <strong>Start survey</strong> to launch outbound calls for the customer,
-            then <strong>Run AI call</strong> on individual contacts when needed.
+            Monitor running and finished AI phone surveys. Start, pause, stop, dial contacts, and review full call data.
           </p>
         </div>
         <div className="actions">
+          <input
+            className="input runningSurveySearch"
+            type="search"
+            placeholder="Search survey or company…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
           <button type="button" className="btn soft" onClick={load} disabled={loading}>
             <RefreshCw size={15} />
             Refresh
@@ -298,15 +319,19 @@ export default function RunningSurveys() {
       </div>
 
       <div className="card runningSurveyListCard">
-        <div className="cardHead">
-          <h3><ClipboardList size={16} /> Active surveys</h3>
+        <div className="cardHead runningSurveyListHead">
+          <h3><ClipboardList size={16} /> Surveys</h3>
+          <div className="runningSurveyTabs">
+            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Running surveys</button>
+            <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished surveys</button>
+          </div>
         </div>
         <div className="cardBody">
           {loading ? <div className="muted">Loading surveys…</div> : null}
-          {!loading && !orders.length ? (
-            <div className="muted">No active surveys right now.</div>
+          {!loading && !filteredOrders.length ? (
+            <div className="muted">{listTab === 'running' ? 'No running surveys right now.' : 'No finished surveys yet.'}</div>
           ) : null}
-          {!loading && orders.length ? (
+          {!loading && filteredOrders.length ? (
             <div className="tableWrap">
               <table className="table runningSurveyTable">
                 <thead>
@@ -321,7 +346,7 @@ export default function RunningSurveys() {
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.map((o) => {
+                  {filteredOrders.map((o) => {
                     const sent = surveyResponded(o.report)
                     const total = o.recipient_count || 0
                     return (

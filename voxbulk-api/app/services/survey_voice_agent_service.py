@@ -328,12 +328,19 @@ def build_survey_runtime_instructions(
             + _personalize(survey_prompt, first_name=first, org_name=org_name, organiser=organiser)
         )
 
+    parts.append(
+        "This is an anonymous survey. Answers are aggregated without identifying individuals in customer reports."
+    )
+
     behavior: list[str] = []
     if agent and str(agent.interruption_behavior_notes or "").strip():
         behavior.append(str(agent.interruption_behavior_notes).strip())
     behavior.append(
-        "If the recipient interrupts before hearing the opening disclosure, stop and repeat the full opening clearly "
-        "so they hear your name, that you are an AI assistant, the company name, and that the call is recorded."
+        "If the recipient interrupts before the opening disclosure, stop and repeat the full anonymous opening clearly."
+    )
+    behavior.append(
+        "Opening disclosure must state this is an anonymous survey call, responses are confidential, "
+        "and the call may be recorded for quality."
     )
     if agent and str(agent.opt_out_policy_notes or "").strip():
         behavior.append(str(agent.opt_out_policy_notes).strip())
@@ -381,7 +388,11 @@ def build_survey_opening_greeting(
     org_name = _org_name_from_config(config)
     first = _first_name(recipient_name)
     agent_name = _agent_display_name(agent)
-    return f"Hi {first}, this is {agent_name}, an AI assistant calling from {org_name}. This call is recorded."
+    return (
+        f"Hi {first}, this is {agent_name}, an AI assistant calling from {org_name} "
+        f"for a short anonymous survey. Your answers are confidential and are not linked to your name in reports. "
+        f"This call may be recorded for quality."
+    )
 
 
 def detect_opt_out_text(text: str) -> bool:

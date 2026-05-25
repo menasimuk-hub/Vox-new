@@ -6263,6 +6263,17 @@ body.dark .matrix th {
   padding: 0;
 }
 .runningSurveyGuide li { margin-bottom: 6px; }
+.runningSurveyListHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.runningSurveySearch {
+  min-width: 220px;
+  max-width: 320px;
+}
 .runningSurveyListCard,
 .runningSurveyDetailCard,
 .runningSurveyEmptyDetail { margin-bottom: 16px; }

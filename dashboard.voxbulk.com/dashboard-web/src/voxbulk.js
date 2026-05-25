@@ -10,7 +10,7 @@ var titles={
   surveys:['Surveys','AI-powered phone and WhatsApp surveys'],
   'survey-detail':['Survey detail','Review, pay, and manage your campaign'],
   'results-i':['Interview results','Candidate scoring, recordings and analysis'],
-  'results-s':['Survey results','Problem analysis, transcripts and insights'],
+  'results-s':['Survey results','Anonymous aggregate insights and exports'],
   reports:['Reports','Performance analytics and cost breakdown'],
   reminders:['Reminder sequences','Automated WhatsApp timing and message settings'],
   profile:['Profile settings','Company info, branding and revenue settings'],
@@ -52,6 +52,7 @@ function go(id,el){
   document.getElementById('tb-s').innerHTML=s;
   closeNotif();
   syncSetupChecklistForPage(id);
+  if(typeof window.onSurveyPageNav==='function') window.onSurveyPageNav(id);
   window.scrollTo(0,0);
 }
 // Convenience nav — finds and highlights correct sidebar item automatically

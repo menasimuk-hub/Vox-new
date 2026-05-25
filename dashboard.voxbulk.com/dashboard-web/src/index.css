@@ -1148,3 +1148,55 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   color: var(--red);
   font-weight: 600;
 }
+
+.tb-search-wrap{display:flex;align-items:center;margin-right:8px}
+.tb-search{width:min(280px,42vw);padding:8px 12px;border-radius:9px;border:1.5px solid var(--b2);background:var(--s2);color:var(--t1);font-size:12px}
+.tb-search:focus{outline:none;border-color:var(--grn)}
+
+.sur-report{display:flex;flex-direction:column;gap:14px}
+.sur-report-logo{display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;border-bottom:1px solid var(--b2)}
+.sur-report-logo img{height:30px;width:auto}
+.sur-report-conf{font-size:10px;color:var(--t3);text-align:right;line-height:1.4}
+.sur-report-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1.5px solid var(--t1);flex-wrap:wrap}
+.sur-report-eyebrow{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin-bottom:4px}
+.sur-report-title{font-size:24px;line-height:1.1;font-weight:700;color:var(--t1)}
+.sur-report-title em{color:var(--grn);font-style:italic}
+.sur-report-meta{display:flex;gap:18px}
+.sur-report-meta .val{font-size:18px;font-weight:700}
+.sur-report-meta .lbl{font-size:10px;color:var(--t3)}
+.sur-report-split{display:grid;grid-template-columns:3fr 1fr;gap:12px}
+@media(max-width:900px){.sur-report-split{grid-template-columns:1fr}}
+.sur-report-panel,.sur-report-side{background:var(--s1);border:1px solid var(--b2);border-radius:12px;overflow:hidden}
+.sur-report-panel-head,.sur-report-actions-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:14px 16px 10px;border-bottom:1px solid var(--b2)}
+.sur-report-panel-head .eyebrow,.sur-report-actions-head span{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.sur-report-panel-head .title{font-size:16px;font-weight:700;color:var(--t1)}
+.sur-report-panel-body{padding:14px 16px}
+.sur-report-tag{font-size:10px;padding:3px 8px;border-radius:20px;background:var(--gd);color:var(--grn);font-weight:600}
+.sur-report-nps{display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:12px;align-items:center}
+.sur-report-nps .nps-score{padding-right:16px;border-right:1px solid var(--b2)}
+.sur-report-nps .big{font-size:48px;line-height:1;font-weight:700}
+.sur-report-nps .sub{font-size:11px;color:var(--t3)}
+.sur-report-nps .nps-stat .val{font-size:24px;font-weight:700}
+.sur-report-nps .nps-stat .lbl{font-size:10px;color:var(--t3)}
+.sur-report-sent-row{margin-bottom:10px}
+.sur-report-sent-row .top{display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px}
+.sur-report-sent-row .track,.sur-report-feat-row .track{height:6px;background:var(--s2);border-radius:20px;overflow:hidden;flex:1}
+.sur-report-sent-row .fill,.sur-report-feat-row .fill{height:100%;border-radius:20px}
+.sur-report-feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
+@media(max-width:700px){.sur-report-feat-grid{grid-template-columns:1fr}}
+.sur-report-feat-block{display:flex;flex-direction:column;gap:6px}
+.sur-report-feat-head{display:flex;justify-content:space-between;gap:8px;font-size:12px}
+.sur-report-feat-row{display:grid;grid-template-columns:1fr 2fr auto;gap:8px;align-items:center;font-size:11px}
+.sur-report-statbox{background:var(--s2);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.sur-report-statbox .val{font-size:22px;font-weight:700}
+.sur-report-statbox .lbl{font-size:10px;color:var(--t3)}
+.sur-report-statbox .sub{font-size:10px;color:var(--t4);margin-top:2px}
+.sur-report-actions-head{background:var(--t1);color:#fff;align-items:center}
+.sur-report-actions-head strong{font-size:16px}
+.sur-report-actions-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}
+@media(max-width:700px){.sur-report-actions-grid{grid-template-columns:1fr}}
+.sur-report-action{padding:14px 16px;border-top:1px solid var(--b2);border-right:1px solid var(--b2)}
+.sur-report-action:nth-child(2n){border-right:none}
+.sur-report-action .title{font-size:12px;font-weight:700;margin-bottom:6px}
+.sur-report-action .desc{font-size:11px;color:var(--t2);line-height:1.45}
+.sur-report-foot{font-size:10px;color:var(--t3);text-align:center;padding:8px 0 4px}

@@ -65,6 +65,9 @@ const bodyHtml = `<div class="app" id="app">
         <div class="tb-sub" id="tb-s"><span class="ldot"></span> Live · <span id="tb-s-plain">Overview</span></div>
       </div>
       <div class="tb-r">
+        <div class="tb-search-wrap" id="global-search-wrap" style="display:none">
+          <input type="search" id="global-search" class="tb-search" placeholder="Search surveys by name or company…" autocomplete="off"/>
+        </div>
         <div class="api-pill"><span class="api-dot"></span>Dentally connected</div>
         <div class="tbbtn" onclick="toggleDark()" title="Toggle dark mode"><i class="ti ti-moon" id="mode-i"></i></div>
         <div class="nbell" style="position:relative">
@@ -629,13 +632,8 @@ const bodyHtml = `<div class="app" id="app">
             </div>
           </div>
           <div class="card" style="margin-top:12px;margin-bottom:0">
-            <div class="ch"><i class="ti ti-users grn"></i>Contact list</div>
-            <div id="sur-detail-contacts-wrap" style="max-height:320px;overflow:auto">
-              <table class="res-table">
-                <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
-                <tbody id="sur-detail-contacts-list"></tbody>
-              </table>
-            </div>
+            <div class="ch"><i class="ti ti-shield-check grn"></i>Anonymous survey</div>
+            <div class="muted" style="font-size:12px;line-height:1.6;padding:4px 0 8px">Individual responses and transcripts are not shown on your dashboard. Open <strong>View results</strong> for anonymous aggregate insights only.</div>
           </div>
         </div>
       </div>
@@ -655,50 +653,58 @@ const bodyHtml = `<div class="app" id="app">
         <div id="sur-results-error" class="inf r" style="display:none"></div>
         <div id="sur-results-empty" class="inf b" style="display:none"><i class="ti ti-info-circle"></i>Select a survey from the Surveys page to view results.</div>
         <div id="sur-results-content" style="display:none">
-        <div class="kg4">
-          <div class="kpi gt"><div class="kl">Overall satisfaction</div><div class="kv" id="sur-kpi-satisfaction" style="color:var(--grn)">—</div><div class="kd" id="sur-kpi-satisfaction-sub">—</div></div>
-          <div class="kpi"><div class="kl">Would recommend</div><div class="kv" id="sur-kpi-recommend">—</div><div class="kd" id="sur-kpi-nps">—</div></div>
-          <div class="kpi"><div class="kl">Responded</div><div class="kv" id="sur-kpi-responded">—</div><div class="kd" id="sur-kpi-response-rate">—</div></div>
-          <div class="kpi"><div class="kl">Avg call length</div><div class="kv" id="sur-kpi-duration">—</div></div>
-        </div>
-        <div class="card" style="margin-top:12px">
-          <div class="ch"><i class="ti ti-chart-bar grn"></i>Anonymous answer summary — no names shown</div>
-          <div id="sur-results-aggregates"><div class="muted" style="font-size:12px;padding:8px 0">Results will appear after calls complete.</div></div>
-        </div>
-        <div class="card">
-          <div class="ch"><i class="ti ti-users grn"></i>Respondents — click to view transcript</div>
-          <table class="res-table">
-            <thead><tr><th>Name</th><th>Duration</th><th>Task</th><th>Satisfaction</th><th>Status</th><th></th></tr></thead>
-            <tbody id="sur-results-respondents"></tbody>
-          </table>
-        </div>
-        <div class="rec-card" id="srec-panel" style="display:none">
-          <div class="rec-head">
-            <div class="av av-g" style="width:40px;height:40px;font-size:13px" id="srec-av">—</div>
-            <div class="rec-meta">
-              <div class="rec-name" id="srec-name">—</div>
-              <div class="rec-info">
-                <div class="rec-info-item"><i class="ti ti-clock"></i><span id="srec-dur">—</span></div>
-                <div class="rec-info-item"><i class="ti ti-tag"></i><span id="srec-goal">—</span></div>
-                <div class="rec-info-item"><i class="ti ti-mood-happy"></i><span id="srec-sentiment">—</span></div>
+        <div class="sur-report">
+          <div class="sur-report-logo"><img src="/logo-dark.svg" class="logo-light" alt="VOXBULK" id="sur-report-logo-img"/><img src="/logo-light.svg" class="logo-dark" alt="VOXBULK" style="height:30px;width:auto"/><span class="sur-report-conf">Anonymous aggregate report · Confidential</span></div>
+          <div class="sur-report-head">
+            <div>
+              <div class="sur-report-eyebrow" id="sur-report-company">—</div>
+              <div class="sur-report-title">Survey <em>Results</em> · <span id="sur-report-title-inline">—</span></div>
+            </div>
+            <div class="sur-report-meta">
+              <div><div class="val" id="sur-report-responses">—</div><div class="lbl">Responses</div></div>
+              <div><div class="val" id="sur-report-rate">—</div><div class="lbl">Response rate</div></div>
+              <div><div class="val" id="sur-report-period">—</div><div class="lbl">Field period</div></div>
+            </div>
+          </div>
+          <div class="sur-report-split">
+            <div class="sur-report-panel">
+              <div class="sur-report-panel-head"><div><div class="eyebrow">Block 01 — Loyalty</div><div class="title">Net Promoter Score</div></div><span class="sur-report-tag">Anonymous</span></div>
+              <div class="sur-report-panel-body sur-report-nps">
+                <div class="nps-score"><div class="big" id="sur-report-nps">—</div><div class="sub">/100 NPS</div></div>
+                <div class="nps-stat"><div class="val" id="sur-report-promoters">—</div><div class="lbl">Promoters</div></div>
+                <div class="nps-stat"><div class="val" id="sur-report-passives">—</div><div class="lbl">Passives</div></div>
+                <div class="nps-stat"><div class="val" id="sur-report-detractors">—</div><div class="lbl">Detractors</div></div>
               </div>
             </div>
-            <button class="btn bsm" onclick="document.getElementById('srec-panel').style.display='none'"><i class="ti ti-x"></i>Close</button>
+            <div class="sur-report-side">
+              <div class="sur-report-panel-head"><div><div class="eyebrow">Sentiment</div><div class="title">Call tone</div></div></div>
+              <div class="sur-report-panel-body" id="sur-report-sentiment"></div>
+            </div>
           </div>
-          <div id="srec-summary" style="font-size:12px;color:var(--t2);margin:0 0 10px;line-height:1.6"></div>
-          <div class="transcript-box" id="srec-transcript"></div>
-          <div id="srec-answers" style="margin-top:10px"></div>
-          <div class="retention-notice"><i class="ti ti-clock" style="font-size:15px"></i>Call transcripts are retained per your organisation policy. Access is logged in the Audit log.</div>
+          <div class="sur-report-split">
+            <div class="sur-report-panel">
+              <div class="sur-report-panel-head"><div><div class="eyebrow">Block 02 — Questions</div><div class="title">Answer summary</div></div><span class="sur-report-tag" id="sur-report-q-count">0 questions</span></div>
+              <div class="sur-report-panel-body" id="sur-results-aggregates"></div>
+            </div>
+            <div class="sur-report-side">
+              <div class="sur-report-panel-head"><div><div class="eyebrow">Snapshot</div><div class="title">Key metrics</div></div></div>
+              <div class="sur-report-panel-body">
+                <div class="sur-report-statbox"><div class="val" id="sur-kpi-satisfaction">—</div><div class="lbl">Average satisfaction</div><div class="sub" id="sur-kpi-satisfaction-sub">—</div></div>
+                <div class="sur-report-statbox"><div class="val" id="sur-kpi-recommend">—</div><div class="lbl">Would recommend</div><div class="sub" id="sur-kpi-nps">—</div></div>
+                <div class="sur-report-statbox"><div class="val" id="sur-kpi-duration">—</div><div class="lbl">Avg call length</div><div class="sub" id="sur-kpi-response-rate">—</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="sur-report-panel">
+            <div class="sur-report-actions-head"><strong>Recommended actions</strong><span>Generated from anonymous survey findings</span></div>
+            <div class="sur-report-actions-grid" id="sur-results-recommendations"></div>
+          </div>
+          <div class="sur-report-panel">
+            <div class="sur-report-panel-head"><div><div class="eyebrow">Issues</div><div class="title">Top themes — AI ranked</div></div></div>
+            <div class="sur-report-panel-body" id="sur-results-problems"></div>
+          </div>
+          <div class="sur-report-foot">Individual names and transcripts are never shown in customer survey results.</div>
         </div>
-        <div class="card" style="margin-top:12px">
-          <div class="ch"><i class="ti ti-alert-circle red"></i>Problem list — AI ranked by frequency</div>
-          <div id="sur-results-problems"></div>
-        </div>
-        <div class="card">
-          <div class="ch"><i class="ti ti-bulb amb"></i>AI action suggestions</div>
-          <div id="sur-results-recommendations" style="font-size:12px;color:var(--t1);line-height:1.8"></div>
-        </div>
-        <div style="display:flex;gap:8px"><button class="btn btng bsm" disabled title="Coming soon"><i class="ti ti-download"></i>Export PDF report</button><button class="btn bsm" disabled title="Coming soon"><i class="ti ti-table"></i>Export CSV</button></div>
         </div>
       </div>
 
