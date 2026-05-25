@@ -234,11 +234,6 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Credits remaining</div><div class="kv" id="int-kpi-credits">—</div><div class="kd ne" id="int-kpi-credits-sub">Loading…</div></div>
           <div class="kpi"><div class="kl">Completed this month</div><div class="kv" id="int-kpi-completed">—</div><div class="kd ne" id="int-kpi-completed-sub">—</div></div>
         </div>
-        <div class="card" id="int-shortlist-card" style="margin-bottom:12px;display:none">
-          <div class="ch"><i class="ti ti-trophy grn"></i>Top candidates — Phase 3 shortlist</div>
-          <div class="inf b" style="margin-bottom:10px"><i class="ti ti-info-circle"></i><span id="int-shortlist-note">Mock scheduling links until Calendly integration (Phase 5).</span></div>
-          <div id="int-shortlist-host"></div>
-        </div>
         <!-- ACTIVE PROJECTS -->
         <div class="card">
           <div class="ch"><i class="ti ti-briefcase grn"></i>Projects</div>
@@ -492,10 +487,6 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Recommended</div><div class="kv" style="color:var(--grn)" id="int-res-kpi-advance">—</div><div class="kd up">Advance</div></div>
           <div class="kpi"><div class="kl">Avg duration</div><div class="kv" id="int-res-kpi-duration">—</div></div>
         </div>
-        <div class="card" id="int-results-shortlist-card" style="margin-bottom:12px;display:none">
-          <div class="ch"><i class="ti ti-trophy grn"></i>Top 10 shortlist — send mock scheduling links</div>
-          <div id="int-results-shortlist-host"></div>
-        </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <button class="btn bsm" onclick="goNav('interviews')"><i class="ti ti-arrow-left"></i>Back to interviews</button>
           <div style="display:flex;gap:8px"><button class="btn btng bsm"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm"><i class="ti ti-table"></i>Export CSV</button></div>
@@ -507,7 +498,15 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Avg duration</div><div class="kv">7m 20s</div></div>
         </div>
         <div class="card" id="int-results-table-card">
-          <div class="ch"><i class="ti ti-users grn"></i>Candidates — click to view recording &amp; transcript</div>
+          <div class="int-res-card-head">
+            <div class="ch" style="margin:0"><i class="ti ti-users grn"></i>Candidates — click row for recording &amp; transcript</div>
+            <div class="int-res-toolbar" id="int-res-toolbar" hidden>
+              <label class="int-res-select-all"><input type="checkbox" id="int-res-select-all" aria-label="Select all candidates"/> Select all</label>
+              <button class="btn btng bsm" type="button" id="int-res-bulk-send" disabled title="Send mock scheduling via WhatsApp and email">
+                <i class="ti ti-send"></i> Send to selected
+              </button>
+            </div>
+          </div>
           <div id="int-results-table-host">
           <table class="res-table" id="int-results-table-static">
             <thead>

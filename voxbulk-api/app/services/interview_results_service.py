@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 from typing import Any
+from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
@@ -94,19 +96,32 @@ def _candidate_row(recipient: ServiceOrderRecipient, *, role: str) -> dict[str, 
 
 def _mock_scheduling_links(order: ServiceOrder, candidate: dict[str, Any]) -> dict[str, str]:
     slug = str(candidate.get("id") or "")[:8]
+    name = str(candidate.get("name") or "there")
     role = str(candidate.get("task") or "interview").replace(" ", "-").lower()
+    sched_url = f"https://schedule.voxbulk.com/mock/{order.id}/{slug}"
+    wa_text = f"Hi {name}, great speaking with you. Please book your follow-up slot: {sched_url}"
+    phone_digits = re.sub(r"\D", "", str(candidate.get("phone") or ""))
+    if phone_digits:
+        whatsapp_mock = f"https://wa.me/{phone_digits}?text={quote(wa_text)}"
+    else:
+        whatsapp_mock = f"https://wa.me/?text={quote(wa_text)}"
+    email = str(candidate.get("email") or "").strip()
+    email_subject = f"Next step — {name}"
+    email_body_mock = (
+        f"Hi {name},\n\n"
+        "Great speaking with you. Please book a follow-up slot:\n"
+        f"{sched_url}\n\n"
+        "Best regards"
+    )
+    email_mailto = ""
+    if email:
+        email_mailto = f"mailto:{quote(email)}?subject={quote(email_subject)}&body={quote(email_body_mock)}"
     return {
-        "email_subject": f"Next step — {candidate.get('name') or 'candidate'} ({role})",
-        "email_body_mock": (
-            f"Hi {candidate.get('name') or 'there'},\n\n"
-            "Great speaking with you. Please book a follow-up slot:\n"
-            f"https://schedule.voxbulk.com/mock/{order.id}/{slug}\n\n"
-            "Best regards"
-        ),
-        "whatsapp_mock": (
-            f"https://wa.me/?text=Book%20your%20{role}%20slot%20-%20mock%20link%20{slug}"
-        ),
-        "scheduling_url_mock": f"https://schedule.voxbulk.com/mock/{order.id}/{slug}",
+        "email_subject": email_subject,
+        "email_body_mock": email_body_mock,
+        "email_mailto": email_mailto,
+        "whatsapp_mock": whatsapp_mock,
+        "scheduling_url_mock": sched_url,
     }
 
 
@@ -119,14 +134,15 @@ class InterviewResultsService:
         config = _loads_json(order.config_json) or {}
         role = str(config.get("role") or order.title or "Interview campaign")
         recipients = ServiceOrderService.get_recipients(db, order.id)
-        candidates = [_candidate_row(r, role=role) for r in recipients]
+        candidates: list[dict[str, Any]] = []
+        for recipient in recipients:
+            row = _candidate_row(recipient, role=role)
+            row.update(_mock_scheduling_links(order, row))
+            candidates.append(row)
         candidates.sort(key=lambda c: (c.get("score") or 0, c.get("name") or ""), reverse=True)
 
         shortlist_size = min(10, len(candidates))
-        shortlist = []
-        for row in candidates[:shortlist_size]:
-            enriched = {**row, **_mock_scheduling_links(order, row)}
-            shortlist.append(enriched)
+        shortlist = candidates[:shortlist_size]
 
         called = sum(1 for r in recipients if r.status not in {None, "", "pending", "queued"})
         reached = sum(1 for r in recipients if r.status in {"completed", "answered", "success"})

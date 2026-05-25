@@ -1,4 +1,4 @@
-import { showLaunchSummaryModal, showSurveyPaymentModal } from './modalBridge.js'
+import { confirmDialog, showLaunchSummaryModal, showSurveyPaymentModal } from './modalBridge.js'
 import { surveyRespondedCount } from './surveyUtils.js'
 import {
   apiFetch,
@@ -71,6 +71,15 @@ const interviewLaunch = {
 }
 
 const INTERVIEW_DRAFT_LS_KEY = 'voxbulk_interview_draft_id'
+
+const interviewResultsUi = {
+  rows: [],
+  sortKey: 'score',
+  sortAsc: false,
+  selected: new Set(),
+  menuDocBound: false,
+  toolbarBound: false,
+}
 
 const LOG_SURVEY = '[survey]'
 
@@ -474,7 +483,7 @@ async function openInterviewResults(orderId) {
     if (banner) banner.style.display = 'flex'
     if (bannerText) {
       bannerText.textContent = results.is_mock
-        ? `${title} — Phase 3 shortlist with sample scores until live call results (Phase 2).`
+        ? `${title} — sort candidates and use ⋮ for scheduling links (mock until Phase 5).`
         : `${title} — live interview results.`
     }
     if (mockNote) mockNote.style.display = results.is_mock ? '' : 'none'
@@ -507,32 +516,247 @@ function scoreStars(score) {
     .join('')}</div>`
 }
 
-function renderShortlistHost(host, shortlist, { compact = false } = {}) {
-  if (!host) return
-  const rows = shortlist || []
-  if (!rows.length) {
-    host.innerHTML = '<div class="muted" style="font-size:12px;padding:8px 0">No shortlisted candidates yet.</div>'
+function sortInterviewCandidates(rows, key, asc) {
+  const recRank = { Advance: 3, Hold: 2, Decline: 1 }
+  const sentRank = { Enthusiastic: 3, Neutral: 2, Hesitant: 1 }
+  return [...rows].sort((a, b) => {
+    let av
+    let bv
+    switch (key) {
+      case 'name':
+        av = a.name || ''
+        bv = b.name || ''
+        break
+      case 'duration':
+        av = Number(a.duration_seconds || 0)
+        bv = Number(b.duration_seconds || 0)
+        break
+      case 'recommendation':
+        av = recRank[a.recommendation] || 0
+        bv = recRank[b.recommendation] || 0
+        break
+      case 'sentiment':
+        av = sentRank[a.sentiment] || 0
+        bv = sentRank[b.sentiment] || 0
+        break
+      case 'score':
+      default:
+        av = Number(a.score || 0)
+        bv = Number(b.score || 0)
+    }
+    if (typeof av === 'string') {
+      const cmp = av.localeCompare(bv)
+      return asc ? cmp : -cmp
+    }
+    return asc ? av - bv : bv - av
+  })
+}
+
+function sortIndicator(key) {
+  if (interviewResultsUi.sortKey !== key) return ''
+  return `<span class="sort-ind">${interviewResultsUi.sortAsc ? '↑' : '↓'}</span>`
+}
+
+function candidateInitials(name) {
+  return (name || '?')
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0])
+    .join('')
+    .toUpperCase()
+}
+
+function closeAllInterviewRowMenus() {
+  document.querySelectorAll('.int-row-menu.open').forEach((el) => el.classList.remove('open'))
+}
+
+function bindInterviewResultsMenuDismiss() {
+  if (interviewResultsUi.menuDocBound) return
+  interviewResultsUi.menuDocBound = true
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.int-res-actions')) closeAllInterviewRowMenus()
+  })
+}
+
+function updateInterviewResultsBulkUi() {
+  const bulkBtn = document.getElementById('int-res-bulk-send')
+  const selectAll = document.getElementById('int-res-select-all')
+  const count = interviewResultsUi.selected.size
+  if (bulkBtn) bulkBtn.disabled = count === 0
+  if (selectAll) {
+    const total = interviewResultsUi.rows.length
+    selectAll.checked = total > 0 && count === total
+    selectAll.indeterminate = count > 0 && count < total
+  }
+}
+
+function renderInterviewResultsTableBody() {
+  const tableHost = document.getElementById('int-results-table-host')
+  if (!tableHost) return
+  const sorted = sortInterviewCandidates(interviewResultsUi.rows, interviewResultsUi.sortKey, interviewResultsUi.sortAsc)
+  if (!sorted.length) {
+    tableHost.innerHTML = '<div class="muted" style="font-size:12px;padding:12px 4px">No candidates yet.</div>'
     return
   }
-  host.innerHTML = rows
-    .map((row, idx) => {
-      const rank = idx + 1
-      const wa = row.whatsapp_mock || row.scheduling_url_mock || '#'
-      const email = row.email_body_mock ? `mailto:?subject=${encodeURIComponent(row.email_subject || 'Interview follow-up')}&body=${encodeURIComponent(row.email_body_mock)}` : '#'
-      return `<div class="int-shortlist-row">
-        <div class="int-shortlist-rank">${rank}</div>
-        <div class="int-shortlist-info">
-          <div class="int-shortlist-name">${escHtml(row.name || 'Candidate')}</div>
-          <div class="int-shortlist-meta">${escHtml(row.recommendation || 'Hold')} · score ${row.score ?? '—'} · ${escHtml(row.duration_label || '—')}</div>
-        </div>
-        <div class="int-shortlist-actions">
-          ${compact ? '' : `<button type="button" class="btn bsm bxsm" onclick="window.toast?.('Mock WhatsApp link copied','tg')"><i class="ti ti-brand-whatsapp"></i></button>`}
-          <a class="btn bsm bxsm" href="${escHtml(wa)}" target="_blank" rel="noopener" title="Mock scheduling link"><i class="ti ti-calendar"></i></a>
-          <a class="btn bsm bxsm" href="${escHtml(email)}" title="Mock email"><i class="ti ti-mail"></i></a>
-        </div>
-      </div>`
+
+  tableHost.innerHTML = `<table class="res-table int-res-table">
+    <thead><tr>
+      <th class="int-res-check" aria-label="Select"></th>
+      <th class="int-res-sort" data-sort="name">Candidate${sortIndicator('name')}</th>
+      <th class="int-res-sort" data-sort="duration">Duration${sortIndicator('duration')}</th>
+      <th>Task</th>
+      <th class="int-res-sort" data-sort="score">Score${sortIndicator('score')}</th>
+      <th class="int-res-sort" data-sort="recommendation">Recommendation${sortIndicator('recommendation')}</th>
+      <th class="int-res-sort" data-sort="sentiment">Sentiment${sortIndicator('sentiment')}</th>
+      <th></th>
+      <th class="int-res-actions" aria-label="Actions"></th>
+    </tr></thead>
+    <tbody>${sorted
+      .map((c) => {
+        const id = String(c.id || '')
+        const checked = interviewResultsUi.selected.has(id)
+        const wa = c.whatsapp_mock || ''
+        const email = c.email_mailto || (c.email ? `mailto:${encodeURIComponent(c.email)}` : '')
+        const cal = c.scheduling_url_mock || ''
+        const waDisabled = wa ? '' : ' disabled'
+        const emailDisabled = email ? '' : ' disabled'
+        const calDisabled = cal ? '' : ' disabled'
+        return `<tr data-int-res-row="${escHtml(id)}" class="${checked ? 'int-res-row-selected' : ''}">
+          <td class="int-res-check"><input type="checkbox" class="int-res-pick" data-id="${escHtml(id)}"${checked ? ' checked' : ''} aria-label="Select ${escHtml(c.name || 'candidate')}"/></td>
+          <td><div style="display:flex;align-items:center;gap:9px"><div class="av av-g" style="width:28px;height:28px;font-size:10px">${escHtml(candidateInitials(c.name))}</div>${escHtml(c.name || '—')}</div></td>
+          <td><i class="ti ti-clock" style="color:var(--t3);font-size:12px"></i> ${escHtml(c.duration_label || '—')}</td>
+          <td>${escHtml(c.task || 'Interview screening')}</td>
+          <td>${scoreStars(c.score)}</td>
+          <td>${recommendationBadge(c.recommendation)}</td>
+          <td>${sentimentBadge(c.sentiment)}</td>
+          <td><button class="btn bsm bxsm int-res-play" type="button"><i class="ti ti-player-play"></i>Play</button></td>
+          <td class="int-res-actions">
+            <button type="button" class="int-row-menu-btn" data-menu-toggle="${escHtml(id)}" aria-label="Scheduling links"><i class="ti ti-dots-vertical"></i></button>
+            <div class="int-row-menu" data-menu="${escHtml(id)}">
+              <a class="wa${waDisabled}" href="${escHtml(wa || '#')}" target="_blank" rel="noopener" title="WhatsApp"${wa ? '' : ' tabindex="-1"'}><i class="ti ti-brand-whatsapp"></i></a>
+              <a class="int-menu-link${emailDisabled}" href="${escHtml(email || '#')}" title="Email"${email ? '' : ' tabindex="-1"'}><i class="ti ti-mail"></i></a>
+              <a class="int-menu-link${calDisabled}" href="${escHtml(cal || '#')}" target="_blank" rel="noopener" title="Scheduling link"${cal ? '' : ' tabindex="-1"'}><i class="ti ti-calendar"></i></a>
+            </div>
+          </td>
+        </tr>`
+      })
+      .join('')}</tbody></table>`
+
+  tableHost.querySelectorAll('.int-res-sort').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.getAttribute('data-sort')
+      if (!key) return
+      if (interviewResultsUi.sortKey === key) interviewResultsUi.sortAsc = !interviewResultsUi.sortAsc
+      else {
+        interviewResultsUi.sortKey = key
+        interviewResultsUi.sortAsc = key === 'name'
+      }
+      renderInterviewResultsTableBody()
     })
-    .join('')
+  })
+
+  tableHost.querySelectorAll('.int-res-pick').forEach((box) => {
+    box.addEventListener('click', (e) => e.stopPropagation())
+    box.addEventListener('change', (e) => {
+      const id = e.target.getAttribute('data-id')
+      if (!id) return
+      if (e.target.checked) interviewResultsUi.selected.add(id)
+      else interviewResultsUi.selected.delete(id)
+      e.target.closest('tr')?.classList.toggle('int-res-row-selected', e.target.checked)
+      updateInterviewResultsBulkUi()
+    })
+  })
+
+  tableHost.querySelectorAll('[data-menu-toggle]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const id = btn.getAttribute('data-menu-toggle')
+      const menu = tableHost.querySelector(`[data-menu="${CSS.escape(id)}"]`)
+      const wasOpen = menu?.classList.contains('open')
+      closeAllInterviewRowMenus()
+      if (menu && !wasOpen) menu.classList.add('open')
+    })
+  })
+
+  tableHost.querySelectorAll('.int-row-menu a').forEach((link) => {
+    link.addEventListener('click', (e) => e.stopPropagation())
+  })
+
+  tableHost.querySelectorAll('[data-int-res-row]').forEach((row) => {
+    const id = row.getAttribute('data-int-res-row')
+    const c = interviewResultsUi.rows.find((r) => String(r.id) === String(id))
+    if (!c) return
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.int-res-check, .int-res-actions, .int-res-play, .int-row-menu')) return
+      if (typeof window.showRec === 'function') {
+        window.showRec(c.name || '', c.duration_label || '', c.task || '', c.sentiment || '')
+      }
+    })
+    row.querySelector('.int-res-play')?.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (typeof window.showRec === 'function') {
+        window.showRec(c.name || '', c.duration_label || '', c.task || '', c.sentiment || '')
+      }
+    })
+  })
+}
+
+async function sendBulkInterviewScheduling() {
+  const selected = interviewResultsUi.rows.filter((r) => interviewResultsUi.selected.has(String(r.id)))
+  if (!selected.length) {
+    window.toast?.('Select at least one candidate', 'tr')
+    return
+  }
+  const ok = await confirmDialog({
+    title: 'Send scheduling links',
+    message: `Send mock WhatsApp and email links to ${selected.length} selected candidate(s)?`,
+    okLabel: 'Send',
+    cancelLabel: 'Cancel',
+  })
+  if (!ok) return
+
+  const withEmail = selected.filter((c) => c.email && (c.email_mailto || c.email_body_mock))
+  const withWa = selected.filter((c) => c.whatsapp_mock)
+
+  if (withEmail.length) {
+    const bcc = withEmail.map((c) => String(c.email).trim()).join(',')
+    const sample = withEmail[0]
+    const subject = sample.email_subject || 'Interview — next step'
+    const body =
+      withEmail.length === 1
+        ? sample.email_body_mock || ''
+        : `Hi,\n\nPlease book your follow-up interview using the personal link we shared with you.\n\nBest regards`
+    window.location.href = `mailto:?bcc=${encodeURIComponent(bcc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  }
+
+  withWa.forEach((c, idx) => {
+    setTimeout(() => window.open(c.whatsapp_mock, '_blank', 'noopener'), idx * 350)
+  })
+
+  window.toast?.(
+    `Mock send · email: ${withEmail.length} · WhatsApp: ${withWa.length}${withWa.length > 1 ? ' (tabs opening)' : ''}`,
+    'tg',
+  )
+  closeAllInterviewRowMenus()
+}
+
+function wireInterviewResultsToolbar() {
+  bindInterviewResultsMenuDismiss()
+  const toolbar = document.getElementById('int-res-toolbar')
+  if (toolbar) toolbar.hidden = interviewResultsUi.rows.length === 0
+
+  if (!interviewResultsUi.toolbarBound) {
+    interviewResultsUi.toolbarBound = true
+    document.getElementById('int-res-select-all')?.addEventListener('change', (e) => {
+      interviewResultsUi.selected.clear()
+      if (e.target.checked) {
+        interviewResultsUi.rows.forEach((r) => interviewResultsUi.selected.add(String(r.id)))
+      }
+      renderInterviewResultsTableBody()
+      updateInterviewResultsBulkUi()
+    })
+    document.getElementById('int-res-bulk-send')?.addEventListener('click', () => void sendBulkInterviewScheduling())
+  }
 }
 
 function renderInterviewResultsPage(results) {
@@ -544,81 +768,14 @@ function renderInterviewResultsPage(results) {
   document.getElementById('int-res-kpi-advance') && (document.getElementById('int-res-kpi-advance').textContent = String(kpis.recommended_advance ?? '—'))
   document.getElementById('int-res-kpi-duration') && (document.getElementById('int-res-kpi-duration').textContent = kpis.avg_duration_label || '—')
 
-  const shortlistCard = document.getElementById('int-results-shortlist-card')
-  const shortlistHost = document.getElementById('int-results-shortlist-host')
-  if (shortlistCard && shortlistHost) {
-    const list = results?.shortlist || []
-    if (list.length) {
-      shortlistCard.style.display = ''
-      renderShortlistHost(shortlistHost, list)
-    } else {
-      shortlistCard.style.display = 'none'
-    }
-  }
-
   const staticTable = document.getElementById('int-results-table-static')
-  const tableHost = document.getElementById('int-results-table-host')
-  const candidates = results?.candidates || []
-  if (!tableHost || !candidates.length) return
-  if (staticTable) staticTable.style.display = 'none'
-  tableHost.innerHTML = `<table class="res-table">
-    <thead><tr><th>Candidate</th><th>Duration</th><th>Task</th><th>Score</th><th>Recommendation</th><th>Sentiment</th><th></th></tr></thead>
-    <tbody>${candidates
-      .map((c) => {
-        const initials = (c.name || '?')
-          .split(/\s+/)
-          .slice(0, 2)
-          .map((p) => p[0])
-          .join('')
-          .toUpperCase()
-        return `<tr data-int-res-row="${escHtml(c.id || '')}">
-          <td><div style="display:flex;align-items:center;gap:9px"><div class="av av-g" style="width:28px;height:28px;font-size:10px">${escHtml(initials)}</div>${escHtml(c.name || '—')}</div></td>
-          <td><i class="ti ti-clock" style="color:var(--t3);font-size:12px"></i> ${escHtml(c.duration_label || '—')}</td>
-          <td>${escHtml(c.task || 'Interview screening')}</td>
-          <td>${scoreStars(c.score)}</td>
-          <td>${recommendationBadge(c.recommendation)}</td>
-          <td>${sentimentBadge(c.sentiment)}</td>
-          <td><button class="btn bsm bxsm" type="button"><i class="ti ti-player-play"></i>Play</button></td>
-        </tr>`
-      })
-      .join('')}</tbody></table>`
-  tableHost.querySelectorAll('[data-int-res-row]').forEach((row, idx) => {
-    const c = candidates[idx]
-    if (!c) return
-    row.addEventListener('click', () => {
-      if (typeof window.showRec === 'function') {
-        window.showRec(c.name || '', c.duration_label || '', c.task || '', c.sentiment || '')
-      }
-    })
-  })
-}
+  interviewResultsUi.rows = results?.candidates || []
+  interviewResultsUi.selected.clear()
+  if (staticTable) staticTable.style.display = interviewResultsUi.rows.length ? 'none' : ''
 
-async function loadInterviewShortlistPanel() {
-  const card = document.getElementById('int-shortlist-card')
-  const host = document.getElementById('int-shortlist-host')
-  if (!card || !host || !getAccessToken()) return
-  try {
-    const orders = await api('/service-orders?service_code=interview')
-    const pick =
-      (orders || []).find((o) => o.status === 'running') ||
-      (orders || []).find((o) => o.status === 'completed') ||
-      (orders || []).find((o) => o.recipient_count > 0)
-    if (!pick) {
-      card.style.display = 'none'
-      return
-    }
-    const results = await api(`/service-orders/${pick.id}/interview-results`)
-    renderShortlistHost(host, results.shortlist || [], { compact: true })
-    card.style.display = ''
-    const note = document.getElementById('int-shortlist-note')
-    if (note) {
-      note.textContent = results.is_mock
-        ? `Phase 3 preview for “${pick.title}” — mock scheduling links until Calendly (Phase 5).`
-        : `Top candidates from “${pick.title}”.`
-    }
-  } catch {
-    card.style.display = 'none'
-  }
+  wireInterviewResultsToolbar()
+  renderInterviewResultsTableBody()
+  updateInterviewResultsBulkUi()
 }
 
 function cvQualityBadge(quality) {
@@ -2248,7 +2405,6 @@ async function loadOrdersIntoUi() {
       if (intEmpty) intEmpty.style.display = intRows ? 'none' : ''
     }
     state.ordersLoaded = true
-    void loadInterviewShortlistPanel()
   } catch {
     /* keep static preview */
   }
