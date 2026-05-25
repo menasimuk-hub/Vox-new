@@ -3,17 +3,19 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
 from app.core.database import get_sessionmaker
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import PlatformCatalogService
+from app.services.survey_action_recommendations import fallback_action_recommendations
 from app.services.survey_results_service import (
     SurveyResultsService,
     build_answer_aggregates,
     build_survey_results_html,
-    derive_survey_recommendations,
+    normalize_nps_display,
 )
 
 
@@ -64,17 +66,33 @@ def _survey_order(**kwargs) -> ServiceOrder:
     return row
 
 
-def test_derive_recommendations_from_issues():
-    recs = derive_survey_recommendations(
-        top_issues=[{"label": "wait time", "count": 3}],
-        top_tags=[{"label": "parking", "count": 2}],
-        completed_count=5,
+def test_normalize_nps_display():
+    assert normalize_nps_display(50)["score"] == 75
+    assert normalize_nps_display(50)["label"] == "Good"
+    assert normalize_nps_display(-19)["score"] == 40
+    assert normalize_nps_display(-19)["label"] == "Unhappy"
+
+
+def test_fallback_recommendations_from_aggregates():
+    recs = fallback_action_recommendations(
+        summary={"completed_count": 5, "nps_label": "Unhappy"},
+        aggregates=[
+            {
+                "question": "What could we improve?",
+                "total": 5,
+                "responses": [{"answer": "Faster booking", "count": 3}],
+            }
+        ],
     )
     assert recs
-    assert "wait time" in recs[0]["text"].lower()
+    assert any("booking" in rec["title"].lower() or "booking" in rec["text"].lower() for rec in recs)
 
 
-def test_build_survey_results_payload(db):
+@patch(
+    "app.services.survey_action_recommendations.generate_ai_action_recommendations",
+    return_value=[{"title": "Improve support", "text": "Several responses flagged support wait times."}],
+)
+def test_build_survey_results_payload(mock_ai, db):
     order = _survey_order()
     db.add(order)
     db.flush()
@@ -114,9 +132,12 @@ def test_build_survey_results_payload(db):
     assert payload["order"]["title"] == "May satisfaction survey"
     assert payload["summary"]["completed_count"] == 2
     assert payload["summary"]["average_satisfaction_5"] == 4.0
+    assert payload["summary"]["nps_score"] == 75
+    assert payload["summary"]["nps_label"] == "Good"
     assert len(payload["respondents"]) == 2
     assert payload["respondents"][0]["has_transcript"] is True
-    assert payload["recommendations"]
+    assert payload["recommendations"][0]["title"] == "Improve support"
+    mock_ai.assert_called_once()
 
 
 def test_recipient_detail_payload(db):
@@ -177,9 +198,18 @@ def test_build_survey_results_html():
     html = build_survey_results_html(
         {
             "order": {"title": "May survey", "goal": "Satisfaction"},
-            "summary": {"completed_count": 3, "response_rate_pct": 75, "average_satisfaction_5": 4.2},
+            "summary": {
+                "completed_count": 3,
+                "response_rate_pct": 75,
+                "average_satisfaction_5": 4.2,
+                "nps_score": 41,
+                "nps_label": "Unhappy",
+                "nps_promoters_pct": 40,
+                "nps_passives_pct": 30,
+                "nps_detractors_pct": 30,
+            },
             "aggregates": [{"question": "Rating?", "total": 2, "responses": [{"answer": "Good", "count": 2}]}],
-            "recommendations": [{"text": "Review wait times."}],
+            "recommendations": [{"title": "Improve support", "text": "Review wait times."}],
         }
     )
     assert "May survey" in html

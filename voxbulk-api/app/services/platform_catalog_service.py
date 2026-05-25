@@ -800,7 +800,7 @@ class ServiceOrderService:
         st = str(order.status or "")
 
         if st == "completed":
-            return {"action": "view_report", "label": "View report", "hint": "Open results and transcripts."}
+            return {"action": "view_report", "label": "View report", "hint": "Open anonymous aggregate results."}
         if st == "cancelled":
             return {"action": "reopen", "label": "Reopen survey", "hint": "Duplicate this survey to launch again."}
         if ps == "rejected":

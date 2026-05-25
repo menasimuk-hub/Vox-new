@@ -92,6 +92,78 @@ def _recommend_pct(recommend_scores: list[float]) -> int | None:
     return round((promoters / len(recommend_scores)) * 100)
 
 
+def normalize_nps_display(raw_nps: float | int | None) -> dict[str, Any]:
+    """Map standard NPS (-100..100) to a 0..100 customer-facing score."""
+    if raw_nps is None:
+        return {"score": None, "label": None, "raw": None}
+    try:
+        raw = float(raw_nps)
+    except (TypeError, ValueError):
+        return {"score": None, "label": None, "raw": None}
+    score = max(0, min(100, round((raw + 100) / 2)))
+    label = "Good" if score >= 50 else "Unhappy"
+    return {"score": score, "label": label, "raw": round(raw, 1)}
+
+
+def _recommendations_fingerprint(summary: dict[str, Any], aggregates: list[dict[str, Any]]) -> str:
+    import hashlib
+
+    blob = json.dumps(
+        {
+            "completed": summary.get("completed_count"),
+            "nps": summary.get("nps_score"),
+            "aggregates": aggregates,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def ensure_action_recommendations(
+    db: Session,
+    order: ServiceOrder,
+    *,
+    goal: str,
+    org_name: str,
+    summary: dict[str, Any],
+    aggregates: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    from datetime import datetime
+
+    from app.services.survey_action_recommendations import (
+        fallback_action_recommendations,
+        generate_ai_action_recommendations,
+    )
+
+    report = _parse_report(order)
+    fingerprint = _recommendations_fingerprint(summary, aggregates)
+    cached = report.get("ai_recommendations") if isinstance(report.get("ai_recommendations"), dict) else {}
+    if cached.get("fingerprint") == fingerprint and cached.get("items"):
+        return list(cached["items"])
+
+    items = generate_ai_action_recommendations(
+        db,
+        goal=goal,
+        org_name=org_name,
+        summary=summary,
+        aggregates=aggregates,
+    )
+    if not items:
+        items = fallback_action_recommendations(summary=summary, aggregates=aggregates)
+
+    report["ai_recommendations"] = {
+        "fingerprint": fingerprint,
+        "items": items,
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+    order.report_json = json.dumps(report, ensure_ascii=False)
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+    return items
+
+
 def derive_survey_recommendations(
     *,
     top_issues: list[dict[str, Any]],
@@ -333,6 +405,12 @@ def build_survey_results_payload(
     avg_duration = round(sum(durations) / len(durations)) if durations else None
     nps = analysis.get("nps") if isinstance(analysis.get("nps"), dict) else {}
     recommend_pct = _recommend_pct(recommend_scores)
+    nps_display = normalize_nps_display(nps.get("score"))
+    nps_responses = max(0, int(nps.get("responses") or 0))
+    nps_promoters = int(nps.get("promoters") or 0)
+    nps_passives = int(nps.get("passives") or 0)
+    nps_detractors = int(nps.get("detractors") or 0)
+    nps_den = max(1, nps_responses or (nps_promoters + nps_passives + nps_detractors) or completed_count or 1)
 
     summary = {
         "total_recipients": total,
@@ -342,7 +420,15 @@ def build_survey_results_payload(
         "average_satisfaction_5": avg_sat_5,
         "average_recommend_score": analysis.get("average_recommend_score"),
         "recommend_pct": recommend_pct,
-        "nps_score": nps.get("score"),
+        "nps_score": nps_display["score"],
+        "nps_label": nps_display["label"],
+        "nps_score_raw": nps_display["raw"],
+        "nps_promoters_pct": round((nps_promoters / nps_den) * 100),
+        "nps_passives_pct": round((nps_passives / nps_den) * 100),
+        "nps_detractors_pct": round((nps_detractors / nps_den) * 100),
+        "nps_promoters": nps_promoters,
+        "nps_passives": nps_passives,
+        "nps_detractors": nps_detractors,
         "average_call_duration_seconds": avg_duration,
         "average_call_duration_label": _format_duration(avg_duration),
         "sentiment_counts": analysis.get("sentiment_counts") or {},
@@ -352,12 +438,15 @@ def build_survey_results_payload(
         "pending_analysis": analysis.get("pending_analysis") or 0,
     }
 
-    recommendations = derive_survey_recommendations(
-        top_issues=summary["top_issues"],
-        top_tags=summary["top_tags"],
-        completed_count=completed_count,
-    )
     aggregates = build_answer_aggregates(recipients)
+    recommendations = ensure_action_recommendations(
+        db,
+        order,
+        goal=goal,
+        org_name=org_name,
+        summary=summary,
+        aggregates=aggregates,
+    )
 
     return {
         "ok": True,

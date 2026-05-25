@@ -39,16 +39,22 @@ function renderHeader(order, summary) {
     summary.response_rate_pct != null ? `${summary.response_rate_pct}%` : '—'
   document.getElementById('sur-report-period').textContent = fmtPeriod(order.started_at || order.completed_at)
 
-  const nps = summary.nps_score
-  document.getElementById('sur-report-nps').textContent = nps != null ? String(Math.round(nps)) : '—'
-  const completed = Math.max(1, Number(summary.completed_count) || 1)
-  const npsObj = summary.nps_score != null && typeof summary.nps_score === 'object' ? summary.nps_score : null
-  const promoters = npsObj?.promoters ?? Math.round(completed * 0.55)
-  const passives = npsObj?.passives ?? Math.round(completed * 0.25)
-  const detractors = npsObj?.detractors ?? Math.max(0, completed - promoters - passives)
-  document.getElementById('sur-report-promoters').textContent = `${Math.round((promoters / completed) * 100)}%`
-  document.getElementById('sur-report-passives').textContent = `${Math.round((passives / completed) * 100)}%`
-  document.getElementById('sur-report-detractors').textContent = `${Math.round((detractors / completed) * 100)}%`
+  const npsScore = summary.nps_score
+  const npsLabel = summary.nps_label || '—'
+  const npsEl = document.getElementById('sur-report-nps')
+  if (npsEl) npsEl.textContent = npsScore != null ? String(npsScore) : '—'
+  const moodEl = document.getElementById('sur-report-nps-label')
+  if (moodEl) {
+    moodEl.textContent = npsLabel
+    moodEl.className = `sur-nps-mood${npsLabel === 'Good' ? ' is-good' : npsLabel === 'Unhappy' ? ' is-unhappy' : ''}`
+  }
+
+  document.getElementById('sur-report-promoters').textContent =
+    summary.nps_promoters_pct != null ? `${summary.nps_promoters_pct}%` : '—'
+  document.getElementById('sur-report-passives').textContent =
+    summary.nps_passives_pct != null ? `${summary.nps_passives_pct}%` : '—'
+  document.getElementById('sur-report-detractors').textContent =
+    summary.nps_detractors_pct != null ? `${summary.nps_detractors_pct}%` : '—'
 
   const sat5 = summary.average_satisfaction_5
   document.getElementById('sur-kpi-satisfaction').textContent = sat5 != null ? `${sat5}/5` : '—'
@@ -57,7 +63,7 @@ function renderHeader(order, summary) {
   document.getElementById('sur-kpi-recommend').textContent =
     summary.recommend_pct != null ? `${summary.recommend_pct}%` : '—'
   document.getElementById('sur-kpi-nps').textContent =
-    nps != null && typeof nps !== 'object' ? `NPS ${nps >= 0 ? '+' : ''}${nps}` : '—'
+    npsScore != null ? `${npsLabel} · ${npsScore}/100` : '—'
   document.getElementById('sur-kpi-duration').textContent = summary.average_call_duration_label || '—'
   document.getElementById('sur-kpi-response-rate').textContent =
     summary.response_rate_pct != null ? `${summary.response_rate_pct}% response rate` : '—'
@@ -90,37 +96,26 @@ function renderAggregates(aggregates) {
     host.innerHTML = '<div class="muted" style="font-size:12px">No aggregated answers yet — complete a few calls first.</div>'
     return
   }
-  host.innerHTML = `<div class="sur-report-feat-grid">${aggregates
+  host.innerHTML = aggregates
     .map((block) => {
       const total = Math.max(1, Number(block.total) || 1)
-      const top = (block.responses || [])[0] || {}
-      const topPct = Math.round(((Number(top.count) || 0) / total) * 100)
       const rows = (block.responses || [])
         .map((row) => {
           const count = Number(row.count) || 0
           const pct = Math.round((count / total) * 100)
-          return `<div class="sur-report-feat-row"><span>${esc(row.answer)}</span><div class="track"><div class="fill" style="width:${Math.max(6, pct)}%;background:${barColor(pct)}"></div></div><span>${count}</span></div>`
+          return `<div class="sur-q-row">
+            <span class="sur-q-answer">${esc(row.answer)}</span>
+            <div class="track"><div class="fill" style="width:${Math.max(4, pct)}%;background:${barColor(pct)}"></div></div>
+            <span class="sur-q-pct">${pct}%</span>
+            <span class="sur-q-count">(${count})</span>
+          </div>`
         })
         .join('')
-      return `<div class="sur-report-feat-block"><div class="sur-report-feat-head"><strong>${esc(block.question)}</strong><span>${topPct}% top</span></div>${rows}</div>`
-    })
-    .join('')}</div>`
-}
-
-function renderProblems(summary) {
-  const host = document.getElementById('sur-results-problems')
-  if (!host) return
-  const issues = summary.top_issues || []
-  if (!issues.length) {
-    host.innerHTML = '<div class="muted" style="font-size:12px">No recurring issues identified yet.</div>'
-    return
-  }
-  const total = Math.max(1, Number(summary.completed_count) || 1)
-  host.innerHTML = issues
-    .map((item) => {
-      const count = Number(item.count) || 0
-      const pct = Math.round((count / total) * 100)
-      return `<div class="prob-row"><div class="prob-lbl">${esc(item.label)}</div><div class="prob-bar"><div class="prob-fill" style="width:${Math.max(8, pct)}%"></div></div><div class="prob-pct">${pct}%</div></div>`
+      return `<div class="sur-q-block">
+        <div class="sur-q-title">${esc(block.question)}</div>
+        <div class="sur-q-meta">${total} responses</div>
+        <div class="sur-q-rows">${rows || '<div class="muted" style="font-size:11px">No answers recorded.</div>'}</div>
+      </div>`
     })
     .join('')
 }
@@ -129,13 +124,13 @@ function renderRecommendations(recommendations) {
   const host = document.getElementById('sur-results-recommendations')
   if (!host) return
   if (!recommendations?.length) {
-    host.innerHTML = '<div class="sur-report-action"><div class="desc">Recommendations will appear once enough calls are analysed.</div></div>'
+    host.innerHTML = '<div class="sur-report-action"><div class="desc">Recommendations will appear once enough survey responses are analysed.</div></div>'
     return
   }
   host.innerHTML = recommendations
     .map(
-      (rec, idx) =>
-        `<div class="sur-report-action"><div class="title">Recommendation ${idx + 1}</div><div class="desc">${esc(rec.text)}</div></div>`,
+      (rec) =>
+        `<div class="sur-report-action"><div class="title">${esc(rec.title || 'Recommendation')}</div><div class="desc">${esc(rec.text || rec.title || '')}</div></div>`,
     )
     .join('')
 }
@@ -145,7 +140,6 @@ function renderSurveyResultsPage(payload) {
   renderHeader(order, summary)
   renderSentiment(summary)
   renderAggregates(aggregates)
-  renderProblems(summary)
   renderRecommendations(recommendations)
   setVisible('sur-results-content', true)
   setVisible('sur-results-empty', false)

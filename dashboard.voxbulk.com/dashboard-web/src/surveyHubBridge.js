@@ -320,8 +320,8 @@ function renderDetail(order) {
         : order.payment_status === 'approved'
           ? 'Paid'
           : 'Unpaid'
-  document.getElementById('sur-detail-start').textContent = fmtSchedule(order.scheduled_start_at)
-  document.getElementById('sur-detail-end').textContent = fmtSchedule(order.scheduled_end_at)
+  document.getElementById('sur-detail-schedule-start').textContent = fmtSchedule(order.scheduled_start_at)
+  document.getElementById('sur-detail-schedule-end').textContent = fmtSchedule(order.scheduled_end_at)
   const notes = [
     order.payment_note ? `Payment note: ${order.payment_note}` : '',
     order.admin_decision_note ? `Admin: ${order.admin_decision_note}` : '',
@@ -356,19 +356,33 @@ function renderDetail(order) {
   if (endInput) endInput.value = toDatetimeLocal(order.scheduled_end_at)
 
   const action = na.action || ''
-  setBtnVisible('sur-detail-pay', ['pay'].includes(action))
-  setBtnVisible('sur-detail-start', action === 'start')
-  setBtnVisible('sur-detail-edit', order.is_live)
-  setBtnVisible('sur-detail-duplicate', true)
-  setBtnVisible('sur-detail-results', order.is_finished || order.status === 'running' || order.status === 'completed')
-  setBtnVisible('sur-detail-pause', action === 'pause')
-  setBtnVisible('sur-detail-resume', action === 'resume')
-  setBtnVisible(
-    'sur-detail-stop',
-    ['pause', 'resume', 'start', 'wait'].includes(action) &&
-      ['running', 'paused', 'scheduled', 'paid'].includes(order.status),
-  )
-  setBtnVisible('sur-detail-delete', order.is_live && !['running', 'paused'].includes(order.status))
+  const finished = Boolean(order.is_finished || order.status === 'completed')
+
+  if (finished) {
+    setBtnVisible('sur-detail-pay', false)
+    setBtnVisible('sur-detail-btn-start', false)
+    setBtnVisible('sur-detail-edit', false)
+    setBtnVisible('sur-detail-pause', false)
+    setBtnVisible('sur-detail-resume', false)
+    setBtnVisible('sur-detail-stop', false)
+    setBtnVisible('sur-detail-delete', false)
+    setBtnVisible('sur-detail-results', true)
+    setBtnVisible('sur-detail-duplicate', true)
+  } else {
+    setBtnVisible('sur-detail-pay', ['pay'].includes(action))
+    setBtnVisible('sur-detail-btn-start', action === 'start')
+    setBtnVisible('sur-detail-edit', order.is_live)
+    setBtnVisible('sur-detail-duplicate', true)
+    setBtnVisible('sur-detail-results', order.is_finished || order.status === 'running' || order.status === 'completed')
+    setBtnVisible('sur-detail-pause', action === 'pause')
+    setBtnVisible('sur-detail-resume', action === 'resume')
+    setBtnVisible(
+      'sur-detail-stop',
+      ['pause', 'resume', 'start', 'wait'].includes(action) &&
+        ['running', 'paused', 'scheduled', 'paid'].includes(order.status),
+    )
+    setBtnVisible('sur-detail-delete', order.is_live && !['running', 'paused'].includes(order.status))
+  }
 }
 
 export async function openSurveyDetail(orderId) {
@@ -440,7 +454,7 @@ function bindDetailActions() {
   document.getElementById('sur-detail-results')?.addEventListener('click', () => {
     if (typeof window.openSurveyResults === 'function') window.openSurveyResults(hub.selectedId)
   })
-  document.getElementById('sur-detail-start')?.addEventListener('click', () => {
+  document.getElementById('sur-detail-btn-start')?.addEventListener('click', () => {
     void detailAction('POST', '/start')
       .then(() => window.toast?.('Survey started — AI calls will begin in your schedule window', 'tg'))
       .catch((e) => window.toast?.(e.message, 'tr'))

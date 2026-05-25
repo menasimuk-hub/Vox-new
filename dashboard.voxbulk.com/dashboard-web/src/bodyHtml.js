@@ -590,8 +590,8 @@ const bodyHtml = `<div class="app" id="app">
             </div>
             <div class="g2" style="margin-top:12px">
               <div>
-                <div class="fg"><label>Schedule start</label><div id="sur-detail-start" class="muted">—</div></div>
-                <div class="fg"><label>Schedule end</label><div id="sur-detail-end" class="muted">—</div></div>
+                <div class="fg"><label>Schedule start</label><div id="sur-detail-schedule-start" class="muted">—</div></div>
+                <div class="fg"><label>Schedule end</label><div id="sur-detail-schedule-end" class="muted">—</div></div>
               </div>
               <div>
                 <div class="fg"><label>Notes &amp; history</label><div id="sur-detail-notes" class="muted" style="font-size:12px;line-height:1.6">—</div></div>
@@ -599,7 +599,7 @@ const bodyHtml = `<div class="app" id="app">
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px" id="sur-detail-actions">
               <button class="btn btng bsm" type="button" id="sur-detail-pay"><i class="ti ti-credit-card"></i>Pay</button>
-              <button class="btn btng bsm" type="button" id="sur-detail-start"><i class="ti ti-player-play"></i>Start survey</button>
+              <button class="btn btng bsm" type="button" id="sur-detail-btn-start"><i class="ti ti-player-play"></i>Start survey</button>
               <button class="btn bsm" type="button" id="sur-detail-edit"><i class="ti ti-edit"></i>Edit</button>
               <button class="btn bsm" type="button" id="sur-detail-duplicate"><i class="ti ti-copy"></i>Duplicate</button>
               <button class="btn bsm" type="button" id="sur-detail-results"><i class="ti ti-chart-bar"></i>View report</button>
@@ -654,7 +654,6 @@ const bodyHtml = `<div class="app" id="app">
         <div id="sur-results-empty" class="inf b" style="display:none"><i class="ti ti-info-circle"></i>Select a survey from the Surveys page to view results.</div>
         <div id="sur-results-content" style="display:none">
         <div class="sur-report">
-          <div class="sur-report-logo"><img src="/logo-dark.svg" class="logo-light" alt="VOXBULK" id="sur-report-logo-img"/><img src="/logo-light.svg" class="logo-dark" alt="VOXBULK" style="height:30px;width:auto"/><span class="sur-report-conf">Anonymous aggregate report · Confidential</span></div>
           <div class="sur-report-head">
             <div>
               <div class="sur-report-eyebrow" id="sur-report-company">—</div>
@@ -668,12 +667,17 @@ const bodyHtml = `<div class="app" id="app">
           </div>
           <div class="sur-report-split">
             <div class="sur-report-panel">
-              <div class="sur-report-panel-head"><div><div class="eyebrow">Block 01 — Loyalty</div><div class="title">Net Promoter Score</div></div><span class="sur-report-tag">Anonymous</span></div>
-              <div class="sur-report-panel-body sur-report-nps">
-                <div class="nps-score"><div class="big" id="sur-report-nps">—</div><div class="sub">/100 NPS</div></div>
-                <div class="nps-stat"><div class="val" id="sur-report-promoters">—</div><div class="lbl">Promoters</div></div>
-                <div class="nps-stat"><div class="val" id="sur-report-passives">—</div><div class="lbl">Passives</div></div>
-                <div class="nps-stat"><div class="val" id="sur-report-detractors">—</div><div class="lbl">Detractors</div></div>
+              <div class="sur-report-panel-head"><div><div class="eyebrow">Loyalty score</div><div class="title">Net Promoter Score</div></div><span class="sur-report-tag">Anonymous</span></div>
+              <div class="sur-report-panel-body">
+                <div class="sur-nps-cards">
+                  <div class="sur-nps-main-card">
+                    <div class="sur-nps-score"><span class="big" id="sur-report-nps">—</span><span class="sub">/ 100</span></div>
+                    <div class="sur-nps-mood" id="sur-report-nps-label">—</div>
+                  </div>
+                  <div class="sur-nps-mini-card is-promoter"><i class="ti ti-mood-smile"></i><div class="val" id="sur-report-promoters">—</div><div class="lbl">Promoters</div></div>
+                  <div class="sur-nps-mini-card is-passive"><i class="ti ti-mood-neutral"></i><div class="val" id="sur-report-passives">—</div><div class="lbl">Passives</div></div>
+                  <div class="sur-nps-mini-card is-detractor"><i class="ti ti-mood-sad"></i><div class="val" id="sur-report-detractors">—</div><div class="lbl">Detractors</div></div>
+                </div>
               </div>
             </div>
             <div class="sur-report-side">
@@ -696,12 +700,8 @@ const bodyHtml = `<div class="app" id="app">
             </div>
           </div>
           <div class="sur-report-panel">
-            <div class="sur-report-actions-head"><strong>Recommended actions</strong><span>Generated from anonymous survey findings</span></div>
+            <div class="sur-report-actions-head"><strong>Recommended actions</strong><span>AI suggestions based on your survey findings</span></div>
             <div class="sur-report-actions-grid" id="sur-results-recommendations"></div>
-          </div>
-          <div class="sur-report-panel">
-            <div class="sur-report-panel-head"><div><div class="eyebrow">Issues</div><div class="title">Top themes — AI ranked</div></div></div>
-            <div class="sur-report-panel-body" id="sur-results-problems"></div>
           </div>
           <div class="sur-report-foot">Individual names and transcripts are never shown in customer survey results.</div>
         </div>
