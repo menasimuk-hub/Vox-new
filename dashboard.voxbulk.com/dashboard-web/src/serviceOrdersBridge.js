@@ -3,6 +3,7 @@ import { surveyRespondedCount } from './surveyUtils.js'
 import {
   apiFetch,
   apiUploadFile,
+  apiUploadFiles,
   authErrorMessage,
   downloadAuthenticatedFile,
   getAccessToken,
@@ -47,6 +48,23 @@ const surveyLaunch = {
   agentsLoaded: false,
   selectedAgentId: null,
   agentManual: false,
+}
+
+const interviewLaunch = {
+  contactCount: 0,
+  contactCountKnown: false,
+  preview: [],
+  quote: null,
+  quoting: false,
+  quoteError: '',
+  interviewAgents: [],
+  agentsLoaded: false,
+  selectedAgentId: null,
+  draftOrderId: null,
+  recipients: [],
+  intakeSummary: null,
+  intakeLoading: false,
+  quoteStatusNote: '',
 }
 
 const LOG_SURVEY = '[survey]'
@@ -154,6 +172,470 @@ function renderSurveyAgentSelect() {
 
 function selectedSurveyAgent() {
   return surveyLaunch.surveyAgents.find((a) => String(a.id) === String(surveyLaunch.selectedAgentId)) || null
+}
+
+async function loadInterviewAgents() {
+  if (interviewLaunch.agentsLoaded && interviewLaunch.interviewAgents.length) return interviewLaunch.interviewAgents
+  try {
+    const data = await api('/service-orders/interview-agents')
+    interviewLaunch.interviewAgents = data?.agents || []
+    interviewLaunch.agentsLoaded = true
+    if (!interviewLaunch.selectedAgentId && interviewLaunch.interviewAgents.length) {
+      const preferred =
+        interviewLaunch.interviewAgents.find((a) => a.is_default_for_org) ||
+        interviewLaunch.interviewAgents.find((a) => a.is_platform_default) ||
+        interviewLaunch.interviewAgents[0]
+      interviewLaunch.selectedAgentId = preferred?.id || null
+    }
+    renderInterviewAgentSelect()
+    return interviewLaunch.interviewAgents
+  } catch {
+    const select = document.getElementById('int-agent-select')
+    if (select) select.innerHTML = '<option value="">No agents available</option>'
+    return []
+  }
+}
+
+function renderInterviewAgentSelect() {
+  const select = document.getElementById('int-agent-select')
+  if (!select) return
+  const agents = interviewLaunch.interviewAgents
+  if (!agents.length) {
+    select.innerHTML = '<option value="">No interview agents configured</option>'
+    return
+  }
+  select.innerHTML = agents
+    .map((agent) => {
+      const label = agent.voice_type_label
+        ? `${agent.voice_label} (${agent.voice_type_label})`
+        : agent.voice_label
+      const suffix = agent.is_default_for_org ? ' · your default' : agent.is_platform_default ? ' · default' : ''
+      return `<option value="${agent.id}"${String(agent.id) === String(interviewLaunch.selectedAgentId) ? ' selected' : ''}>${label}${suffix}</option>`
+    })
+    .join('')
+}
+
+function selectedInterviewAgent() {
+  return interviewLaunch.interviewAgents.find((a) => String(a.id) === String(interviewLaunch.selectedAgentId)) || null
+}
+
+function escHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function updateInterviewUploadUi(file, { contactCount = null, contactCountKnown = false } = {}) {
+  const zone = document.getElementById('int-upload-zone')
+  const label = document.getElementById('int-upload-filename')
+  if (label) {
+    if (file) {
+      const countText =
+        contactCountKnown && contactCount != null ? ` · ${contactCount} contacts` : ''
+      label.textContent = `Selected: ${file.name}${countText}`
+      label.style.display = 'block'
+    } else {
+      label.textContent = ''
+      label.style.display = 'none'
+    }
+  }
+  if (zone) zone.classList.toggle('has-file', Boolean(file))
+}
+
+function renderInterviewQuoteUi() {
+  const panel = document.getElementById('int-launch-pricing')
+  const countEl = document.getElementById('int-contact-count')
+  const previewWrap = document.getElementById('int-preview-table-wrap')
+  const breakdownEl = document.getElementById('int-quote-breakdown')
+  const totalEl = document.getElementById('int-quote-total')
+  const statusEl = document.getElementById('int-quote-status')
+  if (!panel) return
+
+  if (!state.interviewFile) {
+    panel.hidden = true
+    return
+  }
+
+  panel.hidden = false
+  if (countEl) {
+    countEl.textContent = interviewLaunch.contactCountKnown
+      ? `${interviewLaunch.contactCount} candidates uploaded`
+      : 'Contact count confirmed at checkout'
+  }
+
+  if (previewWrap) {
+    const rows = interviewLaunch.preview || []
+    previewWrap.innerHTML = rows.length
+      ? `<table class="res-table" style="font-size:11px;margin:0"><thead><tr><th>Name</th><th>Phone</th><th>Email</th></tr></thead><tbody>${rows
+          .map(
+            (r) =>
+              `<tr><td>${escHtml(r.name || '—')}</td><td>${escHtml(r.phone || '—')}</td><td>${escHtml(r.email || '—')}</td></tr>`,
+          )
+          .join('')}</tbody></table>`
+      : ''
+  }
+
+  if (interviewLaunch.quoting) {
+    if (statusEl) statusEl.textContent = 'Calculating quote…'
+    return
+  }
+
+  if (interviewLaunch.quoteError) {
+    if (breakdownEl) breakdownEl.innerHTML = ''
+    if (totalEl) totalEl.innerHTML = ''
+    if (statusEl) statusEl.textContent = interviewLaunch.quoteError
+    return
+  }
+
+  const quote = interviewLaunch.quote
+  if (!quote) {
+    if (breakdownEl) breakdownEl.innerHTML = ''
+    if (totalEl) totalEl.innerHTML = ''
+    if (statusEl) statusEl.textContent = 'Upload a contact list to see flat-rate pricing'
+    return
+  }
+
+  const perPerson = (quote.lines || []).find((l) => l.kind === 'per_person' || l.rule_type === 'per_person')
+  if (breakdownEl) {
+    breakdownEl.innerHTML = (quote.lines || [])
+      .map(
+        (line) =>
+          `<div class="sur-quote-line"><span>${escHtml(line.label || line.detail || 'Line item')}</span><strong>${fmtGbp(line.amount_pence)}</strong></div>`,
+      )
+      .join('')
+  }
+  if (totalEl) {
+    totalEl.innerHTML = `<span>Total due now</span><span>${quote.total_gbp || fmtGbp(quote.total_pence)}</span>`
+  }
+  if (statusEl) {
+    statusEl.textContent = interviewLaunch.quoteStatusNote
+      || (perPerson
+        ? `Flat rate · ${fmtGbp(perPerson.unit_price_pence || 0)} per candidate`
+        : 'Flat-rate interview pricing')
+  }
+}
+
+async function refreshInterviewPreviewQuote() {
+  if (!state.interviewFile) return
+  interviewLaunch.quoting = true
+  interviewLaunch.quoteError = ''
+  renderInterviewQuoteUi()
+  try {
+    const data = await apiUploadFile('/service-orders/recipients/preview', state.interviewFile, 'file', {
+      service_code: 'interview',
+      delivery: 'ai_call',
+    })
+    interviewLaunch.contactCount = Number(data?.recipient_count || 0)
+    interviewLaunch.contactCountKnown = true
+    interviewLaunch.preview = data?.preview || []
+    interviewLaunch.quote = data?.quote || null
+  } catch (e) {
+    interviewLaunch.quote = null
+    interviewLaunch.quoteError = e.message || 'Could not preview upload'
+    interviewLaunch.preview = []
+  } finally {
+    interviewLaunch.quoting = false
+    renderInterviewQuoteUi()
+  }
+}
+
+async function refreshInterviewQuoteFromDraft() {
+  const readyCount = interviewIntakeReadyCount()
+  const total = (interviewLaunch.recipients || []).length
+  if (!total) {
+    interviewLaunch.quote = null
+    renderInterviewQuoteUi()
+    return
+  }
+  interviewLaunch.quoting = true
+  interviewLaunch.quoteError = ''
+  renderInterviewQuoteUi()
+  try {
+    const quote = await api('/service-orders/quote', {
+      method: 'POST',
+      body: JSON.stringify({
+        service_code: 'interview',
+        recipient_count: readyCount || total,
+        options: { delivery: 'ai_call' },
+      }),
+    })
+    interviewLaunch.quote = quote
+    if (readyCount < total) {
+      interviewLaunch.quoteError = ''
+      interviewLaunch.quoteStatusNote = `${total - readyCount} candidate(s) missing phone — not included in quote until fixed`
+    } else {
+      interviewLaunch.quoteStatusNote = ''
+    }
+  } catch (e) {
+    interviewLaunch.quote = null
+    interviewLaunch.quoteError = e.message || 'Could not calculate quote'
+  } finally {
+    interviewLaunch.quoting = false
+    renderInterviewQuoteUi()
+  }
+}
+
+let interviewFileSelectToken = 0
+
+async function onInterviewFileSelected(file) {
+  const token = ++interviewFileSelectToken
+  updateInterviewUploadUi(file)
+  if (!file) {
+    state.interviewFile = null
+    return
+  }
+  state.interviewFile = file
+  try {
+    await uploadInterviewContactsFile(file)
+  } catch (e) {
+    if (token !== interviewFileSelectToken) return
+    window.toast?.(e?.message || 'Could not read contact file', 'tr')
+  }
+}
+
+function renderInterviewKpis(orders, credits) {
+  const creditsEl = document.getElementById('int-kpi-credits')
+  const creditsSub = document.getElementById('int-kpi-credits-sub')
+  const completedEl = document.getElementById('int-kpi-completed')
+  const completedSub = document.getElementById('int-kpi-completed-sub')
+  const balance = Number(credits?.interview_credits || 0)
+  if (creditsEl) creditsEl.textContent = String(balance)
+  if (creditsSub) creditsSub.textContent = balance === 1 ? 'promo credit' : 'promo credits'
+
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const completed = (orders || []).filter((o) => {
+    if (o.status !== 'completed') return false
+    const raw = o.completed_at || o.updated_at || o.created_at
+    if (!raw) return false
+    const dt = new Date(raw)
+    return !Number.isNaN(dt.getTime()) && dt >= monthStart
+  })
+  const recipients = completed.reduce((sum, o) => sum + Number(o.recipient_count || 0), 0)
+  const reached = completed.reduce((sum, o) => sum + Number(o.report?.completed || o.report?.reached || 0), 0)
+  const pct = recipients > 0 ? Math.round((reached / recipients) * 100) : 0
+
+  if (completedEl) completedEl.textContent = String(completed.length)
+  if (completedSub) {
+    completedSub.textContent =
+      completed.length && recipients
+        ? `${reached} of ${recipients} reached (${pct}%)`
+        : completed.length
+          ? `${recipients} candidates`
+          : 'No completed campaigns this month'
+  }
+}
+
+async function openInterviewResults(orderId) {
+  state.interviewOrderId = orderId
+  if (typeof window.goNav === 'function') window.goNav('results-i')
+
+  const bc = document.getElementById('int-results-bc-title')
+  const banner = document.getElementById('int-results-phase-banner')
+  const bannerText = document.getElementById('int-results-phase-banner-text')
+  const mockNote = document.getElementById('int-results-mock-note')
+
+  try {
+    const order = await api(`/service-orders/${encodeURIComponent(orderId)}`)
+    const title = order.title || 'Interview campaign'
+    if (bc) bc.textContent = title
+    if (banner) banner.style.display = 'flex'
+    if (bannerText) {
+      bannerText.textContent = `${title} — sample data shown until live call results are available (Phase 2).`
+    }
+    if (mockNote) mockNote.style.display = 'none'
+  } catch {
+    if (bc) bc.textContent = 'Interview campaign'
+    if (banner) banner.style.display = 'flex'
+    if (mockNote) mockNote.style.display = ''
+  }
+}
+
+function cvQualityBadge(quality) {
+  const q = String(quality || 'missing')
+  if (q === 'good') return '<span class="bdg bg">CV good</span>'
+  if (q === 'low_quality') return '<span class="bdg ba">CV low</span>'
+  if (q === 'corrupt') return '<span class="bdg br">CV error</span>'
+  return '<span class="bdg bb">No CV</span>'
+}
+
+function renderInterviewCandidateList() {
+  const panel = document.getElementById('int-candidate-panel')
+  const summaryEl = document.getElementById('int-intake-summary')
+  const tableWrap = document.getElementById('int-candidate-table-wrap')
+  const recipients = interviewLaunch.recipients || []
+  if (!panel || !tableWrap) return
+
+  if (!recipients.length) {
+    panel.hidden = true
+    return
+  }
+
+  panel.hidden = false
+  const summary = interviewLaunch.intakeSummary || {}
+  if (summaryEl) {
+    summaryEl.textContent = `${summary.total || recipients.length} candidates · ${summary.ready || 0} ready · ${summary.missing_phone || 0} need phone · ${summary.cv_good || 0} good CVs`
+  }
+
+  tableWrap.innerHTML = `<table class="res-table int-candidate-table" style="font-size:11.5px">
+    <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>CV</th><th>Issues</th><th></th></tr></thead>
+    <tbody>${recipients
+      .map((r) => {
+        const phoneCell = r.phone
+          ? `<button type="button" class="int-cell-btn" data-int-edit="${r.id}" data-field="phone">${escHtml(r.phone)}</button>`
+          : `<button type="button" class="int-cell-btn is-missing" data-int-edit="${r.id}" data-field="phone">Add phone</button>`
+        const emailCell = r.email
+          ? `<button type="button" class="int-cell-btn" data-int-edit="${r.id}" data-field="email">${escHtml(r.email)}</button>`
+          : `<button type="button" class="int-cell-btn is-missing" data-int-edit="${r.id}" data-field="email">Add email</button>`
+        const issues = (r.intake_errors || []).map((e) => escHtml(e)).join('<br/>') || '—'
+        return `<tr>
+          <td>${escHtml(r.name || '—')}</td>
+          <td>${phoneCell}</td>
+          <td>${emailCell}</td>
+          <td>${cvQualityBadge(r.cv_quality)}${r.cv_filename ? `<div class="muted" style="font-size:10px;margin-top:2px">${escHtml(r.cv_filename)}</div>` : ''}</td>
+          <td style="font-size:10.5px;color:var(--amb)">${issues}</td>
+          <td><button type="button" class="btn bsm btnr int-del-btn" data-int-del="${r.id}" title="Remove"><i class="ti ti-trash"></i></button></td>
+        </tr>`
+      })
+      .join('')}</tbody></table>`
+
+  tableWrap.querySelectorAll('[data-int-edit]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-int-edit')
+      const field = btn.getAttribute('data-field')
+      void editInterviewRecipientField(id, field)
+    })
+  })
+  tableWrap.querySelectorAll('[data-int-del]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const id = btn.getAttribute('data-int-del')
+      void deleteInterviewRecipient(id)
+    })
+  })
+
+  interviewLaunch.contactCount = recipients.length
+  interviewLaunch.contactCountKnown = true
+  void refreshInterviewQuoteFromDraft()
+}
+
+async function ensureInterviewDraftOrder() {
+  if (interviewLaunch.draftOrderId) return interviewLaunch.draftOrderId
+  const role = (document.getElementById('int-role')?.value || '').trim()
+  const criteria = (document.getElementById('int-criteria')?.value || '').trim()
+  const title = role || 'Interview draft'
+  const data = await api('/service-orders/interview/draft', {
+    method: 'POST',
+    body: JSON.stringify({ title, role, criteria }),
+  })
+  interviewLaunch.draftOrderId = data?.order?.id || null
+  state.interviewOrderId = interviewLaunch.draftOrderId
+  interviewLaunch.recipients = data?.recipients || []
+  interviewLaunch.intakeSummary = data?.summary || null
+  renderInterviewCandidateList()
+  return interviewLaunch.draftOrderId
+}
+
+async function uploadInterviewContactsFile(file) {
+  if (!file) return
+  interviewLaunch.intakeLoading = true
+  try {
+    const orderId = await ensureInterviewDraftOrder()
+    if (!orderId) throw new Error('Could not start interview draft')
+    const data = await apiUploadFile(`/service-orders/${orderId}/recipients/intake-contacts`, file, 'file')
+    interviewLaunch.recipients = data?.recipients || []
+    interviewLaunch.intakeSummary = data?.summary || null
+    state.interviewFile = file
+    updateInterviewUploadUi(file, {
+      contactCount: interviewLaunch.recipients.length,
+      contactCountKnown: true,
+    })
+    renderInterviewCandidateList()
+    window.toast?.(`Loaded ${interviewLaunch.recipients.length} candidates — fix any missing phones`, 'tg')
+  } catch (e) {
+    window.toast?.(e.message || 'Could not read contact file', 'tr')
+  } finally {
+    interviewLaunch.intakeLoading = false
+  }
+}
+
+async function uploadInterviewCvFiles(fileList) {
+  const files = Array.from(fileList || []).filter(Boolean)
+  if (!files.length) return
+  interviewLaunch.intakeLoading = true
+  const statusEl = document.getElementById('int-cv-upload-status')
+  if (statusEl) {
+    statusEl.style.display = 'block'
+    statusEl.textContent = `Scanning ${files.length} CV file(s)…`
+  }
+  try {
+    const orderId = await ensureInterviewDraftOrder()
+    if (!orderId) throw new Error('Could not start interview draft')
+    const data = await apiUploadFiles(`/service-orders/${orderId}/recipients/intake-cvs`, files, 'files')
+    interviewLaunch.recipients = data?.recipients || []
+    interviewLaunch.intakeSummary = data?.summary || null
+    renderInterviewCandidateList()
+    const parsed = data?.parsed_count || files.length
+    if (statusEl) {
+      statusEl.textContent = `Parsed ${parsed} CV(s) · ${interviewLaunch.recipients.length} candidates in list`
+    }
+    window.toast?.('CV scan complete — review the list and add any missing phones', 'tg')
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message || 'CV upload failed'
+    window.toast?.(e.message || 'Could not parse CV files', 'tr')
+  } finally {
+    interviewLaunch.intakeLoading = false
+  }
+}
+
+async function editInterviewRecipientField(recipientId, field) {
+  const orderId = interviewLaunch.draftOrderId
+  if (!orderId || !recipientId) return
+  const recipient = (interviewLaunch.recipients || []).find((r) => String(r.id) === String(recipientId))
+  const label = field === 'phone' ? 'Phone number' : 'Email'
+  const current = field === 'phone' ? recipient?.phone || '' : recipient?.email || ''
+  const value = window.prompt(`${label} for ${recipient?.name || 'candidate'}:`, current)
+  if (value === null) return
+  try {
+    const data = await api(`/service-orders/${orderId}/recipients/${recipientId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ [field]: value.trim() }),
+    })
+    interviewLaunch.recipients = data?.recipients || []
+    interviewLaunch.intakeSummary = data?.summary || null
+    renderInterviewCandidateList()
+  } catch (e) {
+    window.toast?.(e.message || 'Could not update candidate', 'tr')
+  }
+}
+
+async function deleteInterviewRecipient(recipientId) {
+  const orderId = interviewLaunch.draftOrderId
+  if (!orderId || !recipientId) return
+  if (!window.confirm('Remove this candidate from the list?')) return
+  try {
+    const data = await api(`/service-orders/${orderId}/recipients/${recipientId}`, { method: 'DELETE' })
+    interviewLaunch.recipients = data?.recipients || []
+    interviewLaunch.intakeSummary = data?.summary || null
+    renderInterviewCandidateList()
+    window.toast?.('Candidate removed', 'tw')
+  } catch (e) {
+    window.toast?.(e.message || 'Could not remove candidate', 'tr')
+  }
+}
+
+function interviewIntakeReadyCount() {
+  return (interviewLaunch.recipients || []).filter((r) => r.intake_ready).length
+}
+
+function bindInterviewLaunchUi() {
+  document.getElementById('int-agent-select')?.addEventListener('change', (e) => {
+    interviewLaunch.selectedAgentId = e.target.value || null
+  })
+
+  if (typeof window.updateIntWindow === 'function') window.updateIntWindow()
 }
 
 async function countContactsInFile(file) {
@@ -813,14 +1295,6 @@ function showSurveyValidationErrors(errors) {
   banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
 }
 
-function escHtml(text) {
-  return String(text ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
 async function offerSurveyPayment(order) {
   try {
     await loadPaymentOptions()
@@ -931,11 +1405,7 @@ function resetSurveyLaunchForm() {
 }
 
 function deliveryFromInterviewForm() {
-  const grp = document.getElementById('int-fmt-grp')
-  if (!grp) return 'ai_call'
-  const sel = grp.querySelector('.vo.sel')
-  const txt = (sel && sel.textContent ? sel.textContent : '').toLowerCase()
-  return txt.includes('zoom') ? 'zoom' : 'ai_call'
+  return 'ai_call'
 }
 
 function scriptModeFromButtons(serviceCode) {
@@ -1169,6 +1639,9 @@ async function generateServiceScript(serviceCode) {
     roleEl?.focus()
     return
   }
+  if (!isSurvey) {
+    await loadInterviewAgents()
+  }
 
   const generateBtn = document.getElementById(`${prefix}-ai-generate`)
   const regenBtn = document.getElementById(`${prefix}-ai-regen`)
@@ -1187,6 +1660,12 @@ async function generateServiceScript(serviceCode) {
   let agentId = ''
   if (isSurvey) {
     const agent = selectedSurveyAgent()
+    if (agent) {
+      agentId = agent.id
+      agentName = agent.name || agent.voice_label || ''
+    }
+  } else {
+    const agent = selectedInterviewAgent()
     if (agent) {
       agentId = agent.id
       agentName = agent.name || agent.voice_label || ''
@@ -1214,7 +1693,12 @@ async function generateServiceScript(serviceCode) {
         role: roleEl?.value || '',
         criteria: criteriaEl?.value || '',
         delivery: deliveryFromInterviewForm(),
-        client_context: clientCtx,
+        agent_id: agentId,
+        client_context: {
+          ...clientCtx,
+          agent_id: agentId,
+          assistant_name: agentName || clientCtx.assistant_name,
+        },
       }
 
   try {
@@ -1315,7 +1799,7 @@ function renderOrderRow(order) {
   const meta = `${order.recipient_count} contacts · ${order.quote_total_gbp}${order.payment_status === 'pending_approval' ? ' · payment pending' : ''}${dispatch}`
   const clickHandler =
     order.service_code === 'interview'
-      ? "goNav('results-i')"
+      ? `window.openInterviewResults('${order.id}')`
       : `window.openSurveyResults('${order.id}')`
   return `<div class="proj-row" onclick="${clickHandler}">
     <div class="proj-ic ci-b"><i class="ti ${icon}"></i></div>
@@ -1333,7 +1817,11 @@ async function loadOrdersIntoUi() {
     if (typeof window.reloadSurveyHub === 'function') {
       await window.reloadSurveyHub()
     }
-    const interviews = await api('/service-orders?service_code=interview')
+    const [interviews, credits] = await Promise.all([
+      api('/service-orders?service_code=interview'),
+      api('/service-orders/credits').catch(() => ({})),
+    ])
+    renderInterviewKpis(interviews, credits)
     const intHost = document.getElementById('int-live-orders')
     if (intHost) {
       const intRows = (interviews || []).slice(0, 8).map(renderOrderRow).join('')
@@ -1377,12 +1865,12 @@ async function duplicateSurveyOrder(orderId) {
 
 function bindUploads() {
   const intInput = document.getElementById('int-file-input')
-  const intZone = document.getElementById('int-upload-zone')
   const intTpl = document.getElementById('int-template-dl')
 
   if (intTpl) {
     intTpl.addEventListener('click', async (e) => {
       e.preventDefault()
+      e.stopPropagation()
       try {
         await downloadAuthenticatedFile('/service-orders/template.csv', 'voxbulk-contacts-template.csv')
       } catch (err) {
@@ -1390,14 +1878,16 @@ function bindUploads() {
       }
     })
   }
-  if (intZone && intInput) {
-    intZone.addEventListener('click', () => intInput.click())
+  if (intInput) {
     intInput.addEventListener('change', async () => {
-      state.interviewFile = intInput.files?.[0] || null
-      if (state.interviewFile) {
-        window.toast?.(`Selected ${state.interviewFile.name}`, 'tg')
-        await ingestRecipientFile(state.interviewFile, 'interview')
-      }
+      await onInterviewFileSelected(intInput.files?.[0] || null)
+    })
+  }
+  const intCvInput = document.getElementById('int-cv-input')
+  if (intCvInput) {
+    intCvInput.addEventListener('change', async () => {
+      await uploadInterviewCvFiles(intCvInput.files)
+      intCvInput.value = ''
     })
   }
 }
@@ -1591,7 +2081,7 @@ async function tryStartPaidOrder(serviceCode) {
     )
     if (!paid) return false
     await api(`/service-orders/${paid.id}/start`, { method: 'POST' })
-    window.toast?.('Campaign started — survey messages are being sent via Telnyx', 'tg')
+    window.toast?.('Campaign started — AI phone interviews will run in your calling window', 'tg')
     await loadOrdersIntoUi()
     return true
   } catch {
@@ -1607,9 +2097,25 @@ async function runOrderFlow(serviceCode) {
 
   const isSurvey = false
   if (await tryStartPaidOrder(serviceCode)) return
-  const file = isSurvey ? state.surveyFile : state.interviewFile
   const prefix = isSurvey ? 'sur' : 'int'
-  if (!file) {
+  const hasDraftList = (interviewLaunch.recipients || []).length > 0
+  const file = isSurvey ? state.surveyFile : state.interviewFile
+  if (!isSurvey && !hasDraftList && !file) {
+    window.toast?.('Upload a candidate list or CV files first', 'tr')
+    return
+  }
+  if (!isSurvey && hasDraftList) {
+    const ready = interviewIntakeReadyCount()
+    const total = interviewLaunch.recipients.length
+    if (ready === 0) {
+      window.toast?.('Add phone numbers for at least one candidate before launching', 'tr')
+      return
+    }
+    if (ready < total) {
+      window.toast?.(`${total - ready} candidate(s) still missing phone — add or delete them first`, 'tr')
+      return
+    }
+  } else if (!isSurvey && !file) {
     window.toast?.('Upload a CSV or Excel contact list first', 'tr')
     return
   }
@@ -1641,6 +2147,7 @@ async function runOrderFlow(serviceCode) {
         clinic_name: branding.organisation_name,
       }
     : {
+        role: document.getElementById('int-role')?.value || '',
         delivery: deliveryFromInterviewForm(),
         criteria: document.getElementById('int-criteria')?.value || '',
         script_mode: scriptModeFromButtons('interview'),
@@ -1659,16 +2166,25 @@ async function runOrderFlow(serviceCode) {
   }
 
   try {
-    let order = await api('/service-orders', {
-      method: 'POST',
-      body: JSON.stringify({ service_code: serviceCode, title, config }),
-    })
-    order = await uploadRecipients(order.id, file)
-    await api(`/service-orders/${order.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(sched),
-    })
-    order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+    let order
+    if (!isSurvey && interviewLaunch.draftOrderId) {
+      order = await api(`/service-orders/${interviewLaunch.draftOrderId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title, config, ...sched }),
+      })
+      order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+    } else {
+      order = await api('/service-orders', {
+        method: 'POST',
+        body: JSON.stringify({ service_code: serviceCode, title, config }),
+      })
+      order = await uploadRecipients(order.id, file)
+      await api(`/service-orders/${order.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(sched),
+      })
+      order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+    }
 
     const quoteText = (order.quote_breakdown || [])
       .map((l) => l.detail || l.label)
@@ -1720,6 +2236,7 @@ export function initServiceOrdersBridge() {
     void runSurveyLaunchFlow()
   }
   window.launchSurCampaign = () => runSurveyLaunchFlow()
+  window.openInterviewResults = openInterviewResults
   window.launchIntCampaign = async () => {
     await runOrderFlow('interview')
     const banner = document.getElementById('int-live-banner')
@@ -1736,6 +2253,7 @@ export function initServiceOrdersBridge() {
   bindUploads()
   bindScriptEditors()
   bindSurveyLaunchUi()
+  bindInterviewLaunchUi()
   wireHelpChat()
   wireAiButtons()
   syncWaPreviewHeader()
@@ -1744,7 +2262,9 @@ export function initServiceOrdersBridge() {
   loadOrdersIntoUi()
   void loadSurveyLaunchPackages().catch(() => {})
   void loadSurveyAgents().catch(() => {})
+  void loadInterviewAgents().catch(() => {})
   renderSurveyQuoteUi()
+  renderInterviewQuoteUi()
 }
 
 if (typeof window !== 'undefined') {

@@ -648,7 +648,7 @@ class ServiceOrderService:
         except Exception:
             result = {}
         analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
-        return {
+        out = {
             "id": recipient.id,
             "row_number": recipient.row_number,
             "name": recipient.name,
@@ -661,6 +661,19 @@ class ServiceOrderService:
             "short_summary": analysis.get("short_summary") or result.get("short_summary"),
             "created_at": recipient.created_at.isoformat() if recipient.created_at else None,
         }
+        if recipient.cv_quality is not None or recipient.cv_filename or recipient.intake_source:
+            from app.services.interview_intake_service import compute_intake_errors
+
+            out.update(
+                {
+                    "cv_quality": recipient.cv_quality or "missing",
+                    "cv_filename": recipient.cv_filename,
+                    "intake_source": recipient.intake_source,
+                    "intake_errors": compute_intake_errors(recipient),
+                    "intake_ready": bool(str(recipient.name or "").strip() and str(recipient.phone or "").strip()),
+                }
+            )
+        return out
 
     @staticmethod
     def order_audit_timeline(order: ServiceOrder) -> list[dict[str, Any]]:
@@ -1160,3 +1173,12 @@ class ServiceOrderService:
                 .order_by(ServiceOrderRecipient.row_number.asc())
             ).scalars()
         )
+
+    @staticmethod
+    def get_recipient(db: Session, order_id: str, recipient_id: str) -> ServiceOrderRecipient | None:
+        return db.execute(
+            select(ServiceOrderRecipient).where(
+                ServiceOrderRecipient.order_id == order_id,
+                ServiceOrderRecipient.id == recipient_id,
+            )
+        ).scalar_one_or_none()

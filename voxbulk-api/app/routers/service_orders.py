@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
@@ -87,6 +87,40 @@ def quote_preview(payload: dict, db: Session = Depends(get_db), _principal=Depen
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/recipients/preview")
+async def preview_recipients_file(
+    file: UploadFile = File(...),
+    service_code: str = Form("interview"),
+    delivery: str = Form("ai_call"),
+    db: Session = Depends(get_db),
+    _principal=Depends(get_current_principal),
+):
+    content = await file.read()
+    try:
+        rows = ServiceOrderService.parse_recipient_file(content, file.filename or "upload.csv")
+        if not rows:
+            raise ValueError("No valid contacts found in file")
+        code = str(service_code or "interview").strip().lower()
+        options: dict = {}
+        if code == "interview":
+            options["delivery"] = str(delivery or "ai_call").strip().lower()
+        quote = PlatformCatalogService.calculate_quote(
+            db,
+            service_code=code,
+            recipient_count=len(rows),
+            options=options,
+        )
+        preview = [{"name": r.get("name") or "", "phone": r.get("phone") or "", "email": r.get("email") or ""} for r in rows[:8]]
+        return {
+            "ok": True,
+            "recipient_count": len(rows),
+            "preview": preview,
+            "quote": quote,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("")
 def list_my_orders(
     service_code: str | None = None,
@@ -121,6 +155,165 @@ def list_survey_agents_for_dashboard(db: Session = Depends(get_db), principal=De
     return {
         "agents": list_dashboard_agents_for_service(db, service_key=SERVICE_SURVEY, org_id=principal.org_id),
     }
+
+
+@router.get("/interview-agents")
+def list_interview_agents_for_dashboard(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.survey_voice_agent_service import list_dashboard_agents_for_service
+    from app.core.agent_services import SERVICE_INTERVIEW
+
+    return {
+        "agents": list_dashboard_agents_for_service(db, service_key=SERVICE_INTERVIEW, org_id=principal.org_id),
+    }
+
+
+@router.post("/interview/draft")
+def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.interview_intake_service import ensure_interview_draft_order, intake_summary, list_intake_recipients
+
+    order = ensure_interview_draft_order(
+        db,
+        org_id=principal.org_id,
+        user_id=principal.user_id,
+        title=str(payload.get("title") or "Interview draft"),
+        role=str(payload.get("role") or ""),
+        criteria=str(payload.get("criteria") or ""),
+    )
+    recipients = list_intake_recipients(db, order)
+    return {
+        "order": ServiceOrderService.order_to_dict(order),
+        "recipients": recipients,
+        "summary": intake_summary(recipients),
+    }
+
+
+@router.get("/{order_id}/recipients")
+def list_order_recipients(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.interview_intake_service import intake_summary, list_intake_recipients
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipients = list_intake_recipients(db, order)
+    return {"recipients": recipients, "summary": intake_summary(recipients)}
+
+
+@router.post("/{order_id}/recipients/intake-contacts")
+async def intake_contacts_file(
+    order_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_intake_service import (
+        intake_contacts_csv,
+        intake_summary,
+        list_intake_recipients,
+        parse_contacts_csv_relaxed_from_bytes,
+    )
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    content = await file.read()
+    try:
+        rows = parse_contacts_csv_relaxed_from_bytes(content, file.filename or "upload.csv")
+        if not rows:
+            raise ValueError("No contacts found in file")
+        order = intake_contacts_csv(db, order, rows)
+        recipients = list_intake_recipients(db, order)
+        return {"order": ServiceOrderService.order_to_dict(order), "recipients": recipients, "summary": intake_summary(recipients)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/recipients/intake-cvs")
+async def intake_cv_uploads(
+    order_id: str,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_intake_service import intake_cv_files
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if not files:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload at least one CV file")
+    payload: list[tuple[str, bytes]] = []
+    for upload in files:
+        payload.append((upload.filename or "cv.pdf", await upload.read()))
+    try:
+        result = intake_cv_files(db, order, payload)
+        order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+        result["order"] = ServiceOrderService.order_to_dict(order)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.patch("/{order_id}/recipients/{recipient_id}")
+def patch_recipient(
+    order_id: str,
+    recipient_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_intake_service import list_intake_recipients, recipient_intake_dict, update_intake_recipient
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = ServiceOrderService.get_recipient(db, order.id, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    try:
+        if order.service_code == "interview":
+            updated = update_intake_recipient(db, order, recipient, payload or {})
+            recipients = list_intake_recipients(db, order)
+            from app.services.interview_intake_service import intake_summary
+
+            return {
+                "recipient": recipient_intake_dict(updated),
+                "recipients": recipients,
+                "summary": intake_summary(recipients),
+            }
+        updated = ServiceOrderService.update_recipient(db, order, recipient, payload or {})
+        return {"recipient": ServiceOrderService.recipient_to_dict(updated)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.delete("/{order_id}/recipients/{recipient_id}")
+def remove_recipient(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_intake_service import delete_intake_recipient, intake_summary, list_intake_recipients
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = ServiceOrderService.get_recipient(db, order.id, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    try:
+        if order.service_code == "interview":
+            order = delete_intake_recipient(db, order, recipient)
+            recipients = list_intake_recipients(db, order)
+            return {
+                "ok": True,
+                "order": ServiceOrderService.order_to_dict(order),
+                "recipients": recipients,
+                "summary": intake_summary(recipients),
+            }
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Delete is only supported for interview intake")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/{order_id}")

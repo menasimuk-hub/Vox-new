@@ -698,6 +698,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sur-quote-total{display:flex;justify-content:space-between;align-items:center;padding-top:8px;margin-top:4px;border-top:1.5px solid var(--b2);font-size:12px;font-weight:700;color:var(--t1)}
 .sur-quote-total span:last-child{font-size:16px;color:var(--grn)}
 .sur-quote-status{font-size:11px;margin-top:6px;min-height:14px}
+.int-cell-btn{background:none;border:none;padding:0;color:var(--t1);font-size:inherit;cursor:pointer;text-align:left;text-decoration:underline dotted var(--t3)}
+.int-cell-btn.is-missing{color:var(--amb);font-weight:600}
+.int-candidate-table .btnr{padding:4px 7px}
 
 /* ─── PRICING TOGGLE ─── */
 .tgl-r{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px}

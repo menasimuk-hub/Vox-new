@@ -180,11 +180,20 @@ export async function apiFetch(path, options = {}) {
   return data
 }
 
-export async function apiUploadFile(path, file, fieldName = 'file') {
+export async function apiUploadFile(path, file, fieldName = 'file', extraFields = {}) {
+  return apiUploadFiles(path, [file], fieldName, extraFields)
+}
+
+export async function apiUploadFiles(path, files, fieldName = 'files', extraFields = {}) {
   const baseUrl = getApiBaseUrl()
   const url = baseUrl ? `${baseUrl}${path}` : path
   const fd = new FormData()
-  fd.append(fieldName, file)
+  ;(files || []).forEach((file) => {
+    if (file) fd.append(fieldName, file)
+  })
+  Object.entries(extraFields || {}).forEach(([key, value]) => {
+    if (value != null) fd.append(key, String(value))
+  })
   const headers = buildAuthHeaders()
   const res = await requestFetch(url, { method: 'POST', headers, body: fd })
   const text = await res.text()

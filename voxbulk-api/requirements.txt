@@ -22,4 +22,6 @@ truststore
 openpyxl
 fpdf2
 weasyprint==68.1
+pymupdf==1.24.14
+python-docx==1.1.2
 azure-cognitiveservices-speech

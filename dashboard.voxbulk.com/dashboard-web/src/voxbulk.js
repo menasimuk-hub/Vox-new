@@ -115,6 +115,11 @@ function stab(id,el){
 // ── BOOKING SYSTEM SELECTOR ──
 var credForms=['apikey','multi','userpass','oauth','standalone'];
 function selSys(el,type){
+  var nameEl=el.querySelector('.sn');
+  var name=nameEl?nameEl.textContent:'';
+  if(name.indexOf('Calendly')>=0||name.indexOf('Cronofy')>=0){
+    toast('Scheduling integration coming soon — Phase 5','tw');
+  }
   document.querySelectorAll('.sysb').forEach(s=>s.classList.remove('sel'));
   el.classList.add('sel');
   credForms.forEach(function(f){var e2=document.getElementById('cred-'+f);if(e2)e2.style.display='none';});
@@ -255,6 +260,10 @@ function togglePlay(){
   if(ic) ic.className=playing?'ti ti-player-pause':'ti ti-player-play';
 }
 
+function intFmtSoon(){
+  toast('Zoom interviews coming in Phase 5 — phone calls only for now','tw');
+}
+
 // ── INTERVIEW WINDOW PREVIEW ──
 function updateIntWindow(){
   var sd=document.getElementById('int-start-date');
@@ -262,14 +271,21 @@ function updateIntWindow(){
   var ed=document.getElementById('int-end-date');
   var et=document.getElementById('int-end-time');
   var prev=document.getElementById('int-window-preview');
+  var tzHint=document.getElementById('int-window-tz-hint');
   if(!sd||!prev) return;
+  var tz='';
+  try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'';}catch(e){}
+  if(tzHint){
+    tzHint.textContent=tz?'Times are in your local timezone ('+tz+').':'Times use your browser local timezone.';
+  }
   if(sd.value&&ed.value){
     prev.style.display='flex';
-    document.getElementById('int-window-text').textContent='Calling window: '+sd.value+' at '+st.value+' → '+ed.value+' at '+et.value+'. AI stops automatically.';
+    document.getElementById('int-window-text').textContent='Calling window: '+sd.value+' at '+(st&&st.value?st.value:'09:00')+' → '+ed.value+' at '+(et&&et.value?et.value:'17:00')+'. AI stops automatically.';
   } else {
     prev.style.display='none';
   }
 }
+window.intFmtSoon=intFmtSoon;
 
 // ── SURVEY WINDOW PREVIEW ──
 function updateSurWindow(){

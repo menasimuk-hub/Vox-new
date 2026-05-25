@@ -231,8 +231,8 @@ const bodyHtml = `<div class="app" id="app">
           <button class="btn bsm btnr" onclick="showConfirm('Stop this campaign?','This will immediately halt all outbound AI calls. Calls already connected will finish naturally.','Stop campaign',function(){toast('Campaign stopped','ta');document.getElementById(\\'int-live-banner\\').style.display=\\'none\\';})"><i class="ti ti-player-stop"></i>Stop</button>
         </div>
         <div class="kg2" style="margin-bottom:12px">
-          <div class="kpi"><div class="kl">Credits remaining</div><div class="kv">0</div><div class="kd ne">of 0 bundle</div></div>
-          <div class="kpi"><div class="kl">Completed this month</div><div class="kv">0</div><div class="kd ne">0% reached</div></div>
+          <div class="kpi"><div class="kl">Credits remaining</div><div class="kv" id="int-kpi-credits">—</div><div class="kd ne" id="int-kpi-credits-sub">Loading…</div></div>
+          <div class="kpi"><div class="kl">Completed this month</div><div class="kv" id="int-kpi-completed">—</div><div class="kd ne" id="int-kpi-completed-sub">—</div></div>
         </div>
         <!-- ACTIVE PROJECTS -->
         <div class="card">
@@ -249,12 +249,26 @@ const bodyHtml = `<div class="app" id="app">
         <!-- NEW CAMPAIGN FORM -->
         <div class="card">
           <div class="ch"><i class="ti ti-upload grn"></i>New interview campaign</div>
-          <div class="standalone-upload" id="int-upload-zone" style="margin-bottom:12px;cursor:pointer"><i class="ti ti-file-spreadsheet" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Drop Excel / CSV · Required: name, phone · Optional: email<br/><a href="#" id="int-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a><input type="file" id="int-file-input" accept=".csv,.xlsx,.xls" style="display:none"/></div>
+          <div class="sur-launch-note"><i class="ti ti-phone"></i> AI phone interviews · Phase 2 — upload candidates before script approval</div>
+          <input type="file" id="int-file-input" accept=".csv,.xlsx,.xls" hidden/>
+          <input type="file" id="int-cv-input" accept=".pdf,.docx,.doc,.zip" multiple hidden/>
+          <div class="fg2" style="margin-bottom:8px">
+            <div class="standalone-upload" id="int-upload-zone" style="margin-bottom:0;cursor:pointer"><label for="int-file-input" class="sur-upload-trigger" style="cursor:pointer;display:block"><i class="ti ti-file-spreadsheet" style="font-size:22px;display:block;margin-bottom:6px;color:var(--t3)"></i>CSV / Excel list<br/><span class="muted" style="font-size:11px">name required · phone optional until you fix the list</span></label><a href="#" id="int-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download template</a></div>
+            <div class="standalone-upload" id="int-cv-upload-zone" style="margin-bottom:0;cursor:pointer"><label for="int-cv-input" class="sur-upload-trigger" style="cursor:pointer;display:block"><i class="ti ti-file-text" style="font-size:22px;display:block;margin-bottom:6px;color:var(--t3)"></i>CV files<br/><span class="muted" style="font-size:11px">PDF, DOCX, or ZIP · parsed with PyMuPDF</span></label></div>
+          </div>
+          <div id="int-upload-filename" class="muted" style="font-size:11px;margin-bottom:8px;display:none"></div>
+          <div id="int-cv-upload-status" class="muted" style="font-size:11px;margin-bottom:12px;display:none"></div>
+          <div id="int-candidate-panel" class="sur-launch-pricing" style="margin-bottom:12px" hidden>
+            <div class="sur-launch-pricing-head"><i class="ti ti-users"></i> Candidate list — click phone or email to add · no scores yet</div>
+            <div id="int-intake-summary" class="sur-launch-meta muted" style="margin-bottom:8px"></div>
+            <div id="int-candidate-table-wrap" style="overflow-x:auto"></div>
+          </div>
           <div class="fg"><label>Role / position</label><input id="int-role" placeholder="e.g. Senior Software Engineer · London"/></div>
+          <div class="fg" id="int-agent-field" style="margin-bottom:10px"><label>AI voice agent</label><select id="int-agent-select"><option value="">Loading agents…</option></select><div class="muted" style="font-size:11px;margin-top:4px">Voice used on screening calls — no technical IDs shown to candidates.</div></div>
           <div class="fg"><label>Interview format</label>
             <div style="display:flex;gap:7px" id="int-fmt-grp">
-              <div class="vo sel" onclick="selFmt(this,'int-fmt-grp')" style="padding:9px">Phone call<small>AI calls candidate</small></div>
-              <div class="vo" onclick="selFmt(this,'int-fmt-grp')" style="padding:9px">Zoom<small>AI sends link + books</small></div>
+              <div class="vo sel" style="padding:9px">Phone call<small>AI calls candidate</small></div>
+              <div class="vo is-disabled" id="int-fmt-zoom" onclick="intFmtSoon()" style="padding:9px;opacity:.5;cursor:not-allowed" title="Coming in Phase 5">Zoom<small>Coming soon</small></div>
             </div>
           </div>
           <div class="fg"><label>Screening criteria (AI generates questions from this)</label><textarea id="int-criteria" rows="2" style="resize:none" placeholder="e.g. Check 2+ years React, comfortable remote, available in 2 weeks, salary expectation"></textarea></div>
@@ -283,6 +297,15 @@ const bodyHtml = `<div class="app" id="app">
             <div id="int-window-preview" style="display:none;margin-top:10px;background:var(--gd);border-radius:8px;padding:8px 11px;font-size:11.5px;color:var(--grn);font-weight:500;align-items:center;gap:7px">
               <i class="ti ti-check"></i><span id="int-window-text"></span>
             </div>
+            <div id="int-window-tz-hint" class="muted" style="font-size:11px;margin-top:8px"></div>
+          </div>
+          <div id="int-launch-pricing" class="sur-launch-pricing" hidden>
+            <div class="sur-launch-pricing-head"><i class="ti ti-receipt"></i> Package &amp; pricing</div>
+            <div id="int-contact-count" class="sur-launch-meta muted"></div>
+            <div id="int-preview-table-wrap" style="margin-bottom:8px;overflow-x:auto"></div>
+            <div id="int-quote-breakdown" class="sur-quote-breakdown"></div>
+            <div id="int-quote-total" class="sur-quote-total"></div>
+            <div id="int-quote-status" class="sur-quote-status muted"></div>
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btng bsm" type="button" id="int-ai-generate"><i class="ti ti-sparkles"></i>Generate AI questions</button>
@@ -450,8 +473,10 @@ const bodyHtml = `<div class="app" id="app">
         <div class="breadcrumb">
           <span class="bc-link" onclick="goNav('interviews')"><i class="ti ti-briefcase" style="font-size:11px"></i> Interviews</span>
           <span class="bc-sep">›</span>
-          <span class="bc-cur">Senior Engineer · May 2026</span>
+          <span class="bc-cur" id="int-results-bc-title">Select a campaign</span>
         </div>
+        <div id="int-results-phase-banner" class="inf b" style="display:none;margin-bottom:12px"><i class="ti ti-info-circle"></i><span id="int-results-phase-banner-text">Sample data shown until live call results are available (Phase 2).</span></div>
+        <div id="int-results-mock-note" class="muted" style="font-size:11.5px;margin-bottom:12px">Sample candidate data below — connect a project from Interviews to see the campaign name in the breadcrumb.</div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <button class="btn bsm" onclick="goNav('interviews')"><i class="ti ti-arrow-left"></i>Back to interviews</button>
           <div style="display:flex;gap:8px"><button class="btn btng bsm"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm"><i class="ti ti-table"></i>Export CSV</button></div>
@@ -819,8 +844,8 @@ const bodyHtml = `<div class="app" id="app">
             </div>
             <div class="cred-form" id="cred-oauth" style="display:none">
               <div class="cred-title"><i class="ti ti-shield-check" style="font-size:14px"></i>OAuth 2.0 — authorise via browser</div>
-              <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Click below to open the authorisation page. You'll be redirected back automatically after granting access. No password is stored.</p>
-              <button class="btn btng"><i class="ti ti-external-link"></i>Connect with OAuth →</button>
+              <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Calendly / Cronofy scheduling will be available in a later release. Click below to open the authorisation page when enabled.</p>
+              <button class="btn btng" type="button" disabled title="Coming soon — Phase 5"><i class="ti ti-external-link"></i>Connect with OAuth →</button>
             </div>
             <div class="cred-form" id="cred-standalone" style="display:none">
               <div class="cred-title"><i class="ti ti-upload" style="font-size:14px"></i>Standalone mode — no booking system needed</div>
