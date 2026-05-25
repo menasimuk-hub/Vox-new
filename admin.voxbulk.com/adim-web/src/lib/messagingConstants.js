@@ -235,6 +235,7 @@ export const MESSAGING_TABS = [
   { id: 'whatsapp', label: 'WhatsApp templates', icon: 'ti-brand-whatsapp' },
   { id: 'sms', label: 'SMS templates', icon: 'ti-message' },
   { id: 'smtp', label: 'SMTP settings', icon: 'ti-server' },
+  { id: 'careers', label: 'Career mailbox', icon: 'ti-inbox' },
 ]
 
 export const DEFAULT_NEW_EMAIL_HTML = `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;">

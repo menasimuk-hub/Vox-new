@@ -17,6 +17,48 @@ from app.services.platform_catalog_service import ServiceOrderService
 MATCH_THRESHOLD = 0.82
 
 
+def _norm_phone(value: str | None) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def _norm_email(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
+def _norm_name(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
+def find_duplicate_recipient(
+    recipients: list[ServiceOrderRecipient],
+    *,
+    name: str | None,
+    phone: str | None,
+    email: str | None,
+) -> ServiceOrderRecipient | None:
+    """Match if any of name, email, or phone matches — used to replace stale rows."""
+    np = _norm_phone(phone)
+    ne = _norm_email(email)
+    nn = _norm_name(name)
+    for r in recipients:
+        if np and _norm_phone(r.phone) == np:
+            return r
+        if ne and _norm_email(r.email) == ne:
+            return r
+        if nn and len(nn) >= 2 and _norm_name(r.name) == nn:
+            return r
+    return None
+
+
+def _remove_recipient(db: Session, recipient: ServiceOrderRecipient, recipients: list[ServiceOrderRecipient]) -> None:
+    from app.services.career_cv_storage_service import delete_cv_file
+
+    delete_cv_file(recipient.cv_storage_key)
+    db.delete(recipient)
+    if recipient in recipients:
+        recipients.remove(recipient)
+
+
 def _loads_json(raw: str | None) -> Any:
     try:
         return json.loads(raw or "")
@@ -70,6 +112,7 @@ def recipient_intake_dict(recipient: ServiceOrderRecipient) -> dict[str, Any]:
             "intake_ready": ready,
             "cv_skills": parsed.get("skills") or [],
             "cv_job_titles": parsed.get("job_titles") or [],
+            "has_cv_file": bool(recipient.cv_storage_key or recipient.cv_filename),
         }
     )
     return base
@@ -139,13 +182,15 @@ def ensure_interview_draft_order(
             db.add(order)
             db.commit()
             db.refresh(order)
-        return order
+        from app.services.interview_reference_service import ensure_order_reference_id
+
+        return ensure_order_reference_id(db, order)
     config: dict[str, Any] = {}
     if role:
         config["role"] = role
     if criteria:
         config["criteria"] = criteria
-    return ServiceOrderService.create_order(
+    order = ServiceOrderService.create_order(
         db,
         org_id=org_id,
         user_id=user_id,
@@ -153,6 +198,9 @@ def ensure_interview_draft_order(
         title=title.strip() or "Interview draft",
         config=config,
     )
+    from app.services.interview_reference_service import ensure_order_reference_id
+
+    return ensure_order_reference_id(db, order)
 
 
 def _apply_parsed_cv(recipient: ServiceOrderRecipient, parsed: ParsedCv, *, merge: bool) -> None:
@@ -426,6 +474,51 @@ def parse_contacts_csv_relaxed_from_bytes(content: bytes, filename: str) -> list
     return out
 
 
+def intake_email_cv_for_order(
+    db: Session,
+    order: ServiceOrder,
+    *,
+    parsed: ParsedCv,
+    storage_key: str,
+    sender_email: str | None = None,
+) -> ServiceOrder:
+    _assert_interview_draft(order)
+    recipients = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars())
+    email_val = parsed.email or sender_email
+    dup = find_duplicate_recipient(recipients, name=parsed.name, phone=parsed.phone, email=email_val)
+    if dup:
+        _remove_recipient(db, dup, recipients)
+
+    display_name = (parsed.name or name_from_filename(parsed.filename)).strip() or "Unknown"
+    recipient = ServiceOrderRecipient(
+        order_id=order.id,
+        row_number=len(recipients) + 1,
+        name=display_name,
+        phone=parsed.phone or None,
+        email=email_val or None,
+        status="pending",
+        cv_quality=parsed.quality,
+        cv_filename=parsed.filename,
+        cv_text=parsed.text or None,
+        cv_parsed_json=_dumps_json(parsed.to_dict()),
+        intake_errors_json=_dumps_json(parsed.errors),
+        intake_source="email",
+        cv_storage_key=storage_key,
+    )
+    db.add(recipient)
+    recipients.append(recipient)
+    db.flush()
+    for i, r in enumerate(recipients, start=1):
+        r.row_number = i
+        db.add(r)
+    order.recipient_count = len(recipients)
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
+
+
 def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, bytes]]) -> dict[str, Any]:
     _assert_interview_draft(order)
     parsed_list = parse_uploaded_cv_files(files)
@@ -434,9 +527,23 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
     created = 0
 
     for parsed in parsed_list:
+        raw_file = next((f for f in files if f[0] == parsed.filename), None)
+        dup = find_duplicate_recipient(recipients, name=parsed.name, phone=parsed.phone, email=parsed.email)
+        if dup:
+            _remove_recipient(db, dup, recipients)
+
         match = _find_match(recipients, parsed)
         if match:
+            if raw_file:
+                from app.services.career_cv_storage_service import delete_cv_file, save_cv_bytes, storage_key_for
+
+                delete_cv_file(match.cv_storage_key)
+                key = storage_key_for(org_id=order.org_id, order_id=order.id, filename=parsed.filename)
+                save_cv_bytes(storage_key=key, content=raw_file[1])
+                match.cv_storage_key = key
             _apply_parsed_cv(match, parsed, merge=True)
+            if match.intake_source in {None, "csv"}:
+                match.intake_source = "merged"
             db.add(match)
             continue
 
@@ -459,6 +566,12 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
             intake_errors_json=_dumps_json(parsed.errors),
             intake_source="cv",
         )
+        if raw_file:
+            from app.services.career_cv_storage_service import save_cv_bytes, storage_key_for
+
+            key = storage_key_for(org_id=order.org_id, order_id=order.id, filename=parsed.filename)
+            save_cv_bytes(storage_key=key, content=raw_file[1])
+            recipient.cv_storage_key = key
         db.add(recipient)
         recipients.append(recipient)
         created += 1
@@ -547,6 +660,9 @@ def delete_intake_recipient(db: Session, order: ServiceOrder, recipient: Service
     _assert_interview_draft(order)
     if recipient.order_id != order.id:
         raise ValueError("Recipient does not belong to this order")
+    from app.services.career_cv_storage_service import delete_cv_file
+
+    delete_cv_file(recipient.cv_storage_key)
     db.delete(recipient)
     remaining = list(
         db.execute(

@@ -941,6 +941,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .int-row-menu a:hover,.int-row-menu button:hover{background:var(--gd);color:var(--grn)}
 .int-row-menu a.wa:hover{color:#25D366;background:rgba(37,211,102,.12)}
 .int-row-menu a.disabled,.int-row-menu button.disabled{opacity:.35;pointer-events:none}
+.int-ref-card-wrap .int-ref-head{font-size:13px;font-weight:600;color:var(--t2);margin-bottom:8px}
+.int-ref-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.int-ref-code{font-size:15px;font-weight:800;color:var(--grn);background:var(--s1);padding:6px 12px;border-radius:8px;border:1px solid var(--b2);letter-spacing:.04em}
+.int-ref-hint{font-size:10.5px;color:var(--t3);line-height:1.55;margin:0}
 .sur-agg-block{margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--b1)}
 .sur-agg-block:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
 .sur-agg-q{font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px}

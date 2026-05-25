@@ -606,6 +606,7 @@ class ServiceOrderService:
             "user_id": order.user_id,
             "service_code": order.service_code,
             "title": order.title,
+            "reference_id": order.reference_id,
             "status": order.status,
             "payment_status": order.payment_status,
             "recipient_count": order.recipient_count,
@@ -635,6 +636,10 @@ class ServiceOrderService:
             out["is_live"] = ServiceOrderService.is_live_survey(order)
             out["is_finished"] = ServiceOrderService.is_finished_survey(order)
             out["audit_timeline"] = ServiceOrderService.order_audit_timeline(order)
+        if order.service_code == "interview":
+            out["is_live"] = ServiceOrderService.is_live_interview(order)
+            out["is_finished"] = ServiceOrderService.is_finished_interview(order)
+            out["status_label"] = ServiceOrderService.interview_status_label(order)
         return out
 
     @staticmethod
@@ -671,6 +676,7 @@ class ServiceOrderService:
                     "intake_source": recipient.intake_source,
                     "intake_errors": compute_intake_errors(recipient),
                     "intake_ready": bool(str(recipient.name or "").strip() and str(recipient.phone or "").strip()),
+                    "has_cv_file": bool(recipient.cv_storage_key or recipient.cv_filename),
                 }
             )
         return out
@@ -765,6 +771,32 @@ class ServiceOrderService:
             "failed_payments": failed_pay,
             "pending_payment_approval": pending,
         }
+
+    @staticmethod
+    def is_finished_interview(order: ServiceOrder) -> bool:
+        return order.service_code == "interview" and order.status in {"completed", "cancelled"}
+
+    @staticmethod
+    def is_live_interview(order: ServiceOrder) -> bool:
+        return order.service_code == "interview" and not ServiceOrderService.is_finished_interview(order)
+
+    @staticmethod
+    def interview_status_label(order: ServiceOrder) -> str:
+        if order.status == "running":
+            return "Live"
+        if order.status == "completed":
+            return "Completed"
+        if order.status == "cancelled":
+            return "Cancelled"
+        if order.payment_status == "pending_approval":
+            return "Awaiting payment"
+        if order.status in {"quoted", "awaiting_payment"}:
+            return "Quoted"
+        if order.status == "scheduled":
+            return "Scheduled"
+        if order.status == "draft":
+            return "Draft"
+        return order.status or "—"
 
     @staticmethod
     def is_finished_survey(order: ServiceOrder) -> bool:
@@ -965,6 +997,10 @@ class ServiceOrderService:
         db.add(order)
         db.commit()
         db.refresh(order)
+        if service_code == "interview":
+            from app.services.interview_reference_service import ensure_order_reference_id
+
+            order = ensure_order_reference_id(db, order)
         return order
 
     @staticmethod

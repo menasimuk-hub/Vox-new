@@ -18,6 +18,7 @@ class ServiceOrder(Base):
 
     service_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # survey | interview
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    reference_id: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft", index=True)
     payment_status: Mapped[str] = mapped_column(String(32), nullable=False, default="unpaid", index=True)
 
@@ -59,4 +60,5 @@ class ServiceOrderRecipient(Base):
     cv_parsed_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     intake_errors_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     intake_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cv_storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

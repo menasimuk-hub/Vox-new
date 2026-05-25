@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.admin_rbac import CAP_EMAIL, require_cap
 from app.schemas.email_admin import (
+    CareerMailboxSettingsUpdate,
     EmailTemplateCreate,
     EmailTemplateTestSendRequest,
     EmailTemplateUpdate,
@@ -70,6 +71,58 @@ def post_smtp_test_send(
     except SmtpMailerError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return {"ok": True, "detail": f"Test email sent to {payload.to}."}
+
+
+@router.get("/career-mailbox")
+def get_career_mailbox_settings(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.career_mailbox_settings_service import CareerMailboxSettingsService
+
+    row = CareerMailboxSettingsService.get_row(db)
+    return CareerMailboxSettingsService.to_public_dict(db, row)
+
+
+@router.put("/career-mailbox")
+def put_career_mailbox_settings(
+    payload: CareerMailboxSettingsUpdate,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_EMAIL)),
+):
+    from app.services.career_mailbox_settings_service import CareerMailboxSettingsService
+
+    password = str(payload.password).strip() if payload.password else None
+    CareerMailboxSettingsService.upsert(
+        db,
+        mailbox_email=payload.mailbox_email,
+        imap_host=payload.imap_host,
+        imap_port=payload.imap_port,
+        imap_use_ssl=payload.imap_use_ssl,
+        imap_username=payload.imap_username,
+        sync_interval_minutes=payload.sync_interval_minutes,
+        is_enabled=payload.is_enabled,
+        password=password,
+    )
+    row = CareerMailboxSettingsService.get_row(db)
+    return CareerMailboxSettingsService.to_public_dict(db, row)
+
+
+@router.post("/career-mailbox/test")
+def post_career_mailbox_test(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.career_mailbox_sync_service import test_imap_connection
+
+    ok, message = test_imap_connection(db)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+    return {"ok": True, "detail": message}
+
+
+@router.post("/career-mailbox/sync-now")
+def post_career_mailbox_sync_now(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.career_mailbox_sync_service import sync_career_mailbox
+
+    result = sync_career_mailbox(db)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("message") or "Sync failed")
+    return result
 
 
 @router.post("/notify/send-templated")

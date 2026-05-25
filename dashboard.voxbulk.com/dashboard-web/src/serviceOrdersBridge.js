@@ -786,6 +786,47 @@ function cvQualityBadge(quality) {
   return '<span class="bdg bb">No CV</span>'
 }
 
+function updateInterviewReferenceCard(order) {
+  const wrap = document.getElementById('int-ref-card-wrap')
+  const codeEl = document.getElementById('int-ref-id')
+  const ref = String(order?.reference_id || '').trim()
+  if (!wrap || !codeEl) return
+  if (!ref) {
+    wrap.hidden = true
+    return
+  }
+  codeEl.textContent = ref
+  wrap.hidden = false
+}
+
+function bindInterviewReferenceCopy() {
+  document.getElementById('int-ref-copy')?.addEventListener('click', async () => {
+    const ref = document.getElementById('int-ref-id')?.textContent?.trim()
+    if (!ref || ref.includes('…')) return
+    try {
+      await navigator.clipboard.writeText(ref)
+      window.toast?.('Reference copied', 'tg')
+    } catch {
+      window.toast?.('Could not copy — select the code and copy manually', 'tr')
+    }
+  })
+}
+
+async function downloadInterviewRecipientCv(recipientId) {
+  const orderId = interviewLaunch.draftOrderId || state.interviewOrderId
+  if (!orderId || !recipientId) return
+  const recipient = (interviewLaunch.recipients || []).find((r) => r.id === recipientId)
+  const filename = recipient?.cv_filename || `cv-${recipientId}.pdf`
+  try {
+    await downloadAuthenticatedFile(
+      `/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(recipientId)}/cv`,
+      filename,
+    )
+  } catch (e) {
+    window.toast?.(e.message || 'Could not download CV', 'tr')
+  }
+}
+
 function renderInterviewCandidateList() {
   const panel = document.getElementById('int-candidate-panel')
   const summaryEl = document.getElementById('int-intake-summary')
@@ -815,13 +856,17 @@ function renderInterviewCandidateList() {
           ? `<button type="button" class="int-cell-btn" data-int-edit="${r.id}" data-field="email">${escHtml(r.email)}</button>`
           : `<button type="button" class="int-cell-btn is-missing" data-int-edit="${r.id}" data-field="email">Add email</button>`
         const issues = (r.intake_errors || []).map((e) => escHtml(e)).join('<br/>') || '—'
+        const hasCv = Boolean(r.has_cv_file || r.cv_filename)
+        const cvActions = hasCv
+          ? `<button type="button" class="btn bsm btng int-cv-dl" data-int-cv="${r.id}" title="Download CV"><i class="ti ti-download"></i></button>`
+          : ''
         return `<tr>
           <td>${escHtml(r.name || '—')}</td>
           <td>${phoneCell}</td>
           <td>${emailCell}</td>
           <td>${cvQualityBadge(r.cv_quality)}${r.cv_filename ? `<div class="muted" style="font-size:10px;margin-top:2px">${escHtml(r.cv_filename)}</div>` : ''}</td>
           <td style="font-size:10.5px;color:var(--amb)">${issues}</td>
-          <td><button type="button" class="btn bsm btnr int-del-btn" data-int-del="${r.id}" title="Remove"><i class="ti ti-trash"></i></button></td>
+          <td style="white-space:nowrap">${cvActions}<button type="button" class="btn bsm btnr int-del-btn" data-int-del="${r.id}" title="Remove"><i class="ti ti-trash"></i></button></td>
         </tr>`
       })
       .join('')}</tbody></table>`
@@ -838,6 +883,12 @@ function renderInterviewCandidateList() {
       e.stopPropagation()
       const id = btn.getAttribute('data-int-del')
       void deleteInterviewRecipient(id)
+    })
+  })
+  tableWrap.querySelectorAll('[data-int-cv]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      void downloadInterviewRecipientCv(btn.getAttribute('data-int-cv'))
     })
   })
 
@@ -859,6 +910,7 @@ async function ensureInterviewDraftOrder() {
   state.interviewOrderId = interviewLaunch.draftOrderId
   interviewLaunch.recipients = data?.recipients || []
   interviewLaunch.intakeSummary = data?.summary || null
+  updateInterviewReferenceCard(data?.order)
   renderInterviewCandidateList()
   return interviewLaunch.draftOrderId
 }
@@ -927,6 +979,7 @@ function applyInterviewOrderToForm(order) {
     setAiStatus('int', true)
   }
   applyIsoScheduleToForm('int', order.scheduled_start_at, order.scheduled_end_at)
+  updateInterviewReferenceCard(order)
 }
 
 async function saveInterviewDraft({ silent = false } = {}) {
@@ -953,6 +1006,7 @@ async function saveInterviewDraft({ silent = false } = {}) {
     state.interviewOrderId = interviewLaunch.draftOrderId
     interviewLaunch.recipients = data?.recipients || interviewLaunch.recipients
     interviewLaunch.intakeSummary = data?.summary || interviewLaunch.intakeSummary
+    updateInterviewReferenceCard(data?.order)
     if (interviewLaunch.draftOrderId) {
       localStorage.setItem(INTERVIEW_DRAFT_LS_KEY, interviewLaunch.draftOrderId)
     }
@@ -1195,6 +1249,10 @@ function bindInterviewLaunchUi() {
   document.getElementById('int-agent-select')?.addEventListener('change', (e) => {
     interviewLaunch.selectedAgentId = e.target.value || null
   })
+  document.getElementById('int-role')?.addEventListener('focus', () => {
+    void ensureInterviewDraftOrder().catch(() => {})
+  })
+  bindInterviewReferenceCopy()
   document.getElementById('int-save-draft')?.addEventListener('click', () => void saveInterviewDraft())
   document.getElementById('int-preview-open')?.addEventListener('click', () => void openInterviewPreview())
   document.getElementById('int-preview-close')?.addEventListener('click', closeInterviewPreview)
@@ -2392,18 +2450,14 @@ async function loadOrdersIntoUi() {
     if (typeof window.reloadSurveyHub === 'function') {
       await window.reloadSurveyHub()
     }
+    if (typeof window.reloadInterviewHub === 'function') {
+      await window.reloadInterviewHub()
+    }
     const [interviews, credits] = await Promise.all([
       api('/service-orders?service_code=interview'),
       api('/service-orders/credits').catch(() => ({})),
     ])
     renderInterviewKpis(interviews, credits)
-    const intHost = document.getElementById('int-live-orders')
-    if (intHost) {
-      const intRows = (interviews || []).slice(0, 8).map(renderOrderRow).join('')
-      intHost.innerHTML = intRows
-      const intEmpty = document.getElementById('int-projects-empty')
-      if (intEmpty) intEmpty.style.display = intRows ? 'none' : ''
-    }
     state.ordersLoaded = true
   } catch {
     /* keep static preview */

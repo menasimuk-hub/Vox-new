@@ -368,6 +368,32 @@ def remove_recipient(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/{order_id}/recipients/{recipient_id}/cv")
+def download_recipient_cv(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import FileResponse
+
+    from app.services.career_cv_storage_service import resolve_cv_path
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "interview":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CV download is only for interview orders")
+    recipient = ServiceOrderService.get_recipient(db, order.id, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    path = resolve_cv_path(recipient.cv_storage_key or "")
+    if path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CV file not available for download")
+    filename = recipient.cv_filename or path.name
+    return FileResponse(path, filename=filename, media_type="application/octet-stream")
+
+
 @router.get("/{order_id}")
 def get_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)

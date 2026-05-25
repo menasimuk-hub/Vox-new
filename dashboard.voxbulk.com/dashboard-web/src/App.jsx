@@ -68,6 +68,9 @@ function App({ session }) {
       const { initModalBridge } = await import('./modalBridge.js')
       initModalBridge()
 
+      const { initInterviewHubBridge } = await import('./interviewHubBridge.js')
+      initInterviewHubBridge()
+
       const { initServiceOrdersBridge } = await import('./serviceOrdersBridge.js')
       initServiceOrdersBridge()
 

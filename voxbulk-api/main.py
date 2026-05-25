@@ -55,6 +55,7 @@ from app.routers.dashboard_scripts import router as dashboard_scripts_router
 from app.routers.service_orders import router as service_orders_router
 from app.services.lead_sales_scheduler import lead_sales_scheduler_loop
 from app.services.survey_call_dispatch_service import survey_call_scheduler_loop
+from app.services.career_mailbox_scheduler import career_mailbox_scheduler_loop
 
 
 def _ensure_local_demo_admin() -> None:
@@ -150,16 +151,22 @@ async def lifespan(app: FastAPI):
     stop_event = asyncio.Event()
     scheduler_task = asyncio.create_task(lead_sales_scheduler_loop(stop_event))
     survey_scheduler_task = asyncio.create_task(survey_call_scheduler_loop(stop_event))
+    career_mailbox_task = asyncio.create_task(career_mailbox_scheduler_loop(stop_event))
     yield
     stop_event.set()
     scheduler_task.cancel()
     survey_scheduler_task.cancel()
+    career_mailbox_task.cancel()
     try:
         await scheduler_task
     except asyncio.CancelledError:
         pass
     try:
         await survey_scheduler_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await career_mailbox_task
     except asyncio.CancelledError:
         pass
     logger.info("app_stopped", extra={"env": settings.env, "app_name": settings.app_name})

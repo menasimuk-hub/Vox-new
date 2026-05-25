@@ -95,6 +95,13 @@ export default function EmailSettings() {
   const [testBusy, setTestBusy] = useState(false)
   const [testMsg, setTestMsg] = useState('')
 
+  const [careerMailbox, setCareerMailbox] = useState(null)
+  const [careerPasswordDraft, setCareerPasswordDraft] = useState('')
+  const [careerSaving, setCareerSaving] = useState(false)
+  const [careerTestBusy, setCareerTestBusy] = useState(false)
+  const [careerSyncBusy, setCareerSyncBusy] = useState(false)
+  const [careerActionMsg, setCareerActionMsg] = useState('')
+
   const [emailTemplates, setEmailTemplates] = useState([])
   const [waTemplates, setWaTemplates] = useState([])
   const [smsTemplates, setSmsTemplates] = useState([])
@@ -105,6 +112,11 @@ export default function EmailSettings() {
     const data = await apiFetch('/admin/email/smtp')
     setSmtp(data)
     setSecureMode(secureModeFromFlags(Boolean(data?.use_tls), Boolean(data?.use_ssl)))
+  }, [])
+
+  const loadCareerMailbox = useCallback(async () => {
+    const data = await apiFetch('/admin/email/career-mailbox')
+    setCareerMailbox(data)
   }, [])
 
   const loadLists = useCallback(async () => {
@@ -147,6 +159,7 @@ export default function EmailSettings() {
       setLoadError('')
       try {
         await loadSmtp()
+        await loadCareerMailbox()
       } catch (e) {
         if (!cancelled) setLoadError(e?.message || 'Failed to load SMTP')
       }
@@ -162,7 +175,7 @@ export default function EmailSettings() {
     return () => {
       cancelled = true
     }
-  }, [loadSmtp, loadLists])
+  }, [loadSmtp, loadLists, loadCareerMailbox])
 
   const saveSmtp = async () => {
     setSaving(true)
@@ -185,6 +198,57 @@ export default function EmailSettings() {
       setSaveError(e?.message || 'Save failed')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const saveCareerMailbox = async () => {
+    setCareerSaving(true)
+    setSaveError('')
+    try {
+      const payload = {
+        mailbox_email: String(careerMailbox?.mailbox_email || 'careers@voxbulk.com'),
+        imap_host: String(careerMailbox?.imap_host || ''),
+        imap_port: Number(careerMailbox?.imap_port || 993),
+        imap_use_ssl: Boolean(careerMailbox?.imap_use_ssl),
+        imap_username: String(careerMailbox?.imap_username || ''),
+        sync_interval_minutes: Number(careerMailbox?.sync_interval_minutes || 15),
+        is_enabled: Boolean(careerMailbox?.is_enabled),
+      }
+      if (careerPasswordDraft.trim()) payload.password = careerPasswordDraft.trim()
+      const data = await apiFetch('/admin/email/career-mailbox', { method: 'PUT', body: JSON.stringify(payload) })
+      setCareerMailbox(data)
+      setCareerPasswordDraft('')
+    } catch (e) {
+      setSaveError(e?.message || 'Save failed')
+    } finally {
+      setCareerSaving(false)
+    }
+  }
+
+  const testCareerMailbox = async () => {
+    setCareerTestBusy(true)
+    setCareerActionMsg('')
+    try {
+      const res = await apiFetch('/admin/email/career-mailbox/test', { method: 'POST', body: '{}' })
+      setCareerActionMsg(res?.detail || 'IMAP connection OK')
+    } catch (e) {
+      setCareerActionMsg(e?.message || 'Connection failed')
+    } finally {
+      setCareerTestBusy(false)
+    }
+  }
+
+  const syncCareerMailboxNow = async () => {
+    setCareerSyncBusy(true)
+    setCareerActionMsg('')
+    try {
+      const res = await apiFetch('/admin/email/career-mailbox/sync-now', { method: 'POST', body: '{}' })
+      setCareerActionMsg(res?.message || 'Sync completed')
+      await loadCareerMailbox()
+    } catch (e) {
+      setCareerActionMsg(e?.message || 'Sync failed')
+    } finally {
+      setCareerSyncBusy(false)
     }
   }
 
@@ -265,6 +329,15 @@ export default function EmailSettings() {
 
   const pill = smtpStatusPill(smtp)
 
+  function careerStatusPill(cfg) {
+    if (!cfg) return { cls: 'p-amber', text: 'Loading' }
+    if (!cfg.is_enabled) return { cls: 'p-amber', text: 'Disabled' }
+    if (cfg.configured) return { cls: 'p-green', text: 'Ready' }
+    return { cls: 'p-amber', text: 'Incomplete' }
+  }
+
+  const careerPill = careerStatusPill(careerMailbox)
+
   return (
     <>
       <div className="pageTop">
@@ -302,6 +375,113 @@ export default function EmailSettings() {
               </button>
             ))}
           </div>
+
+          {activeTab === 'careers' && (
+            <div className="emailTabPanel" role="tabpanel">
+              <div className="emailSectionTitle">
+                <i className="ti ti-inbox" />
+                Career CV intake mailbox (IMAP)
+                <span className={`pill ${careerPill.cls}`} style={{ marginLeft: 8 }}>
+                  {careerPill.text}
+                </span>
+              </div>
+              {loading ? (
+                <div className="note">Loading…</div>
+              ) : (
+                <div className="grid-12" style={{ gap: 16 }}>
+                  <div className="span-8 stack" style={{ gap: 14 }}>
+                    <div className="note">
+                      Candidates email CVs to <strong>careers@voxbulk.com</strong> with a job reference (<code>VB-INT-…</code>) in the subject or body.
+                      Inbound mail is fetched via IMAP; missing references get an auto-reply via SMTP.
+                    </div>
+                    <div className="miniGrid">
+                      <div className="mini">
+                        <label>Password on file</label>
+                        <strong>{careerMailbox?.password_set ? 'Set' : 'Not set'}</strong>
+                      </div>
+                      <div className="mini">
+                        <label>Missing fields</label>
+                        <strong>{(careerMailbox?.incomplete_fields || []).join(', ') || '—'}</strong>
+                      </div>
+                      <div className="mini">
+                        <label>Last sync</label>
+                        <strong>{careerMailbox?.last_sync_at ? new Date(careerMailbox.last_sync_at).toLocaleString() : '—'}</strong>
+                      </div>
+                      <div className="mini">
+                        <label>Last sync result</label>
+                        <strong>{careerMailbox?.last_sync_ok ? 'OK' : careerMailbox?.last_sync_at ? 'Failed' : '—'}</strong>
+                      </div>
+                    </div>
+                    {careerMailbox?.last_sync_message ? (
+                      <div className="note" style={{ marginBottom: 0 }}>{careerMailbox.last_sync_message}</div>
+                    ) : null}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(careerMailbox?.is_enabled)}
+                        onChange={(e) => setCareerMailbox((s) => ({ ...s, is_enabled: e.target.checked }))}
+                      />
+                      <span className="label" style={{ margin: 0 }}>
+                        Career mailbox sync enabled
+                      </span>
+                    </label>
+                    <div className="emailFormGrid">
+                      <div className="span-2">
+                        <label className="label">Mailbox address</label>
+                        <input className="input" value={String(careerMailbox?.mailbox_email || '')} onChange={(e) => setCareerMailbox((s) => ({ ...s, mailbox_email: e.target.value }))} placeholder="careers@voxbulk.com" />
+                      </div>
+                      <div>
+                        <label className="label">IMAP host</label>
+                        <input className="input" value={String(careerMailbox?.imap_host || '')} onChange={(e) => setCareerMailbox((s) => ({ ...s, imap_host: e.target.value }))} placeholder="imap.yourprovider.com" />
+                      </div>
+                      <div>
+                        <label className="label">IMAP port</label>
+                        <input className="input" type="number" min={1} max={65535} value={careerMailbox?.imap_port ?? 993} onChange={(e) => setCareerMailbox((s) => ({ ...s, imap_port: Number(e.target.value) }))} />
+                      </div>
+                      <div>
+                        <label className="label">IMAP username</label>
+                        <input className="input" value={String(careerMailbox?.imap_username || '')} onChange={(e) => setCareerMailbox((s) => ({ ...s, imap_username: e.target.value }))} placeholder="Usually same as mailbox email" />
+                      </div>
+                      <div>
+                        <label className="label">Password</label>
+                        <input className="input" type="password" value={careerPasswordDraft} onChange={(e) => setCareerPasswordDraft(e.target.value)} placeholder={careerMailbox?.password_set ? 'Leave blank to keep' : 'IMAP password'} autoComplete="new-password" />
+                      </div>
+                      <div>
+                        <label className="label">Sync every (minutes)</label>
+                        <input className="input" type="number" min={5} max={240} value={careerMailbox?.sync_interval_minutes ?? 15} onChange={(e) => setCareerMailbox((s) => ({ ...s, sync_interval_minutes: Number(e.target.value) }))} />
+                      </div>
+                      <div>
+                        <label className="label">SSL</label>
+                        <select className="input" value={careerMailbox?.imap_use_ssl ? 'ssl' : 'none'} onChange={(e) => setCareerMailbox((s) => ({ ...s, imap_use_ssl: e.target.value === 'ssl' }))}>
+                          <option value="ssl">SSL/TLS (993)</option>
+                          <option value="none">None</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="actions">
+                      <button type="button" className="btn primary" onClick={saveCareerMailbox} disabled={careerSaving}>
+                        <i className="ti ti-device-floppy" /> {careerSaving ? 'Saving…' : 'Save career mailbox'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="span-4">
+                    <div className="card" style={{ margin: 0 }}>
+                      <div className="cardHead"><h3>Test &amp; sync</h3></div>
+                      <div className="cardBody">
+                        <button type="button" className="btn soft" onClick={testCareerMailbox} disabled={careerTestBusy} style={{ width: '100%', marginBottom: 10 }}>
+                          <i className="ti ti-plug-connected" /> {careerTestBusy ? 'Testing…' : 'Test IMAP connection'}
+                        </button>
+                        <button type="button" className="btn soft" onClick={syncCareerMailboxNow} disabled={careerSyncBusy} style={{ width: '100%' }}>
+                          <i className="ti ti-refresh" /> {careerSyncBusy ? 'Syncing…' : 'Sync now'}
+                        </button>
+                        {careerActionMsg ? <div className="note" style={{ marginTop: 12, marginBottom: 0 }}>{careerActionMsg}</div> : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {activeTab === 'smtp' && (
             <div className="emailTabPanel" role="tabpanel">

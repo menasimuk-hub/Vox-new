@@ -234,15 +234,37 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Credits remaining</div><div class="kv" id="int-kpi-credits">—</div><div class="kd ne" id="int-kpi-credits-sub">Loading…</div></div>
           <div class="kpi"><div class="kl">Completed this month</div><div class="kv" id="int-kpi-completed">—</div><div class="kd ne" id="int-kpi-completed-sub">—</div></div>
         </div>
-        <!-- ACTIVE PROJECTS -->
-        <div class="card">
-          <div class="ch"><i class="ti ti-briefcase grn"></i>Projects</div>
-          <div id="int-live-orders"></div>
-          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b1)" id="int-projects-empty">
-            <div class="empty-state" style="padding:16px 0">
-              <i class="ti ti-plus-circle"></i>
-              <div class="es-title">Start a new interview campaign</div>
-              <div class="es-sub">Upload your candidate list and the AI will screen them automatically within your defined calling window.</div>
+        <!-- JOB REFERENCE (shown when interview draft exists) -->
+        <div class="card int-ref-card-wrap" id="int-ref-card-wrap" style="margin-bottom:12px" hidden>
+          <div class="ch"><i class="ti ti-hash grn"></i>Task reference ID</div>
+          <div class="int-ref-head">Email CVs to <strong>careers@voxbulk.com</strong> — include this reference in the subject or body</div>
+          <div class="int-ref-row">
+            <code id="int-ref-id" class="int-ref-code">VB-INT-…</code>
+            <button class="btn btng bsm" type="button" id="int-ref-copy"><i class="ti ti-copy"></i>Copy reference</button>
+          </div>
+          <p class="int-ref-hint">Share this ID with candidates. They must include it when emailing their CV — otherwise the application is rejected automatically. You can also upload files below; email intake runs in the background every few minutes.</p>
+        </div>
+        <!-- RUNNING INTERVIEWS -->
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch"><i class="ti ti-broadcast grn"></i>Running interviews</div>
+          <div class="tbrow" id="int-tabs">
+            <div class="tb on" data-int-tab="live" id="int-tab-live"><i class="ti ti-broadcast"></i>Live</div>
+            <div class="tb" data-int-tab="finished" id="int-tab-finished"><i class="ti ti-archive"></i>Finished</div>
+          </div>
+          <div class="tpcont on" id="int-panel-live">
+            <div id="int-live-orders"></div>
+            <div id="int-live-empty" class="empty-state" style="padding:16px 0;display:none">
+              <i class="ti ti-broadcast"></i>
+              <div class="es-title">No live interview tasks</div>
+              <div class="es-sub">Create a campaign below or pay a quoted task to get started.</div>
+            </div>
+          </div>
+          <div class="tpcont" id="int-panel-finished">
+            <div id="int-finished-orders"></div>
+            <div id="int-finished-empty" class="empty-state" style="padding:16px 0;display:none">
+              <i class="ti ti-archive"></i>
+              <div class="es-title">No finished interviews yet</div>
+              <div class="es-sub">Completed tasks will appear here.</div>
             </div>
           </div>
         </div>
