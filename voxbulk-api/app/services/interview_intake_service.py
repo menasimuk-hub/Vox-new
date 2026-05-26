@@ -98,11 +98,13 @@ def compute_intake_errors(recipient: ServiceOrderRecipient) -> list[str]:
     return out
 
 
-def recipient_intake_dict(recipient: ServiceOrderRecipient) -> dict[str, Any]:
+def recipient_intake_dict(recipient: ServiceOrderRecipient, *, position: str = "") -> dict[str, Any]:
     base = ServiceOrderService.recipient_to_dict(recipient)
     parsed = _loads_json(recipient.cv_parsed_json) or {}
     errors = compute_intake_errors(recipient)
     ready = bool(str(recipient.name or "").strip() and str(recipient.phone or "").strip())
+    from app.services.interview_ats_service import ats_display_for_recipient
+
     base.update(
         {
             "cv_quality": recipient.cv_quality or "missing",
@@ -115,6 +117,7 @@ def recipient_intake_dict(recipient: ServiceOrderRecipient) -> dict[str, Any]:
             "has_cv_file": bool(recipient.cv_storage_key or (recipient.cv_text or "").strip()),
         }
     )
+    base.update(ats_display_for_recipient(recipient, position=position))
     return base
 
 
@@ -536,6 +539,9 @@ def intake_email_cv_for_order(
     db.add(order)
     db.commit()
     db.refresh(order)
+    from app.services.interview_ats_service import queue_ats_for_recipient
+
+    queue_ats_for_recipient(db, recipient, order=order)
     return order
 
 
@@ -622,7 +628,19 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
             .order_by(ServiceOrderRecipient.row_number)
         ).scalars()
     )
-    recipient_payload = [recipient_intake_dict(r) for r in final_recipients]
+    from app.services.interview_ats_service import _order_job_context, queue_ats_for_order
+
+    queue_ats_for_order(db, order)
+    db.expire_all()
+    final_recipients = list(
+        db.execute(
+            select(ServiceOrderRecipient)
+            .where(ServiceOrderRecipient.order_id == order.id)
+            .order_by(ServiceOrderRecipient.row_number)
+        ).scalars()
+    )
+    role, _ = _order_job_context(order)
+    recipient_payload = [recipient_intake_dict(r, position=role) for r in final_recipients]
     return {
         "order_id": order.id,
         "parsed_count": len(parsed_list),
@@ -641,7 +659,10 @@ def list_intake_recipients(db: Session, order: ServiceOrder) -> list[dict[str, A
             .order_by(ServiceOrderRecipient.row_number)
         ).scalars()
     )
-    return [recipient_intake_dict(r) for r in rows]
+    from app.services.interview_ats_service import _order_job_context
+
+    role, _ = _order_job_context(order)
+    return [recipient_intake_dict(r, position=role) for r in rows]
 
 
 def update_intake_recipient(

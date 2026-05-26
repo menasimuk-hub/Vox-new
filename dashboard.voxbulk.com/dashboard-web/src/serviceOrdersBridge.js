@@ -1077,8 +1077,10 @@ function renderInterviewCandidateList() {
     summaryEl.textContent = `${summary.total || recipients.length} candidates · ${summary.ready || 0} ready · ${summary.missing_phone || 0} need phone · ${summary.cv_good || 0} good CVs`
   }
 
+  const positionLabel = (document.getElementById('int-role')?.value || '').trim() || '—'
+
   tableWrap.innerHTML = `<table class="res-table int-candidate-table" style="font-size:11.5px">
-    <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>CV</th><th>Issues</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Position</th><th>ATS</th><th>Phone</th><th>Email</th><th>CV</th><th>Issues</th><th></th></tr></thead>
     <tbody>${recipients
       .map((r) => {
         const phoneCell = r.phone
@@ -1088,12 +1090,27 @@ function renderInterviewCandidateList() {
           ? `<button type="button" class="int-cell-btn" data-int-edit="${r.id}" data-field="email">${escHtml(r.email)}</button>`
           : `<button type="button" class="int-cell-btn is-missing" data-int-edit="${r.id}" data-field="email">Add email</button>`
         const issues = (r.intake_errors || []).map((e) => escHtml(e)).join('<br/>') || '—'
+        const pos = escHtml(r.position || positionLabel)
+        const atsRaw = r.ats_label || (r.ats_status === 'analyzing' || r.ats_status === 'pending' ? 'Analyzing...' : '—')
+        const atsClass =
+          r.ats_status === 'complete' && r.ats_score != null
+            ? r.ats_score >= 80
+              ? 'bdg bg'
+              : r.ats_score >= 60
+                ? 'bdg ba'
+                : 'bdg br'
+            : r.ats_status === 'failed'
+              ? 'bdg br'
+              : 'bdg bb'
+        const atsCell = `<span class="${atsClass}" style="font-size:11px;font-weight:700">${escHtml(atsRaw)}</span>`
         const hasCv = Boolean(r.has_cv_file)
         const cvActions = hasCv
           ? `<button type="button" class="btn bsm btng int-cv-dl" data-int-cv="${r.id}" title="Download CV"><i class="ti ti-download"></i></button>`
           : ''
         return `<tr>
           <td>${escHtml(r.name || '—')}</td>
+          <td class="muted" style="font-size:10.5px">${pos}</td>
+          <td>${atsCell}</td>
           <td>${phoneCell}</td>
           <td>${emailCell}</td>
           <td>${cvQualityBadge(r.cv_quality)}${r.cv_filename ? `<div class="muted" style="font-size:10px;margin-top:2px">${escHtml(r.cv_filename)}</div>` : ''}</td>
@@ -1128,6 +1145,40 @@ function renderInterviewCandidateList() {
   interviewLaunch.contactCountKnown = true
   void refreshInterviewQuoteFromDraft()
   updateInterviewLaunchPhaseUi()
+  scheduleInterviewAtsPoll()
+}
+
+let interviewAtsPollTimer = null
+
+function scheduleInterviewAtsPoll() {
+  if (interviewAtsPollTimer) clearInterval(interviewAtsPollTimer)
+  const pending = (interviewLaunch.recipients || []).some((r) =>
+    ['pending', 'analyzing'].includes(String(r.ats_status || '')),
+  )
+  if (!pending || !interviewLaunch.draftOrderId) return
+  interviewAtsPollTimer = setInterval(() => {
+    void refreshInterviewRecipientsQuiet()
+  }, 5000)
+}
+
+async function refreshInterviewRecipientsQuiet() {
+  const oid = interviewLaunch.draftOrderId
+  if (!oid) return
+  try {
+    const data = await api(`/service-orders/${encodeURIComponent(oid)}/recipients`)
+    interviewLaunch.recipients = data?.recipients || interviewLaunch.recipients
+    interviewLaunch.intakeSummary = data?.summary || interviewLaunch.intakeSummary
+    renderInterviewCandidateList()
+    const stillPending = (interviewLaunch.recipients || []).some((r) =>
+      ['pending', 'analyzing'].includes(String(r.ats_status || '')),
+    )
+    if (!stillPending && interviewAtsPollTimer) {
+      clearInterval(interviewAtsPollTimer)
+      interviewAtsPollTimer = null
+    }
+  } catch {
+    /* ignore poll errors */
+  }
 }
 
 async function ensureInterviewDraftOrder() {

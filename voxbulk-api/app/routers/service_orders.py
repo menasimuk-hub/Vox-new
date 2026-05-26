@@ -679,10 +679,10 @@ def get_scheduling_status(db: Session = Depends(get_db), principal=Depends(get_c
 
 
 @router.get("/scheduling/oauth/calendly/start")
-def start_calendly_oauth(principal=Depends(get_current_principal)):
+def start_calendly_oauth(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.scheduling_connection_service import calendly_oauth_start
 
-    return {"authorize_url": calendly_oauth_start(org_id=principal.org_id)}
+    return {"authorize_url": calendly_oauth_start(org_id=principal.org_id, db=db)}
 
 
 @router.get("/scheduling/oauth/calendly/callback")
@@ -702,10 +702,10 @@ def calendly_oauth_callback(
 
 
 @router.get("/scheduling/oauth/cronofy/start")
-def start_cronofy_oauth(principal=Depends(get_current_principal)):
+def start_cronofy_oauth(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.scheduling_connection_service import cronofy_oauth_start
 
-    return {"authorize_url": cronofy_oauth_start(org_id=principal.org_id)}
+    return {"authorize_url": cronofy_oauth_start(org_id=principal.org_id, db=db)}
 
 
 @router.get("/scheduling/oauth/cronofy/callback")

@@ -11,6 +11,8 @@ export const INTEGRATION_PROVIDERS = [
   { key: 'vapi', label: 'Vapi', icon: 'ti-headset', blurb: 'Browser voice calls and lead recordings.' },
   { key: 'gocardless', label: 'GoCardless', icon: 'ti-credit-card', blurb: 'Direct debit billing and redirects.' },
   { key: 'zoom', label: 'Zoom', icon: 'ti-brand-zoom', blurb: 'Interview campaigns via Zoom.' },
+  { key: 'calendly', label: 'Calendly', icon: 'ti-calendar', blurb: 'OAuth + scheduling links for interview shortlist.' },
+  { key: 'cronofy', label: 'Cronofy', icon: 'ti-calendar-time', blurb: 'OAuth + scheduling requests for interview shortlist.' },
 ]
 
 export const INTEGRATION_EXTRAS = [

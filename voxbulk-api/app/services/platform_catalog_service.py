@@ -669,8 +669,9 @@ class ServiceOrderService:
             "short_summary": analysis.get("short_summary") or result.get("short_summary"),
             "created_at": recipient.created_at.isoformat() if recipient.created_at else None,
         }
-        if recipient.cv_quality is not None or recipient.cv_filename or recipient.intake_source:
+        if recipient.cv_quality is not None or recipient.cv_filename or recipient.intake_source or recipient.cv_text:
             from app.services.interview_intake_service import compute_intake_errors
+            from app.services.interview_ats_service import ats_display_for_recipient
 
             out.update(
                 {
@@ -682,6 +683,7 @@ class ServiceOrderService:
                     "has_cv_file": bool(recipient.cv_storage_key or (recipient.cv_text or "").strip()),
                 }
             )
+            out.update(ats_display_for_recipient(recipient, position=""))
         return out
 
     @staticmethod

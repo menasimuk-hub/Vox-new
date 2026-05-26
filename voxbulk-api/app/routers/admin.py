@@ -256,6 +256,20 @@ def test_zoom_integration(db: Session = Depends(get_db), _admin=Depends(require_
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Zoom test failed: {e}") from e
 
 
+@router.post("/integrations/calendly/test")
+def test_calendly_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.scheduling_connection_service import test_calendly_platform_config
+
+    return test_calendly_platform_config(db)
+
+
+@router.post("/integrations/cronofy/test")
+def test_cronofy_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.scheduling_connection_service import test_cronofy_platform_config
+
+    return test_cronofy_platform_config(db)
+
+
 @router.post("/integrations/groq/test")
 def test_groq_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:

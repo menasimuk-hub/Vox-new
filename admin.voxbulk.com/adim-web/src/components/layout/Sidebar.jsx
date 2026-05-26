@@ -113,6 +113,8 @@ const NAV = [
       ['Vapi', '/integrations/vapi'],
       ['GoCardless', '/integrations/gocardless'],
       ['Zoom', '/integrations/zoom'],
+      ['Calendly', '/integrations/calendly'],
+      ['Cronofy', '/integrations/cronofy'],
       ['Webhooks', '/integrations/webhooks'],
       ['Social login', '/integrations/social-login'],
     ],

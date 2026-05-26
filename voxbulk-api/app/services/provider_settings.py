@@ -32,6 +32,8 @@ class ProviderSettingsService:
         "facebook",
         "linkedin",
         "zoom",
+        "calendly",
+        "cronofy",
     }
 
     # Keys we expect for "configured" status (per provider). Secrets are stored encrypted and never returned.
@@ -52,6 +54,8 @@ class ProviderSettingsService:
         "facebook": {"client_id", "client_secret", "redirect_uri"},
         "linkedin": {"client_id", "client_secret", "redirect_uri"},
         "zoom": {"account_id", "client_id", "client_secret"},
+        "calendly": {"client_id", "client_secret", "redirect_uri"},
+        "cronofy": {"client_id", "client_secret", "redirect_uri"},
     }
 
     SECRET_KEYS: dict[str, set[str]] = {
@@ -70,6 +74,8 @@ class ProviderSettingsService:
         "facebook": {"client_secret"},
         "linkedin": {"client_secret"},
         "zoom": {"client_secret"},
+        "calendly": {"client_secret"},
+        "cronofy": {"client_secret"},
     }
 
     @staticmethod
@@ -117,6 +123,10 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_telnyx_config(config)
         if provider == "zoom":
             config = ProviderSettingsService._validate_zoom_config(config)
+        if provider == "calendly":
+            config = ProviderSettingsService._validate_calendly_config(config)
+        if provider == "cronofy":
+            config = ProviderSettingsService._validate_cronofy_config(config)
             from app.services.telnyx_api_key import normalize_telnyx_api_key, telnyx_key_fingerprint
 
             incoming_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
@@ -608,6 +618,48 @@ class ProviderSettingsService:
         cfg["client_id"] = client_id
         cfg["client_secret"] = client_secret
         cfg["base_url"] = str(cfg.get("base_url") or "https://api.zoom.us/v2").strip().rstrip("/")
+        return cfg
+
+    @staticmethod
+    def _validate_calendly_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        client_id = str(cfg.get("client_id") or "").strip()
+        client_secret = str(cfg.get("client_secret") or "").strip()
+        redirect_uri = str(cfg.get("redirect_uri") or "").strip()
+        if not client_id:
+            errors["client_id"] = "Client ID is required"
+        if not client_secret:
+            errors["client_secret"] = "Client secret is required"
+        if not redirect_uri:
+            errors["redirect_uri"] = "Redirect URI is required"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Calendly settings validation failed: {details}")
+        cfg["client_id"] = client_id
+        cfg["client_secret"] = client_secret
+        cfg["redirect_uri"] = redirect_uri
+        return cfg
+
+    @staticmethod
+    def _validate_cronofy_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        client_id = str(cfg.get("client_id") or "").strip()
+        client_secret = str(cfg.get("client_secret") or "").strip()
+        redirect_uri = str(cfg.get("redirect_uri") or "").strip()
+        if not client_id:
+            errors["client_id"] = "Client ID is required"
+        if not client_secret:
+            errors["client_secret"] = "Client secret is required"
+        if not redirect_uri:
+            errors["redirect_uri"] = "Redirect URI is required"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Cronofy settings validation failed: {details}")
+        cfg["client_id"] = client_id
+        cfg["client_secret"] = client_secret
+        cfg["redirect_uri"] = redirect_uri
         return cfg
 
     @staticmethod

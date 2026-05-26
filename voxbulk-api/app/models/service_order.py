@@ -61,4 +61,8 @@ class ServiceOrderRecipient(Base):
     intake_errors_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     intake_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     cv_storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    ats_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ats_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    ats_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ats_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

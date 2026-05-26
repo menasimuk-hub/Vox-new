@@ -60,6 +60,10 @@ def ensure_schema_hotfixes() -> None:
         ("frontpage_call_settings", "telnyx_greeting", "TEXT NULL"),
         ("lead_sales_settings", "telnyx_greeting", "TEXT NULL"),
         ("organisations", "scheduling_config_json", "TEXT NULL"),
+        ("service_order_recipients", "ats_score", "INTEGER NULL"),
+        ("service_order_recipients", "ats_status", "VARCHAR(32) NULL"),
+        ("service_order_recipients", "ats_hash", "VARCHAR(64) NULL"),
+        ("service_order_recipients", "ats_error", "VARCHAR(512) NULL"),
     )
     with engine.begin() as conn:
         for table, column, col_type in patches:

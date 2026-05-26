@@ -92,12 +92,80 @@ def create_scheduling_link(
     raise ValueError("Connect Calendly or Cronofy in System settings before sending scheduling links")
 
 
-def calendly_oauth_start(*, org_id: str) -> str:
+def _calendly_platform_credentials(db: Session | None = None) -> tuple[str, str, str]:
+    if db is not None:
+        try:
+            from app.services.provider_settings import ProviderSettingsService
+
+            cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="calendly")
+            if enabled:
+                cid = str(cfg.get("client_id") or "").strip()
+                secret = str(cfg.get("client_secret") or "").strip()
+                redirect = str(cfg.get("redirect_uri") or "").strip()
+                if cid and secret and redirect:
+                    return cid, secret, redirect
+        except Exception:
+            pass
     settings = get_settings()
-    client_id = str(getattr(settings, "calendly_client_id", None) or "").strip()
-    redirect = str(getattr(settings, "calendly_redirect_uri", None) or "").strip()
+    return (
+        str(getattr(settings, "calendly_client_id", None) or "").strip(),
+        str(getattr(settings, "calendly_client_secret", None) or "").strip(),
+        str(getattr(settings, "calendly_redirect_uri", None) or "").strip(),
+    )
+
+
+def _cronofy_platform_credentials(db: Session | None = None) -> tuple[str, str, str]:
+    if db is not None:
+        try:
+            from app.services.provider_settings import ProviderSettingsService
+
+            cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="cronofy")
+            if enabled:
+                cid = str(cfg.get("client_id") or "").strip()
+                secret = str(cfg.get("client_secret") or "").strip()
+                redirect = str(cfg.get("redirect_uri") or "").strip()
+                if cid and secret and redirect:
+                    return cid, secret, redirect
+        except Exception:
+            pass
+    settings = get_settings()
+    return (
+        str(getattr(settings, "cronofy_client_id", None) or "").strip(),
+        str(getattr(settings, "cronofy_client_secret", None) or "").strip(),
+        str(getattr(settings, "cronofy_redirect_uri", None) or "").strip(),
+    )
+
+
+def test_calendly_platform_config(db: Session) -> dict[str, Any]:
+    client_id, client_secret, redirect = _calendly_platform_credentials(db)
+    if not client_id or not client_secret or not redirect:
+        return {"ok": False, "detail": "Calendly client ID, secret, and redirect URI are required (Admin → Integrations → Calendly)"}
+    if not redirect.startswith("http"):
+        return {"ok": False, "detail": "Redirect URI must be a full URL (https://api…/scheduling/oauth/calendly/callback)"}
+    return {
+        "ok": True,
+        "detail": "Calendly OAuth credentials saved. Connect from Dashboard → System to complete OAuth.",
+        "redirect_uri": redirect,
+    }
+
+
+def test_cronofy_platform_config(db: Session) -> dict[str, Any]:
+    client_id, client_secret, redirect = _cronofy_platform_credentials(db)
+    if not client_id or not client_secret or not redirect:
+        return {"ok": False, "detail": "Cronofy client ID, secret, and redirect URI are required (Admin → Integrations → Cronofy)"}
+    if not redirect.startswith("http"):
+        return {"ok": False, "detail": "Redirect URI must be a full URL (https://api…/scheduling/oauth/cronofy/callback)"}
+    return {
+        "ok": True,
+        "detail": "Cronofy OAuth credentials saved. Connect from Dashboard → System to complete OAuth.",
+        "redirect_uri": redirect,
+    }
+
+
+def calendly_oauth_start(*, org_id: str, db: Session | None = None) -> str:
+    client_id, _, redirect = _calendly_platform_credentials(db)
     if not client_id or not redirect:
-        raise ValueError("Calendly OAuth is not configured on the server (CALENDLY_CLIENT_ID / CALENDLY_REDIRECT_URI)")
+        raise ValueError("Calendly OAuth is not configured (Admin → Integrations → Calendly or CALENDLY_* env)")
     state = f"{org_id}:{secrets.token_urlsafe(16)}"
     params = {
         "client_id": client_id,
@@ -109,10 +177,7 @@ def calendly_oauth_start(*, org_id: str) -> str:
 
 
 def calendly_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, Any]:
-    settings = get_settings()
-    client_id = str(getattr(settings, "calendly_client_id", None) or "").strip()
-    client_secret = str(getattr(settings, "calendly_client_secret", None) or "").strip()
-    redirect = str(getattr(settings, "calendly_redirect_uri", None) or "").strip()
+    client_id, client_secret, redirect = _calendly_platform_credentials(db)
     if not code or not state:
         raise ValueError("Missing OAuth code or state")
     org_id = str(state).split(":", 1)[0].strip()
@@ -200,12 +265,10 @@ def create_calendly_scheduling_link(db: Session, org_id: str, *, candidate_name:
     return booking_url
 
 
-def cronofy_oauth_start(*, org_id: str) -> str:
-    settings = get_settings()
-    client_id = str(getattr(settings, "cronofy_client_id", None) or "").strip()
-    redirect = str(getattr(settings, "cronofy_redirect_uri", None) or "").strip()
+def cronofy_oauth_start(*, org_id: str, db: Session | None = None) -> str:
+    client_id, _, redirect = _cronofy_platform_credentials(db)
     if not client_id or not redirect:
-        raise ValueError("Cronofy OAuth is not configured on the server (CRONOFY_CLIENT_ID / CRONOFY_REDIRECT_URI)")
+        raise ValueError("Cronofy OAuth is not configured (Admin → Integrations → Cronofy or CRONOFY_* env)")
     state = f"{org_id}:{secrets.token_urlsafe(16)}"
     params = {
         "response_type": "code",
@@ -218,10 +281,7 @@ def cronofy_oauth_start(*, org_id: str) -> str:
 
 
 def cronofy_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, Any]:
-    settings = get_settings()
-    client_id = str(getattr(settings, "cronofy_client_id", None) or "").strip()
-    client_secret = str(getattr(settings, "cronofy_client_secret", None) or "").strip()
-    redirect = str(getattr(settings, "cronofy_redirect_uri", None) or "").strip()
+    client_id, client_secret, redirect = _cronofy_platform_credentials(db)
     if not code or not state:
         raise ValueError("Missing OAuth code or state")
     org_id = str(state).split(":", 1)[0].strip()

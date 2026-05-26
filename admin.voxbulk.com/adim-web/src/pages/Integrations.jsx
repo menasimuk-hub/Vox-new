@@ -25,6 +25,8 @@ const PROVIDERS = [
   { key: 'vapi', label: 'Vapi' },
   { key: 'gocardless', label: 'GoCardless' },
   { key: 'zoom', label: 'Zoom' },
+  { key: 'calendly', label: 'Calendly' },
+  { key: 'cronofy', label: 'Cronofy' },
 ]
 
 const DEFAULT_WEBHOOK_BASE = 'https://localhost'
@@ -94,6 +96,15 @@ function zoomValidation(config, draft, summary) {
   if (!String(config?.account_id || '').trim()) errors.account_id = 'Account ID is required.'
   if (!String(config?.client_id || '').trim()) errors.client_id = 'Client ID is required.'
   if (!hasSecret) errors.client_secret = 'Client secret is required.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function oauthSchedulingValidation(config, draft, summary) {
+  const errors = {}
+  const hasSecret = Boolean(summary?.secret_set?.client_secret) || Boolean(String(draft?.client_secret_draft || '').trim())
+  if (!String(config?.client_id || '').trim()) errors.client_id = 'Client ID is required.'
+  if (!hasSecret) errors.client_secret = 'Client secret is required.'
+  if (!String(config?.redirect_uri || '').trim()) errors.redirect_uri = 'Redirect URI is required.'
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
@@ -496,6 +507,8 @@ export default function Integrations() {
   const [openAITestResult, setOpenAITestResult] = useState('')
   const [deepSeekTestResult, setDeepSeekTestResult] = useState('')
   const [zoomTestResult, setZoomTestResult] = useState('')
+  const [calendlyTestResult, setCalendlyTestResult] = useState('')
+  const [cronofyTestResult, setCronofyTestResult] = useState('')
   const [groqTestResult, setGroqTestResult] = useState('')
   const [deepgramTestResult, setDeepgramTestResult] = useState('')
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
@@ -723,6 +736,10 @@ export default function Integrations() {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
+      if (providerKey === 'calendly' || providerKey === 'cronofy') {
+        const secret = String(draft.client_secret_draft || '').trim()
+        if (secret) config.client_secret = secret
+      }
       const updated = await apiFetch(`/admin/integrations/${providerKey}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -757,6 +774,8 @@ export default function Integrations() {
   const azureStatus = activeProvider === 'azure_speech' ? azureSpeechValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepSeekStatus = activeProvider === 'deepseek' ? deepSeekValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const zoomStatus = activeProvider === 'zoom' ? zoomValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const calendlyStatus = activeProvider === 'calendly' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const cronofyStatus = activeProvider === 'cronofy' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const groqStatus = activeProvider === 'groq' ? groqValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepgramStatus = activeProvider === 'deepgram' ? deepgramValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const cartesiaStatus = activeProvider === 'cartesia' ? cartesiaValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -827,6 +846,30 @@ export default function Integrations() {
     } catch (e) {
       setZoomTestResult('')
       setProviderError(e?.message || 'Zoom test failed')
+    }
+  }
+
+  const testCalendly = async () => {
+    setProviderError('')
+    setCalendlyTestResult('Testing Calendly…')
+    try {
+      const result = await apiFetch('/admin/integrations/calendly/test', { method: 'POST' })
+      setCalendlyTestResult(result.ok ? (result.detail || 'Calendly OK') : (result.detail || 'Calendly check failed'))
+    } catch (e) {
+      setCalendlyTestResult('')
+      setProviderError(e?.message || 'Calendly test failed')
+    }
+  }
+
+  const testCronofy = async () => {
+    setProviderError('')
+    setCronofyTestResult('Testing Cronofy…')
+    try {
+      const result = await apiFetch('/admin/integrations/cronofy/test', { method: 'POST' })
+      setCronofyTestResult(result.ok ? (result.detail || 'Cronofy OK') : (result.detail || 'Cronofy check failed'))
+    } catch (e) {
+      setCronofyTestResult('')
+      setProviderError(e?.message || 'Cronofy test failed')
     }
   }
 
@@ -1727,6 +1770,74 @@ export default function Integrations() {
                       </button>
                     </div>
                     <div className='note'>Used when customers choose Zoom delivery on interview orders.</div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'calendly' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Calendly OAuth (interview scheduling)</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('calendly', e.target.checked)} />
+                      <span>Enable Calendly for interview shortlist booking links</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client ID</label>
+                      <input className='input' style={calendlyStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('calendly', 'client_id', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client secret</label>
+                      <input className='input' style={calendlyStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, calendly: { ...(s.calendly || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Calendly client secret'} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Redirect URI</label>
+                      <input className='input' style={calendlyStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('calendly', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/calendly/callback' />
+                    </div>
+                    {calendlyTestResult ? <div className='note'>{calendlyTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('calendly')} disabled={providerSaving || !calendlyStatus.valid}>Save Calendly</button>
+                      <button className='btn soft' onClick={testCalendly} disabled={providerSaving || !activeSummary.configured}>Test Calendly</button>
+                    </div>
+                    <div className='note'>Each organisation connects Calendly from Dashboard → System. Register the redirect URI in your Calendly developer app.</div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'cronofy' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Cronofy OAuth (interview scheduling)</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('cronofy', e.target.checked)} />
+                      <span>Enable Cronofy for interview shortlist booking links</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client ID</label>
+                      <input className='input' style={cronofyStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('cronofy', 'client_id', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client secret</label>
+                      <input className='input' style={cronofyStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, cronofy: { ...(s.cronofy || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Cronofy client secret'} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Redirect URI</label>
+                      <input className='input' style={cronofyStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('cronofy', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/cronofy/callback' />
+                    </div>
+                    {cronofyTestResult ? <div className='note'>{cronofyTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('cronofy')} disabled={providerSaving || !cronofyStatus.valid}>Save Cronofy</button>
+                      <button className='btn soft' onClick={testCronofy} disabled={providerSaving || !activeSummary.configured}>Test Cronofy</button>
+                    </div>
+                    <div className='note'>Each organisation connects Cronofy from Dashboard → System. Register the redirect URI in your Cronofy developer app.</div>
                   </div>
                 </div>
               </div>
