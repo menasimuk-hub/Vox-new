@@ -251,7 +251,7 @@ export default function RunningInterviews() {
           <li>Check the <strong>Task reference</strong> — candidates email CVs to careers@voxbulk.com with this ID.</li>
           <li>Approve cash payment if needed, then <strong>Start interview</strong> when the customer is ready.</li>
           <li>Use <strong>Candidates</strong> to edit contact details or download CV files.</li>
-          <li>AI outbound calling for interviews is Phase 2 — status controls work now; live dial dispatch coming next.</li>
+          <li>AI outbound interview calls run via Telnyx when campaigns start (phone delivery).</li>
         </ol>
       </div>
 

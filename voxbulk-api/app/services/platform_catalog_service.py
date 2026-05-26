@@ -1184,6 +1184,18 @@ class ServiceOrderService:
 
             assert_cv_collection_complete(order)
             assert_ai_call_window_after_cv_collection(order)
+            config_iv = {}
+            try:
+                config_iv = json.loads(order.config_json or "{}")
+            except Exception:
+                config_iv = {}
+            delivery = str(config_iv.get("delivery") or "ai_call").strip().lower()
+            if delivery == "zoom":
+                from app.services.interview_zoom_service import InterviewZoomService
+
+                InterviewZoomService.start_campaign(db, order)
+                db.refresh(order)
+                return order
         now = datetime.utcnow()
         if order.run_mode == "scheduled":
             if order.scheduled_start_at and now < order.scheduled_start_at:
@@ -1220,6 +1232,19 @@ class ServiceOrderService:
                 db.commit()
                 db.refresh(order)
                 SurveyDispatchService.dispatch_survey_order(db, order)
+                db.refresh(order)
+                return order
+        if order.service_code == "interview":
+            from app.services.interview_call_dispatch_service import (
+                InterviewCallDispatchService,
+                is_ai_call_interview_order,
+            )
+
+            if is_ai_call_interview_order(order):
+                if not InterviewCallDispatchService.start_campaign(db, order):
+                    raise ValueError(
+                        "Could not start AI interviews — check payment, approved script, voice agent, and calling window."
+                    )
                 db.refresh(order)
                 return order
         order.status = "running"

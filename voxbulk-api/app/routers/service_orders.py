@@ -671,6 +671,118 @@ def start_order(order_id: str, db: Session = Depends(get_db), principal=Depends(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/scheduling/status")
+def get_scheduling_status(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.scheduling_connection_service import scheduling_status
+
+    return scheduling_status(db, principal.org_id)
+
+
+@router.get("/scheduling/oauth/calendly/start")
+def start_calendly_oauth(principal=Depends(get_current_principal)):
+    from app.services.scheduling_connection_service import calendly_oauth_start
+
+    return {"authorize_url": calendly_oauth_start(org_id=principal.org_id)}
+
+
+@router.get("/scheduling/oauth/calendly/callback")
+def calendly_oauth_callback(
+    code: str = "",
+    state: str = "",
+    db: Session = Depends(get_db),
+):
+    from app.core.config import get_settings
+    from app.services.scheduling_connection_service import calendly_oauth_complete
+
+    calendly_oauth_complete(db, code=code, state=state)
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse(url=f"{origin}/system?scheduling=connected&provider=calendly")
+
+
+@router.get("/scheduling/oauth/cronofy/start")
+def start_cronofy_oauth(principal=Depends(get_current_principal)):
+    from app.services.scheduling_connection_service import cronofy_oauth_start
+
+    return {"authorize_url": cronofy_oauth_start(org_id=principal.org_id)}
+
+
+@router.get("/scheduling/oauth/cronofy/callback")
+def cronofy_oauth_callback(
+    code: str = "",
+    state: str = "",
+    db: Session = Depends(get_db),
+):
+    from app.core.config import get_settings
+    from app.services.scheduling_connection_service import cronofy_oauth_complete
+
+    cronofy_oauth_complete(db, code=code, state=state)
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse(url=f"{origin}/system?scheduling=connected&provider=cronofy")
+
+
+@router.post("/{order_id}/interview/cv-collection/close-early")
+def close_interview_cv_collection_early(
+    order_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_cv_email_service import close_cv_collection_early
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        return close_cv_collection_early(db, order)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.patch("/{order_id}/interview-shortlist")
+def save_interview_shortlist(
+    order_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_scheduling_service import InterviewSchedulingService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        ids = payload.get("recipient_ids") or []
+        return InterviewSchedulingService.save_shortlist(db, order, list(ids))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/interview-scheduling/send")
+def send_interview_scheduling(
+    order_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_scheduling_service import InterviewSchedulingService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    body = payload or {}
+    try:
+        return InterviewSchedulingService.send_scheduling_links(
+            db,
+            order,
+            recipient_ids=body.get("recipient_ids"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/{order_id}/interview-results")
 def get_interview_results(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_results_service import InterviewResultsService
@@ -682,6 +794,42 @@ def get_interview_results(order_id: str, db: Session = Depends(get_db), principa
         return InterviewResultsService.get_results(db, order)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/interview-results/export.csv")
+def export_interview_results_csv(
+    order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    from app.services.interview_results_service import InterviewResultsService
+    from fastapi.responses import Response
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    csv_text = InterviewResultsService.export_results_csv(db, order)
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="interview-results-{order_id[:8]}.csv"'},
+    )
+
+
+@router.get("/{order_id}/interview-results/export.pdf")
+def export_interview_results_pdf(
+    order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    from app.services.interview_results_service import InterviewResultsService
+    from fastapi.responses import Response
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    pdf_bytes = InterviewResultsService.export_results_pdf(db, order)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="interview-results-{order_id[:8]}.pdf"'},
+    )
 
 
 @router.get("/{order_id}/interview-report")

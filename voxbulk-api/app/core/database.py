@@ -59,6 +59,7 @@ def ensure_schema_hotfixes() -> None:
     patches = (
         ("frontpage_call_settings", "telnyx_greeting", "TEXT NULL"),
         ("lead_sales_settings", "telnyx_greeting", "TEXT NULL"),
+        ("organisations", "scheduling_config_json", "TEXT NULL"),
     )
     with engine.begin() as conn:
         for table, column, col_type in patches:

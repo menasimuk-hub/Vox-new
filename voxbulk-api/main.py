@@ -54,6 +54,7 @@ from app.routers.dashboard_help import router as dashboard_help_router
 from app.routers.dashboard_scripts import router as dashboard_scripts_router
 from app.routers.service_orders import router as service_orders_router
 from app.services.lead_sales_scheduler import lead_sales_scheduler_loop
+from app.services.interview_call_dispatch_service import interview_call_scheduler_loop
 from app.services.survey_call_dispatch_service import survey_call_scheduler_loop
 from app.services.career_mailbox_scheduler import career_mailbox_scheduler_loop
 
@@ -151,11 +152,13 @@ async def lifespan(app: FastAPI):
     stop_event = asyncio.Event()
     scheduler_task = asyncio.create_task(lead_sales_scheduler_loop(stop_event))
     survey_scheduler_task = asyncio.create_task(survey_call_scheduler_loop(stop_event))
+    interview_scheduler_task = asyncio.create_task(interview_call_scheduler_loop(stop_event))
     career_mailbox_task = asyncio.create_task(career_mailbox_scheduler_loop(stop_event))
     yield
     stop_event.set()
     scheduler_task.cancel()
     survey_scheduler_task.cancel()
+    interview_scheduler_task.cancel()
     career_mailbox_task.cancel()
     try:
         await scheduler_task
@@ -163,6 +166,10 @@ async def lifespan(app: FastAPI):
         pass
     try:
         await survey_scheduler_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await interview_scheduler_task
     except asyncio.CancelledError:
         pass
     try:

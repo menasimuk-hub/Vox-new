@@ -7,6 +7,8 @@ export const SYSTEM_EMAIL_META = {
   general_notification: { title: 'General activity', description: 'Notifications and activity' },
   sales_offer: { title: 'Sales offer link', description: 'Sent when sales agent shares signup promo link' },
   usage_warning: { title: 'Usage alert (80%)', description: 'Sent when calls, WhatsApp, or SMS reach 80% of included allowance' },
+  interview_scheduling_invite: { title: 'Interview scheduling invite', description: 'Sent to shortlisted candidates with Calendly/Cronofy booking link' },
+  interview_zoom_invite: { title: 'Interview Zoom invite', description: 'Sent when interview delivery is Zoom with join URL' },
 }
 
 export const SYSTEM_WHATSAPP_META = {
@@ -82,6 +84,8 @@ export const DEFAULT_SUBJECT_BY_KEY = {
   general_notification: 'Notification',
   sales_offer: 'Your VOXBULK offer is ready',
   usage_warning: 'VOXBULK usage alert',
+  interview_scheduling_invite: 'Next step — {{role}}',
+  interview_zoom_invite: 'Your Zoom interview — {{role}}',
 }
 
 export const DEMO_HTML_BY_KEY = {
@@ -105,6 +109,18 @@ export const DEMO_HTML_BY_KEY = {
   <p style="word-break:break-all;font-size:13px;"><a href="{{signup_url}}" style="color:#00C896;">{{signup_url}}</a></p>
   <p>Your offer applies automatically when you sign up with this link.</p>
   <p style="font-size:12px;color:#64748b;">— VOXBULK Sales</p>
+</body></html>`,
+  interview_scheduling_invite: `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
+  <p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>Thank you for completing your screening call for <strong>{{role}}</strong>.</p>
+  <p><a href="{{scheduling_url}}" style="display:inline-block;background:#00C896;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Book interview</a></p>
+  <p style="font-size:12px;color:#64748b;">— VOXBULK</p>
+</body></html>`,
+  interview_zoom_invite: `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
+  <p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>Your Zoom interview for <strong>{{role}}</strong> is ready.</p>
+  <p><a href="{{join_url}}" style="display:inline-block;background:#00C896;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Join Zoom meeting</a></p>
+  <p style="font-size:12px;color:#64748b;">— VOXBULK</p>
 </body></html>`,
 }
 
@@ -150,6 +166,16 @@ export const TEST_VARS_BY_KEY = {
     usage_details_html: '<div><strong>Calls</strong>: 246 of 300 (82%)</div>',
     period_end: '30 Jun 2026',
     message: 'Usage alert: Calls 82%',
+  },
+  interview_scheduling_invite: {
+    candidate_name: 'Alex Demo',
+    role: 'Senior Software Engineer',
+    scheduling_url: 'https://calendly.com/example/interview',
+  },
+  interview_zoom_invite: {
+    candidate_name: 'Alex Demo',
+    role: 'Senior Software Engineer',
+    join_url: 'https://zoom.us/j/123456789',
   },
   invoice_document: {
     invoice_number: 'INV-2026-0042',

@@ -83,6 +83,14 @@ class Settings(BaseSettings):
     telnyx_api_key: str = Field(default="", alias="TELNYX_API_KEY")
     survey_telnyx_assistant_id: str = Field(default="", alias="SURVEY_TELNYX_ASSISTANT_ID")
 
+    calendly_client_id: str = Field(default="", alias="CALENDLY_CLIENT_ID")
+    calendly_client_secret: str = Field(default="", alias="CALENDLY_CLIENT_SECRET")
+    calendly_redirect_uri: str = Field(default="", alias="CALENDLY_REDIRECT_URI")
+
+    cronofy_client_id: str = Field(default="", alias="CRONOFY_CLIENT_ID")
+    cronofy_client_secret: str = Field(default="", alias="CRONOFY_CLIENT_SECRET")
+    cronofy_redirect_uri: str = Field(default="", alias="CRONOFY_REDIRECT_URI")
+
     # Bootstrap
     bootstrap_token: str = Field(default="", alias="BOOTSTRAP_TOKEN")
     enable_test_cash_billing: bool = Field(default=False, alias="ENABLE_TEST_CASH_BILLING")

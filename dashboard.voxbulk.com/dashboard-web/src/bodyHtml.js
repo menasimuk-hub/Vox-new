@@ -268,6 +268,7 @@ const bodyHtml = `<div class="app" id="app">
                 <div class="fg" style="margin-bottom:0"><label>End time</label><input type="time" id="int-cv-end-time" value="17:00"/></div>
               </div>
               <div id="int-cv-window-preview" class="muted" style="font-size:11px;margin-top:8px"></div>
+              <button class="btn bsm btnr" type="button" id="int-cv-close-early" style="margin-top:10px;display:none"><i class="ti ti-clock-stop"></i>Close CV collection early</button>
             </div>
           </div>
           <p class="int-ref-hint">Share this ID with candidates. They must include it when emailing their CV — otherwise the application is rejected automatically. You can also upload files below; email intake runs in the background every few minutes.</p>
@@ -577,7 +578,7 @@ const bodyHtml = `<div class="app" id="app">
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <button class="btn bsm" onclick="goNav('interviews')"><i class="ti ti-arrow-left"></i>Back to interviews</button>
-          <div style="display:flex;gap:8px"><button class="btn btng bsm"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm"><i class="ti ti-table"></i>Export CSV</button></div>
+          <div style="display:flex;gap:8px"><button class="btn btng bsm" type="button" id="int-results-export-pdf"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm" type="button" id="int-results-export-csv"><i class="ti ti-table"></i>Export CSV</button></div>
         </div>
         <div class="kg4" id="int-results-kpis-legacy" hidden>
           <div class="kpi"><div class="kl">Called</div><div class="kv">8</div></div>
@@ -952,8 +953,12 @@ const bodyHtml = `<div class="app" id="app">
             </div>
             <div class="cred-form" id="cred-oauth" style="display:none">
               <div class="cred-title"><i class="ti ti-shield-check" style="font-size:14px"></i>OAuth 2.0 — authorise via browser</div>
-              <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Calendly / Cronofy scheduling will be available in a later release. Click below to open the authorisation page when enabled.</p>
-              <button class="btn btng" type="button" disabled title="Coming soon — Phase 5"><i class="ti ti-external-link"></i>Connect with OAuth →</button>
+              <p style="font-size:12px;color:var(--t2);margin-bottom:12px;line-height:1.6">Connect one scheduling provider for interview shortlist booking links. Only one can be active per organisation.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btng" type="button" id="scheduling-oauth-calendly"><i class="ti ti-calendar"></i>Connect Calendly</button>
+                <button class="btn btng" type="button" id="scheduling-oauth-cronofy"><i class="ti ti-calendar-time"></i>Connect Cronofy</button>
+              </div>
+              <div id="scheduling-oauth-status" class="muted" style="font-size:11px;margin-top:10px"></div>
             </div>
             <div class="cred-form" id="cred-standalone" style="display:none">
               <div class="cred-title"><i class="ti ti-upload" style="font-size:14px"></i>Standalone mode — no booking system needed</div>

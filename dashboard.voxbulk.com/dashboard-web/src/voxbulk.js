@@ -118,8 +118,15 @@ var credForms=['apikey','multi','userpass','oauth','standalone'];
 function selSys(el,type){
   var nameEl=el.querySelector('.sn');
   var name=nameEl?nameEl.textContent:'';
-  if(name.indexOf('Calendly')>=0||name.indexOf('Cronofy')>=0){
-    toast('Scheduling integration coming soon — Phase 5','tw');
+  if(name.indexOf('Cronofy')>=0){
+    if(typeof window.startCronofyOAuth==='function') window.startCronofyOAuth();
+    else toast('Scheduling connect is loading — refresh the page','tw');
+    return;
+  }
+  if(name.indexOf('Calendly')>=0){
+    if(typeof window.startCalendlyOAuth==='function') window.startCalendlyOAuth();
+    else toast('Scheduling connect is loading — refresh the page','tw');
+    return;
   }
   document.querySelectorAll('.sysb').forEach(s=>s.classList.remove('sel'));
   el.classList.add('sel');

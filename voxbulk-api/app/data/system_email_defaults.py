@@ -56,4 +56,27 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:12px;color:#64748b;">— VOXBULK Billing</p>
 </body></html>""",
     },
+    "interview_scheduling_invite": {
+        "title": "Interview scheduling invite",
+        "subject": "Next step — {{role}}",
+        "body": """<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
+  <p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>Thank you for completing your screening call for <strong>{{role}}</strong>.</p>
+  <p>Please book your next interview here:</p>
+  <p><a href="{{scheduling_url}}" style="display:inline-block;background:#00C896;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Book interview</a></p>
+  <p style="word-break:break-all;font-size:13px;"><a href="{{scheduling_url}}" style="color:#00C896;">{{scheduling_url}}</a></p>
+  <p style="font-size:12px;color:#64748b;">— VOXBULK</p>
+</body></html>""",
+    },
+    "interview_zoom_invite": {
+        "title": "Interview Zoom invite",
+        "subject": "Your Zoom interview — {{role}}",
+        "body": """<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
+  <p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>Your Zoom interview for <strong>{{role}}</strong> is ready.</p>
+  <p><a href="{{join_url}}" style="display:inline-block;background:#00C896;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Join Zoom meeting</a></p>
+  <p style="word-break:break-all;font-size:13px;"><a href="{{join_url}}" style="color:#00C896;">{{join_url}}</a></p>
+  <p style="font-size:12px;color:#64748b;">— VOXBULK</p>
+</body></html>""",
+    },
 }

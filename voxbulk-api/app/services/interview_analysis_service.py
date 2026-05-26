@@ -1,0 +1,357 @@
+"""Post-call transcript analysis and aggregation for AI interview screening."""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import threading
+import time
+from collections import Counter
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+from app.services.agents.base import AgentMessage
+from app.services.interview_voice_agent_service import is_ai_call_interview_order
+from app.services.platform_catalog_service import ServiceOrderService
+from app.services.providers.openai_service import OpenAIProviderService
+from app.services.survey_analysis_service import (
+    ANALYSIS_VERSION,
+    MIN_TRANSCRIPT_CHARS,
+    ensure_survey_transcript,
+    fetch_survey_transcript_from_telnyx,
+)
+
+logger = logging.getLogger(__name__)
+LOG_PREFIX = "[interview-analysis]"
+
+
+def _log(event: str, **detail: Any) -> None:
+    logger.info("%s %s", LOG_PREFIX, event, extra=detail)
+
+
+def _order_config(order: ServiceOrder) -> dict[str, Any]:
+    try:
+        data = json.loads(order.config_json or "{}")
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
+    try:
+        data = json.loads(recipient.result_json or "{}")
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _set_recipient_result(db: Session, recipient: ServiceOrderRecipient, payload: dict[str, Any]) -> None:
+    merged = _recipient_result(recipient)
+    merged.update(payload)
+    recipient.result_json = json.dumps(merged, ensure_ascii=False)
+    db.add(recipient)
+    db.commit()
+    db.refresh(recipient)
+
+
+_INTERVIEW_ANALYSIS_META = """You analyse a completed AI phone interview screening call transcript.
+Return ONLY valid JSON with this exact shape:
+{
+  "short_summary": "2-3 sentence summary for the hiring manager",
+  "score": integer 0-100 overall fit score,
+  "recommendation": one of "Advance", "Hold", "Decline",
+  "sentiment": one of "Enthusiastic", "Neutral", "Hesitant",
+  "strengths": ["brief strength bullets"],
+  "concerns": ["brief concern bullets"],
+  "key_answers": [
+    {"question": "screening question", "answer": "candidate answer", "quality": one of "strong", "adequate", "weak"}
+  ],
+  "completion_quality": one of "complete", "partial", "declined", "unclear"
+}
+
+Rules:
+- British English.
+- Base score and recommendation on role fit and screening criteria in the prompt.
+- Do not invent facts not in the transcript."""
+
+
+def _parse_analysis_json(text: str) -> dict[str, Any]:
+    clean = str(text or "").strip()
+    if clean.startswith("```"):
+        clean = re.sub(r"^```(?:json)?\s*", "", clean)
+        clean = re.sub(r"\s*```$", "", clean)
+    try:
+        data = json.loads(clean)
+    except json.JSONDecodeError:
+        start = clean.find("{")
+        end = clean.rfind("}")
+        data = json.loads(clean[start : end + 1]) if start >= 0 and end > start else {}
+    return data if isinstance(data, dict) else {}
+
+
+def _normalize_recommendation(value: str | None) -> str:
+    clean = str(value or "Hold").strip()
+    if clean.lower() in {"advance", "hold", "decline"}:
+        return clean.title() if clean.lower() != "advance" else "Advance"
+    mapping = {"yes": "Advance", "no": "Decline", "maybe": "Hold", "qualified": "Advance", "reject": "Decline"}
+    return mapping.get(clean.lower(), "Hold")
+
+
+def _normalize_sentiment(value: str | None) -> str:
+    clean = str(value or "Neutral").strip()
+    if clean in {"Enthusiastic", "Neutral", "Hesitant"}:
+        return clean
+    low = clean.lower()
+    if low in {"positive", "enthusiastic", "excited"}:
+        return "Enthusiastic"
+    if low in {"negative", "hesitant", "reluctant"}:
+        return "Hesitant"
+    return "Neutral"
+
+
+def _normalize_analysis(data: dict[str, Any]) -> dict[str, Any]:
+    try:
+        score = int(float(data.get("score")))
+    except (TypeError, ValueError):
+        score = 50
+    score = max(0, min(100, score))
+
+    keys_raw = data.get("key_answers")
+    key_answers: list[dict[str, str]] = []
+    if isinstance(keys_raw, list):
+        for item in keys_raw:
+            if not isinstance(item, dict):
+                continue
+            key_answers.append(
+                {
+                    "question": str(item.get("question") or "").strip(),
+                    "answer": str(item.get("answer") or "").strip(),
+                    "quality": str(item.get("quality") or "adequate").strip().lower(),
+                }
+            )
+
+    strengths = data.get("strengths") if isinstance(data.get("strengths"), list) else []
+    concerns = data.get("concerns") if isinstance(data.get("concerns"), list) else []
+
+    return {
+        "short_summary": str(data.get("short_summary") or "").strip(),
+        "score": score,
+        "recommendation": _normalize_recommendation(str(data.get("recommendation") or "")),
+        "sentiment": _normalize_sentiment(str(data.get("sentiment") or "")),
+        "strengths": [str(x).strip() for x in strengths if str(x).strip()],
+        "concerns": [str(x).strip() for x in concerns if str(x).strip()],
+        "key_answers": key_answers,
+        "completion_quality": str(data.get("completion_quality") or "unclear").strip().lower(),
+        "analysis_version": ANALYSIS_VERSION,
+    }
+
+
+def extract_interview_analysis(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    transcript: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    clean = str(transcript or "").strip()
+    role = str(config.get("role") or order.title or "the role").strip()
+    criteria = str(config.get("screening_criteria") or config.get("criteria") or "").strip()
+    script = str(config.get("approved_script") or "").strip()
+    cv_snippet = ""
+    intake = _recipient_result(recipient)
+    if isinstance(intake.get("cv_text"), str):
+        cv_snippet = intake["cv_text"][:2000]
+
+    user_block = "\n\n".join(
+        [
+            f"Role: {role}",
+            f"Screening criteria:\n{criteria or '(not specified)'}",
+            f"Approved interview script:\n{script or '(not provided)'}",
+            f"Candidate CV excerpt:\n{cv_snippet or '(not provided)'}",
+            f"Transcript:\n{clean}",
+        ]
+    )
+    result = OpenAIProviderService.complete(
+        db,
+        system_prompt=_INTERVIEW_ANALYSIS_META,
+        messages=[AgentMessage(role="user", content=user_block)],
+        max_tokens=1200,
+        temperature=0.2,
+        provider="deepseek",
+    )
+    return _normalize_analysis(_parse_analysis_json(str(result.assistant_text or "")))
+
+
+def run_interview_analysis_if_needed(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    force: bool = False,
+) -> dict[str, Any]:
+    existing = _recipient_result(recipient)
+    if not force and existing.get("analysis_saved_at") and str(existing.get("analysis_version") or "") == ANALYSIS_VERSION:
+        analysis = existing.get("analysis")
+        if isinstance(analysis, dict) and analysis.get("short_summary"):
+            return existing
+
+    transcript = str(existing.get("transcript") or "").strip()
+    if len(transcript) < MIN_TRANSCRIPT_CHARS:
+        return existing
+
+    config = _order_config(order)
+    try:
+        analysis = extract_interview_analysis(db, order=order, recipient=recipient, transcript=transcript, config=config)
+    except Exception as exc:
+        logger.exception("%s analysis_failed", LOG_PREFIX)
+        _set_recipient_result(
+            db,
+            recipient,
+            {"analysis_error": str(exc)[:500], "analysis_attempted_at": datetime.utcnow().isoformat()},
+        )
+        return _recipient_result(recipient)
+
+    payload = {
+        "analysis": analysis,
+        "analysis_saved_at": datetime.utcnow().isoformat(),
+        "analysis_version": ANALYSIS_VERSION,
+        "score": analysis.get("score"),
+        "recommendation": analysis.get("recommendation"),
+        "sentiment": analysis.get("sentiment"),
+        "short_summary": analysis.get("short_summary"),
+    }
+    _set_recipient_result(db, recipient, payload)
+    return _recipient_result(recipient)
+
+
+def build_order_interview_report(order: ServiceOrder, recipients: list[ServiceOrderRecipient]) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    advance = hold = decline = 0
+    scores: list[int] = []
+    for row in recipients:
+        status = str(row.status or "pending").lower()
+        counts[status] = counts.get(status, 0) + 1
+        result = _recipient_result(row)
+        analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+        rec = str(analysis.get("recommendation") or result.get("recommendation") or "").strip()
+        if rec == "Advance":
+            advance += 1
+        elif rec == "Decline":
+            decline += 1
+        elif rec:
+            hold += 1
+        try:
+            scores.append(int(analysis.get("score") or result.get("score") or 0))
+        except (TypeError, ValueError):
+            pass
+
+    return {
+        "dispatch_at": datetime.utcnow().isoformat(),
+        "provider": "telnyx_voice",
+        "channel": "ai_call",
+        "total": len(recipients),
+        "counts": counts,
+        "completed": counts.get("completed", 0),
+        "no_answer": counts.get("no_answer", 0),
+        "failed": counts.get("failed", 0),
+        "advance_count": advance,
+        "hold_count": hold,
+        "decline_count": decline,
+        "average_score": round(sum(scores) / len(scores), 1) if scores else None,
+    }
+
+
+def refresh_order_interview_report(db: Session, order: ServiceOrder) -> None:
+    recipients = ServiceOrderService.get_recipients(db, order.id)
+    order.report_json = json.dumps(build_order_interview_report(order, recipients), ensure_ascii=False)
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+
+
+class InterviewAnalysisService:
+    @staticmethod
+    def process_recipient_post_call(
+        db: Session,
+        *,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+        terminal_status: str,
+        hangup_extra: dict[str, Any] | None = None,
+    ) -> None:
+        if not is_ai_call_interview_order(order):
+            return
+        db.refresh(recipient)
+        hangup_extra = dict(hangup_extra or {})
+        if terminal_status == "completed":
+            ensure_survey_transcript(db, order=order, recipient=recipient, hangup_extra=hangup_extra)
+            db.refresh(recipient)
+            run_interview_analysis_if_needed(db, order=order, recipient=recipient)
+        elif terminal_status in {"no_answer", "failed", "busy", "skipped", "cancelled", "opted_out"}:
+            payload: dict[str, Any] = {"terminal_status": terminal_status}
+            if hangup_extra.get("call_control_id"):
+                payload["call_control_id"] = hangup_extra["call_control_id"]
+            _set_recipient_result(db, recipient, payload)
+        refresh_order_interview_report(db, order)
+
+    @staticmethod
+    def process_pending_analysis(db: Session, *, limit: int = 10) -> int:
+        processed = 0
+        rows = list(
+            db.execute(
+                select(ServiceOrderRecipient)
+                .join(ServiceOrder, ServiceOrder.id == ServiceOrderRecipient.order_id)
+                .where(
+                    ServiceOrder.service_code == "interview",
+                    ServiceOrderRecipient.status == "completed",
+                )
+                .order_by(ServiceOrderRecipient.created_at.asc())
+                .limit(limit * 3)
+            ).scalars()
+        )
+        for recipient in rows:
+            if processed >= limit:
+                break
+            order = db.get(ServiceOrder, recipient.order_id)
+            if order is None or not is_ai_call_interview_order(order):
+                continue
+            result = _recipient_result(recipient)
+            if result.get("analysis_saved_at"):
+                continue
+            ensure_survey_transcript(db, order=order, recipient=recipient)
+            db.refresh(recipient)
+            if len(str(_recipient_result(recipient).get("transcript") or "")) < MIN_TRANSCRIPT_CHARS:
+                continue
+            run_interview_analysis_if_needed(db, order=order, recipient=recipient)
+            refresh_order_interview_report(db, order)
+            processed += 1
+        return processed
+
+
+def schedule_interview_analysis_retry(order_id: str, recipient_id: str, *, delay_seconds: int = 90) -> None:
+    def _run() -> None:
+        from app.core.database import get_sessionmaker
+
+        time.sleep(max(30, int(delay_seconds)))
+        try:
+            with get_sessionmaker()() as db:
+                order = db.get(ServiceOrder, order_id)
+                recipient = db.get(ServiceOrderRecipient, recipient_id)
+                if order is None or recipient is None:
+                    return
+                InterviewAnalysisService.process_recipient_post_call(
+                    db,
+                    order=order,
+                    recipient=recipient,
+                    terminal_status=str(recipient.status or "completed"),
+                )
+        except Exception:
+            logger.exception("%s retry_failed", LOG_PREFIX)
+
+    threading.Thread(target=_run, daemon=True, name=f"interview-analysis-{recipient_id[:8]}").start()

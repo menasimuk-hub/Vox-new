@@ -68,6 +68,7 @@ const interviewLaunch = {
   preparedOrder: null,
   preparedQuoteText: '',
   saving: false,
+  cvClosedEarly: false,
 }
 
 const INTERVIEW_DRAFT_LS_KEY = 'voxbulk_interview_draft_id'
@@ -493,6 +494,7 @@ function renderInterviewKpis(orders, credits, reportOverview) {
 
 async function openInterviewResults(orderId) {
   state.interviewOrderId = orderId
+  interviewResultsUi.orderId = orderId
   if (typeof window.goNav === 'function') window.goNav('results-i')
 
   const bc = document.getElementById('int-results-bc-title')
@@ -509,9 +511,11 @@ async function openInterviewResults(orderId) {
     if (bc) bc.textContent = title
     if (banner) banner.style.display = 'flex'
     if (bannerText) {
-      bannerText.textContent = results.is_mock
-        ? `${title} — sort candidates and use ⋮ for scheduling links (mock until Phase 5).`
-        : `${title} — live interview results.`
+      bannerText.textContent = results.scheduling_mock
+        ? `${title} — connect Calendly in System settings, select top candidates, then Send scheduling links.`
+        : results.is_mock
+          ? `${title} — calls in progress; scores update when interviews complete.`
+          : `${title} — live interview results.`
     }
     if (mockNote) mockNote.style.display = results.is_mock ? '' : 'none'
     renderInterviewResultsPage(results)
@@ -728,7 +732,21 @@ function renderInterviewResultsTableBody() {
   })
 }
 
+async function persistInterviewShortlist(orderId) {
+  const ids = [...interviewResultsUi.selected]
+  if (!orderId || !ids.length) return
+  try {
+    await api(`/service-orders/${encodeURIComponent(orderId)}/interview-shortlist`, {
+      method: 'PATCH',
+      body: JSON.stringify({ recipient_ids: ids }),
+    })
+  } catch (e) {
+    console.warn('[interview] shortlist save failed', e)
+  }
+}
+
 async function sendBulkInterviewScheduling() {
+  const orderId = interviewResultsUi.orderId
   const selected = interviewResultsUi.rows.filter((r) => interviewResultsUi.selected.has(String(r.id)))
   if (!selected.length) {
     window.toast?.('Select at least one candidate', 'tr')
@@ -736,34 +754,25 @@ async function sendBulkInterviewScheduling() {
   }
   const ok = await confirmDialog({
     title: 'Send scheduling links',
-    message: `Send mock WhatsApp and email links to ${selected.length} selected candidate(s)?`,
+    message: `Send Calendly scheduling links by email to ${selected.length} selected candidate(s)?`,
     okLabel: 'Send',
     cancelLabel: 'Cancel',
   })
   if (!ok) return
 
-  const withEmail = selected.filter((c) => c.email && (c.email_mailto || c.email_body_mock))
-  const withWa = selected.filter((c) => c.whatsapp_mock)
-
-  if (withEmail.length) {
-    const bcc = withEmail.map((c) => String(c.email).trim()).join(',')
-    const sample = withEmail[0]
-    const subject = sample.email_subject || 'Interview — next step'
-    const body =
-      withEmail.length === 1
-        ? sample.email_body_mock || ''
-        : `Hi,\n\nPlease book your follow-up interview using the personal link we shared with you.\n\nBest regards`
-    window.location.href = `mailto:?bcc=${encodeURIComponent(bcc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  try {
+    await persistInterviewShortlist(orderId)
+    const res = await api(`/service-orders/${encodeURIComponent(orderId)}/interview-scheduling/send`, {
+      method: 'POST',
+      body: JSON.stringify({ recipient_ids: selected.map((c) => c.id) }),
+    })
+    const sent = res?.sent ?? 0
+    const errs = (res?.errors || []).length
+    window.toast?.(`Scheduling sent to ${sent} candidate(s)${errs ? ` · ${errs} issue(s)` : ''}`, sent ? 'tg' : 'tr')
+    if (orderId) await openInterviewResults(orderId)
+  } catch (e) {
+    window.toast?.(e?.message || 'Could not send scheduling links — connect Calendly in System settings', 'tr')
   }
-
-  withWa.forEach((c, idx) => {
-    setTimeout(() => window.open(c.whatsapp_mock, '_blank', 'noopener'), idx * 350)
-  })
-
-  window.toast?.(
-    `Mock send · email: ${withEmail.length} · WhatsApp: ${withWa.length}${withWa.length > 1 ? ' (tabs opening)' : ''}`,
-    'tg',
-  )
   closeAllInterviewRowMenus()
 }
 
@@ -798,6 +807,11 @@ function renderInterviewResultsPage(results) {
   const staticTable = document.getElementById('int-results-table-static')
   interviewResultsUi.rows = results?.candidates || []
   interviewResultsUi.selected.clear()
+  const saved = results?.top_10_recipient_ids || []
+  saved.forEach((id) => interviewResultsUi.selected.add(String(id)))
+  interviewResultsUi.rows.forEach((r) => {
+    if (r.shortlist_selected) interviewResultsUi.selected.add(String(r.id))
+  })
   if (staticTable) staticTable.style.display = interviewResultsUi.rows.length ? 'none' : ''
 
   wireInterviewResultsToolbar()
@@ -1161,6 +1175,12 @@ function getInterviewCvCollectionPhase() {
   if (!enabled) {
     return { enabled: false, complete: true, blocksLaunch: false, state: 'disabled', endLabel: '', candidateCount: count }
   }
+  if (interviewLaunch.cvClosedEarly) {
+    const cv = cvEmailSchedulePayload()
+    const end = cv.cv_email_end_at ? new Date(cv.cv_email_end_at) : new Date()
+    const endLabel = end.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    return { enabled: true, complete: true, blocksLaunch: false, state: 'after', endLabel, candidateCount: count, closedEarly: true }
+  }
   const cv = cvEmailSchedulePayload()
   if (!cv.cv_email_start_at || !cv.cv_email_end_at) {
     return { enabled: true, complete: false, blocksLaunch: true, state: 'incomplete', endLabel: '—', candidateCount: count }
@@ -1230,7 +1250,8 @@ function updateInterviewLaunchPhaseUi() {
       }
     } else if (phase.enabled && phase.complete) {
       banner.style.display = ''
-      bannerText.textContent = `Step 1 complete — email collection ended ${phase.endLabel}. ${phase.candidateCount} candidate(s) ready. You can now preview, quote, pay, and schedule AI calls (Step 2).`
+      const earlyNote = phase.closedEarly ? ' (closed early)' : ''
+      bannerText.textContent = `Step 1 complete${earlyNote} — email collection ended ${phase.endLabel}. ${phase.candidateCount} candidate(s) ready. You can now preview, quote, pay, and schedule AI calls (Step 2).`
     } else {
       banner.style.display = 'none'
     }
@@ -1258,6 +1279,13 @@ function updateInterviewLaunchPhaseUi() {
   if (aiLockedNote) {
     aiLockedNote.style.display = blockLaunch ? '' : 'none'
   }
+  const closeEarlyBtn = document.getElementById('int-cv-close-early')
+  if (closeEarlyBtn) {
+    const showClose = phase.enabled && phase.blocksLaunch && (phase.state === 'before' || phase.state === 'open')
+    closeEarlyBtn.style.display = showClose ? '' : 'none'
+    closeEarlyBtn.disabled = !interviewLaunch.draftOrderId && !state.interviewOrderId
+  }
+
   if (startDate && phase.enabled && phase.complete && phase.endLabel) {
     const cv = cvEmailSchedulePayload()
     if (cv.cv_email_end_at) {
@@ -1285,10 +1313,43 @@ function cvEmailSchedulePayload() {
 }
 
 function applyCvEmailFromConfig(cfg) {
+  interviewLaunch.cvClosedEarly = Boolean(cfg?.cv_collection_closed_early_at)
   setCvEmailEnabled(Boolean(cfg?.cv_email_enabled))
   if (cfg?.cv_email_enabled && cfg.cv_email_start_at && cfg.cv_email_end_at) {
     applyIsoScheduleToForm('int-cv', cfg.cv_email_start_at, cfg.cv_email_end_at)
     if (typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
+  }
+}
+
+async function closeInterviewCvCollectionEarly() {
+  const oid = interviewLaunch.draftOrderId || state.interviewOrderId
+  if (!oid) {
+    window.toast?.('Save the interview task first', 'tr')
+    return
+  }
+  if (!isCvEmailEnabled()) {
+    window.toast?.('Turn on CV email collection first', 'tr')
+    return
+  }
+  const phase = getInterviewCvCollectionPhase()
+  if (phase.complete) {
+    window.toast?.('CV collection is already closed', 'tr')
+    return
+  }
+  if (!window.confirm('Close CV email collection now? Quote and AI calls will unlock immediately.')) return
+  try {
+    const res = await api(`/service-orders/${encodeURIComponent(oid)}/interview/cv-collection/close-early`, {
+      method: 'POST',
+    })
+    interviewLaunch.cvClosedEarly = Boolean(res?.closed_early)
+    if (res?.end_at) {
+      applyIsoScheduleToForm('int-cv', res.start_at, res.end_at)
+    }
+    updateInterviewLaunchPhaseUi()
+    void refreshInterviewQuoteFromDraft().catch(() => {})
+    window.toast?.('CV collection closed — you can quote and launch AI calls', 'tg')
+  } catch (e) {
+    window.toast?.(e?.message || 'Could not close CV collection', 'tr')
   }
 }
 
@@ -1364,6 +1425,10 @@ function applyInterviewOrderToForm(order) {
   }
   applyIsoScheduleToForm('int', order.scheduled_start_at, order.scheduled_end_at)
   applyCvEmailFromConfig(cfg)
+  const cvPhase = order?.cv_collection
+  if (cvPhase) {
+    interviewLaunch.cvClosedEarly = Boolean(cvPhase.closed_early)
+  }
   updateInterviewReferenceCard(order)
   updateInterviewLaunchPhaseUi()
 }
@@ -1668,6 +1733,7 @@ function bindInterviewLaunchUi() {
   document.getElementById('int-cv-email-toggle')?.addEventListener('click', () => {
     setCvEmailEnabled(!isCvEmailEnabled())
   })
+  document.getElementById('int-cv-close-early')?.addEventListener('click', () => void closeInterviewCvCollectionEarly())
   ;['int-cv-start-date', 'int-cv-start-time', 'int-cv-end-date', 'int-cv-end-time'].forEach((id) => {
     document.getElementById(id)?.addEventListener('input', () => {
       if (typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
@@ -3198,6 +3264,55 @@ export function initServiceOrdersBridge() {
   window.launchIntCampaign = async () => {
     await openInterviewPreview()
   }
+  async function refreshSchedulingOAuthStatus() {
+    const el = document.getElementById('scheduling-oauth-status')
+    if (!el) return
+    try {
+      const st = await api('/service-orders/scheduling/status')
+      if (st?.connected) {
+        el.textContent = `Connected: ${st.provider || 'scheduling'}${st.owner_name ? ` (${st.owner_name})` : ''}`
+      } else {
+        el.textContent = 'Not connected — choose Calendly or Cronofy'
+      }
+    } catch {
+      el.textContent = ''
+    }
+  }
+  window.startCalendlyOAuth = async () => {
+    try {
+      const res = await api('/service-orders/scheduling/oauth/calendly/start')
+      if (res?.authorize_url) window.location.href = res.authorize_url
+      else window.toast?.('Calendly OAuth is not configured on the server', 'tr')
+    } catch (e) {
+      window.toast?.(e?.message || 'Could not start Calendly connection', 'tr')
+    }
+  }
+  window.startCronofyOAuth = async () => {
+    try {
+      const res = await api('/service-orders/scheduling/oauth/cronofy/start')
+      if (res?.authorize_url) window.location.href = res.authorize_url
+      else window.toast?.('Cronofy OAuth is not configured on the server', 'tr')
+    } catch (e) {
+      window.toast?.(e?.message || 'Could not start Cronofy connection', 'tr')
+    }
+  }
+  document.getElementById('scheduling-oauth-calendly')?.addEventListener('click', () => window.startCalendlyOAuth())
+  document.getElementById('scheduling-oauth-cronofy')?.addEventListener('click', () => window.startCronofyOAuth())
+  void refreshSchedulingOAuthStatus()
+  if (typeof URLSearchParams !== 'undefined' && window.location.search.includes('scheduling=connected')) {
+    void refreshSchedulingOAuthStatus()
+    window.toast?.('Scheduling provider connected', 'tg')
+  }
+  document.getElementById('int-results-export-csv')?.addEventListener('click', async () => {
+    const oid = interviewResultsUi.orderId || state.interviewOrderId
+    if (!oid) return
+    await downloadAuthenticatedFile(`/service-orders/${encodeURIComponent(oid)}/interview-results/export.csv`)
+  })
+  document.getElementById('int-results-export-pdf')?.addEventListener('click', async () => {
+    const oid = interviewResultsUi.orderId || state.interviewOrderId
+    if (!oid) return
+    await downloadAuthenticatedFile(`/service-orders/${encodeURIComponent(oid)}/interview-results/export.pdf`)
+  })
   window.openSurveyWaPreview = openSurveyWaPreview
   window.closeSurveyWaPreview = closeSurveyWaPreview
   window.resetSurveyWaPreview = resetSurveyWaPreview

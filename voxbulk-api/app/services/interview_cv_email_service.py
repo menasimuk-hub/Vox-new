@@ -55,9 +55,30 @@ def cv_email_window_state(order: ServiceOrder, *, now: datetime | None = None) -
 
 
 def cv_collection_complete(order: ServiceOrder, *, now: datetime | None = None) -> bool:
-    """True when email CV intake is off, or the collection window has ended."""
+    """True when email CV intake is off, the collection window has ended, or closed early."""
+    cfg = _loads_config(order)
+    if cfg.get("cv_collection_closed_early_at"):
+        return True
     state = cv_email_window_state(order, now=now)
     return state in {"disabled", "after"}
+
+
+def close_cv_collection_early(db: Session, order: ServiceOrder, *, now: datetime | None = None) -> dict[str, Any]:
+    """End CV email intake immediately so quote/pay/AI calls can proceed."""
+    if order.service_code != "interview":
+        raise ValueError("CV collection is only for interview orders")
+    cfg = _loads_config(order)
+    if not cfg.get("cv_email_enabled"):
+        raise ValueError("CV email collection is not enabled on this task")
+    ts = now or datetime.utcnow()
+    cfg["cv_email_end_at"] = ts.isoformat()
+    cfg["cv_collection_closed_early_at"] = ts.isoformat()
+    order.config_json = json.dumps(cfg, ensure_ascii=False)
+    order.updated_at = ts
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return interview_cv_phase_payload(order, now=ts)
 
 
 def assert_cv_collection_complete(order: ServiceOrder, *, now: datetime | None = None) -> None:
@@ -99,10 +120,13 @@ def interview_cv_phase_payload(order: ServiceOrder, *, now: datetime | None = No
     state = cv_email_window_state(order, now=now)
     settings = cv_email_settings(order)
     complete = cv_collection_complete(order, now=now)
+    cfg = _loads_config(order)
+    closed_early = bool(cfg.get("cv_collection_closed_early_at"))
     return {
         "enabled": settings["enabled"],
         "window_state": state,
         "collection_complete": complete,
+        "closed_early": closed_early,
         "can_quote": complete,
         "can_launch_ai": complete,
         "start_at": settings.get("start_at"),

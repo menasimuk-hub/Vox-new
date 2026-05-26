@@ -67,7 +67,7 @@ def test_interview_results_shortlist(db_session: Session, interview_order: Servi
     db_session.refresh(interview_order)
 
     results = InterviewResultsService.get_results(db_session, interview_order)
-    assert results["phase"] == 3
+    assert results["phase"] == 5
     assert results["is_mock"] is True
     assert len(results["candidates"]) == 2
     assert len(results["shortlist"]) == 2

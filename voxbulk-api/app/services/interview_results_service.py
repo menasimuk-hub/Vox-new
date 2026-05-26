@@ -1,4 +1,4 @@
-"""Interview campaign results, ranking, and Phase 3 shortlist (mock scheduling until Phase 5)."""
+"""Interview campaign results, ranking, shortlist, and scheduling links."""
 
 from __future__ import annotations
 
@@ -94,11 +94,14 @@ def _candidate_row(recipient: ServiceOrderRecipient, *, role: str) -> dict[str, 
     }
 
 
-def _mock_scheduling_links(order: ServiceOrder, candidate: dict[str, Any]) -> dict[str, str]:
+def _scheduling_links(order: ServiceOrder, candidate: dict[str, Any], *, parsed: dict[str, Any]) -> dict[str, str]:
     slug = str(candidate.get("id") or "")[:8]
     name = str(candidate.get("name") or "there")
     role = str(candidate.get("task") or "interview").replace(" ", "-").lower()
-    sched_url = f"https://schedule.voxbulk.com/mock/{order.id}/{slug}"
+    sched_url = str(parsed.get("scheduling_url") or parsed.get("join_url") or "").strip()
+    if not sched_url:
+        sched_url = f"https://schedule.voxbulk.com/mock/{order.id}/{slug}"
+    scheduling_mock = not bool(parsed.get("scheduling_url") or parsed.get("join_url"))
     wa_text = f"Hi {name}, great speaking with you. Please book your follow-up slot: {sched_url}"
     phone_digits = re.sub(r"\D", "", str(candidate.get("phone") or ""))
     if phone_digits:
@@ -121,7 +124,10 @@ def _mock_scheduling_links(order: ServiceOrder, candidate: dict[str, Any]) -> di
         "email_body_mock": email_body_mock,
         "email_mailto": email_mailto,
         "whatsapp_mock": whatsapp_mock,
-        "scheduling_url_mock": sched_url,
+        "scheduling_url": sched_url,
+        "scheduling_url_mock": sched_url if scheduling_mock else sched_url,
+        "scheduling_mock": scheduling_mock,
+        "scheduling_sent_at": parsed.get("scheduling_url_sent_at"),
     }
 
 
@@ -135,14 +141,21 @@ class InterviewResultsService:
         role = str(config.get("role") or order.title or "Interview campaign")
         recipients = ServiceOrderService.get_recipients(db, order.id)
         candidates: list[dict[str, Any]] = []
+        saved_ids = [str(x) for x in (config.get("top_10_recipient_ids") or []) if str(x).strip()]
+
         for recipient in recipients:
+            parsed = _loads_json(recipient.result_json) or {}
             row = _candidate_row(recipient, role=role)
-            row.update(_mock_scheduling_links(order, row))
+            row.update(_scheduling_links(order, row, parsed=parsed if isinstance(parsed, dict) else {}))
+            row["shortlist_selected"] = recipient.id in saved_ids
             candidates.append(row)
         candidates.sort(key=lambda c: (c.get("score") or 0, c.get("name") or ""), reverse=True)
 
-        shortlist_size = min(10, len(candidates))
-        shortlist = candidates[:shortlist_size]
+        if saved_ids:
+            id_set = set(saved_ids)
+            shortlist = [c for c in candidates if c.get("id") in id_set]
+        else:
+            shortlist = candidates[: min(10, len(candidates))]
 
         called = sum(1 for r in recipients if r.status not in {None, "", "pending", "queued"})
         reached = sum(1 for r in recipients if r.status in {"completed", "answered", "success"})
@@ -156,15 +169,17 @@ class InterviewResultsService:
             else 0
         )
         avg_m, avg_s = divmod(avg_duration, 60)
-        is_mock = any(c.get("is_mock") for c in candidates) or order.status in {"draft", "quoted", "awaiting_payment", "paid", "scheduled"}
+        is_mock = any(c.get("is_mock") for c in candidates)
+        scheduling_mock = any(c.get("scheduling_mock") for c in candidates)
 
         return {
             "order_id": order.id,
             "title": order.title,
             "role": role,
-            "phase": 3,
+            "phase": 5,
             "is_mock": is_mock,
-            "scheduling_mock": True,
+            "scheduling_mock": scheduling_mock,
+            "top_10_recipient_ids": saved_ids,
             "kpis": {
                 "called": called or len(candidates),
                 "reached": reached or len(candidates),
@@ -175,3 +190,45 @@ class InterviewResultsService:
             "candidates": candidates,
             "shortlist": shortlist,
         }
+
+    @staticmethod
+    def export_results_csv(db: Session, order: ServiceOrder) -> str:
+        import csv
+        import io
+
+        payload = InterviewResultsService.get_results(db, order)
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["Interview", payload.get("title")])
+        writer.writerow(["Role", payload.get("role")])
+        writer.writerow([])
+        writer.writerow(["Candidate", "Score", "Recommendation", "Sentiment", "Duration", "Status"])
+        for c in payload.get("candidates") or []:
+            writer.writerow(
+                [
+                    c.get("name"),
+                    c.get("score"),
+                    c.get("recommendation"),
+                    c.get("sentiment"),
+                    c.get("duration_label"),
+                    c.get("status"),
+                ]
+            )
+        return buf.getvalue()
+
+    @staticmethod
+    def export_results_pdf(db: Session, order: ServiceOrder) -> bytes:
+        from app.services.invoice_pdf_service import render_html_to_pdf_bytes
+
+        payload = InterviewResultsService.get_results(db, order)
+        rows = "".join(
+            f"<tr><td>{c.get('name')}</td><td>{c.get('score')}</td><td>{c.get('recommendation')}</td>"
+            f"<td>{c.get('sentiment')}</td><td>{c.get('duration_label')}</td></tr>"
+            for c in (payload.get("candidates") or [])
+        )
+        html = f"""<html><body>
+        <h1>Interview results — {payload.get('title')}</h1>
+        <p>Role: {payload.get('role')}</p>
+        <table border="1" cellpadding="6"><tr><th>Candidate</th><th>Score</th><th>Recommendation</th><th>Sentiment</th><th>Duration</th></tr>
+        {rows}</table></body></html>"""
+        return render_html_to_pdf_bytes(html)
