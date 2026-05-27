@@ -41,6 +41,14 @@ function messageStatusClass(status) {
   return 'p-cyan'
 }
 
+function waTemplateStatusPill(status) {
+  const s = String(status || '').toUpperCase()
+  if (s === 'APPROVED') return { cls: 'p-green', label: 'Approved' }
+  if (s === 'REJECTED' || s === 'DELETED' || s === 'DISABLED') return { cls: 'p-red', label: s }
+  if (s === 'PENDING' || s.includes('PENDING')) return { cls: 'p-amber', label: s }
+  return { cls: 'p-cyan', label: s || 'Unknown' }
+}
+
 function Field({ label, hint, error, children }) {
   return (
     <div className='telnyxField'>
@@ -377,9 +385,55 @@ export default function TelnyxIntegration({
                   Reload templates
                 </button>
               </div>
+              <div className='muted telnyxFieldHint' style={{ marginBottom: 10 }}>
+                Sync pulls live templates from Telnyx and <strong>removes</strong> any cached rows that were deleted in Telnyx or Meta.
+                Only <strong>Approved</strong> templates can be used for test sends.
+              </div>
+              {(telnyxWaTemplates || []).length > 0 ? (
+                <div className='telnyxWaTemplateTableWrap' style={{ marginBottom: 14 }}>
+                  <table className='table telnyxWaTemplateTable'>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Language</th>
+                        <th>Status</th>
+                        <th>Synced</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(telnyxWaTemplates || []).map((t) => {
+                        const pill = waTemplateStatusPill(t.status)
+                        return (
+                          <tr key={t.template_id || t.id || t.name}>
+                            <td>
+                              <strong>{t.name}</strong>
+                              {t.sales_template_key ? (
+                                <div className='muted' style={{ fontSize: 11 }}>
+                                  sales: {t.sales_template_key}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td>{t.language || '—'}</td>
+                            <td>
+                              <span className={`pill ${pill.cls}`}>{pill.label}</span>
+                            </td>
+                            <td className='muted' style={{ fontSize: 12 }}>
+                              {fmtTime(t.synced_at)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className='note' style={{ marginBottom: 12 }}>
+                  No templates cached yet. Sync to refresh from Telnyx (stale deleted templates are cleared automatically).
+                </div>
+              )}
               <Field
-                label='WhatsApp template (from Telnyx sync)'
-                hint='Sync first, then pick a template — sends using template_id + sample variables automatically.'
+                label='WhatsApp template (approved only)'
+                hint='Pick an approved template for Test WhatsApp — uses template_id from Telnyx.'
               >
                 <select
                   className='input'
@@ -387,12 +441,14 @@ export default function TelnyxIntegration({
                   onChange={(e) => onSelectTelnyxWaTemplate(e.target.value)}
                 >
                   <option value=''>— Select approved template —</option>
-                  {(telnyxWaTemplates || []).map((t) => (
-                    <option key={t.template_id || t.id} value={t.template_id || ''}>
-                      {t.name} · {t.language} · {t.status}
-                      {t.template_id ? ` · ${String(t.template_id).slice(0, 8)}…` : ''}
-                    </option>
-                  ))}
+                  {(telnyxWaTemplates || [])
+                    .filter((t) => String(t.status || '').toUpperCase() === 'APPROVED')
+                    .map((t) => (
+                      <option key={t.template_id || t.id} value={t.template_id || ''}>
+                        {t.name} · {t.language}
+                        {t.template_id ? ` · ${String(t.template_id).slice(0, 8)}…` : ''}
+                      </option>
+                    ))}
                 </select>
               </Field>
               <Field

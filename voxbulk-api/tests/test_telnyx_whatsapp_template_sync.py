@@ -116,3 +116,87 @@ def test_resolve_for_send_by_template_id(app_client):
         row = TelnyxWhatsappTemplateSyncService.resolve_for_send(db, template_id="tpl-uuid-123")
         assert row is not None
         assert row.name == "voxbulk_sales_followup"
+
+
+def test_sync_removes_stale_local_templates(app_client, monkeypatch):
+    remote = [
+        {
+            "id": "019cd44b-offer-telnyx-uuid",
+            "template_id": "1909771389734817",
+            "name": "voxbulk_sales_offer",
+            "language": "en_US",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Hi {{1}}"}],
+        },
+    ]
+
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+        lambda db: remote,
+    )
+
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        now = datetime.utcnow()
+        db.add(
+            TelnyxWhatsappTemplate(
+                telnyx_record_id="ghost-deleted-template",
+                template_id="ghost-uuid",
+                name="old_template_removed_from_telnyx",
+                language="en_US",
+                status="APPROVED",
+                synced_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+        result = TelnyxWhatsappTemplateSyncService.sync(db)
+        assert result["removed"] == 1
+        assert result["synced"] == 1
+        stored = TelnyxWhatsappTemplateSyncService.list_stored(db)
+        assert len(stored) == 1
+        assert stored[0]["name"] == "voxbulk_sales_offer"
+
+
+def test_sync_drops_deleted_remote_status(app_client, monkeypatch):
+    remote = [
+        {
+            "id": "deleted-on-meta",
+            "template_id": "999",
+            "name": "voxbulk_old",
+            "language": "en_US",
+            "status": "DELETED",
+            "components": [{"type": "BODY", "text": "Hi"}],
+        },
+    ]
+
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+        lambda db: remote,
+    )
+
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        now = datetime.utcnow()
+        db.add(
+            TelnyxWhatsappTemplate(
+                telnyx_record_id="deleted-on-meta",
+                template_id="999",
+                name="voxbulk_old",
+                language="en_US",
+                status="APPROVED",
+                synced_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+        result = TelnyxWhatsappTemplateSyncService.sync(db)
+        assert result["synced"] == 0
+        assert result["removed"] >= 1
+        assert TelnyxWhatsappTemplateSyncService.list_stored(db) == []

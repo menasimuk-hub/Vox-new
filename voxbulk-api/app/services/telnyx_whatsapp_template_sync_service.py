@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 TELNYX_WHATSAPP_TEMPLATES_URL = "https://api.telnyx.com/v2/whatsapp/message_templates"
 _VAR_RE = re.compile(r"\{\{(\d+)\}\}")
+# Meta/Telnyx statuses — do not keep locally (removed from portal or rejected).
+_SKIP_REMOTE_STATUSES = frozenset({"DELETED", "DISABLED", "PENDING_DELETION"})
 
 
 class TelnyxWhatsappTemplateSyncError(RuntimeError):
@@ -164,6 +166,7 @@ class TelnyxWhatsappTemplateSyncService:
         now = _now()
         synced = 0
         approved = 0
+        remote_record_ids: set[str] = set()
         for item in remote:
             record_id = str(item.get("id") or "").strip()
             meta_template_id = str(item.get("template_id") or "").strip()
@@ -174,6 +177,15 @@ class TelnyxWhatsappTemplateSyncService:
 
             language = str(item.get("language") or "en_US").strip() or "en_US"
             status = str(item.get("status") or "UNKNOWN").strip().upper()
+            if status in _SKIP_REMOTE_STATUSES:
+                existing = db.execute(
+                    select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == record_id)
+                ).scalar_one_or_none()
+                if existing is not None:
+                    db.delete(existing)
+                continue
+
+            remote_record_ids.add(record_id)
             category = str(item.get("category") or "").strip() or None
             components = item.get("components")
             components_json = json.dumps(components, ensure_ascii=False) if components is not None else None
@@ -210,12 +222,29 @@ class TelnyxWhatsappTemplateSyncService:
             if status == "APPROVED":
                 approved += 1
 
+        removed = 0
+        if remote_record_ids:
+            stale_rows = list(
+                db.execute(
+                    select(TelnyxWhatsappTemplate).where(
+                        TelnyxWhatsappTemplate.telnyx_record_id.notin_(remote_record_ids)
+                    )
+                ).scalars().all()
+            )
+        else:
+            stale_rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars().all())
+        for row in stale_rows:
+            db.delete(row)
+            removed += 1
+
         db.commit()
         stored = list(db.execute(select(TelnyxWhatsappTemplate).order_by(TelnyxWhatsappTemplate.name.asc())).scalars().all())
         return {
             "ok": True,
             "synced": synced,
             "approved": approved,
+            "removed": removed,
+            "remote_count": len(remote_record_ids),
             "templates": [template_to_dict(row) for row in stored],
         }
 

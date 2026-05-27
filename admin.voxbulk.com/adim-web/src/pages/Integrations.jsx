@@ -1074,11 +1074,16 @@ export default function Integrations() {
 
   const loadTelnyxWaTemplates = async (silent = false) => {
     try {
-      const result = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=true')
+      const result = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false')
       const rows = Array.isArray(result.templates) ? result.templates : []
       setTelnyxWaTemplates(rows)
+      const approved = rows.filter((t) => String(t.status || '').toUpperCase() === 'APPROVED')
+      if (telnyxWaTemplateId && !approved.some((t) => String(t.template_id || '') === telnyxWaTemplateId)) {
+        setTelnyxWaTemplateId('')
+        setTelnyxWaTemplateName('')
+      }
       if (!silent && !rows.length) {
-        setTelnyxSmsTestResult('No synced WhatsApp templates — click Sync WhatsApp templates.')
+        setTelnyxSmsTestResult('No templates in local cache — click Sync WhatsApp templates to pull from Telnyx.')
       }
     } catch (e) {
       if (!silent) setProviderError(e?.message || 'Could not load WhatsApp templates')
@@ -1092,8 +1097,19 @@ export default function Integrations() {
     try {
       const result = await apiFetch('/admin/integrations/telnyx/whatsapp-templates/sync', { method: 'POST' })
       const rows = Array.isArray(result.templates) ? result.templates : []
-      setTelnyxWaTemplates(rows.filter((t) => String(t.status || '').toUpperCase() === 'APPROVED'))
-      setTelnyxSmsTestResult(`Synced ${result.synced || rows.length} template(s) — ${result.approved || 0} approved.`)
+      setTelnyxWaTemplates(rows)
+      const approved = rows.filter((t) => String(t.status || '').toUpperCase() === 'APPROVED')
+      if (telnyxWaTemplateId && !approved.some((t) => String(t.template_id || '') === telnyxWaTemplateId)) {
+        setTelnyxWaTemplateId('')
+        setTelnyxWaTemplateName('')
+      }
+      const removed = Number(result.removed || 0)
+      const parts = [
+        `${result.synced ?? rows.length} template(s) from Telnyx`,
+        `${result.approved ?? approved.length} approved`,
+      ]
+      if (removed > 0) parts.push(`${removed} removed (no longer on Telnyx/Meta)`)
+      setTelnyxSmsTestResult(`Sync complete — ${parts.join(' · ')}.`)
     } catch (e) {
       setTelnyxSmsTestResult('')
       setProviderError(e?.message || 'WhatsApp template sync failed')
