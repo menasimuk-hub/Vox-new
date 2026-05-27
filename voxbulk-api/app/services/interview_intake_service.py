@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -36,25 +39,32 @@ def find_duplicate_recipient(
     phone: str | None,
     email: str | None,
 ) -> ServiceOrderRecipient | None:
-    """Match if any of name, email, or phone matches — used to replace stale rows."""
+    """Match a prior row for the same person (not phone-only — avoids merging ZIP batch CVs)."""
     np = _norm_phone(phone)
     ne = _norm_email(email)
     nn = _norm_name(name)
     for r in recipients:
-        if np and _norm_phone(r.phone) == np:
+        if nn and len(nn) >= 2 and _norm_name(r.name) == nn:
             return r
         if ne and _norm_email(r.email) == ne:
             return r
-        if nn and len(nn) >= 2 and _norm_name(r.name) == nn:
-            return r
+        if np and _norm_phone(r.phone) == np:
+            if nn and r.name and name_similarity(r.name, name) >= MATCH_THRESHOLD:
+                return r
+            if ne and _norm_email(r.email) == ne:
+                return r
     return None
 
 
 def _remove_recipient(db: Session, recipient: ServiceOrderRecipient, recipients: list[ServiceOrderRecipient]) -> None:
+    from sqlalchemy import inspect
+
     from app.services.career_cv_storage_service import delete_cv_file
 
     delete_cv_file(recipient.cv_storage_key)
-    db.delete(recipient)
+    state = inspect(recipient)
+    if state.persistent:
+        db.delete(recipient)
     if recipient in recipients:
         recipients.remove(recipient)
 
@@ -509,8 +519,28 @@ def intake_email_cv_for_order(
     recipients = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars())
     email_val = parsed.email or sender_email
     dup = find_duplicate_recipient(recipients, name=parsed.name, phone=parsed.phone, email=email_val)
-    if dup:
-        _remove_recipient(db, dup, recipients)
+    if dup and parsed.name and dup.name and name_similarity(dup.name, parsed.name) >= MATCH_THRESHOLD:
+        _apply_parsed_cv(dup, parsed, merge=True)
+        dup.cv_storage_key = storage_key
+        dup.intake_source = "email"
+        db.add(dup)
+        db.flush()
+        recipients = list(
+            db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars()
+        )
+        for i, r in enumerate(recipients, start=1):
+            r.row_number = i
+            db.add(r)
+        order.recipient_count = len(recipients)
+        order.updated_at = datetime.utcnow()
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        from app.services.interview_ats_service import queue_ats_for_recipient
+
+        queue_ats_for_recipient(db, dup, order=order)
+        db.commit()
+        return order
 
     display_name = (parsed.name or name_from_filename(parsed.filename)).strip() or "Unknown"
     recipient = ServiceOrderRecipient(
@@ -545,18 +575,46 @@ def intake_email_cv_for_order(
     return order
 
 
+def _cv_bytes_by_filename(files: list[tuple[str, bytes]]) -> dict[str, bytes]:
+    """Map each CV filename to raw bytes (including DOCX/PDF inside ZIP archives)."""
+    from app.services.interview_cv_parse_service import iter_cv_files_from_zip
+
+    out: dict[str, bytes] = {}
+    for filename, content in files:
+        if str(filename or "").lower().endswith(".zip"):
+            try:
+                for inner_name, inner_bytes in iter_cv_files_from_zip(content):
+                    out[inner_name] = inner_bytes
+            except Exception:
+                continue
+        else:
+            out[str(filename or "upload")] = content
+    return out
+
+
 def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, bytes]]) -> dict[str, Any]:
     _assert_interview_draft(order)
     parsed_list = parse_uploaded_cv_files(files)
+    bytes_by_name = _cv_bytes_by_filename(files)
     recipients = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars())
     unmatched: list[dict[str, Any]] = []
     created = 0
 
     for parsed in parsed_list:
-        raw_file = next((f for f in files if f[0] == parsed.filename), None)
+        raw_bytes = bytes_by_name.get(parsed.filename)
+        raw_file = (parsed.filename, raw_bytes) if raw_bytes is not None else None
         dup = find_duplicate_recipient(recipients, name=parsed.name, phone=parsed.phone, email=parsed.email)
-        if dup:
-            _remove_recipient(db, dup, recipients)
+        if dup and parsed.name and dup.name and name_similarity(dup.name, parsed.name) >= MATCH_THRESHOLD:
+            _apply_parsed_cv(dup, parsed, merge=True)
+            if raw_file:
+                from app.services.career_cv_storage_service import delete_cv_file, save_cv_bytes, storage_key_for
+
+                delete_cv_file(dup.cv_storage_key)
+                key = storage_key_for(org_id=order.org_id, order_id=order.id, filename=parsed.filename)
+                save_cv_bytes(storage_key=key, content=raw_file[1])
+                dup.cv_storage_key = key
+            db.add(dup)
+            continue
 
         match = _find_match(recipients, parsed)
         if match:
@@ -630,8 +688,11 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
     )
     from app.services.interview_ats_service import _order_job_context, queue_ats_for_order
 
-    queue_ats_for_order(db, order)
-    db.expire_all()
+    try:
+        queue_ats_for_order(db, order)
+        db.expire_all()
+    except Exception:
+        logger.exception("interview_ats_queue_after_intake_failed order_id=%s", order.id)
     final_recipients = list(
         db.execute(
             select(ServiceOrderRecipient)

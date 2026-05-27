@@ -113,7 +113,6 @@ def queue_ats_for_recipient(db: Session, recipient: ServiceOrderRecipient, *, or
     recipient.ats_error = None
     recipient.ats_status = "pending"
     db.add(recipient)
-    db.commit()
 
 
 def queue_ats_for_order(db: Session, order: ServiceOrder, *, recipient_ids: list[str] | None = None) -> int:
@@ -130,11 +129,12 @@ def queue_ats_for_order(db: Session, order: ServiceOrder, *, recipient_ids: list
             continue
         before = row.ats_status
         queue_ats_for_recipient(db, row, order=order)
-        db.refresh(row)
         if row.ats_status == "pending" and before != "pending":
             queued += 1
         elif row.ats_status == "pending":
             queued += 1
+    if queued:
+        db.commit()
     return queued
 
 

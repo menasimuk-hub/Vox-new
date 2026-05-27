@@ -13,11 +13,11 @@ from app.services.interview_intake_service import intake_cv_files, intake_mixed_
 from app.services.platform_catalog_service import ServiceOrderService
 
 
-def _docx_bytes(name_line: str) -> bytes:
+def _docx_bytes(name_line: str, *, phone: str = "+44 7700 900123", email: str = "alex@example.com") -> bytes:
     doc = Document()
     doc.add_paragraph(name_line)
-    doc.add_paragraph("Email: alex@example.com")
-    doc.add_paragraph("Phone: +44 7700 900123")
+    doc.add_paragraph(f"Email: {email}")
+    doc.add_paragraph(f"Phone: {phone}")
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -66,8 +66,8 @@ def interview_order(db_session: Session):
 def test_intake_cv_zip_creates_recipient_rows(db_session: Session, interview_order: ServiceOrder):
     zip_bytes = _zip_with_docx(
         [
-            ("jane_doe_cv.docx", _docx_bytes("Jane Doe")),
-            ("john_smith.docx", _docx_bytes("John Smith")),
+            ("jane_doe_cv.docx", _docx_bytes("Jane Doe", phone="+44 7700 900111", email="jane@example.com")),
+            ("john_smith.docx", _docx_bytes("John Smith", phone="+44 7700 900222", email="john@example.com")),
         ]
     )
     result = intake_cv_files(db_session, interview_order, [("cvs.zip", zip_bytes)])

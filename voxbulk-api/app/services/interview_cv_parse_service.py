@@ -303,16 +303,17 @@ def iter_cv_files_from_zip(content: bytes) -> list[tuple[str, bytes]]:
     with zipfile.ZipFile(io.BytesIO(content)) as zf:
         names = [n for n in zf.namelist() if not n.endswith("/")][:MAX_ZIP_FILES]
         for entry in names:
-            lower = entry.lower()
-            if lower.startswith("__macosx/") or "/." in entry:
+            norm = str(entry or "").replace("\\", "/")
+            lower = norm.lower()
+            base = lower.rsplit("/", 1)[-1]
+            if base.startswith(".") or "__macosx/" in lower or "/." in lower:
                 continue
-            if not any(lower.endswith(ext) for ext in CV_EXTENSIONS):
+            if not any(base.endswith(ext) for ext in CV_EXTENSIONS):
                 continue
             try:
                 data = zf.read(entry)
             except Exception:
                 continue
-            base = entry.rsplit("/", 1)[-1]
             out.append((base, data))
     return out
 
