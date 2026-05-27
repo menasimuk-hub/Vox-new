@@ -760,6 +760,52 @@ def list_telnyx_whatsapp_templates(
     }
 
 
+@router.get("/integrations/telnyx/whatsapp-templates/health")
+def telnyx_whatsapp_templates_health(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    """Check all four voxbulk_sales_* templates are synced and APPROVED."""
+    import json
+
+    from app.services.sales_whatsapp_telnyx_service import TELNYX_SALES_TEMPLATE_NAMES
+    from app.services.sales_whatsapp_telnyx_service import url_button_index_from_components
+    from app.services.telnyx_whatsapp_template_sync_service import (
+        TelnyxWhatsappTemplateSyncService,
+        send_template_id_for_row,
+    )
+
+    checks: list[dict] = []
+    all_ok = True
+    for sales_key, telnyx_name in TELNYX_SALES_TEMPLATE_NAMES.items():
+        row = TelnyxWhatsappTemplateSyncService.get_for_sales_key(db, sales_key)
+        approved = row is not None and str(row.status or "").upper() == "APPROVED"
+        if not approved:
+            all_ok = False
+        components = None
+        if row and row.components_json:
+            try:
+                components = json.loads(row.components_json)
+            except json.JSONDecodeError:
+                components = None
+        checks.append(
+            {
+                "sales_key": sales_key,
+                "telnyx_name": telnyx_name,
+                "synced": row is not None,
+                "approved": approved,
+                "language": row.language if row else None,
+                "send_template_id": send_template_id_for_row(row) if row else None,
+                "has_url_button": url_button_index_from_components(components) is not None,
+                "status": row.status if row else None,
+                "rejection_reason": row.rejection_reason if row else None,
+            }
+        )
+    return {
+        "ok": all_ok,
+        "ready": all_ok,
+        "message": "All sales templates approved" if all_ok else "Sync Telnyx templates — one or more voxbulk_sales_* templates missing or not APPROVED",
+        "templates": checks,
+    }
+
+
 @router.post("/integrations/telnyx/whatsapp-templates/sync")
 def sync_telnyx_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     from app.services.telnyx_whatsapp_template_sync_service import (
@@ -825,36 +871,55 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
             template_components = build_test_components_for_template_name(template_name)
 
     components = template_components if isinstance(template_components, list) else None
-    result = None
-    if template_id:
-        result = TelnyxMessagingService.send_whatsapp(
-            db,
-            to_number=to_number,
-            body=body,
-            template_id=template_id,
-            template_language=template_language or (synced.language if synced else "en_US"),
-            template_components=components,
-        )
-    elif template_name:
-        from app.services.sales_whatsapp_telnyx_service import resolve_whatsapp_template_languages
+    from app.services.sales_whatsapp_telnyx_service import resolve_whatsapp_template_languages
 
-        langs = [template_language] if template_language else resolve_whatsapp_template_languages(db)
+    langs: list[str] = []
+    for candidate in (
+        template_language,
+        synced.language if synced else None,
+        *resolve_whatsapp_template_languages(db),
+    ):
+        code = str(candidate or "").strip()
+        if code and code not in langs:
+            langs.append(code)
+    if not langs:
+        langs = ["en_US"]
+
+    send_name = str(template_name or (synced.name if synced else "") or "").strip() or None
+    send_tid = None
+    if synced:
+        send_tid = send_template_id_for_row(synced)
+    elif template_id:
+        send_tid = template_id
+
+    result = None
+    if send_name:
         for lang in langs:
-            if not lang:
-                continue
             attempt = TelnyxMessagingService.send_whatsapp(
                 db,
                 to_number=to_number,
                 body=body,
-                template_name=template_name,
+                template_name=send_name,
                 template_language=lang,
                 template_components=components,
             )
-            if attempt.ok:
-                result = attempt
-                break
             result = attempt
-    else:
+            if attempt.ok:
+                break
+    if (result is None or not result.ok) and send_tid:
+        for lang in langs:
+            attempt = TelnyxMessagingService.send_whatsapp(
+                db,
+                to_number=to_number,
+                body=body,
+                template_id=send_tid,
+                template_language=lang,
+                template_components=components,
+            )
+            result = attempt
+            if attempt.ok:
+                break
+    if result is None:
         result = TelnyxMessagingService.send_whatsapp(
             db,
             to_number=to_number,
@@ -911,13 +976,38 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
             + message
         )
 
+    delivery_status = None
+    delivery_error = None
+    if result.external_id:
+        try:
+            live = TelnyxMessagingService.retrieve_message(db, result.external_id)
+            if live.get("ok"):
+                delivery_status = live.get("status")
+                delivery_error = live.get("error_summary")
+        except Exception:
+            pass
+
+    failed_delivery = str(delivery_status or "").lower() in {
+        "delivery_failed",
+        "failed",
+        "undelivered",
+        "rejected",
+    }
+    if failed_delivery:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=delivery_error or f"WhatsApp template delivery failed (status={delivery_status})",
+        )
+
     return {
         "ok": True,
         "message": message,
         "external_id": result.external_id,
         "status": result.status,
-        "template_id": template_id,
-        "template_name": template_name,
+        "delivery_status": delivery_status,
+        "delivery_error": delivery_error,
+        "template_id": send_tid or template_id,
+        "template_name": send_name or template_name,
         "template_language": template_language or (synced.language if synced else None),
         "log_id": log_id,
         "warning": log_warning,

@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
-from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+from app.services.telnyx_whatsapp_template_sync_service import (
+    TelnyxWhatsappTemplateSyncService,
+    send_template_id_for_row,
+)
 
 
 def test_sync_upserts_templates(app_client, monkeypatch):
@@ -59,6 +62,35 @@ def test_sync_upserts_templates(app_client, monkeypatch):
         assert components[0]["type"] == "body"
         assert len(components[0]["parameters"]) == 3
         assert components[1]["type"] == "button"
+        assert send_template_id_for_row(offer) == "019cd44b-offer-telnyx-uuid"
+
+
+def test_build_components_url_button_without_stored_components(app_client):
+    from app.core.database import get_sessionmaker
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+    with get_sessionmaker()() as db:
+        now = datetime.utcnow()
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id="rec-offer",
+            template_id="rec-offer",
+            name="voxbulk_sales_offer",
+            language="en_US",
+            status="APPROVED",
+            sales_template_key="sales_offer",
+            components_json=None,
+            synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        db.commit()
+        components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
+            row,
+            variables={"first_name": "Tom", "offer_line": "trial", "offer_summary": "Offer", "signup_url": "https://voxbulk.com/signin?promo=TEST"},
+        )
+        assert components is not None
+        assert any(c.get("type") == "button" for c in components)
 
 
 def test_resolve_for_send_by_template_id(app_client):

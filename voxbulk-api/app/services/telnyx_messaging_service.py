@@ -282,11 +282,12 @@ class TelnyxMessagingService:
         )
         if resolved_id or resolved_name:
             template: dict[str, Any] = {}
+            lang = str(template_language or "en_US").strip() or "en_US"
             if resolved_id:
                 template["template_id"] = resolved_id
+                template["language"] = {"policy": "deterministic", "code": lang}
             else:
                 template["name"] = resolved_name
-                lang = str(template_language or "en_US").strip() or "en_US"
                 template["language"] = {"policy": "deterministic", "code": lang}
             if template_components:
                 template["components"] = template_components

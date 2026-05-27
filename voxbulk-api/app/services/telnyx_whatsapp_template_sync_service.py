@@ -77,14 +77,11 @@ def _send_template_id_from_api_item(item: dict[str, Any]) -> str:
 
 
 def send_template_id_for_row(row: TelnyxWhatsappTemplate) -> str:
-    """Id to pass to Telnyx messages API (prefer Telnyx UUID over Meta numeric)."""
+    """Id to pass to Telnyx messages API — always prefer Telnyx list UUID (telnyx_record_id)."""
     record = str(row.telnyx_record_id or "").strip()
-    stored = str(row.template_id or "").strip()
-    if stored and not (stored.isdigit() and len(stored) >= 10):
-        return stored
-    if record and (_TEMPLATE_UUID_RE.match(record) or not stored.isdigit()):
+    if record:
         return record
-    return stored or record
+    return str(row.template_id or "").strip()
 
 
 def template_to_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
@@ -306,14 +303,23 @@ class TelnyxWhatsappTemplateSyncService:
             stored_components = None
 
         url_idx = url_button_index_from_components(stored_components)
-        include_url = url_button_has_dynamic_suffix(stored_components) if url_idx is not None else False
+        sales_key = str(row.sales_template_key or "").strip().lower()
+        url_template_keys = {"sales_offer", "sales_offer_followup", "sales_offer_keyword_confirm"}
+        include_url_button = False
+        if sales_key in url_template_keys:
+            if url_idx is None and not stored_components:
+                url_idx = 0
+            if url_idx is not None:
+                include_url_button = (
+                    url_button_has_dynamic_suffix(stored_components) if stored_components else True
+                )
 
         if row.sales_template_key:
             return build_telnyx_components(
                 row.sales_template_key,
                 vars_,
                 url_button_index=url_idx if url_idx is not None else 0,
-                include_url_button=include_url or row.sales_template_key != "sales_opt_in",
+                include_url_button=include_url_button,
             )
         built = build_test_components_for_template_name(row.name)
         if built is not None:

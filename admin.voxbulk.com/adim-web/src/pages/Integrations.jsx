@@ -1135,13 +1135,10 @@ export default function Integrations() {
     setTelnyxSmsTestResult('Sending test WhatsApp…')
     try {
       const payload = { to_number: toNumber, body: 'VOXBULK Telnyx WhatsApp test' }
-      if (templateId) {
-        payload.template_id = templateId
-        payload.template_language = telnyxWaTemplateLang.trim() || 'en_US'
-      } else if (templateName) {
-        payload.template_name = templateName
-        payload.template_language = telnyxWaTemplateLang.trim() || 'en_US'
-      }
+      const lang = telnyxWaTemplateLang.trim() || 'en_US'
+      if (templateName) payload.template_name = templateName
+      if (templateId) payload.template_id = templateId
+      if (templateName || templateId) payload.template_language = lang
       const result = await apiFetch('/admin/integrations/telnyx/test-whatsapp', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -1155,8 +1152,12 @@ export default function Integrations() {
         result.message || 'WhatsApp queued',
         tpl,
         result.external_id ? ` · Telnyx id: ${result.external_id}` : '',
-        result.status ? ` · status: ${result.status}` : '',
+        result.status ? ` · send: ${result.status}` : '',
+        result.delivery_status ? ` · delivery: ${result.delivery_status}` : '',
       ].filter(Boolean)
+      if (result.delivery_error) {
+        setProviderError(`Delivery: ${result.delivery_error}`)
+      }
       setTelnyxSmsTestResult(parts.join(''))
       if (result.warning) {
         setProviderError(result.warning)
