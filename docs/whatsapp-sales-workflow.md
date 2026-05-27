@@ -107,8 +107,8 @@ Phone number is matched to a **lead sales task**.
 |------------------|-----------------|
 | **STOP** / unsubscribe (or **Stop** button) | Opt-out confirmation; no further automation |
 | **SEND OFFER** / “send me offer” / “send link” (or **Send offer** button) | Resend or first-send offer link via WhatsApp |
-| Help / confused / problem (or after offer sent) | **AI help reply** (DeepSeek) with signup URL |
-| Anything else | Logged on lead; **no auto-reply** |
+| Help / confused / problem (`help`, `stuck`, `can't`, etc.) | **Offer template with button** if offer already sent; otherwise send offer; AI plain text only if no promo |
+| Anything else (e.g. “thanks”, “ok”) | Logged on lead; **no auto-reply** |
 
 **Note:** Outbound sales messages use **approved Meta/Telnyx templates with buttons** when available (`voxbulk_sales_*`). Quick-reply taps send the same text as typing **SEND OFFER** or **STOP**. If templates are not approved yet, the system falls back to plain text from admin template bodies.
 

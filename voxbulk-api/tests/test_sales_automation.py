@@ -91,6 +91,105 @@ def test_handle_inbound_send_offer_keyword(app_client, monkeypatch):
         assert task.offer_sent_at
 
 
+def test_handle_inbound_help_uses_template_not_ai(app_client, monkeypatch):
+    sent: list[dict] = []
+
+    def capture_send_sales_whatsapp(db, *, to_number, template_key=None, body="", variables=None, **kwargs):
+        from app.services.telnyx_messaging_service import TelnyxMessageResult
+
+        sent.append({"template_key": template_key, "body": body, "variables": variables})
+        return TelnyxMessageResult(ok=True, status="queued", external_id="msg-help-1", channel="whatsapp")
+
+    monkeypatch.setattr("app.services.sales_whatsapp_send_service.send_sales_whatsapp", capture_send_sales_whatsapp)
+    monkeypatch.setattr(
+        "app.services.sales_automation_service.SalesAutomationService._platform_org_id",
+        lambda db: None,
+    )
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Help Template Org")
+        db.add(org)
+        db.flush()
+        from app.models.promo_offer import PromoOffer
+
+        db.add(
+            PromoOffer(
+                code="SALEA324B7",
+                name="Test promo",
+                offer_type="dental_trial",
+                plan_code="dental_1",
+                trial_days=15,
+                max_redemptions=10,
+                is_active=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+        )
+        task = LeadSalesTask(
+            lead_id=org.id,
+            status="completed",
+            contact_name="Tom Test",
+            phone="+447700900199",
+            offer_promo_code="SALEA324B7",
+            offer_sent_at=datetime.utcnow(),
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(task)
+        db.commit()
+        phone = task.phone
+
+        result = SalesAutomationService.handle_inbound_whatsapp(
+            db, from_phone=phone, body="I need help with the signup link"
+        )
+        assert result.get("action") == "template_help_reply"
+        assert result.get("ok") is True
+        assert sent
+        assert sent[0]["template_key"] == "sales_offer_keyword_confirm"
+        assert "Your signup link:" not in str(sent[0].get("body") or "")
+
+
+def test_handle_inbound_casual_reply_no_autoreply(app_client, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.sales_automation_service.SalesAutomationService._platform_org_id",
+        lambda db: None,
+    )
+    sent: list[str] = []
+
+    def capture_send_sales_whatsapp(db, **kwargs):
+        from app.services.telnyx_messaging_service import TelnyxMessageResult
+
+        sent.append(kwargs.get("body") or kwargs.get("template_key") or "x")
+        return TelnyxMessageResult(ok=True, status="queued", external_id="msg-x", channel="whatsapp")
+
+    monkeypatch.setattr("app.services.sales_whatsapp_send_service.send_sales_whatsapp", capture_send_sales_whatsapp)
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="No Reply Org")
+        db.add(org)
+        db.flush()
+        task = LeadSalesTask(
+            lead_id=org.id,
+            status="completed",
+            contact_name="Tom",
+            phone="+447700900188",
+            offer_promo_code="SALEA324B7",
+            offer_sent_at=datetime.utcnow(),
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(task)
+        db.commit()
+        state = SalesAutomationService.get_or_create_state(db, task)
+        state.stage = "offer_sent"
+        db.add(state)
+        db.commit()
+
+        result = SalesAutomationService.handle_inbound_whatsapp(db, from_phone=task.phone, body="Thanks, sounds good")
+        assert result.get("reason") == "no_matching_intent"
+        assert not sent
+
+
 def test_should_auto_offer_when_demo_agreed():
     task = LeadSalesTask(
         lead_id="x",

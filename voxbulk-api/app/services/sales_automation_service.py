@@ -134,6 +134,34 @@ class SalesAutomationService:
         }
 
     @staticmethod
+    def _offer_variables_for_task(db: Session, task: LeadSalesTask) -> tuple[dict[str, str], str]:
+        """Build template variables + signup URL from the task's promo (if any)."""
+        from app.services.promo_offer_service import PromoOfferService
+
+        signup_url = ""
+        promo_name = "VOXBULK trial"
+        trial_days = int(get_lead_sales_settings(db).sales_auto_trial_days or 15)
+        promo = None
+        plan = None
+        if task.offer_promo_code:
+            promo = PromoOfferService.get_by_code(db, task.offer_promo_code)
+            if promo:
+                signup_url = PromoOfferService.signup_url(promo.code)
+                promo_name = promo.name
+                trial_days = int(promo.trial_days or trial_days)
+                if promo.plan_code:
+                    plan = db.execute(select(Plan).where(Plan.code == promo.plan_code.strip().lower())).scalar_one_or_none()
+        variables = SalesAutomationService._template_variables(
+            task,
+            signup_url=signup_url,
+            promo_name=promo_name,
+            trial_days=trial_days,
+            promo=promo,
+            plan=plan,
+        )
+        return variables, signup_url
+
+    @staticmethod
     def _send_whatsapp(
         db: Session,
         *,
@@ -732,21 +760,33 @@ class SalesAutomationService:
             db.commit()
             return {"ok": True, "action": "send_offer", "result": result}
 
-        needs_help = bool(_HELP_RE.search(text)) or state.stage in {"offer_sent", "followup_sent", "opt_in_sent", "replied"}
+        needs_help = bool(_HELP_RE.search(text))
         if needs_help and task.phone:
-            from app.services.promo_offer_service import PromoOfferService
-
-            signup_url = ""
-            if task.offer_promo_code:
-                signup_url = PromoOfferService.signup_url(task.offer_promo_code)
-            reply = SalesAutomationService._generate_help_reply(db, task=task, inbound_text=text, signup_url=signup_url)
-            ok, err = SalesAutomationService._send_whatsapp(db, task=task, body=reply)
+            variables, signup_url = SalesAutomationService._offer_variables_for_task(db, task)
+            if task.offer_sent_at and signup_url:
+                ok, err = SalesAutomationService._send_whatsapp(
+                    db,
+                    task=task,
+                    body="",
+                    template_key="sales_offer_keyword_confirm",
+                    variables=variables,
+                )
+                action = "template_help_reply"
+            elif not task.offer_sent_at:
+                result = SalesAutomationService.send_offer_for_task(db, task, source="help_request")
+                ok = bool(result.get("ok"))
+                err = result.get("error")
+                action = "send_offer_help"
+            else:
+                reply = SalesAutomationService._generate_help_reply(db, task=task, inbound_text=text, signup_url=signup_url)
+                ok, err = SalesAutomationService._send_whatsapp(db, task=task, body=reply)
+                action = "ai_help_reply"
             state.stage = "replied"
             state.last_outbound_at = now if ok else state.last_outbound_at
             state.last_error = err
             db.add(state)
             db.commit()
-            return {"ok": ok, "action": "ai_help_reply", "error": err, "log_id": log_id}
+            return {"ok": ok, "action": action, "error": err, "log_id": log_id}
 
         db.add(state)
         db.commit()
