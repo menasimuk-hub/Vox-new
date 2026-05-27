@@ -217,14 +217,19 @@ class SurveyCallDispatchService:
             ).scalars()
         )
         for order in due:
-            if not is_ai_call_survey_order(order):
-                continue
             try:
-                if SurveyCallDispatchService.start_campaign(db, order):
+                if is_ai_call_survey_order(order):
+                    if SurveyCallDispatchService.start_campaign(db, order):
+                        started += 1
+                    continue
+                from app.services.survey_whatsapp_conversation_service import is_whatsapp_survey_order
+
+                if is_whatsapp_survey_order(order):
+                    ServiceOrderService.start_order(db, order)
                     started += 1
             except Exception as exc:
                 _log("start_failed", order_id=order.id, error=str(exc))
-                logger.exception("survey_call_start_failed")
+                logger.exception("survey_start_failed")
 
         running = list(
             db.execute(

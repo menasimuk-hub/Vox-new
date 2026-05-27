@@ -206,12 +206,23 @@ class SurveyDispatchService:
         if result.ok:
             recipient.status = "sent"
             log_payload["status"] = result.status
+            recipient.result_json = json.dumps(log_payload, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
+            if prefer_whatsapp:
+                try:
+                    config = json.loads(order.config_json or "{}")
+                except Exception:
+                    config = {}
+                from app.services.survey_whatsapp_conversation_service import bootstrap_after_intro
+
+                bootstrap_after_intro(db, order=order, recipient=recipient, config=config)
         else:
             recipient.status = "failed"
             log_payload["status"] = "failed"
-        recipient.result_json = json.dumps(log_payload, ensure_ascii=False)
-        db.add(recipient)
-        db.commit()
+            recipient.result_json = json.dumps(log_payload, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
 
         return {
             "recipient_id": recipient.id,

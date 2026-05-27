@@ -213,17 +213,32 @@ class TelnyxInboundMessagingService:
         db.refresh(row)
 
         if direction == "inbound" and channel == "whatsapp" and body:
+            handled_survey = False
             try:
-                from app.services.sales_automation_service import SalesAutomationService
+                from app.services.survey_whatsapp_conversation_service import handle_inbound_reply
 
-                SalesAutomationService.handle_inbound_whatsapp(
+                survey_result = handle_inbound_reply(
                     db,
                     from_phone=from_norm or from_number,
                     body=body,
+                    org_id=org_id,
                     log_id=row.id,
                 )
+                handled_survey = bool(survey_result.get("handled"))
             except Exception:
                 pass
+            if not handled_survey:
+                try:
+                    from app.services.sales_automation_service import SalesAutomationService
+
+                    SalesAutomationService.handle_inbound_whatsapp(
+                        db,
+                        from_phone=from_norm or from_number,
+                        body=body,
+                        log_id=row.id,
+                    )
+                except Exception:
+                    pass
 
         if message_id and direction == "outbound":
             try:

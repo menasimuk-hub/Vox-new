@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.survey_analysis_service import _recipient_result, is_ai_call_survey_order
+from app.services.survey_whatsapp_conversation_service import is_whatsapp_survey_order
 
 
 def _parse_report(order: ServiceOrder) -> dict[str, Any]:
@@ -229,10 +230,13 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
             continue
         result = _recipient_result(row)
         analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+        wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
+        wa_answers = wa_conv.get("answers") if isinstance(wa_conv.get("answers"), list) else []
         answers = (
             analysis.get("extracted_answers")
             or analysis.get("answers")
             or result.get("extracted_answers")
+            or wa_answers
             or []
         )
         if not isinstance(answers, list):
@@ -356,6 +360,77 @@ def recipient_detail_payload(recipient: ServiceOrderRecipient) -> dict[str, Any]
     }
 
 
+def build_whatsapp_survey_results_payload(
+    db: Session,
+    order: ServiceOrder,
+    *,
+    include_respondents: bool = True,
+) -> dict[str, Any]:
+    config = _order_config(order)
+    goal = str(config.get("goal") or "Survey").strip()
+    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "").strip()
+    report = _parse_report(order)
+    recipients = ServiceOrderService.get_recipients(db, order.id)
+    completed = [r for r in recipients if str(r.status or "").lower() == "completed"]
+    total = len(recipients)
+    completed_count = len(completed)
+    response_rate = round((completed_count / total) * 100) if total else 0
+    aggregates = build_answer_aggregates(recipients)
+    summary = {
+        "total_recipients": total,
+        "completed_count": completed_count,
+        "response_rate_pct": response_rate,
+        "average_satisfaction_10": None,
+        "average_satisfaction_5": None,
+        "average_recommend_score": None,
+        "recommend_pct": None,
+        "nps_score": None,
+        "nps_label": None,
+        "nps_score_raw": None,
+        "nps_promoters_pct": 0,
+        "nps_passives_pct": 0,
+        "nps_detractors_pct": 0,
+        "nps_promoters": 0,
+        "nps_passives": 0,
+        "nps_detractors": 0,
+        "average_call_duration_seconds": None,
+        "average_call_duration_label": None,
+        "sentiment_counts": {},
+        "top_issues": [],
+        "top_tags": [],
+        "analyzed_count": completed_count,
+        "pending_analysis": max(0, total - completed_count),
+        "channel_note": report.get("note") or "WhatsApp survey",
+    }
+    recommendations = ensure_action_recommendations(
+        db,
+        order,
+        goal=goal,
+        org_name=org_name,
+        summary=summary,
+        aggregates=aggregates,
+    )
+    return {
+        "ok": True,
+        "order": {
+            "id": order.id,
+            "title": order.title,
+            "status": order.status,
+            "goal": goal,
+            "organisation_name": org_name or None,
+            "channel": "whatsapp",
+            "scheduled_start_at": order.scheduled_start_at.isoformat() if order.scheduled_start_at else None,
+            "scheduled_end_at": order.scheduled_end_at.isoformat() if order.scheduled_end_at else None,
+            "started_at": order.started_at.isoformat() if order.started_at else None,
+            "completed_at": order.completed_at.isoformat() if order.completed_at else None,
+        },
+        "summary": summary,
+        "aggregates": aggregates,
+        "respondents": [recipient_summary_row(r, goal=goal) for r in recipients] if include_respondents else [],
+        "recommendations": recommendations,
+    }
+
+
 def build_survey_results_payload(
     db: Session,
     order: ServiceOrder,
@@ -364,6 +439,8 @@ def build_survey_results_payload(
 ) -> dict[str, Any]:
     if order.service_code != "survey":
         raise ValueError("Not a survey order")
+    if is_whatsapp_survey_order(order):
+        return build_whatsapp_survey_results_payload(db, order, include_respondents=include_respondents)
     if not is_ai_call_survey_order(order):
         raise ValueError("Survey results are available for AI-call surveys only")
 
@@ -488,6 +565,6 @@ class SurveyResultsService:
     def get_recipient_detail(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> dict[str, Any]:
         if recipient.order_id != order.id:
             raise ValueError("Recipient does not belong to this order")
-        if not is_ai_call_survey_order(order):
-            raise ValueError("Survey results are available for AI-call surveys only")
+        if not is_ai_call_survey_order(order) and not is_whatsapp_survey_order(order):
+            raise ValueError("Survey results are available for AI-call or WhatsApp surveys only")
         return {"ok": True, "recipient": recipient_detail_payload(recipient)}
