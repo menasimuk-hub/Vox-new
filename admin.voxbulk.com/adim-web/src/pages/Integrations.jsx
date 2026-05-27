@@ -1120,12 +1120,21 @@ export default function Integrations() {
       window.alert('Enter your WhatsApp number in E.164 format (+44…).')
       return
     }
+    const templateId = telnyxWaTemplateId.trim()
+    const templateName = telnyxWaTemplateName.trim()
+    if (!templateId && !templateName && !(telnyxWaTemplates || []).length) {
+      const proceed = window.confirm(
+        'No WhatsApp template selected and none synced yet.\n\n' +
+          'Free-form text only works if you messaged the business number in the last 24 hours. ' +
+          'For a first test, click Sync WhatsApp templates, pick an approved template, then try again.\n\n' +
+          'Send free-form test anyway?',
+      )
+      if (!proceed) return
+    }
     setProviderError('')
     setTelnyxSmsTestResult('Sending test WhatsApp…')
     try {
       const payload = { to_number: toNumber, body: 'VOXBULK Telnyx WhatsApp test' }
-      const templateId = telnyxWaTemplateId.trim()
-      const templateName = telnyxWaTemplateName.trim()
       if (templateId) {
         payload.template_id = templateId
         payload.template_language = telnyxWaTemplateLang.trim() || 'en_US'
@@ -1137,8 +1146,29 @@ export default function Integrations() {
         method: 'POST',
         body: JSON.stringify(payload),
       })
-      const tpl = result.template_id ? ` template_id=${result.template_id}` : ''
-      setTelnyxSmsTestResult(`${result.message || 'WhatsApp queued'}${tpl}${result.external_id ? ` (${result.external_id})` : ''}`)
+      const tpl = result.template_name
+        ? ` · template: ${result.template_name}`
+        : result.template_id
+          ? ` · template_id=${result.template_id}`
+          : ''
+      const parts = [
+        result.message || 'WhatsApp queued',
+        tpl,
+        result.external_id ? ` · Telnyx id: ${result.external_id}` : '',
+        result.status ? ` · status: ${result.status}` : '',
+      ].filter(Boolean)
+      setTelnyxSmsTestResult(parts.join(''))
+      if (result.warning) {
+        setProviderError(result.warning)
+      }
+      const rows = await loadTelnyxInboundMessages(true)
+      if (!rows.length && !result.warning) {
+        setProviderError(
+          'Message was queued at Telnyx but nothing appears in Messages yet. ' +
+            'If you used a UK number like 07…, retry after deploy; logging now normalizes numbers. ' +
+            'Otherwise sync a template, set webhooks on Messaging Profile + WABA, then Refresh.',
+        )
+      }
     } catch (e) {
       setTelnyxSmsTestResult('')
       setProviderError(e?.message || 'Telnyx WhatsApp test failed')
@@ -1148,19 +1178,27 @@ export default function Integrations() {
   const loadTelnyxInboundMessages = async (silent = false) => {
     if (!silent) {
       setProviderError('')
-      setTelnyxSmsTestResult('Loading inbound messages…')
+      setTelnyxSmsTestResult('Loading messages…')
     }
     try {
       const result = await apiFetch('/admin/integrations/telnyx/inbound-messages?limit=50')
       const rows = Array.isArray(result.messages) ? result.messages : []
       setTelnyxInboundMessages(rows)
-      if (!silent) setTelnyxSmsTestResult(`Loaded ${rows.length} inbound message(s).`)
+      if (!silent) {
+        setTelnyxSmsTestResult(
+          rows.length
+            ? `Loaded ${rows.length} message(s) (inbound + outbound).`
+            : 'No messages in log yet — run Test WhatsApp or receive a reply, then Refresh.',
+        )
+      }
+      return rows
     } catch (e) {
       setTelnyxInboundMessages([])
       if (!silent) {
         setTelnyxSmsTestResult('')
-        setProviderError(e?.message || 'Could not load inbound messages')
+        setProviderError(e?.message || 'Could not load messages')
       }
+      return []
     }
   }
 

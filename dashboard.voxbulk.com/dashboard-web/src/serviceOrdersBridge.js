@@ -69,6 +69,9 @@ const interviewLaunch = {
   preparedQuoteText: '',
   saving: false,
   cvClosedEarly: false,
+  candidateSortKey: 'name',
+  candidateSortAsc: true,
+  candidateSortBound: false,
 }
 
 const INTERVIEW_DRAFT_LS_KEY = 'voxbulk_interview_draft_id'
@@ -545,6 +548,62 @@ function scoreStars(score) {
   return `<div class="stars">${[1, 2, 3, 4, 5]
     .map((i) => `<i class="ti ti-star star${i <= n ? '' : ' e'}"></i>`)
     .join('')}</div>`
+}
+
+const cvQualityRank = { good: 4, fair: 3, poor: 2, missing: 1 }
+
+function sortLaunchCandidates(rows, key, asc) {
+  const positionLabel = (document.getElementById('int-role')?.value || '').trim()
+  return [...rows].sort((a, b) => {
+    let av
+    let bv
+    switch (key) {
+      case 'position':
+        av = a.position || positionLabel || ''
+        bv = b.position || positionLabel || ''
+        break
+      case 'ats':
+        av =
+          a.ats_status === 'complete' && a.ats_score != null
+            ? Number(a.ats_score)
+            : a.ats_status === 'analyzing' || a.ats_status === 'pending'
+              ? -1
+              : -2
+        bv =
+          b.ats_status === 'complete' && b.ats_score != null
+            ? Number(b.ats_score)
+            : b.ats_status === 'analyzing' || b.ats_status === 'pending'
+              ? -1
+              : -2
+        break
+      case 'phone':
+        av = a.phone || ''
+        bv = b.phone || ''
+        break
+      case 'email':
+        av = a.email || ''
+        bv = b.email || ''
+        break
+      case 'cv':
+        av = cvQualityRank[String(a.cv_quality || 'missing').toLowerCase()] || 0
+        bv = cvQualityRank[String(b.cv_quality || 'missing').toLowerCase()] || 0
+        break
+      case 'name':
+      default:
+        av = a.name || ''
+        bv = b.name || ''
+    }
+    if (typeof av === 'string') {
+      const cmp = av.localeCompare(bv, undefined, { sensitivity: 'base' })
+      return asc ? cmp : -cmp
+    }
+    return asc ? av - bv : bv - av
+  })
+}
+
+function launchSortIndicator(key) {
+  if (interviewLaunch.candidateSortKey !== key) return ''
+  return `<span class="sort-ind">${interviewLaunch.candidateSortAsc ? '↑' : '↓'}</span>`
 }
 
 function sortInterviewCandidates(rows, key, asc) {
@@ -1078,10 +1137,24 @@ function renderInterviewCandidateList() {
   }
 
   const positionLabel = (document.getElementById('int-role')?.value || '').trim() || '—'
+  const sortedRecipients = sortLaunchCandidates(
+    recipients,
+    interviewLaunch.candidateSortKey,
+    interviewLaunch.candidateSortAsc,
+  )
 
   tableWrap.innerHTML = `<table class="res-table int-candidate-table" style="font-size:11.5px">
-    <thead><tr><th>Name</th><th>Position</th><th>ATS</th><th>Phone</th><th>Email</th><th>CV</th><th>Issues</th><th></th></tr></thead>
-    <tbody>${recipients
+    <thead><tr>
+      <th class="int-res-sort" data-int-sort="name">Name${launchSortIndicator('name')}</th>
+      <th class="int-res-sort" data-int-sort="position">Position${launchSortIndicator('position')}</th>
+      <th class="int-res-sort" data-int-sort="ats">ATS${launchSortIndicator('ats')}</th>
+      <th class="int-res-sort" data-int-sort="phone">Phone${launchSortIndicator('phone')}</th>
+      <th class="int-res-sort" data-int-sort="email">Email${launchSortIndicator('email')}</th>
+      <th class="int-res-sort" data-int-sort="cv">CV${launchSortIndicator('cv')}</th>
+      <th>Issues</th>
+      <th></th>
+    </tr></thead>
+    <tbody>${sortedRecipients
       .map((r) => {
         const phoneCell = r.phone
           ? `<button type="button" class="int-cell-btn" data-int-edit="${r.id}" data-field="phone">${escHtml(r.phone)}</button>`
@@ -1119,6 +1192,19 @@ function renderInterviewCandidateList() {
         </tr>`
       })
       .join('')}</tbody></table>`
+
+  tableWrap.querySelectorAll('[data-int-sort]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.getAttribute('data-int-sort')
+      if (!key) return
+      if (interviewLaunch.candidateSortKey === key) interviewLaunch.candidateSortAsc = !interviewLaunch.candidateSortAsc
+      else {
+        interviewLaunch.candidateSortKey = key
+        interviewLaunch.candidateSortAsc = key === 'name' || key === 'position'
+      }
+      renderInterviewCandidateList()
+    })
+  })
 
   tableWrap.querySelectorAll('[data-int-edit]').forEach((btn) => {
     btn.addEventListener('click', () => {

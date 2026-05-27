@@ -509,8 +509,8 @@ export default function TelnyxIntegration({
             </div>
           ) : (
             <div className='note telnyxEmptyInbound'>
-              No messages yet. Text your Telnyx <strong>WhatsApp business number</strong> from your phone, or run <strong>Test WhatsApp</strong>, then click <strong>Refresh</strong>.
-              Ensure the webhook URL is set in both the Messaging Profile and Telnyx → WhatsApp → WABA webhooks.
+              No messages yet. Run <strong>Test WhatsApp</strong> (pick a synced template for first contact), or text your business number from WhatsApp, then <strong>Refresh</strong>.
+              Outbound tests appear here immediately; delivery errors update via webhook. Set the messaging webhook URL on both the <strong>Messaging Profile</strong> and <strong>WhatsApp → WABA</strong>.
             </div>
           )}
         </div>

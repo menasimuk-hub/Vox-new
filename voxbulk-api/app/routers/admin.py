@@ -792,6 +792,16 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
     if template_error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=template_error)
 
+    used_default_template = False
+    if not template_id and not template_name:
+        approved = TelnyxWhatsappTemplateSyncService.list_stored(db, approved_only=True)
+        if approved:
+            first = approved[0]
+            template_id = str(first.get("template_id") or "").strip() or None
+            template_name = str(first.get("name") or "").strip() or None
+            template_language = str(first.get("language") or "").strip() or template_language
+            used_default_template = bool(template_id or template_name)
+
     synced = TelnyxWhatsappTemplateSyncService.resolve_for_send(
         db,
         template_name=template_name,
@@ -860,39 +870,57 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
             )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
 
+    log_id = None
+    log_warning = None
     try:
+        from sqlalchemy import select
+
+        from app.models.organisation import Organisation
         from app.services.provider_settings import ProviderSettingsService
 
         cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
         config = cfg if isinstance(cfg, dict) else {}
         org_id = str(config.get("messaging_org_id") or config.get("default_messaging_org_id") or "").strip()
         if not org_id:
-            from sqlalchemy import select
-            from app.models.organisation import Organisation
-
             fallback = db.execute(select(Organisation.id).order_by(Organisation.created_at.asc()).limit(1)).scalar_one_or_none()
             org_id = str(fallback or "")
         wa_from = str(config.get("whatsapp_from") or "").strip() or None
-        if org_id:
-            TelnyxMessagingService.log_outbound(
+        if not org_id:
+            log_warning = "Message sent but not saved to Messages — no organisation in database."
+        else:
+            log_body = body if not (template_name or template_id) else f"[template:{template_name or template_id}] {body}".strip()
+            row = TelnyxMessagingService.log_outbound(
                 db,
                 org_id=org_id,
                 to_number=to_number,
                 from_number=wa_from,
-                body=body if not (template_name or template_id) else f"[template:{template_name or template_id}] {body}".strip(),
+                body=log_body,
                 result=result,
             )
-    except Exception:
-        pass
+            log_id = row.id
+    except Exception as exc:
+        log_warning = f"Message sent but could not save to Messages log: {exc}"
+
+    message = "WhatsApp message queued — see Messages below (delivery status updates via Telnyx webhook)."
+    if used_default_template and template_name:
+        message = f"WhatsApp queued using template “{template_name}”. {message}"
+    elif not (template_name or template_id):
+        message = (
+            "WhatsApp queued as free-form text (24h window only). "
+            "Sync templates and pick one for first contact. "
+            + message
+        )
 
     return {
         "ok": True,
-        "message": "WhatsApp message queued — check Messages below after Refresh (status updates via webhook).",
+        "message": message,
         "external_id": result.external_id,
         "status": result.status,
         "template_id": template_id,
         "template_name": template_name,
         "template_language": template_language or (synced.language if synced else None),
+        "log_id": log_id,
+        "warning": log_warning,
     }
 
 

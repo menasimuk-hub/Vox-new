@@ -19,3 +19,4 @@ venv/
 .venv/
 .DS_Store
 delet-me/
+voxbulk-api/data/cv_intake/

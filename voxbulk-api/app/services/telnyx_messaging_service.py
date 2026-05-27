@@ -434,14 +434,26 @@ class TelnyxMessagingService:
         result: TelnyxMessageResult,
     ) -> WhatsAppLog:
         LogService._validate_optional_relations(db, org_id)
+
+        def _safe_e164(raw: str | None) -> str | None:
+            if not raw:
+                return None
+            try:
+                return normalize_telnyx_e164(raw)
+            except Exception:
+                try:
+                    return normalize_e164(raw)
+                except Exception:
+                    return str(raw).strip() or None
+
         row = WhatsAppLog(
             org_id=org_id,
             provider="telnyx",
             external_message_id=result.external_id,
             status=result.status if result.ok else "failed",
             direction="outbound",
-            to_number=normalize_e164(to_number) or to_number,
-            from_number=from_number,
+            to_number=_safe_e164(to_number),
+            from_number=_safe_e164(from_number),
             body=body,
             raw_payload=json.dumps(result.payload or {"detail": result.detail}, ensure_ascii=False)[:8000],
         )
