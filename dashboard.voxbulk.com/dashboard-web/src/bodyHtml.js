@@ -139,33 +139,21 @@ const bodyHtml = `<div class="app" id="app">
         </div>
         </div>
         <div id="dash-section-interview" style="display:none;margin-bottom:14px">
-          <div class="nav-sec" style="margin:0 0 8px">Interviews</div>
+          <h2 class="dash-sec-title"><i class="ti ti-briefcase"></i> Interviews</h2>
           <div class="kg4">
             <div class="kpi gt"><div class="kl">Live campaigns</div><div class="kv" id="dash-int-live">0</div><div class="kd ne" id="dash-int-live-sub">—</div></div>
             <div class="kpi"><div class="kl">Running now</div><div class="kv" id="dash-int-running">0</div><div class="kd ne">Active calls</div></div>
             <div class="kpi"><div class="kl">Finished</div><div class="kv" id="dash-int-finished">0</div><div class="kd ne">Completed tasks</div></div>
             <div class="kpi"><div class="kl">Candidates screened</div><div class="kv" id="dash-int-candidates">0</div><div class="kd ne">All time</div></div>
           </div>
-          <div class="qa-row">
-            <button class="qa-btn primary" onclick="goNav('interviews-create')"><i class="ti ti-plus"></i>New interview</button>
-            <button class="qa-btn" onclick="goNav('interviews')"><i class="ti ti-folder"></i>Saved interviews</button>
-            <button class="qa-btn" onclick="goNav('results-i')"><i class="ti ti-chart-dots"></i>Results</button>
-            <button class="qa-btn" onclick="goNav('reports-interview')"><i class="ti ti-chart-bar"></i>Reports</button>
-          </div>
         </div>
         <div id="dash-section-survey" style="display:none;margin-bottom:14px">
-          <div class="nav-sec" style="margin:0 0 8px">Surveys</div>
+          <h2 class="dash-sec-title"><i class="ti ti-clipboard-list"></i> Surveys</h2>
           <div class="kg4">
             <div class="kpi gt"><div class="kl">Live surveys</div><div class="kv" id="dash-sur-live">0</div><div class="kd ne" id="dash-sur-live-sub">—</div></div>
             <div class="kpi"><div class="kl">Responses</div><div class="kv" id="dash-sur-responses">0</div><div class="kd ne" id="dash-sur-resp-sub">—</div></div>
             <div class="kpi"><div class="kl">Completion rate</div><div class="kv" id="dash-sur-rate">0%</div><div class="kd ne">Across active</div></div>
             <div class="kpi"><div class="kl">Paused</div><div class="kv" id="dash-sur-paused">0</div><div class="kd ne">Campaigns on hold</div></div>
-          </div>
-          <div class="qa-row">
-            <button class="qa-btn primary" onclick="goNav('surveys-create')"><i class="ti ti-plus"></i>New survey</button>
-            <button class="qa-btn" onclick="goNav('surveys')"><i class="ti ti-folder"></i>Saved surveys</button>
-            <button class="qa-btn" onclick="goNav('results-s')"><i class="ti ti-chart-pie"></i>Results</button>
-            <button class="qa-btn" onclick="goNav('reports-survey')"><i class="ti ti-chart-bar"></i>Reports</button>
           </div>
         </div>
         <div class="card" id="dash-chart-recovery">
@@ -271,25 +259,51 @@ const bodyHtml = `<div class="app" id="app">
         </div>
       </div>
 
-      <!-- ══ INTERVIEWS ══ -->
+      <!-- ══ INTERVIEWS (saved list) ══ -->
       <div class="pg" id="pg-interviews">
-        <!-- LIVE BANNER -->
         <div class="live-banner" id="int-live-banner" style="display:none">
           <div class="live-pulse"></div>
           <div class="lb-info">
-            <div class="lb-title">Campaign live — Senior Engineer · May 2026</div>
-            <div class="lb-sub">AI calling now · Window: 19 May 09:00 → 23 May 17:00 · 5 of 8 called</div>
+            <div class="lb-title">Campaign live</div>
+            <div class="lb-sub">AI calling in progress</div>
           </div>
-          <button class="btn bsm btnr" onclick="showConfirm('Stop this campaign?','This will immediately halt all outbound AI calls. Calls already connected will finish naturally.','Stop campaign',function(){toast('Campaign stopped','ta');document.getElementById(\\'int-live-banner\\').style.display=\\'none\\';})"><i class="ti ti-player-stop"></i>Stop</button>
+          <button class="btn bsm btnr" onclick="showConfirm('Stop this campaign?','This will immediately halt all outbound AI calls.','Stop campaign',function(){toast('Campaign stopped','ta');document.getElementById(\\'int-live-banner\\').style.display=\\'none\\';})"><i class="ti ti-player-stop"></i>Stop</button>
         </div>
         <div class="kg2" style="margin-bottom:12px">
           <div class="kpi"><div class="kl">Credits remaining</div><div class="kv" id="int-kpi-credits">—</div><div class="kd ne" id="int-kpi-credits-sub">Loading…</div></div>
           <div class="kpi"><div class="kl">Completed this month</div><div class="kv" id="int-kpi-completed">—</div><div class="kd ne" id="int-kpi-completed-sub">—</div></div>
         </div>
-        <div class="int-top-actions" style="display:flex;justify-content:flex-end;margin-bottom:12px">
-          <button class="btn btng bsm" type="button" id="int-new-task-btn"><i class="ti ti-plus"></i> Create new interview task</button>
+        <div class="card">
+          <div class="ch"><i class="ti ti-folder grn"></i>Saved interviews</div>
+          <div class="tbrow" id="int-tabs">
+            <div class="tb on" data-int-tab="live" id="int-tab-live"><i class="ti ti-broadcast"></i>Live</div>
+            <div class="tb" data-int-tab="finished" id="int-tab-finished"><i class="ti ti-circle-check"></i>Finished</div>
+            <div class="tb" data-int-tab="archived" id="int-tab-archived"><i class="ti ti-archive"></i>Archived</div>
+          </div>
+          <div class="tpcont on" id="int-panel-live">
+            <div id="int-live-orders"></div>
+            <div id="int-live-empty" class="empty-state" style="padding:16px 0;display:none">
+              <div class="es-title">No live interviews</div>
+              <div class="es-sub">Use <strong>Create new interview</strong> in the menu to start.</div>
+            </div>
+          </div>
+          <div class="tpcont" id="int-panel-finished">
+            <div id="int-finished-orders"></div>
+            <div id="int-finished-empty" class="empty-state" style="padding:16px 0;display:none">
+              <div class="es-title">No finished interviews yet</div>
+            </div>
+          </div>
+          <div class="tpcont" id="int-panel-archived">
+            <div id="int-archived-orders"></div>
+            <div id="int-archived-empty" class="empty-state" style="padding:16px 0;display:none">
+              <div class="es-title">No archived interviews</div>
+            </div>
+          </div>
         </div>
-        <!-- JOB REFERENCE (shown when interview draft exists) -->
+      </div>
+
+      <!-- ══ CREATE INTERVIEW ══ -->
+      <div class="pg" id="pg-interviews-create">
         <div class="card int-ref-card-wrap" id="int-ref-card-wrap" style="margin-bottom:12px" hidden>
           <div class="ch"><i class="ti ti-hash grn"></i>Task reference ID</div>
           <div class="int-ref-head">Email CVs to <strong>careers@voxbulk.com</strong> — include this reference in the subject or body</div>
@@ -310,7 +324,6 @@ const bodyHtml = `<div class="app" id="app">
               </div>
             </div>
             <div id="int-cv-email-window" hidden>
-              <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px"><i class="ti ti-mail" style="color:var(--grn);font-size:14px"></i>Email collection window</div>
               <div class="fg2">
                 <div class="fg" style="margin-bottom:0"><label>Start date</label><input type="date" id="int-cv-start-date"/></div>
                 <div class="fg" style="margin-bottom:0"><label>Start time</label><input type="time" id="int-cv-start-time" value="09:00"/></div>
@@ -323,42 +336,8 @@ const bodyHtml = `<div class="app" id="app">
               <button class="btn bsm btnr" type="button" id="int-cv-close-early" style="margin-top:10px;display:none"><i class="ti ti-clock-stop"></i>Close CV collection early</button>
             </div>
           </div>
-          <p class="int-ref-hint">Share this ID with candidates. They must include it when emailing their CV — otherwise the application is rejected automatically. You can also upload files below; email intake runs in the background every few minutes.</p>
+          <p class="int-ref-hint">Share this ID with candidates when emailing CVs.</p>
         </div>
-        <!-- RUNNING INTERVIEWS -->
-        <div class="card" style="margin-bottom:12px">
-          <div class="ch"><i class="ti ti-broadcast grn"></i>Running interviews</div>
-          <div class="tbrow" id="int-tabs">
-            <div class="tb on" data-int-tab="live" id="int-tab-live"><i class="ti ti-broadcast"></i>Live</div>
-            <div class="tb" data-int-tab="finished" id="int-tab-finished"><i class="ti ti-circle-check"></i>Finished</div>
-            <div class="tb" data-int-tab="archived" id="int-tab-archived"><i class="ti ti-archive"></i>Archived</div>
-          </div>
-          <div class="tpcont on" id="int-panel-live">
-            <div id="int-live-orders"></div>
-            <div id="int-live-empty" class="empty-state" style="padding:16px 0;display:none">
-              <i class="ti ti-broadcast"></i>
-              <div class="es-title">No live interview tasks</div>
-              <div class="es-sub">Create a campaign below or pay a quoted task to get started.</div>
-            </div>
-          </div>
-          <div class="tpcont" id="int-panel-finished">
-            <div id="int-finished-orders"></div>
-            <div id="int-finished-empty" class="empty-state" style="padding:16px 0;display:none">
-              <i class="ti ti-circle-check"></i>
-              <div class="es-title">No finished interviews yet</div>
-              <div class="es-sub">Completed tasks will appear here. Archive when you no longer need them in the list.</div>
-            </div>
-          </div>
-          <div class="tpcont" id="int-panel-archived">
-            <div id="int-archived-orders"></div>
-            <div id="int-archived-empty" class="empty-state" style="padding:16px 0;display:none">
-              <i class="ti ti-archive"></i>
-              <div class="es-title">No archived interviews</div>
-              <div class="es-sub">Archived campaigns are hidden from live and finished lists.</div>
-            </div>
-          </div>
-        </div>
-        <!-- NEW CAMPAIGN FORM -->
         <div class="card" id="int-form-card">
           <div class="ch" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
             <span><i class="ti ti-upload grn"></i> <span id="int-form-title">New interview campaign</span></span>
@@ -438,7 +417,7 @@ const bodyHtml = `<div class="app" id="app">
         </div>
       </div>
 
-      <!-- ══ SURVEYS ══ -->
+      <!-- ══ SURVEYS (saved list) ══ -->
       <div class="pg" id="pg-surveys">
         <div class="kg4" id="sur-kpi-row" style="margin-bottom:12px">
           <div class="kpi gt"><div class="kl">Live surveys</div><div class="kv" id="sur-kpi-live">0</div><div class="kd ne" id="sur-kpi-live-sub">Active campaigns</div></div>
@@ -446,56 +425,53 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Quoted / unpaid</div><div class="kv" id="sur-kpi-quoted">0</div><div class="kd ne" id="sur-kpi-quoted-sub">Need payment</div></div>
           <div class="kpi"><div class="kl">Failed payments</div><div class="kv" id="sur-kpi-failed">0</div><div class="kd dn" id="sur-kpi-failed-sub">Action required</div></div>
         </div>
-        <div class="card" style="margin-bottom:12px">
-          <div class="ch"><i class="ti ti-chart-bar grn"></i>Response progress</div>
-          <div id="sur-trend-chart" style="padding:4px 0"><div class="muted" style="font-size:12px;padding:8px 0">No response data yet.</div></div>
-        </div>
         <div class="live-banner" id="sur-live-banner" style="display:none">
           <div class="live-pulse"></div>
           <div class="lb-info">
             <div class="lb-title" id="sur-live-banner-title">No live survey</div>
-            <div class="lb-sub" id="sur-live-banner-sub">0 of 0 responded · No active window</div>
+            <div class="lb-sub" id="sur-live-banner-sub">0 of 0 responded</div>
           </div>
           <button class="btn bsm btnr" type="button" id="sur-live-stop-btn"><i class="ti ti-player-stop"></i>Stop</button>
         </div>
         <div class="card">
-          <div class="ch"><i class="ti ti-clipboard-list grn"></i>Your surveys</div>
+          <div class="ch"><i class="ti ti-folder grn"></i>Saved surveys</div>
           <div class="tbrow" id="sur-tabs">
-            <div class="tb on" data-sur-tab="live" id="sur-tab-live"><i class="ti ti-broadcast"></i>Live surveys</div>
-            <div class="tb" data-sur-tab="finished" id="sur-tab-finished"><i class="ti ti-circle-check"></i>Finished surveys</div>
+            <div class="tb on" data-sur-tab="live" id="sur-tab-live"><i class="ti ti-broadcast"></i>Live</div>
+            <div class="tb" data-sur-tab="finished" id="sur-tab-finished"><i class="ti ti-circle-check"></i>Finished</div>
             <div class="tb" data-sur-tab="archived" id="sur-tab-archived"><i class="ti ti-archive"></i>Archived</div>
           </div>
           <div class="tpcont on" id="sur-panel-live">
             <div id="sur-live-orders"></div>
             <div id="sur-live-empty" class="empty-state" style="padding:16px 0;display:none">
-              <i class="ti ti-broadcast"></i>
               <div class="es-title">No live surveys</div>
-              <div class="es-sub">Create a campaign below or pay a quoted survey to get started.</div>
+              <div class="es-sub">Use <strong>Create new survey</strong> in the menu.</div>
             </div>
           </div>
           <div class="tpcont" id="sur-panel-finished">
             <div id="sur-finished-orders"></div>
             <div id="sur-finished-empty" class="empty-state" style="padding:16px 0;display:none">
-              <i class="ti ti-circle-check"></i>
               <div class="es-title">No finished surveys yet</div>
-              <div class="es-sub">Completed, paused, or cancelled surveys appear here. Archive when done.</div>
             </div>
           </div>
           <div class="tpcont" id="sur-panel-archived">
             <div id="sur-archived-orders"></div>
             <div id="sur-archived-empty" class="empty-state" style="padding:16px 0;display:none">
-              <i class="ti ti-archive"></i>
               <div class="es-title">No archived surveys</div>
-              <div class="es-sub">Archived surveys are removed from live and finished lists.</div>
             </div>
           </div>
         </div>
-        <!-- NEW CAMPAIGN FORM -->
-        <div class="card">
+      </div>
+
+      <!-- ══ CREATE SURVEY ══ -->
+      <div class="pg" id="pg-surveys-create">
+        <div class="card" id="sur-form-card">
           <div class="ch"><i class="ti ti-plus grn"></i>New survey campaign</div>
-          <div class="sur-launch-note"><i class="ti ti-phone"></i> AI phone call surveys · Phase 1</div>
+          <div class="sur-launch-note" id="sur-launch-note"><i class="ti ti-phone"></i> AI phone call or WhatsApp surveys</div>
           <div class="fg"><label>What do you want to learn?</label><textarea id="sur-goal" rows="2" style="resize:none" placeholder="e.g. Patient satisfaction — experience, wait times, likelihood to recommend"></textarea></div>
-          <div class="fg"><label>Max call length</label><select id="sur-max-length"><option selected>3 minutes</option><option>5 minutes</option><option>10 minutes</option></select></div>
+          <div class="fg2">
+            <div class="fg"><label>Contact method</label><select id="sur-contact-method"><option value="ai_call" selected>AI phone call</option><option value="whatsapp">WhatsApp</option></select></div>
+            <div class="fg" id="sur-max-length-field"><label>Max call length</label><select id="sur-max-length"><option selected>3 minutes</option><option>5 minutes</option><option>10 minutes</option></select></div>
+          </div>
           <div class="fg" id="sur-agent-field" style="margin-bottom:10px"><label>AI voice agent</label><select id="sur-agent-select"><option value="">Loading agents…</option></select><div class="muted" style="font-size:11px;margin-top:4px">Friendly voice shown on your survey calls — no technical IDs.</div><div class="field-hint" id="sur-hint-agent"></div></div>
           <input type="file" id="sur-file-input" accept=".csv,.xlsx,.xls" hidden/>
           <div class="standalone-upload" id="sur-upload-zone" style="margin-bottom:6px"><label for="sur-file-input" class="sur-upload-trigger"><i class="ti ti-upload" style="font-size:24px;display:block;margin-bottom:6px;color:var(--t3)"></i>Upload contact list · CSV/Excel: name, phone, email</label><a href="#" id="sur-template-dl" style="font-size:11px;color:var(--grn);margin-top:6px;display:inline-block">Download sample template</a></div>
@@ -513,9 +489,9 @@ const bodyHtml = `<div class="app" id="app">
             </div>
             <div class="field-hint" id="sur-hint-approve"></div>
           </div>
-          <!-- CALLING WINDOW -->
-          <div style="background:var(--s2);border-radius:11px;padding:13px;margin-bottom:10px">
-            <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px"><i class="ti ti-clock" style="color:var(--grn);font-size:14px"></i>AI calling window — system stops automatically at end time</div>
+          <!-- CALLING / SEND WINDOW -->
+          <div id="sur-schedule-block" style="background:var(--s2);border-radius:11px;padding:13px;margin-bottom:10px">
+            <div id="sur-schedule-title" style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px"><i class="ti ti-clock" style="color:var(--grn);font-size:14px"></i>AI calling window — system stops automatically at end time</div>
             <div class="fg2">
               <div class="fg" style="margin-bottom:0"><label><i class="ti ti-player-play" style="color:var(--grn);font-size:12px;margin-right:3px"></i>Start date</label><input type="date" id="sur-start-date" oninput="updateSurWindow()"/><div class="field-hint" id="sur-hint-start-date"></div></div>
               <div class="fg" style="margin-bottom:0"><label>Start time</label><input type="time" id="sur-start-time" value="09:00" oninput="updateSurWindow()"/><div class="field-hint" id="sur-hint-start-time"></div></div>
@@ -532,7 +508,7 @@ const bodyHtml = `<div class="app" id="app">
           <div id="sur-launch-pricing" class="sur-launch-pricing" hidden>
             <div class="sur-launch-pricing-head"><i class="ti ti-receipt"></i> Package &amp; pricing</div>
             <div id="sur-contact-count" class="sur-launch-meta muted"></div>
-            <div class="fg" style="margin-bottom:8px"><label>AI call package</label><select id="sur-package-select"></select></div>
+            <div class="fg" style="margin-bottom:8px"><label id="sur-package-label">Survey package</label><select id="sur-package-select"></select></div>
             <div id="sur-quote-breakdown" class="sur-quote-breakdown"></div>
             <div id="sur-quote-total" class="sur-quote-total"></div>
             <div id="sur-quote-status" class="sur-quote-status muted"></div>
@@ -540,6 +516,7 @@ const bodyHtml = `<div class="app" id="app">
           <div id="sur-validation-errors" class="validation-error" style="display:none;margin-bottom:10px"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
             <button class="btn btng bsm" type="button" id="sur-ai-generate"><i class="ti ti-sparkles"></i>AI write survey script</button>
+            <button class="btn bsm" type="button" id="sur-wa-preview-btn" style="display:none"><i class="ti ti-brand-whatsapp"></i>Preview WhatsApp</button>
             <button class="btn btng bsm" type="button" id="sur-pay-schedule"><i class="ti ti-credit-card"></i>Pay and schedule survey</button>
           </div>
         </div>
@@ -631,31 +608,55 @@ const bodyHtml = `<div class="app" id="app">
         </div>
       </div>
 
-      <!-- ══ SURVEY REPORTS ══ -->
-      <div class="pg" id="pg-reports-survey">
-        <div class="kg4" id="sur-rep-kpis" style="margin-bottom:12px">
-          <div class="kpi gt"><div class="kl">Live surveys</div><div class="kv" id="sur-rep-live">0</div><div class="kd ne" id="sur-rep-live-sub">—</div></div>
-          <div class="kpi"><div class="kl">Responses</div><div class="kv" id="sur-rep-responses">0</div><div class="kd ne" id="sur-rep-resp-sub">—</div></div>
-          <div class="kpi"><div class="kl">Completion rate</div><div class="kv" id="sur-rep-rate">0%</div><div class="kd ne">Across active</div></div>
-          <div class="kpi"><div class="kl">Finished</div><div class="kv" id="sur-rep-finished">0</div><div class="kd ne" id="sur-rep-finished-sub">—</div></div>
-        </div>
+      <!-- ══ INTERVIEW REPORTS (list → results) ══ -->
+      <div class="pg" id="pg-reports-interview">
         <div class="card">
-          <div class="ch"><i class="ti ti-table grn"></i>Survey campaigns</div>
-          <div id="sur-rep-table-wrap">
-            <div class="muted" style="font-size:12px;padding:8px 0">Loading survey reports…</div>
+          <div class="ch"><i class="ti ti-chart-bar grn"></i>Interview reports</div>
+          <p class="muted" style="font-size:12px;margin-bottom:10px">Click a campaign to view results. In-progress campaigns show the scheduled calling window.</p>
+          <div class="tbrow" id="int-rep-tabs">
+            <div class="tb on" data-int-rep-tab="live"><i class="ti ti-broadcast"></i>Live</div>
+            <div class="tb" data-int-rep-tab="finished"><i class="ti ti-circle-check"></i>Finished</div>
+            <div class="tb" data-int-rep-tab="archived"><i class="ti ti-archive"></i>Archived</div>
           </div>
+          <div id="int-rep-table"></div>
+        </div>
+      </div>
+
+      <!-- ══ SURVEY REPORTS (list → results) ══ -->
+      <div class="pg" id="pg-reports-survey">
+        <div class="card">
+          <div class="ch"><i class="ti ti-chart-bar grn"></i>Survey reports</div>
+          <p class="muted" style="font-size:12px;margin-bottom:10px">Click a campaign to view results. Active campaigns show current status until complete.</p>
+          <div class="tbrow" id="sur-rep-tabs">
+            <div class="tb on" data-sur-rep-tab="live"><i class="ti ti-broadcast"></i>Live</div>
+            <div class="tb" data-sur-rep-tab="finished"><i class="ti ti-circle-check"></i>Finished</div>
+            <div class="tb" data-sur-rep-tab="archived"><i class="ti ti-archive"></i>Archived</div>
+          </div>
+          <div id="sur-rep-table"></div>
         </div>
       </div>
 
       <!-- ══ INTERVIEW RESULTS ══ -->
       <div class="pg" id="pg-results-i">
+        <div id="int-res-pick-list">
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch"><i class="ti ti-chart-dots grn"></i>Interview results</div>
+          <div class="tbrow" id="int-res-pick-tabs">
+            <div class="tb on" data-int-res-pick-tab="live"><i class="ti ti-broadcast"></i>Live</div>
+            <div class="tb" data-int-res-pick-tab="finished"><i class="ti ti-circle-check"></i>Finished</div>
+            <div class="tb" data-int-res-pick-tab="archived"><i class="ti ti-archive"></i>Archived</div>
+          </div>
+          <div id="int-res-pick-table"></div>
+        </div>
+        </div>
+        <div id="int-res-pick-detail" style="display:none">
         <div class="breadcrumb">
-          <span class="bc-link" onclick="goNav('interviews')"><i class="ti ti-briefcase" style="font-size:11px"></i> Interviews</span>
+          <span class="bc-link" onclick="goNav('results-i')"><i class="ti ti-briefcase" style="font-size:11px"></i> Interview results</span>
           <span class="bc-sep">›</span>
-          <span class="bc-cur" id="int-results-bc-title">Select a campaign</span>
+          <span class="bc-cur" id="int-results-bc-title">Campaign</span>
         </div>
         <div id="int-results-phase-banner" class="inf b" style="display:none;margin-bottom:12px"><i class="ti ti-info-circle"></i><span id="int-results-phase-banner-text">Sample data shown until live call results are available (Phase 2).</span></div>
-        <div id="int-results-mock-note" class="muted" style="font-size:11.5px;margin-bottom:12px">Sample candidate data below — connect a project from Interviews to see the campaign name in the breadcrumb.</div>
+        <div id="int-results-mock-note" class="muted" style="font-size:11.5px;margin-bottom:12px;display:none"></div>
         <div class="kg4" id="int-results-kpis">
           <div class="kpi"><div class="kl">Called</div><div class="kv" id="int-res-kpi-called">—</div></div>
           <div class="kpi"><div class="kl">Reached</div><div class="kv" id="int-res-kpi-reached">—</div><div class="kd up" id="int-res-kpi-reach-pct"></div></div>
@@ -663,7 +664,7 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Avg duration</div><div class="kv" id="int-res-kpi-duration">—</div></div>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-          <button class="btn bsm" onclick="goNav('interviews')"><i class="ti ti-arrow-left"></i>Back to interviews</button>
+          <button class="btn bsm" type="button" id="int-res-pick-back"><i class="ti ti-arrow-left"></i>Back to list</button>
           <div style="display:flex;gap:8px"><button class="btn btng bsm" type="button" id="int-results-export-pdf"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm" type="button" id="int-results-export-csv"><i class="ti ti-table"></i>Export CSV</button></div>
         </div>
         <div class="kg4" id="int-results-kpis-legacy" hidden>
@@ -784,6 +785,7 @@ const bodyHtml = `<div class="app" id="app">
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px"><button class="btn btng bsm"><i class="ti ti-download"></i>Export PDF report</button><button class="btn bsm"><i class="ti ti-table"></i>Export CSV</button></div>
+        </div>
       </div>
 
       <!-- ══ SURVEY DETAIL ══ -->
@@ -860,13 +862,25 @@ const bodyHtml = `<div class="app" id="app">
 
       <!-- ══ SURVEY RESULTS ══ -->
       <div class="pg" id="pg-results-s">
+        <div id="sur-res-pick-list">
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch"><i class="ti ti-chart-pie grn"></i>Survey results</div>
+          <div class="tbrow" id="sur-res-pick-tabs">
+            <div class="tb on" data-sur-res-pick-tab="live"><i class="ti ti-broadcast"></i>Live</div>
+            <div class="tb" data-sur-res-pick-tab="finished"><i class="ti ti-circle-check"></i>Finished</div>
+            <div class="tb" data-sur-res-pick-tab="archived"><i class="ti ti-archive"></i>Archived</div>
+          </div>
+          <div id="sur-res-pick-table"></div>
+        </div>
+        </div>
+        <div id="sur-res-pick-detail" style="display:none">
         <div class="breadcrumb">
-          <span class="bc-link" onclick="goNav('surveys')"><i class="ti ti-clipboard-list" style="font-size:11px"></i> Surveys</span>
+          <span class="bc-link" onclick="goNav('results-s')"><i class="ti ti-clipboard-list" style="font-size:11px"></i> Survey results</span>
           <span class="bc-sep">›</span>
-          <span class="bc-cur" id="sur-results-breadcrumb">Survey results</span>
+          <span class="bc-cur" id="sur-results-breadcrumb">Campaign</span>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-          <button class="btn bsm" onclick="goNav('surveys')"><i class="ti ti-arrow-left"></i>Back to surveys</button>
+          <button class="btn bsm" type="button" id="sur-res-pick-back"><i class="ti ti-arrow-left"></i>Back to list</button>
           <div style="display:flex;gap:8px"><button class="btn bsm" type="button" id="sur-results-export-pdf"><i class="ti ti-download"></i>Export PDF</button><button class="btn bsm" type="button" id="sur-results-export-csv"><i class="ti ti-table"></i>Export CSV</button></div>
         </div>
         <div id="sur-results-loading" class="inf g" style="display:none"><i class="ti ti-loader"></i>Loading survey results…</div>
@@ -924,6 +938,7 @@ const bodyHtml = `<div class="app" id="app">
             <div class="sur-report-actions-grid" id="sur-results-recommendations"></div>
           </div>
           <div class="sur-report-foot">Individual names and transcripts are never shown in customer survey results.</div>
+        </div>
         </div>
         </div>
       </div>
@@ -1029,6 +1044,34 @@ const bodyHtml = `<div class="app" id="app">
         </div>
 
         <div class="tpcont on" id="stp-api">
+          <div id="sys-interview-integrations" style="display:none">
+            <div class="secl">Interview integrations</div>
+            <p class="muted" style="font-size:12px;margin-bottom:12px">Enable Calendly, Cronofy, and/or Zoom for scheduling and video interviews. Toggle on to show API fields and test.</p>
+            <div class="svc-row">
+              <div><div style="font-size:13px;font-weight:600">Calendly</div><div class="muted" style="font-size:11px">OAuth scheduling links for shortlisted candidates</div></div>
+              <div class="tog off" id="sys-tog-calendly" role="switch" onclick="togS(this)"><div class="togth"></div></div>
+            </div>
+            <div id="sys-panel-calendly" class="cred-form" hidden style="margin-bottom:12px">
+              <button class="btn btng bsm" type="button" id="sys-test-calendly"><i class="ti ti-plug"></i>Connect &amp; test Calendly</button>
+              <div id="scheduling-oauth-status" class="muted" style="font-size:11px;margin-top:8px"></div>
+            </div>
+            <div class="svc-row">
+              <div><div style="font-size:13px;font-weight:600">Cronofy</div><div class="muted" style="font-size:11px">Calendar availability for interview booking</div></div>
+              <div class="tog off" id="sys-tog-cronofy" role="switch" onclick="togS(this)"><div class="togth"></div></div>
+            </div>
+            <div id="sys-panel-cronofy" class="cred-form" hidden style="margin-bottom:12px">
+              <button class="btn btng bsm" type="button" id="sys-test-cronofy"><i class="ti ti-plug"></i>Connect &amp; test Cronofy</button>
+            </div>
+            <div class="svc-row">
+              <div><div style="font-size:13px;font-weight:600">Zoom</div><div class="muted" style="font-size:11px">Video interview API (Phase 5)</div></div>
+              <div class="tog off" id="sys-tog-zoom" role="switch" onclick="togS(this)"><div class="togth"></div></div>
+            </div>
+            <div id="sys-panel-zoom" class="cred-form" hidden style="margin-bottom:12px">
+              <div class="fg"><label>Zoom API key / client secret</label><input type="password" id="sys-zoom-api-key" placeholder="Paste Zoom credentials"/></div>
+              <button class="btn btng bsm" type="button" id="sys-test-zoom"><i class="ti ti-plug"></i>Test Zoom connection</button>
+            </div>
+          </div>
+          <div id="sys-clinic-booking">
           <div class="secl">Step 1 — Select your booking system</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
             <div class="sysb sel" onclick="selSys(this,'apikey')"><span class="sdotl sg2"></span><div><div class="sn">Dentally</div><div class="sc2">Dental · API key</div></div><span class="bdg bg" style="margin-left:auto">Connected</span></div>
@@ -1087,6 +1130,7 @@ const bodyHtml = `<div class="app" id="app">
           <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
             <input placeholder="Your phone number e.g. +44 7700 900123" style="flex:1;font-size:12px;padding:8px 10px;border-radius:9px;border:1.5px solid var(--b2);background:var(--s2);color:var(--t1)" id="test-call-num"/>
             <button class="btn btng bsm" onclick="toast('Test call initiated to '+document.getElementById('test-call-num').value,'tg')"><i class="ti ti-phone"></i>Call me now — test AI voice</button>
+          </div>
           </div>
         </div>
 

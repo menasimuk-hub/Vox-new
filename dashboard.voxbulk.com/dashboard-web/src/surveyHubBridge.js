@@ -1,6 +1,7 @@
 import { apiFetch, getAccessToken } from './lib/api.js'
 import { confirmDialog } from './modalBridge.js'
 import { surveyRespondedCount, surveyFailedCount } from './surveyUtils.js'
+import { fmtScheduleRange, renderCampaignTable } from './campaignListUi.js'
 
 const hub = {
   orders: [],
@@ -109,30 +110,26 @@ function matchesSearch(order, query) {
   )
 }
 
-function renderOrderRow(order) {
-  const na = order.next_action || {}
-  const hint = na.hint ? `<div class="proj-meta" style="color:var(--red);margin-top:2px">${esc(na.hint)}</div>` : ''
-  const actionChip = na.label
-    ? `<span class="bdg ${order.payment_status === 'rejected' ? 'br' : 'ba'}" style="margin-left:8px">${esc(na.label)}</span>`
+function canDeleteSurvey(order) {
+  return Boolean(order?.is_live && !['running', 'paused'].includes(order.status))
+}
+
+function renderTableRow(order) {
+  const editBtn = `<button type="button" class="btn bsm btng sur-hub-act" data-sur-action="edit" data-order-id="${order.id}" title="Open"><i class="ti ti-edit"></i></button>`
+  const deleteBtn = canDeleteSurvey(order)
+    ? `<button type="button" class="btn bsm btnr sur-hub-act" data-sur-action="delete" data-order-id="${order.id}" title="Delete"><i class="ti ti-trash"></i></button>`
     : ''
-  const payChip = `<span class="bdg ${order.payment_status === 'rejected' ? 'br' : order.is_finished ? 'bg' : 'ba'}" style="margin-left:6px">${esc(paymentLabel(order))}</span>`
-  const dispatch =
-    order.report && order.status === 'running'
-      ? ` · ${surveyRespondedCount(order.report)} sent${order.report.failed ? `, ${order.report.failed} failed` : ''}`
-      : ''
   const archiveBtn =
     order.is_finished && !order.is_archived
-      ? `<button type="button" class="btn bsm sur-hub-act" data-sur-action="archive" data-order-id="${order.id}" title="Archive" onclick="event.stopPropagation()"><i class="ti ti-archive"></i></button>`
+      ? `<button type="button" class="btn bsm sur-hub-act" data-sur-action="archive" data-order-id="${order.id}" title="Archive"><i class="ti ti-archive"></i></button>`
       : ''
-  return `<div class="proj-row" data-survey-order-id="${order.id}">
-    <div class="proj-ic ci-b"><i class="ti ti-clipboard-list"></i></div>
-    <div class="proj-info">
-      <div class="proj-name">${esc(order.title)}${payChip}${actionChip}</div>
-      <div class="proj-meta">${order.recipient_count} contacts · ${order.quote_total_gbp}${dispatch}</div>
-      ${hint}
-    </div>
-    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">${archiveBtn}<span class="${statusBadgeClass(order)}">${esc(order.status_label || order.status)}</span></div>
-  </div>`
+  const schedule = fmtScheduleRange(order.scheduled_start_at, order.scheduled_end_at)
+  return `<tr class="sur-hub-row" data-order-id="${esc(order.id)}">
+    <td><strong>${esc(order.title)}</strong></td>
+    <td><span class="bdg ba">${esc(order.status_label || order.status)}</span></td>
+    <td class="muted">${esc(schedule)} · ${order.recipient_count || 0} contacts</td>
+    <td class="hub-camp-actions">${editBtn}${archiveBtn}${deleteBtn}</td>
+  </tr>`
 }
 
 function computeKpis(orders) {
@@ -195,21 +192,17 @@ function renderLists(orders) {
   const live = filtered.filter((o) => o.is_live)
   const finished = filtered.filter((o) => o.is_finished)
   const archived = filtered.filter((o) => o.is_archived)
-  const liveHost = document.getElementById('sur-live-orders')
-  const finHost = document.getElementById('sur-finished-orders')
-  const archHost = document.getElementById('sur-archived-orders')
-  const liveEmpty = document.getElementById('sur-live-empty')
-  const finEmpty = document.getElementById('sur-finished-empty')
-  const archEmpty = document.getElementById('sur-archived-empty')
-  if (liveHost) liveHost.innerHTML = live.map(renderOrderRow).join('')
-  if (finHost) finHost.innerHTML = finished.map(renderOrderRow).join('')
-  if (archHost) archHost.innerHTML = archived.map(renderOrderRow).join('')
-  if (liveEmpty) liveEmpty.style.display = live.length ? 'none' : 'block'
-  if (finEmpty) finEmpty.style.display = finished.length ? 'none' : 'block'
-  if (archEmpty) archEmpty.style.display = archived.length ? 'none' : 'block'
+  const setPanel = (hostId, emptyId, rows, msg) => {
+    const host = document.getElementById(hostId)
+    const empty = document.getElementById(emptyId)
+    if (host) host.innerHTML = renderCampaignTable(rows.map(renderTableRow).join(''), msg)
+    if (empty) empty.style.display = rows.length ? 'none' : ''
+  }
+  setPanel('sur-live-orders', 'sur-live-empty', live, 'No live surveys.')
+  setPanel('sur-finished-orders', 'sur-finished-empty', finished, 'No finished surveys.')
+  setPanel('sur-archived-orders', 'sur-archived-empty', archived, 'No archived surveys.')
   renderKpis(orders)
   renderLiveBanner(orders)
-  renderHubTrend(orders)
 }
 
 function switchTab(tab) {
@@ -265,16 +258,40 @@ async function archiveSurveyOrder(orderId) {
   }
 }
 
+async function deleteSurveyOrder(orderId) {
+  const ok = await confirmDialog({
+    title: 'Delete survey?',
+    message: 'This cannot be undone.',
+    okLabel: 'Delete',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await api(`/service-orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' })
+    window.toast?.('Survey deleted', 'tg')
+    await loadSurveyOrders()
+  } catch (e) {
+    window.toast?.(e.message || 'Delete failed', 'tr')
+  }
+}
+
 function onListClick(event) {
-  const archiveBtn = event.target.closest?.('[data-sur-action="archive"]')
-  if (archiveBtn) {
+  const btn = event.target.closest?.('.sur-hub-act')
+  if (btn) {
     event.stopPropagation()
-    void archiveSurveyOrder(archiveBtn.getAttribute('data-order-id'))
+    const orderId = btn.getAttribute('data-order-id')
+    const action = btn.getAttribute('data-sur-action')
+    if (action === 'archive') void archiveSurveyOrder(orderId)
+    else if (action === 'delete') void deleteSurveyOrder(orderId)
+    else if (action === 'edit') {
+      if (typeof window.openSurveyDraft === 'function') void window.openSurveyDraft(orderId)
+      else void openSurveyDetail(orderId)
+    }
     return
   }
-  const row = event.target.closest?.('[data-survey-order-id]')
+  const row = event.target.closest?.('.sur-hub-row')
   if (!row) return
-  void openSurveyDetail(row.dataset.surveyOrderId)
+  void openSurveyDetail(row.getAttribute('data-order-id'))
 }
 
 function showDetailPanel(show) {
@@ -460,8 +477,13 @@ function bindDetailActions() {
     }
   })
   document.getElementById('sur-detail-edit')?.addEventListener('click', () => {
-    toggleInlineEdit(true)
-    document.getElementById('sur-detail-inline-edit')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    const id = hub.selectedId
+    if (!id) return
+    if (typeof window.openSurveyDraft === 'function') void window.openSurveyDraft(id)
+    else {
+      toggleInlineEdit(true)
+      document.getElementById('sur-detail-inline-edit')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
   })
   document.getElementById('sur-edit-cancel')?.addEventListener('click', () => toggleInlineEdit(false))
   document.getElementById('sur-edit-save')?.addEventListener('click', () => {
@@ -541,12 +563,8 @@ export function initSurveyHubBridge() {
     const show = ['surveys', 'survey-detail', 'results-s'].includes(pageId)
     const wrap = document.getElementById('global-search-wrap')
     if (wrap) wrap.style.display = show ? 'flex' : 'none'
-    if (pageId === 'surveys' && window.__voxNavIntent?.action === 'create-survey') {
-      window.__voxNavIntent = null
-      hub.tab = 'live'
-      switchTab('live')
+    if (pageId === 'surveys-create') {
       document.getElementById('sur-goal')?.focus()
-      document.getElementById('sur-goal')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }
   document.getElementById('global-search')?.addEventListener('input', (e) => {

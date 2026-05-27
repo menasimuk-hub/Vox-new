@@ -56,16 +56,8 @@ function highlightNav(id){
     if(n.getAttribute('onclick')&&n.getAttribute('onclick').indexOf("'"+id+"'")>=0) n.classList.add('on');
   });
 }
-function openReportsInterviewTab(){
-  var tab=document.querySelector('#rep-tabs .tb[data-rep-tab="interviews"]');
-  if(tab) tab.click();
-}
 function go(id,el){
   var pageId=id;
-  if(id==='reports-interview'){
-    pageId='reports';
-    openReportsInterviewTab();
-  }
   document.querySelectorAll('.pg').forEach(function(p){ p.classList.remove('on'); });
   var pg=document.getElementById('pg-'+pageId);
   if(pg) pg.classList.add('on');
@@ -76,17 +68,30 @@ function go(id,el){
   document.getElementById('tb-s').innerHTML=s;
   closeNotif();
   syncSetupChecklistForPage(pageId);
+  if(typeof window.applySystemSettingsMode==='function'&&pageId==='system') window.applySystemSettingsMode();
   if(typeof window.onSurveyPageNav==='function') window.onSurveyPageNav(id);
-  if(pageId==='reports'&&typeof window.reloadInterviewReports==='function') window.reloadInterviewReports();
-  if(id==='reports-survey'&&typeof window.reloadSurveyReports==='function') window.reloadSurveyReports();
+  if(id==='reports-interview'&&typeof window.reloadInterviewCampaignReports==='function') window.reloadInterviewCampaignReports();
+  if(id==='reports-survey'&&typeof window.reloadSurveyCampaignReports==='function') window.reloadSurveyCampaignReports();
   if(id==='dashboard'&&typeof window.applyDashboardServices==='function') window.applyDashboardServices();
-  if(id==='interviews'){
+  if(id==='interviews-create'){
     if(window.__voxNavIntent&&window.__voxNavIntent.action==='create-interview'){
       window.__voxNavIntent=null;
       if(typeof window.startNewInterviewTask==='function') window.startNewInterviewTask();
-      else document.getElementById('int-new-task-btn')?.click();
     }
   }
+  if(id==='surveys-create'&&window.__voxNavIntent&&window.__voxNavIntent.action==='create-survey'){
+    window.__voxNavIntent=null;
+    if(typeof window.resetSurveyLaunchForm==='function') window.resetSurveyLaunchForm();
+    document.getElementById('sur-goal')?.focus();
+  }
+  if(id==='results-i'&&!window.__intResultsDetail){
+    if(typeof window.showInterviewResultsPicker==='function') window.showInterviewResultsPicker();
+  }
+  if(id==='results-s'&&!window.__surveyResultsDetail){
+    if(typeof window.showSurveyResultsPicker==='function') window.showSurveyResultsPicker();
+  }
+  if(id==='interviews'&&typeof window.reloadInterviewHub==='function') window.reloadInterviewHub();
+  if(id==='surveys'&&typeof window.reloadSurveyHub==='function') window.reloadSurveyHub();
   window.scrollTo(0,0);
 }
 // Convenience nav — overridden by servicesBridge when loaded

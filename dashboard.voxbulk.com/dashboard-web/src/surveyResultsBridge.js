@@ -169,13 +169,23 @@ async function loadSurveyResults(orderId) {
   }
 }
 
+function showSurveyResultsDetail(show) {
+  window.__surveyResultsDetail = Boolean(show)
+  const list = document.getElementById('sur-res-pick-list')
+  const detail = document.getElementById('sur-res-pick-detail')
+  if (list) list.style.display = show ? 'none' : ''
+  if (detail) detail.style.display = show ? '' : 'none'
+}
+
 async function openSurveyResults(orderId) {
   if (typeof window.goNav === 'function') window.goNav('results-s')
+  showSurveyResultsDetail(true)
   await loadSurveyResults(orderId)
 }
 
 export function initSurveyResultsBridge() {
   window.openSurveyResults = openSurveyResults
+  window.showSurveyResultsDetail = showSurveyResultsDetail
   document.getElementById('sur-results-export-csv')?.addEventListener('click', async () => {
     if (!state.orderId) return window.toast?.('Open a survey results page first', 'tw')
     try {

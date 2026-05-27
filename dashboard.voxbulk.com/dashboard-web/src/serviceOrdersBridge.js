@@ -34,6 +34,7 @@ const state = {
 }
 
 const surveyLaunch = {
+  catalog: null,
   packages: [],
   packagesLoaded: false,
   contactCount: 0,
@@ -130,12 +131,19 @@ function packageLabel(pkg) {
 }
 
 async function loadSurveyLaunchPackages() {
-  if (surveyLaunch.packagesLoaded && surveyLaunch.packages.length) return surveyLaunch.packages
   try {
-    const data = await api('/service-orders/survey-packages')
-    surveyLaunch.packages = data?.packages?.ai_call || []
-    surveyLaunch.packagesLoaded = true
-    logSurvey('packages_loaded', { count: surveyLaunch.packages.length })
+    if (!surveyLaunch.catalog) {
+      const data = await api('/service-orders/survey-packages')
+      surveyLaunch.catalog = data?.packages || { ai_call: [], whatsapp: [] }
+      surveyLaunch.packagesLoaded = true
+      logSurvey('packages_catalog_loaded', {
+        ai_call: surveyLaunch.catalog.ai_call?.length || 0,
+        whatsapp: surveyLaunch.catalog.whatsapp?.length || 0,
+      })
+    }
+    const channel = surveyLaunchChannel()
+    surveyLaunch.packages = surveyLaunch.catalog[channel] || []
+    logSurvey('packages_loaded', { channel, count: surveyLaunch.packages.length })
     return surveyLaunch.packages
   } catch (e) {
     logSurvey('packages_failed', { message: e.message })
@@ -495,10 +503,19 @@ function renderInterviewKpis(orders, credits, reportOverview) {
   }
 }
 
+function showInterviewResultsDetail(show) {
+  window.__intResultsDetail = Boolean(show)
+  const list = document.getElementById('int-res-pick-list')
+  const detail = document.getElementById('int-res-pick-detail')
+  if (list) list.style.display = show ? 'none' : ''
+  if (detail) detail.style.display = show ? '' : 'none'
+}
+
 async function openInterviewResults(orderId) {
   state.interviewOrderId = orderId
   interviewResultsUi.orderId = orderId
   if (typeof window.goNav === 'function') window.goNav('results-i')
+  showInterviewResultsDetail(true)
 
   const bc = document.getElementById('int-results-bc-title')
   const banner = document.getElementById('int-results-phase-banner')
@@ -1022,7 +1039,7 @@ async function openInterviewDraft(orderId, { silent = false, scroll = true } = {
       return true
     }
 
-    if (typeof window.goNav === 'function') window.goNav('interviews')
+    if (typeof window.goNav === 'function') window.goNav('interviews-create')
 
     clearInterviewFormFields()
     interviewLaunch.draftOrderId = order.id
@@ -1528,6 +1545,117 @@ function applyIsoScheduleToForm(prefix, startIso, endIso) {
   if (et) et.value = fmtTime(end)
   if (prefix === 'int' && typeof window.updateIntWindow === 'function') window.updateIntWindow()
   if (prefix === 'int-cv' && typeof window.updateIntCvEmailWindow === 'function') window.updateIntCvEmailWindow()
+  if (prefix === 'sur' && typeof window.updateSurWindow === 'function') window.updateSurWindow()
+}
+
+function applySurveyOrderToForm(order) {
+  const cfg = order?.config || {}
+  const goalEl = document.getElementById('sur-goal')
+  if (goalEl) goalEl.value = cfg.goal || order.title || ''
+
+  const methodEl = document.getElementById('sur-contact-method')
+  if (methodEl) {
+    const ch =
+      cfg.survey_channel ||
+      (String(cfg.contact_method || '').toLowerCase().includes('whatsapp') ? 'whatsapp' : 'ai_call')
+    methodEl.value = ch === 'whatsapp' ? 'whatsapp' : 'ai_call'
+    syncSurveyContactMethodUi()
+  }
+
+  if (cfg.agent_id) {
+    surveyLaunch.selectedAgentId = cfg.agent_id
+    const sel = document.getElementById('sur-agent-select')
+    if (sel) sel.value = String(cfg.agent_id)
+  }
+
+  if (cfg.package_id) {
+    surveyLaunch.selectedPackageId = cfg.package_id
+    surveyLaunch.packageManual = true
+  }
+
+  const scriptText = cfg.approved_script || ''
+  if (scriptText) {
+    state.surveyScriptPayload = {
+      script_text: scriptText,
+      questions: cfg.script_questions || [],
+      system_prompt: cfg.system_prompt || '',
+      whatsapp_flow: cfg.whatsapp_flow,
+    }
+    state.surveyScriptApproved = Boolean(cfg.script_approved)
+    const scriptEl = document.getElementById('sur-ai-script')
+    if (scriptEl) scriptEl.value = scriptText
+    showAiPanel('sur', true)
+    setAiStatus('sur', state.surveyScriptApproved)
+  }
+
+  applyIsoScheduleToForm('sur', order.scheduled_start_at, order.scheduled_end_at)
+
+  if (Number(order.recipient_count) > 0) {
+    surveyLaunch.contactCountKnown = true
+    surveyLaunch.contactCount = Number(order.recipient_count)
+    const countEl = document.getElementById('sur-contact-count')
+    if (countEl) countEl.textContent = `${surveyLaunch.contactCount} contacts on saved order`
+  }
+}
+
+async function openSurveyDraft(orderId, { silent = false, scroll = true } = {}) {
+  if (!orderId || !getAccessToken()) return false
+  try {
+    const order = await api(`/service-orders/${encodeURIComponent(orderId)}`)
+    if (order.service_code !== 'survey') throw new Error('Not a survey campaign')
+
+    if (order.is_finished || ['running', 'paused', 'completed'].includes(order.status)) {
+      if (typeof window.openSurveyResults === 'function') {
+        await window.openSurveyResults(orderId)
+      } else if (typeof window.openSurveyDetail === 'function') {
+        await window.openSurveyDetail(orderId)
+      }
+      return true
+    }
+
+    if (typeof window.goNav === 'function') window.goNav('surveys-create')
+
+    state.surveyOrderId = order.id
+    state.surveyFile = null
+    lastSurveyFileKey = ''
+    const fileInput = document.getElementById('sur-file-input')
+    if (fileInput) fileInput.value = ''
+    updateSurveyUploadUi(null)
+
+    applySurveyOrderToForm(order)
+
+    await loadSurveyLaunchPackages()
+    renderSurveyPackageSelect()
+    if (surveyLaunch.contactCountKnown) {
+      await refreshSurveyQuote()
+    } else {
+      renderSurveyQuoteUi()
+    }
+
+    const paidLocked = order.payment_status === 'approved'
+    const payBtn = document.getElementById('sur-pay-schedule')
+    if (payBtn) {
+      payBtn.disabled = paidLocked
+      payBtn.title = paidLocked ? 'This survey is already paid' : ''
+    }
+
+    if (scroll) {
+      document.getElementById('sur-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    if (!silent) {
+      window.toast?.(
+        paidLocked
+          ? 'Paid survey loaded — view settings (upload a new list to replace contacts)'
+          : 'Survey loaded — edit below and pay when ready',
+        'tg',
+      )
+    }
+    if (typeof window.reloadSurveyHub === 'function') void window.reloadSurveyHub()
+    return true
+  } catch (e) {
+    if (!silent) window.toast?.(e.message || 'Could not open survey', 'tr')
+    return false
+  }
 }
 
 function applyInterviewOrderToForm(order) {
@@ -1860,7 +1988,6 @@ function bindInterviewLaunchUi() {
   document.getElementById('int-role')?.addEventListener('focus', () => {
     void ensureInterviewDraftOrder().catch(() => {})
   })
-  document.getElementById('int-new-task-btn')?.addEventListener('click', () => void startNewInterviewTask())
   document.getElementById('int-delete-draft-btn')?.addEventListener('click', () => {
     const id = interviewLaunch.draftOrderId
     if (!id) return
@@ -2054,7 +2181,9 @@ async function refreshSurveyQuote() {
 
   if (!surveyLaunch.selectedPackageId) {
     surveyLaunch.quote = null
-    surveyLaunch.quoteError = 'No AI call packages available'
+    surveyLaunch.quoteError = surveyUsesWhatsApp()
+      ? 'No WhatsApp survey packages available'
+      : 'No AI call survey packages available'
     renderSurveyQuoteUi()
     return
   }
@@ -2081,7 +2210,7 @@ async function refreshSurveyQuote() {
         service_code: 'survey',
         recipient_count: surveyLaunch.contactCount,
         options: {
-          survey_channel: 'ai_call',
+          survey_channel: surveyLaunchChannel(),
           package_id: surveyLaunch.selectedPackageId,
         },
       }),
@@ -2244,6 +2373,37 @@ function bindSurveyPageHandlers() {
     signal,
   )
   bindSurveyControl(
+    'sur-contact-method',
+    'change',
+    () => {
+      surveyLaunch.selectedPackageId = null
+      surveyLaunch.packageManual = false
+      surveyLaunch.quote = null
+      surveyLaunch.quoteError = ''
+      syncSurveyContactMethodUi()
+      void loadSurveyLaunchPackages()
+        .then(() => {
+          if (surveyLaunch.packages.length) {
+            const picked = autoPickSurveyPackage(surveyLaunch.contactCount, surveyLaunch.packages)
+            surveyLaunch.selectedPackageId = picked?.id || surveyLaunch.packages[0]?.id || null
+          }
+          renderSurveyPackageSelect()
+          return refreshSurveyQuote()
+        })
+        .catch(() => {})
+    },
+    signal,
+  )
+  bindSurveyControl(
+    'sur-wa-preview-btn',
+    'click',
+    (event) => {
+      event.preventDefault()
+      openSurveyWaPreview()
+    },
+    signal,
+  )
+  bindSurveyControl(
     'sur-agent-select',
     'change',
     (event) => {
@@ -2312,10 +2472,14 @@ async function runSurveyLaunchFlow() {
         await refreshSurveyQuote()
       }
       if (!surveyLaunch.selectedPackageId) {
-        showSurveyValidationErrors(['Please select an AI call package.'])
+        showSurveyValidationErrors([
+          surveyUsesWhatsApp()
+            ? 'Please select a WhatsApp survey package.'
+            : 'Please select an AI call survey package.',
+        ])
         return
       }
-      if (!agent && surveyLaunch.surveyAgents.length) {
+      if (!surveyUsesWhatsApp() && !agent && surveyLaunch.surveyAgents.length) {
         const msg = 'Please select an AI voice agent.'
         showSurveyValidationErrors([msg])
         markSurveyFieldError('sur-agent-select', 'sur-hint-agent', msg)
@@ -2345,20 +2509,25 @@ async function runSurveyLaunchFlow() {
     const branding = getClientContextForApi()
     agent = selectedSurveyAgent()
     const agentLabel = agent?.name || agent?.voice_label || ''
+    const waChannel = surveyUsesWhatsApp()
+    const scriptPayload = state.surveyScriptPayload || {}
     const config = {
       goal: document.getElementById('sur-goal')?.value || '',
-      survey_channel: 'ai_call',
+      survey_channel: surveyLaunchChannel(),
       package_id: surveyLaunch.selectedPackageId,
-      channels: ['call'],
-      contact_method: 'AI phone call',
+      channels: surveyChannels(),
+      contact_method: surveyContactMethodLabel(),
       script_mode: scriptModeFromButtons('survey'),
-      approved_script: state.surveyScriptPayload?.script_text || '',
-      script_questions: state.surveyScriptPayload?.questions || [],
-      system_prompt: state.surveyScriptPayload?.system_prompt || '',
+      approved_script: scriptPayload.script_text || '',
+      script_questions: scriptPayload.questions || [],
+      system_prompt: scriptPayload.system_prompt || '',
       script_approved: state.surveyScriptApproved,
       organisation_name: branding.organisation_name,
       survey_organiser_name: agentLabel || branding.survey_organiser_name,
       clinic_name: branding.organisation_name,
+    }
+    if (waChannel && scriptPayload.whatsapp_flow) {
+      config.whatsapp_flow = scriptPayload.whatsapp_flow
     }
     if (agent) {
       config.agent_id = agent.id
@@ -2366,16 +2535,31 @@ async function runSurveyLaunchFlow() {
     }
 
     try {
-      let order = await api('/service-orders', {
-        method: 'POST',
-        body: JSON.stringify({ service_code: 'survey', title, config }),
-      })
-      order = await uploadRecipients(order.id, state.surveyFile)
-      await api(`/service-orders/${order.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(schedulePayload('sur')),
-      })
-      order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+      const sched = schedulePayload('sur')
+      let order
+      if (state.surveyOrderId) {
+        order = await api(`/service-orders/${encodeURIComponent(state.surveyOrderId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ title, config, ...sched }),
+        })
+        if (state.surveyFile) {
+          order = await uploadRecipients(order.id, state.surveyFile)
+        }
+        order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+        logSurvey('order_updated', { order_id: order.id })
+      } else {
+        order = await api('/service-orders', {
+          method: 'POST',
+          body: JSON.stringify({ service_code: 'survey', title, config }),
+        })
+        order = await uploadRecipients(order.id, state.surveyFile)
+        await api(`/service-orders/${order.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(sched),
+        })
+        order = await api(`/service-orders/${order.id}/quote`, { method: 'POST' })
+        state.surveyOrderId = order.id
+      }
 
       logSurvey('order_quoted', {
         order_id: order.id,
@@ -2467,20 +2651,20 @@ async function confirmSurveyLaunchSummary({ agent, sched, quoteText }) {
   const contactLine = surveyLaunch.contactCountKnown
     ? `${surveyLaunch.contactCount} contacts`
     : state.surveyFile?.name || 'Uploaded file'
-  return showLaunchSummaryModal({
-    lines: [
-      'Please confirm your survey launch:',
-      '',
-      'Prompt: Approved',
-      `Contacts: ${contactLine}`,
-      `Start: ${formatScheduleLabel(sched.scheduled_start_at)}`,
-      `End: ${formatScheduleLabel(sched.scheduled_end_at)}`,
-      `Voice agent: ${agent?.name || agent?.voice_label || 'Default'}`,
-      `Total: ${quoteText}`,
-      '',
-      'You will choose how to pay on the next step.',
-    ],
-  })
+  const lines = [
+    'Please confirm your survey launch:',
+    '',
+    'Prompt: Approved',
+    `Channel: ${surveyContactMethodLabel()}`,
+    `Contacts: ${contactLine}`,
+    `Start: ${formatScheduleLabel(sched.scheduled_start_at)}`,
+    `End: ${formatScheduleLabel(sched.scheduled_end_at)}`,
+  ]
+  if (!surveyUsesWhatsApp()) {
+    lines.push(`Voice agent: ${agent?.name || agent?.voice_label || 'Default'}`)
+  }
+  lines.push(`Total: ${quoteText}`, '', 'You will choose how to pay on the next step.')
+  return showLaunchSummaryModal({ lines })
 }
 
 function collectSurveyLaunchValidationErrors() {
@@ -2526,8 +2710,13 @@ function collectSurveyLaunchValidationErrors() {
     errors.push(msg)
     markSurveyFieldError('sur-end-time', 'sur-hint-end-time', msg)
   }
-  if (!state.surveyFile) {
-    const msg = 'Please upload a contact list.'
+  const hasContacts =
+    Boolean(state.surveyFile) ||
+    (Boolean(state.surveyOrderId) && surveyLaunch.contactCountKnown && surveyLaunch.contactCount > 0)
+  if (!hasContacts) {
+    const msg = state.surveyOrderId
+      ? 'Upload a new contact list or keep the contacts already on this saved survey.'
+      : 'Please upload a contact list.'
     errors.push(msg)
     document.getElementById('sur-upload-zone')?.classList.add('error')
     setSurveyFieldHint('sur-hint-upload', msg)
@@ -2645,6 +2834,12 @@ async function submitSurveyCashPayment(orderId) {
 }
 
 function resetSurveyLaunchForm() {
+  state.surveyOrderId = null
+  const payBtn = document.getElementById('sur-pay-schedule')
+  if (payBtn) {
+    payBtn.disabled = false
+    payBtn.title = ''
+  }
   state.surveyFile = null
   state.surveyScriptApproved = false
   state.surveyScriptPayload = null
@@ -2673,15 +2868,28 @@ function scriptModeFromButtons(serviceCode) {
   return state.interviewScriptApproved ? 'fixed' : 'fixed'
 }
 
+function surveyContactMethodValue() {
+  const el = document.getElementById('sur-contact-method')
+  if (!el) return 'ai_call'
+  const raw = String(el.value || selectValue(el)).trim().toLowerCase()
+  if (raw === 'whatsapp' || /whatsapp/.test(raw)) return 'whatsapp'
+  return 'ai_call'
+}
+
+function surveyLaunchChannel() {
+  return surveyContactMethodValue()
+}
+
+function surveyContactMethodLabel() {
+  return surveyUsesWhatsApp() ? 'WhatsApp' : 'AI phone call'
+}
+
 function surveyUsesWhatsApp() {
-  return /whatsapp/i.test(selectValue(document.getElementById('sur-contact-method')))
+  return surveyContactMethodValue() === 'whatsapp'
 }
 
 function surveyChannels() {
-  const method = selectValue(document.getElementById('sur-contact-method'))
-  if (/both/i.test(method)) return ['whatsapp', 'call']
-  if (/whatsapp/i.test(method)) return ['whatsapp']
-  return ['call']
+  return surveyUsesWhatsApp() ? ['whatsapp'] : ['call']
 }
 
 function resolveSurveyPayload() {
@@ -2709,11 +2917,32 @@ function getWaRenderer() {
   return waRenderer
 }
 
-function syncSurveyWhatsAppUi() {
+function syncSurveyContactMethodUi() {
+  const wa = surveyUsesWhatsApp()
+  const note = document.getElementById('sur-launch-note')
+  if (note) {
+    note.innerHTML = wa
+      ? '<i class="ti ti-brand-whatsapp" style="color:#25D366"></i> WhatsApp surveys — interactive messages to your contact list'
+      : '<i class="ti ti-phone"></i> AI phone call surveys — outbound voice calls to your contact list'
+  }
+  const maxField = document.getElementById('sur-max-length-field')
+  const agentField = document.getElementById('sur-agent-field')
+  if (maxField) maxField.style.display = wa ? 'none' : ''
+  if (agentField) agentField.style.display = wa ? 'none' : ''
+  const schedTitle = document.getElementById('sur-schedule-title')
+  if (schedTitle) {
+    schedTitle.innerHTML = wa
+      ? '<i class="ti ti-clock" style="color:var(--grn);font-size:14px"></i>WhatsApp send window — messages stop automatically at end time'
+      : '<i class="ti ti-clock" style="color:var(--grn);font-size:14px"></i>AI calling window — system stops automatically at end time'
+  }
+  const pkgLabel = document.getElementById('sur-package-label')
+  if (pkgLabel) pkgLabel.textContent = wa ? 'WhatsApp package' : 'AI call package'
   const btn = document.getElementById('sur-wa-preview-btn')
-  if (!btn) return
-  const show = surveyUsesWhatsApp()
-  btn.style.display = show ? 'inline-flex' : 'none'
+  if (btn) btn.style.display = wa ? 'inline-flex' : 'none'
+}
+
+function syncSurveyWhatsAppUi() {
+  syncSurveyContactMethodUi()
 }
 
 function updateWaProgress() {
@@ -2793,7 +3022,7 @@ function resetSurveyWaPreview() {
 
 function openSurveyWaPreview() {
   if (!surveyUsesWhatsApp()) {
-    window.toast?.('Select WhatsApp or Both as the contact method', 'tr')
+    window.toast?.('Select WhatsApp as the contact method', 'tr')
     return
   }
   const payload = resolveSurveyPayload()
@@ -2886,12 +3115,16 @@ async function generateServiceScript(serviceCode) {
       window.toast?.('Add your Company name in Profile settings first', 'tr')
       return
     }
-    await loadSurveyAgents()
-    const agent = selectedSurveyAgent()
-    if (!agent) {
-      window.toast?.('Select an AI voice agent before generating the script', 'tr')
-      document.getElementById('sur-agent-select')?.focus()
-      return
+    if (!surveyUsesWhatsApp()) {
+      await loadSurveyAgents()
+      const agent = selectedSurveyAgent()
+      if (!agent) {
+        window.toast?.('Select an AI voice agent before generating the script', 'tr')
+        document.getElementById('sur-agent-select')?.focus()
+        return
+      }
+    } else {
+      await loadSurveyAgents().catch(() => {})
     }
   }
   if (!isSurvey && !(roleEl?.value || '').trim()) {
@@ -2923,6 +3156,8 @@ async function generateServiceScript(serviceCode) {
     if (agent) {
       agentId = agent.id
       agentName = agent.name || agent.voice_label || ''
+    } else if (surveyUsesWhatsApp()) {
+      agentName = clientCtx.survey_organiser_name || clientCtx.assistant_name || ''
     }
   } else {
     const agent = selectedInterviewAgent()
@@ -2936,7 +3171,7 @@ async function generateServiceScript(serviceCode) {
     ? {
         service_code: 'survey',
         goal: goalEl?.value || '',
-        contact_method: 'AI phone call',
+        contact_method: surveyContactMethodLabel(),
         max_call_length: selectValue(document.getElementById('sur-max-length')),
         agent_id: agentId,
         client_context: {
@@ -3100,20 +3335,19 @@ async function duplicateSurveyOrder(orderId) {
   if (!orderId) return
   try {
     const order = await api(`/service-orders/${encodeURIComponent(orderId)}`)
-    const goalEl = document.getElementById('sur-goal')
-    if (goalEl) goalEl.value = order.config?.goal || order.title || ''
-    if (order.config?.approved_script) {
-      state.surveyScriptPayload = {
-        script_text: order.config.approved_script,
-        questions: order.config.script_questions || [],
-        system_prompt: order.config.system_prompt || '',
-      }
-      state.surveyScriptApproved = Boolean(order.config.script_approved)
-      const scriptEl = document.getElementById('sur-ai-script')
-      if (scriptEl) scriptEl.value = order.config.approved_script
-      showAiPanel('sur', true)
-      setAiStatus('sur', state.surveyScriptApproved)
-    }
+    if (typeof window.goNav === 'function') window.goNav('surveys-create')
+    state.surveyOrderId = null
+    state.surveyFile = null
+    lastSurveyFileKey = ''
+    surveyLaunch.contactCount = 0
+    surveyLaunch.contactCountKnown = false
+    surveyLaunch.selectedPackageId = null
+    surveyLaunch.packageManual = false
+    surveyLaunch.quote = null
+    applySurveyOrderToForm(order)
+    await loadSurveyLaunchPackages()
+    renderSurveyPackageSelect()
+    renderSurveyQuoteUi()
     window.toast?.('Survey copied into new campaign form — upload contacts and pay to launch.', 'tg')
   } catch (e) {
     window.toast?.(e.message || 'Could not duplicate survey', 'tr')
@@ -3393,7 +3627,10 @@ export function initServiceOrdersBridge() {
   }
   window.launchSurCampaign = () => runSurveyLaunchFlow()
   window.openInterviewResults = openInterviewResults
+  window.showInterviewResultsDetail = showInterviewResultsDetail
   window.openInterviewDraft = openInterviewDraft
+  window.openSurveyDraft = openSurveyDraft
+  window.resetSurveyLaunchForm = resetSurveyLaunchForm
   window.deleteInterviewOrder = deleteInterviewOrder
   window.saveInterviewDraft = () => saveInterviewDraft()
   window.startNewInterviewTask = () => void startNewInterviewTask()
@@ -3468,6 +3705,7 @@ export function initServiceOrdersBridge() {
   loadPaymentOptions()
   completeGocardlessOrderReturn()
   loadOrdersIntoUi()
+  syncSurveyContactMethodUi()
   void loadSurveyLaunchPackages().catch(() => {})
   void loadSurveyAgents().catch(() => {})
   void loadInterviewAgents().catch(() => {})

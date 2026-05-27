@@ -64,6 +64,7 @@ export async function loadEnabledServices() {
   }
   servicesState.loaded = true
   applyServicesNav()
+  if (typeof window.applySystemSettingsMode === 'function') window.applySystemSettingsMode()
   if (typeof window.applyDashboardServices === 'function') {
     window.applyDashboardServices()
   }
@@ -85,6 +86,7 @@ export async function saveEnabledServices(patch) {
   servicesState.recovery = Boolean(next.recovery)
   servicesState.follow_up = Boolean(next.follow_up)
   applyServicesNav()
+  if (typeof window.applySystemSettingsMode === 'function') window.applySystemSettingsMode()
   if (typeof window.applyDashboardServices === 'function') {
     window.applyDashboardServices()
   }
@@ -112,16 +114,16 @@ export function isPageAllowed(pageId) {
 export function handleNavIntent(pageId) {
   if (pageId === 'interviews-create') {
     window.__voxNavIntent = { action: 'create-interview' }
-    if (typeof window.go === 'function') window.go('interviews', null)
+    if (typeof window.go === 'function') window.go('interviews-create', null)
     return true
   }
   if (pageId === 'surveys-create') {
     window.__voxNavIntent = { action: 'create-survey' }
-    if (typeof window.go === 'function') window.go('surveys', null)
+    if (typeof window.go === 'function') window.go('surveys-create', null)
     return true
   }
   if (!isPageAllowed(pageId)) {
-    window.toast?.('Enable this service under Profile → Services', 'tr')
+    window.toast?.('Enable this service under Settings → Services', 'tr')
     if (typeof window.go === 'function') window.go('services', null)
     return true
   }

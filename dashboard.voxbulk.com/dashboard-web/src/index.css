@@ -108,7 +108,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* ─── TOPBAR ─── */
 .topbar{display:flex;align-items:center;gap:10px;padding:11px 20px;border-bottom:1px solid var(--b1);background:var(--s1);position:sticky;top:0;z-index:50;transition:var(--transition)}
 .tb-info{flex:1;min-width:0}
-.tb-title{font-size:16px;font-weight:600;color:var(--t1)}
+.tb-title{font-size:20px;font-weight:800;color:var(--t1);letter-spacing:-.02em}
+.dash-sec-title{font-size:18px;font-weight:800;color:var(--t1);margin:0 0 12px;display:flex;align-items:center;gap:8px;letter-spacing:-.02em}
+.dash-sec-title i{color:var(--grn);font-size:20px}
+.hub-table-wrap{overflow-x:auto}
+.hub-camp-table .hub-camp-actions{width:120px;text-align:right;white-space:nowrap}
+.hub-camp-table .hub-camp-actions .btn{margin-left:4px}
+.hub-camp-table td.hub-camp-actions{cursor:default}
 .tb-sub{font-size:11px;color:var(--t3);margin-top:1px}
 .tb-r{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .api-pill{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--grn);background:var(--gd);padding:4px 10px;border-radius:20px;font-weight:500}

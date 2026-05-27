@@ -98,8 +98,14 @@ function App({ session }) {
       const { initInterviewReportsBridge } = await import('./interviewReportsBridge.js')
       initInterviewReportsBridge()
 
-      const { initSurveyReportsBridge } = await import('./surveyReportsBridge.js')
-      initSurveyReportsBridge()
+      const { initCampaignReportsBridge } = await import('./campaignReportsBridge.js')
+      initCampaignReportsBridge()
+
+      const { initResultsPickerBridge } = await import('./resultsPickerBridge.js')
+      initResultsPickerBridge()
+
+      const { initSystemSettingsBridge } = await import('./systemSettingsBridge.js')
+      initSystemSettingsBridge()
 
       const nameEl = document.querySelector('.unm')
       const planEl = document.querySelector('.uplan')
