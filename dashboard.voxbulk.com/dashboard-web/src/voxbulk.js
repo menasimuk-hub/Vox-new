@@ -1,17 +1,22 @@
 
 var titles={
   dashboard:['Dashboard','Live · Overview'],
+  services:['Services','Enable interviews, surveys, recovery and follow-up'],
   queue:['Recovery queue','Patients who missed or cancelled'],
   noshow:['No-show follow-up','AI contacts no-shows and offers to rebook'],
   emergency:['Emergency reschedule','Cancel a day or window — AI calls all patients'],
   recall:['Recall campaigns','Proactively fill chairs with overdue dental patients'],
   offers:['Offer campaigns','Fill empty slots with targeted offers'],
   interviews:['Interviews','AI phone or Zoom interview screening'],
+  'interviews-create':['Create interview','New AI screening campaign'],
   surveys:['Surveys','AI-powered phone and WhatsApp surveys'],
+  'surveys-create':['Create survey','New AI survey campaign'],
   'survey-detail':['Survey detail','Review, pay, and manage your campaign'],
   'results-i':['Interview results','Candidate scoring, recordings and analysis'],
   'results-s':['Survey results','Anonymous aggregate insights and exports'],
   reports:['Reports','Performance analytics and cost breakdown'],
+  'reports-interview':['Interview reports','Batch performance and costs'],
+  'reports-survey':['Survey reports','Campaign responses and completion'],
   reminders:['Reminder sequences','Automated WhatsApp timing and message settings'],
   profile:['Profile settings','Company info, branding and revenue settings'],
   system:['System settings','API connection, WhatsApp messages and AI calling'],
@@ -37,26 +42,54 @@ function syncSetupChecklistForPage(id){
     toggleSetupChecklist(true);
   }
 }
-function go(id,el){
-  document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));
-  document.querySelectorAll('.ni').forEach(n=>n.classList.remove('on'));
-  var pg=document.getElementById('pg-'+id);
-  if(pg) pg.classList.add('on');
-  // highlight correct nav item
+function highlightNav(id){
+  document.querySelectorAll('.ni').forEach(function(n){ n.classList.remove('on'); });
+  var navMap={
+    'reports-interview':'reports-interview',
+    'reports-survey':'reports-survey',
+    'interviews-create':'interviews-create',
+    'surveys-create':'surveys-create'
+  };
+  var navId=navMap[id]||id;
+  document.querySelectorAll('[data-nav-go="'+navId+'"]').forEach(function(n){ n.classList.add('on'); });
   document.querySelectorAll('.ni').forEach(function(n){
-    if(n.getAttribute('onclick')&&n.getAttribute('onclick').includes("'"+id+"'")) n.classList.add('on');
+    if(n.getAttribute('onclick')&&n.getAttribute('onclick').indexOf("'"+id+"'")>=0) n.classList.add('on');
   });
-  var t=titles[id]||[id,''];
+}
+function openReportsInterviewTab(){
+  var tab=document.querySelector('#rep-tabs .tb[data-rep-tab="interviews"]');
+  if(tab) tab.click();
+}
+function go(id,el){
+  var pageId=id;
+  if(id==='reports-interview'){
+    pageId='reports';
+    openReportsInterviewTab();
+  }
+  document.querySelectorAll('.pg').forEach(function(p){ p.classList.remove('on'); });
+  var pg=document.getElementById('pg-'+pageId);
+  if(pg) pg.classList.add('on');
+  highlightNav(id);
+  var t=titles[id]||titles[pageId]||[id,''];
   document.getElementById('tb-t').textContent=t[0];
   var s=id==='dashboard'?'<span class="ldot"></span> '+t[1]:t[1];
   document.getElementById('tb-s').innerHTML=s;
   closeNotif();
-  syncSetupChecklistForPage(id);
+  syncSetupChecklistForPage(pageId);
   if(typeof window.onSurveyPageNav==='function') window.onSurveyPageNav(id);
-  if(id==='reports'&&typeof window.reloadInterviewReports==='function') window.reloadInterviewReports();
+  if(pageId==='reports'&&typeof window.reloadInterviewReports==='function') window.reloadInterviewReports();
+  if(id==='reports-survey'&&typeof window.reloadSurveyReports==='function') window.reloadSurveyReports();
+  if(id==='dashboard'&&typeof window.applyDashboardServices==='function') window.applyDashboardServices();
+  if(id==='interviews'){
+    if(window.__voxNavIntent&&window.__voxNavIntent.action==='create-interview'){
+      window.__voxNavIntent=null;
+      if(typeof window.startNewInterviewTask==='function') window.startNewInterviewTask();
+      else document.getElementById('int-new-task-btn')?.click();
+    }
+  }
   window.scrollTo(0,0);
 }
-// Convenience nav — finds and highlights correct sidebar item automatically
+// Convenience nav — overridden by servicesBridge when loaded
 function goNav(id){
   go(id,null);
 }

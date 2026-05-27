@@ -68,6 +68,9 @@ function App({ session }) {
       const { initModalBridge } = await import('./modalBridge.js')
       initModalBridge()
 
+      const { initServicesBridge } = await import('./servicesBridge.js')
+      initServicesBridge()
+
       const { initInterviewHubBridge } = await import('./interviewHubBridge.js')
       initInterviewHubBridge()
 
@@ -94,6 +97,9 @@ function App({ session }) {
 
       const { initInterviewReportsBridge } = await import('./interviewReportsBridge.js')
       initInterviewReportsBridge()
+
+      const { initSurveyReportsBridge } = await import('./surveyReportsBridge.js')
+      initSurveyReportsBridge()
 
       const nameEl = document.querySelector('.unm')
       const planEl = document.querySelector('.uplan')

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OrganisationOut(BaseModel):
@@ -28,6 +28,14 @@ class OrganisationOut(BaseModel):
     contact_email: str | None = None
     contact_phone: str | None = None
     website: str | None = None
+    enabled_services: dict[str, bool] | None = None
+
+
+class EnabledServicesUpdate(BaseModel):
+    interview: bool | None = None
+    survey: bool | None = None
+    recovery: bool | None = None
+    follow_up: bool | None = None
 
 
 class OrganisationUpdate(BaseModel):

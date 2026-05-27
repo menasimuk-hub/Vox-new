@@ -120,6 +120,10 @@ function renderOrderRow(order) {
     order.report && order.status === 'running'
       ? ` · ${surveyRespondedCount(order.report)} sent${order.report.failed ? `, ${order.report.failed} failed` : ''}`
       : ''
+  const archiveBtn =
+    order.is_finished && !order.is_archived
+      ? `<button type="button" class="btn bsm sur-hub-act" data-sur-action="archive" data-order-id="${order.id}" title="Archive" onclick="event.stopPropagation()"><i class="ti ti-archive"></i></button>`
+      : ''
   return `<div class="proj-row" data-survey-order-id="${order.id}">
     <div class="proj-ic ci-b"><i class="ti ti-clipboard-list"></i></div>
     <div class="proj-info">
@@ -127,7 +131,7 @@ function renderOrderRow(order) {
       <div class="proj-meta">${order.recipient_count} contacts · ${order.quote_total_gbp}${dispatch}</div>
       ${hint}
     </div>
-    <span class="${statusBadgeClass(order)}">${esc(order.status_label || order.status)}</span>
+    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">${archiveBtn}<span class="${statusBadgeClass(order)}">${esc(order.status_label || order.status)}</span></div>
   </div>`
 }
 
@@ -190,14 +194,19 @@ function renderLists(orders) {
   const filtered = orders.filter((o) => matchesSearch(o, hub.searchQuery))
   const live = filtered.filter((o) => o.is_live)
   const finished = filtered.filter((o) => o.is_finished)
+  const archived = filtered.filter((o) => o.is_archived)
   const liveHost = document.getElementById('sur-live-orders')
   const finHost = document.getElementById('sur-finished-orders')
+  const archHost = document.getElementById('sur-archived-orders')
   const liveEmpty = document.getElementById('sur-live-empty')
   const finEmpty = document.getElementById('sur-finished-empty')
+  const archEmpty = document.getElementById('sur-archived-empty')
   if (liveHost) liveHost.innerHTML = live.map(renderOrderRow).join('')
   if (finHost) finHost.innerHTML = finished.map(renderOrderRow).join('')
+  if (archHost) archHost.innerHTML = archived.map(renderOrderRow).join('')
   if (liveEmpty) liveEmpty.style.display = live.length ? 'none' : 'block'
   if (finEmpty) finEmpty.style.display = finished.length ? 'none' : 'block'
+  if (archEmpty) archEmpty.style.display = archived.length ? 'none' : 'block'
   renderKpis(orders)
   renderLiveBanner(orders)
   renderHubTrend(orders)
@@ -210,6 +219,7 @@ function switchTab(tab) {
   })
   document.getElementById('sur-panel-live')?.classList.toggle('on', tab === 'live')
   document.getElementById('sur-panel-finished')?.classList.toggle('on', tab === 'finished')
+  document.getElementById('sur-panel-archived')?.classList.toggle('on', tab === 'archived')
 }
 
 async function loadSurveyOrders() {
@@ -233,11 +243,35 @@ function bindTabs() {
 }
 
 function bindListClicks() {
-  document.getElementById('sur-live-orders')?.addEventListener('click', onListClick)
-  document.getElementById('sur-finished-orders')?.addEventListener('click', onListClick)
+  ;['sur-live-orders', 'sur-finished-orders', 'sur-archived-orders'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('click', onListClick)
+  })
+}
+
+async function archiveSurveyOrder(orderId) {
+  const ok = await confirmDialog({
+    title: 'Archive survey?',
+    message: 'This removes the campaign from live and finished lists. You can still find it under Archived.',
+    okLabel: 'Archive',
+  })
+  if (!ok) return
+  try {
+    await api(`/service-orders/${encodeURIComponent(orderId)}/archive`, { method: 'POST' })
+    window.toast?.('Survey archived', 'tg')
+    await loadSurveyOrders()
+    if (typeof window.applyDashboardServices === 'function') window.applyDashboardServices()
+  } catch (e) {
+    window.toast?.(e.message || 'Archive failed', 'tr')
+  }
 }
 
 function onListClick(event) {
+  const archiveBtn = event.target.closest?.('[data-sur-action="archive"]')
+  if (archiveBtn) {
+    event.stopPropagation()
+    void archiveSurveyOrder(archiveBtn.getAttribute('data-order-id'))
+    return
+  }
   const row = event.target.closest?.('[data-survey-order-id]')
   if (!row) return
   void openSurveyDetail(row.dataset.surveyOrderId)
@@ -507,6 +541,13 @@ export function initSurveyHubBridge() {
     const show = ['surveys', 'survey-detail', 'results-s'].includes(pageId)
     const wrap = document.getElementById('global-search-wrap')
     if (wrap) wrap.style.display = show ? 'flex' : 'none'
+    if (pageId === 'surveys' && window.__voxNavIntent?.action === 'create-survey') {
+      window.__voxNavIntent = null
+      hub.tab = 'live'
+      switchTab('live')
+      document.getElementById('sur-goal')?.focus()
+      document.getElementById('sur-goal')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
   }
   document.getElementById('global-search')?.addEventListener('input', (e) => {
     hub.searchQuery = e.target.value || ''

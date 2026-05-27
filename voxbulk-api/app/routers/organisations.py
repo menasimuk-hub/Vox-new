@@ -13,9 +13,16 @@ from app.models.service_api import SupportedServiceAPI
 from app.schemas.onboarding import OrganisationAIConfigOut, WizardSaveStepIn
 from app.schemas.organisation import OrganisationOut, OrganisationUpdate
 from app.services.onboarding_service import OrganisationOnboardingService, SupportedServiceAPIService
+from app.services.org_enabled_services import parse_enabled_services, serialize_enabled_services
 from app.services.recovery_service import OrganisationService
 
 router = APIRouter(prefix="/organisations", tags=["organisations"])
+
+
+def _org_response(org) -> dict:
+    data = OrganisationOut.model_validate(org).model_dump()
+    data["enabled_services"] = parse_enabled_services(getattr(org, "enabled_services_json", None))
+    return data
 
 SERVICE_API_REQUIRED_FIELDS = {
     "dentally": [
@@ -99,7 +106,7 @@ def get_my_org(
     org = OrganisationService.get_org(db, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    return org
+    return _org_response(org)
 
 
 @router.patch("/me", response_model=OrganisationOut)
@@ -108,7 +115,32 @@ def update_my_org(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    return OrganisationService.update_org_profile(db, principal.org_id, **payload.model_dump(exclude_unset=True))
+    org = OrganisationService.update_org_profile(db, principal.org_id, **payload.model_dump(exclude_unset=True))
+    return _org_response(org)
+
+
+@router.patch("/me/enabled-services")
+def update_enabled_services(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.schemas.organisation import EnabledServicesUpdate
+
+    body = EnabledServicesUpdate.model_validate(payload or {})
+    org = OrganisationService.get_org(db, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    current = parse_enabled_services(org.enabled_services_json)
+    for key in ("interview", "survey", "recovery", "follow_up"):
+        val = getattr(body, key, None)
+        if val is not None:
+            current[key] = bool(val)
+    org.enabled_services_json = serialize_enabled_services(current)
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    return {"ok": True, "enabled_services": parse_enabled_services(org.enabled_services_json)}
 
 
 @router.get("/me/ai-config", response_model=OrganisationAIConfigOut)

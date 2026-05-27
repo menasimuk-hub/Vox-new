@@ -15,38 +15,59 @@ const bodyHtml = `<div class="app" id="app">
 </div>
 
     <div class="sb-nav">
-      <div class="ni on" onclick="go('dashboard',this)" data-tip="Dashboard"><i class="ti ti-layout-dashboard nav-ic"></i><span class="ni-label">Dashboard</span><span class="ni-tip">Dashboard</span></div>
+      <div class="ni on" onclick="goNav('dashboard')" data-tip="Dashboard"><i class="ti ti-layout-dashboard nav-ic"></i><span class="ni-label">Dashboard</span><span class="ni-tip">Dashboard</span></div>
 
-      <div class="nav-sec">Recovery</div>
-      <div class="ni" onclick="go('queue',this)" data-tip="Recovery queue"><i class="ti ti-phone-incoming nav-ic"></i><span class="ni-label">Recovery queue</span><span class="ni-badge" id="qbadge" style="display:none">0</span><span class="ni-tip">Recovery queue</span></div>
-      <div class="ni" onclick="go('noshow',this)" data-tip="No-show follow-up"><i class="ti ti-user-x nav-ic"></i><span class="ni-label">No-show follow-up</span><span class="ni-tip">No-show follow-up</span></div>
-      <div class="ni" onclick="go('emergency',this)" data-tip="Emergency reschedule"><i class="ti ti-alert-triangle nav-ic"></i><span class="ni-label">Emergency reschedule</span><span class="ni-tip">Emergency reschedule</span></div>
+      <div class="nav-group" data-nav-group="interview">
+        <button type="button" class="nav-group-hd" data-nav-group-toggle><i class="ti ti-briefcase"></i><span>Interviews</span><i class="ti ti-chevron-down nav-group-chev"></i></button>
+        <div class="nav-group-items">
+          <div class="ni ni-sub" data-nav-go="interviews-create" data-tip="Create new interview"><i class="ti ti-plus nav-ic"></i><span class="ni-label">Create new interview</span></div>
+          <div class="ni ni-sub" data-nav-go="interviews" data-tip="Saved interviews"><i class="ti ti-folder nav-ic"></i><span class="ni-label">Saved interviews</span></div>
+          <div class="ni ni-sub" data-nav-go="results-i" data-tip="Interview results"><i class="ti ti-chart-dots nav-ic"></i><span class="ni-label">Interview results</span></div>
+          <div class="ni ni-sub" data-nav-go="reports-interview" data-tip="Interview reports"><i class="ti ti-chart-bar nav-ic"></i><span class="ni-label">Reports</span></div>
+        </div>
+      </div>
 
-      <div class="nav-sec">Fill &amp; Grow</div>
-      <div class="ni" onclick="go('recall',this)" data-tip="Recall campaigns"><i class="ti ti-refresh nav-ic"></i><span class="ni-label">Recall campaigns</span><span class="ni-tip">Recall campaigns</span></div>
-      <div class="ni" onclick="go('offers',this)" data-tip="Offer campaigns"><i class="ti ti-speakerphone nav-ic"></i><span class="ni-label">Offer campaigns</span><span class="ni-tip">Offer campaigns</span></div>
+      <div class="nav-group" data-nav-group="survey">
+        <button type="button" class="nav-group-hd" data-nav-group-toggle><i class="ti ti-clipboard-list"></i><span>Surveys</span><i class="ti ti-chevron-down nav-group-chev"></i></button>
+        <div class="nav-group-items">
+          <div class="ni ni-sub" data-nav-go="surveys-create" data-tip="Create new survey"><i class="ti ti-plus nav-ic"></i><span class="ni-label">Create new survey</span></div>
+          <div class="ni ni-sub" data-nav-go="surveys" data-tip="Saved surveys"><i class="ti ti-folder nav-ic"></i><span class="ni-label">Saved surveys</span></div>
+          <div class="ni ni-sub" data-nav-go="results-s" data-tip="Survey results"><i class="ti ti-chart-pie nav-ic"></i><span class="ni-label">Survey results</span></div>
+          <div class="ni ni-sub" data-nav-go="reports-survey" data-tip="Survey reports"><i class="ti ti-chart-bar nav-ic"></i><span class="ni-label">Reports</span></div>
+        </div>
+      </div>
 
-      <div class="nav-sec">Other services</div>
-      <div class="ni" onclick="go('interviews',this)" data-tip="Interviews"><i class="ti ti-briefcase nav-ic"></i><span class="ni-label">Interviews</span><span class="ni-tip">Interviews</span></div>
-      <div class="ni" onclick="go('surveys',this)" data-tip="Surveys"><i class="ti ti-clipboard-list nav-ic"></i><span class="ni-label">Surveys</span><span class="ni-tip">Surveys</span></div>
+      <div class="nav-group" data-nav-group="recovery">
+        <button type="button" class="nav-group-hd" data-nav-group-toggle><i class="ti ti-phone-incoming"></i><span>Recovery</span><i class="ti ti-chevron-down nav-group-chev"></i></button>
+        <div class="nav-group-items">
+          <div class="ni ni-sub" data-nav-go="queue" data-tip="Recovery queue"><i class="ti ti-list nav-ic"></i><span class="ni-label">Recovery queue</span><span class="ni-badge" id="qbadge" style="display:none">0</span></div>
+          <div class="ni ni-sub" data-nav-go="noshow" data-tip="No-show follow-up"><i class="ti ti-user-x nav-ic"></i><span class="ni-label">No-show follow-up</span></div>
+          <div class="ni ni-sub" data-nav-go="emergency" data-tip="Emergency reschedule"><i class="ti ti-alert-triangle nav-ic"></i><span class="ni-label">Emergency reschedule</span></div>
+          <div class="nav-subsec">Fill &amp; Grow</div>
+          <div class="ni ni-sub" data-nav-go="recall" data-tip="Recall campaigns"><i class="ti ti-refresh nav-ic"></i><span class="ni-label">Recall campaigns</span></div>
+          <div class="ni ni-sub" data-nav-go="offers" data-tip="Offer campaigns"><i class="ti ti-speakerphone nav-ic"></i><span class="ni-label">Offer campaigns</span></div>
+        </div>
+      </div>
 
-      <div class="nav-sec">Data</div>
-      <div class="ni" onclick="go('reports',this)" data-tip="Reports"><i class="ti ti-chart-bar nav-ic"></i><span class="ni-label">Reports</span><span class="ni-tip">Reports</span></div>
-      <div class="ni" onclick="go('results-i',this)" data-tip="Interview results"><i class="ti ti-chart-dots nav-ic"></i><span class="ni-label">Interview results</span><span class="ni-tip">Interview results</span></div>
-      <div class="ni" onclick="go('results-s',this)" data-tip="Survey results"><i class="ti ti-chart-pie nav-ic"></i><span class="ni-label">Survey results</span><span class="ni-tip">Survey results</span></div>
+      <div class="nav-group" data-nav-group="follow_up">
+        <button type="button" class="nav-group-hd" data-nav-group-toggle><i class="ti ti-clock"></i><span>Follow up</span><i class="ti ti-chevron-down nav-group-chev"></i></button>
+        <div class="nav-group-items">
+          <div class="ni ni-sub" data-nav-go="reminders" data-tip="Reminder sequences"><i class="ti ti-bell nav-ic"></i><span class="ni-label">Reminder sequences</span></div>
+        </div>
+      </div>
 
       <div class="nav-sec">Settings</div>
-      <div class="ni" onclick="go('reminders',this)" data-tip="Reminder sequences"><i class="ti ti-clock nav-ic"></i><span class="ni-label">Reminder sequences</span><span class="ni-tip">Reminder sequences</span></div>
-      <div class="ni" onclick="go('profile',this)" data-tip="Profile settings"><i class="ti ti-building nav-ic"></i><span class="ni-label">Profile settings</span><span class="ni-tip">Profile settings</span></div>
-      <div class="ni" onclick="go('system',this)" data-tip="System settings"><i class="ti ti-plug nav-ic"></i><span class="ni-label">System settings</span><span class="ni-dot"></span><span class="ni-tip">System settings</span></div>
-      <div class="ni" onclick="go('team',this)" data-tip="Team members"><i class="ti ti-users nav-ic"></i><span class="ni-label">Team members</span><span class="ni-tip">Team members</span></div>
-      <div class="ni" onclick="go('optout',this)" data-tip="Opt-out list"><i class="ti ti-ban nav-ic"></i><span class="ni-label">Opt-out list</span><span class="ni-tip">Opt-out list</span></div>
-      <div class="ni" onclick="go('audit',this)" data-tip="Audit log"><i class="ti ti-history nav-ic"></i><span class="ni-label">Audit log</span><span class="ni-tip">Audit log</span></div>
+      <div class="ni" onclick="goNav('services')" data-tip="Services"><i class="ti ti-toggle-left nav-ic"></i><span class="ni-label">Services</span><span class="ni-tip">Services</span></div>
+      <div class="ni" onclick="goNav('profile')" data-tip="Profile settings"><i class="ti ti-building nav-ic"></i><span class="ni-label">Profile settings</span><span class="ni-tip">Profile settings</span></div>
+      <div class="ni" onclick="goNav('system')" data-tip="System settings"><i class="ti ti-plug nav-ic"></i><span class="ni-label">System settings</span><span class="ni-dot"></span><span class="ni-tip">System settings</span></div>
+      <div class="ni" onclick="goNav('team')" data-tip="Team members"><i class="ti ti-users nav-ic"></i><span class="ni-label">Team members</span><span class="ni-tip">Team members</span></div>
+      <div class="ni" onclick="goNav('optout')" data-tip="Opt-out list"><i class="ti ti-ban nav-ic"></i><span class="ni-label">Opt-out list</span><span class="ni-tip">Opt-out list</span></div>
+      <div class="ni" onclick="goNav('audit')" data-tip="Audit log"><i class="ti ti-history nav-ic"></i><span class="ni-label">Audit log</span><span class="ni-tip">Audit log</span></div>
 
       <div class="nav-sec">Account</div>
-      <div class="ni" onclick="go('packages',this)" data-tip="Packages &amp; pricing"><i class="ti ti-package nav-ic"></i><span class="ni-label">Packages &amp; pricing</span><span class="ni-tip">Packages</span></div>
-      <div class="ni" onclick="go('billing',this)" data-tip="Billing"><i class="ti ti-credit-card nav-ic"></i><span class="ni-label">Billing</span><span class="ni-tip">Billing</span></div>
-      <div class="ni" onclick="go('support',this)" data-tip="Support"><i class="ti ti-help-circle nav-ic"></i><span class="ni-label">Support</span><span class="ni-tip">Support</span></div>
+      <div class="ni" onclick="goNav('packages')" data-tip="Packages &amp; pricing"><i class="ti ti-package nav-ic"></i><span class="ni-label">Packages &amp; pricing</span><span class="ni-tip">Packages</span></div>
+      <div class="ni" onclick="goNav('billing')" data-tip="Billing"><i class="ti ti-credit-card nav-ic"></i><span class="ni-label">Billing</span><span class="ni-tip">Billing</span></div>
+      <div class="ni" onclick="goNav('support')" data-tip="Support"><i class="ti ti-help-circle nav-ic"></i><span class="ni-label">Support</span><span class="ni-tip">Support</span></div>
     </div>
     <div class="sb-bot">
       <div class="user-row" onclick="go('profile',document.querySelector('.ni'))">
@@ -84,6 +105,7 @@ const bodyHtml = `<div class="app" id="app">
 
       <!-- ══ DASHBOARD ══ -->
       <div class="pg on" id="pg-dashboard">
+        <div id="dash-section-recovery">
         <!-- ROI HERO -->
         <div class="roi-card">
           <div class="roi-ic"><i class="ti ti-trending-up"></i></div>
@@ -98,13 +120,12 @@ const bodyHtml = `<div class="app" id="app">
           </div>
         </div>
         <!-- QUICK ACTIONS -->
-        <div class="qa-row">
+        <div class="qa-row" id="dash-qa-recovery">
           <button class="qa-btn primary" onclick="goNav('queue')"><i class="ti ti-phone-incoming"></i>Recovery queue<span class="qa-sub" id="dash-qa-queue">0 patients waiting</span></button>
           <button class="qa-btn" onclick="goNav('emergency')"><i class="ti ti-alert-triangle" style="color:var(--red)"></i>Emergency reschedule<span class="qa-sub">Cancel a day instantly</span></button>
           <button class="qa-btn" onclick="goNav('recall')"><i class="ti ti-refresh" style="color:var(--pur)"></i>Recall campaign<span class="qa-sub" id="dash-qa-recall">0 overdue patients</span></button>
-          <button class="qa-btn" onclick="goNav('reports')"><i class="ti ti-chart-bar" style="color:var(--blu)"></i>View reports<span class="qa-sub">Full analytics</span></button>
         </div>
-        <div class="kg4">
+        <div class="kg4" id="dash-kpi-recovery">
           <div class="kpi gt"><div class="kl">Est. recovered today</div><div class="kv" id="dash-kpi-recovered-today">£0</div><div class="kd ne">0% vs yesterday</div></div>
           <div class="kpi"><div class="kl">Calls made</div><div class="kv" id="dash-kpi-calls-made">0</div><div class="kd ne">0% recovery rate</div></div>
           <div class="kpi"><div class="kl">No-shows contacted</div><div class="kv" id="dash-kpi-noshows">0</div><div class="kd ne">0 unreachable</div></div>
@@ -116,7 +137,38 @@ const bodyHtml = `<div class="app" id="app">
           <div class="kpi"><div class="kl">Monthly cost</div><div class="kv" id="dash-kpi-cost">£0</div><div class="kd ne">All channels</div></div>
           <div class="kpi"><div class="kl">Monthly target</div><div class="kv" style="color:var(--grn)" id="dash-kpi-target-pct">0%</div><div class="kd ne" id="dash-kpi-target-amt">£0 / £0</div></div>
         </div>
-        <div class="card">
+        </div>
+        <div id="dash-section-interview" style="display:none;margin-bottom:14px">
+          <div class="nav-sec" style="margin:0 0 8px">Interviews</div>
+          <div class="kg4">
+            <div class="kpi gt"><div class="kl">Live campaigns</div><div class="kv" id="dash-int-live">0</div><div class="kd ne" id="dash-int-live-sub">—</div></div>
+            <div class="kpi"><div class="kl">Running now</div><div class="kv" id="dash-int-running">0</div><div class="kd ne">Active calls</div></div>
+            <div class="kpi"><div class="kl">Finished</div><div class="kv" id="dash-int-finished">0</div><div class="kd ne">Completed tasks</div></div>
+            <div class="kpi"><div class="kl">Candidates screened</div><div class="kv" id="dash-int-candidates">0</div><div class="kd ne">All time</div></div>
+          </div>
+          <div class="qa-row">
+            <button class="qa-btn primary" onclick="goNav('interviews-create')"><i class="ti ti-plus"></i>New interview</button>
+            <button class="qa-btn" onclick="goNav('interviews')"><i class="ti ti-folder"></i>Saved interviews</button>
+            <button class="qa-btn" onclick="goNav('results-i')"><i class="ti ti-chart-dots"></i>Results</button>
+            <button class="qa-btn" onclick="goNav('reports-interview')"><i class="ti ti-chart-bar"></i>Reports</button>
+          </div>
+        </div>
+        <div id="dash-section-survey" style="display:none;margin-bottom:14px">
+          <div class="nav-sec" style="margin:0 0 8px">Surveys</div>
+          <div class="kg4">
+            <div class="kpi gt"><div class="kl">Live surveys</div><div class="kv" id="dash-sur-live">0</div><div class="kd ne" id="dash-sur-live-sub">—</div></div>
+            <div class="kpi"><div class="kl">Responses</div><div class="kv" id="dash-sur-responses">0</div><div class="kd ne" id="dash-sur-resp-sub">—</div></div>
+            <div class="kpi"><div class="kl">Completion rate</div><div class="kv" id="dash-sur-rate">0%</div><div class="kd ne">Across active</div></div>
+            <div class="kpi"><div class="kl">Paused</div><div class="kv" id="dash-sur-paused">0</div><div class="kd ne">Campaigns on hold</div></div>
+          </div>
+          <div class="qa-row">
+            <button class="qa-btn primary" onclick="goNav('surveys-create')"><i class="ti ti-plus"></i>New survey</button>
+            <button class="qa-btn" onclick="goNav('surveys')"><i class="ti ti-folder"></i>Saved surveys</button>
+            <button class="qa-btn" onclick="goNav('results-s')"><i class="ti ti-chart-pie"></i>Results</button>
+            <button class="qa-btn" onclick="goNav('reports-survey')"><i class="ti ti-chart-bar"></i>Reports</button>
+          </div>
+        </div>
+        <div class="card" id="dash-chart-recovery">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:13px;font-weight:600;color:var(--t1)">Est. revenue recovered this month</span><span style="font-size:13px;color:var(--grn);font-weight:700" id="dash-rv-label">£0 / £0</span></div>
           <div class="rvbar"><div class="rvfill" id="dash-rv-fill" style="width:0%"></div></div>
           <div style="font-size:11px;color:var(--t3)">Based on £85 avg appointment value · <span style="color:var(--blu);cursor:pointer;text-decoration:underline" onclick="go('profile',document.querySelector('.ni'))">Update in profile settings</span></div>
@@ -278,7 +330,8 @@ const bodyHtml = `<div class="app" id="app">
           <div class="ch"><i class="ti ti-broadcast grn"></i>Running interviews</div>
           <div class="tbrow" id="int-tabs">
             <div class="tb on" data-int-tab="live" id="int-tab-live"><i class="ti ti-broadcast"></i>Live</div>
-            <div class="tb" data-int-tab="finished" id="int-tab-finished"><i class="ti ti-archive"></i>Finished</div>
+            <div class="tb" data-int-tab="finished" id="int-tab-finished"><i class="ti ti-circle-check"></i>Finished</div>
+            <div class="tb" data-int-tab="archived" id="int-tab-archived"><i class="ti ti-archive"></i>Archived</div>
           </div>
           <div class="tpcont on" id="int-panel-live">
             <div id="int-live-orders"></div>
@@ -291,9 +344,17 @@ const bodyHtml = `<div class="app" id="app">
           <div class="tpcont" id="int-panel-finished">
             <div id="int-finished-orders"></div>
             <div id="int-finished-empty" class="empty-state" style="padding:16px 0;display:none">
-              <i class="ti ti-archive"></i>
+              <i class="ti ti-circle-check"></i>
               <div class="es-title">No finished interviews yet</div>
-              <div class="es-sub">Completed tasks will appear here.</div>
+              <div class="es-sub">Completed tasks will appear here. Archive when you no longer need them in the list.</div>
+            </div>
+          </div>
+          <div class="tpcont" id="int-panel-archived">
+            <div id="int-archived-orders"></div>
+            <div id="int-archived-empty" class="empty-state" style="padding:16px 0;display:none">
+              <i class="ti ti-archive"></i>
+              <div class="es-title">No archived interviews</div>
+              <div class="es-sub">Archived campaigns are hidden from live and finished lists.</div>
             </div>
           </div>
         </div>
@@ -401,7 +462,8 @@ const bodyHtml = `<div class="app" id="app">
           <div class="ch"><i class="ti ti-clipboard-list grn"></i>Your surveys</div>
           <div class="tbrow" id="sur-tabs">
             <div class="tb on" data-sur-tab="live" id="sur-tab-live"><i class="ti ti-broadcast"></i>Live surveys</div>
-            <div class="tb" data-sur-tab="finished" id="sur-tab-finished"><i class="ti ti-archive"></i>Finished surveys</div>
+            <div class="tb" data-sur-tab="finished" id="sur-tab-finished"><i class="ti ti-circle-check"></i>Finished surveys</div>
+            <div class="tb" data-sur-tab="archived" id="sur-tab-archived"><i class="ti ti-archive"></i>Archived</div>
           </div>
           <div class="tpcont on" id="sur-panel-live">
             <div id="sur-live-orders"></div>
@@ -414,9 +476,17 @@ const bodyHtml = `<div class="app" id="app">
           <div class="tpcont" id="sur-panel-finished">
             <div id="sur-finished-orders"></div>
             <div id="sur-finished-empty" class="empty-state" style="padding:16px 0;display:none">
-              <i class="ti ti-archive"></i>
+              <i class="ti ti-circle-check"></i>
               <div class="es-title">No finished surveys yet</div>
-              <div class="es-sub">Completed and cancelled surveys will appear here.</div>
+              <div class="es-sub">Completed, paused, or cancelled surveys appear here. Archive when done.</div>
+            </div>
+          </div>
+          <div class="tpcont" id="sur-panel-archived">
+            <div id="sur-archived-orders"></div>
+            <div id="sur-archived-empty" class="empty-state" style="padding:16px 0;display:none">
+              <i class="ti ti-archive"></i>
+              <div class="es-title">No archived surveys</div>
+              <div class="es-sub">Archived surveys are removed from live and finished lists.</div>
             </div>
           </div>
         </div>
@@ -558,6 +628,22 @@ const bodyHtml = `<div class="app" id="app">
           </div>
           <div class="brl"><span>1 May</span><span>5</span><span>9</span><span>13</span><span>17</span><span style="color:var(--grn);font-weight:700">Today</span></div>
         </div>
+        </div>
+      </div>
+
+      <!-- ══ SURVEY REPORTS ══ -->
+      <div class="pg" id="pg-reports-survey">
+        <div class="kg4" id="sur-rep-kpis" style="margin-bottom:12px">
+          <div class="kpi gt"><div class="kl">Live surveys</div><div class="kv" id="sur-rep-live">0</div><div class="kd ne" id="sur-rep-live-sub">—</div></div>
+          <div class="kpi"><div class="kl">Responses</div><div class="kv" id="sur-rep-responses">0</div><div class="kd ne" id="sur-rep-resp-sub">—</div></div>
+          <div class="kpi"><div class="kl">Completion rate</div><div class="kv" id="sur-rep-rate">0%</div><div class="kd ne">Across active</div></div>
+          <div class="kpi"><div class="kl">Finished</div><div class="kv" id="sur-rep-finished">0</div><div class="kd ne" id="sur-rep-finished-sub">—</div></div>
+        </div>
+        <div class="card">
+          <div class="ch"><i class="ti ti-table grn"></i>Survey campaigns</div>
+          <div id="sur-rep-table-wrap">
+            <div class="muted" style="font-size:12px;padding:8px 0">Loading survey reports…</div>
+          </div>
         </div>
       </div>
 
@@ -853,6 +939,31 @@ const bodyHtml = `<div class="app" id="app">
           <div class="seq off"><div class="seqn">4</div><div class="seqi"><div class="seqt">2 hours before — day-of reminder</div><div class="seqs">WhatsApp · "We look forward to seeing you today..."</div></div><select style="font-size:11px;padding:5px 8px;border-radius:7px;border:1.5px solid var(--b2);background:var(--s2);color:var(--t1);margin-right:8px"><option selected>2 hrs</option><option>1 hr</option></select><div class="tog off" onclick="togS(this)"><div class="togth"></div></div></div>
           <div class="seq"><div class="seqn">5</div><div class="seqi"><div class="seqt">After no-show — rebook offer</div><div class="seqs">WhatsApp + AI call · "We missed you today — shall we rebook?"</div></div><select style="font-size:11px;padding:5px 8px;border-radius:7px;border:1.5px solid var(--b2);background:var(--s2);color:var(--t1);margin-right:8px"><option selected>30 min after</option><option>1 hr after</option></select><div class="tog on" onclick="togS(this)"><div class="togth"></div></div></div>
           <button class="btn btng bsm" style="margin-top:8px"><i class="ti ti-device-floppy"></i>Save sequence</button>
+        </div>
+      </div>
+
+      <!-- ══ SERVICES ══ -->
+      <div class="pg" id="pg-services">
+        <div class="card" style="max-width:640px">
+          <div class="ch"><i class="ti ti-toggle-left grn"></i>Enabled services</div>
+          <p class="muted" style="font-size:12px;margin-bottom:14px">Turn services on for your organisation. Only enabled services appear in the sidebar and on the dashboard home.</p>
+          <div class="svc-row">
+            <div><div style="font-size:13px;font-weight:600;color:var(--t1)">Interviews</div><div class="muted" style="font-size:11px">AI phone screening · saved campaigns and results</div></div>
+            <div class="tog on" id="svc-tog-interview" role="switch" onclick="togS(this)"><div class="togth"></div></div>
+          </div>
+          <div class="svc-row">
+            <div><div style="font-size:13px;font-weight:600;color:var(--t1)">Surveys</div><div class="muted" style="font-size:11px">AI phone &amp; WhatsApp surveys · results and reports</div></div>
+            <div class="tog on" id="svc-tog-survey" role="switch" onclick="togS(this)"><div class="togth"></div></div>
+          </div>
+          <div class="svc-row">
+            <div><div style="font-size:13px;font-weight:600;color:var(--t1)">Recovery</div><div class="muted" style="font-size:11px">Queue, no-show, emergency, recall &amp; offer campaigns</div></div>
+            <div class="tog off" id="svc-tog-recovery" role="switch" onclick="togS(this)"><div class="togth"></div></div>
+          </div>
+          <div class="svc-row">
+            <div><div style="font-size:13px;font-weight:600;color:var(--t1)">Follow up</div><div class="muted" style="font-size:11px">Reminder sequences (WhatsApp timing)</div></div>
+            <div class="tog off" id="svc-tog-followup" role="switch" onclick="togS(this)"><div class="togth"></div></div>
+          </div>
+          <button class="btn btng bsm" type="button" id="svc-save-btn" style="margin-top:14px"><i class="ti ti-device-floppy"></i>Save services</button>
         </div>
       </div>
 

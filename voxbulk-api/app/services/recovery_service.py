@@ -52,6 +52,10 @@ class OrganisationService:
             if field in fields:
                 raw = fields.get(field)
                 setattr(org, field, str(raw).strip() if raw is not None and str(raw).strip() else None)
+        if "enabled_services" in fields and fields["enabled_services"] is not None:
+            from app.services.org_enabled_services import serialize_enabled_services
+
+            org.enabled_services_json = serialize_enabled_services(fields["enabled_services"])
         db.add(org)
         db.commit()
         db.refresh(org)

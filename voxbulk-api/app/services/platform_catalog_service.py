@@ -630,6 +630,7 @@ class ServiceOrderService:
         }
         if include_recipients:
             out["recipients"] = [ServiceOrderService.recipient_to_dict(r) for r in (recipients or [])]
+        out["is_archived"] = ServiceOrderService.is_archived_order(order)
         if order.service_code == "survey":
             out["next_action"] = ServiceOrderService.survey_next_action(order)
             out["status_label"] = ServiceOrderService.survey_status_label(order)
@@ -809,12 +810,24 @@ class ServiceOrderService:
         }
 
     @staticmethod
+    def is_archived_order(order: ServiceOrder) -> bool:
+        return str(order.status or "") == "archived"
+
+    @staticmethod
     def is_finished_interview(order: ServiceOrder) -> bool:
-        return order.service_code == "interview" and order.status in {"completed", "cancelled"}
+        return (
+            order.service_code == "interview"
+            and str(order.status or "") in {"completed", "cancelled"}
+            and not ServiceOrderService.is_archived_order(order)
+        )
 
     @staticmethod
     def is_live_interview(order: ServiceOrder) -> bool:
-        return order.service_code == "interview" and not ServiceOrderService.is_finished_interview(order)
+        return (
+            order.service_code == "interview"
+            and not ServiceOrderService.is_finished_interview(order)
+            and not ServiceOrderService.is_archived_order(order)
+        )
 
     @staticmethod
     def interview_status_label(order: ServiceOrder) -> str:
@@ -824,6 +837,8 @@ class ServiceOrderService:
             return "Completed"
         if order.status == "cancelled":
             return "Cancelled"
+        if order.status == "archived":
+            return "Archived"
         if order.payment_status == "pending_approval":
             return "Awaiting payment"
         if order.status in {"quoted", "awaiting_payment"}:
@@ -836,11 +851,19 @@ class ServiceOrderService:
 
     @staticmethod
     def is_finished_survey(order: ServiceOrder) -> bool:
-        return order.service_code == "survey" and str(order.status or "") in {"completed", "cancelled"}
+        return (
+            order.service_code == "survey"
+            and str(order.status or "") in {"completed", "cancelled"}
+            and not ServiceOrderService.is_archived_order(order)
+        )
 
     @staticmethod
     def is_live_survey(order: ServiceOrder) -> bool:
-        return order.service_code == "survey" and not ServiceOrderService.is_finished_survey(order)
+        return (
+            order.service_code == "survey"
+            and not ServiceOrderService.is_finished_survey(order)
+            and not ServiceOrderService.is_archived_order(order)
+        )
 
     @staticmethod
     def survey_status_label(order: ServiceOrder) -> str:
@@ -868,6 +891,8 @@ class ServiceOrderService:
             return "Finished"
         if st == "cancelled":
             return "Cancelled"
+        if st == "archived":
+            return "Archived"
         return st.replace("_", " ").title()
 
     @staticmethod

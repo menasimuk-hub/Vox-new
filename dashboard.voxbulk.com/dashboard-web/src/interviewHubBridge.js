@@ -1,4 +1,5 @@
 import { apiFetch, getAccessToken } from './lib/api.js'
+import { confirmDialog } from './modalBridge.js'
 
 const hub = {
   orders: [],
@@ -84,6 +85,10 @@ function renderOrderRow(order) {
   const deleteBtn = canDeleteOrder(order)
     ? `<button type="button" class="btn bsm btnr int-hub-act" data-int-action="delete" data-order-id="${esc(order.id)}" title="Delete"><i class="ti ti-trash"></i></button>`
     : ''
+  const archiveBtn =
+    order.is_finished && !order.is_archived
+      ? `<button type="button" class="btn bsm int-hub-act" data-int-action="archive" data-order-id="${esc(order.id)}" title="Archive"><i class="ti ti-archive"></i></button>`
+      : ''
   return `<div class="proj-row int-hub-row${selected}" data-order-id="${esc(order.id)}" data-int-primary="${primaryAction(order)}">
     <div class="proj-ic ci-b"><i class="ti ti-briefcase"></i></div>
     <div class="proj-info">
@@ -91,7 +96,7 @@ function renderOrderRow(order) {
       <div class="proj-meta">${esc(order.status_label || order.status)} · ${esc(fmtSchedule(order.scheduled_start_at, order.scheduled_end_at))} · ${esc(intakeSourceLabel(order))} · ${esc(progressLabel(order))}</div>
     </div>
     <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-      ${editBtn}${resultsBtn}${deleteBtn}
+      ${editBtn}${resultsBtn}${archiveBtn}${deleteBtn}
       <span class="stat-wait">${esc(order.status_label || order.status)}</span>
     </div>
   </div>`
@@ -104,24 +109,47 @@ function switchTab(tab) {
   })
   document.getElementById('int-panel-live')?.classList.toggle('on', tab === 'live')
   document.getElementById('int-panel-finished')?.classList.toggle('on', tab === 'finished')
+  document.getElementById('int-panel-archived')?.classList.toggle('on', tab === 'archived')
   renderLists()
 }
 
 function renderLists() {
   const live = hub.orders.filter((o) => o.is_live)
   const finished = hub.orders.filter((o) => o.is_finished)
+  const archived = hub.orders.filter((o) => o.is_archived)
   const liveHost = document.getElementById('int-live-orders')
   const finHost = document.getElementById('int-finished-orders')
+  const archHost = document.getElementById('int-archived-orders')
   if (liveHost) liveHost.innerHTML = live.map(renderOrderRow).join('')
   if (finHost) finHost.innerHTML = finished.map(renderOrderRow).join('')
+  if (archHost) archHost.innerHTML = archived.map(renderOrderRow).join('')
   const liveEmpty = document.getElementById('int-live-empty')
   const finEmpty = document.getElementById('int-finished-empty')
+  const archEmpty = document.getElementById('int-archived-empty')
   if (liveEmpty) liveEmpty.style.display = live.length ? 'none' : ''
   if (finEmpty) finEmpty.style.display = finished.length ? 'none' : ''
+  if (archEmpty) archEmpty.style.display = archived.length ? 'none' : ''
 }
 
 async function handleRowAction(orderId, action) {
   if (!orderId) return
+  if (action === 'archive') {
+    const ok = await confirmDialog({
+      title: 'Archive interview?',
+      message: 'This removes the campaign from live and finished lists. You can still find it under Archived.',
+      okLabel: 'Archive',
+    })
+    if (!ok) return
+    try {
+      await api(`/service-orders/${encodeURIComponent(orderId)}/archive`, { method: 'POST' })
+      window.toast?.('Interview archived', 'tg')
+      await loadInterviewOrders()
+      if (typeof window.applyDashboardServices === 'function') window.applyDashboardServices()
+    } catch (e) {
+      window.toast?.(e.message || 'Archive failed', 'tr')
+    }
+    return
+  }
   if (action === 'delete') {
     if (typeof window.deleteInterviewOrder === 'function') {
       await window.deleteInterviewOrder(orderId)
@@ -142,7 +170,7 @@ async function handleRowAction(orderId, action) {
 }
 
 function bindListClicks() {
-  const hosts = ['int-live-orders', 'int-finished-orders']
+  const hosts = ['int-live-orders', 'int-finished-orders', 'int-archived-orders']
   hosts.forEach((hostId) => {
     document.getElementById(hostId)?.addEventListener('click', (event) => {
       const actionBtn = event.target.closest('.int-hub-act')

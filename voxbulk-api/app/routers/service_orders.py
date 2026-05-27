@@ -467,6 +467,28 @@ def get_order(order_id: str, db: Session = Depends(get_db), principal=Depends(ge
     return ServiceOrderService.order_to_dict(order, include_recipients=True, recipients=recipients)
 
 
+@router.post("/{order_id}/archive")
+def archive_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.status in {"running", "paused", "scheduled"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot archive a running or scheduled campaign — stop it first",
+        )
+    if order.status == "archived":
+        return ServiceOrderService.order_to_dict(order)
+    order.status = "archived"
+    from datetime import datetime
+
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return ServiceOrderService.order_to_dict(order)
+
+
 @router.patch("/{order_id}")
 def patch_order(order_id: str, payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
