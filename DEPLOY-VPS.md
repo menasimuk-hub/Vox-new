@@ -81,6 +81,7 @@ Verify dashboard (new theme): `curl -sI https://dashboard.voxbulk.com/ | head -1
 | `git pull` unrelated histories | `git fetch voxnew && git reset --hard voxnew/main` (destroys local VPS edits) |
 | Admin blank after deploy | Set `VOX_ADMIN_DIST` and point nginx `root` to `dist` |
 | Dashboard shows old orange theme | Nginx still serving static `/www/wwwroot/dashboard.voxbulk.com` — switch to proxy `127.0.0.1:5175` and run `./vox.sh restart` |
+| Still old theme after pull | Run `bash scripts/vps-verify-dashboard.sh` on VPS — checks git commit, :5175, nginx, wwwroot |
 | Dashboard 502 after nginx change | Run `cd dashboard-web && npm run build && ./vox.sh restart`; check `/tmp/voxbulk-dashboard.log` |
 | Email templates Not Found | Run migrate + restart API |
 
