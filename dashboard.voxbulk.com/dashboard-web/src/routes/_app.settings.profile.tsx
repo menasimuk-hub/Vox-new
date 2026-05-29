@@ -13,10 +13,10 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
-import { fetchAuthenticatedBlob } from "@/lib/api";
 import { useServices } from "@/lib/services";
 import { useDeleteOrgLogo, useOrganisation, useUpdateOrganisation, useUploadOrgLogo } from "@/lib/queries";
 import { PROFILE_COUNTRIES } from "@/lib/billing/market";
+import { useOrgLogoPreview } from "@/lib/use-org-logo";
 
 export const Route = createFileRoute("/_app/settings/profile")({
   head: () => ({ meta: [{ title: "Profile settings — VoxBulk" }] }),
@@ -36,7 +36,7 @@ function ProfileSettings() {
   const [contactPhone, setContactPhone] = React.useState("");
   const [website, setWebsite] = React.useState("");
   const [country, setCountry] = React.useState("United Kingdom");
-  const [logoPreview, setLogoPreview] = React.useState<string | null>(null);
+  const logoPreview = useOrgLogoPreview(orgQ.data?.logo_url);
 
   React.useEffect(() => {
     const org = orgQ.data;
@@ -47,30 +47,6 @@ function ProfileSettings() {
     setWebsite(String(org.website || ""));
     setCountry(String(org.country || "United Kingdom"));
   }, [orgQ.data]);
-
-  React.useEffect(() => {
-    let active = true;
-    let objectUrl: string | null = null;
-    const loadLogo = async () => {
-      if (!orgQ.data?.logo_url) {
-        setLogoPreview(null);
-        return;
-      }
-      try {
-        const blob = await fetchAuthenticatedBlob(orgQ.data.logo_url);
-        if (!active) return;
-        objectUrl = URL.createObjectURL(blob);
-        setLogoPreview(objectUrl);
-      } catch {
-        if (active) setLogoPreview(null);
-      }
-    };
-    void loadLogo();
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [orgQ.data?.logo_url, orgQ.isFetching]);
 
   const onLogoSelected = async (file: File | null) => {
     if (!file) return;
@@ -87,7 +63,6 @@ function ProfileSettings() {
   const onRemoveLogo = async () => {
     try {
       await deleteLogoM.mutateAsync();
-      setLogoPreview(null);
       toast.success("Logo removed");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not remove logo");
