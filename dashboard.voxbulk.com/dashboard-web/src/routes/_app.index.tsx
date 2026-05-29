@@ -67,7 +67,7 @@ function Dashboard() {
       {visible.surveys && <SurveysSection summary={summary} loading={summaryQ.isLoading} />}
       {!visible.recovery && !visible.interviews && !visible.surveys && (
         <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">
-          No services are enabled for your organisation. Contact VoxBulk support or your account manager to enable Interviews, Surveys, Recovery, or Follow up.
+          No services are shown on your dashboard right now. Open <span className="font-medium text-foreground">Settings → Services</span> to turn Interviews or Surveys back on.
         </CardContent></Card>
       )}
     </div>

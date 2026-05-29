@@ -14,11 +14,28 @@ const DEFAULT: Record<ServiceKey, boolean> = {
   followup: false,
 };
 
-function fromApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boolean> {
+/** Admin-granted modules — missing/null means available (interview + survey on). */
+function fromAllowedApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boolean> {
   if (!raw) return { ...DEFAULT };
   const out = {
     interviews: raw.interview !== false,
     surveys: raw.survey !== false,
+    recovery: Boolean(raw.recovery),
+    followup: Boolean(raw.follow_up),
+  };
+  if (!showRecoveryModules) {
+    out.recovery = false;
+    out.followup = false;
+  }
+  return out;
+}
+
+/** User visibility prefs — explicit false stays off; user can turn back on later. */
+function fromEnabledApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boolean> {
+  if (!raw) return { ...DEFAULT };
+  const out = {
+    interviews: "interview" in raw ? Boolean(raw.interview) : true,
+    surveys: "survey" in raw ? Boolean(raw.survey) : true,
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
   };
@@ -62,7 +79,7 @@ const ServicesCtx = React.createContext<Ctx>({
   allowed: DEFAULT,
   enabled: DEFAULT,
   visible: DEFAULT,
-  toggle: () => {},
+  toggle: async () => {},
   save: async () => {},
   saving: false,
   loaded: false,
@@ -83,10 +100,8 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     if (!orgQ.isSuccess || !orgQ.data) return;
-    const nextAllowed = fromApi(orgQ.data.allowed_services ?? orgQ.data.enabled_services);
-    const nextEnabled = fromApi(orgQ.data.enabled_services);
-    setAllowed(nextAllowed);
-    setEnabled(nextEnabled);
+    setAllowed(fromAllowedApi(orgQ.data.allowed_services));
+    setEnabled(fromEnabledApi(orgQ.data.enabled_services));
   }, [orgQ.data, orgQ.isSuccess]);
 
   const visible = React.useMemo(() => visibleFrom(allowed, enabled), [allowed, enabled]);
@@ -102,10 +117,8 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
         method: "PATCH",
         body: JSON.stringify(toApi(next)),
       });
-      const nextAllowed = fromApi(result.allowed_services ?? orgQ.data?.allowed_services);
-      const nextEnabled = fromApi(result.enabled_services);
-      setAllowed(nextAllowed);
-      setEnabled(nextEnabled);
+      setAllowed(fromAllowedApi(result.allowed_services ?? orgQ.data?.allowed_services));
+      setEnabled(fromEnabledApi(result.enabled_services));
       await queryClient.invalidateQueries({ queryKey: ["organisations", "me"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard", "home-summary"] });
     } catch (e) {
@@ -117,17 +130,21 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
   };
 
   const toggle = async (k: ServiceKey, v: boolean) => {
-    if (!allowed[k]) return;
+    if (!allowed[k]) {
+      const msg = "This module is not available on your account. Contact VoxBulk support.";
+      setError(msg);
+      throw new Error(msg);
+    }
     setError(null);
     const next = { ...enabled, [k]: v };
     const nextVisible = visibleFrom(allowed, next);
     if (!Object.values(nextVisible).some(Boolean)) {
-      const msg = "Keep at least one service visible on your dashboard.";
+      const msg = "Keep at least one service visible in the sidebar.";
       setError(msg);
       throw new Error(msg);
     }
     setEnabled(next);
-    return saveEnabled(next);
+    await saveEnabled(next);
   };
 
   const save = async () => saveEnabled(enabled);
@@ -152,4 +169,4 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
 
 export const useServices = () => React.useContext(ServicesCtx);
 
-export { fromApi as enabledServicesFromApi, visibleFrom, toApi as servicesToApi };
+export { fromAllowedApi, fromEnabledApi, fromEnabledApi as enabledServicesFromApi, visibleFrom, toApi as servicesToApi };

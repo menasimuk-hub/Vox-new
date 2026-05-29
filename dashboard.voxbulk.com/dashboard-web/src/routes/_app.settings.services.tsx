@@ -27,7 +27,11 @@ function ServicesSettings() {
   const onToggle = async (key: ServiceKey, value: boolean) => {
     try {
       await toggle(key, value);
-      toast.success(value ? "Service shown on dashboard" : "Service hidden from dashboard");
+      toast.success(
+        value
+          ? "Service shown in sidebar and dashboard"
+          : "Service hidden from sidebar — you can turn it back on here anytime",
+      );
     } catch {
       toast.error("Could not update service");
     }
@@ -40,15 +44,15 @@ function ServicesSettings() {
       <PageHeader
         eyebrow="Settings"
         title="Services"
-        description="Choose which modules appear in your sidebar and dashboard. Your account manager controls which products are available. At least one service must stay on."
+        description="Turn modules on or off for your sidebar and dashboard. Hidden modules stay listed here so you can enable them again. Only your account manager can remove a module completely."
       />
       <Card>
-        <CardHeader><CardTitle className="text-base">Dashboard modules</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">Your modules</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {!loaded ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : available.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No modules are available for your organisation. Contact VoxBulk support.</p>
+            <p className="text-sm text-muted-foreground">No modules are available on your account. Contact VoxBulk support.</p>
           ) : (
             available.map((it) => {
               const isOn = enabled[it.key];
@@ -59,11 +63,14 @@ function ServicesSettings() {
                     <div className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary"><it.Icon className="size-4" /></div>
                     <div>
                       <p className="text-sm font-medium">{it.title}</p>
-                      <p className="text-xs text-muted-foreground">{it.desc}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {it.desc}
+                        {!isOn ? " · Hidden from menu — switch on to use again." : ""}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">{isOn ? "Visible" : "Hidden"}</span>
+                    <span className="text-xs text-muted-foreground">{isOn ? "Shown" : "Hidden"}</span>
                     <Switch
                       checked={isOn}
                       disabled={saving || lockOff}
