@@ -56,17 +56,16 @@ export VOX_GIT_BRANCH=main
 
 ## Baota / aaPanel VPS (wwwroot)
 
-After `npm run build`, **copy admin dist to wwwroot** (nginx does not read repo `dist`):
+After `npm run build`, **copy admin dist and dashboard `dist/client` to wwwroot**:
 
 ```bash
 rsync -a --exclude='.user.ini' /www/voxbulk/admin.voxbulk.com/adim-web/dist/ /www/wwwroot/admin.voxbulk.com/
-# Dashboard: TanStack Start — nginx proxies to vite preview :5175 (NOT static wwwroot)
-# Public site (voxbulk.com): nginx proxies to vite preview :5173 — do NOT rsync dist/ to wwwroot.
+rsync -a --exclude='.user.ini' /www/voxbulk/dashboard.voxbulk.com/dashboard-web/dist/client/ /www/wwwroot/dashboard.voxbulk.com/
 ```
 
-Verify admin: `curl -s https://admin.voxbulk.com/ | grep assets` — JS hash must match `dist/index.html` in repo.
+See also: `dashboard.voxbulk.com/dashboard-web/BUILD-VPS.md`
 
-Verify dashboard (new theme): `curl -sI https://dashboard.voxbulk.com/ | head -1` and confirm nginx proxies to `127.0.0.1:5175`. The **new** UI uses beige/indigo shadcn — the **old** orange Tabler UI means static wwwroot is still being served.
+Verify dashboard: view source — must **not** contain `tabler-icons` (old theme).
 
 ## Troubleshooting
 
@@ -80,8 +79,7 @@ Verify dashboard (new theme): `curl -sI https://dashboard.voxbulk.com/ | head -1
 | KB files wrong library | Re-upload on Lead or Sales page (scoped upload) |
 | `git pull` unrelated histories | `git fetch voxnew && git reset --hard voxnew/main` (destroys local VPS edits) |
 | Admin blank after deploy | Set `VOX_ADMIN_DIST` and point nginx `root` to `dist` |
-| Dashboard shows old orange theme | Nginx still serving static `/www/wwwroot/dashboard.voxbulk.com` — switch to proxy `127.0.0.1:5175` and run `./vox.sh restart` |
-| Still old theme after pull | Run `bash scripts/vps-verify-dashboard.sh` on VPS — checks git commit, :5175, nginx, wwwroot |
+| Dashboard shows old orange theme | Wrong rsync: use `dist/client/` not `dist/`. Rebuild + rsync — see `dashboard-web/BUILD-VPS.md` |
 | Dashboard 502 after nginx change | Run `cd dashboard-web && npm run build && ./vox.sh restart`; check `/tmp/voxbulk-dashboard.log` |
 | Email templates Not Found | Run migrate + restart API |
 

@@ -157,8 +157,7 @@ copy_dist() {
 
 deploy_static() {
   copy_dist "$ADMIN_DIR/dist" "${VOX_ADMIN_DIST:-}" "admin"
-  info "Dashboard is TanStack Start (SSR) — served by vite preview on 127.0.0.1:5175 via vox.sh"
-  info "Do NOT rsync dashboard dist/ to wwwroot. Update nginx to proxy dashboard.voxbulk.com → :5175"
+  copy_dist "$DASH_DIR/dist/client" "${VOX_DASH_DIST:-}" "dashboard (dist/client)"
   # Public site (TanStack Start) is served via vite preview :5173 — NOT static wwwroot.
 }
 
@@ -177,14 +176,17 @@ post_checks() {
   bash "$VOX_SH" status || warn "Status check reported issues — see $DEPLOY_LOG"
 
   if [[ -d "${VOX_DASH_DIST:-}" ]]; then
-    warn "  Dashboard wwwroot is legacy static — new dashboard runs on 127.0.0.1:5175 (update nginx proxy)"
-  fi
-  local dash_code
-  dash_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5175/ 2>/dev/null || echo "000")
-  if [[ "$dash_code" == "200" || "$dash_code" == "302" || "$dash_code" == "307" ]]; then
-    info "  Dashboard preview :5175 → HTTP $dash_code"
-  else
-    warn "  Dashboard preview :5175 not responding ($dash_code) — run ./vox.sh restart after npm run build in dashboard-web"
+    local dash_js
+    dash_js=$(grep -oE '/assets/[^"]+\.js' "$VOX_DASH_DIST/index.html" 2>/dev/null | head -1 || true)
+    if [[ -n "$dash_js" && -f "$VOX_DASH_DIST${dash_js}" ]]; then
+      if grep -q 'tabler-icons' "$VOX_DASH_DIST/index.html" 2>/dev/null; then
+        warn "  Dashboard wwwroot still OLD theme (tabler-icons) — rebuild and rsync dist/client/"
+      else
+        info "  Dashboard static OK: index.html → $dash_js (new UI)"
+      fi
+    else
+      warn "  Dashboard wwwroot broken — run: cd dashboard-web && npm run build && rsync dist/client/ → $VOX_DASH_DIST"
+    fi
   fi
 
   if [[ -d "${VOX_ADMIN_DIST:-}" ]]; then
