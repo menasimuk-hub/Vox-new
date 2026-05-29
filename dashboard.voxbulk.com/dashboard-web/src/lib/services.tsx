@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api";
 import { showRecoveryModules } from "@/lib/feature-flags";
@@ -16,49 +16,65 @@ const DEFAULT: Record<ServiceKey, boolean> = {
 
 function fromApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boolean> {
   if (!raw) return { ...DEFAULT };
-  const base = {
+  const out = {
     interviews: raw.interview !== false,
     surveys: raw.survey !== false,
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
   };
   if (!showRecoveryModules) {
-    base.recovery = false;
-    base.followup = false;
+    out.recovery = false;
+    out.followup = false;
   }
-  return base;
+  return out;
 }
 
-function toApi(enabled: Record<ServiceKey, boolean>): ApiEnabledServices {
+function toApi(state: Record<ServiceKey, boolean>): ApiEnabledServices {
   return {
-    interview: enabled.interviews,
-    survey: enabled.surveys,
-    recovery: showRecoveryModules ? enabled.recovery : false,
-    follow_up: showRecoveryModules ? enabled.followup : false,
+    interview: state.interviews,
+    survey: state.surveys,
+    recovery: showRecoveryModules ? state.recovery : false,
+    follow_up: showRecoveryModules ? state.followup : false,
   };
 }
 
+function visibleFrom(allowed: Record<ServiceKey, boolean>, enabled: Record<ServiceKey, boolean>) {
+  return {
+    interviews: allowed.interviews && enabled.interviews,
+    surveys: allowed.surveys && enabled.surveys,
+    recovery: allowed.recovery && enabled.recovery,
+    followup: allowed.followup && enabled.followup,
+  } satisfies Record<ServiceKey, boolean>;
+}
+
 type Ctx = {
+  allowed: Record<ServiceKey, boolean>;
   enabled: Record<ServiceKey, boolean>;
-  setEnabled: React.Dispatch<React.SetStateAction<Record<ServiceKey, boolean>>>;
-  toggle: (k: ServiceKey, v: boolean) => void;
+  visible: Record<ServiceKey, boolean>;
+  toggle: (k: ServiceKey, v: boolean) => Promise<void>;
   save: () => Promise<void>;
   saving: boolean;
   loaded: boolean;
+  error: string | null;
 };
 
 const ServicesCtx = React.createContext<Ctx>({
+  allowed: DEFAULT,
   enabled: DEFAULT,
-  setEnabled: () => {},
+  visible: DEFAULT,
   toggle: () => {},
   save: async () => {},
   saving: false,
   loaded: false,
+  error: null,
 });
 
 export function ServicesProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
+  const [allowed, setAllowed] = React.useState<Record<ServiceKey, boolean>>(DEFAULT);
   const [enabled, setEnabled] = React.useState<Record<ServiceKey, boolean>>(DEFAULT);
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const orgQ = useQuery({
     queryKey: ["organisations", "me"],
@@ -66,35 +82,67 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
   });
 
   React.useEffect(() => {
-    if (orgQ.data?.enabled_services) {
-      setEnabled(fromApi(orgQ.data.enabled_services));
-    }
-  }, [orgQ.data]);
+    if (!orgQ.isSuccess || !orgQ.data) return;
+    const nextAllowed = fromApi(orgQ.data.allowed_services ?? orgQ.data.enabled_services);
+    const nextEnabled = fromApi(orgQ.data.enabled_services);
+    setAllowed(nextAllowed);
+    setEnabled(nextEnabled);
+  }, [orgQ.data, orgQ.isSuccess]);
 
-  const toggle = (k: ServiceKey, v: boolean) => setEnabled((s) => ({ ...s, [k]: v }));
+  const visible = React.useMemo(() => visibleFrom(allowed, enabled), [allowed, enabled]);
 
-  const save = async () => {
+  const saveEnabled = async (next: Record<ServiceKey, boolean>) => {
     setSaving(true);
+    setError(null);
     try {
-      const result = await apiFetch<{ enabled_services: ApiEnabledServices }>(
-        "/organisations/me/enabled-services",
-        { method: "PATCH", body: JSON.stringify(toApi(enabled)) },
-      );
-      setEnabled(fromApi(result.enabled_services));
+      const result = await apiFetch<{
+        enabled_services: ApiEnabledServices;
+        allowed_services?: ApiEnabledServices;
+      }>("/organisations/me/enabled-services", {
+        method: "PATCH",
+        body: JSON.stringify(toApi(next)),
+      });
+      const nextAllowed = fromApi(result.allowed_services ?? orgQ.data?.allowed_services);
+      const nextEnabled = fromApi(result.enabled_services);
+      setAllowed(nextAllowed);
+      setEnabled(nextEnabled);
+      await queryClient.invalidateQueries({ queryKey: ["organisations", "me"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard", "home-summary"] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save service settings");
+      throw e;
     } finally {
       setSaving(false);
     }
   };
 
+  const toggle = async (k: ServiceKey, v: boolean) => {
+    if (!allowed[k]) return;
+    setError(null);
+    const next = { ...enabled, [k]: v };
+    const nextVisible = visibleFrom(allowed, next);
+    if (!Object.values(nextVisible).some(Boolean)) {
+      const msg = "Keep at least one service visible on your dashboard.";
+      setError(msg);
+      throw new Error(msg);
+    }
+    setEnabled(next);
+    return saveEnabled(next);
+  };
+
+  const save = async () => saveEnabled(enabled);
+
   return (
     <ServicesCtx.Provider
       value={{
+        allowed,
         enabled,
-        setEnabled,
+        visible,
         toggle,
         save,
         saving,
         loaded: orgQ.isSuccess,
+        error,
       }}
     >
       {children}
@@ -104,4 +152,4 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
 
 export const useServices = () => React.useContext(ServicesCtx);
 
-export { fromApi as enabledServicesFromApi };
+export { fromApi as enabledServicesFromApi, visibleFrom, toApi as servicesToApi };

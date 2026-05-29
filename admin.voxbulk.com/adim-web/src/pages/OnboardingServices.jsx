@@ -48,13 +48,13 @@ export default function OnboardingServices() {
     setError('')
     ;(async () => {
       try {
-        const data = await apiFetch(`/admin/organisations/${encodeURIComponent(orgId)}/enabled-services`)
+        const data = await apiFetch(`/admin/organisations/${encodeURIComponent(orgId)}/allowed-services`)
         if (cancelled) return
         setServices({
-          interview: data?.enabled_services?.interview !== false,
-          survey: data?.enabled_services?.survey !== false,
-          recovery: Boolean(data?.enabled_services?.recovery),
-          follow_up: Boolean(data?.enabled_services?.follow_up),
+          interview: data?.allowed_services?.interview !== false,
+          survey: data?.allowed_services?.survey !== false,
+          recovery: Boolean(data?.allowed_services?.recovery),
+          follow_up: Boolean(data?.allowed_services?.follow_up),
         })
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Could not load service toggles')
@@ -67,7 +67,17 @@ export default function OnboardingServices() {
     }
   }, [orgId])
 
+  const enabledCount = useMemo(
+    () => SERVICE_ROWS.filter((row) => services[row.key]).length,
+    [services],
+  )
+
   const onToggle = (key, value) => {
+    if (!value && enabledCount <= 1) {
+      setError('At least one dashboard service must stay enabled.')
+      return
+    }
+    setError('')
     setServices((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -76,7 +86,7 @@ export default function OnboardingServices() {
     setSaving(true)
     setError('')
     try {
-      await apiFetch(`/admin/organisations/${encodeURIComponent(orgId)}/enabled-services`, {
+      await apiFetch(`/admin/organisations/${encodeURIComponent(orgId)}/allowed-services`, {
         method: 'PATCH',
         body: JSON.stringify(services),
       })
@@ -94,8 +104,8 @@ export default function OnboardingServices() {
         <div>
           <h1>Customer services</h1>
           <p>
-            Control which product modules appear in each customer&apos;s dashboard sidebar and home page.
-            When a service is off, it is hidden from that organisation&apos;s dashboard.
+            Choose which product modules this organisation can use. Customers can hide modules they do not need in
+            Settings → Services, but at least one available module must stay on. Interview and Survey are on by default.
           </p>
         </div>
         <div className='actions'>
@@ -136,7 +146,7 @@ export default function OnboardingServices() {
 
       <div className='card'>
         <div className='cardHead'>
-          <h3>Dashboard modules</h3>
+          <h3>Available modules (admin)</h3>
           {loading ? <span className='pill'>Loading…</span> : null}
         </div>
         <div className='cardBody'>
@@ -158,11 +168,12 @@ export default function OnboardingServices() {
                   <strong>{row.label}</strong>
                   <div className='muted' style={{ fontSize: 13 }}>{row.desc}</div>
                 </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: services[row.key] && enabledCount <= 1 ? 'not-allowed' : 'pointer' }}>
                   <span className='muted' style={{ fontSize: 12 }}>{services[row.key] ? 'On' : 'Off'}</span>
                   <input
                     type='checkbox'
                     checked={Boolean(services[row.key])}
+                    disabled={Boolean(services[row.key]) && enabledCount <= 1}
                     onChange={(e) => onToggle(row.key, e.target.checked)}
                   />
                 </label>

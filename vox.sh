@@ -5,8 +5,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 API_DIR="$ROOT/voxbulk-api"
 PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
+DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"
 API_LOG="/tmp/voxbulk-api.log"
 PUBLIC_LOG="/tmp/voxbulk-public.log"
+DASH_LOG="/tmp/voxbulk-dashboard.log"
 
 stop_api() {
   pkill -f "uvicorn main:app --host 127.0.0.1 --port 8000" 2>/dev/null || true
@@ -16,6 +18,11 @@ stop_api() {
 stop_public() {
   pkill -f "vite preview.*5173" 2>/dev/null || true
   pkill -f "npm run preview.*5173" 2>/dev/null || true
+}
+
+stop_dashboard() {
+  pkill -f "vite preview.*5175" 2>/dev/null || true
+  pkill -f "npm run preview.*5175" 2>/dev/null || true
 }
 
 restart_celery() {
@@ -75,10 +82,22 @@ start_public() {
   echo "Public site started on 127.0.0.1:5173 (log: $PUBLIC_LOG)"
 }
 
+start_dashboard() {
+  cd "$DASH_DIR"
+  if [[ ! -d dist/client ]]; then
+    echo "Building dashboard (first run)…"
+    npm install
+    npm run build
+  fi
+  nohup npm run preview -- --host 127.0.0.1 --port 5175 >>"$DASH_LOG" 2>&1 &
+  echo "Dashboard started on 127.0.0.1:5175 (log: $DASH_LOG)"
+}
+
 status() {
   local wait_attempts="${1:-15}"
   local api_ok=0
   local public_ok=0
+  local dashboard_ok=0
 
   echo "=== API (8000) ==="
   # Direct localhost check (works when TRUSTED_HOSTS is localhost-only on VPS)
@@ -105,17 +124,27 @@ status() {
   fi
 
   echo ""
-  echo "=== Static sites (nginx wwwroot — not managed by vox.sh) ==="
+  echo "=== Dashboard (5175) ==="
+  if wait_for_http "http://127.0.0.1:5175/" "" "$wait_attempts"; then
+    curl -sf -I http://127.0.0.1:5175/ | head -1
+    dashboard_ok=1
+  else
+    echo "Dashboard preview not responding"
+    show_log_tail "$DASH_LOG" "dashboard preview"
+  fi
+
+  echo ""
+  echo "=== Static admin (nginx wwwroot — not managed by vox.sh) ==="
   echo "  admin:      /www/wwwroot/admin.voxbulk.com"
-  echo "  dashboard:  /www/wwwroot/dashboard.voxbulk.com"
-  echo "  Deploy UI:  ./deploy-vps.sh  (build + rsync + restart)"
+  echo "  dashboard:  nginx must proxy to 127.0.0.1:5175 (TanStack Start — not static wwwroot)"
+  echo "  Deploy UI:  ./deploy-vps.sh  (build + rsync admin + restart)"
 
   echo ""
   echo "=== Processes ==="
   pgrep -af "uvicorn main:app" || echo "no uvicorn"
   pgrep -af "vite preview" || echo "no vite preview"
 
-  if [[ "$api_ok" -eq 0 || "$public_ok" -eq 0 ]]; then
+  if [[ "$api_ok" -eq 0 || "$public_ok" -eq 0 || "$dashboard_ok" -eq 0 ]]; then
     return 1
   fi
 }
@@ -125,23 +154,27 @@ case "${1:-}" in
     start_api
     sleep 1
     start_public
+    start_dashboard
     sleep 2
     status
     ;;
   stop)
     stop_public
+    stop_dashboard
     stop_api
-    echo "Stopped API + public preview"
+    echo "Stopped API + public preview + dashboard preview"
     ;;
   restart)
     stop_public
+    stop_dashboard
     stop_api
     sleep 1
     start_api
     sleep 2
     start_public
+    start_dashboard
     restart_celery
-    echo "Waiting for API and public preview to become ready…"
+    echo "Waiting for API, public preview, and dashboard preview to become ready…"
     status || true
     ;;
   status)

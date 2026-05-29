@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_app/")({
 });
 
 function Dashboard() {
-  const { enabled } = useServices();
+  const { visible } = useServices();
   const { openChat } = useConnections();
   const { session } = useSession();
   const summaryQ = useHomeSummary();
@@ -44,25 +44,30 @@ function Dashboard() {
         actions={
           <>
             <Button variant="outline" className="gap-1.5" onClick={openChat}><Sparkles className="size-4" /> Ask AI</Button>
-            <Button asChild className="gap-1.5"><Link to="/interviews/new"><Plus className="size-4" /> New campaign</Link></Button>
+            {visible.interviews && (
+              <Button asChild className="gap-1.5"><Link to="/interviews/new"><Plus className="size-4" /> New campaign</Link></Button>
+            )}
+            {!visible.interviews && visible.surveys && (
+              <Button asChild className="gap-1.5"><Link to="/surveys/new"><Plus className="size-4" /> New survey</Link></Button>
+            )}
           </>
         }
       />
 
       {summaryQ.isLoading && <Skeleton className="h-24 w-full rounded-xl" />}
 
-      {showRecoveryModules && enabled.recovery && <RecoverySection summary={summary} loading={summaryQ.isLoading} />}
-      {enabled.interviews && (
+      {showRecoveryModules && visible.recovery && <RecoverySection summary={summary} loading={summaryQ.isLoading} />}
+      {visible.interviews && (
         <InterviewsSection
           summary={summary}
           loading={summaryQ.isLoading || interviewOrdersQ.isLoading}
           liveOrders={(interviewOrdersQ.data || []).filter((o) => o.is_live && o.status === "running").map((o) => orderToCampaign(o, "interview"))}
         />
       )}
-      {enabled.surveys && <SurveysSection summary={summary} loading={summaryQ.isLoading} />}
-      {!enabled.recovery && !enabled.interviews && !enabled.surveys && (
+      {visible.surveys && <SurveysSection summary={summary} loading={summaryQ.isLoading} />}
+      {!visible.recovery && !visible.interviews && !visible.surveys && (
         <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">
-          No services enabled. Open <span className="font-medium text-foreground">Settings → Services</span> to turn on Interviews, Surveys, Recovery, or Follow up.
+          No services are enabled for your organisation. Contact VoxBulk support or your account manager to enable Interviews, Surveys, Recovery, or Follow up.
         </CardContent></Card>
       )}
     </div>

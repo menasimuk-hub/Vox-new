@@ -93,16 +93,17 @@ const groups: Group[] = [
 
 export function AppSidebar() {
   const path = useRouterState({ select: (r) => r.location.pathname });
-  const { enabled } = useServices();
+  const { visible, loaded } = useServices();
   const { session } = useSession();
   const orgName = session?.org?.name || session?.org?.display_name || session?.profile?.email || "Your organisation";
   const planName = session?.subscription?.plan?.name || "Plan";
   const avatar = initialsFromName(orgName);
 
-  const visible = groups.filter((g) => {
+  const visibleGroups = groups.filter((g) => {
     if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
+    if (!loaded) return false;
     if (!showRecoveryModules && isRecoveryServiceKey(g.key)) return false;
-    return enabled[g.key];
+    return visible[g.key];
   });
 
   return (
@@ -112,7 +113,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {visible.map((g) => <NavGroup key={g.key} group={g} path={path} />)}
+        {visibleGroups.map((g) => <NavGroup key={g.key} group={g} path={path} />)}
       </SidebarContent>
 
       <SidebarFooter>

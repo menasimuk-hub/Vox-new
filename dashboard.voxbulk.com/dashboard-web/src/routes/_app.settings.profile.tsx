@@ -23,7 +23,7 @@ export const Route = createFileRoute("/_app/settings/profile")({
 });
 
 function ProfileSettings() {
-  const { enabled } = useServices();
+  const { visible } = useServices();
   const orgQ = useOrganisation();
   const saveM = useUpdateOrganisation();
 
@@ -115,7 +115,7 @@ function ProfileSettings() {
         </CardContent>
       </Card>
 
-      {enabled.recovery ? (
+      {visible.recovery ? (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">

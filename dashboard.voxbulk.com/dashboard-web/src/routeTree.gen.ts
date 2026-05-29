@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as BookTokenRouteImport } from './routes/book.$token'
+import { Route as AppSurveysRouteImport } from './routes/_app.surveys'
 import { Route as AppRecoveryRouteImport } from './routes/_app.recovery'
+import { Route as AppInterviewsRouteImport } from './routes/_app.interviews'
 import { Route as AppFollowUpRouteImport } from './routes/_app.follow-up'
 import { Route as AppSurveysIndexRouteImport } from './routes/_app.surveys.index'
 import { Route as AppRecoveryIndexRouteImport } from './routes/_app.recovery.index'
@@ -57,9 +59,19 @@ const BookTokenRoute = BookTokenRouteImport.update({
   path: '/book/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppSurveysRoute = AppSurveysRouteImport.update({
+  id: '/surveys',
+  path: '/surveys',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppRecoveryRoute = AppRecoveryRouteImport.update({
   id: '/recovery',
   path: '/recovery',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInterviewsRoute = AppInterviewsRouteImport.update({
+  id: '/interviews',
+  path: '/interviews',
   getParentRoute: () => AppRoute,
 } as any)
 const AppFollowUpRoute = AppFollowUpRouteImport.update({
@@ -68,9 +80,9 @@ const AppFollowUpRoute = AppFollowUpRouteImport.update({
   getParentRoute: () => AppRoute,
 } as any)
 const AppSurveysIndexRoute = AppSurveysIndexRouteImport.update({
-  id: '/surveys/',
-  path: '/surveys/',
-  getParentRoute: () => AppRoute,
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSurveysRoute,
 } as any)
 const AppRecoveryIndexRoute = AppRecoveryIndexRouteImport.update({
   id: '/',
@@ -78,29 +90,29 @@ const AppRecoveryIndexRoute = AppRecoveryIndexRouteImport.update({
   getParentRoute: () => AppRecoveryRoute,
 } as any)
 const AppInterviewsIndexRoute = AppInterviewsIndexRouteImport.update({
-  id: '/interviews/',
-  path: '/interviews/',
-  getParentRoute: () => AppRoute,
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppInterviewsRoute,
 } as any)
 const AppSurveysResultsRoute = AppSurveysResultsRouteImport.update({
-  id: '/surveys/results',
-  path: '/surveys/results',
-  getParentRoute: () => AppRoute,
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => AppSurveysRoute,
 } as any)
 const AppSurveysReportsRoute = AppSurveysReportsRouteImport.update({
-  id: '/surveys/reports',
-  path: '/surveys/reports',
-  getParentRoute: () => AppRoute,
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppSurveysRoute,
 } as any)
 const AppSurveysNewRoute = AppSurveysNewRouteImport.update({
-  id: '/surveys/new',
-  path: '/surveys/new',
-  getParentRoute: () => AppRoute,
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppSurveysRoute,
 } as any)
 const AppSurveysIdRoute = AppSurveysIdRouteImport.update({
-  id: '/surveys/$id',
-  path: '/surveys/$id',
-  getParentRoute: () => AppRoute,
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AppSurveysRoute,
 } as any)
 const AppSettingsTeamRoute = AppSettingsTeamRouteImport.update({
   id: '/settings/team',
@@ -153,19 +165,19 @@ const AppRecoveryEmergencyRoute = AppRecoveryEmergencyRouteImport.update({
   getParentRoute: () => AppRecoveryRoute,
 } as any)
 const AppInterviewsResultsRoute = AppInterviewsResultsRouteImport.update({
-  id: '/interviews/results',
-  path: '/interviews/results',
-  getParentRoute: () => AppRoute,
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => AppInterviewsRoute,
 } as any)
 const AppInterviewsReportsRoute = AppInterviewsReportsRouteImport.update({
-  id: '/interviews/reports',
-  path: '/interviews/reports',
-  getParentRoute: () => AppRoute,
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppInterviewsRoute,
 } as any)
 const AppInterviewsNewRoute = AppInterviewsNewRouteImport.update({
-  id: '/interviews/new',
-  path: '/interviews/new',
-  getParentRoute: () => AppRoute,
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppInterviewsRoute,
 } as any)
 const AppAccountSupportRoute = AppAccountSupportRouteImport.update({
   id: '/account/support',
@@ -214,7 +226,9 @@ const AppAccountSupportFaqRoute = AppAccountSupportFaqRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/follow-up': typeof AppFollowUpRoute
+  '/interviews': typeof AppInterviewsRouteWithChildren
   '/recovery': typeof AppRecoveryRouteWithChildren
+  '/surveys': typeof AppSurveysRouteWithChildren
   '/book/$token': typeof BookTokenRoute
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
@@ -280,7 +294,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/_app/follow-up': typeof AppFollowUpRoute
+  '/_app/interviews': typeof AppInterviewsRouteWithChildren
   '/_app/recovery': typeof AppRecoveryRouteWithChildren
+  '/_app/surveys': typeof AppSurveysRouteWithChildren
   '/book/$token': typeof BookTokenRoute
   '/_app/': typeof AppIndexRoute
   '/_app/account/billing': typeof AppAccountBillingRoute
@@ -317,7 +333,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/follow-up'
+    | '/interviews'
     | '/recovery'
+    | '/surveys'
     | '/book/$token'
     | '/account/billing'
     | '/account/packages'
@@ -382,7 +400,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/_app/follow-up'
+    | '/_app/interviews'
     | '/_app/recovery'
+    | '/_app/surveys'
     | '/book/$token'
     | '/_app/'
     | '/_app/account/billing'
@@ -443,11 +463,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BookTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/surveys': {
+      id: '/_app/surveys'
+      path: '/surveys'
+      fullPath: '/surveys'
+      preLoaderRoute: typeof AppSurveysRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/recovery': {
       id: '/_app/recovery'
       path: '/recovery'
       fullPath: '/recovery'
       preLoaderRoute: typeof AppRecoveryRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/interviews': {
+      id: '/_app/interviews'
+      path: '/interviews'
+      fullPath: '/interviews'
+      preLoaderRoute: typeof AppInterviewsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/follow-up': {
@@ -459,10 +493,10 @@ declare module '@tanstack/react-router' {
     }
     '/_app/surveys/': {
       id: '/_app/surveys/'
-      path: '/surveys'
+      path: '/'
       fullPath: '/surveys/'
       preLoaderRoute: typeof AppSurveysIndexRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSurveysRoute
     }
     '/_app/recovery/': {
       id: '/_app/recovery/'
@@ -473,38 +507,38 @@ declare module '@tanstack/react-router' {
     }
     '/_app/interviews/': {
       id: '/_app/interviews/'
-      path: '/interviews'
+      path: '/'
       fullPath: '/interviews/'
       preLoaderRoute: typeof AppInterviewsIndexRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppInterviewsRoute
     }
     '/_app/surveys/results': {
       id: '/_app/surveys/results'
-      path: '/surveys/results'
+      path: '/results'
       fullPath: '/surveys/results'
       preLoaderRoute: typeof AppSurveysResultsRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSurveysRoute
     }
     '/_app/surveys/reports': {
       id: '/_app/surveys/reports'
-      path: '/surveys/reports'
+      path: '/reports'
       fullPath: '/surveys/reports'
       preLoaderRoute: typeof AppSurveysReportsRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSurveysRoute
     }
     '/_app/surveys/new': {
       id: '/_app/surveys/new'
-      path: '/surveys/new'
+      path: '/new'
       fullPath: '/surveys/new'
       preLoaderRoute: typeof AppSurveysNewRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSurveysRoute
     }
     '/_app/surveys/$id': {
       id: '/_app/surveys/$id'
-      path: '/surveys/$id'
+      path: '/$id'
       fullPath: '/surveys/$id'
       preLoaderRoute: typeof AppSurveysIdRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppSurveysRoute
     }
     '/_app/settings/team': {
       id: '/_app/settings/team'
@@ -578,24 +612,24 @@ declare module '@tanstack/react-router' {
     }
     '/_app/interviews/results': {
       id: '/_app/interviews/results'
-      path: '/interviews/results'
+      path: '/results'
       fullPath: '/interviews/results'
       preLoaderRoute: typeof AppInterviewsResultsRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppInterviewsRoute
     }
     '/_app/interviews/reports': {
       id: '/_app/interviews/reports'
-      path: '/interviews/reports'
+      path: '/reports'
       fullPath: '/interviews/reports'
       preLoaderRoute: typeof AppInterviewsReportsRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppInterviewsRoute
     }
     '/_app/interviews/new': {
       id: '/_app/interviews/new'
-      path: '/interviews/new'
+      path: '/new'
       fullPath: '/interviews/new'
       preLoaderRoute: typeof AppInterviewsNewRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppInterviewsRoute
     }
     '/_app/account/support': {
       id: '/_app/account/support'
@@ -656,6 +690,37 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppInterviewsResultsRouteChildren {
+  AppInterviewsResultsOrderIdRoute: typeof AppInterviewsResultsOrderIdRoute
+  AppInterviewsResultsIndexRoute: typeof AppInterviewsResultsIndexRoute
+}
+
+const AppInterviewsResultsRouteChildren: AppInterviewsResultsRouteChildren = {
+  AppInterviewsResultsOrderIdRoute: AppInterviewsResultsOrderIdRoute,
+  AppInterviewsResultsIndexRoute: AppInterviewsResultsIndexRoute,
+}
+
+const AppInterviewsResultsRouteWithChildren =
+  AppInterviewsResultsRoute._addFileChildren(AppInterviewsResultsRouteChildren)
+
+interface AppInterviewsRouteChildren {
+  AppInterviewsNewRoute: typeof AppInterviewsNewRoute
+  AppInterviewsReportsRoute: typeof AppInterviewsReportsRoute
+  AppInterviewsResultsRoute: typeof AppInterviewsResultsRouteWithChildren
+  AppInterviewsIndexRoute: typeof AppInterviewsIndexRoute
+}
+
+const AppInterviewsRouteChildren: AppInterviewsRouteChildren = {
+  AppInterviewsNewRoute: AppInterviewsNewRoute,
+  AppInterviewsReportsRoute: AppInterviewsReportsRoute,
+  AppInterviewsResultsRoute: AppInterviewsResultsRouteWithChildren,
+  AppInterviewsIndexRoute: AppInterviewsIndexRoute,
+}
+
+const AppInterviewsRouteWithChildren = AppInterviewsRoute._addFileChildren(
+  AppInterviewsRouteChildren,
+)
+
 interface AppRecoveryRouteChildren {
   AppRecoveryEmergencyRoute: typeof AppRecoveryEmergencyRoute
   AppRecoveryNoShowRoute: typeof AppRecoveryNoShowRoute
@@ -676,6 +741,26 @@ const AppRecoveryRouteWithChildren = AppRecoveryRoute._addFileChildren(
   AppRecoveryRouteChildren,
 )
 
+interface AppSurveysRouteChildren {
+  AppSurveysIdRoute: typeof AppSurveysIdRoute
+  AppSurveysNewRoute: typeof AppSurveysNewRoute
+  AppSurveysReportsRoute: typeof AppSurveysReportsRoute
+  AppSurveysResultsRoute: typeof AppSurveysResultsRoute
+  AppSurveysIndexRoute: typeof AppSurveysIndexRoute
+}
+
+const AppSurveysRouteChildren: AppSurveysRouteChildren = {
+  AppSurveysIdRoute: AppSurveysIdRoute,
+  AppSurveysNewRoute: AppSurveysNewRoute,
+  AppSurveysReportsRoute: AppSurveysReportsRoute,
+  AppSurveysResultsRoute: AppSurveysResultsRoute,
+  AppSurveysIndexRoute: AppSurveysIndexRoute,
+}
+
+const AppSurveysRouteWithChildren = AppSurveysRoute._addFileChildren(
+  AppSurveysRouteChildren,
+)
+
 interface AppAccountSupportRouteChildren {
   AppAccountSupportFaqRoute: typeof AppAccountSupportFaqRoute
   AppAccountSupportTicketsRoute: typeof AppAccountSupportTicketsRoute
@@ -691,65 +776,38 @@ const AppAccountSupportRouteChildren: AppAccountSupportRouteChildren = {
 const AppAccountSupportRouteWithChildren =
   AppAccountSupportRoute._addFileChildren(AppAccountSupportRouteChildren)
 
-interface AppInterviewsResultsRouteChildren {
-  AppInterviewsResultsOrderIdRoute: typeof AppInterviewsResultsOrderIdRoute
-  AppInterviewsResultsIndexRoute: typeof AppInterviewsResultsIndexRoute
-}
-
-const AppInterviewsResultsRouteChildren: AppInterviewsResultsRouteChildren = {
-  AppInterviewsResultsOrderIdRoute: AppInterviewsResultsOrderIdRoute,
-  AppInterviewsResultsIndexRoute: AppInterviewsResultsIndexRoute,
-}
-
-const AppInterviewsResultsRouteWithChildren =
-  AppInterviewsResultsRoute._addFileChildren(AppInterviewsResultsRouteChildren)
-
 interface AppRouteChildren {
   AppFollowUpRoute: typeof AppFollowUpRoute
+  AppInterviewsRoute: typeof AppInterviewsRouteWithChildren
   AppRecoveryRoute: typeof AppRecoveryRouteWithChildren
+  AppSurveysRoute: typeof AppSurveysRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
   AppAccountBillingRoute: typeof AppAccountBillingRoute
   AppAccountPackagesRoute: typeof AppAccountPackagesRoute
   AppAccountSupportRoute: typeof AppAccountSupportRouteWithChildren
-  AppInterviewsNewRoute: typeof AppInterviewsNewRoute
-  AppInterviewsReportsRoute: typeof AppInterviewsReportsRoute
-  AppInterviewsResultsRoute: typeof AppInterviewsResultsRouteWithChildren
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsOptOutRoute: typeof AppSettingsOptOutRoute
   AppSettingsProfileRoute: typeof AppSettingsProfileRoute
   AppSettingsServicesRoute: typeof AppSettingsServicesRoute
   AppSettingsSystemRoute: typeof AppSettingsSystemRoute
   AppSettingsTeamRoute: typeof AppSettingsTeamRoute
-  AppSurveysIdRoute: typeof AppSurveysIdRoute
-  AppSurveysNewRoute: typeof AppSurveysNewRoute
-  AppSurveysReportsRoute: typeof AppSurveysReportsRoute
-  AppSurveysResultsRoute: typeof AppSurveysResultsRoute
-  AppInterviewsIndexRoute: typeof AppInterviewsIndexRoute
-  AppSurveysIndexRoute: typeof AppSurveysIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppFollowUpRoute: AppFollowUpRoute,
+  AppInterviewsRoute: AppInterviewsRouteWithChildren,
   AppRecoveryRoute: AppRecoveryRouteWithChildren,
+  AppSurveysRoute: AppSurveysRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
   AppAccountBillingRoute: AppAccountBillingRoute,
   AppAccountPackagesRoute: AppAccountPackagesRoute,
   AppAccountSupportRoute: AppAccountSupportRouteWithChildren,
-  AppInterviewsNewRoute: AppInterviewsNewRoute,
-  AppInterviewsReportsRoute: AppInterviewsReportsRoute,
-  AppInterviewsResultsRoute: AppInterviewsResultsRouteWithChildren,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsOptOutRoute: AppSettingsOptOutRoute,
   AppSettingsProfileRoute: AppSettingsProfileRoute,
   AppSettingsServicesRoute: AppSettingsServicesRoute,
   AppSettingsSystemRoute: AppSettingsSystemRoute,
   AppSettingsTeamRoute: AppSettingsTeamRoute,
-  AppSurveysIdRoute: AppSurveysIdRoute,
-  AppSurveysNewRoute: AppSurveysNewRoute,
-  AppSurveysReportsRoute: AppSurveysReportsRoute,
-  AppSurveysResultsRoute: AppSurveysResultsRoute,
-  AppInterviewsIndexRoute: AppInterviewsIndexRoute,
-  AppSurveysIndexRoute: AppSurveysIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

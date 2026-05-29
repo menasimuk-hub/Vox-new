@@ -1,8 +1,9 @@
-import { redirect } from "@tanstack/react-router";
-import { showRecoveryModules } from "@/lib/feature-flags";
+import { requireEnabledService } from "@/lib/guards/service-route";
 
 export function requireRecoveryModules() {
-  if (!showRecoveryModules) {
-    throw redirect({ to: "/" });
-  }
+  return requireEnabledService("recovery");
+}
+
+export function requireFollowUpModule() {
+  return requireEnabledService("followup");
 }

@@ -16,6 +16,36 @@ from app.services.gocardless_service import BillingService, GoCardlessConfigErro
 router = APIRouter(prefix="/service-orders", tags=["service-orders"])
 
 
+def _require_org_service(db: Session, org_id: str, service_code: str) -> Organisation:
+    from app.services.org_enabled_services import (
+        is_service_enabled,
+        org_service_maps,
+        service_code_to_enabled_key,
+    )
+    from app.services.recovery_service import OrganisationService
+
+    org = OrganisationService.get_org(db, org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    key = service_code_to_enabled_key(service_code)
+    if key:
+        _, _, visible = org_service_maps(org)
+        if not is_service_enabled(visible, key):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Service is not enabled for this organisation",
+            )
+    return org
+
+
+def _require_order_service(db: Session, org_id: str, order_id: str) -> tuple[Organisation, object]:
+    order = ServiceOrderService.get_order(db, order_id, org_id=org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    org = _require_org_service(db, org_id, str(order.service_code or ""))
+    return org, order
+
+
 @router.get("/catalog")
 def list_catalog(db: Session = Depends(get_db), _principal=Depends(get_current_principal)):
     services = PlatformCatalogService.list_services(db)
@@ -52,7 +82,8 @@ def list_catalog(db: Session = Depends(get_db), _principal=Depends(get_current_p
 
 
 @router.get("/survey-packages")
-def list_survey_packages(db: Session = Depends(get_db), _principal=Depends(get_current_principal)):
+def list_survey_packages(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_org_service(db, principal.org_id, "survey")
     svc = PlatformCatalogService.get_service_by_code(db, "survey")
     if svc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey service not found")
@@ -77,7 +108,9 @@ def download_recipient_template(_principal=Depends(get_current_principal)):
 
 
 @router.post("/quote")
-def quote_preview(payload: dict, db: Session = Depends(get_db), _principal=Depends(get_current_principal)):
+def quote_preview(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    service_code = str(payload.get("service_code") or "")
+    _require_org_service(db, principal.org_id, service_code)
     try:
         return PlatformCatalogService.calculate_quote(
             db,
@@ -95,14 +128,15 @@ async def preview_recipients_file(
     service_code: str = Form("interview"),
     delivery: str = Form("ai_call"),
     db: Session = Depends(get_db),
-    _principal=Depends(get_current_principal),
+    principal=Depends(get_current_principal),
 ):
+    code = str(service_code or "interview").strip().lower()
+    _require_org_service(db, principal.org_id, code)
     content = await file.read()
     try:
         rows = ServiceOrderService.parse_recipient_file(content, file.filename or "upload.csv")
         if not rows:
             raise ValueError("No valid contacts found in file")
-        code = str(service_code or "interview").strip().lower()
         options: dict = {}
         if code == "interview":
             options["delivery"] = str(delivery or "ai_call").strip().lower()
@@ -129,12 +163,16 @@ def list_my_orders(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    if service_code:
+        _require_org_service(db, principal.org_id, service_code)
     rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code)
     return [ServiceOrderService.order_to_dict(r) for r in rows]
 
 
 @router.post("")
 def create_order(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    service_code = str(payload.get("service_code") or "")
+    _require_org_service(db, principal.org_id, service_code)
     try:
         order = ServiceOrderService.create_order(
             db,
@@ -151,6 +189,7 @@ def create_order(payload: dict, db: Session = Depends(get_db), principal=Depends
 
 @router.get("/survey-agents")
 def list_survey_agents_for_dashboard(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_org_service(db, principal.org_id, "survey")
     from app.services.survey_voice_agent_service import list_dashboard_agents_for_service
     from app.core.agent_services import SERVICE_SURVEY
 
@@ -161,6 +200,7 @@ def list_survey_agents_for_dashboard(db: Session = Depends(get_db), principal=De
 
 @router.get("/interview-agents")
 def list_interview_agents_for_dashboard(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_org_service(db, principal.org_id, "interview")
     from app.services.survey_voice_agent_service import list_dashboard_agents_for_service
     from app.core.agent_services import SERVICE_INTERVIEW
 
@@ -172,11 +212,8 @@ def list_interview_agents_for_dashboard(db: Session = Depends(get_db), principal
 @router.get("/interview/billing-context")
 def get_interview_billing_context(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_billing_context import org_interview_billing_context
-    from app.services.recovery_service import OrganisationService
 
-    org = OrganisationService.get_org(db, principal.org_id)
-    if org is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    org = _require_org_service(db, principal.org_id, "interview")
     return org_interview_billing_context(db, org)
 
 
@@ -184,9 +221,8 @@ def get_interview_billing_context(db: Session = Depends(get_db), principal=Depen
 def get_interview_draft(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_billing_context import org_interview_billing_context
     from app.services.interview_intake_service import get_latest_interview_draft, intake_summary, list_intake_recipients
-    from app.services.recovery_service import OrganisationService
 
-    org = OrganisationService.get_org(db, principal.org_id)
+    org = _require_org_service(db, principal.org_id, "interview")
     billing = org_interview_billing_context(db, org) if org else {}
     order = get_latest_interview_draft(db, org_id=principal.org_id)
     if order is None:
@@ -203,13 +239,11 @@ def get_interview_draft(db: Session = Depends(get_db), principal=Depends(get_cur
 @router.post("/interview/draft/new")
 def create_new_interview_draft_route(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_intake_service import create_new_interview_draft, intake_summary
-
-    order = create_new_interview_draft(db, org_id=principal.org_id, user_id=principal.user_id)
     from app.services.interview_billing_context import org_interview_billing_context
-    from app.services.recovery_service import OrganisationService
 
-    org = OrganisationService.get_org(db, principal.org_id)
-    billing = org_interview_billing_context(db, org) if org else {}
+    org = _require_org_service(db, principal.org_id, "interview")
+    order = create_new_interview_draft(db, org_id=principal.org_id, user_id=principal.user_id)
+    billing = org_interview_billing_context(db, org)
     return {
         "order": ServiceOrderService.order_to_dict(order),
         "recipients": [],
@@ -222,6 +256,7 @@ def create_new_interview_draft_route(db: Session = Depends(get_db), principal=De
 def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_intake_service import ensure_interview_draft_order, intake_summary, list_intake_recipients
 
+    _require_org_service(db, principal.org_id, "interview")
     order_id = str(payload.get("order_id") or "").strip()
     if order_id:
         order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
@@ -275,6 +310,7 @@ def list_interview_reports(
 ):
     from app.services.interview_report_service import InterviewReportService
 
+    _require_org_service(db, principal.org_id, "interview")
     return InterviewReportService.list_batches(db, principal.org_id, period=period)
 
 
@@ -285,6 +321,8 @@ def export_interview_reports_csv(
     principal=Depends(get_current_principal),
 ):
     from app.services.interview_report_service import InterviewReportService
+
+    _require_org_service(db, principal.org_id, "interview")
     from fastapi.responses import Response
 
     payload = InterviewReportService.list_batches(db, principal.org_id, period=period)
@@ -519,9 +557,7 @@ def download_recipient_cv(
 
 @router.get("/{order_id}")
 def get_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    _, order = _require_order_service(db, principal.org_id, order_id)
     recipients = ServiceOrderService.get_recipients(db, order.id)
     return ServiceOrderService.order_to_dict(order, include_recipients=True, recipients=recipients)
 

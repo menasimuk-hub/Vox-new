@@ -53,9 +53,35 @@ class OrganisationService:
                 raw = fields.get(field)
                 setattr(org, field, str(raw).strip() if raw is not None and str(raw).strip() else None)
         if "enabled_services" in fields and fields["enabled_services"] is not None:
-            from app.services.org_enabled_services import serialize_enabled_services
+            from app.services.org_enabled_services import (
+                AtLeastOneServiceRequiredError,
+                merge_user_enabled_services,
+                org_service_maps,
+                serialize_enabled_services,
+            )
 
-            org.enabled_services_json = serialize_enabled_services(fields["enabled_services"])
+            allowed, enabled, _ = org_service_maps(org)
+            try:
+                enabled = merge_user_enabled_services(allowed, enabled, fields["enabled_services"])
+            except (AtLeastOneServiceRequiredError, ValueError) as e:
+                raise ValueError(str(e)) from e
+            org.enabled_services_json = serialize_enabled_services(enabled)
+        if "allowed_services" in fields and fields["allowed_services"] is not None:
+            from app.services.org_enabled_services import (
+                AtLeastOneServiceRequiredError,
+                merge_admin_allowed_services,
+                org_service_maps,
+                serialize_allowed_services,
+                serialize_enabled_services,
+            )
+
+            allowed, enabled, _ = org_service_maps(org)
+            try:
+                allowed, enabled = merge_admin_allowed_services(allowed, enabled, fields["allowed_services"])
+            except AtLeastOneServiceRequiredError as e:
+                raise ValueError(str(e)) from e
+            org.allowed_services_json = serialize_allowed_services(allowed)
+            org.enabled_services_json = serialize_enabled_services(enabled)
         db.add(org)
         db.commit()
         db.refresh(org)

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,34 +21,61 @@ export const Route = createFileRoute("/_app/settings/services")({
 });
 
 function ServicesSettings() {
-  const { enabled, loaded } = useServices();
+  const { allowed, enabled, visible, toggle, saving, loaded, error } = useServices();
+  const visibleCount = items.filter((it) => visible[it.key]).length;
+
+  const onToggle = async (key: ServiceKey, value: boolean) => {
+    try {
+      await toggle(key, value);
+      toast.success(value ? "Service shown on dashboard" : "Service hidden from dashboard");
+    } catch {
+      toast.error("Could not update service");
+    }
+  };
+
+  const available = items.filter((it) => allowed[it.key] && (showRecoveryModules || !isRecoveryServiceKey(it.key)));
 
   return (
     <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Settings"
         title="Services"
-        description="Modules enabled for your organisation. Contact VoxBulk support or your account manager to change these."
+        description="Choose which modules appear in your sidebar and dashboard. Your account manager controls which products are available. At least one service must stay on."
       />
       <Card>
-        <CardHeader><CardTitle className="text-base">Modules (read-only)</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">Dashboard modules</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {!loaded ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : available.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No modules are available for your organisation. Contact VoxBulk support.</p>
           ) : (
-            items.filter((it) => showRecoveryModules || !isRecoveryServiceKey(it.key)).map((it) => (
-              <div key={it.key} className="flex items-center justify-between rounded-lg border border-border p-3">
-                <div className="flex items-center gap-3">
-                  <div className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary"><it.Icon className="size-4" /></div>
-                  <div>
-                    <p className="text-sm font-medium">{it.title}</p>
-                    <p className="text-xs text-muted-foreground">{it.desc}</p>
+            available.map((it) => {
+              const isOn = enabled[it.key];
+              const lockOff = isOn && visibleCount <= 1;
+              return (
+                <div key={it.key} className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary"><it.Icon className="size-4" /></div>
+                    <div>
+                      <p className="text-sm font-medium">{it.title}</p>
+                      <p className="text-xs text-muted-foreground">{it.desc}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground">{isOn ? "Visible" : "Hidden"}</span>
+                    <Switch
+                      checked={isOn}
+                      disabled={saving || lockOff}
+                      onCheckedChange={(v) => void onToggle(it.key, v)}
+                    />
                   </div>
                 </div>
-                <Switch checked={enabled[it.key]} disabled aria-readonly />
-              </div>
-            ))
+              );
+            })
           )}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {saving ? <p className="text-xs text-muted-foreground">Saving…</p> : null}
         </CardContent>
       </Card>
     </div>

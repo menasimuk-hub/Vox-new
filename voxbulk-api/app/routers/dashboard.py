@@ -47,12 +47,12 @@ def metrics(db: Session = Depends(get_db), principal=Depends(get_current_princip
 def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     """KPI blocks for dashboard home — interview, survey, recovery (when enabled)."""
     from app.models.service_order import ServiceOrder
-    from app.services.org_enabled_services import parse_enabled_services
+    from app.services.org_enabled_services import org_service_maps
     from app.services.recovery_service import OrganisationService
     from app.services.platform_catalog_service import ServiceOrderService
 
     org = OrganisationService.get_org(db, principal.org_id)
-    enabled = parse_enabled_services(org.enabled_services_json if org else None)
+    _, _, visible = org_service_maps(org) if org else ({}, {}, {})
 
     rows = list(
         db.execute(select(ServiceOrder).where(ServiceOrder.org_id == principal.org_id)).scalars().all()
@@ -99,7 +99,9 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
     )
 
     return {
-        "enabled_services": enabled,
+        "enabled_services": visible,
+        "allowed_services": org_service_maps(org)[0] if org else {},
+        "visible_services": visible,
         "interview": {
             "live": int_live,
             "finished": int_finished,

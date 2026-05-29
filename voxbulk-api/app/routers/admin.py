@@ -1163,15 +1163,27 @@ def admin_get_org_enabled_services(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
-    from app.services.org_enabled_services import parse_enabled_services
+    return admin_get_org_allowed_services(org_id, db, _admin)
+
+
+@router.get("/organisations/{org_id}/allowed-services")
+def admin_get_org_allowed_services(
+    org_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_enabled_services import org_service_maps
 
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    allowed, enabled, visible = org_service_maps(org)
     return {
         "org_id": org.id,
         "org_name": org.name,
-        "enabled_services": parse_enabled_services(org.enabled_services_json),
+        "allowed_services": allowed,
+        "enabled_services": enabled,
+        "visible_services": visible,
     }
 
 
@@ -1182,20 +1194,44 @@ def admin_patch_org_enabled_services(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
-    from app.services.org_enabled_services import parse_enabled_services, serialize_enabled_services
+    return admin_patch_org_allowed_services(org_id, payload, db, _admin)
+
+
+@router.patch("/organisations/{org_id}/allowed-services")
+def admin_patch_org_allowed_services(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_enabled_services import (
+        AtLeastOneServiceRequiredError,
+        merge_admin_allowed_services,
+        org_service_maps,
+        serialize_allowed_services,
+        serialize_enabled_services,
+    )
 
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    current = parse_enabled_services(org.enabled_services_json)
-    for key in ("interview", "survey", "recovery", "follow_up"):
-        if key in (payload or {}):
-            current[key] = bool(payload[key])
-    org.enabled_services_json = serialize_enabled_services(current)
+    allowed, enabled, _ = org_service_maps(org)
+    try:
+        allowed, enabled = merge_admin_allowed_services(allowed, enabled, payload or {})
+    except AtLeastOneServiceRequiredError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    org.allowed_services_json = serialize_allowed_services(allowed)
+    org.enabled_services_json = serialize_enabled_services(enabled)
     db.add(org)
     db.commit()
     db.refresh(org)
-    return {"ok": True, "enabled_services": parse_enabled_services(org.enabled_services_json)}
+    allowed, enabled, visible = org_service_maps(org)
+    return {
+        "ok": True,
+        "allowed_services": allowed,
+        "enabled_services": enabled,
+        "visible_services": visible,
+    }
 
 
 @router.patch("/organisations/{org_id}")

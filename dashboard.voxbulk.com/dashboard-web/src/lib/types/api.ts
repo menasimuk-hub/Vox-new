@@ -18,6 +18,8 @@ export type Organisation = {
   city?: string | null;
   postcode?: string | null;
   enabled_services?: ApiEnabledServices;
+  allowed_services?: ApiEnabledServices;
+  visible_services?: ApiEnabledServices;
 };
 
 export type UserProfile = {

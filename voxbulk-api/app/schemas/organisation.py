@@ -29,6 +29,7 @@ class OrganisationOut(BaseModel):
     contact_phone: str | None = None
     website: str | None = None
     enabled_services: dict[str, bool] | None = None
+    allowed_services: dict[str, bool] | None = None
 
 
 class EnabledServicesUpdate(BaseModel):

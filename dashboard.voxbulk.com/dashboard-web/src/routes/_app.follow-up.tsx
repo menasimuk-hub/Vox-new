@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { PageHeader } from "@/components/page-header";
-import { requireRecoveryModules } from "@/lib/guards/recovery-route";
+import { requireFollowUpModule } from "@/lib/guards/recovery-route";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -17,7 +17,7 @@ const steps = [
 ];
 
 export const Route = createFileRoute("/_app/follow-up")({
-  beforeLoad: requireRecoveryModules,
+  beforeLoad: requireFollowUpModule,
   head: () => ({ meta: [{ title: "Reminder sequences — VoxBulk" }] }),
   component: () => (
     <div className="flex w-full flex-col gap-6">
