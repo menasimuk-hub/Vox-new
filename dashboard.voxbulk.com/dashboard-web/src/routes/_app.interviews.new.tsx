@@ -10,7 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
-import { AtsConfirmModal, AtsBeforePreviewModal, InterviewPreviewQuoteModal, PackageUpgradeModal, type InterviewPreviewData } from "@/components/modals";
+import { AtsPreviewGateModal, InterviewPreviewQuoteModal, PackageUpgradeModal, type InterviewPreviewData } from "@/components/modals";
 import { AtsScore } from "@/components/ats-score";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -151,8 +151,10 @@ function CreateInterview() {
   const [preview, setPreview] = React.useState(false);
   const [upgradeOpen, setUpgradeOpen] = React.useState(false);
   const [atsPromptOpen, setAtsPromptOpen] = React.useState(false);
-  const [atsModal, setAtsModal] = React.useState(false);
   const [atsQuote, setAtsQuote] = React.useState<Record<string, unknown> | null>(null);
+  const [atsQuoteLoading, setAtsQuoteLoading] = React.useState(false);
+  const [atsQuoteError, setAtsQuoteError] = React.useState<string | null>(null);
+  const [atsSkipped, setAtsSkipped] = React.useState(false);
   const [atsForce, setAtsForce] = React.useState(false);
   const [atsRunAt, setAtsRunAt] = React.useState<string | null>(null);
   const [quoteTotalDisplay, setQuoteTotalDisplay] = React.useState<string | undefined>();
@@ -205,6 +207,9 @@ function CreateInterview() {
     setCvEmailEnabled(config.cv_email_enabled === true);
     if (config.ats_last_charge_at) {
       setAtsRunAt(String(config.ats_last_charge_at).slice(11, 16) || "done");
+    }
+    if (config.ats_skipped === true) {
+      setAtsSkipped(true);
     }
   }, [order, config, order?.scheduled_start_at, order?.scheduled_end_at, cvEmailAllowed]);
 
@@ -467,26 +472,32 @@ function CreateInterview() {
     scriptApproved ||
     (Boolean(config.script_approved) && approvedScriptFromConfig.trim() === script.trim());
 
-  const startAtsFlow = async (force: boolean) => {
+  const loadAtsQuote = async (force: boolean) => {
     if (!orderId) return;
     if (!criteria.trim() || !(role.trim() || position.trim())) {
-      toast.error("Complete position, role, and screening criteria before ATS");
+      setAtsQuote(null);
+      setAtsQuoteError("Complete position, role, and screening criteria before ATS");
       return;
     }
     if (!script.trim()) {
-      toast.error("Generate the AI script before running ATS — scores need job context");
+      setAtsQuote(null);
+      setAtsQuoteError("Generate the AI script before running ATS — scores need job context");
       return;
     }
     setAtsForce(force);
+    setAtsQuoteLoading(true);
+    setAtsQuoteError(null);
     try {
       await onSaveDraft(true);
       const quote = await apiFetch<Record<string, unknown>>(
         `/service-orders/${encodeURIComponent(orderId)}/interview/ats/quote${force ? "?force=true" : ""}`,
       );
       setAtsQuote(quote);
-      setAtsModal(true);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not quote ATS run");
+      setAtsQuote(null);
+      setAtsQuoteError(e instanceof Error ? e.message : "Could not load ATS pricing");
+    } finally {
+      setAtsQuoteLoading(false);
     }
   };
 
@@ -494,13 +505,24 @@ function CreateInterview() {
     if (!orderId) return;
     try {
       await runAtsM.mutateAsync({ confirm_charge: true, force: atsForce });
-      setAtsModal(false);
+      setAtsPromptOpen(false);
       setAtsRunAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       refreshDraft();
       toast.success("ATS scoring started");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "ATS run failed");
     }
+  };
+
+  const onContinueWithoutAts = async () => {
+    setAtsPromptOpen(false);
+    setAtsSkipped(true);
+    try {
+      await onSaveDraft(true, { ats_skipped: true });
+    } catch {
+      /* preview can still proceed locally */
+    }
+    setPreview(true);
   };
 
   const onUpload = async (files: FileList | null) => {
@@ -607,7 +629,9 @@ function CreateInterview() {
   const unscoredCount = candidates.filter((c) => c.ats == null && !c.atsStatus).length;
   const atsGatePassed =
     candidates.length > 0 &&
-    (Boolean(atsRunAt) ||
+    (atsSkipped ||
+      Boolean(config.ats_skipped) ||
+      Boolean(atsRunAt) ||
       Boolean(config.ats_last_charge_at) ||
       candidates.some((c) => c.ats != null || Boolean(c.atsStatus)));
 
@@ -629,15 +653,17 @@ function CreateInterview() {
       return;
     }
     if (!atsGatePassed) {
+      setAtsQuote(null);
+      setAtsQuoteError(null);
       setAtsPromptOpen(true);
+      void loadAtsQuote(!!atsRunAt);
       return;
     }
     setPreview(true);
   };
 
-  const onRunAtsFromPrompt = () => {
-    setAtsPromptOpen(false);
-    void startAtsFlow(!!atsRunAt);
+  const onContinueWithoutAtsHandler = () => {
+    void onContinueWithoutAts();
   };
 
   const candSort = useTableSort(candidates, "ats", "desc");
@@ -943,10 +969,15 @@ function CreateInterview() {
       </div>
 
       <PackageUpgradeModal open={upgradeOpen} onOpenChange={setUpgradeOpen} />
-      <AtsBeforePreviewModal
+      <AtsPreviewGateModal
         open={atsPromptOpen}
         onOpenChange={setAtsPromptOpen}
-        onRunAts={onRunAtsFromPrompt}
+        quote={atsQuote as { candidate_count?: number; total_gbp?: string; unit_price_gbp?: string; wallet_gbp?: string; requires_payment?: boolean } | null}
+        quoteLoading={atsQuoteLoading}
+        quoteError={atsQuoteError}
+        onRetryQuote={() => void loadAtsQuote(!!atsRunAt)}
+        onRunAts={() => void confirmAtsRun()}
+        onContinueWithoutAts={onContinueWithoutAtsHandler}
         busy={runAtsM.isPending}
         candidateCount={candidates.length}
         unscoredCount={unscoredCount}
@@ -962,7 +993,6 @@ function CreateInterview() {
         payBusy={payBusy}
         gcAvailable={gcReady}
       />
-      <AtsConfirmModal open={atsModal} onOpenChange={setAtsModal} quote={atsQuote} onConfirm={() => void confirmAtsRun()} busy={runAtsM.isPending} />
     </div>
   );
 }

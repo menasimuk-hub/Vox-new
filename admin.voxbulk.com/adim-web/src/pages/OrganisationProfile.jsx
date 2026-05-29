@@ -66,6 +66,8 @@ export default function OrganisationProfile() {
   const [planCode, setPlanCode] = useState('')
   const [subStatus, setSubStatus] = useState('active')
   const [planSaving, setPlanSaving] = useState(false)
+  const [walletCreditGbp, setWalletCreditGbp] = useState('50')
+  const [walletBusy, setWalletBusy] = useState(false)
 
   const [suspendSaving, setSuspendSaving] = useState(false)
 
@@ -310,6 +312,29 @@ export default function OrganisationProfile() {
       window.alert(e?.message || 'Could not update plan')
     } finally {
       setPlanSaving(false)
+    }
+  }
+
+  const creditWallet = async () => {
+    if (!orgId) return
+    const pounds = Number(walletCreditGbp || 0)
+    if (!Number.isFinite(pounds) || pounds <= 0) {
+      window.alert('Enter a positive amount in GBP.')
+      return
+    }
+    const amountPence = Math.round(pounds * 100)
+    setWalletBusy(true)
+    try {
+      const res = await apiFetch(`/admin/organisations/${orgId}/wallet/credit`, {
+        method: 'POST',
+        body: JSON.stringify({ amount_pence: amountPence, note: 'Admin test credit' }),
+      })
+      await refreshOrg()
+      window.alert(`Wallet credited. New balance: ${res.wallet_balance_gbp || ''}`)
+    } catch (e) {
+      window.alert(e?.message || 'Could not credit wallet')
+    } finally {
+      setWalletBusy(false)
     }
   }
 
@@ -819,28 +844,57 @@ export default function OrganisationProfile() {
       )}
 
       {tab === 'plan' && (
-        <div className='card' style={{ maxWidth: 560 }}>
-          <div className='cardHead'><h3>Plan & subscription</h3></div>
-          <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
-            <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-              Current: <strong>{org?.plan_name || org?.plan_code || '—'}</strong> ({org?.subscription_status || '—'})
-            </p>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className='muted' style={{ fontSize: 12 }}>Plan</span>
-              <select className='select' value={planCode} onChange={(e) => setPlanCode(e.target.value)} disabled={!orgId}>
-                <option value=''>Choose plan…</option>
-                {(plans || []).map((p) => (
-                  <option key={p.code} value={p.code}>{p.name} ({p.code})</option>
-                ))}
-              </select>
-            </label>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className='muted' style={{ fontSize: 12 }}>Subscription status</span>
-              <input className='input' value={subStatus} onChange={(e) => setSubStatus(e.target.value)} placeholder='active, trial…' disabled={!orgId} />
-            </label>
-            <button className='btn primary' disabled={!orgId || planSaving || !planCode.trim()} onClick={savePlan}>
-              {planSaving ? 'Applying…' : 'Apply plan'}
-            </button>
+        <div className='stack' style={{ display: 'grid', gap: 14, maxWidth: 560 }}>
+          <div className='card'>
+            <div className='cardHead'><h3>Plan & subscription</h3></div>
+            <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
+              <p className='muted' style={{ fontSize: 13, margin: 0 }}>
+                Current: <strong>{org?.plan_name || org?.plan_code || '—'}</strong> ({org?.subscription_status || '—'})
+              </p>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className='muted' style={{ fontSize: 12 }}>Plan</span>
+                <select className='select' value={planCode} onChange={(e) => setPlanCode(e.target.value)} disabled={!orgId}>
+                  <option value=''>Choose plan…</option>
+                  {(plans || []).map((p) => (
+                    <option key={p.code} value={p.code}>{p.name} ({p.code})</option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className='muted' style={{ fontSize: 12 }}>Subscription status</span>
+                <input className='input' value={subStatus} onChange={(e) => setSubStatus(e.target.value)} placeholder='active, trial…' disabled={!orgId} />
+              </label>
+              <button className='btn primary' disabled={!orgId || planSaving || !planCode.trim()} onClick={savePlan}>
+                {planSaving ? 'Applying…' : 'Apply plan'}
+              </button>
+              <p className='muted' style={{ fontSize: 12, margin: 0 }}>
+                Set <strong>payg</strong> to move a customer to Pay as you go (no monthly fee). Use Promo offers for survey/interview credits.
+              </p>
+            </div>
+          </div>
+
+          <div className='card'>
+            <div className='cardHead'><h3>Wallet (test credit)</h3></div>
+            <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
+              <p className='muted' style={{ fontSize: 13, margin: 0 }}>
+                Balance: <strong>{org?.wallet_balance_gbp || '£0.00'}</strong> — used for pay-as-you-go calls, surveys, and CV scans in the dashboard.
+              </p>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className='muted' style={{ fontSize: 12 }}>Add credit (£)</span>
+                <input
+                  className='input'
+                  type='number'
+                  min='1'
+                  step='1'
+                  value={walletCreditGbp}
+                  onChange={(e) => setWalletCreditGbp(e.target.value)}
+                  disabled={!orgId || walletBusy}
+                />
+              </label>
+              <button className='btn soft' disabled={!orgId || walletBusy} onClick={creditWallet}>
+                {walletBusy ? 'Crediting…' : 'Add wallet credit'}
+              </button>
+            </div>
           </div>
         </div>
       )}

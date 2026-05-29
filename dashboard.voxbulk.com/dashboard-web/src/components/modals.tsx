@@ -492,26 +492,38 @@ export function PackageUpgradeModal({
   );
 }
 
-export function AtsBeforePreviewModal({
+export function AtsPreviewGateModal({
   open,
   onOpenChange,
+  quote,
+  quoteLoading,
+  quoteError,
+  onRetryQuote,
   onRunAts,
+  onContinueWithoutAts,
   busy,
   candidateCount,
   unscoredCount,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  quote: { candidate_count?: number; total_gbp?: string; unit_price_gbp?: string; wallet_gbp?: string; requires_payment?: boolean } | null;
+  quoteLoading?: boolean;
+  quoteError?: string | null;
+  onRetryQuote?: () => void;
   onRunAts: () => void;
+  onContinueWithoutAts: () => void;
   busy?: boolean;
   candidateCount: number;
   unscoredCount: number;
 }) {
+  const count = Number(quote?.candidate_count || 0);
+  const unitPrice = quote?.unit_price_gbp || "£0.50";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Run ATS before you approve</DialogTitle>
+          <DialogTitle>Run ATS before you approve?</DialogTitle>
           <DialogDescription>
             ATS reads each CV against your role and screening criteria so you only phone-screen strong matches.
           </DialogDescription>
@@ -526,55 +538,51 @@ export function AtsBeforePreviewModal({
             <li>You can delete anyone you do not want before final approval</li>
           </ul>
         </div>
-        <DialogFooter className="gap-2 sm:justify-between">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button className="gap-1.5" onClick={onRunAts} disabled={busy || candidateCount <= 0}>
-            {busy ? "Starting ATS…" : "Run ATS & see cost"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export function AtsConfirmModal({
-  open,
-  onOpenChange,
-  quote,
-  onConfirm,
-  busy,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  quote: { candidate_count?: number; total_gbp?: string; unit_price_gbp?: string; wallet_gbp?: string; requires_payment?: boolean } | null;
-  onConfirm: () => void;
-  busy?: boolean;
-}) {
-  const count = Number(quote?.candidate_count || 0);
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Confirm ATS scoring</DialogTitle>
-          <DialogDescription>
-            Each CV scan costs {quote?.unit_price_gbp || "£0.50"}. ATS runs after your AI script is ready so scores match the job requirements.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
-          <Row label="Candidates to score" value={String(count)} />
-          <Row label="Unit price" value={quote?.unit_price_gbp || "£0.50"} />
-          <Row label="Total" value={quote?.total_gbp || "£0.00"} bold />
-          <Row label="ATS wallet balance" value={quote?.wallet_gbp || "£0.00"} />
-        </div>
-        {quote?.requires_payment !== false && (
-          <p className="text-xs text-muted-foreground">
-            Your ATS wallet is empty or insufficient. Confirming records the charge and starts scoring immediately.
+        {quoteLoading ? (
+          <p className="rounded-lg border border-border bg-muted/30 px-3 py-4 text-center text-sm text-muted-foreground">
+            Loading ATS pricing…
           </p>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={onConfirm} disabled={busy || count <= 0}>
-            {busy ? "Starting…" : `Pay ${quote?.total_gbp || ""} & run ATS`}
+        ) : quoteError ? (
+          <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-3 text-sm">
+            <p className="text-destructive">{quoteError}</p>
+            {onRetryQuote ? (
+              <Button type="button" variant="outline" size="sm" onClick={onRetryQuote}>
+                Try again
+              </Button>
+            ) : null}
+          </div>
+        ) : quote ? (
+          <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
+            <Row label="Candidates to score" value={String(count)} />
+            <Row label="Unit price" value={unitPrice} />
+            <Row label="Total" value={quote.total_gbp || "£0.00"} bold />
+            <Row label="ATS wallet balance" value={quote.wallet_gbp || "£0.00"} />
+            {count <= 0 ? (
+              <p className="pt-1 text-xs text-muted-foreground">
+                No CVs are ready to score yet (text may still be parsing). You can continue without ATS or try again after uploads finish.
+              </p>
+            ) : quote.requires_payment !== false ? (
+              <p className="pt-1 text-xs text-muted-foreground">
+                Your ATS wallet is empty or insufficient. Confirming records the charge and starts scoring immediately.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <DialogFooter className="flex-col gap-2 sm:flex-col sm:items-stretch">
+          <Button
+            className="w-full"
+            onClick={onRunAts}
+            disabled={busy || quoteLoading || Boolean(quoteError) || count <= 0}
+          >
+            {busy ? "Starting ATS…" : count > 0 ? `Run ATS — ${quote?.total_gbp || ""}` : "Run ATS"}
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={onContinueWithoutAts}
+            disabled={busy || quoteLoading}
+          >
+            Continue without ATS
           </Button>
         </DialogFooter>
       </DialogContent>

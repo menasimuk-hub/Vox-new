@@ -1154,6 +1154,8 @@ def admin_get_organisation(org_id: str, db: Session = Depends(get_db), _admin=De
         "subscription_status": o.subscription_status,
         "plan_code": o.plan_code,
         "plan_name": o.plan_name,
+        "wallet_balance_pence": int(o.wallet_balance_pence or 0),
+        "wallet_balance_gbp": f"£{(int(o.wallet_balance_pence or 0) / 100):.2f}",
     }
 
 
@@ -1317,6 +1319,8 @@ def admin_list_org_branches(org_id: str, db: Session = Depends(get_db), _admin=D
 
 @router.put("/organisations/{org_id}/subscription")
 def admin_set_org_subscription(org_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.usage_wallet_service import UsageWalletService
+
     plan_code = str(payload.get("plan_code") or "").strip()
     if not plan_code:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plan_code required")
@@ -1335,9 +1339,38 @@ def admin_set_org_subscription(org_id: str, payload: dict, db: Session = Depends
         db.add(sub)
     else:
         sub.plan_id = plan.id
+        sub.pending_plan_id = None
         sub.status = status_str
     db.commit()
+    db.refresh(sub)
+    UsageWalletService.sync_plan_limits(db, org_id=org_id, plan=plan, subscription=sub)
     return {"ok": True, "org_id": org_id, "plan_code": plan.code, "status": sub.status}
+
+
+@router.post("/organisations/{org_id}/wallet/credit")
+def admin_credit_org_wallet(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+    org = db.get(Organisation, org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    amount = int(payload.get("amount_pence") or 0)
+    if amount <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="amount_pence must be positive")
+    org = VoxbulkPricingService.deposit_wallet(db, org, amount)
+    return {
+        "ok": True,
+        "org_id": org_id,
+        "credited_pence": amount,
+        "note": str(payload.get("note") or "").strip() or None,
+        "wallet_balance_pence": int(org.wallet_balance_pence or 0),
+        "wallet_balance_gbp": f"£{(int(org.wallet_balance_pence or 0) / 100):.2f}",
+    }
 
 
 @router.get("/organisations/{org_id}/users")

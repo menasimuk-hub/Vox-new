@@ -157,6 +157,7 @@ class VoxbulkPricingService:
             "typical_call_high_display": VoxbulkPricingService.money_display(typical_high, m, settings),
             "is_featured": bool(getattr(row, "is_featured", False)),
             "is_enterprise": bool(getattr(row, "is_enterprise", False)),
+            "is_payg": str(row.code or "").lower() == "payg",
             "is_active": bool(row.is_active),
             "sort_order": int(row.sort_order or 100),
             "market": m,
@@ -516,60 +517,97 @@ class VoxbulkPricingService:
         return org
 
     @staticmethod
+    def _upsert_voxbulk_plan(db: Session, s: dict[str, Any], *, settings: PricingGlobalSettings, now: datetime) -> None:
+        existing = db.execute(select(Plan).where(Plan.code == s["code"])).scalar_one_or_none()
+        if existing is not None:
+            existing.name = s["name"]
+            existing.price_gbp_pence = s["price_gbp_pence"]
+            existing.per_min_pence = int(s.get("per_min_pence") or 0)
+            existing.overage_per_min_pence = int(s.get("extra_per_min_pence") or 0)
+            existing.is_featured = bool(s.get("is_featured"))
+            existing.is_enterprise = bool(s.get("is_enterprise"))
+            existing.service_kind = "voxbulk"
+            existing.sort_order = int(s["sort_order"])
+            existing.is_active = bool(s.get("is_active", True))
+            existing.updated_at = now
+            if not existing.is_enterprise:
+                VoxbulkPricingService.apply_plan_allowances(db, existing, settings)
+            return
+        row = Plan(
+            id=str(uuid.uuid4()),
+            code=s["code"],
+            name=s["name"],
+            price_gbp_pence=s["price_gbp_pence"],
+            interval="monthly",
+            description=s.get("description"),
+            features_json=None,
+            calls_included=0,
+            whatsapp_included=0,
+            sms_included=0,
+            cv_scans_included=0,
+            per_min_pence=int(s.get("per_min_pence") or 0),
+            overage_per_min_pence=int(s.get("extra_per_min_pence") or 0),
+            trial_days_default=14,
+            service_kind="voxbulk",
+            is_active=bool(s.get("is_active", True)),
+            is_featured=bool(s.get("is_featured")),
+            is_enterprise=bool(s.get("is_enterprise")),
+            sort_order=int(s["sort_order"]),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        db.flush()
+        if not row.is_enterprise:
+            VoxbulkPricingService.apply_plan_allowances(db, row, settings)
+
+    @staticmethod
+    def ensure_payg_plan(db: Session) -> Plan | None:
+        settings = VoxbulkPricingService.get_settings(db)
+        per_min = int(settings.interview_per_min_pence or 35)
+        now = datetime.utcnow()
+        VoxbulkPricingService._upsert_voxbulk_plan(
+            db,
+            {
+                "code": "payg",
+                "name": "Pay as you go",
+                "description": "No monthly subscription — top up your wallet and pay per interview, survey, or CV scan.",
+                "price_gbp_pence": 0,
+                "per_min_pence": per_min,
+                "extra_per_min_pence": per_min,
+                "sort_order": 5,
+            },
+            settings=settings,
+            now=now,
+        )
+        db.commit()
+        return db.execute(select(Plan).where(Plan.code == "payg")).scalar_one_or_none()
+
+    @staticmethod
     def seed_voxbulk_plans(db: Session) -> None:
-        """Ensure VoxBulk Starter/Pro/Business/Enterprise plans exist."""
+        """Ensure VoxBulk Pay-as-you-go, Starter/Pro/Business/Enterprise plans exist."""
         VoxbulkPricingService.get_settings(db)
         PlatformCatalogService.ensure_defaults(db)
         now = datetime.utcnow()
+        settings = VoxbulkPricingService.get_settings(db)
+        per_min = int(settings.interview_per_min_pence or 35)
         seeds = [
+            {
+                "code": "payg",
+                "name": "Pay as you go",
+                "description": "No monthly subscription — top up your wallet and pay per interview, survey, or CV scan.",
+                "price_gbp_pence": 0,
+                "per_min_pence": per_min,
+                "extra_per_min_pence": per_min,
+                "sort_order": 5,
+            },
             {"code": "starter", "name": "Starter", "price_gbp_pence": 5900, "per_min_pence": 32, "extra_per_min_pence": 35, "sort_order": 10},
             {"code": "pro", "name": "Pro", "price_gbp_pence": 12900, "per_min_pence": 30, "extra_per_min_pence": 32, "is_featured": True, "sort_order": 20},
             {"code": "business", "name": "Business", "price_gbp_pence": 24900, "per_min_pence": 25, "extra_per_min_pence": 28, "sort_order": 30},
             {"code": "enterprise", "name": "Enterprise", "price_gbp_pence": None, "per_min_pence": 0, "extra_per_min_pence": 0, "is_enterprise": True, "sort_order": 40},
         ]
-        settings = VoxbulkPricingService.get_settings(db)
         for s in seeds:
-            existing = db.execute(select(Plan).where(Plan.code == s["code"])).scalar_one_or_none()
-            if existing is not None:
-                existing.name = s["name"]
-                existing.price_gbp_pence = s["price_gbp_pence"]
-                existing.per_min_pence = int(s.get("per_min_pence") or 0)
-                existing.overage_per_min_pence = int(s.get("extra_per_min_pence") or 0)
-                existing.is_featured = bool(s.get("is_featured"))
-                existing.is_enterprise = bool(s.get("is_enterprise"))
-                existing.service_kind = "voxbulk"
-                existing.sort_order = int(s["sort_order"])
-                existing.updated_at = now
-                if not existing.is_enterprise:
-                    VoxbulkPricingService.apply_plan_allowances(db, existing, settings)
-                continue
-            row = Plan(
-                id=str(uuid.uuid4()),
-                code=s["code"],
-                name=s["name"],
-                price_gbp_pence=s["price_gbp_pence"],
-                interval="monthly",
-                description=None,
-                features_json=None,
-                calls_included=0,
-                whatsapp_included=0,
-                sms_included=0,
-                cv_scans_included=0,
-                per_min_pence=int(s.get("per_min_pence") or 0),
-                overage_per_min_pence=int(s.get("extra_per_min_pence") or 0),
-                trial_days_default=14,
-                service_kind="voxbulk",
-                is_active=True,
-                is_featured=bool(s.get("is_featured")),
-                is_enterprise=bool(s.get("is_enterprise")),
-                sort_order=int(s["sort_order"]),
-                created_at=now,
-                updated_at=now,
-            )
-            db.add(row)
-            db.flush()
-            if not row.is_enterprise:
-                VoxbulkPricingService.apply_plan_allowances(db, row, settings)
+            VoxbulkPricingService._upsert_voxbulk_plan(db, s, settings=settings, now=now)
         default_tiers = [
             (1000, 0, 10),
             (5000, 500, 20),
@@ -626,3 +664,4 @@ class VoxbulkPricingService:
                     )
                 )
             db.commit()
+        VoxbulkPricingService.ensure_payg_plan(db)

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
+from app.models.platform_service import PlatformService
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.interview_ats_service import queue_ats_for_order, sanitize_cv_text
 from app.services.platform_catalog_service import PlatformCatalogService
@@ -23,16 +24,30 @@ class InterviewAtsBillingError(ValueError):
 
 
 def ats_unit_price_pence(db: Session) -> int:
-    svc = PlatformCatalogService.get_service_by_code(db, ATS_SERVICE_CODE)
-    if svc is None:
+    """Read ATS unit price without failing the quote if catalog seeding is unavailable."""
+    try:
+        svc = db.execute(
+            select(PlatformService).where(PlatformService.code == ATS_SERVICE_CODE)
+        ).scalar_one_or_none()
+        if svc is None:
+            try:
+                PlatformCatalogService.ensure_defaults(db)
+                svc = db.execute(
+                    select(PlatformService).where(PlatformService.code == ATS_SERVICE_CODE)
+                ).scalar_one_or_none()
+            except Exception:
+                return DEFAULT_ATS_UNIT_PENCE
+        if svc is None:
+            return DEFAULT_ATS_UNIT_PENCE
+        rules = PlatformCatalogService.list_rules_for_service(db, svc.id, active_only=True)
+        for rule in rules:
+            if int(rule.unit_price_pence or 0) > 0:
+                return int(rule.unit_price_pence)
+            if int(rule.overage_unit_price_pence or 0) > 0:
+                return int(rule.overage_unit_price_pence)
         return DEFAULT_ATS_UNIT_PENCE
-    rules = PlatformCatalogService.list_rules_for_service(db, svc.id, active_only=True)
-    for rule in rules:
-        if int(rule.unit_price_pence or 0) > 0:
-            return int(rule.unit_price_pence)
-        if int(rule.overage_unit_price_pence or 0) > 0:
-            return int(rule.overage_unit_price_pence)
-    return DEFAULT_ATS_UNIT_PENCE
+    except Exception:
+        return DEFAULT_ATS_UNIT_PENCE
 
 
 def _order_config(order: ServiceOrder) -> dict[str, Any]:

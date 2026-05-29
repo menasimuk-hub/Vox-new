@@ -45,6 +45,7 @@ class AdminOrganisationSummary:
     subscription_status: str | None
     plan_code: str | None
     plan_name: str | None
+    wallet_balance_pence: int = 0
 
 
 class AdminOrganisationService:
@@ -146,6 +147,7 @@ class AdminOrganisationService:
                     subscription_status=sub[0] if sub else None,
                     plan_code=plan.code if plan else None,
                     plan_name=plan.name if plan else None,
+                    wallet_balance_pence=int(getattr(org, "wallet_balance_pence", 0) or 0),
                 )
             )
         return out
@@ -205,5 +207,6 @@ class AdminOrganisationService:
             subscription_status=sub.status if sub else None,
             plan_code=plan.code if plan else None,
             plan_name=plan.name if plan else None,
+            wallet_balance_pence=int(getattr(org, "wallet_balance_pence", 0) or 0),
         )
 

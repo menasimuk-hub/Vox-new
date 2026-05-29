@@ -859,8 +859,11 @@ def quote_interview_ats(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    import logging
+
     from app.services.interview_ats_billing_service import InterviewAtsBillingError, quote_ats_run
 
+    logger = logging.getLogger(__name__)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -868,6 +871,12 @@ def quote_interview_ats(
         return quote_ats_run(db, order, force=force)
     except InterviewAtsBillingError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("quote_interview_ats_failed order_id=%s", order_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not calculate ATS pricing. If this persists, contact support — the server may need a database update.",
+        ) from e
 
 
 @router.post("/{order_id}/interview/ats/run")

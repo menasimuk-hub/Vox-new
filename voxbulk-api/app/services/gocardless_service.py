@@ -420,6 +420,42 @@ class BillingService:
         return sub
 
     @staticmethod
+    def switch_to_pay_as_you_go(db: Session, *, org_id: str) -> tuple[Subscription, Plan]:
+        """Move org to the zero-fee pay-as-you-go plan without a payment provider checkout."""
+        from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+        VoxbulkPricingService.ensure_seeded(db)
+        plan = db.execute(select(Plan).where(Plan.code == "payg")).scalar_one_or_none()
+        if plan is None or not bool(getattr(plan, "is_active", True)):
+            raise ValueError("Pay as you go is not available")
+
+        now = datetime.utcnow()
+        sub = db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
+        period_end = now + timedelta(days=3650)
+        if sub is None:
+            sub = Subscription(
+                org_id=org_id,
+                plan_id=plan.id,
+                status="active",
+                current_period_end=period_end,
+                payment_provider="payg",
+                payment_mode="live",
+                updated_at=now,
+            )
+            db.add(sub)
+        else:
+            sub.plan_id = plan.id
+            sub.pending_plan_id = None
+            sub.status = "active"
+            sub.current_period_end = period_end
+            sub.payment_provider = "payg"
+            sub.updated_at = now
+            db.add(sub)
+        db.commit()
+        db.refresh(sub)
+        return sub, plan
+
+    @staticmethod
     def mark_pending_provider_checkout(
         db: Session,
         *,

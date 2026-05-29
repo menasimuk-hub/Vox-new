@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
+import { apiFetch } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessSubscription } from "@/lib/billing/gocardless";
 import { marketLabel } from "@/lib/billing/market";
 import { isSamePlan, planButtonLabel, sortedPlans, type PlanLike } from "@/lib/billing/plans";
@@ -21,6 +22,10 @@ export const Route = createFileRoute("/_app/account/packages")({
 });
 
 type PlanRow = Record<string, unknown>;
+
+function isPaygPlan(plan: PlanRow) {
+  return String(plan.code || "").toLowerCase() === "payg" || Boolean(plan.is_payg);
+}
 
 function sym(data: Record<string, unknown> | undefined) {
   return String(data?.currency_symbol || "£");
@@ -96,6 +101,18 @@ function PackagesPage() {
   const onSubscribe = async (plan: PlanRow) => {
     if (plan.is_enterprise) return;
     if (isSamePlan(plan, currentPlan, plans)) return;
+    if (isPaygPlan(plan)) {
+      setBusyPlanId(String(plan.id));
+      try {
+        await apiFetch("/billing/subscription/pay-as-you-go", { method: "POST", body: "{}" });
+        toast.success("Switched to Pay as you go — top up your wallet when you're ready.");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not switch plan");
+      } finally {
+        setBusyPlanId(null);
+      }
+      return;
+    }
     if (!gcReady) {
       toast.error("GoCardless checkout is not configured. Enable it in admin integrations.");
       return;
@@ -158,6 +175,7 @@ function PackagesPage() {
               const high = Number(p.typical_call_high_display?.toString().replace(/[^\d.]/g, "") || (conn + perMin * 15) / 100);
               const isCurrent = isSamePlan(p, currentPlan, plans);
               const isFeatured = Boolean(p.is_featured);
+              const payg = isPaygPlan(p);
               const btnLabel = planButtonLabel(p, currentPlan, { busy: busyPlanId === String(p.id), plans });
               return (
                 <div key={String(p.id)} className="relative flex pt-3">
@@ -170,22 +188,26 @@ function PackagesPage() {
                     <CardHeader className="pb-2 pt-5">
                       <CardTitle className="text-base">{String(p.name)}</CardTitle>
                       <CardDescription className="text-xl font-semibold text-foreground">
-                        {ent ? "Let's talk" : `${String(p.price_display || p.price_display_pence)}${!ent ? "/mo" : ""}`}
+                        {ent ? "Let's talk" : payg ? "No monthly fee" : `${String(p.price_display || p.price_display_pence)}/mo`}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-1 flex-col space-y-2 text-xs">
                       {!ent && (
                         <>
                           <p>Cost per min: <strong>{String(p.per_min_display)}</strong></p>
-                          <p className="text-muted-foreground">Extra min (after package): <strong>{String(p.extra_per_min_display || p.per_min_display)}</strong></p>
+                          {payg ? (
+                            <p className="text-muted-foreground">Use wallet top-ups — pay only for what you use.</p>
+                          ) : (
+                            <p className="text-muted-foreground">Extra min (after package): <strong>{String(p.extra_per_min_display || p.per_min_display)}</strong></p>
+                          )}
                           {connEnabled && <p className="text-muted-foreground">{String(services.connection_fee_label)}: {String(services.connection_fee_display)}</p>}
                           <p className="text-muted-foreground">Typical interview<br />{sym(data)}{low.toFixed(2)} – {sym(data)}{high.toFixed(2)} per call</p>
                         </>
                       )}
                       <div className="mt-auto space-y-1 border-t border-border pt-2">
-                        <div className="flex justify-between"><span className="text-muted-foreground">Mins included</span><span>{ent ? "Custom" : Number(p.minutes_included || 0).toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">WA surveys</span><span>{ent ? "Custom" : Number(p.whatsapp_included || 0).toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">CV scans</span><span>{ent ? "Custom" : Number(p.cv_scans_included || 0).toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Mins included</span><span>{ent ? "Custom" : payg ? "Pay per use" : Number(p.minutes_included || 0).toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">WA surveys</span><span>{ent ? "Custom" : payg ? "Pay per use" : Number(p.whatsapp_included || 0).toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">CV scans</span><span>{ent ? "Custom" : payg ? "Pay per use" : Number(p.cv_scans_included || 0).toLocaleString()}</span></div>
                       </div>
                       <Button
                         className="mt-3 w-full"

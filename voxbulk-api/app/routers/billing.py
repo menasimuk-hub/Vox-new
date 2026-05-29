@@ -125,6 +125,24 @@ def get_payment_options(db: Session = Depends(get_db)):
     return PaymentOptionsOut.model_validate(BillingService.payment_options(db))
 
 
+@router.post("/subscription/pay-as-you-go")
+def switch_subscription_to_pay_as_you_go(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Switch to the zero-fee pay-as-you-go plan (wallet top-ups only)."""
+    try:
+        sub, plan = BillingService.switch_to_pay_as_you_go(db, org_id=principal.org_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    UsageWalletService.sync_plan_limits(db, org_id=principal.org_id, plan=plan, subscription=sub)
+    return {
+        "ok": True,
+        "subscription": SubscriptionOut.model_validate(sub),
+        "plan": PlanOut.model_validate(plan),
+    }
+
+
 @router.post("/subscription/change-plan")
 def change_subscription_plan(
     payload: CashPlanSelectIn,
