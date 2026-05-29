@@ -114,3 +114,5 @@ def test_scheduling_status_includes_interview_ready(app_client):
     assert data.get("interview_booking_ready") is True
     assert "calendly_connected" in data
     assert "cronofy_connected" in data
+    assert "calendly_platform_configured" in data
+    assert "cronofy_platform_configured" in data

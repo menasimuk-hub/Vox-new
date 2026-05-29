@@ -61,11 +61,15 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     expires_at = cfg.get("expires_at")
     cal_connected = connected and provider == "calendly"
     cron_connected = connected and provider == "cronofy"
+    cal_platform = platform_oauth_configured(db, "calendly")
+    cron_platform = platform_oauth_configured(db, "cronofy")
     return {
         "connected": connected,
         "provider": provider or None,
         "calendly_connected": cal_connected,
         "cronofy_connected": cron_connected,
+        "calendly_platform_configured": cal_platform,
+        "cronofy_platform_configured": cron_platform,
         "interview_booking_ready": True,
         "interview_booking_mode": "voxbulk_native",
         "providers_available": ["calendly", "cronofy"],
@@ -96,6 +100,17 @@ def create_scheduling_link(
             candidate_email=candidate_email,
         )
     raise ValueError("Connect Calendly or Cronofy in System settings before sending scheduling links")
+
+
+def platform_oauth_configured(db: Session | None, provider: str) -> bool:
+    provider = str(provider or "").strip().lower()
+    if provider == "calendly":
+        client_id, client_secret, redirect = _calendly_platform_credentials(db)
+    elif provider == "cronofy":
+        client_id, client_secret, redirect = _cronofy_platform_credentials(db)
+    else:
+        return False
+    return bool(client_id and client_secret and redirect and redirect.startswith("http"))
 
 
 def _calendly_platform_credentials(db: Session | None = None) -> tuple[str, str, str]:

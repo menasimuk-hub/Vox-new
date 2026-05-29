@@ -804,7 +804,10 @@ def get_scheduling_status(db: Session = Depends(get_db), principal=Depends(get_c
 def start_calendly_oauth(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.scheduling_connection_service import calendly_oauth_start
 
-    return {"authorize_url": calendly_oauth_start(org_id=principal.org_id, db=db)}
+    try:
+        return {"authorize_url": calendly_oauth_start(org_id=principal.org_id, db=db)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/scheduling/oauth/calendly/callback")
@@ -827,7 +830,10 @@ def calendly_oauth_callback(
 def start_cronofy_oauth(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.scheduling_connection_service import cronofy_oauth_start
 
-    return {"authorize_url": cronofy_oauth_start(org_id=principal.org_id, db=db)}
+    try:
+        return {"authorize_url": cronofy_oauth_start(org_id=principal.org_id, db=db)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/scheduling/oauth/cronofy/callback")
