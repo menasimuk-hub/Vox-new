@@ -30,6 +30,7 @@ class OrganisationOut(BaseModel):
     website: str | None = None
     enabled_services: dict[str, bool] | None = None
     allowed_services: dict[str, bool] | None = None
+    logo_url: str | None = None
 
 
 class EnabledServicesUpdate(BaseModel):

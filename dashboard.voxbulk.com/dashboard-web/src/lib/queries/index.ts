@@ -40,6 +40,10 @@ export const queryKeys = {
   faq: ["faq"] as const,
   schedulingStatus: ["service-orders", "scheduling", "status"] as const,
   serviceApiSettings: ["organisations", "service-api-settings"] as const,
+  teamMembers: ["organisations", "team", "members"] as const,
+  teamInvites: ["organisations", "team", "invites"] as const,
+  optOuts: ["organisations", "opt-outs"] as const,
+  auditLog: ["organisations", "audit-log"] as const,
 };
 
 export function useHomeSummary() {
@@ -562,5 +566,160 @@ export function useOrderQuote(orderId: string | null) {
   return useMutation({
     mutationFn: () =>
       apiFetch<ServiceOrder>(`/service-orders/${encodeURIComponent(orderId!)}/quote`, { method: "POST", body: "{}" }),
+  });
+}
+
+export type TeamMember = {
+  user_id: string;
+  email: string;
+  is_active: boolean;
+  role: string;
+  linked_at?: string;
+};
+
+export type TeamInvite = {
+  id: string;
+  email: string;
+  role: string;
+  created_at?: string;
+  expires_at?: string;
+  is_expired?: boolean;
+  signup_url: string;
+};
+
+export type OptOutEntry = {
+  id: string;
+  phone: string;
+  phone_e164: string;
+  name?: string | null;
+  contact_name?: string | null;
+  reason?: string | null;
+  created_at?: string;
+};
+
+export type AuditEntry = {
+  id: string;
+  action: string;
+  detail?: string | null;
+  actor_email?: string | null;
+  created_at?: string;
+};
+
+export function useTeamMembers() {
+  return useQuery({
+    queryKey: queryKeys.teamMembers,
+    queryFn: () => apiFetch<TeamMember[]>("/organisations/me/team/members"),
+  });
+}
+
+export function useTeamInvites() {
+  return useQuery({
+    queryKey: queryKeys.teamInvites,
+    queryFn: () => apiFetch<TeamInvite[]>("/organisations/me/team/invites"),
+  });
+}
+
+export function useCreateTeamInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { email: string; role: string; send_email?: boolean }) =>
+      apiFetch<TeamInvite & { invite_id?: string; email_sent?: boolean }>("/organisations/me/team/invites", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.teamInvites });
+      void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+    },
+  });
+}
+
+export function useRevokeTeamInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (inviteId: string) =>
+      apiFetch(`/organisations/me/team/invites/${encodeURIComponent(inviteId)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.teamInvites });
+      void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+    },
+  });
+}
+
+export function useRemoveTeamMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch(`/organisations/me/team/members/${encodeURIComponent(userId)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.teamMembers });
+      void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+    },
+  });
+}
+
+export function useOptOuts() {
+  return useQuery({
+    queryKey: queryKeys.optOuts,
+    queryFn: () => apiFetch<OptOutEntry[]>("/organisations/me/opt-outs"),
+  });
+}
+
+export function useAddOptOut() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { phone: string; name?: string; reason?: string }) =>
+      apiFetch<OptOutEntry>("/organisations/me/opt-outs", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.optOuts });
+      void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+    },
+  });
+}
+
+export function useRemoveOptOut() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/organisations/me/opt-outs/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.optOuts });
+      void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+    },
+  });
+}
+
+export function useAuditLog() {
+  return useQuery({
+    queryKey: queryKeys.auditLog,
+    queryFn: () => apiFetch<AuditEntry[]>("/organisations/me/audit-log"),
+  });
+}
+
+export function useTestServiceApiSettings() {
+  return useMutation({
+    mutationFn: () => apiFetch<{ ok: boolean; message?: string }>("/organisations/me/service-api-settings/test", { method: "POST", body: "{}" }),
+  });
+}
+
+export function useUploadOrgLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => apiUploadFiles("/organisations/me/logo", [file], "file"),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.organisation });
+      void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+    },
+  });
+}
+
+export function useDeleteOrgLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch("/organisations/me/logo", { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.organisation });
+      void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+    },
   });
 }

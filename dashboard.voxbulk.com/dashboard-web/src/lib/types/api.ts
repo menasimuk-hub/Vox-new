@@ -20,6 +20,7 @@ export type Organisation = {
   enabled_services?: ApiEnabledServices;
   allowed_services?: ApiEnabledServices;
   visible_services?: ApiEnabledServices;
+  logo_url?: string | null;
 };
 
 export type UserProfile = {

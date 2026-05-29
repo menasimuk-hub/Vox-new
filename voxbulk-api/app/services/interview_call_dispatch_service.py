@@ -340,6 +340,10 @@ class InterviewCallDispatchService:
                 continue
             if should_skip_recipient_for_opt_out(candidate):
                 continue
+            from app.services.org_opt_out_service import OrgOptOutService
+
+            if OrgOptOutService.is_phone_opted_out(db, order.org_id, str(candidate.phone or "")):
+                continue
             if should_wait_for_retry(candidate):
                 continue
             next_recipient = candidate

@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
 import * as React from "react";
-import { ListChecks, Phone, Plug, Wand2, Play, Check } from "lucide-react";
+import { ListChecks, Phone, Plug, Wand2, Play, Check, CalendarCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -14,22 +14,36 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch } from "@/lib/api";
-import { useSaveServiceApiSettings, useSchedulingStatus, useServiceApiSettings } from "@/lib/queries";
+import { useSaveServiceApiSettings, useSchedulingStatus, useServiceApiSettings, useTestServiceApiSettings } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/settings/system")({
   head: () => ({ meta: [{ title: "System settings — VoxBulk" }] }),
   component: SystemSettings,
+  validateSearch: (s: Record<string, unknown>) => ({
+    scheduling: typeof s.scheduling === "string" ? s.scheduling : undefined,
+    provider: typeof s.provider === "string" ? s.provider : undefined,
+  }),
 });
 
 function SystemSettings() {
+  const search = useSearch({ from: "/_app/settings/system" });
   const settingsQ = useServiceApiSettings();
   const schedulingQ = useSchedulingStatus();
   const saveM = useSaveServiceApiSettings();
+  const testM = useTestServiceApiSettings();
+
+  React.useEffect(() => {
+    if (search.scheduling === "connected") {
+      toast.success(`Connected ${search.provider || "scheduling"} successfully`);
+      void schedulingQ.refetch();
+    }
+  }, [search.scheduling, search.provider, schedulingQ]);
 
   const service = (settingsQ.data?.service || null) as Record<string, unknown> | null;
   const requiredFields = (settingsQ.data?.required_fields || []) as Array<{ key: string; label: string; secret?: boolean; placeholder?: string }>;
   const connection = (settingsQ.data?.connection || {}) as Record<string, unknown>;
   const config = (connection.config || {}) as Record<string, string>;
+  const scheduling = (schedulingQ.data || {}) as Record<string, unknown>;
 
   const [formConfig, setFormConfig] = React.useState<Record<string, string>>({});
   const [enabled, setEnabled] = React.useState(true);
@@ -40,6 +54,7 @@ function SystemSettings() {
   }, [config, connection.is_enabled]);
 
   const serviceName = String(service?.display_name || "External service");
+  const interviewReady = scheduling.interview_booking_ready !== false;
 
   const startOAuth = async (provider: "calendly" | "cronofy") => {
     try {
@@ -63,12 +78,22 @@ function SystemSettings() {
     }
   };
 
+  const onValidate = async () => {
+    try {
+      const res = await testM.mutateAsync();
+      if (res.ok) toast.success(res.message || "Connection looks good");
+      else toast.error(res.message || "Validation failed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Validation failed");
+    }
+  };
+
   return (
     <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Settings"
         title="System"
-        description="Connect an external service, configure WhatsApp templates, and tune AI calling."
+        description="Practice management API, interview booking, and optional calendar integrations."
         actions={<Button variant="outline" className="gap-1.5"><ListChecks className="size-4" /> Show setup checklist</Button>}
       />
 
@@ -80,6 +105,25 @@ function SystemSettings() {
         </TabsList>
 
         <TabsContent value="api" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><CalendarCheck className="size-5 text-success" /> Interview booking</CardTitle>
+              <CardDescription>
+                Interviews use VoxBulk native booking links — candidates pick a slot from your campaign window. No Calendly or Cronofy setup required.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {schedulingQ.isLoading ? (
+                <Skeleton className="h-10 w-full" />
+              ) : (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={"size-2 rounded-full " + (interviewReady ? "bg-success" : "bg-warning")} />
+                  {interviewReady ? "Ready — send booking invites from any live interview campaign" : "Not configured"}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>External service connection</CardTitle>
@@ -127,24 +171,33 @@ function SystemSettings() {
                 ))
               )}
               <div className="md:col-span-2 flex flex-wrap gap-2">
-                <Button variant="outline" disabled>Validate</Button>
-                <Button onClick={() => void onSaveConnection()} disabled={saveM.isPending}>
+                <Button variant="outline" onClick={() => void onValidate()} disabled={testM.isPending || !service}>
+                  {testM.isPending ? "Validating…" : "Validate"}
+                </Button>
+                <Button onClick={() => void onSaveConnection()} disabled={saveM.isPending || !service}>
                   {saveM.isPending ? "Saving…" : "Save & connect"}
                 </Button>
-                <Button variant="outline" className="gap-1.5" onClick={() => void startOAuth("calendly")}><Plug className="size-4" /> Connect Calendly</Button>
-                <Button variant="outline" className="gap-1.5" onClick={() => void startOAuth("cronofy")}><Plug className="size-4" /> Connect Cronofy</Button>
                 <Button variant="outline" className="gap-1.5 ml-auto"><Phone className="size-4" /> Call me now (test AI)</Button>
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Connection health</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <Health name={`${serviceName} · sync`} ok={Boolean(connection.configured)} />
-              <Health name="Calendly scheduling" ok={Boolean((schedulingQ.data as Record<string, unknown> | undefined)?.calendly_connected)} />
-              <Health name="Cronofy scheduling" ok={Boolean((schedulingQ.data as Record<string, unknown> | undefined)?.cronofy_connected)} />
-              <Health name="WhatsApp Business" ok />
+            <CardHeader>
+              <CardTitle>Optional external calendars</CardTitle>
+              <CardDescription>Only needed if you want Calendly or Cronofy links instead of VoxBulk booking. Interviews work without these.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" className="gap-1.5" onClick={() => void startOAuth("calendly")}><Plug className="size-4" /> Connect Calendly</Button>
+                <Button variant="outline" className="gap-1.5" onClick={() => void startOAuth("cronofy")}><Plug className="size-4" /> Connect Cronofy</Button>
+              </div>
+              <div className="space-y-2 text-sm">
+                <Health name="Calendly (optional)" ok={Boolean(scheduling.calendly_connected)} />
+                <Health name="Cronofy (optional)" ok={Boolean(scheduling.cronofy_connected)} />
+                <Health name={`${serviceName} · sync`} ok={Boolean(connection.configured)} />
+                <Health name="WhatsApp Business" ok />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -254,15 +307,14 @@ function SystemSettings() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="space-y-1.5"><Label className="text-xs">{label}</Label>{children}</div>;
 }
-function Health({ name, ok, note }: { name: string; ok: boolean; note?: string }) {
+function Health({ name, ok }: { name: string; ok: boolean }) {
   return (
     <div className="flex items-center justify-between rounded-md border border-border p-2.5">
       <div className="flex items-center gap-2">
-        <span className={"size-2 rounded-full " + (ok ? "bg-success" : "bg-warning")} />
+        <span className={"size-2 rounded-full " + (ok ? "bg-success" : "bg-muted-foreground/40")} />
         {name}
       </div>
-      <Switch checked={ok} />
-      {note && <span className="ml-2 text-[11px] text-muted-foreground">{note}</span>}
+      <Switch checked={ok} disabled />
     </div>
   );
 }

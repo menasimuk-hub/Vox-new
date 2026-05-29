@@ -59,9 +59,15 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     provider = str(cfg.get("provider") or "").strip().lower()
     connected = bool(provider and str(cfg.get("access_token") or "").strip())
     expires_at = cfg.get("expires_at")
+    cal_connected = connected and provider == "calendly"
+    cron_connected = connected and provider == "cronofy"
     return {
         "connected": connected,
         "provider": provider or None,
+        "calendly_connected": cal_connected,
+        "cronofy_connected": cron_connected,
+        "interview_booking_ready": True,
+        "interview_booking_mode": "voxbulk_native",
         "providers_available": ["calendly", "cronofy"],
         "event_type_uri": cfg.get("event_type_uri"),
         "owner_name": cfg.get("owner_name"),

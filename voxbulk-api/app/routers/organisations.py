@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 import json
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+
+from fastapi.responses import FileResponse
 
 from app.core.dependencies import get_current_principal
 from app.core.database import get_db
@@ -36,6 +38,10 @@ def _org_response(org) -> dict:
     data["allowed_services"] = allowed
     data["enabled_services"] = enabled
     data["visible_services"] = visible
+    if getattr(org, "logo_storage_key", None):
+        data["logo_url"] = f"/organisations/me/logo/file"
+    else:
+        data["logo_url"] = None
     return data
 
 SERVICE_API_REQUIRED_FIELDS = {
@@ -157,6 +163,18 @@ def update_enabled_services(
     db.add(org)
     db.commit()
     db.refresh(org)
+    from app.services.org_audit_service import OrgAuditService
+    from app.models.user import User
+
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user:
+        OrgAuditService.record_for_user(
+            db,
+            org_id=principal.org_id,
+            user=user,
+            action="settings.services_updated",
+            detail=json.dumps(patch, ensure_ascii=False),
+        )
     _, enabled, visible = org_service_maps(org)
     return {"ok": True, "enabled_services": enabled, "allowed_services": allowed, "visible_services": visible}
 
@@ -264,6 +282,18 @@ def save_my_service_api_settings(
         existing.encrypted_json = encrypted_json
     db.add(existing)
     db.commit()
+    from app.services.org_audit_service import OrgAuditService
+    from app.models.user import User
+
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user:
+        OrgAuditService.record_for_user(
+            db,
+            org_id=principal.org_id,
+            user=user,
+            action="settings.api_connection_saved",
+            detail=str(service.slug),
+        )
     return get_my_service_api_settings(db=db, principal=principal)
 
 
@@ -279,4 +309,225 @@ def test_my_service_api_settings(
     if not view["configured"]:
         return {"ok": False, "status": "incomplete", "message": "Missing required fields", "missing_fields": view["missing_fields"]}
     return {"ok": True, "status": "configured", "message": f"{service.display_name} settings are saved. Live API validation can be added next."}
+
+
+# --- Team, opt-out, audit (customer dashboard) ---
+
+
+def _actor_user(db: Session, principal):
+    from app.models.user import User
+
+    return db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+
+
+@router.get("/me/team/members")
+def list_my_team_members(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_team_service import OrgTeamService
+
+    return OrgTeamService.list_members(db, principal.org_id)
+
+
+@router.get("/me/team/invites")
+def list_my_team_invites(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_team_service import OrgTeamService
+
+    return OrgTeamService.list_invites(db, principal.org_id)
+
+
+@router.post("/me/team/invites")
+def create_my_team_invite(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.org_team_service import OrgTeamService
+
+    user = _actor_user(db, principal)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    try:
+        result = OrgTeamService.create_invite(
+            db,
+            org_id=principal.org_id,
+            email=str(payload.get("email") or ""),
+            role=payload.get("role"),
+            invited_by=user,
+            send_email=bool(payload.get("send_email", True)),
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    OrgAuditService.record_for_user(
+        db,
+        org_id=principal.org_id,
+        user=user,
+        action="team.invite_sent",
+        detail=f"Invited {result['email']} as {result['role']}",
+    )
+    return result
+
+
+@router.delete("/me/team/invites/{invite_id}")
+def revoke_my_team_invite(invite_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.org_team_service import OrgTeamService
+
+    user = _actor_user(db, principal)
+    try:
+        ok = OrgTeamService.revoke_invite(db, org_id=principal.org_id, invite_id=invite_id, actor_user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
+    if user:
+        OrgAuditService.record_for_user(db, org_id=principal.org_id, user=user, action="team.invite_revoked", detail=invite_id)
+    return {"ok": True}
+
+
+@router.delete("/me/team/members/{user_id}")
+def remove_my_team_member(user_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.org_team_service import OrgTeamService
+
+    user = _actor_user(db, principal)
+    try:
+        ok = OrgTeamService.remove_member(db, org_id=principal.org_id, user_id=user_id, actor_user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+    if user:
+        OrgAuditService.record_for_user(db, org_id=principal.org_id, user=user, action="team.member_removed", detail=user_id)
+    return {"ok": True}
+
+
+@router.get("/me/opt-outs")
+def list_my_opt_outs(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_opt_out_service import OrgOptOutService
+
+    return OrgOptOutService.list_opt_outs(db, principal.org_id)
+
+
+@router.post("/me/opt-outs")
+def add_my_opt_out(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.org_opt_out_service import OrgOptOutService
+
+    user = _actor_user(db, principal)
+    try:
+        row = OrgOptOutService.add_opt_out(
+            db,
+            org_id=principal.org_id,
+            phone=str(payload.get("phone") or payload.get("phone_e164") or ""),
+            contact_name=payload.get("name") or payload.get("contact_name"),
+            reason=payload.get("reason"),
+            created_by_user_id=principal.user_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    if user:
+        OrgAuditService.record_for_user(
+            db,
+            org_id=principal.org_id,
+            user=user,
+            action="opt_out.added",
+            detail=f"{row['phone_e164']} — {row.get('reason') or 'manual'}",
+        )
+    return row
+
+
+@router.delete("/me/opt-outs/{opt_out_id}")
+def remove_my_opt_out(opt_out_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.org_opt_out_service import OrgOptOutService
+
+    user = _actor_user(db, principal)
+    ok = OrgOptOutService.remove_opt_out(db, org_id=principal.org_id, opt_out_id=opt_out_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opt-out not found")
+    if user:
+        OrgAuditService.record_for_user(db, org_id=principal.org_id, user=user, action="opt_out.removed", detail=opt_out_id)
+    return {"ok": True}
+
+
+@router.get("/me/audit-log")
+def list_my_audit_log(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.org_audit_service import OrgAuditService
+
+    return OrgAuditService.list_events(db, principal.org_id, limit=limit)
+
+
+@router.post("/me/logo")
+async def upload_my_logo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.org_logo_storage_service import (
+        delete_logo_file,
+        save_logo_bytes,
+        storage_key_for,
+        validate_logo_upload,
+    )
+
+    org = OrganisationService.get_org(db, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    content = await file.read()
+    try:
+        ext = validate_logo_upload(filename=file.filename or "logo.png", content=content)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    delete_logo_file(getattr(org, "logo_storage_key", None))
+    key = storage_key_for(org_id=principal.org_id, ext=ext)
+    save_logo_bytes(storage_key=key, content=content)
+    org.logo_storage_key = key
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+
+    user = _actor_user(db, principal)
+    if user:
+        OrgAuditService.record_for_user(db, org_id=principal.org_id, user=user, action="profile.logo_updated", detail=file.filename)
+    return {"ok": True, "logo_url": "/organisations/me/logo/file"}
+
+
+@router.get("/me/logo/file")
+def get_my_logo_file(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_logo_storage_service import media_type_for_key, resolve_logo_path
+
+    org = OrganisationService.get_org(db, principal.org_id)
+    if org is None or not getattr(org, "logo_storage_key", None):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo not found")
+    path = resolve_logo_path(org.logo_storage_key)
+    if path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo file missing")
+    return FileResponse(path, media_type=media_type_for_key(org.logo_storage_key))
+
+
+@router.delete("/me/logo")
+def delete_my_logo(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.org_logo_storage_service import delete_logo_file
+
+    org = OrganisationService.get_org(db, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    if not getattr(org, "logo_storage_key", None):
+        return {"ok": True}
+    delete_logo_file(org.logo_storage_key)
+    org.logo_storage_key = None
+    db.add(org)
+    db.commit()
+
+    user = _actor_user(db, principal)
+    if user:
+        OrgAuditService.record_for_user(db, org_id=principal.org_id, user=user, action="profile.logo_removed", detail=None)
+    return {"ok": True}
 

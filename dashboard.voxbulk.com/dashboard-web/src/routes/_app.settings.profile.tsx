@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
-import { Upload, Plus, RefreshCw } from "lucide-react";
+import { Upload, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -13,8 +13,9 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
+import { fetchAuthenticatedBlob } from "@/lib/api";
 import { useServices } from "@/lib/services";
-import { useOrganisation, useUpdateOrganisation } from "@/lib/queries";
+import { useDeleteOrgLogo, useOrganisation, useUpdateOrganisation, useUploadOrgLogo } from "@/lib/queries";
 import { PROFILE_COUNTRIES } from "@/lib/billing/market";
 
 export const Route = createFileRoute("/_app/settings/profile")({
@@ -26,12 +27,16 @@ function ProfileSettings() {
   const { visible } = useServices();
   const orgQ = useOrganisation();
   const saveM = useUpdateOrganisation();
+  const uploadLogoM = useUploadOrgLogo();
+  const deleteLogoM = useDeleteOrgLogo();
+  const logoInputRef = React.useRef<HTMLInputElement>(null);
 
   const [name, setName] = React.useState("");
   const [contactName, setContactName] = React.useState("");
   const [contactPhone, setContactPhone] = React.useState("");
   const [website, setWebsite] = React.useState("");
   const [country, setCountry] = React.useState("United Kingdom");
+  const [logoPreview, setLogoPreview] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const org = orgQ.data;
@@ -42,6 +47,52 @@ function ProfileSettings() {
     setWebsite(String(org.website || ""));
     setCountry(String(org.country || "United Kingdom"));
   }, [orgQ.data]);
+
+  React.useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    const loadLogo = async () => {
+      if (!orgQ.data?.logo_url) {
+        setLogoPreview(null);
+        return;
+      }
+      try {
+        const blob = await fetchAuthenticatedBlob(orgQ.data.logo_url);
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setLogoPreview(objectUrl);
+      } catch {
+        if (active) setLogoPreview(null);
+      }
+    };
+    void loadLogo();
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [orgQ.data?.logo_url, orgQ.isFetching]);
+
+  const onLogoSelected = async (file: File | null) => {
+    if (!file) return;
+    try {
+      await uploadLogoM.mutateAsync(file);
+      toast.success("Logo updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not upload logo");
+    } finally {
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  };
+
+  const onRemoveLogo = async () => {
+    try {
+      await deleteLogoM.mutateAsync();
+      setLogoPreview(null);
+      toast.success("Logo removed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not remove logo");
+    }
+  };
 
   const treatments = [
     { treatment: "Hygiene", price: "£75" },
@@ -101,14 +152,37 @@ function ProfileSettings() {
               </div>
               <Field label="Caller ID" value={name.slice(0, 12).toUpperCase()} onChange={() => undefined} readOnly />
               <div className="md:col-span-2 flex items-center gap-3 rounded-lg border border-dashed border-border bg-background/50 p-4">
-                <div className="grid size-12 place-items-center rounded-lg bg-accent text-accent-foreground font-semibold">
-                  {(name || "VB").slice(0, 2).toUpperCase()}
-                </div>
+                {logoPreview ? (
+                  <img src={logoPreview} alt="Company logo" className="size-12 rounded-lg object-contain bg-white p-1" />
+                ) : (
+                  <div className="grid size-12 place-items-center rounded-lg bg-accent text-accent-foreground font-semibold">
+                    {(name || "VB").slice(0, 2).toUpperCase()}
+                  </div>
+                )}
                 <div className="flex-1">
                   <p className="text-sm font-medium">Logo</p>
-                  <p className="text-xs text-muted-foreground">PNG or SVG, transparent background recommended.</p>
+                  <p className="text-xs text-muted-foreground">PNG, JPG, WEBP or SVG — max 2 MB.</p>
                 </div>
-                <Button variant="outline" className="gap-1.5" disabled><Upload className="size-4" /> Upload</Button>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  className="hidden"
+                  onChange={(e) => void onLogoSelected(e.target.files?.[0] || null)}
+                />
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={uploadLogoM.isPending}
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  <Upload className="size-4" /> {uploadLogoM.isPending ? "Uploading…" : logoPreview ? "Replace" : "Upload"}
+                </Button>
+                {logoPreview && (
+                  <Button variant="ghost" size="icon" className="text-destructive" disabled={deleteLogoM.isPending} onClick={() => void onRemoveLogo()}>
+                    <Trash2 className="size-4" />
+                  </Button>
+                )}
               </div>
             </>
           )}

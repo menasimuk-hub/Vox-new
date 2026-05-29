@@ -820,7 +820,7 @@ def calendly_oauth_callback(
     origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
     from fastapi.responses import RedirectResponse
 
-    return RedirectResponse(url=f"{origin}/system?scheduling=connected&provider=calendly")
+    return RedirectResponse(url=f"{origin}/settings/system?scheduling=connected&provider=calendly")
 
 
 @router.get("/scheduling/oauth/cronofy/start")
@@ -843,7 +843,7 @@ def cronofy_oauth_callback(
     origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
     from fastapi.responses import RedirectResponse
 
-    return RedirectResponse(url=f"{origin}/system?scheduling=connected&provider=cronofy")
+    return RedirectResponse(url=f"{origin}/settings/system?scheduling=connected&provider=cronofy")
 
 
 @router.get("/{order_id}/interview/ats/quote")
