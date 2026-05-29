@@ -1,0 +1,44 @@
+type T = { title: string; subtitle?: string };
+
+const map: Record<string, T> = {
+  "/": { title: "Dashboard", subtitle: "Live · Overview" },
+
+  "/interviews": { title: "Saved interviews", subtitle: "Manage campaigns" },
+  "/interviews/new": { title: "Create new interview", subtitle: "AI phone screening" },
+  "/interviews/results": { title: "Interview results", subtitle: "Candidates & transcripts" },
+  "/interviews/reports": { title: "Interview reports", subtitle: "Campaign performance" },
+
+  "/surveys": { title: "Saved surveys", subtitle: "Manage campaigns" },
+  "/surveys/new": { title: "Create new survey", subtitle: "AI phone or WhatsApp" },
+  "/surveys/results": { title: "Survey results", subtitle: "Anonymous aggregates" },
+  "/surveys/reports": { title: "Survey reports", subtitle: "Campaign performance" },
+
+  "/recovery": { title: "Recovery queue", subtitle: "Missed-appointment outreach" },
+  "/recovery/no-show": { title: "No-show follow-up", subtitle: "AI calling settings" },
+  "/recovery/emergency": { title: "Emergency reschedule", subtitle: "Mass cancel + rebook" },
+  "/recovery/recall": { title: "Recall campaigns", subtitle: "Dental recall outreach" },
+  "/recovery/offers": { title: "Offer campaigns", subtitle: "Promotional fill" },
+
+  "/follow-up": { title: "Reminder sequences", subtitle: "WhatsApp reminders" },
+
+  "/settings/services": { title: "Services", subtitle: "Enable / disable modules" },
+  "/settings/profile": { title: "Profile settings", subtitle: "Company & revenue" },
+  "/settings/system": { title: "System settings", subtitle: "API, WhatsApp, AI calling" },
+  "/settings/team": { title: "Team members", subtitle: "Invite & roles" },
+  "/settings/opt-out": { title: "Opt-out list", subtitle: "Do-not-contact" },
+  "/settings/audit": { title: "Audit log", subtitle: "Compliance activity" },
+
+  "/account/packages": { title: "Packages & pricing", subtitle: "Plans & bundles" },
+  "/account/billing": { title: "Billing", subtitle: "Subscription & invoices" },
+  "/account/support": { title: "Support", subtitle: "Get help" },
+  "/account/support/faq": { title: "Documentation & FAQ", subtitle: "Help centre" },
+  "/account/support/tickets": { title: "Support tickets", subtitle: "Email conversations" },
+};
+
+export function titleForPath(path: string): T {
+  if (map[path]) return map[path];
+  // fallback by longest prefix
+  const keys = Object.keys(map).sort((a, b) => b.length - a.length);
+  const k = keys.find((k) => path.startsWith(k + "/") || path.startsWith(k));
+  return k ? map[k] : { title: "VoxBulk" };
+}

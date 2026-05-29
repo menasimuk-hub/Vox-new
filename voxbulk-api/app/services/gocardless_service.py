@@ -346,8 +346,8 @@ class BillingService:
         environment = str((gc_cfg or {}).get("environment") or "sandbox").strip().lower()
         gocardless_available = bool(gc_enabled and token)
         return {
-            "cash_available": True,
-            "cash_requires_admin_approval": True,
+            "cash_available": False,
+            "cash_requires_admin_approval": False,
             "gocardless_available": gocardless_available,
             "gocardless_environment": environment if gocardless_available else None,
             "gocardless_auto_activate": True,
@@ -921,13 +921,13 @@ class BillingService:
     @staticmethod
     def _service_order_success_url(config: dict[str, Any], service_code: str) -> str:
         origin = BillingService._resolved_dashboard_origin()
-        path = "survey" if service_code == "survey" else "interview"
+        path = "surveys/new" if service_code == "survey" else "interviews/new"
         return f"{origin}/{path}?order_billing=success"
 
     @staticmethod
     def _service_order_cancel_url(config: dict[str, Any], service_code: str) -> str:
         origin = BillingService._resolved_dashboard_origin()
-        path = "survey" if service_code == "survey" else "interview"
+        path = "surveys/new" if service_code == "survey" else "interviews/new"
         return f"{origin}/{path}?order_billing=cancelled"
 
     @staticmethod
@@ -1054,10 +1054,20 @@ class BillingService:
         if not mandate_id:
             raise GoCardlessProviderError("GoCardless did not return a mandate")
 
+        from app.models.organisation import Organisation
+        from app.services.pricing_market_service import PricingMarketService
+
+        org = db.get(Organisation, org_id)
+        charge_pence, currency, _market = PricingMarketService.charge_pence_for_order(
+            db,
+            gbp_pence=int(order.quote_total_pence or 0),
+            org=org,
+        )
+
         payment_payload = {
             "payments": {
-                "amount": int(order.quote_total_pence or 0),
-                "currency": "GBP",
+                "amount": charge_pence,
+                "currency": currency,
                 "description": f"VOXBULK {order.service_code} — {order.title}"[:255],
                 "links": {"mandate": mandate_id},
                 "metadata": BillingService._gocardless_metadata(
@@ -1092,11 +1102,9 @@ class BillingService:
         db.refresh(order)
 
         try:
-            from app.models.organisation import Organisation
             from app.models.user import User
             from app.services.invoice_service import InvoiceService
 
-            org = db.get(Organisation, org_id)
             user = db.get(User, user_id)
             prefilled_email = str((completed_flow.get("prefilled_customer") or {}).get("email") or "").strip()
             client_email = prefilled_email or (org.contact_email if org else "") or (user.email if user else "")
@@ -1106,8 +1114,8 @@ class BillingService:
                     db,
                     org_id=org_id,
                     client_email=client_email,
-                    subtotal_pence=int(order.quote_total_pence or 0),
-                    currency="GBP",
+                    subtotal_pence=charge_pence,
+                    currency=currency,
                     description=f"{order.title} — {order.service_code}",
                     provider="gocardless",
                     external_invoice_id=payment_id,

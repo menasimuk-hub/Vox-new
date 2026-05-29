@@ -11,7 +11,7 @@ class PlanOut(BaseModel):
     id: str
     code: str
     name: str
-    price_gbp_pence: int
+    price_gbp_pence: int | None = None
     interval: str
     created_at: datetime
     description: str | None = None
@@ -20,9 +20,13 @@ class PlanOut(BaseModel):
     calls_included: int = 0
     whatsapp_included: int = 0
     sms_included: int = 0
+    cv_scans_included: int = 0
     overage_per_min_pence: int = 0
+    per_min_pence: int = 0
     trial_days_default: int = 0
-    service_kind: str = "dental"
+    service_kind: str = "voxbulk"
+    is_featured: bool = False
+    is_enterprise: bool = False
     is_active: bool = True
     sort_order: int = 100
 

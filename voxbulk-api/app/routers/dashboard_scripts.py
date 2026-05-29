@@ -93,9 +93,19 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
                 order_config=branding.get("order_config"),
             )
         else:
+            if not str(payload.get("criteria") or "").strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Add screening criteria before generating the AI script",
+                )
+            if not str(payload.get("role") or payload.get("position") or "").strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Enter the position / role before generating the AI script",
+                )
             result = generate_interview_script(
                 db,
-                role=str(payload.get("role") or ""),
+                role=str(payload.get("role") or payload.get("position") or ""),
                 criteria=str(payload.get("criteria") or ""),
                 delivery=str(payload.get("delivery") or "ai_call"),
                 organisation_name=branding["organisation_name"],

@@ -47,17 +47,23 @@ class PlanAdminService:
             "id": row.id,
             "code": row.code,
             "name": row.name,
-            "price_gbp_pence": int(row.price_gbp_pence or 0),
+            "price_gbp_pence": int(row.price_gbp_pence) if row.price_gbp_pence is not None else None,
             "interval": row.interval,
             "description": row.description,
             "features": PlanAdminService.parse_features(row.features_json),
             "features_json": row.features_json,
             "calls_included": int(row.calls_included or 0),
+            "minutes_included": int(row.calls_included or 0),
             "whatsapp_included": int(row.whatsapp_included or 0),
             "sms_included": int(row.sms_included or 0),
+            "cv_scans_included": int(getattr(row, "cv_scans_included", 0) or 0),
+            "per_min_pence": int(getattr(row, "per_min_pence", 0) or 0),
+            "extra_per_min_pence": int(row.overage_per_min_pence or 0),
             "overage_per_min_pence": int(row.overage_per_min_pence or 0),
             "trial_days_default": int(row.trial_days_default or 0),
             "service_kind": row.service_kind,
+            "is_featured": bool(getattr(row, "is_featured", False)),
+            "is_enterprise": bool(getattr(row, "is_enterprise", False)),
             "is_active": bool(row.is_active),
             "sort_order": int(row.sort_order or 100),
             "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -119,21 +125,27 @@ class PlanAdminService:
         features_json = None
         if isinstance(features, list):
             features_json = json.dumps([str(x) for x in features])
+        price_raw = payload.get("price_gbp_pence")
+        price_val = None if price_raw is None or payload.get("is_enterprise") else int(price_raw or 0)
         row = Plan(
             id=str(uuid.uuid4()),
             code=code,
             name=name,
-            price_gbp_pence=int(payload.get("price_gbp_pence") or 0),
+            price_gbp_pence=price_val,
             interval=str(payload.get("interval") or "monthly").strip(),
             description=str(payload.get("description") or "").strip() or None,
             features_json=features_json,
-            calls_included=int(payload.get("calls_included") or 0),
+            calls_included=int(payload.get("calls_included") or payload.get("minutes_included") or 0),
             whatsapp_included=int(payload.get("whatsapp_included") or 0),
             sms_included=int(payload.get("sms_included") or 0),
-            overage_per_min_pence=int(payload.get("overage_per_min_pence") or 0),
+            cv_scans_included=int(payload.get("cv_scans_included") or 0),
+            per_min_pence=int(payload.get("per_min_pence") or 0),
+            overage_per_min_pence=int(payload.get("extra_per_min_pence") or payload.get("overage_per_min_pence") or 0),
             trial_days_default=int(payload.get("trial_days_default") or 0),
-            service_kind=str(payload.get("service_kind") or "dental").strip(),
+            service_kind=str(payload.get("service_kind") or "voxbulk").strip(),
             is_active=bool(payload.get("is_active", True)),
+            is_featured=bool(payload.get("is_featured", False)),
+            is_enterprise=bool(payload.get("is_enterprise", False)),
             sort_order=int(payload.get("sort_order") or 100),
             created_at=now,
             updated_at=now,
@@ -147,8 +159,9 @@ class PlanAdminService:
     def update_plan(db: Session, row: Plan, payload: dict[str, Any]) -> Plan:
         if payload.get("name") is not None:
             row.name = str(payload.get("name") or "").strip() or row.name
-        if payload.get("price_gbp_pence") is not None:
-            row.price_gbp_pence = int(payload.get("price_gbp_pence") or 0)
+        if "price_gbp_pence" in payload:
+            raw = payload.get("price_gbp_pence")
+            row.price_gbp_pence = None if raw is None else int(raw or 0)
         if payload.get("interval") is not None:
             row.interval = str(payload.get("interval") or "monthly").strip()
         if "description" in payload:
@@ -156,22 +169,42 @@ class PlanAdminService:
             row.description = None if raw is None else str(raw)
         if isinstance(payload.get("features"), list):
             row.features_json = json.dumps([str(x) for x in payload["features"]])
+        if payload.get("calls_included") is not None or payload.get("minutes_included") is not None:
+            row.calls_included = int(payload.get("calls_included") if payload.get("calls_included") is not None else payload.get("minutes_included") or 0)
         for field in (
-            "calls_included",
             "whatsapp_included",
             "sms_included",
-            "overage_per_min_pence",
+            "cv_scans_included",
             "trial_days_default",
             "sort_order",
         ):
             if payload.get(field) is not None:
                 setattr(row, field, int(payload.get(field) or 0))
+        if payload.get("per_min_pence") is not None:
+            row.per_min_pence = int(payload.get("per_min_pence") or 0)
+        if payload.get("extra_per_min_pence") is not None or payload.get("overage_per_min_pence") is not None:
+            row.overage_per_min_pence = int(
+                payload.get("extra_per_min_pence")
+                if payload.get("extra_per_min_pence") is not None
+                else payload.get("overage_per_min_pence") or 0
+            )
         if payload.get("service_kind") is not None:
-            row.service_kind = str(payload.get("service_kind") or "dental").strip()
+            row.service_kind = str(payload.get("service_kind") or "voxbulk").strip()
         if payload.get("is_active") is not None:
             row.is_active = bool(payload.get("is_active"))
+        if payload.get("is_featured") is not None:
+            row.is_featured = bool(payload.get("is_featured"))
+        if payload.get("is_enterprise") is not None:
+            row.is_enterprise = bool(payload.get("is_enterprise"))
+            if row.is_enterprise and "price_gbp_pence" not in payload:
+                row.price_gbp_pence = None
         row.updated_at = datetime.utcnow()
-        db.add(row)
+        if row.service_kind == "voxbulk" and not row.is_enterprise:
+            from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+            VoxbulkPricingService.apply_plan_allowances(db, row)
+        else:
+            db.add(row)
         db.commit()
         db.refresh(row)
         return row

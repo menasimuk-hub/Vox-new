@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
@@ -167,18 +169,34 @@ def list_interview_agents_for_dashboard(db: Session = Depends(get_db), principal
     }
 
 
+@router.get("/interview/billing-context")
+def get_interview_billing_context(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.interview_billing_context import org_interview_billing_context
+    from app.services.recovery_service import OrganisationService
+
+    org = OrganisationService.get_org(db, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    return org_interview_billing_context(db, org)
+
+
 @router.get("/interview/draft")
 def get_interview_draft(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.interview_billing_context import org_interview_billing_context
     from app.services.interview_intake_service import get_latest_interview_draft, intake_summary, list_intake_recipients
+    from app.services.recovery_service import OrganisationService
 
+    org = OrganisationService.get_org(db, principal.org_id)
+    billing = org_interview_billing_context(db, org) if org else {}
     order = get_latest_interview_draft(db, org_id=principal.org_id)
     if order is None:
-        return {"order": None, "recipients": [], "summary": intake_summary([])}
+        return {"order": None, "recipients": [], "summary": intake_summary([]), "billing_context": billing}
     recipients = list_intake_recipients(db, order)
     return {
         "order": ServiceOrderService.order_to_dict(order),
         "recipients": recipients,
         "summary": intake_summary(recipients),
+        "billing_context": billing,
     }
 
 
@@ -187,10 +205,16 @@ def create_new_interview_draft_route(db: Session = Depends(get_db), principal=De
     from app.services.interview_intake_service import create_new_interview_draft, intake_summary
 
     order = create_new_interview_draft(db, org_id=principal.org_id, user_id=principal.user_id)
+    from app.services.interview_billing_context import org_interview_billing_context
+    from app.services.recovery_service import OrganisationService
+
+    org = OrganisationService.get_org(db, principal.org_id)
+    billing = org_interview_billing_context(db, org) if org else {}
     return {
         "order": ServiceOrderService.order_to_dict(order),
         "recipients": [],
         "summary": intake_summary([]),
+        "billing_context": billing,
     }
 
 
@@ -218,6 +242,14 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
         )
     config_patch = payload.get("config")
     if isinstance(config_patch, dict) and config_patch:
+        from app.services.interview_billing_context import org_interview_billing_context
+        from app.services.recovery_service import OrganisationService
+
+        org = OrganisationService.get_org(db, principal.org_id)
+        billing = org_interview_billing_context(db, org) if org else {}
+        if config_patch.get("cv_email_enabled") and not billing.get("cv_email_allowed"):
+            config_patch = dict(config_patch)
+            config_patch["cv_email_enabled"] = False
         order = ServiceOrderService.update_order(db, order, {"config": config_patch})
     sched_patch = {}
     for key in ("run_mode", "scheduled_start_at", "scheduled_end_at"):
@@ -263,6 +295,33 @@ def export_interview_reports_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/whatsapp-templates")
+def list_whatsapp_templates(
+    purpose: str | None = None,
+    approved_only: bool = True,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.platform_whatsapp_template_service import PlatformWhatsappTemplateService
+
+    _ = principal
+    return PlatformWhatsappTemplateService.list_for_dashboard(db, approved_only=approved_only, purpose=purpose)
+
+
+@router.post("/whatsapp-templates/sync")
+def sync_whatsapp_templates(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.telnyx_whatsapp_template_sync_service import (
+        TelnyxWhatsappTemplateSyncError,
+        TelnyxWhatsappTemplateSyncService,
+    )
+
+    _ = principal
+    try:
+        return TelnyxWhatsappTemplateSyncService.sync(db)
+    except TelnyxWhatsappTemplateSyncError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
 
 
 @router.get("/{order_id}/recipients")
@@ -525,12 +584,17 @@ async def upload_recipients(
 
 @router.post("/{order_id}/quote")
 def refresh_quote(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.models.organisation import Organisation
+    from app.services.pricing_market_service import PricingMarketService
+
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
         order = ServiceOrderService.quote_order(db, order)
-        return ServiceOrderService.order_to_dict(order)
+        org = db.get(Organisation, principal.org_id)
+        payload = ServiceOrderService.order_to_dict(order)
+        return PricingMarketService.attach_order_quote_display(db, payload, org)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -746,6 +810,53 @@ def cronofy_oauth_callback(
     return RedirectResponse(url=f"{origin}/system?scheduling=connected&provider=cronofy")
 
 
+@router.get("/{order_id}/interview/ats/quote")
+def quote_interview_ats(
+    order_id: str,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_ats_billing_service import InterviewAtsBillingError, quote_ats_run
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        return quote_ats_run(db, order, force=force)
+    except InterviewAtsBillingError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/interview/ats/run")
+def run_interview_ats(
+    order_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_ats_billing_service import InterviewAtsBillingError, charge_and_queue_ats
+    from app.services.recovery_service import OrganisationService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    org = OrganisationService.get_org(db, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    body = payload or {}
+    try:
+        return charge_and_queue_ats(
+            db,
+            order,
+            org,
+            confirm_charge=bool(body.get("confirm_charge")),
+            force=bool(body.get("force")),
+        )
+    except InterviewAtsBillingError as e:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)) from e
+
+
 @router.post("/{order_id}/interview/cv-collection/close-early")
 def close_interview_cv_collection_early(
     order_id: str,
@@ -800,6 +911,47 @@ def send_interview_scheduling(
             db,
             order,
             recipient_ids=body.get("recipient_ids"),
+            channels=body.get("channels"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/interview-booking/preview-template")
+def preview_interview_booking_template(
+    order_id: str,
+    sync: bool = True,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_booking_service import InterviewBookingService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    preview = InterviewBookingService.preview_template(db, order, sync_first=sync)
+    return {"template": preview}
+
+
+@router.post("/{order_id}/interview-booking/send-invites")
+def send_interview_booking_invites(
+    order_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_booking_service import InterviewBookingService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    body = payload or {}
+    try:
+        return InterviewBookingService.send_invites(
+            db,
+            order,
+            recipient_ids=body.get("recipient_ids"),
+            channels=body.get("channels"),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -816,6 +968,83 @@ def get_interview_results(order_id: str, db: Session = Depends(get_db), principa
         return InterviewResultsService.get_results(db, order)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/recipients/{recipient_id}/interview-detail")
+def get_interview_recipient_detail(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_results_service import InterviewResultsService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    try:
+        return InterviewResultsService.get_recipient_detail(db, order, recipient)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/{order_id}/recipients/{recipient_id}/recording")
+def get_interview_recipient_recording(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    import httpx
+    from fastapi.responses import RedirectResponse, Response
+
+    from app.models.service_order import ServiceOrderRecipient
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+
+    try:
+        parsed = json.loads(recipient.result_json or "{}")
+        if not isinstance(parsed, dict):
+            parsed = {}
+    except Exception:
+        parsed = {}
+
+    remote = str(parsed.get("recording_url") or "").strip()
+    if remote.startswith("http://") or remote.startswith("https://"):
+        return RedirectResponse(url=remote, status_code=302)
+
+    # Telnyx recording download URL stored on completed calls
+    download_url = str(parsed.get("telnyx_recording_download_url") or "").strip()
+    if download_url.startswith("http"):
+        try:
+            with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+                resp = client.get(download_url)
+                resp.raise_for_status()
+            media_type = resp.headers.get("content-type") or "audio/mpeg"
+            return Response(
+                content=resp.content,
+                media_type=media_type,
+                headers={"Content-Disposition": 'inline; filename="interview-recording.mp3"'},
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Could not fetch Telnyx recording: {exc}",
+            ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Recording not available yet. Telnyx may still be processing — try again in a minute.",
+    )
 
 
 @router.get("/{order_id}/interview-results/export.csv")

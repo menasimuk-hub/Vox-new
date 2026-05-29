@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_principal
 from app.models.billing_redirect_flow import BillingRedirectFlow
 from app.models.plan import Plan
+from app.models.pricing import TopupTier
 from app.schemas.dashboard import (
     BillingRedirectCompleteIn,
     BillingRedirectCompleteOut,
@@ -31,7 +32,92 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 
 @router.get("/plans", response_model=list[PlanOut])
 def list_plans(db: Session = Depends(get_db)):
-    return BillingService.list_plans(db, active_only=True)
+    from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+    VoxbulkPricingService.ensure_seeded(db)
+    rows = BillingService.list_plans(db, active_only=True)
+    voxbulk = [p for p in rows if getattr(p, "service_kind", "") == "voxbulk"]
+    return voxbulk or rows
+
+
+@router.get("/pricing")
+def get_public_pricing(
+    market: str = "auto",
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.pricing_market_service import PricingMarketService
+    from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+    VoxbulkPricingService.ensure_seeded(db)
+    org_id = principal.org_id if principal else None
+    org = db.get(Organisation, org_id) if org_id else None
+    resolved = PricingMarketService.resolve_market_param(db, org=org, market=market)
+    payload = VoxbulkPricingService.public_pricing_payload(db, market=resolved, org_id=org_id)
+    payload["org_country"] = str(org.country or "").strip() if org else None
+    payload["org_market"] = resolved
+    payload["market_label"] = PricingMarketService.market_label(resolved)
+    return payload
+
+
+@router.get("/pricing/public")
+def get_public_pricing_anonymous(market: str = "gbp", db: Session = Depends(get_db)):
+    from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+    VoxbulkPricingService.ensure_seeded(db)
+    return VoxbulkPricingService.public_pricing_payload(db, market=market, org_id=None)
+
+
+@router.get("/wallet")
+def get_wallet(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.models.organisation import Organisation
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    return {
+        "wallet_balance_pence": int(org.wallet_balance_pence or 0),
+        "wallet_balance_gbp": f"£{(int(org.wallet_balance_pence or 0) / 100):.2f}",
+    }
+
+
+@router.post("/wallet/topup")
+def wallet_topup(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    amount = int(payload.get("amount_pence") or 0)
+    tier_id = str(payload.get("tier_id") or "").strip() or None
+    if tier_id:
+        tier = db.get(TopupTier, tier_id)
+        if tier is None or not tier.is_active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid top-up tier")
+        amount = int(tier.credit_gbp_pence or 0) + int(tier.bonus_credit_pence or 0)
+    if amount < 500:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Minimum top-up is £5.00")
+    settings = get_settings()
+    if not settings.test_cash_billing_allowed and not payload.get("payment_confirmed"):
+        return {
+            "ok": False,
+            "awaiting_payment": True,
+            "amount_pence": amount,
+            "message": "Payment integration required — use test cash billing in dev or confirm payment.",
+        }
+    org = VoxbulkPricingService.deposit_wallet(db, org, amount)
+    return {
+        "ok": True,
+        "wallet_balance_pence": int(org.wallet_balance_pence or 0),
+        "wallet_balance_gbp": f"£{(int(org.wallet_balance_pence or 0) / 100):.2f}",
+        "credited_pence": amount,
+    }
 
 
 @router.get("/payment-options", response_model=PaymentOptionsOut)

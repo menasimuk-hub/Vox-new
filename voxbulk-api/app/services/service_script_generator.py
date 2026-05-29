@@ -45,9 +45,22 @@ Return ONLY valid JSON with these fields:
 - "closing": next steps and goodbye
 - "script_text": full readable script for the customer to review (intro, numbered questions, closing)
 - "system_prompt": instructions for the AI interviewer (scoring hints, follow-ups, professionalism)
+- "expected_duration_minutes": integer estimate of total call length (intro + questions + closing; typically 8-18)
 
 British English. No markdown fences.
 Never mention Voxbulk, VOXBULK, or any platform provider — the interview is on behalf of the hiring organisation only."""
+
+
+def _estimate_interview_duration_minutes(questions: list[str], *, ai_value: object = None) -> int:
+    if ai_value is not None:
+        try:
+            parsed = int(float(ai_value))
+            if 3 <= parsed <= 45:
+                return parsed
+        except (TypeError, ValueError):
+            pass
+    count = len(questions)
+    return max(5, min(30, 2 + round(count * 1.8)))
 
 
 def _extract_json_object(raw: str) -> dict:
@@ -474,12 +487,17 @@ def _parse_script_payload(
     system_prompt = str(data.get("system_prompt") or "").strip()
     if not system_prompt:
         system_prompt = f"Follow this approved script closely.\n\n{script_text}"
+    expected_duration_minutes = _estimate_interview_duration_minutes(
+        questions,
+        ai_value=data.get("expected_duration_minutes"),
+    )
     out = {
         "intro": intro,
         "questions": questions,
         "closing": closing,
         "script_text": script_text,
         "system_prompt": system_prompt,
+        "expected_duration_minutes": expected_duration_minutes,
     }
     if include_whatsapp:
         out["whatsapp_flow"] = _build_whatsapp_flow(intro, questions, closing, data, organisation_name=client_name or organisation_name)

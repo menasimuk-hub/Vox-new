@@ -99,8 +99,24 @@ class PlatformCatalogService:
             "service_kind": "order",
             "sort_order": 20,
             "rules": [
-                {"channel": "ai_call", "rule_type": "per_person", "label": "Interview AI call — per person", "unit_price_pence": 350},
+                {"channel": "ai_call", "rule_type": "per_minute", "label": "Interview AI call — per minute", "unit_price_pence": 35},
                 {"channel": "zoom", "rule_type": "per_person", "label": "Interview Zoom — per person", "unit_price_pence": 500},
+            ],
+        },
+        {
+            "code": "interview_ats",
+            "name": "Interview ATS",
+            "description": "AI CV screening score per candidate (DeepSeek ATS).",
+            "service_kind": "addon",
+            "sort_order": 25,
+            "rules": [
+                {
+                    "channel": "base",
+                    "rule_type": "per_person",
+                    "label": "ATS scan per CV",
+                    "unit_price_pence": 75,
+                    "sort_order": 10,
+                },
             ],
         },
     ]
@@ -398,7 +414,7 @@ class PlatformCatalogService:
         return total, lines
 
     @staticmethod
-    def _line_amount(rule: ServicePricingRule, count: int) -> tuple[int, str]:
+    def _line_amount(rule: ServicePricingRule, count: int, *, duration_minutes: int = 0) -> tuple[int, str]:
         count = max(int(count or 0), 0)
         rt = str(rule.rule_type)
         if rt == "flat_per_order":
@@ -408,6 +424,11 @@ class PlatformCatalogService:
             amt = count * int(rule.unit_price_pence or 0)
             unit = int(rule.unit_price_pence or 0)
             return amt, f"{rule.label}: {count} × {PlatformCatalogService._money(unit)} = {PlatformCatalogService._money(amt)}"
+        if rt == "per_minute":
+            duration = max(int(duration_minutes or 0), 0)
+            unit = int(rule.unit_price_pence or 0)
+            amt = count * duration * unit
+            return amt, f"{rule.label}: {count} × {duration} min × {PlatformCatalogService._money(unit)}/min = {PlatformCatalogService._money(amt)}"
         if rt == "bundle":
             amt, lines = PlatformCatalogService._quote_survey_bundle(rule, count)
             detail = " · ".join(line["detail"] for line in lines)
@@ -493,9 +514,64 @@ class PlatformCatalogService:
             rule = next((r for r in rules if PlatformCatalogService.normalize_survey_channel(r.channel) == delivery), None)
             if rule is None:
                 raise ValueError(f"No pricing rule for interview channel: {delivery}")
-            amt, detail = PlatformCatalogService._line_amount(rule, count)
-            total += amt
-            lines.append({"channel": delivery, "label": rule.label, "amount_pence": amt, "detail": detail})
+
+            from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+            settings = VoxbulkPricingService.get_settings(db)
+            org_id = str(options.get("org_id") or "").strip() or None
+            plan_id = str(options.get("plan_id") or "").strip() or None
+            plan = None
+            if plan_id:
+                from app.models.plan import Plan
+
+                plan = db.get(Plan, plan_id)
+            rates = VoxbulkPricingService.resolve_rates_for_org(db, org_id, plan=plan)
+            duration = max(
+                int(options.get("duration_minutes") or settings.estimator_default_duration_min or 12),
+                1,
+            )
+            per_min = int(rates["interview_per_min_pence"])
+            conn = int(rates["connection_fee_pence"]) if delivery == "ai_call" else 0
+
+            if str(rule.rule_type) == "per_minute" or delivery == "ai_call":
+                per_call = VoxbulkPricingService.interview_call_cost_pence(
+                    per_min_pence=per_min,
+                    duration_min=duration,
+                    connection_fee_pence=conn,
+                )
+                amt = per_call * count
+                detail = (
+                    f"AI interview: {count} × ({PlatformCatalogService._money(conn)} connection + "
+                    f"{duration} min × {PlatformCatalogService._money(per_min)}/min) = "
+                    f"{PlatformCatalogService._money(amt)}"
+                )
+                if conn > 0:
+                    lines.append(
+                        {
+                            "kind": "connection_fee",
+                            "channel": delivery,
+                            "label": settings.connection_fee_label,
+                            "amount_pence": conn * count,
+                            "detail": f"{settings.connection_fee_label}: {count} × {PlatformCatalogService._money(conn)}",
+                        }
+                    )
+                minute_amt = per_min * duration * count
+                lines.append(
+                    {
+                        "kind": "per_minute",
+                        "channel": delivery,
+                        "label": rule.label,
+                        "amount_pence": minute_amt,
+                        "detail": f"Call minutes: {count} × {duration} min × {PlatformCatalogService._money(per_min)}/min",
+                        "duration_minutes": duration,
+                        "per_min_pence": per_min,
+                    }
+                )
+                total += amt
+            else:
+                amt, detail = PlatformCatalogService._line_amount(rule, count)
+                total += amt
+                lines.append({"channel": delivery, "label": rule.label, "amount_pence": amt, "detail": detail})
         else:
             for rule in rules:
                 amt, detail = PlatformCatalogService._line_amount(rule, count)
@@ -607,6 +683,7 @@ class ServiceOrderService:
             "service_code": order.service_code,
             "title": order.title,
             "reference_id": order.reference_id,
+            "campaign_id": order.campaign_id,
             "status": order.status,
             "payment_status": order.payment_status,
             "recipient_count": order.recipient_count,
@@ -1059,8 +1136,10 @@ class ServiceOrderService:
         db.commit()
         db.refresh(order)
         if service_code == "interview":
+            from app.services.interview_campaign_service import ensure_campaign_id
             from app.services.interview_reference_service import ensure_order_reference_id
 
+            order = ensure_campaign_id(db, order)
             order = ensure_order_reference_id(db, order)
         return order
 

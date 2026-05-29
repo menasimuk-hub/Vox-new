@@ -51,7 +51,42 @@ def _mock_analysis(recipient: ServiceOrderRecipient) -> dict[str, Any]:
     }
 
 
-def _candidate_row(recipient: ServiceOrderRecipient, *, role: str) -> dict[str, Any]:
+def _format_transcript_lines(transcript: str) -> list[dict[str, str]]:
+    lines: list[dict[str, str]] = []
+    for raw in str(transcript or "").splitlines():
+        clean = raw.strip()
+        if not clean:
+            continue
+        speaker = "Agent"
+        text = clean
+        if ":" in clean:
+            head, rest = clean.split(":", 1)
+            if head.strip().lower() in {"agent", "candidate", "user", "assistant"}:
+                speaker = head.strip().title()
+                if speaker.lower() == "user":
+                    speaker = "Candidate"
+                text = rest.strip()
+        lines.append({"speaker": speaker, "text": text})
+    return lines
+
+
+def _ats_fields(recipient: ServiceOrderRecipient) -> dict[str, Any]:
+    from app.services.interview_ats_service import ats_display_for_recipient
+
+    display = ats_display_for_recipient(recipient, position="")
+    status = str(recipient.ats_status or "").strip().lower()
+    return {
+        "ats_score": display.get("ats_score"),
+        "ats_status": status or None,
+        "ats_label": display.get("ats_label") or "—",
+    }
+
+
+def _recording_play_path(order_id: str, recipient_id: str) -> str:
+    return f"/service-orders/{order_id}/recipients/{recipient_id}/recording"
+
+
+def _candidate_row(recipient: ServiceOrderRecipient, *, role: str, order_id: str) -> dict[str, Any]:
     base = ServiceOrderService.recipient_to_dict(recipient)
     parsed = _loads_json(recipient.result_json) or {}
     analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
@@ -60,6 +95,7 @@ def _candidate_row(recipient: ServiceOrderRecipient, *, role: str) -> dict[str, 
     recommendation = analysis.get("recommendation") or parsed.get("recommendation")
     sentiment = analysis.get("sentiment") or base.get("sentiment") or parsed.get("sentiment")
     duration_seconds = parsed.get("duration_seconds") or base.get("duration_seconds")
+    transcript = str(parsed.get("transcript") or "").strip()
     is_mock = False
 
     if score is None or recommendation is None:
@@ -75,7 +111,11 @@ def _candidate_row(recipient: ServiceOrderRecipient, *, role: str) -> dict[str, 
         secs = int(duration_seconds or 0) % 60
         duration_label = f"{mins}m {secs:02d}s" if duration_seconds else "—"
 
-    return {
+    recording_url = str(parsed.get("recording_url") or "").strip()
+    has_recording = bool(recording_url or parsed.get("call_control_id"))
+    play_path = _recording_play_path(order_id, recipient.id) if has_recording or recipient.status == "completed" else None
+
+    row = {
         "id": recipient.id,
         "name": recipient.name or "Candidate",
         "phone": recipient.phone,
@@ -89,9 +129,15 @@ def _candidate_row(recipient: ServiceOrderRecipient, *, role: str) -> dict[str, 
         "task": role or "Interview screening",
         "cv_quality": base.get("cv_quality"),
         "is_mock": is_mock,
-        "has_recording": bool(parsed.get("recording_url")),
-        "transcript_preview": (parsed.get("transcript") or "")[:240] or None,
+        "has_recording": has_recording or bool(play_path),
+        "recording_play_url": play_path,
+        "transcript": transcript or None,
+        "transcript_preview": transcript[:240] if transcript else None,
+        "short_summary": analysis.get("short_summary") or parsed.get("short_summary"),
+        "scheduling_sent_at": parsed.get("scheduling_url_sent_at") or parsed.get("scheduling_sent_at"),
     }
+    row.update(_ats_fields(recipient))
+    return row
 
 
 def _scheduling_links(order: ServiceOrder, candidate: dict[str, Any], *, parsed: dict[str, Any]) -> dict[str, str]:
@@ -145,7 +191,7 @@ class InterviewResultsService:
 
         for recipient in recipients:
             parsed = _loads_json(recipient.result_json) or {}
-            row = _candidate_row(recipient, role=role)
+            row = _candidate_row(recipient, role=role, order_id=order.id)
             row.update(_scheduling_links(order, row, parsed=parsed if isinstance(parsed, dict) else {}))
             row["shortlist_selected"] = recipient.id in saved_ids
             candidates.append(row)
@@ -180,6 +226,20 @@ class InterviewResultsService:
             "is_mock": is_mock,
             "scheduling_mock": scheduling_mock,
             "top_10_recipient_ids": saved_ids,
+            "order": {
+                "id": order.id,
+                "reference_id": order.reference_id,
+                "campaign_id": order.campaign_id,
+                "status": order.status,
+                "status_label": ServiceOrderService.interview_status_label(order),
+                "is_live": ServiceOrderService.is_live_interview(order),
+                "is_finished": ServiceOrderService.is_finished_interview(order),
+                "scheduled_start_at": order.scheduled_start_at.isoformat() if order.scheduled_start_at else None,
+                "scheduled_end_at": order.scheduled_end_at.isoformat() if order.scheduled_end_at else None,
+                "started_at": order.started_at.isoformat() if order.started_at else None,
+                "completed_at": order.completed_at.isoformat() if order.completed_at else None,
+                "recipient_count": order.recipient_count,
+            },
             "kpis": {
                 "called": called or len(candidates),
                 "reached": reached or len(candidates),
@@ -189,6 +249,30 @@ class InterviewResultsService:
             },
             "candidates": candidates,
             "shortlist": shortlist,
+        }
+
+    @staticmethod
+    def get_recipient_detail(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> dict[str, Any]:
+        if recipient.order_id != order.id:
+            raise ValueError("Recipient does not belong to this order")
+        if order.service_code != "interview":
+            raise ValueError("Interview detail is only available for interview orders")
+        config = _loads_json(order.config_json) or {}
+        role = str(config.get("role") or order.title or "Interview campaign")
+        row = _candidate_row(recipient, role=role, order_id=order.id)
+        parsed = _loads_json(recipient.result_json) or {}
+        if isinstance(parsed, dict):
+            row.update(_scheduling_links(order, row, parsed=parsed))
+        analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
+        transcript = str(parsed.get("transcript") or "").strip()
+        return {
+            "ok": True,
+            "candidate": row,
+            "transcript": transcript,
+            "transcript_lines": _format_transcript_lines(transcript),
+            "analysis": analysis,
+            "recording_play_url": row.get("recording_play_url"),
+            "provider": "telnyx_voice",
         }
 
     @staticmethod

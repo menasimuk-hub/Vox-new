@@ -84,6 +84,7 @@ def _batch_summary(db: Session, order: ServiceOrder) -> dict[str, Any]:
     ts = _order_period_ts(order)
     return {
         "order_id": order.id,
+        "campaign_id": order.campaign_id,
         "reference_id": order.reference_id,
         "title": order.title,
         "role": results.get("role"),
@@ -159,6 +160,7 @@ class InterviewReportService:
         writer = csv.writer(buf)
         writer.writerow(
             [
+                "Campaign ID",
                 "Reference",
                 "Title",
                 "Role",
@@ -177,6 +179,7 @@ class InterviewReportService:
         for batch in payload.get("batches") or []:
             writer.writerow(
                 [
+                    batch.get("campaign_id") or "",
                     batch.get("reference_id") or "",
                     batch.get("title") or "",
                     batch.get("role") or "",

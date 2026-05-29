@@ -16,7 +16,7 @@ class Plan(Base):
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    price_gbp_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    price_gbp_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     interval: Mapped[str] = mapped_column(String(20), nullable=False, default="monthly")
 
     # Rich copy for marketing / clinic dashboard (optional).
@@ -27,9 +27,13 @@ class Plan(Base):
     calls_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     whatsapp_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     sms_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cv_scans_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    per_min_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     overage_per_min_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     trial_days_default: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    service_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="dental")
+    service_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="voxbulk")
+    is_featured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_enterprise: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
 

@@ -62,6 +62,7 @@ const NAV = [
     [
       ['New customer setup', '/onboarding/setup'],
       ['Pending signups', '/onboarding/pending-signups'],
+      ['Services', '/onboarding/services'],
       ['Dentally connection status', '/onboarding/dentally'],
       ['Number verification', '/onboarding/numbers'],
       ['Go-live checklist', '/onboarding/checklist'],
@@ -141,7 +142,8 @@ const NAV = [
       ['Revenue reports', '/billing/reports'],
       ['Calls cost', '/billing/calls-cost'],
       ['Products hub', '/billing/products'],
-      ['Services & pricing', '/billing/services-pricing'],
+      ['VoxBulk pricing', '/pricing/plans'],
+      ['Services & pricing (legacy)', '/billing/services-pricing'],
       ['Service orders (cash)', '/billing/service-orders'],
     ],
   ],

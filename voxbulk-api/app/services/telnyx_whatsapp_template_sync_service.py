@@ -47,6 +47,10 @@ def _sales_key_for_name(name: str | None) -> str | None:
     return template_key_for_telnyx_name(name)
 
 
+def _component_text(comp: dict[str, Any]) -> str:
+    return str(comp.get("text") or "").strip()
+
+
 def _body_preview(components: list[Any] | None) -> str | None:
     if not isinstance(components, list):
         return None
@@ -54,9 +58,30 @@ def _body_preview(components: list[Any] | None) -> str | None:
         if not isinstance(comp, dict):
             continue
         if str(comp.get("type") or "").upper() == "BODY":
-            text = str(comp.get("text") or "").strip()
+            text = _component_text(comp)
             return text[:2000] if text else None
     return None
+
+
+def full_body_preview(components: list[Any] | None) -> str | None:
+    """Header + body + footer — used for dashboard previews so emojis in headers are visible."""
+    if not isinstance(components, list):
+        return None
+    parts: list[str] = []
+    for section in ("HEADER", "BODY", "FOOTER"):
+        for comp in components:
+            if not isinstance(comp, dict):
+                continue
+            if str(comp.get("type") or "").upper() != section:
+                continue
+            text = _component_text(comp)
+            if text:
+                parts.append(text)
+            break
+    if not parts:
+        return _body_preview(components)
+    joined = "\n\n".join(parts)
+    return joined[:4000] if joined else None
 
 
 def _body_variable_count(components: list[Any] | None) -> int:

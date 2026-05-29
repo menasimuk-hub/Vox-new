@@ -19,6 +19,7 @@ class ServiceOrder(Base):
     service_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # survey | interview
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     reference_id: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True, index=True)
+    campaign_id: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft", index=True)
     payment_status: Mapped[str] = mapped_column(String(32), nullable=False, default="unpaid", index=True)
 

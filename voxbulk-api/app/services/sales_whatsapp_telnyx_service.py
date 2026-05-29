@@ -13,6 +13,8 @@ TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
     "sales_offer": "voxbulk_sales_offer",
     "sales_offer_followup": "voxbulk_sales_followup",
     "sales_offer_keyword_confirm": "voxbulk_sales_keyword_confirm",
+    "interview_booking_invite": "voxbulk_interview_book",
+    "interview_booking_confirm": "voxbulk_interview_confirm",
 }
 
 TELNYX_SALES_TEMPLATE_LANGUAGE = "en_US"
@@ -23,6 +25,10 @@ TEST_TEMPLATE_VARIABLES: dict[str, str] = {
     "offer_line": "15-day free trial",
     "offer_summary": "Dental plan · £99/mo · includes calls and WhatsApp",
     "signup_url": "https://voxbulk.com/signin?promo=TEST123",
+    "role": "Senior Engineer",
+    "company_name": "VoxBulk",
+    "interview_date": "Sat 14 Jun 2026",
+    "interview_time": "10:00 AM",
 }
 
 _LANGUAGE_FALLBACKS = ("en_US", "en_GB", "en")
@@ -147,6 +153,20 @@ def build_telnyx_components(
         if include_url_button:
             parts.append(_url_button_param(url_button_index, signup_suffix))
         return parts
+
+    if template_key == "interview_booking_invite":
+        role = str(variables.get("role") or variables.get("offer_line") or "Interview").strip()
+        company = str(variables.get("company_name") or variables.get("offer_summary") or "VOXBULK").strip()
+        parts = [_body_params([first, role, company])]
+        if include_url_button:
+            parts.append(_url_button_param(url_button_index, str(variables.get("booking_token") or "sample-token")))
+        return parts
+
+    if template_key == "interview_booking_confirm":
+        role = str(variables.get("role") or variables.get("offer_line") or "Interview").strip()
+        date_line = str(variables.get("interview_date") or "Sat 14 Jun 2026").strip()
+        time_line = str(variables.get("interview_time") or "10:00 AM").strip()
+        return [_body_params([first, role, date_line, time_line])]
 
     return [_body_params([first])]
 

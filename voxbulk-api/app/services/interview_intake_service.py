@@ -536,10 +536,6 @@ def intake_email_cv_for_order(
         db.add(order)
         db.commit()
         db.refresh(order)
-        from app.services.interview_ats_service import queue_ats_for_recipient
-
-        queue_ats_for_recipient(db, dup, order=order)
-        db.commit()
         return order
 
     display_name = (parsed.name or name_from_filename(parsed.filename)).strip() or "Unknown"
@@ -569,9 +565,6 @@ def intake_email_cv_for_order(
     db.add(order)
     db.commit()
     db.refresh(order)
-    from app.services.interview_ats_service import queue_ats_for_recipient
-
-    queue_ats_for_recipient(db, recipient, order=order)
     return order
 
 
@@ -686,20 +679,8 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
             .order_by(ServiceOrderRecipient.row_number)
         ).scalars()
     )
-    from app.services.interview_ats_service import _order_job_context, queue_ats_for_order
+    from app.services.interview_ats_service import _order_job_context
 
-    try:
-        queue_ats_for_order(db, order)
-        db.expire_all()
-    except Exception:
-        logger.exception("interview_ats_queue_after_intake_failed order_id=%s", order.id)
-    final_recipients = list(
-        db.execute(
-            select(ServiceOrderRecipient)
-            .where(ServiceOrderRecipient.order_id == order.id)
-            .order_by(ServiceOrderRecipient.row_number)
-        ).scalars()
-    )
     role, _ = _order_job_context(order)
     recipient_payload = [recipient_intake_dict(r, position=role) for r in final_recipients]
     return {

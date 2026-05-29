@@ -27,6 +27,7 @@ import LegalPages from './pages/LegalPages'
 import LegalPageEdit from './pages/LegalPageEdit'
 import HelpCentreContent from './pages/HelpCentreContent'
 import PendingSignups from './pages/PendingSignups'
+import OnboardingServices from './pages/OnboardingServices'
 import AdminUsers from './pages/AdminUsers'
 import AdminUserCreate from './pages/AdminUserCreate'
 import AdminUserEdit from './pages/AdminUserEdit'
@@ -41,6 +42,14 @@ import SalesOfferTemplates from './pages/SalesOfferTemplates'
 import PromoOffers from './pages/PromoOffers'
 import PromoOfferCreate from './pages/PromoOfferCreate'
 import ServicesPricing from './pages/ServicesPricing'
+import PricingShell from './pages/pricing/PricingShell'
+import PricingPlans from './pages/pricing/PricingPlans'
+import PricingConnectionFee from './pages/pricing/PricingConnectionFee'
+import PricingServices from './pages/pricing/PricingServices'
+import PricingTopups from './pages/pricing/PricingTopups'
+import PricingFxRates from './pages/pricing/PricingFxRates'
+import PricingEstimator from './pages/pricing/PricingEstimator'
+import PricingCustomOrg from './pages/pricing/PricingCustomOrg'
 import ServiceOrdersAdmin from './pages/ServiceOrdersAdmin'
 import RunningSurveys from './pages/RunningSurveys'
 import RunningInterviews from './pages/RunningInterviews'
@@ -80,6 +89,7 @@ export default function App() {
 
         <Route path='/onboarding/setup' element={G('New customer setup')} />
         <Route path='/onboarding/pending-signups' element={<PendingSignups />} />
+        <Route path='/onboarding/services' element={<OnboardingServices />} />
         <Route path='/onboarding/dentally' element={G('Dentally connection status')} />
         <Route path='/onboarding/numbers' element={G('Number verification')} />
         <Route path='/onboarding/checklist' element={G('Go-live checklist')} />
@@ -151,6 +161,17 @@ export default function App() {
         <Route path='/billing/products/plan/:planId/edit' element={<ProductPlanEdit />} />
         <Route path='/billing/services-pricing' element={<ServicesPricing />} />
         <Route path='/billing/service-orders' element={<ServiceOrdersAdmin />} />
+
+        <Route path='/pricing' element={<PricingShell />}>
+          <Route index element={<Navigate to='/pricing/plans' replace />} />
+          <Route path='plans' element={<PricingPlans />} />
+          <Route path='connection-fee' element={<PricingConnectionFee />} />
+          <Route path='services' element={<PricingServices />} />
+          <Route path='topups' element={<PricingTopups />} />
+          <Route path='fx' element={<PricingFxRates />} />
+          <Route path='estimator' element={<PricingEstimator />} />
+          <Route path='custom' element={<PricingCustomOrg />} />
+        </Route>
 
         <Route path='/support/inbox' element={<SupportTickets />} />
         <Route path='/support/tickets' element={<SupportTickets />} />

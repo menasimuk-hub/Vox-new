@@ -1157,6 +1157,47 @@ def admin_get_organisation(org_id: str, db: Session = Depends(get_db), _admin=De
     }
 
 
+@router.get("/organisations/{org_id}/enabled-services")
+def admin_get_org_enabled_services(
+    org_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_enabled_services import parse_enabled_services
+
+    org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    return {
+        "org_id": org.id,
+        "org_name": org.name,
+        "enabled_services": parse_enabled_services(org.enabled_services_json),
+    }
+
+
+@router.patch("/organisations/{org_id}/enabled-services")
+def admin_patch_org_enabled_services(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_enabled_services import parse_enabled_services, serialize_enabled_services
+
+    org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    current = parse_enabled_services(org.enabled_services_json)
+    for key in ("interview", "survey", "recovery", "follow_up"):
+        if key in (payload or {}):
+            current[key] = bool(payload[key])
+    org.enabled_services_json = serialize_enabled_services(current)
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    return {"ok": True, "enabled_services": parse_enabled_services(org.enabled_services_json)}
+
+
 @router.patch("/organisations/{org_id}")
 def admin_patch_organisation(org_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()

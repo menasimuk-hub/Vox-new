@@ -46,6 +46,7 @@ class Organisation(Base):
 
     survey_credits_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     interview_credits_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    wallet_balance_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scheduling_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled_services_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
