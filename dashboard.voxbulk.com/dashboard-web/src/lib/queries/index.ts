@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUploadFiles } from "@/lib/api";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import type {
   ApiEnabledServices,
