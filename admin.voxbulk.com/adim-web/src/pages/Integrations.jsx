@@ -1971,14 +1971,19 @@ export default function Integrations() {
                       <label className='label'>Connection type</label>
                       <select className='input' value={String(activeConfig.auth_mode || 'private_app')} onChange={(e) => setProviderField('hubspot', 'auth_mode', e.target.value)}>
                         <option value='private_app'>Service key / access token (recommended — no client secret)</option>
-                        <option value='oauth'>OAuth app — Client ID + secret (multi-tenant Connect button)</option>
+                        <option value='oauth'>OAuth app (legacy / CLI only — not for new HubSpot UI accounts)</option>
                       </select>
                       <div className='muted' style={{ fontSize: 12 }}>
-                        If HubSpot shows Personal Access Key, Developer API Key, or Service Keys — choose <strong>Service Keys</strong> and paste that key in the dashboard (not Developer API Key).
+                        <strong>New HubSpot accounts:</strong> legacy public OAuth apps are disabled in the HubSpot UI. Use <strong>Service key</strong> mode below — each company creates a Service Key and pastes it in Dashboard → Integrations. You do not need <code>hs project create</code> for this.
                       </div>
                     </div>
                     {String(activeConfig.auth_mode || 'private_app') === 'oauth' ? (
                       <>
+                      <div className='note' style={{ borderColor: 'rgba(255,165,0,0.5)' }}>
+                        Legacy public OAuth apps are <strong>disabled for new HubSpot accounts</strong>. OAuth here only works if you already have a legacy app or build a new app with the{' '}
+                        <a href='https://developers.hubspot.com/docs/apps/developer-platform/build-apps/create-an-app' target='_blank' rel='noreferrer'>HubSpot CLI</a>{' '}
+                        (<code>hs project create</code>). For most customers, switch connection type to <strong>Service key</strong> instead.
+                      </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Client ID</label>
                       <input className='input' style={hubspotStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('hubspot', 'client_id', e.target.value)} />
@@ -2010,11 +2015,10 @@ export default function Integrations() {
                         </ol>
                       ) : (
                         <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                          <li>Open <a href='https://developers.hubspot.com/' target='_blank' rel='noreferrer'>HubSpot Developers</a> → create a <strong>public OAuth app</strong> (not Private app).</li>
-                          <li>Add redirect URI: <code>https://api.voxbulk.com/service-orders/hubspot/oauth/callback</code>.</li>
-                          <li>Scopes: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>oauth</code>.</li>
-                          <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>
-                          <li>Each customer org clicks <strong>Connect HubSpot</strong> in Dashboard → Integrations.</li>
+                          <li>Only for legacy OAuth apps or CLI-built apps (<code>hs project create</code>) — not available in HubSpot UI for new accounts.</li>
+                          <li>Redirect URI: <code>https://api.voxbulk.com/service-orders/hubspot/oauth/callback</code></li>
+                          <li>Scopes: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>oauth</code></li>
+                          <li>Paste Client ID and secret below → Save. Companies use <strong>Connect HubSpot</strong> in Dashboard → Integrations.</li>
                         </ol>
                       )}
                     </div>
