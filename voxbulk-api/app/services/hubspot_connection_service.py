@@ -211,7 +211,7 @@ def verify_hubspot_platform_config(db: Session) -> dict[str, Any]:
         return {
             "ok": True,
             "auth_mode": "private_app",
-            "detail": "Private app mode enabled. Each company pastes their HubSpot access token in Dashboard → Integrations (no OAuth secret needed).",
+            "detail": "Service key mode enabled. Each company pastes their HubSpot Service key in Dashboard → Integrations (no OAuth secret needed).",
         }
     client_id, client_secret, redirect = _hubspot_platform_credentials(db)
     if not client_id or not client_secret or not redirect:

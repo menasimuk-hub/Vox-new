@@ -1970,11 +1970,11 @@ export default function Integrations() {
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Connection type</label>
                       <select className='input' value={String(activeConfig.auth_mode || 'private_app')} onChange={(e) => setProviderField('hubspot', 'auth_mode', e.target.value)}>
-                        <option value='private_app'>Private app — access token only (most common)</option>
+                        <option value='private_app'>Service key / access token (recommended — no client secret)</option>
                         <option value='oauth'>OAuth app — Client ID + secret (multi-tenant Connect button)</option>
                       </select>
                       <div className='muted' style={{ fontSize: 12 }}>
-                        If HubSpot shows &quot;API only&quot; with an access token and no client secret, choose <strong>Private app</strong>.
+                        If HubSpot shows Personal Access Key, Developer API Key, or Service Keys — choose <strong>Service Keys</strong> and paste that key in the dashboard (not Developer API Key).
                       </div>
                     </div>
                     {String(activeConfig.auth_mode || 'private_app') === 'oauth' ? (
@@ -2003,9 +2003,9 @@ export default function Integrations() {
                       {String(activeConfig.auth_mode || 'private_app') === 'private_app' ? (
                         <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
                           <li>Enable HubSpot above → Save → Test.</li>
-                          <li>Each company: HubSpot → Settings → Integrations → <strong>Private apps</strong> → create app.</li>
+                          <li>Each company: HubSpot → Settings → Integrations → <strong>Service Keys</strong> (or Development → Keys → Service Keys) → create key.</li>
                           <li>Scopes: <code>crm.objects.contacts.read</code> and <code>crm.objects.contacts.write</code>.</li>
-                          <li>Copy the <strong>Access token</strong> (starts with <code>pat-</code>) — no client secret needed.</li>
+                          <li>Copy the <strong>Service key</strong> — use as Bearer token; no client secret.</li>
                           <li>Paste token in <strong>Dashboard → Integrations → HubSpot</strong>.</li>
                         </ol>
                       ) : (

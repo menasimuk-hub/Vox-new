@@ -197,7 +197,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
           <CardTitle className="flex items-center gap-2"><Users className="size-5 text-primary" /> HubSpot CRM</CardTitle>
           <CardDescription>
             Sync shortlisted candidates to HubSpot as contacts when you save a shortlist or send human interview links from Results.
-            {hubspotUsesToken ? " Use your HubSpot Private app access token (pat-…)." : ""}
+            {hubspotUsesToken ? " Paste your HubSpot Service key here." : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -224,12 +224,12 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
                 ) : (
                   <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
                     <div className="grid flex-1 gap-1.5">
-                      <Label htmlFor="hubspot-token" className="text-sm">Private app access token</Label>
+                      <Label htmlFor="hubspot-token" className="text-sm">HubSpot Service key</Label>
                       <Input
                         id="hubspot-token"
                         type="password"
                         autoComplete="off"
-                        placeholder={hubspotConnected ? "Paste new token to replace" : "pat-na1-…"}
+                        placeholder={hubspotConnected ? "Paste new key to replace" : "Service key from HubSpot"}
                         value={hubspotTokenDraft}
                         onChange={(e) => setHubspotTokenDraft(e.target.value)}
                         disabled={!hubspotPlatformReady || hubspotTokenBusy}
@@ -251,8 +251,8 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
               </div>
               {hubspotUsesToken && !hubspotConnected ? (
                 <p className="text-xs text-muted-foreground">
-                  In HubSpot: Settings → Integrations → Private apps → create app → scopes{" "}
-                  <code className="text-[11px]">crm.objects.contacts.read/write</code> → copy Access token.
+                  In HubSpot: Settings → Integrations → <strong>Service Keys</strong> → create key → scopes{" "}
+                  <code className="text-[11px]">crm.objects.contacts.read/write</code> → copy key. Do not use Developer API Key or Personal Access Key.
                 </p>
               ) : null}
               {hubspotConnected ? (
