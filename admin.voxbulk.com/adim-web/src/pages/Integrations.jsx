@@ -27,6 +27,7 @@ const PROVIDERS = [
   { key: 'zoom', label: 'Zoom' },
   { key: 'calendly', label: 'Calendly' },
   { key: 'cronofy', label: 'Cronofy' },
+  { key: 'hubspot', label: 'HubSpot' },
 ]
 
 const DEFAULT_WEBHOOK_BASE = 'https://localhost'
@@ -509,6 +510,7 @@ export default function Integrations() {
   const [zoomTestResult, setZoomTestResult] = useState('')
   const [calendlyTestResult, setCalendlyTestResult] = useState('')
   const [cronofyTestResult, setCronofyTestResult] = useState('')
+  const [hubspotTestResult, setHubspotTestResult] = useState('')
   const [groqTestResult, setGroqTestResult] = useState('')
   const [deepgramTestResult, setDeepgramTestResult] = useState('')
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
@@ -736,7 +738,7 @@ export default function Integrations() {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
-      if (providerKey === 'calendly' || providerKey === 'cronofy') {
+      if (providerKey === 'calendly' || providerKey === 'cronofy' || providerKey === 'hubspot') {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
@@ -776,6 +778,7 @@ export default function Integrations() {
   const zoomStatus = activeProvider === 'zoom' ? zoomValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const calendlyStatus = activeProvider === 'calendly' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const cronofyStatus = activeProvider === 'cronofy' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const hubspotStatus = activeProvider === 'hubspot' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const groqStatus = activeProvider === 'groq' ? groqValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepgramStatus = activeProvider === 'deepgram' ? deepgramValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const cartesiaStatus = activeProvider === 'cartesia' ? cartesiaValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -870,6 +873,18 @@ export default function Integrations() {
     } catch (e) {
       setCronofyTestResult('')
       setProviderError(e?.message || 'Cronofy test failed')
+    }
+  }
+
+  const testHubspot = async () => {
+    setProviderError('')
+    setHubspotTestResult('Testing HubSpot…')
+    try {
+      const result = await apiFetch('/admin/integrations/hubspot/test', { method: 'POST' })
+      setHubspotTestResult(result.ok ? (result.detail || 'HubSpot OK') : (result.detail || 'HubSpot check failed'))
+    } catch (e) {
+      setHubspotTestResult('')
+      setProviderError(e?.message || 'HubSpot test failed')
     }
   }
 
@@ -1923,6 +1938,49 @@ export default function Integrations() {
                         <li>Scopes: <code>read_account</code>, <code>read_events</code>, <code>create_event</code>.</li>
                         <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>
                         <li>Each customer org clicks <strong>Connect Cronofy</strong> in Dashboard → System.</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'hubspot' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>HubSpot CRM setup</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('hubspot', e.target.checked)} />
+                      <span>Enable HubSpot integration</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client ID</label>
+                      <input className='input' style={hubspotStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('hubspot', 'client_id', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client secret</label>
+                      <input className='input' style={hubspotStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, hubspot: { ...(s.hubspot || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste HubSpot client secret'} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Redirect URI</label>
+                      <input className='input' style={hubspotStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('hubspot', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/hubspot/oauth/callback' />
+                    </div>
+                    {hubspotTestResult ? <div className='note'>{hubspotTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('hubspot')} disabled={providerSaving || !hubspotStatus.valid}>Save HubSpot</button>
+                      <button className='btn soft' onClick={testHubspot} disabled={providerSaving || !activeSummary.configured}>Test</button>
+                    </div>
+                    <div className='note'>
+                      <strong>Setup steps</strong>
+                      <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                        <li>Open <a href='https://developers.hubspot.com/' target='_blank' rel='noreferrer'>HubSpot Developers</a> → create a public app for VoxBulk.</li>
+                        <li>Add redirect URI: <code>https://api.voxbulk.com/service-orders/hubspot/oauth/callback</code> (use your API host if different).</li>
+                        <li>Scopes: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>oauth</code>.</li>
+                        <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>
+                        <li>Each customer org clicks <strong>Connect HubSpot</strong> in Dashboard → System.</li>
                       </ol>
                     </div>
                   </div>

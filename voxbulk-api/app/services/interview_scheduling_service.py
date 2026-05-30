@@ -144,7 +144,10 @@ class InterviewSchedulingService:
         db.add(order)
         db.commit()
         db.refresh(order)
-        return {"ok": True, "recipient_ids": ids, "count": len(ids)}
+        from app.services.hubspot_connection_service import sync_shortlist_to_hubspot
+
+        hubspot_result = sync_shortlist_to_hubspot(db, order.org_id, order=order, recipient_ids=ids)
+        return {"ok": True, "recipient_ids": ids, "count": len(ids), "hubspot": hubspot_result}
 
     @staticmethod
     def send_scheduling_links(
@@ -177,12 +180,18 @@ class InterviewSchedulingService:
         company_name = _org_name(db, order)
         template_row = _resolve_scheduling_wa_template(db, order)
 
+        from app.services.hubspot_connection_service import hubspot_status, sync_recipient_to_hubspot
+
+        hubspot = hubspot_status(db, order.org_id)
+        hubspot_sync_enabled = bool(hubspot.get("connected") and hubspot.get("auto_sync_scheduling_send"))
+
         recipients = ServiceOrderService.get_recipients(db, order.id)
         id_filter = {str(x).strip() for x in ids if str(x).strip()}
         recipients = [r for r in recipients if r.id in id_filter]
 
         wa_sent = 0
         email_sent = 0
+        hubspot_synced = 0
         errors: list[str] = []
 
         for recipient in recipients:
@@ -284,6 +293,19 @@ class InterviewSchedulingService:
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
             db.add(recipient)
 
+            if hubspot_sync_enabled:
+                try:
+                    sync_recipient_to_hubspot(
+                        db,
+                        order.org_id,
+                        order=order,
+                        recipient=recipient,
+                        scheduling_url=sched_url,
+                    )
+                    hubspot_synced += 1
+                except ValueError as exc:
+                    errors.append(f"HubSpot {recipient.name or recipient.id}: {exc}")
+
         config = _order_config(order)
         config["scheduling_sent_at"] = _now().isoformat()
         config["scheduling_channels"] = channel_list
@@ -300,6 +322,7 @@ class InterviewSchedulingService:
             "sent": wa_sent + email_sent,
             "whatsapp_sent": wa_sent,
             "email_sent": email_sent,
+            "hubspot_synced": hubspot_synced,
             "errors": errors,
             "provider": org_status.get("provider"),
         }

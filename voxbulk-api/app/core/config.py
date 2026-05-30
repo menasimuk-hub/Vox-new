@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     cronofy_redirect_uri: str = Field(default="", alias="CRONOFY_REDIRECT_URI")
     cronofy_data_center: str = Field(default="uk", alias="CRONOFY_DATA_CENTER")
 
+    hubspot_client_id: str = Field(default="", alias="HUBSPOT_CLIENT_ID")
+    hubspot_client_secret: str = Field(default="", alias="HUBSPOT_CLIENT_SECRET")
+    hubspot_redirect_uri: str = Field(default="", alias="HUBSPOT_REDIRECT_URI")
+
     # Bootstrap
     bootstrap_token: str = Field(default="", alias="BOOTSTRAP_TOKEN")
     enable_test_cash_billing: bool = Field(default=False, alias="ENABLE_TEST_CASH_BILLING")

@@ -13,6 +13,7 @@ export const INTEGRATION_PROVIDERS = [
   { key: 'zoom', label: 'Zoom', icon: 'ti-brand-zoom', blurb: 'Interview campaigns via Zoom.' },
   { key: 'calendly', label: 'Calendly', icon: 'ti-calendar', blurb: 'OAuth + scheduling links for interview shortlist.' },
   { key: 'cronofy', label: 'Cronofy', icon: 'ti-calendar-time', blurb: 'OAuth + scheduling requests for interview shortlist.' },
+  { key: 'hubspot', label: 'HubSpot', icon: 'ti-brand-hubspot', blurb: 'OAuth + CRM sync for shortlisted interview candidates.' },
 ]
 
 export const INTEGRATION_EXTRAS = [

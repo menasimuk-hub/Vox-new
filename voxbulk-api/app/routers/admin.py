@@ -270,6 +270,13 @@ def test_cronofy_integration(db: Session = Depends(get_db), _admin=Depends(requi
     return test_cronofy_platform_config(db)
 
 
+@router.post("/integrations/hubspot/test")
+def test_hubspot_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.hubspot_connection_service import verify_hubspot_platform_config
+
+    return verify_hubspot_platform_config(db)
+
+
 @router.post("/integrations/groq/test")
 def test_groq_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:

@@ -39,6 +39,7 @@ export const queryKeys = {
   supportTicket: (id: string) => ["support", "tickets", id] as const,
   faq: ["faq"] as const,
   schedulingStatus: ["service-orders", "scheduling", "status"] as const,
+  hubspotStatus: ["service-orders", "hubspot", "status"] as const,
   serviceApiSettings: ["organisations", "service-api-settings"] as const,
   teamMembers: ["organisations", "team", "members"] as const,
   teamInvites: ["organisations", "team", "invites"] as const,
@@ -451,6 +452,13 @@ export function useSchedulingStatus() {
   return useQuery({
     queryKey: queryKeys.schedulingStatus,
     queryFn: () => apiFetch<Record<string, unknown>>("/service-orders/scheduling/status"),
+  });
+}
+
+export function useHubSpotStatus() {
+  return useQuery({
+    queryKey: queryKeys.hubspotStatus,
+    queryFn: () => apiFetch<Record<string, unknown>>("/service-orders/hubspot/status"),
   });
 }
 

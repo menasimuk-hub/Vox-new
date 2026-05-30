@@ -866,6 +866,80 @@ def cronofy_oauth_callback(
     return RedirectResponse(url=f"{origin}/settings/system?scheduling=connected&provider=cronofy")
 
 
+@router.get("/hubspot/status")
+def get_hubspot_status(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.hubspot_connection_service import hubspot_status
+
+    return hubspot_status(db, principal.org_id)
+
+
+@router.patch("/hubspot/settings")
+def patch_hubspot_settings(
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.hubspot_connection_service import update_hubspot_settings
+
+    try:
+        return update_hubspot_settings(
+            db,
+            principal.org_id,
+            auto_sync_shortlist=body.get("auto_sync_shortlist"),
+            auto_sync_scheduling_send=body.get("auto_sync_scheduling_send"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/hubspot/disconnect")
+def disconnect_hubspot_account(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.hubspot_connection_service import disconnect_hubspot
+
+    try:
+        return disconnect_hubspot(db, principal.org_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/hubspot/oauth/start")
+def start_hubspot_oauth(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.hubspot_connection_service import hubspot_oauth_start
+
+    try:
+        return {"authorize_url": hubspot_oauth_start(org_id=principal.org_id, db=db)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/hubspot/oauth/callback")
+def hubspot_oauth_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+    db: Session = Depends(get_db),
+):
+    from urllib.parse import quote
+
+    from app.core.config import get_settings
+    from app.services.hubspot_connection_service import hubspot_oauth_complete
+
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    from fastapi.responses import RedirectResponse
+
+    if error:
+        msg = str(error_description or error).strip() or "HubSpot authorization was denied"
+        return RedirectResponse(
+            url=f"{origin}/settings/system?hubspot=error&message={quote(msg[:200])}"
+        )
+    try:
+        hubspot_oauth_complete(db, code=code, state=state)
+    except ValueError as exc:
+        return RedirectResponse(url=f"{origin}/settings/system?hubspot=error&message={quote(str(exc)[:200])}")
+    return RedirectResponse(url=f"{origin}/settings/system?hubspot=connected")
+
+
 @router.get("/{order_id}/interview/ats/quote")
 def quote_interview_ats(
     order_id: str,
