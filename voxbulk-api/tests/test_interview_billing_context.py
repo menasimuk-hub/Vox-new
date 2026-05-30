@@ -112,3 +112,34 @@ def test_active_pro_subscription_allows_cv_email():
         ctx = org_interview_billing_context(db, org)
         assert ctx["cv_email_allowed"] is True
         assert ctx["has_active_subscription"] is True
+
+
+def test_pro_usage_wallet_overrides_payg_subscription_for_cv_email():
+    with get_sessionmaker()() as db:
+        org = _seed_org(db)
+        payg = _plan(db, code="payg", name="Pay as you go", price=0)
+        _plan(db, code="pro", name="Pro")
+        db.add(
+            Subscription(
+                org_id=org.id,
+                plan_id=payg.id,
+                status="active",
+                payment_provider="payg",
+            )
+        )
+        now = __import__("datetime").datetime.utcnow()
+        db.add(
+            OrgUsagePeriod(
+                org_id=org.id,
+                period_start=now,
+                period_end=now + __import__("datetime").timedelta(days=30),
+                status="active",
+                plan_code="pro",
+            )
+        )
+        db.commit()
+
+        ctx = org_interview_billing_context(db, org)
+        assert ctx["cv_email_allowed"] is True
+        assert ctx["plan_code"] == "pro"
+        assert ctx["has_active_subscription"] is True

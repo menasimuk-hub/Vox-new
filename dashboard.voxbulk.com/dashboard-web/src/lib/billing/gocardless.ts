@@ -2,11 +2,13 @@ import { apiFetch } from "@/lib/api";
 
 export const GC_FLOW_KEY = "voxbulk_gc_redirect_flow_id";
 export const GC_ORDER_FLOW_KEY = "voxbulk_gc_order_redirect_flow_id";
+export const GC_ORDER_ID_KEY = "voxbulk_gc_order_id";
 
 export type BillingReturnParams = {
   billing: string;
   orderBilling: string;
   redirectFlowId: string;
+  orderId: string;
 };
 
 export function readBillingReturnParams(): BillingReturnParams {
@@ -16,9 +18,10 @@ export function readBillingReturnParams(): BillingReturnParams {
       billing: (params.get("billing") || "").trim().toLowerCase(),
       orderBilling: (params.get("order_billing") || "").trim().toLowerCase(),
       redirectFlowId: (params.get("redirect_flow_id") || "").trim(),
+      orderId: (params.get("order_id") || "").trim(),
     };
   } catch {
-    return { billing: "", orderBilling: "", redirectFlowId: "" };
+    return { billing: "", orderBilling: "", redirectFlowId: "", orderId: "" };
   }
 }
 
@@ -36,6 +39,7 @@ export function clearBillingReturnState(kind?: "subscription" | "order" | "all")
   try {
     if (!kind || kind === "all" || kind === "subscription") sessionStorage.removeItem(GC_FLOW_KEY);
     if (!kind || kind === "all" || kind === "order") sessionStorage.removeItem(GC_ORDER_FLOW_KEY);
+    if (!kind || kind === "all" || kind === "order") sessionStorage.removeItem(GC_ORDER_ID_KEY);
   } catch {
     /* ignore */
   }
@@ -47,6 +51,7 @@ export function clearBillingQuery() {
     url.searchParams.delete("billing");
     url.searchParams.delete("order_billing");
     url.searchParams.delete("redirect_flow_id");
+    url.searchParams.delete("order_id");
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   } catch {
     /* ignore */
@@ -92,6 +97,7 @@ export async function startGoCardlessOrderPayment(orderId: string) {
     throw new Error("GoCardless did not return a checkout URL");
   }
   sessionStorage.setItem(GC_ORDER_FLOW_KEY, redirectFlowId);
+  sessionStorage.setItem(GC_ORDER_ID_KEY, orderId);
   window.location.assign(authorizationUrl);
 }
 

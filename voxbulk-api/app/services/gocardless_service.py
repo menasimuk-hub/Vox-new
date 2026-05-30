@@ -108,6 +108,16 @@ class BillingService:
         return db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
 
     @staticmethod
+    def _is_payg_like_plan(plan: Plan | None) -> bool:
+        if plan is None:
+            return True
+        code = str(plan.code or "").strip().lower()
+        if code in {"payg", "free", "topup"}:
+            return True
+        price = plan.price_gbp_pence
+        return price is not None and int(price) <= 0
+
+    @staticmethod
     def resolve_active_plan(db: Session, org_id: str) -> Plan | None:
         """Resolve the org's current plan from subscription, usage wallet, or pending checkout."""
         from app.services.usage_wallet_service import UsageWalletService
@@ -115,18 +125,27 @@ class BillingService:
         BillingService.ensure_default_plans(db)
         sub = BillingService.get_subscription(db, org_id)
 
+        sub_plan: Plan | None = None
         if sub is not None and sub.plan_id:
-            plan = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
-            if plan is not None:
-                return plan
+            sub_plan = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
 
         usage = UsageWalletService.get_current(db, org_id)
+        wallet_plan: Plan | None = None
         if usage is not None and usage.plan_code:
-            plan = db.execute(
+            wallet_plan = db.execute(
                 select(Plan).where(Plan.code == str(usage.plan_code).strip().lower())
             ).scalar_one_or_none()
-            if plan is not None:
-                return plan
+
+        # Active usage wallet often reflects the real package while subscription row is still payg.
+        if wallet_plan is not None and not BillingService._is_payg_like_plan(wallet_plan):
+            if BillingService._is_payg_like_plan(sub_plan):
+                return wallet_plan
+
+        if sub_plan is not None:
+            return sub_plan
+
+        if wallet_plan is not None:
+            return wallet_plan
 
         if sub is not None and sub.pending_plan_id:
             plan = db.execute(select(Plan).where(Plan.id == sub.pending_plan_id)).scalar_one_or_none()
@@ -955,16 +974,26 @@ class BillingService:
         return {"ok": True, "status": "completed", "subscription": sub, "plan": plan}
 
     @staticmethod
-    def _service_order_success_url(config: dict[str, Any], service_code: str) -> str:
-        origin = BillingService._resolved_dashboard_origin()
-        path = "surveys/new" if service_code == "survey" else "interviews/new"
-        return f"{origin}/{path}?order_billing=success"
+    def _service_order_browser_return_url(session_token: str, *, order_billing: str) -> str:
+        from urllib.parse import urlencode
+
+        api_origin = BillingService._api_public_origin().rstrip("/")
+        query = urlencode({"session_token": session_token, "order_billing": order_billing})
+        return f"{api_origin}/service-orders/gocardless/browser-return?{query}"
 
     @staticmethod
-    def _service_order_cancel_url(config: dict[str, Any], service_code: str) -> str:
-        origin = BillingService._resolved_dashboard_origin()
-        path = "surveys/new" if service_code == "survey" else "interviews/new"
-        return f"{origin}/{path}?order_billing=cancelled"
+    def _service_order_success_url(config: dict[str, Any], service_code: str, session_token: str) -> str:
+        configured = BillingService._configured_redirect_url(config, "success_redirect_url")
+        if configured and "order_billing=" in configured:
+            return configured
+        return BillingService._service_order_browser_return_url(session_token, order_billing="success")
+
+    @staticmethod
+    def _service_order_cancel_url(config: dict[str, Any], service_code: str, session_token: str) -> str:
+        configured = BillingService._configured_redirect_url(config, "cancel_redirect_url")
+        if configured and "order_billing=" in configured:
+            return configured
+        return BillingService._service_order_browser_return_url(session_token, order_billing="cancelled")
 
     @staticmethod
     def start_service_order_gocardless_flow(
@@ -990,8 +1019,8 @@ class BillingService:
 
         config = BillingService._get_gocardless_config(db)
         session_token = secrets.token_urlsafe(32)
-        success_url = BillingService._service_order_success_url(config, order.service_code)
-        cancel_url = BillingService._service_order_cancel_url(config, order.service_code)
+        success_url = BillingService._service_order_success_url(config, order.service_code, session_token)
+        cancel_url = BillingService._service_order_cancel_url(config, order.service_code, session_token)
         amount_gbp = f"£{(order.quote_total_pence / 100):.2f}"
         payload = {
             "redirect_flows": {
@@ -1043,6 +1072,52 @@ class BillingService:
             "cancel_url": cancel_url,
             "order_id": order.id,
         }
+
+    @staticmethod
+    def complete_order_browser_return(
+        db: Session,
+        *,
+        session_token: str,
+        order_billing: str,
+    ) -> str:
+        """Resolve a service-order GoCardless return hop to a dashboard URL."""
+        from urllib.parse import urlencode
+
+        from app.models.service_order import ServiceOrder
+
+        token = str(session_token or "").strip()
+        billing_state = str(order_billing or "success").strip().lower()
+        if billing_state not in {"success", "cancelled"}:
+            billing_state = "success"
+        origin = BillingService._resolved_dashboard_origin()
+
+        if not token:
+            query = urlencode({"order_billing": "error"})
+            return f"{origin}/interviews/new?{query}"
+
+        row = db.execute(
+            select(BillingRedirectFlow).where(
+                BillingRedirectFlow.session_token == token,
+                BillingRedirectFlow.service_order_id.is_not(None),
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            query = urlencode({"order_billing": "error"})
+            return f"{origin}/interviews/new?{query}"
+
+        path = "interviews/new"
+        if row.service_order_id:
+            order = db.get(ServiceOrder, row.service_order_id)
+            if order is not None and str(order.service_code or "") == "survey":
+                path = "surveys/new"
+
+        params: dict[str, str] = {"order_billing": billing_state}
+        if billing_state == "success":
+            params["redirect_flow_id"] = row.redirect_flow_id
+            if row.service_order_id:
+                params["order_id"] = str(row.service_order_id)
+        query = urlencode(params)
+        return f"{origin}/{path}?{query}"
 
     @staticmethod
     def complete_service_order_gocardless_flow(

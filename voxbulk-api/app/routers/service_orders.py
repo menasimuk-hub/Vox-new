@@ -218,13 +218,24 @@ def get_interview_billing_context(db: Session = Depends(get_db), principal=Depen
 
 
 @router.get("/interview/draft")
-def get_interview_draft(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def get_interview_draft(
+    order_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
     from app.services.interview_billing_context import org_interview_billing_context
     from app.services.interview_intake_service import get_latest_interview_draft, intake_summary, list_intake_recipients
 
     org = _require_org_service(db, principal.org_id, "interview")
     billing = org_interview_billing_context(db, org) if org else {}
-    order = get_latest_interview_draft(db, org_id=principal.org_id)
+    order = None
+    requested_id = str(order_id or "").strip()
+    if requested_id:
+        order = ServiceOrderService.get_order(db, requested_id, org_id=principal.org_id)
+        if order is None or order.service_code != "interview":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview order not found")
+    if order is None:
+        order = get_latest_interview_draft(db, org_id=principal.org_id)
     if order is None:
         return {"order": None, "recipients": [], "summary": intake_summary([]), "billing_context": billing}
     recipients = list_intake_recipients(db, order)
@@ -275,12 +286,12 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
             role=str(payload.get("role") or ""),
             criteria=str(payload.get("criteria") or ""),
         )
+    from app.services.interview_billing_context import org_interview_billing_context
+    from app.services.recovery_service import OrganisationService
+
+    org = OrganisationService.get_org(db, principal.org_id)
     config_patch = payload.get("config")
     if isinstance(config_patch, dict) and config_patch:
-        from app.services.interview_billing_context import org_interview_billing_context
-        from app.services.recovery_service import OrganisationService
-
-        org = OrganisationService.get_org(db, principal.org_id)
         billing = org_interview_billing_context(db, org) if org else {}
         if config_patch.get("cv_email_enabled") and not billing.get("cv_email_allowed"):
             config_patch = dict(config_patch)
@@ -295,11 +306,55 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
     if payload.get("title"):
         order = ServiceOrderService.update_order(db, order, {"title": str(payload.get("title"))})
     recipients = list_intake_recipients(db, order)
+    billing = org_interview_billing_context(db, org) if org else {}
     return {
         "order": ServiceOrderService.order_to_dict(order),
         "recipients": recipients,
         "summary": intake_summary(recipients),
+        "billing_context": billing,
     }
+
+
+@router.get("/gocardless/browser-return")
+def gocardless_order_browser_return(
+    session_token: str,
+    order_billing: str = "success",
+    db: Session = Depends(get_db),
+):
+    """GoCardless order payment return hop — sends browser to dashboard with order_billing params."""
+    from fastapi.responses import RedirectResponse
+
+    target = BillingService.complete_order_browser_return(
+        db,
+        session_token=session_token,
+        order_billing=order_billing,
+    )
+    return RedirectResponse(url=target, status_code=302)
+
+
+@router.post("/gocardless/complete")
+def complete_gocardless_order_payment(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    redirect_flow_id = str((payload or {}).get("redirect_flow_id") or "").strip()
+    if not redirect_flow_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="redirect_flow_id required")
+    try:
+        res = BillingService.complete_service_order_gocardless_flow(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            redirect_flow_id=redirect_flow_id,
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessProviderError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
 
 
 @router.get("/interview-reports")
@@ -590,6 +645,18 @@ def patch_order(order_id: str, payload: dict, db: Session = Depends(get_db), pri
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
+        config_patch = payload.get("config") if isinstance(payload.get("config"), dict) else None
+        if config_patch and order.service_code == "interview" and config_patch.get("cv_email_enabled"):
+            from app.services.interview_billing_context import org_interview_billing_context
+            from app.services.recovery_service import OrganisationService
+
+            org = OrganisationService.get_org(db, principal.org_id)
+            billing = org_interview_billing_context(db, org) if org else {}
+            if not billing.get("cv_email_allowed"):
+                payload = dict(payload)
+                config_patch = dict(config_patch)
+                config_patch["cv_email_enabled"] = False
+                payload["config"] = config_patch
         order = ServiceOrderService.update_order(db, order, payload)
         return ServiceOrderService.order_to_dict(order)
     except ValueError as e:
@@ -690,31 +757,6 @@ def start_gocardless_order_payment(
             org_id=principal.org_id,
             user_id=principal.user_id,
             order_id=order_id,
-        )
-        return res
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except GoCardlessConfigError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except GoCardlessProviderError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
-
-
-@router.post("/gocardless/complete")
-def complete_gocardless_order_payment(
-    payload: dict,
-    db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
-):
-    redirect_flow_id = str((payload or {}).get("redirect_flow_id") or "").strip()
-    if not redirect_flow_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="redirect_flow_id required")
-    try:
-        res = BillingService.complete_service_order_gocardless_flow(
-            db,
-            org_id=principal.org_id,
-            user_id=principal.user_id,
-            redirect_flow_id=redirect_flow_id,
         )
         return res
     except ValueError as e:

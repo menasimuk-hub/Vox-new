@@ -24,6 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
 import { formatQuoteDisplay } from "@/lib/billing/market";
+import { interviewBillingFromSources } from "@/lib/billing/plan-entitlements";
 import { useSession } from "@/lib/session";
 import {
   queryKeys,
@@ -42,6 +43,7 @@ export const Route = createFileRoute("/_app/interviews/new")({
   head: () => ({ meta: [{ title: "Create interview — VoxBulk" }] }),
   validateSearch: (search: Record<string, unknown>) => ({
     new: search.new === "1" || search.new === 1 || search.new === true,
+    order_id: typeof search.order_id === "string" ? search.order_id : undefined,
   }),
   component: CreateInterview,
 });
@@ -122,12 +124,12 @@ function cvCollectionPhase(
 }
 
 function CreateInterview() {
-  const { new: forceNew } = Route.useSearch();
+  const { new: forceNew, order_id: returnOrderId } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { session } = useSession();
   const gcReady = gocardlessAvailable(session?.subscription as Record<string, unknown> | null);
-  const draftQ = useInterviewDraft({ forceNew });
+  const draftQ = useInterviewDraft({ forceNew, orderId: returnOrderId });
   const agentsQ = useInterviewAgents();
   const saveDraftM = useSaveInterviewDraft();
   const patchOrderM = usePatchServiceOrder();
@@ -149,11 +151,13 @@ function CreateInterview() {
   const [waPreviewLoading, setWaPreviewLoading] = React.useState(false);
   const config = (order?.config || {}) as Record<string, unknown>;
   const referenceId = order?.reference_id || "";
-  const billing = (draftQ.data as { billing_context?: Record<string, unknown> })?.billing_context || {};
-  const cvEmailAllowed = Boolean(billing.cv_email_allowed);
-  const cvEmailBlockReason = String(billing.cv_email_block_reason || "");
-  const billingPlanName = String(billing.plan_name || "");
-  const hasPackageSub = Boolean(billing.has_active_subscription);
+  const billingContext = (draftQ.data as { billing_context?: Record<string, unknown> })?.billing_context;
+  const sessionPlan = (session?.subscription as { plan?: Record<string, unknown> } | null)?.plan;
+  const billing = interviewBillingFromSources(billingContext, sessionPlan as { code?: string; name?: string; price_gbp_pence?: number; interval?: string; is_enterprise?: boolean; is_payg?: boolean });
+  const cvEmailAllowed = billing.cvEmailAllowed;
+  const cvEmailBlockReason = billing.blockReason;
+  const billingPlanName = billing.planName;
+  const hasPackageSub = billing.hasPackageSub;
 
   const [preview, setPreview] = React.useState(false);
   const [upgradeOpen, setUpgradeOpen] = React.useState(false);
@@ -803,6 +807,11 @@ function CreateInterview() {
                 return;
               }
               setCvEmailEnabled(v);
+              if (orderId) {
+                void onSaveDraft(true, { cv_email_enabled: v }).catch(() => {
+                  /* toast handled in onSaveDraft */
+                });
+              }
             }}
           />
           </div>

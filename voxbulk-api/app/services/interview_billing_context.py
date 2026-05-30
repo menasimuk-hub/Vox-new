@@ -43,6 +43,10 @@ def org_interview_billing_context(db: Session, org: Organisation) -> dict:
     BillingService.repair_subscription_plan_id(db, org.id)
     sub = BillingService.get_subscription(db, org.id)
     plan = BillingService.resolve_active_plan(db, org.id)
+    if sub is not None and str(sub.status or "").strip().lower() == "pending_payment" and sub.pending_plan_id:
+        pending = db.get(Plan, sub.pending_plan_id)
+        if pending is not None and plan_allows_cv_email(pending):
+            plan = pending
     status = str(sub.status or "").strip().lower() if sub else ""
     plan_code = str(plan.code or "").strip().lower() if plan else None
 

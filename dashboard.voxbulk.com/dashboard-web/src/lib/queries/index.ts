@@ -255,10 +255,11 @@ export type InterviewDraftPayload = {
   billing_context?: Record<string, unknown>;
 };
 
-export function useInterviewDraft(options?: { forceNew?: boolean }) {
+export function useInterviewDraft(options?: { forceNew?: boolean; orderId?: string }) {
   const forceNew = Boolean(options?.forceNew);
+  const orderId = String(options?.orderId || "").trim();
   return useQuery({
-    queryKey: [...queryKeys.interviewDraft, forceNew ? "new" : "latest"],
+    queryKey: [...queryKeys.interviewDraft, forceNew ? "new" : orderId || "latest"],
     queryFn: async () => {
       if (forceNew) {
         return apiFetch<InterviewDraftPayload>("/service-orders/interview/draft/new", {
@@ -266,7 +267,10 @@ export function useInterviewDraft(options?: { forceNew?: boolean }) {
           body: "{}",
         });
       }
-      const draft = await apiFetch<InterviewDraftPayload>("/service-orders/interview/draft");
+      const draftPath = orderId
+        ? `/service-orders/interview/draft?order_id=${encodeURIComponent(orderId)}`
+        : "/service-orders/interview/draft";
+      const draft = await apiFetch<InterviewDraftPayload>(draftPath);
       if (draft?.order) return draft;
       return apiFetch<InterviewDraftPayload>("/service-orders/interview/draft/new", {
         method: "POST",

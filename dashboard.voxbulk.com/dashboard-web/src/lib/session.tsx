@@ -17,15 +17,12 @@ import {
   clearBillingReturnState,
 
   completeGoCardlessOrderPayment,
-
   completeGoCardlessSubscription,
-
+  GC_ORDER_ID_KEY,
   readBillingReturnParams,
-
   resolveRedirectFlowId,
-
+  startGoCardlessOrderPayment,
   startPaidInterviewOrder,
-
 } from "@/lib/billing/gocardless";
 
 import type { BillingSubscription, Organisation, UserProfile } from "@/lib/types/api";
@@ -145,36 +142,44 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
     if (params.orderBilling === "success") {
 
       const redirectFlowId = resolveRedirectFlowId(params, "order");
-
+      const paidOrderId = params.orderId || (() => {
+        try {
+          return (sessionStorage.getItem(GC_ORDER_ID_KEY) || "").trim();
+        } catch {
+          return "";
+        }
+      })();
       clearBillingReturnState("order");
-
       clearBillingQuery();
 
       if (!redirectFlowId) {
-
         toast.error("Payment completed but checkout session was not found.");
-
         return;
-
       }
-
       void (async () => {
-
         try {
-
           const result = await completeGoCardlessOrderPayment(redirectFlowId);
-
           const order = result?.order;
+          const resolvedOrderId = String(order?.id || paidOrderId || "");
 
-          if (order?.payment_status === "approved" && order.id) {
+          if (order?.payment_status === "approved" && resolvedOrderId) {
             if (order.service_code === "interview") {
-              const launched = await startPaidInterviewOrder(order.id);
-              const wa = Number(launched?.invites?.whatsapp_sent || 0);
-              toast.success(
-                wa > 0
-                  ? `Payment approved — WhatsApp booking invites sent to ${wa} candidate(s).`
-                  : launched?.message || "Payment approved — candidates can book their interview slots.",
-              );
+              try {
+                const launched = await startPaidInterviewOrder(resolvedOrderId);
+                const wa = Number(launched?.invites?.whatsapp_sent || 0);
+                toast.success(
+                  wa > 0
+                    ? `Payment approved — WhatsApp booking invites sent to ${wa} candidate(s).`
+                    : launched?.message || "Payment approved — candidates can book their interview slots.",
+                );
+              } catch (launchErr) {
+                toast.success("Payment approved.");
+                toast.error(
+                  launchErr instanceof Error
+                    ? launchErr.message
+                    : "Payment succeeded but launch failed — open your interview and tap Launch.",
+                );
+              }
             } else {
               toast.success("Payment approved — campaign is ready.");
             }
@@ -183,17 +188,12 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
           }
 
           onComplete();
-
         } catch (e) {
-
           toast.error(e instanceof Error ? e.message : "Could not complete GoCardless payment");
-
         }
-
       })();
 
       return;
-
     }
 
 
