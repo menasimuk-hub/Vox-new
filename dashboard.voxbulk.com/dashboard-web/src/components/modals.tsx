@@ -465,22 +465,36 @@ export type InterviewPreviewData = {
 export function PackageUpgradeModal({
   open,
   onOpenChange,
+  blockReason,
+  currentPlanName,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  blockReason?: string;
+  currentPlanName?: string;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Subscribe to unlock CV email collection</DialogTitle>
+          <DialogTitle>Upgrade to unlock CV email collection</DialogTitle>
           <DialogDescription>
-            CV email collection is included on monthly package plans. Candidates email CVs to careers@voxbulk.com and they appear automatically in your list — no manual uploads.
+            CV email collection is included on monthly Starter, Pro, and Business packages. Candidates email CVs to
+            careers@voxbulk.com and they appear automatically in your list — not on Pay as you go or top-up only.
           </DialogDescription>
         </DialogHeader>
-        <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-muted-foreground">
-          Upgrade your package to enable inbox collection, then set your collection window and job reference on this interview.
-        </div>
+        {currentPlanName ? (
+          <p className="text-sm text-muted-foreground">
+            Your current plan: <span className="font-medium text-foreground">{currentPlanName}</span>
+          </p>
+        ) : null}
+        {blockReason ? (
+          <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">{blockReason}</div>
+        ) : (
+          <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-muted-foreground">
+            Upgrade your package to enable inbox collection, then set your collection window and job reference on this interview.
+          </div>
+        )}
         <DialogFooter className="gap-2 sm:justify-between">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Not now</Button>
           <Button asChild onClick={() => onOpenChange(false)}>

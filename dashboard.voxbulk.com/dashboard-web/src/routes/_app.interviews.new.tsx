@@ -151,6 +151,8 @@ function CreateInterview() {
   const referenceId = order?.reference_id || "";
   const billing = (draftQ.data as { billing_context?: Record<string, unknown> })?.billing_context || {};
   const cvEmailAllowed = Boolean(billing.cv_email_allowed);
+  const cvEmailBlockReason = String(billing.cv_email_block_reason || "");
+  const billingPlanName = String(billing.plan_name || "");
 
   const [preview, setPreview] = React.useState(false);
   const [upgradeOpen, setUpgradeOpen] = React.useState(false);
@@ -758,7 +760,14 @@ function CreateInterview() {
           <div className="md:col-span-2">
           <ToggleRow
             title="CV email collection"
-            desc="Auto-collect candidates from careers@voxbulk.com inbox."
+            desc={
+              cvEmailAllowed
+                ? "Auto-collect candidates from careers@voxbulk.com inbox."
+                : cvEmailBlockReason ||
+                  (billingPlanName
+                    ? `Not included on ${billingPlanName} — upgrade to Starter, Pro, or Business.`
+                    : "Included on Starter, Pro, and Business packages — not Pay as you go or top-up only.")
+            }
             checked={cvEmailEnabled}
             onCheckedChange={(v) => {
               if (v && !cvEmailAllowed) {
@@ -1089,7 +1098,12 @@ function CreateInterview() {
         </Button>
       </div>
 
-      <PackageUpgradeModal open={upgradeOpen} onOpenChange={setUpgradeOpen} />
+      <PackageUpgradeModal
+        open={upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+        blockReason={cvEmailBlockReason || undefined}
+        currentPlanName={billingPlanName || undefined}
+      />
       <AtsPreviewGateModal
         open={atsPromptOpen}
         onOpenChange={setAtsPromptOpen}
