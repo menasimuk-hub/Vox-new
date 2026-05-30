@@ -1200,7 +1200,17 @@ class ServiceOrderService:
             from app.services.interview_cv_email_service import assert_cv_collection_complete
 
             assert_cv_collection_complete(order)
-        config = json.loads(order.config_json or "{}")
+        try:
+            config = json.loads(order.config_json or "{}")
+        except json.JSONDecodeError:
+            config = {}
+        if not isinstance(config, dict):
+            config = {}
+        config = dict(config)
+        config["org_id"] = order.org_id
+        duration = config.get("expected_duration_minutes")
+        if duration is not None and config.get("duration_minutes") is None:
+            config["duration_minutes"] = duration
         quote = PlatformCatalogService.calculate_quote(
             db,
             service_code=order.service_code,

@@ -459,7 +459,8 @@ export type InterviewPreviewData = {
   waPreviewConfirmationBody?: string;
   waPreviewConfirmationButtons?: { label: string; type?: string }[];
   waPreviewConfirmationTemplateName?: string;
-  waPreviewSyncLabel?: string;
+  hasPackageSubscription?: boolean;
+  packagePlanName?: string;
 };
 
 export function PackageUpgradeModal({
@@ -611,10 +612,13 @@ export function InterviewPreviewQuoteModal({
   onApproveScript,
   onRefreshQuote,
   onPayLaunch,
+  onLaunch,
   quoteLoading,
   quoteError,
   payBusy,
   gcAvailable = true,
+  hasPackageSubscription = false,
+  packagePlanName,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -622,10 +626,13 @@ export function InterviewPreviewQuoteModal({
   onApproveScript: () => Promise<void>;
   onRefreshQuote?: () => void;
   onPayLaunch?: () => void | Promise<void>;
+  onLaunch?: () => void | Promise<void>;
   quoteLoading?: boolean;
   quoteError?: string | null;
   payBusy?: boolean;
   gcAvailable?: boolean;
+  hasPackageSubscription?: boolean;
+  packagePlanName?: string;
 }) {
   const [previewApproved, setPreviewApproved] = React.useState(false);
   const [scriptApproved, setScriptApproved] = React.useState(Boolean(data.scriptApproved));
@@ -634,15 +641,21 @@ export function InterviewPreviewQuoteModal({
     ? `~${data.expectedDurationMinutes} min per call`
     : "—";
   const quoteTotal = data.quoteTotalDisplay || data.quoteTotalGbp;
-  const canPay = scriptApproved && previewApproved && Boolean(quoteTotal) && !quoteLoading;
+  const packageLabel = packagePlanName ? `Included in ${packagePlanName}` : "Included in your package";
+  const canLaunchPackage = hasPackageSubscription && scriptApproved && previewApproved && !quoteLoading && !payBusy;
+  const canPay = !hasPackageSubscription && scriptApproved && previewApproved && Boolean(quoteTotal) && !quoteLoading;
   const launchBlockedReason = quoteLoading
     ? "Loading quote…"
-    : quoteError
+    : payBusy
+      ? "Please wait…"
+    : quoteError && !hasPackageSubscription
       ? quoteError
       : !scriptApproved
         ? "Approve the script in this dialog first."
         : !previewApproved
-          ? 'Click "Confirm preview" to unlock payment.'
+          ? 'Click "Confirm preview" to unlock launch.'
+          : hasPackageSubscription
+            ? null
           : !quoteTotal
             ? "Quote not ready — save draft with a calling window, then retry."
             : !gcAvailable
@@ -681,7 +694,7 @@ export function InterviewPreviewQuoteModal({
               <PreviewMetric icon={<Users className="size-4" />} label="Candidates" value={`${data.candidateCount} ready`} />
               <PreviewMetric icon={<PhoneCall className="size-4" />} label="Agent" value={data.agentName || "—"} />
               <PreviewMetric icon={<Clock className="size-4" />} label="Expected call time" value={expectedTimeLabel} />
-              <PreviewMetric icon={<ReceiptText className="size-4" />} label="Est. cost" value={quoteLoading ? "…" : quoteTotal || "—"} />
+              <PreviewMetric icon={<ReceiptText className="size-4" />} label="Est. cost" value={quoteLoading ? "…" : hasPackageSubscription ? packageLabel : quoteTotal || "—"} />
             </div>
 
             <Panel title="Job details" icon={<FileText className="size-4" />}>
@@ -732,17 +745,19 @@ export function InterviewPreviewQuoteModal({
               />
             </div>
 
-            {quoteTotal && (
+            {(quoteTotal || hasPackageSubscription) && (
               <Panel title="Quote" icon={<Coins className="size-4" />}>
-                <QuoteRow label="Total due" value={quoteTotal} bold />
+                <QuoteRow label="Total due" value={hasPackageSubscription ? packageLabel : quoteTotal || "—"} bold />
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  {gcAvailable
-                    ? "Pay with GoCardless after confirming the preview. WhatsApp booking invites send after payment."
-                    : "GoCardless checkout is not available — contact support."}
+                  {hasPackageSubscription
+                    ? "Your monthly package covers this campaign — confirm preview and tap Launch."
+                    : gcAvailable
+                      ? "Pay with GoCardless after confirming the preview. WhatsApp booking invites send after payment."
+                      : "GoCardless checkout is not available — contact support."}
                 </p>
               </Panel>
             )}
-            {quoteError && onRefreshQuote ? (
+            {quoteError && !hasPackageSubscription && onRefreshQuote ? (
               <div className="mt-4 space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
                 <p className="text-destructive">{quoteError}</p>
                 <Button type="button" variant="outline" size="sm" onClick={onRefreshQuote}>
@@ -756,7 +771,7 @@ export function InterviewPreviewQuoteModal({
         <DialogFooter className="sticky bottom-0 flex-col gap-3 border-t border-border bg-background/95 px-6 py-4 backdrop-blur sm:flex-row sm:justify-between">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={payBusy}>Back to edit</Button>
           <div className="flex w-full flex-col gap-2 sm:w-auto">
-            {!canPay && launchBlockedReason ? (
+            {!canPay && !canLaunchPackage && launchBlockedReason ? (
               <p className="text-center text-xs text-muted-foreground sm:text-right">{launchBlockedReason}</p>
             ) : null}
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
@@ -777,14 +792,25 @@ export function InterviewPreviewQuoteModal({
             >
               <CheckCircle2 className="size-4" /> {previewApproved ? "Preview confirmed" : "Confirm preview"}
             </Button>
-            <Button
-              className="gap-1.5"
-              disabled={!canPay || !gcAvailable || payBusy}
-              onClick={() => void onPayLaunch?.()}
-            >
-              <CreditCard className="size-4" />
-              {payBusy ? "Redirecting…" : `Pay ${quoteTotal || ""} & launch`}
-            </Button>
+            {hasPackageSubscription ? (
+              <Button
+                className="gap-1.5"
+                disabled={!canLaunchPackage}
+                onClick={() => void onLaunch?.()}
+              >
+                <PlayCircle className="size-4" />
+                {payBusy ? "Launching…" : "Launch"}
+              </Button>
+            ) : (
+              <Button
+                className="gap-1.5"
+                disabled={!canPay || !gcAvailable || payBusy}
+                onClick={() => void onPayLaunch?.()}
+              >
+                <CreditCard className="size-4" />
+                {payBusy ? "Redirecting…" : `Pay ${quoteTotal || ""} & launch`}
+              </Button>
+            )}
             </div>
           </div>
         </DialogFooter>

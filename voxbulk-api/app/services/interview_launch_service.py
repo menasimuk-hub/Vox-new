@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder
 from app.services.interview_booking_service import InterviewBookingService
+from app.services.interview_billing_context import org_interview_billing_context
 from app.services.platform_catalog_service import ServiceOrderService
 
 
@@ -21,6 +24,34 @@ def _order_config(order: ServiceOrder) -> dict[str, Any]:
 
 
 class InterviewLaunchService:
+    @staticmethod
+    def approve_for_subscription_package(db: Session, order: ServiceOrder, org: Organisation) -> ServiceOrder:
+        """Mark interview order paid under an active monthly package (no per-order checkout)."""
+        if order.service_code != "interview":
+            raise ValueError("Launch is only for interview orders")
+        if order.recipient_count <= 0:
+            raise ValueError("Upload candidates before launch")
+
+        ctx = org_interview_billing_context(db, org)
+        if not ctx.get("has_active_subscription") or str(ctx.get("billing_mode") or "") != "package":
+            raise ValueError("An active monthly package is required to launch without payment")
+
+        if order.payment_status != "approved":
+            try:
+                order = ServiceOrderService.quote_order(db, order)
+            except ValueError:
+                db.refresh(order)
+            plan_name = str(ctx.get("plan_name") or "package").strip() or "package"
+            order.payment_method = "subscription"
+            order.payment_status = "approved"
+            order.status = "paid"
+            order.payment_note = f"Included in {plan_name} subscription"
+            order.updated_at = datetime.utcnow()
+            db.add(order)
+            db.commit()
+            db.refresh(order)
+        return order
+
     @staticmethod
     def launch_after_payment(
         db: Session,

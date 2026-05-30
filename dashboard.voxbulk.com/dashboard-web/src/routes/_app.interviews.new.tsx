@@ -153,6 +153,7 @@ function CreateInterview() {
   const cvEmailAllowed = Boolean(billing.cv_email_allowed);
   const cvEmailBlockReason = String(billing.cv_email_block_reason || "");
   const billingPlanName = String(billing.plan_name || "");
+  const hasPackageSub = Boolean(billing.has_active_subscription);
 
   const [preview, setPreview] = React.useState(false);
   const [upgradeOpen, setUpgradeOpen] = React.useState(false);
@@ -584,6 +585,12 @@ function CreateInterview() {
   const refreshQuote = async () => {
     if (!orderId || candidates.length === 0) return;
     setQuoteError(null);
+    if (hasPackageSub) {
+      setQuoteTotalDisplay(
+        billingPlanName ? `Included in ${billingPlanName}` : "Included in your package",
+      );
+      return;
+    }
     try {
       await onSaveDraft(true);
       const quoted = await apiFetch<{ quote_total_pence?: number; quote_total_display?: string }>(
@@ -621,6 +628,27 @@ function CreateInterview() {
       await startGoCardlessOrderPayment(orderId);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start GoCardless checkout");
+      setPayBusy(false);
+    }
+  };
+
+  const onLaunchFromPackage = async () => {
+    if (!orderId) return;
+    setPayBusy(true);
+    try {
+      await onSaveDraft(true);
+      const result = await launchM.mutateAsync();
+      setPreview(false);
+      const wa = Number(result?.invites?.whatsapp_sent || 0);
+      toast.success(
+        wa > 0
+          ? `Launched — booking invites sent to ${wa} candidate(s) via WhatsApp.`
+          : result?.message || "Interview campaign launched.",
+      );
+      refreshDraft();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not launch campaign");
+    } finally {
       setPayBusy(false);
     }
   };
@@ -1018,20 +1046,20 @@ function CreateInterview() {
         <CardHeader>
           <CardTitle>Step 3 · ATS, preview & launch</CardTitle>
           <CardDescription>
-            Run ATS on uploaded CVs, approve the preview, pay, then send WhatsApp booking invites to candidates.
+            Run ATS on uploaded CVs, approve the preview, then launch — {hasPackageSub ? "included in your package" : "pay per campaign"}, then WhatsApp booking invites go to candidates.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <LaunchStatus label="ATS scoring" done={atsGatePassed} pending={runAtsM.isPending} detail={atsSkipped || config.ats_skipped ? "Skipped" : atsRunAt ? `Run ${atsRunAt}` : unscoredCount > 0 ? `${unscoredCount} unscored` : "Not run"} />
             <LaunchStatus label="Script approved" done={scriptIsApproved} detail={scriptIsApproved ? "Ready" : "Approve in Step 2"} />
-            <LaunchStatus label="Payment" done={paymentApproved} detail={paymentApproved ? "Approved" : "After preview"} />
+            <LaunchStatus label="Payment" done={paymentApproved || hasPackageSub} detail={paymentApproved ? "Approved" : hasPackageSub ? `Included in ${billingPlanName || "package"}` : "After preview"} />
             <LaunchStatus label="WhatsApp invites" done={bookingInvitesSent} detail={bookingInvitesSent ? "Sent" : paymentApproved ? "Ready to send" : "After payment"} />
           </div>
           <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
             <li><strong className="text-foreground">Run ATS</strong> — scores each CV in the table above (or skip when prompted).</li>
-            <li><strong className="text-foreground">Preview &amp; approve</strong> — confirm script, preview, then <strong className="text-foreground">Pay &amp; launch</strong>.</li>
-            <li><strong className="text-foreground">Send booking invites</strong> — appears after payment; WhatsApp links go to each candidate.</li>
+            <li><strong className="text-foreground">Preview &amp; approve</strong> — confirm script and preview, then <strong className="text-foreground">{hasPackageSub ? "Launch" : "Pay & launch"}</strong>.</li>
+            <li><strong className="text-foreground">Send booking invites</strong> — {hasPackageSub ? "sent when you launch" : "appears after payment"}; WhatsApp links go to each candidate.</li>
           </ol>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0} onClick={onRunAtsClick}>
@@ -1093,9 +1121,6 @@ function CreateInterview() {
         <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending}>
           <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
         </Button>
-        <Button className="gap-1.5" onClick={onAttemptPreview}>
-          <Eye className="size-4" /> Preview & approve
-        </Button>
       </div>
 
       <PackageUpgradeModal
@@ -1124,10 +1149,13 @@ function CreateInterview() {
         onApproveScript={onApproveScript}
         onRefreshQuote={() => void refreshQuote()}
         onPayLaunch={() => void onPayLaunch()}
+        onLaunch={() => void onLaunchFromPackage()}
         quoteLoading={quoteM.isPending}
         quoteError={quoteError}
         payBusy={payBusy}
         gcAvailable={gcReady}
+        hasPackageSubscription={hasPackageSub}
+        packagePlanName={billingPlanName || undefined}
       />
     </div>
   );

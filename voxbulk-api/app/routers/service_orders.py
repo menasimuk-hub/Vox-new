@@ -620,19 +620,35 @@ async def upload_recipients(
 
 @router.post("/{order_id}/quote")
 def refresh_quote(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    import logging
+
     from app.models.organisation import Organisation
+    from app.services.interview_billing_context import org_interview_billing_context
     from app.services.pricing_market_service import PricingMarketService
 
+    logger = logging.getLogger(__name__)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    org = db.get(Organisation, principal.org_id)
     try:
+        billing = org_interview_billing_context(db, org) if org else {}
+        if order.service_code == "interview" and billing.get("has_active_subscription"):
+            payload = ServiceOrderService.order_to_dict(order)
+            plan_name = str(billing.get("plan_name") or "your package").strip() or "your package"
+            payload["quote_total_pence"] = 0
+            payload["quote_total_display"] = f"Included in {plan_name}"
+            payload["pricing_market"] = PricingMarketService.market_for_org(db, org)
+            payload["included_in_package"] = True
+            return payload
         order = ServiceOrderService.quote_order(db, order)
-        org = db.get(Organisation, principal.org_id)
         payload = ServiceOrderService.order_to_dict(order)
         return PricingMarketService.attach_order_quote_display(db, payload, org)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("refresh_quote_failed order_id=%s", order_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e) or "Could not calculate quote") from e
 
 
 @router.post("/{order_id}/pay-promo-credits")
@@ -1078,13 +1094,19 @@ def launch_interview_after_payment(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    from app.models.organisation import Organisation
     from app.services.interview_launch_service import InterviewLaunchService
 
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     body = payload or {}
     try:
+        if order.payment_status != "approved":
+            order = InterviewLaunchService.approve_for_subscription_package(db, order, org)
         return InterviewLaunchService.launch_after_payment(
             db,
             order,
