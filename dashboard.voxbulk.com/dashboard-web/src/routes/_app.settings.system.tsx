@@ -31,7 +31,7 @@ function SystemSettings() {
   }, [search.scheduling, search.provider, schedulingQ]);
 
   const scheduling = (schedulingQ.data || {}) as Record<string, unknown>;
-  const interviewReady = scheduling.interview_booking_ready !== false;
+  const humanReady = scheduling.human_scheduling_ready === true;
   const calPlatformReady = scheduling.calendly_platform_configured === true;
   const cronPlatformReady = scheduling.cronofy_platform_configured === true;
 
@@ -53,15 +53,15 @@ function SystemSettings() {
       <PageHeader
         eyebrow="Settings"
         title="System"
-        description="Interview booking and optional external calendar connections."
+        description="AI call booking uses VoxBulk. Connect Calendly or Cronofy here for the final human interview stage."
         actions={<Button variant="outline" className="gap-1.5"><ListChecks className="size-4" /> Show setup checklist</Button>}
       />
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><CalendarCheck className="size-5 text-success" /> Interview booking</CardTitle>
+          <CardTitle className="flex items-center gap-2"><CalendarCheck className="size-5 text-success" /> Human interview scheduling</CardTitle>
           <CardDescription>
-            Interviews use VoxBulk native booking links — candidates pick a slot from your campaign window. No Calendly or Cronofy setup required.
+            After AI screening, send candidates a link to book with <strong className="text-foreground">your company&apos;s</strong> Calendly or Cronofy account — not VoxBulk&apos;s calendar.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -69,8 +69,10 @@ function SystemSettings() {
             <Skeleton className="h-10 w-full" />
           ) : (
             <div className="flex items-center gap-2 text-sm">
-              <span className={"size-2 rounded-full " + (interviewReady ? "bg-success" : "bg-warning")} />
-              {interviewReady ? "Ready — send booking invites from any live interview campaign" : "Not configured"}
+              <span className={"size-2 rounded-full " + (humanReady ? "bg-success" : "bg-warning")} />
+              {humanReady
+                ? `Ready — ${String(scheduling.human_scheduling_mode || scheduling.provider || "calendar")} connected for Results → Send`
+                : "Connect Calendly or Cronofy below before sending human interview links from Results"}
             </div>
           )}
         </CardContent>
@@ -78,8 +80,10 @@ function SystemSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Optional external calendars</CardTitle>
-          <CardDescription>Only needed if you want Calendly or Cronofy links instead of VoxBulk booking.</CardDescription>
+          <CardTitle>Connect your calendar (Calendly or Cronofy)</CardTitle>
+          <CardDescription>
+            Required to send real booking links from your organisation when you shortlist candidates after AI phone screening. VoxBulk only sends the link — the interview happens on your calendar account.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {!calPlatformReady && !cronPlatformReady ? (

@@ -385,8 +385,10 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Send booking links</DialogTitle>
-          <DialogDescription>Each candidate gets a unique link to book a slot in your calling window.</DialogDescription>
+          <DialogTitle>Send human interview links</DialogTitle>
+          <DialogDescription>
+            Each shortlisted candidate gets a unique link to book on your company&apos;s connected Calendly or Cronofy account (Settings → System).
+          </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-3 gap-2">
           <ChannelOption icon={<Mail className="size-4" />} label="Email" active={channel === "email"} onClick={() => setChannel("email")} />

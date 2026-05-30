@@ -72,6 +72,8 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         "cronofy_platform_configured": cron_platform,
         "interview_booking_ready": True,
         "interview_booking_mode": "voxbulk_native",
+        "human_scheduling_ready": connected,
+        "human_scheduling_mode": provider if connected else None,
         "providers_available": ["calendly", "cronofy"],
         "event_type_uri": cfg.get("event_type_uri"),
         "owner_name": cfg.get("owner_name"),
