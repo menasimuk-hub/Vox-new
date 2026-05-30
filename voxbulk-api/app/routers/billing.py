@@ -323,13 +323,13 @@ def gocardless_browser_return(
 
     if row is None:
         query = urlencode({"billing": "error"})
-        return RedirectResponse(url=f"{origin}/packages?{query}", status_code=302)
+        return RedirectResponse(url=BillingService._dashboard_packages_url(origin, query=query), status_code=302)
 
     params = {"billing": billing_state}
     if billing_state == "success":
         params["redirect_flow_id"] = row.redirect_flow_id
     query = urlencode(params)
-    return RedirectResponse(url=f"{origin}/packages?{query}", status_code=302)
+    return RedirectResponse(url=BillingService._dashboard_packages_url(origin, query=query), status_code=302)
 
 
 @router.get("/usage-summary")

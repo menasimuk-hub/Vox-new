@@ -615,20 +615,43 @@ class BillingService:
         return f"{api_origin}/billing/subscription/gocardless/browser-return?{query}"
 
     @staticmethod
+    def _dashboard_packages_path() -> str:
+        return "/account/packages"
+
+    @staticmethod
+    def _dashboard_packages_url(origin: str, *, query: str = "") -> str:
+        base = f"{str(origin or '').rstrip('/')}{BillingService._dashboard_packages_path()}"
+        return f"{base}?{query}" if query else base
+
+    @staticmethod
+    def _normalize_dashboard_return_url(url: str) -> str:
+        """Rewrite legacy /packages return links to /account/packages."""
+        from urllib.parse import urlparse, urlunparse
+
+        raw = str(url or "").strip()
+        if not raw:
+            return raw
+        parsed = urlparse(raw)
+        path = parsed.path or ""
+        if path.rstrip("/") in {"/packages", "packages"}:
+            path = BillingService._dashboard_packages_path()
+        return urlunparse(parsed._replace(path=path))
+
+    @staticmethod
     def _default_success_url(config: dict[str, Any]) -> str:
         configured = BillingService._configured_redirect_url(config, "success_redirect_url")
         if configured:
-            return configured
+            return BillingService._normalize_dashboard_return_url(configured)
         origin = BillingService._resolved_dashboard_origin()
-        return f"{origin}/packages?billing=success"
+        return BillingService._dashboard_packages_url(origin, query="billing=success")
 
     @staticmethod
     def _default_cancel_url(config: dict[str, Any]) -> str:
         configured = BillingService._configured_redirect_url(config, "cancel_redirect_url")
         if configured:
-            return configured
+            return BillingService._normalize_dashboard_return_url(configured)
         origin = BillingService._resolved_dashboard_origin()
-        return f"{origin}/packages?billing=cancelled"
+        return BillingService._dashboard_packages_url(origin, query="billing=cancelled")
 
     @staticmethod
     def _gocardless_metadata(**fields: str) -> dict[str, str]:
@@ -688,11 +711,11 @@ class BillingService:
         configured_success = BillingService._configured_redirect_url(config, "success_redirect_url")
         configured_cancel = BillingService._configured_redirect_url(config, "cancel_redirect_url")
         if configured_success:
-            success_url = configured_success
+            success_url = BillingService._normalize_dashboard_return_url(configured_success)
         else:
             success_url = BillingService._gocardless_browser_return_url(session_token, billing="success")
         if configured_cancel:
-            cancel_url = configured_cancel
+            cancel_url = BillingService._normalize_dashboard_return_url(configured_cancel)
         else:
             cancel_url = BillingService._gocardless_browser_return_url(session_token, billing="cancelled")
         payload = {

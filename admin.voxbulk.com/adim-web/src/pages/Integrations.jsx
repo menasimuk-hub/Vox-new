@@ -2061,7 +2061,9 @@ export default function Integrations() {
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Success redirect URL</label>
                       <input className='input' value={String(activeConfig.success_redirect_url || '')} placeholder='Leave blank — auto: dashboard via api.voxbulk.com hop' onChange={(e) => setProviderField('gocardless', 'success_redirect_url', e.target.value)} />
-                      <div className='muted' style={{ fontSize: 12 }}>Leave empty in production. Blank uses https://dashboard.voxbulk.com automatically.</div>
+                      <div className='muted' style={{ fontSize: 12 }}>
+                        Leave blank — GoCardless returns via api.voxbulk.com, then dashboard /account/packages. Do not set dashboard /packages (404).
+                      </div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Cancel / retry URL</label>

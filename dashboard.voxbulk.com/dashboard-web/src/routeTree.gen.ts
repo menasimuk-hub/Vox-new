@@ -14,6 +14,7 @@ import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as BookTokenRouteImport } from './routes/book.$token'
 import { Route as AppSurveysRouteImport } from './routes/_app.surveys'
 import { Route as AppRecoveryRouteImport } from './routes/_app.recovery'
+import { Route as AppPackagesRouteImport } from './routes/_app.packages'
 import { Route as AppInterviewsRouteImport } from './routes/_app.interviews'
 import { Route as AppFollowUpRouteImport } from './routes/_app.follow-up'
 import { Route as AppSurveysIndexRouteImport } from './routes/_app.surveys.index'
@@ -68,6 +69,11 @@ const AppSurveysRoute = AppSurveysRouteImport.update({
 const AppRecoveryRoute = AppRecoveryRouteImport.update({
   id: '/recovery',
   path: '/recovery',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPackagesRoute = AppPackagesRouteImport.update({
+  id: '/packages',
+  path: '/packages',
   getParentRoute: () => AppRoute,
 } as any)
 const AppInterviewsRoute = AppInterviewsRouteImport.update({
@@ -233,6 +239,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/follow-up': typeof AppFollowUpRoute
   '/interviews': typeof AppInterviewsRouteWithChildren
+  '/packages': typeof AppPackagesRoute
   '/recovery': typeof AppRecoveryRouteWithChildren
   '/surveys': typeof AppSurveysRouteWithChildren
   '/book/$token': typeof BookTokenRoute
@@ -268,6 +275,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/follow-up': typeof AppFollowUpRoute
+  '/packages': typeof AppPackagesRoute
   '/book/$token': typeof BookTokenRoute
   '/': typeof AppIndexRoute
   '/account/billing': typeof AppAccountBillingRoute
@@ -303,6 +311,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/_app/follow-up': typeof AppFollowUpRoute
   '/_app/interviews': typeof AppInterviewsRouteWithChildren
+  '/_app/packages': typeof AppPackagesRoute
   '/_app/recovery': typeof AppRecoveryRouteWithChildren
   '/_app/surveys': typeof AppSurveysRouteWithChildren
   '/book/$token': typeof BookTokenRoute
@@ -343,6 +352,7 @@ export interface FileRouteTypes {
     | '/'
     | '/follow-up'
     | '/interviews'
+    | '/packages'
     | '/recovery'
     | '/surveys'
     | '/book/$token'
@@ -378,6 +388,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/follow-up'
+    | '/packages'
     | '/book/$token'
     | '/'
     | '/account/billing'
@@ -412,6 +423,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/_app/follow-up'
     | '/_app/interviews'
+    | '/_app/packages'
     | '/_app/recovery'
     | '/_app/surveys'
     | '/book/$token'
@@ -487,6 +499,13 @@ declare module '@tanstack/react-router' {
       path: '/recovery'
       fullPath: '/recovery'
       preLoaderRoute: typeof AppRecoveryRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/packages': {
+      id: '/_app/packages'
+      path: '/packages'
+      fullPath: '/packages'
+      preLoaderRoute: typeof AppPackagesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/interviews': {
@@ -798,6 +817,7 @@ const AppAccountSupportRouteWithChildren =
 interface AppRouteChildren {
   AppFollowUpRoute: typeof AppFollowUpRoute
   AppInterviewsRoute: typeof AppInterviewsRouteWithChildren
+  AppPackagesRoute: typeof AppPackagesRoute
   AppRecoveryRoute: typeof AppRecoveryRouteWithChildren
   AppSurveysRoute: typeof AppSurveysRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
@@ -816,6 +836,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppFollowUpRoute: AppFollowUpRoute,
   AppInterviewsRoute: AppInterviewsRouteWithChildren,
+  AppPackagesRoute: AppPackagesRoute,
   AppRecoveryRoute: AppRecoveryRouteWithChildren,
   AppSurveysRoute: AppSurveysRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
