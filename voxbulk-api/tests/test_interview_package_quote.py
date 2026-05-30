@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
@@ -11,7 +12,7 @@ from app.core.security import hash_password
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.plan import Plan
-from app.models.service_order import ServiceOrderRecipient
+from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
@@ -107,6 +108,68 @@ def test_interview_quote_included_for_pro_package(app_client):
     assert body.get("included_in_package") is True
     assert body["quote_total_pence"] == 0
     assert "Included in Pro" in str(body.get("quote_total_display") or "")
+
+
+def test_interview_launch_with_duplicate_subscriptions(app_client, monkeypatch):
+    with get_sessionmaker()() as db:
+        PlatformCatalogService.ensure_defaults(db)
+        org = Organisation(name="Dup Sub Launch")
+        db.add(org)
+        db.flush()
+        user = User(email=f"dup-launch-{uuid.uuid4().hex[:8]}@test.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(user)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
+        pro = db.execute(select(Plan).where(Plan.code == "pro")).scalars().first()
+        if pro is None:
+            pro = Plan(code="pro", name="Pro", price_gbp_pence=12900, interval="monthly", service_kind="voxbulk")
+            db.add(pro)
+            db.flush()
+        db.add(Subscription(org_id=org.id, plan_id=pro.id, status="active", payment_provider="gocardless"))
+        db.add(Subscription(org_id=org.id, plan_id=pro.id, status="cancelled", payment_provider="payg"))
+        now = datetime.utcnow()
+        order = ServiceOrder(
+            org_id=org.id,
+            user_id=user.id,
+            service_code="interview",
+            title="Engineer",
+            status="draft",
+            payment_status="unpaid",
+            recipient_count=1,
+            scheduled_start_at=now,
+            scheduled_end_at=now + timedelta(hours=4),
+            config_json='{"delivery":"ai_call","role":"Engineer","script_approved":true,"approved_script":"Hello"}',
+        )
+        db.add(order)
+        db.flush()
+        db.add(
+            ServiceOrderRecipient(
+                order_id=order.id,
+                row_number=1,
+                name="Alex",
+                phone="+447700900123",
+                status="pending",
+            )
+        )
+        db.commit()
+        org_id = org.id
+        order_id = order.id
+        email = user.email
+
+    token = app_client.post(
+        "/auth/token",
+        data={"username": email, "password": "pass123", "org_id": org_id},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    monkeypatch.setattr(
+        "app.services.interview_launch_service.InterviewBookingService.send_invites",
+        lambda *a, **k: {"ok": True, "whatsapp_sent": 1, "email_sent": 0, "errors": []},
+    )
+
+    launched = app_client.post(f"/service-orders/{order_id}/interview/launch", headers=headers)
+    assert launched.status_code == 200, launched.text
+    assert launched.json().get("ok") is True
 
 
 def test_interview_launch_without_checkout_for_pro_package(app_client, monkeypatch):

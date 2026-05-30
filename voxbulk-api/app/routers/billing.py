@@ -313,9 +313,16 @@ def gocardless_browser_return(
     if not token:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="session_token required")
 
-    row = db.execute(
-        select(BillingRedirectFlow).where(BillingRedirectFlow.session_token == token)
-    ).scalar_one_or_none()
+    row = (
+        db.execute(
+            select(BillingRedirectFlow)
+            .where(BillingRedirectFlow.session_token == token)
+            .order_by(BillingRedirectFlow.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
     origin = BillingService._resolved_dashboard_origin()
     billing_state = str(billing or "success").strip().lower()
     if billing_state not in {"success", "cancelled"}:

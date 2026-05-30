@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder
 from app.services.interview_booking_service import InterviewBookingService
-from app.services.interview_billing_context import org_interview_billing_context
+from app.services.interview_billing_context import org_interview_billing_context, plan_allows_cv_email
+from app.services.gocardless_service import BillingService
 from app.services.platform_catalog_service import ServiceOrderService
 
 
@@ -25,6 +26,21 @@ def _order_config(order: ServiceOrder) -> dict[str, Any]:
 
 class InterviewLaunchService:
     @staticmethod
+    def org_has_package_launch_access(db: Session, org: Organisation) -> bool:
+        """True when org may launch interviews without per-order checkout."""
+        ctx = org_interview_billing_context(db, org)
+        if ctx.get("has_active_subscription"):
+            return True
+        sub = BillingService.get_subscription(db, org.id)
+        plan = BillingService.resolve_active_plan(db, org.id)
+        status = str(sub.status or "").strip().lower() if sub else ""
+        return (
+            sub is not None
+            and status in {"active", "trial", "past_due"}
+            and plan_allows_cv_email(plan)
+        )
+
+    @staticmethod
     def approve_for_subscription_package(db: Session, order: ServiceOrder, org: Organisation) -> ServiceOrder:
         """Mark interview order paid under an active monthly package (no per-order checkout)."""
         if order.service_code != "interview":
@@ -32,15 +48,11 @@ class InterviewLaunchService:
         if order.recipient_count <= 0:
             raise ValueError("Upload candidates before launch")
 
-        ctx = org_interview_billing_context(db, org)
-        if not ctx.get("has_active_subscription") or str(ctx.get("billing_mode") or "") != "package":
+        if not InterviewLaunchService.org_has_package_launch_access(db, org):
             raise ValueError("An active monthly package is required to launch without payment")
 
+        ctx = org_interview_billing_context(db, org)
         if order.payment_status != "approved":
-            try:
-                order = ServiceOrderService.quote_order(db, order)
-            except ValueError:
-                db.refresh(order)
             plan_name = str(ctx.get("plan_name") or "package").strip() or "package"
             order.payment_method = "subscription"
             order.payment_status = "approved"
@@ -74,11 +86,22 @@ class InterviewLaunchService:
                 raise ValueError("Set the calling window (start and end) before launch")
             already_sent = bool(config.get("booking_invites_sent_at"))
             if resend_invites or not already_sent:
-                invite_result = InterviewBookingService.send_invites(
-                    db,
-                    order,
-                    channels=channels or ["whatsapp", "email"],
-                )
+                try:
+                    invite_result = InterviewBookingService.send_invites(
+                        db,
+                        order,
+                        channels=channels or ["whatsapp", "email"],
+                    )
+                except Exception as exc:
+                    import logging
+
+                    logging.getLogger(__name__).exception("interview_launch_send_invites_failed order_id=%s", order.id)
+                    invite_result = {
+                        "ok": False,
+                        "whatsapp_sent": 0,
+                        "email_sent": 0,
+                        "errors": [str(exc) or "Could not send booking invites"],
+                    }
             config = _order_config(order)
             config["require_booking"] = config.get("require_booking", True) is not False
             config["booking_flow"] = "whatsapp_slot"

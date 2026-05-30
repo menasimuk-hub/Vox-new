@@ -273,7 +273,7 @@ class BillingService:
             raise ValueError("Plan is not available")
 
         now = datetime.utcnow()
-        sub = db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
+        sub = BillingService.get_subscription(db, org_id)
         if sub is None:
             sub = Subscription(
                 org_id=org_id,
@@ -300,7 +300,7 @@ class BillingService:
 
     @staticmethod
     def approve_cash_subscription(db: Session, *, org_id: str) -> tuple[Subscription, Plan]:
-        sub = db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
+        sub = BillingService.get_subscription(db, org_id)
         if sub is None or sub.status != "pending_payment" or not sub.pending_plan_id:
             raise ValueError("No cash subscription awaiting approval")
         if sub.payment_provider != "manual_cash":
@@ -323,7 +323,7 @@ class BillingService:
 
     @staticmethod
     def reject_cash_subscription(db: Session, *, org_id: str) -> Subscription:
-        sub = db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
+        sub = BillingService.get_subscription(db, org_id)
         if sub is None or sub.status != "pending_payment" or not sub.pending_plan_id:
             raise ValueError("No cash subscription awaiting approval")
         if sub.payment_provider != "manual_cash":
@@ -427,7 +427,7 @@ class BillingService:
         if plan is None:
             raise ValueError("Unknown plan")
 
-        sub = db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
+        sub = BillingService.get_subscription(db, org_id)
         period_end = datetime.utcnow() + timedelta(days=30)
         if sub is None:
             sub = Subscription(
@@ -465,7 +465,7 @@ class BillingService:
             raise ValueError("Pay as you go is not available")
 
         now = datetime.utcnow()
-        sub = db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
+        sub = BillingService.get_subscription(db, org_id)
         period_end = now + timedelta(days=3650)
         if sub is None:
             sub = Subscription(
@@ -510,7 +510,7 @@ class BillingService:
             raise ValueError("Unknown plan")
 
         now = datetime.utcnow()
-        sub = db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
+        sub = BillingService.get_subscription(db, org_id)
         if sub is None:
             sub = Subscription(
                 org_id=org_id,
@@ -812,13 +812,20 @@ class BillingService:
             extra={"redirect_flow_id": flow_id, "org_id": org_id, "user_id": user_id},
         )
 
-        row = db.execute(
-            select(BillingRedirectFlow).where(
-                BillingRedirectFlow.redirect_flow_id == flow_id,
-                BillingRedirectFlow.org_id == org_id,
-                BillingRedirectFlow.user_id == user_id,
+        row = (
+            db.execute(
+                select(BillingRedirectFlow)
+                .where(
+                    BillingRedirectFlow.redirect_flow_id == flow_id,
+                    BillingRedirectFlow.org_id == org_id,
+                    BillingRedirectFlow.user_id == user_id,
+                )
+                .order_by(BillingRedirectFlow.created_at.desc())
+                .limit(1)
             )
-        ).scalar_one_or_none()
+            .scalars()
+            .first()
+        )
         logger.info(
             "gocardless_complete_redirect_lookup",
             extra={
@@ -915,7 +922,7 @@ class BillingService:
         )
 
         now = datetime.utcnow()
-        sub = db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
+        sub = BillingService.get_subscription(db, org_id)
         if sub is None:
             sub = Subscription(org_id=org_id, plan_id=plan.id)
         sub.plan_id = plan.id
@@ -1134,12 +1141,19 @@ class BillingService:
             query = urlencode({"order_billing": "error"})
             return f"{origin}/interviews/new?{query}"
 
-        row = db.execute(
-            select(BillingRedirectFlow).where(
-                BillingRedirectFlow.session_token == token,
-                BillingRedirectFlow.service_order_id.is_not(None),
+        row = (
+            db.execute(
+                select(BillingRedirectFlow)
+                .where(
+                    BillingRedirectFlow.session_token == token,
+                    BillingRedirectFlow.service_order_id.is_not(None),
+                )
+                .order_by(BillingRedirectFlow.created_at.desc())
+                .limit(1)
             )
-        ).scalar_one_or_none()
+            .scalars()
+            .first()
+        )
         if row is None:
             query = urlencode({"order_billing": "error"})
             return f"{origin}/interviews/new?{query}"
@@ -1172,14 +1186,21 @@ class BillingService:
         if not flow_id:
             raise ValueError("redirect_flow_id required")
 
-        row = db.execute(
-            select(BillingRedirectFlow).where(
-                BillingRedirectFlow.redirect_flow_id == flow_id,
-                BillingRedirectFlow.org_id == org_id,
-                BillingRedirectFlow.user_id == user_id,
-                BillingRedirectFlow.service_order_id.is_not(None),
+        row = (
+            db.execute(
+                select(BillingRedirectFlow)
+                .where(
+                    BillingRedirectFlow.redirect_flow_id == flow_id,
+                    BillingRedirectFlow.org_id == org_id,
+                    BillingRedirectFlow.user_id == user_id,
+                    BillingRedirectFlow.service_order_id.is_not(None),
+                )
+                .order_by(BillingRedirectFlow.created_at.desc())
+                .limit(1)
             )
-        ).scalar_one_or_none()
+            .scalars()
+            .first()
+        )
         if row is None:
             raise ValueError("Service order redirect flow not found")
 

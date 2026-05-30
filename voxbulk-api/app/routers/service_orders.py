@@ -1136,9 +1136,12 @@ def launch_interview_after_payment(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    import logging
+
     from app.models.organisation import Organisation
     from app.services.interview_launch_service import InterviewLaunchService
 
+    logger = logging.getLogger(__name__)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1157,6 +1160,12 @@ def launch_interview_after_payment(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("interview_launch_failed order_id=%s org_id=%s", order_id, principal.org_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e) or "Could not launch interview campaign",
+        ) from e
 
 
 @router.get("/{order_id}/interview-booking/preview-template")
