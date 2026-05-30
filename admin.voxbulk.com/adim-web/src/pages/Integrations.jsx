@@ -1873,14 +1873,14 @@ export default function Integrations() {
                       <button className='btn primary' onClick={() => saveIntegrationProvider('calendly')} disabled={providerSaving || !calendlyStatus.valid}>Save Calendly</button>
                       <button className='btn soft' onClick={testCalendly} disabled={providerSaving || !activeSummary.configured}>Test Calendly</button>
                     </div>
-                    <div className='note'>Each organisation connects Calendly from Dashboard → System. Register the redirect URI in your Calendly developer app.</div>
+                    <div className='note'>Each organisation connects Calendly from Dashboard → Integrations. Register the redirect URI in your Calendly developer app.</div>
                     <div className='note' style={{ marginTop: 8 }}>
                       <strong>Setup (VoxBulk admin, one time)</strong>
                       <ol style={{ margin: '8px 0 0', paddingLeft: 20, lineHeight: 1.6 }}>
                         <li>Open <a href='https://developer.calendly.com/' target='_blank' rel='noreferrer'>developer.calendly.com</a> → create an OAuth application for VoxBulk.</li>
                         <li>Add redirect URI: <code>https://api.voxbulk.com/service-orders/scheduling/oauth/calendly/callback</code> (use your API host if different).</li>
                         <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>
-                        <li>Each customer org clicks <strong>Connect Calendly</strong> in Dashboard → System (uses their Calendly account, not yours).</li>
+                        <li>Each customer org clicks <strong>Connect Calendly</strong> in Dashboard → Integrations (uses their Calendly account, not yours).</li>
                       </ol>
                     </div>
                   </div>
@@ -1928,7 +1928,7 @@ export default function Integrations() {
                       <button className='btn primary' onClick={() => saveIntegrationProvider('cronofy')} disabled={providerSaving || !cronofyStatus.valid}>Save Cronofy</button>
                       <button className='btn soft' onClick={testCronofy} disabled={providerSaving || !activeSummary.configured}>Test Cronofy</button>
                     </div>
-                    <div className='note'>Each organisation connects Cronofy from Dashboard → System. Register the redirect URI in your Cronofy developer app.</div>
+                    <div className='note'>Each organisation connects Cronofy from Dashboard → Integrations. Register the redirect URI in your Cronofy developer app.</div>
                     <div className='note' style={{ marginTop: 8 }}>
                       <strong>Setup (VoxBulk admin, one time)</strong>
                       <ol style={{ margin: '8px 0 0', paddingLeft: 20, lineHeight: 1.6 }}>
@@ -1937,7 +1937,7 @@ export default function Integrations() {
                         <li>Add redirect URI: <code>https://api.voxbulk.com/service-orders/scheduling/oauth/cronofy/callback</code> (use your API host if different).</li>
                         <li>Scopes: <code>read_account</code>, <code>read_events</code>, <code>create_event</code>.</li>
                         <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>
-                        <li>Each customer org clicks <strong>Connect Cronofy</strong> in Dashboard → System.</li>
+                        <li>Each customer org clicks <strong>Connect Cronofy</strong> in Dashboard → Integrations.</li>
                       </ol>
                     </div>
                   </div>
@@ -1980,7 +1980,7 @@ export default function Integrations() {
                         <li>Add redirect URI: <code>https://api.voxbulk.com/service-orders/hubspot/oauth/callback</code> (use your API host if different).</li>
                         <li>Scopes: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>oauth</code>.</li>
                         <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>
-                        <li>Each customer org clicks <strong>Connect HubSpot</strong> in Dashboard → System.</li>
+                        <li>Each customer org clicks <strong>Connect HubSpot</strong> in Dashboard → Integrations.</li>
                       </ol>
                     </div>
                   </div>

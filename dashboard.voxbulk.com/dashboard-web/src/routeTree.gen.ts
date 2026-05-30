@@ -28,6 +28,7 @@ import { Route as AppSettingsSystemRouteImport } from './routes/_app.settings.sy
 import { Route as AppSettingsServicesRouteImport } from './routes/_app.settings.services'
 import { Route as AppSettingsProfileRouteImport } from './routes/_app.settings.profile'
 import { Route as AppSettingsOptOutRouteImport } from './routes/_app.settings.opt-out'
+import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app.settings.integrations'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
 import { Route as AppRecoveryRecallRouteImport } from './routes/_app.recovery.recall'
 import { Route as AppRecoveryOffersRouteImport } from './routes/_app.recovery.offers'
@@ -139,6 +140,11 @@ const AppSettingsOptOutRoute = AppSettingsOptOutRouteImport.update({
   path: '/settings/opt-out',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsIntegrationsRoute = AppSettingsIntegrationsRouteImport.update({
+  id: '/settings/integrations',
+  path: '/settings/integrations',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
   id: '/settings/audit',
   path: '/settings/audit',
@@ -241,6 +247,7 @@ export interface FileRoutesByFullPath {
   '/recovery/offers': typeof AppRecoveryOffersRoute
   '/recovery/recall': typeof AppRecoveryRecallRoute
   '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/opt-out': typeof AppSettingsOptOutRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/services': typeof AppSettingsServicesRoute
@@ -272,6 +279,7 @@ export interface FileRoutesByTo {
   '/recovery/offers': typeof AppRecoveryOffersRoute
   '/recovery/recall': typeof AppRecoveryRecallRoute
   '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/opt-out': typeof AppSettingsOptOutRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/services': typeof AppSettingsServicesRoute
@@ -310,6 +318,7 @@ export interface FileRoutesById {
   '/_app/recovery/offers': typeof AppRecoveryOffersRoute
   '/_app/recovery/recall': typeof AppRecoveryRecallRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
+  '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/_app/settings/opt-out': typeof AppSettingsOptOutRoute
   '/_app/settings/profile': typeof AppSettingsProfileRoute
   '/_app/settings/services': typeof AppSettingsServicesRoute
@@ -348,6 +357,7 @@ export interface FileRouteTypes {
     | '/recovery/offers'
     | '/recovery/recall'
     | '/settings/audit'
+    | '/settings/integrations'
     | '/settings/opt-out'
     | '/settings/profile'
     | '/settings/services'
@@ -379,6 +389,7 @@ export interface FileRouteTypes {
     | '/recovery/offers'
     | '/recovery/recall'
     | '/settings/audit'
+    | '/settings/integrations'
     | '/settings/opt-out'
     | '/settings/profile'
     | '/settings/services'
@@ -416,6 +427,7 @@ export interface FileRouteTypes {
     | '/_app/recovery/offers'
     | '/_app/recovery/recall'
     | '/_app/settings/audit'
+    | '/_app/settings/integrations'
     | '/_app/settings/opt-out'
     | '/_app/settings/profile'
     | '/_app/settings/services'
@@ -573,6 +585,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/opt-out'
       fullPath: '/settings/opt-out'
       preLoaderRoute: typeof AppSettingsOptOutRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/integrations': {
+      id: '/_app/settings/integrations'
+      path: '/settings/integrations'
+      fullPath: '/settings/integrations'
+      preLoaderRoute: typeof AppSettingsIntegrationsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/audit': {
@@ -786,6 +805,7 @@ interface AppRouteChildren {
   AppAccountPackagesRoute: typeof AppAccountPackagesRoute
   AppAccountSupportRoute: typeof AppAccountSupportRouteWithChildren
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
+  AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsOptOutRoute: typeof AppSettingsOptOutRoute
   AppSettingsProfileRoute: typeof AppSettingsProfileRoute
   AppSettingsServicesRoute: typeof AppSettingsServicesRoute
@@ -803,6 +823,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountPackagesRoute: AppAccountPackagesRoute,
   AppAccountSupportRoute: AppAccountSupportRouteWithChildren,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
+  AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsOptOutRoute: AppSettingsOptOutRoute,
   AppSettingsProfileRoute: AppSettingsProfileRoute,
   AppSettingsServicesRoute: AppSettingsServicesRoute,

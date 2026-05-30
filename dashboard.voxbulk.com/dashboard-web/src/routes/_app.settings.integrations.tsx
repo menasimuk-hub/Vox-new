@@ -9,14 +9,13 @@ const integrationsSearch = (s: Record<string, unknown>) => ({
   hubspot: typeof s.hubspot === "string" ? s.hubspot : undefined,
 });
 
-export const Route = createFileRoute("/_app/settings/system")({
+export const Route = createFileRoute("/_app/settings/integrations")({
   head: () => ({ meta: [{ title: "Integrations — VoxBulk" }] }),
   validateSearch: integrationsSearch,
-  component: SystemSettingsRoute,
+  component: IntegrationsSettingsRoute,
 });
 
-/** Legacy URL kept for OAuth callbacks (`/settings/system?hubspot=connected`). */
-function SystemSettingsRoute() {
+function IntegrationsSettingsRoute() {
   const search = Route.useSearch();
   return <IntegrationsSettingsPage search={search} />;
 }

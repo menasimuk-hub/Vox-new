@@ -138,6 +138,7 @@ export default function App() {
         <Route path='/integrations/zoom' element={<Integrations />} />
         <Route path='/integrations/calendly' element={<Integrations />} />
         <Route path='/integrations/cronofy' element={<Integrations />} />
+        <Route path='/integrations/hubspot' element={<Integrations />} />
         <Route path='/integrations/webhooks' element={<Integrations />} />
         <Route path='/integrations/social-login' element={<Integrations />} />
         <Route path='/services-api' element={<ServicesAPI />} />

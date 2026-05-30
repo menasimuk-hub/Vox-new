@@ -116,6 +116,7 @@ const NAV = [
       ['Zoom', '/integrations/zoom'],
       ['Calendly', '/integrations/calendly'],
       ['Cronofy', '/integrations/cronofy'],
+      ['HubSpot', '/integrations/hubspot'],
       ['Webhooks', '/integrations/webhooks'],
       ['Social login', '/integrations/social-login'],
     ],

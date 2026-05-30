@@ -16,7 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { downloadAuthenticatedFile } from "@/lib/api";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
-import { useInterviewResults, useSaveInterviewShortlist, useSendInterviewScheduling, useServiceOrders } from "@/lib/queries";
+import { useInterviewResults, useHubSpotStatus, useSaveInterviewShortlist, useSendInterviewScheduling, useServiceOrders, useSchedulingStatus } from "@/lib/queries";
 import type { CampaignTone } from "@/lib/types/campaign";
 import type { ServiceOrder } from "@/lib/types/api";
 import { AtsScore } from "@/components/ats-score";
@@ -362,8 +362,14 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
   const [channel, setChannel] = React.useState<"email" | "whatsapp" | "both">("both");
   const shortlistM = useSaveInterviewShortlist(orderId);
   const sendM = useSendInterviewScheduling(orderId);
+  const schedulingQ = useSchedulingStatus();
+  const hubspotQ = useHubSpotStatus();
   const [busy, setBusy] = React.useState(false);
   const channels = channel === "both" ? ["whatsapp", "email"] : channel === "whatsapp" ? ["whatsapp"] : ["email"];
+  const scheduling = (schedulingQ.data || {}) as Record<string, unknown>;
+  const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
+  const calendarReady = scheduling.human_scheduling_ready === true;
+  const hubspotReady = hubspot.connected === true;
 
   const onSend = async () => {
     if (recipientIds.length === 0) return;
@@ -373,8 +379,12 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
       const res = await sendM.mutateAsync({ recipient_ids: recipientIds, channels });
       const wa = Number((res as Record<string, unknown>).whatsapp_sent || 0);
       const em = Number((res as Record<string, unknown>).email_sent || 0);
-      if (wa + em > 0) toast.success(`Sent ${wa} WhatsApp and ${em} email invite(s)`);
-      else toast.error("Nothing was sent");
+      const hs = Number((res as Record<string, unknown>).hubspot_synced || 0);
+      if (wa + em > 0) {
+        toast.success(`Sent ${wa} WhatsApp and ${em} email invite(s)${hs > 0 ? ` · ${hs} synced to HubSpot` : ""}`);
+      } else {
+        toast.error("Nothing was sent");
+      }
       onOpenChange(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Send failed");
@@ -389,9 +399,28 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
         <DialogHeader>
           <DialogTitle>Send human interview links</DialogTitle>
           <DialogDescription>
-            Each shortlisted candidate gets a unique link to book on your company&apos;s connected Calendly or Cronofy account (Settings → System).
+            Each shortlisted candidate gets a unique link to book on your company&apos;s connected Calendly or Cronofy account.
+            {hubspotReady ? " Connected HubSpot contacts will be updated automatically." : ""}
           </DialogDescription>
         </DialogHeader>
+        {!calendarReady ? (
+          <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-muted-foreground">
+            Connect Calendly or Cronofy in{" "}
+            <Link to="/settings/integrations" className="font-medium text-foreground underline-offset-2 hover:underline">
+              Settings → Integrations
+            </Link>{" "}
+            before sending.
+          </p>
+        ) : null}
+        {!hubspotReady ? (
+          <p className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+            Optional: connect HubSpot in{" "}
+            <Link to="/settings/integrations" className="text-primary underline-offset-2 hover:underline">
+              Settings → Integrations
+            </Link>{" "}
+            to sync shortlisted candidates to your CRM.
+          </p>
+        ) : null}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ChannelOption icon={<Mail className="size-4" />} label="Email" active={channel === "email"} onClick={() => setChannel("email")} />
           <ChannelOption icon={<MessageCircle className="size-4" />} label="WhatsApp" active={channel === "whatsapp"} onClick={() => setChannel("whatsapp")} />
@@ -399,7 +428,7 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={() => void onSend()} disabled={count === 0 || busy}>{busy ? "Sending…" : `Send to ${count}`}</Button>
+          <Button onClick={() => void onSend()} disabled={count === 0 || busy || !calendarReady}>{busy ? "Sending…" : `Send to ${count}`}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

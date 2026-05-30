@@ -11,7 +11,7 @@ import {
   ClipboardList, MessageSquareText, ListChecks, FileText,
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
   CalendarClock, Repeat,
-  Settings as SettingsIcon, Layers, User2, Cog, Users, Ban, History,
+  Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
   Package, CreditCard, LifeBuoy,
 } from "lucide-react";
 
@@ -81,8 +81,8 @@ const groups: Group[] = [
   ]},
   { key: "settings", label: "Settings", items: [
     { title: "Services", url: "/settings/services", icon: Layers },
+    { title: "Integrations", url: "/settings/integrations", icon: Plug },
     { title: "Profile settings", url: "/settings/profile", icon: User2 },
-    { title: "System settings", url: "/settings/system", icon: Cog },
     { title: "Team members", url: "/settings/team", icon: Users },
     { title: "Opt-out list", url: "/settings/opt-out", icon: Ban },
     { title: "Audit log", url: "/settings/audit", icon: History },

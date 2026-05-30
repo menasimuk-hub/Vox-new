@@ -823,7 +823,7 @@ def calendly_oauth_callback(
     origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
     from fastapi.responses import RedirectResponse
 
-    return RedirectResponse(url=f"{origin}/settings/system?scheduling=connected&provider=calendly")
+    return RedirectResponse(url=f"{origin}/settings/integrations?scheduling=connected&provider=calendly")
 
 
 @router.get("/scheduling/oauth/cronofy/start")
@@ -855,15 +855,15 @@ def cronofy_oauth_callback(
     if error:
         msg = str(error_description or error).strip() or "Cronofy authorization was denied"
         return RedirectResponse(
-            url=f"{origin}/settings/system?scheduling=error&provider=cronofy&message={quote(msg[:200])}"
+            url=f"{origin}/settings/integrations?scheduling=error&provider=cronofy&message={quote(msg[:200])}"
         )
     try:
         cronofy_oauth_complete(db, code=code, state=state)
     except ValueError as exc:
         return RedirectResponse(
-            url=f"{origin}/settings/system?scheduling=error&provider=cronofy&message={quote(str(exc)[:200])}"
+            url=f"{origin}/settings/integrations?scheduling=error&provider=cronofy&message={quote(str(exc)[:200])}"
         )
-    return RedirectResponse(url=f"{origin}/settings/system?scheduling=connected&provider=cronofy")
+    return RedirectResponse(url=f"{origin}/settings/integrations?scheduling=connected&provider=cronofy")
 
 
 @router.get("/hubspot/status")
@@ -931,13 +931,13 @@ def hubspot_oauth_callback(
     if error:
         msg = str(error_description or error).strip() or "HubSpot authorization was denied"
         return RedirectResponse(
-            url=f"{origin}/settings/system?hubspot=error&message={quote(msg[:200])}"
+            url=f"{origin}/settings/integrations?hubspot=error&message={quote(msg[:200])}"
         )
     try:
         hubspot_oauth_complete(db, code=code, state=state)
     except ValueError as exc:
-        return RedirectResponse(url=f"{origin}/settings/system?hubspot=error&message={quote(str(exc)[:200])}")
-    return RedirectResponse(url=f"{origin}/settings/system?hubspot=connected")
+        return RedirectResponse(url=f"{origin}/settings/integrations?hubspot=error&message={quote(str(exc)[:200])}")
+    return RedirectResponse(url=f"{origin}/settings/integrations?hubspot=connected")
 
 
 @router.get("/{order_id}/interview/ats/quote")
