@@ -716,8 +716,8 @@ function CreateInterview() {
             <div className="space-y-1.5 md:col-span-2">
               <Label className="text-xs">Job reference</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Input value={referenceId || "—"} readOnly className="font-mono" />
-                <Button variant="outline" className="gap-1.5 sm:w-auto" onClick={() => void copyReference()} disabled={!referenceId}>
+                <Input value={referenceId || "—"} readOnly className="min-w-0 font-mono text-xs sm:text-sm" />
+                <Button variant="outline" className="w-full shrink-0 gap-1.5 sm:w-auto" onClick={() => void copyReference()} disabled={!referenceId}>
                   <Copy className="size-4" /> Copy reference
                 </Button>
               </div>
@@ -728,6 +728,7 @@ function CreateInterview() {
             </div>
           )}
 
+          <div className="md:col-span-2">
           <ToggleRow
             title="CV email collection"
             desc="Auto-collect candidates from careers@voxbulk.com inbox."
@@ -740,6 +741,7 @@ function CreateInterview() {
               setCvEmailEnabled(v);
             }}
           />
+          </div>
           {cvEmailActive && (
             <div className="md:col-span-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               {cvPhase === "before" && "CV collection has not started yet. Candidates can apply once the window opens."}
@@ -747,12 +749,12 @@ function CreateInterview() {
               {cvPhase === "ready" && "CV collection finished — you can run ATS, remove weak candidates, and open Preview & approve to launch calls."}
             </div>
           )}
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="Collection start"><Input type="datetime-local" value={collectionStart} onChange={(e) => setCollectionStart(e.target.value)} /></Field>
-            <Field label="Collection end"><Input type="datetime-local" value={collectionEnd} onChange={(e) => setCollectionEnd(e.target.value)} /></Field>
+          <div className="grid grid-cols-1 gap-2 md:col-span-2 sm:grid-cols-2">
+            <Field label="Collection start"><Input type="datetime-local" value={collectionStart} onChange={(e) => setCollectionStart(e.target.value)} className="w-full min-w-0" /></Field>
+            <Field label="Collection end"><Input type="datetime-local" value={collectionEnd} onChange={(e) => setCollectionEnd(e.target.value)} className="w-full min-w-0" /></Field>
           </div>
 
-          <div className="md:col-span-2 group relative overflow-hidden rounded-xl border-2 border-dashed border-border bg-gradient-to-br from-background/60 via-background/40 to-accent/20 px-6 py-10 transition-colors hover:border-primary/40">
+          <div className="md:col-span-2 group relative overflow-hidden rounded-xl border-2 border-dashed border-border bg-gradient-to-br from-background/60 via-background/40 to-accent/20 px-4 py-8 transition-colors hover:border-primary/40 sm:px-6 sm:py-10">
             <BackdropIllustration />
             <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => void onUpload(e.target.files)} />
             <div className="relative flex flex-col items-center gap-2 text-center">
@@ -761,20 +763,20 @@ function CreateInterview() {
               </div>
               <p className="text-sm font-medium">Drop CSV, Excel, PDF, DOCX, or ZIP</p>
               <p className="text-xs text-muted-foreground">Or click to upload</p>
-              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                <Button size="sm" onClick={() => fileRef.current?.click()} disabled={uploading || !orderId}>
+              <div className="mt-2 flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+                <Button size="sm" className="w-full sm:w-auto" onClick={() => fileRef.current?.click()} disabled={uploading || !orderId}>
                   {uploading ? "Uploading…" : "Choose files"}
                 </Button>
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void onDownloadTemplate()}>
+                <Button size="sm" variant="outline" className="w-full gap-1.5 sm:w-auto" onClick={() => void onDownloadTemplate()}>
                   <Download className="size-3.5" /> Download template
                 </Button>
               </div>
             </div>
           </div>
 
-          <div className="md:col-span-2">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+          <div className="md:col-span-2 min-w-0">
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <p className="text-xs text-muted-foreground">Candidates uploaded · {candidates.length}</p>
                 {selected.size > 0 && (
                   <span className="animate-fade-in inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
@@ -782,7 +784,7 @@ function CreateInterview() {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {selected.size > 0 && (
                   <Button
                     variant="outline"
@@ -821,8 +823,8 @@ function CreateInterview() {
                 </DropdownMenu>
               </div>
             </div>
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <Table className="min-w-[820px]">
+            <div className="table-scroll rounded-lg border border-border">
+              <Table className="min-w-[720px]">
                 <TableHeader><TableRow>
                   <TableHead className="w-10 pl-4">
                     <Checkbox
@@ -832,8 +834,9 @@ function CreateInterview() {
                     />
                   </TableHead>
                   <SortHeader label="Name" sortKey="name" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
-                  <SortHeader label="Phone" sortKey="phone" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
-                  <SortHeader label="Email" sortKey="email" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
+                  <SortHeader label="Phone" sortKey="phone" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} className="hidden sm:table-cell" />
+                  <SortHeader label="Email" sortKey="email" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} className="hidden sm:table-cell" />
+                  <TableHead className="sm:hidden">Contact</TableHead>
                   <SortHeader label="ATS score" sortKey="ats" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
                   <SortHeader label="Source" sortKey="source" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
                   <TableHead className="pr-4 text-right">Actions</TableHead>
@@ -850,9 +853,15 @@ function CreateInterview() {
                           aria-label={`Select ${r.name}`}
                         />
                       </TableCell>
-                      <TableCell className="font-medium">{r.name}</TableCell>
-                      <TableCell><Input defaultValue={r.phone} className="h-8 w-44 font-mono text-xs" readOnly /></TableCell>
-                      <TableCell><Input defaultValue={r.email} className="h-8 w-56 text-xs" readOnly /></TableCell>
+                      <TableCell className="font-medium max-w-[120px] truncate sm:max-w-none">{r.name}</TableCell>
+                      <TableCell className="hidden text-xs tabular-nums sm:table-cell">{r.phone || "—"}</TableCell>
+                      <TableCell className="hidden text-xs sm:table-cell">{r.email || "—"}</TableCell>
+                      <TableCell className="text-xs sm:hidden">
+                        <div className="space-y-0.5 text-muted-foreground">
+                          {r.phone ? <div className="truncate">{r.phone}</div> : null}
+                          {r.email ? <div className="truncate">{r.email}</div> : null}
+                        </div>
+                      </TableCell>
                       <TableCell><AtsScore score={r.ats} status={r.atsStatus} /></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{r.source}</TableCell>
                       <TableCell className="pr-4">

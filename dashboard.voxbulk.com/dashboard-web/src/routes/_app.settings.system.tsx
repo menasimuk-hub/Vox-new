@@ -16,6 +16,7 @@ export const Route = createFileRoute("/_app/settings/system")({
   validateSearch: (s: Record<string, unknown>) => ({
     scheduling: typeof s.scheduling === "string" ? s.scheduling : undefined,
     provider: typeof s.provider === "string" ? s.provider : undefined,
+    message: typeof s.message === "string" ? s.message : undefined,
   }),
 });
 
@@ -28,7 +29,14 @@ function SystemSettings() {
       toast.success(`Connected ${search.provider || "scheduling"} successfully`);
       void schedulingQ.refetch();
     }
-  }, [search.scheduling, search.provider, schedulingQ]);
+    if (search.scheduling === "error") {
+      const msg = search.message || "Calendar connection failed";
+      toast.error(msg);
+      if (search.provider === "cronofy" && /invalid_client|data center/i.test(msg)) {
+        toast.message("Ask your admin to set Cronofy data center to United Kingdom in Admin → Integrations → Cronofy, then Save.");
+      }
+    }
+  }, [search.scheduling, search.provider, search.message, schedulingQ]);
 
   const scheduling = (schedulingQ.data || {}) as Record<string, unknown>;
   const humanReady = scheduling.human_scheduling_ready === true;

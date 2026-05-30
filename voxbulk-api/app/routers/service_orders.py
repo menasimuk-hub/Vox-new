@@ -840,15 +840,29 @@ def start_cronofy_oauth(db: Session = Depends(get_db), principal=Depends(get_cur
 def cronofy_oauth_callback(
     code: str = "",
     state: str = "",
+    error: str = "",
+    error_description: str = "",
     db: Session = Depends(get_db),
 ):
+    from urllib.parse import quote
+
     from app.core.config import get_settings
     from app.services.scheduling_connection_service import cronofy_oauth_complete
 
-    cronofy_oauth_complete(db, code=code, state=state)
     origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
     from fastapi.responses import RedirectResponse
 
+    if error:
+        msg = str(error_description or error).strip() or "Cronofy authorization was denied"
+        return RedirectResponse(
+            url=f"{origin}/settings/system?scheduling=error&provider=cronofy&message={quote(msg[:200])}"
+        )
+    try:
+        cronofy_oauth_complete(db, code=code, state=state)
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f"{origin}/settings/system?scheduling=error&provider=cronofy&message={quote(str(exc)[:200])}"
+        )
     return RedirectResponse(url=f"{origin}/settings/system?scheduling=connected&provider=cronofy")
 
 

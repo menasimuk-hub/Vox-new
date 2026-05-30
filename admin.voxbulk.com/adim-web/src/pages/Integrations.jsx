@@ -1896,6 +1896,18 @@ export default function Integrations() {
                       <label className='label'>Redirect URI</label>
                       <input className='input' style={cronofyStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('cronofy', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/cronofy/callback' />
                     </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Data center</label>
+                      <select className='input' value={String(activeConfig.data_center || 'uk')} onChange={(e) => setProviderField('cronofy', 'data_center', e.target.value)}>
+                        <option value='uk'>United Kingdom (app-uk.cronofy.com)</option>
+                        <option value='us'>United States (app.cronofy.com)</option>
+                        <option value='de'>Germany (app-de.cronofy.com)</option>
+                        <option value='au'>Australia (app-au.cronofy.com)</option>
+                        <option value='ca'>Canada (app-ca.cronofy.com)</option>
+                        <option value='sg'>Singapore (app-sg.cronofy.com)</option>
+                      </select>
+                      <div className='muted' style={{ fontSize: 12 }}>Must match where your Cronofy developer app was created. UK accounts usually need <strong>United Kingdom</strong>.</div>
+                    </div>
                     {cronofyTestResult ? <div className='note'>{cronofyTestResult}</div> : null}
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('cronofy')} disabled={providerSaving || !cronofyStatus.valid}>Save Cronofy</button>
@@ -1905,7 +1917,8 @@ export default function Integrations() {
                     <div className='note' style={{ marginTop: 8 }}>
                       <strong>Setup (VoxBulk admin, one time)</strong>
                       <ol style={{ margin: '8px 0 0', paddingLeft: 20, lineHeight: 1.6 }}>
-                        <li>Open <a href='https://app.cronofy.com/oauth/applications' target='_blank' rel='noreferrer'>Cronofy developer applications</a> → create an app for VoxBulk.</li>
+                        <li>Open <a href='https://app-uk.cronofy.com/oauth/applications' target='_blank' rel='noreferrer'>Cronofy UK developer applications</a> (or your region&apos;s Cronofy developer portal) → create an app for VoxBulk.</li>
+                        <li>Set <strong>Data center</strong> below to match that portal (UK for most VoxBulk customers).</li>
                         <li>Add redirect URI: <code>https://api.voxbulk.com/service-orders/scheduling/oauth/cronofy/callback</code> (use your API host if different).</li>
                         <li>Scopes: <code>read_account</code>, <code>read_events</code>, <code>create_event</code>.</li>
                         <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>

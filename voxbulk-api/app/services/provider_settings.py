@@ -660,6 +660,8 @@ class ProviderSettingsService:
         cfg["client_id"] = client_id
         cfg["client_secret"] = client_secret
         cfg["redirect_uri"] = redirect_uri
+        dc = str(cfg.get("data_center") or "uk").strip().lower()
+        cfg["data_center"] = dc if dc in {"us", "uk", "de", "au", "ca", "sg"} else "uk"
         return cfg
 
     @staticmethod

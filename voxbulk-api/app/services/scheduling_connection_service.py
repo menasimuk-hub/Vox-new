@@ -15,6 +15,15 @@ from app.core.config import get_settings
 from app.core.encryption import get_encryptor
 from app.models.organisation import Organisation
 
+CRONOFY_DATA_CENTERS: dict[str, tuple[str, str]] = {
+    "us": ("app.cronofy.com", "api.cronofy.com"),
+    "uk": ("app-uk.cronofy.com", "api-uk.cronofy.com"),
+    "de": ("app-de.cronofy.com", "api-de.cronofy.com"),
+    "au": ("app-au.cronofy.com", "api-au.cronofy.com"),
+    "ca": ("app-ca.cronofy.com", "api-ca.cronofy.com"),
+    "sg": ("app-sg.cronofy.com", "api-sg.cronofy.com"),
+}
+
 
 def _loads(raw: str | None) -> dict[str, Any]:
     try:
@@ -115,6 +124,26 @@ def platform_oauth_configured(db: Session | None, provider: str) -> bool:
     return bool(client_id and client_secret and redirect and redirect.startswith("http"))
 
 
+def _cronofy_data_center(db: Session | None = None) -> str:
+    dc = ""
+    if db is not None:
+        try:
+            from app.services.provider_settings import ProviderSettingsService
+
+            cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="cronofy")
+            if enabled and isinstance(cfg, dict):
+                dc = str(cfg.get("data_center") or "").strip().lower()
+        except Exception:
+            pass
+    if not dc:
+        dc = str(getattr(get_settings(), "cronofy_data_center", None) or "uk").strip().lower()
+    return dc if dc in CRONOFY_DATA_CENTERS else "uk"
+
+
+def _cronofy_hosts(db: Session | None = None) -> tuple[str, str]:
+    return CRONOFY_DATA_CENTERS[_cronofy_data_center(db)]
+
+
 def _calendly_platform_credentials(db: Session | None = None) -> tuple[str, str, str]:
     if db is not None:
         try:
@@ -180,8 +209,11 @@ def test_cronofy_platform_config(db: Session) -> dict[str, Any]:
         return {"ok": False, "detail": "Redirect URI must be a full URL (https://api…/scheduling/oauth/cronofy/callback)"}
     return {
         "ok": True,
-        "detail": "Cronofy OAuth credentials saved. Connect from Dashboard → System to complete OAuth.",
+        "detail": f"Cronofy OAuth credentials saved ({_cronofy_data_center(db).upper()} data center). Connect from Dashboard → System.",
         "redirect_uri": redirect,
+        "data_center": _cronofy_data_center(db),
+        "authorize_host": _cronofy_hosts(db)[0],
+        "api_host": _cronofy_hosts(db)[1],
     }
 
 
@@ -292,6 +324,7 @@ def cronofy_oauth_start(*, org_id: str, db: Session | None = None) -> str:
     client_id, _, redirect = _cronofy_platform_credentials(db)
     if not client_id or not redirect:
         raise ValueError("Cronofy OAuth is not configured (Admin → Integrations → Cronofy or CRONOFY_* env)")
+    app_host, _ = _cronofy_hosts(db)
     state = f"{org_id}:{secrets.token_urlsafe(16)}"
     params = {
         "response_type": "code",
@@ -300,7 +333,7 @@ def cronofy_oauth_start(*, org_id: str, db: Session | None = None) -> str:
         "scope": "read_account read_events create_event",
         "state": state,
     }
-    return f"https://app.cronofy.com/oauth/authorize?{urlencode(params)}"
+    return f"https://{app_host}/oauth/authorize?{urlencode(params)}"
 
 
 def cronofy_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, Any]:
@@ -311,9 +344,13 @@ def cronofy_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, A
     if not org_id:
         raise ValueError("Invalid OAuth state")
 
+    _, api_host = _cronofy_hosts(db)
+    token_url = f"https://{api_host}/oauth/token"
+    userinfo_url = f"https://{api_host}/v1/userinfo"
+
     with httpx.Client(timeout=30.0) as client:
         token_res = client.post(
-            "https://api.cronofy.com/oauth/token",
+            token_url,
             data={
                 "grant_type": "authorization_code",
                 "client_id": client_id,
@@ -331,7 +368,7 @@ def cronofy_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, A
 
     headers = {"Authorization": f"Bearer {access_token}"}
     with httpx.Client(timeout=30.0) as client:
-        me_res = client.get("https://api.cronofy.com/v1/userinfo", headers=headers)
+        me_res = client.get(userinfo_url, headers=headers)
     if me_res.status_code >= 400:
         raise ValueError(f"Cronofy user lookup failed: {me_res.text[:300]}")
     me = me_res.json() or {}
@@ -346,6 +383,7 @@ def cronofy_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, A
         "expires_at": (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat(),
         "cronofy_sub": sub,
         "owner_name": name,
+        "data_center": _cronofy_data_center(db),
         "connected_at": datetime.utcnow().isoformat(),
     }
     return save_scheduling_config(db, org_id, cfg)
@@ -366,6 +404,13 @@ def create_cronofy_scheduling_link(
     if not token or not host_sub:
         raise ValueError("Cronofy connection is incomplete — reconnect in System settings")
 
+    stored_dc = str(cfg.get("data_center") or "").strip().lower()
+    if stored_dc and stored_dc in CRONOFY_DATA_CENTERS:
+        _, api_host = CRONOFY_DATA_CENTERS[stored_dc]
+    else:
+        _, api_host = _cronofy_hosts(db)
+    scheduling_url = f"https://{api_host}/v1/scheduling_requests"
+
     email = str(candidate_email or "").strip() or f"candidate+{secrets.token_hex(4)}@noreply.voxbulk.com"
     payload = {
         "host": {"sub": host_sub},
@@ -384,7 +429,7 @@ def create_cronofy_scheduling_link(
     }
     with httpx.Client(timeout=30.0) as client:
         res = client.post(
-            "https://api.cronofy.com/v1/scheduling_requests",
+            scheduling_url,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json=payload,
         )
