@@ -20,3 +20,5 @@ venv/
 .DS_Store
 delet-me/
 voxbulk-api/data/cv_intake/
+voxbulk-api/data/org_logos/
+dashboard.voxbulk.com/dashboard-web/.lovable/

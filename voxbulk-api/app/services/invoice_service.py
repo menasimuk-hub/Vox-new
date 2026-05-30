@@ -198,7 +198,10 @@ class InvoiceService:
             "payment_method": invoice.payment_method,
             "payment_reference": invoice.payment_reference,
             "emailed_at": invoice.emailed_at.isoformat() if invoice.emailed_at else None,
+            "issued_at": invoice.created_at.isoformat() if invoice.created_at else None,
             "created_at": invoice.created_at.isoformat() if invoice.created_at else None,
+            "total_pence": total,
+            "total_gbp": _money(total, currency),
         }
 
     @staticmethod

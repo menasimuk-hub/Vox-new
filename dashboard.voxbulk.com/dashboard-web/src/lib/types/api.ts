@@ -104,17 +104,40 @@ export type BillingSubscription = {
 };
 
 export type UsageSummary = {
-  usage?: Record<string, unknown>;
-  current_plan?: { name?: string; price_pence?: number } | null;
+  usage?: Record<string, unknown> | null;
+  meters?: Array<{
+    key: string;
+    label: string;
+    used?: number;
+    included?: number;
+    remaining?: number | null;
+    percent?: number;
+    unit?: string;
+    unlimited?: boolean;
+    display_gbp?: string;
+  }>;
+  wallet_balance_pence?: number;
+  wallet_balance_gbp?: string;
+  promo_credits?: { survey_credits?: number; interview_credits?: number };
+  overage_pending_pence?: number;
+  overage_pending_gbp?: string;
+  estimated_overage_gbp?: number;
+  period_start?: string | null;
+  period_end?: string | null;
+  current_plan?: { name?: string; price_gbp_pence?: number; code?: string } | null;
+  subscription?: { status?: string } | null;
 };
 
 export type Invoice = {
   id: string;
   invoice_number?: string;
   issued_at?: string;
+  created_at?: string;
   total_pence?: number;
   total_gbp?: string;
   status?: string;
+  description?: string | null;
+  provider?: string | null;
 };
 
 export type BillingPlan = {

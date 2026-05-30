@@ -334,6 +334,13 @@ def gocardless_browser_return(
 
 @router.get("/usage-summary")
 def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.models.organisation import Organisation
+    from app.services.org_service_credit_service import OrgServiceCreditService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+
     row = UsageWalletService.get_current(db, principal.org_id)
     if row is None:
         sub = BillingService.get_subscription(db, principal.org_id)
@@ -342,17 +349,110 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
                 row = UsageWalletService.bootstrap_from_plan(db, org_id=principal.org_id, subscription=sub)
             except Exception:
                 row = None
+
     current_plan = BillingService.resolve_active_plan(db, principal.org_id)
-    if row is None:
+    sub = BillingService.get_subscription(db, principal.org_id)
+
+    usage_payload = UsageWalletService.summary_dict(row) if row else None
+    pending_overage_pence = 0
+    if row is not None:
+        total_overage = UsageWalletService._calc_overage_pence(row)
+        pending_overage_pence = max(0, total_overage - int(row.overage_invoiced_pence or 0))
+        billing_email = UsageWalletService.get_org_billing_email(db, principal.org_id)
+        if billing_email and pending_overage_pence >= 100:
+            UsageWalletService.maybe_invoice_overage(
+                db,
+                org_id=principal.org_id,
+                client_email=billing_email,
+                row=row,
+            )
+            row = UsageWalletService.get_current(db, principal.org_id)
+            if row is not None:
+                usage_payload = UsageWalletService.summary_dict(row)
+                total_overage = UsageWalletService._calc_overage_pence(row)
+                pending_overage_pence = max(0, total_overage - int(row.overage_invoiced_pence or 0))
+
+    cv_included = int(getattr(current_plan, "cv_scans_included", 0) or 0) if current_plan else 0
+    wallet_pence = int(org.wallet_balance_pence or 0)
+    promo = OrgServiceCreditService.balances_dict(org)
+
+    def _meter(key: str, label: str, used: int, included: int, *, unit: str = "") -> dict:
+        pct = round((used / included) * 100, 1) if included > 0 else 0.0
+        remaining = max(0, included - used) if included > 0 else None
         return {
-            "ok": True,
-            "usage": None,
-            "current_plan": PlanOut.model_validate(current_plan) if current_plan else None,
+            "key": key,
+            "label": label,
+            "used": used,
+            "included": included,
+            "remaining": remaining,
+            "percent": pct,
+            "unit": unit,
+            "unlimited": included <= 0,
         }
+
+    calls = (usage_payload or {}).get("calls") or {}
+    whatsapp = (usage_payload or {}).get("whatsapp") or {}
+    sms = (usage_payload or {}).get("sms") or {}
+    pack = (usage_payload or {}).get("pack_credits") or {}
+
+    meters = [
+        _meter("calls", "AI call minutes", int(calls.get("used") or 0), int(calls.get("included") or 0), unit="min"),
+        _meter("whatsapp", "WhatsApp messages", int(whatsapp.get("used") or 0), int(whatsapp.get("included") or 0)),
+        _meter("sms", "SMS messages", int(sms.get("used") or 0), int(sms.get("included") or 0)),
+        _meter("cv_scans", "CV scans (ATS)", 0, cv_included),
+        _meter(
+            "pack_credits",
+            "Promo pack credits",
+            int(pack.get("used") or 0),
+            int(pack.get("included") or 0),
+        ),
+        {
+            "key": "wallet",
+            "label": "Wallet balance",
+            "used": wallet_pence,
+            "included": 0,
+            "remaining": wallet_pence,
+            "percent": 0.0,
+            "unit": "gbp",
+            "unlimited": True,
+            "display_gbp": f"£{wallet_pence / 100:.2f}",
+        },
+        {
+            "key": "interview_credits",
+            "label": "Interview promo credits",
+            "used": 0,
+            "included": int(promo.get("interview_credits") or 0),
+            "remaining": int(promo.get("interview_credits") or 0),
+            "percent": 0.0,
+            "unit": "credits",
+            "unlimited": False,
+        },
+        {
+            "key": "survey_credits",
+            "label": "Survey promo credits",
+            "used": 0,
+            "included": int(promo.get("survey_credits") or 0),
+            "remaining": int(promo.get("survey_credits") or 0),
+            "percent": 0.0,
+            "unit": "credits",
+            "unlimited": False,
+        },
+    ]
+
     return {
         "ok": True,
-        "usage": UsageWalletService.summary_dict(row),
+        "usage": usage_payload,
+        "meters": meters,
+        "wallet_balance_pence": wallet_pence,
+        "wallet_balance_gbp": f"£{wallet_pence / 100:.2f}",
+        "promo_credits": promo,
+        "overage_pending_pence": pending_overage_pence,
+        "overage_pending_gbp": f"£{pending_overage_pence / 100:.2f}",
+        "estimated_overage_gbp": (usage_payload or {}).get("estimated_overage_gbp"),
+        "period_start": (usage_payload or {}).get("period_start"),
+        "period_end": (usage_payload or {}).get("period_end"),
         "current_plan": PlanOut.model_validate(current_plan) if current_plan else None,
+        "subscription": SubscriptionOut.model_validate(sub) if sub else None,
     }
 
 
