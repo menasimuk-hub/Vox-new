@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
-import { Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send } from "lucide-react";
+import { Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -162,6 +162,7 @@ function CreateInterview() {
   const [atsForce, setAtsForce] = React.useState(false);
   const [atsRunAt, setAtsRunAt] = React.useState<string | null>(null);
   const [quoteTotalDisplay, setQuoteTotalDisplay] = React.useState<string | undefined>();
+  const [quoteError, setQuoteError] = React.useState<string | null>(null);
   const [payBusy, setPayBusy] = React.useState(false);
 
   const [cvEmailEnabled, setCvEmailEnabled] = React.useState(false);
@@ -510,12 +511,28 @@ function CreateInterview() {
     try {
       await runAtsM.mutateAsync({ confirm_charge: true, force: atsForce });
       setAtsPromptOpen(false);
+      setAtsSkipped(false);
       setAtsRunAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       refreshDraft();
-      toast.success("ATS scoring started");
+      toast.success("ATS scoring started — scores appear in the table as each CV is processed");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "ATS run failed");
     }
+  };
+
+  const onRunAtsClick = () => {
+    if (!script.trim()) {
+      toast.error("Generate the AI script in Step 2 before running ATS");
+      return;
+    }
+    if (!criteria.trim() || !(role.trim() || position.trim())) {
+      toast.error("Complete position, role, and screening criteria before ATS");
+      return;
+    }
+    setAtsQuote(null);
+    setAtsQuoteError(null);
+    setAtsPromptOpen(true);
+    void loadAtsQuote(!!atsRunAt || Boolean(config.ats_last_charge_at));
   };
 
   const onContinueWithoutAts = async () => {
@@ -564,6 +581,7 @@ function CreateInterview() {
 
   const refreshQuote = async () => {
     if (!orderId || candidates.length === 0) return;
+    setQuoteError(null);
     try {
       await onSaveDraft(true);
       const quoted = await apiFetch<{ quote_total_pence?: number; quote_total_display?: string }>(
@@ -578,8 +596,11 @@ function CreateInterview() {
       const pence = Number(quoted.quote_total_pence || order?.quote_total_pence || 0);
       const market = String((quoted as Record<string, unknown>).pricing_market || "gbp");
       setQuoteTotalDisplay(pence ? formatQuoteDisplay(pence, market) : undefined);
-    } catch {
-      /* quote optional until ready */
+      if (!pence && !display) {
+        setQuoteError("Quote returned empty — set calling window and save draft, then retry");
+      }
+    } catch (e) {
+      setQuoteError(e instanceof Error ? e.message : "Could not load quote");
     }
   };
 
@@ -809,6 +830,16 @@ function CreateInterview() {
                 {unscoredCount > 0 && candidates.length > 0 && (
                   <span className="text-[11px] text-amber-700 dark:text-amber-400">{unscoredCount} unscored</span>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  disabled={runAtsM.isPending || candidates.length === 0}
+                  onClick={onRunAtsClick}
+                >
+                  <Sparkles className="size-3.5" />
+                  {runAtsM.isPending ? "Running ATS…" : atsRunAt ? "Re-run ATS" : "Run ATS"}
+                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
@@ -974,6 +1005,36 @@ function CreateInterview() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Step 3 · ATS, preview & launch</CardTitle>
+          <CardDescription>
+            Run ATS on uploaded CVs, approve the preview, pay, then send WhatsApp booking invites to candidates.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <LaunchStatus label="ATS scoring" done={atsGatePassed} pending={runAtsM.isPending} detail={atsSkipped || config.ats_skipped ? "Skipped" : atsRunAt ? `Run ${atsRunAt}` : unscoredCount > 0 ? `${unscoredCount} unscored` : "Not run"} />
+            <LaunchStatus label="Script approved" done={scriptIsApproved} detail={scriptIsApproved ? "Ready" : "Approve in Step 2"} />
+            <LaunchStatus label="Payment" done={paymentApproved} detail={paymentApproved ? "Approved" : "After preview"} />
+            <LaunchStatus label="WhatsApp invites" done={bookingInvitesSent} detail={bookingInvitesSent ? "Sent" : paymentApproved ? "Ready to send" : "After payment"} />
+          </div>
+          <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+            <li><strong className="text-foreground">Run ATS</strong> — scores each CV in the table above (or skip when prompted).</li>
+            <li><strong className="text-foreground">Preview &amp; approve</strong> — confirm script, preview, then <strong className="text-foreground">Pay &amp; launch</strong>.</li>
+            <li><strong className="text-foreground">Send booking invites</strong> — appears after payment; WhatsApp links go to each candidate.</li>
+          </ol>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0} onClick={onRunAtsClick}>
+              <Sparkles className="size-4" /> {runAtsM.isPending ? "Running ATS…" : "Run ATS"}
+            </Button>
+            <Button className="gap-1.5" onClick={onAttemptPreview}>
+              <Eye className="size-4" /> Preview &amp; approve
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
         {paymentApproved && !bookingInvitesSent ? (
           <Button
@@ -997,7 +1058,7 @@ function CreateInterview() {
               })();
             }}
           >
-            <Send className="size-4" /> {launchM.isPending ? "Sending invites…" : "Send booking invites"}
+            <Send className="size-4" /> {launchM.isPending ? "Launching…" : "Launch — send booking invites"}
           </Button>
         ) : null}
         {paymentApproved && bookingInvitesSent ? (
@@ -1050,6 +1111,7 @@ function CreateInterview() {
         onRefreshQuote={() => void refreshQuote()}
         onPayLaunch={() => void onPayLaunch()}
         quoteLoading={quoteM.isPending}
+        quoteError={quoteError}
         payBusy={payBusy}
         gcAvailable={gcReady}
       />
@@ -1059,6 +1121,32 @@ function CreateInterview() {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="space-y-1.5"><Label className="text-xs">{label}</Label>{children}</div>;
+}
+
+function LaunchStatus({
+  label,
+  done,
+  pending,
+  detail,
+}: {
+  label: string;
+  done?: boolean;
+  pending?: boolean;
+  detail?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        {pending ? (
+          <span className="size-2 animate-pulse rounded-full bg-primary" />
+        ) : (
+          <CheckCircle2 className={`size-4 shrink-0 ${done ? "text-success" : "text-muted-foreground/40"}`} />
+        )}
+        <p className="text-sm font-medium">{label}</p>
+      </div>
+      <p className="mt-1 pl-6 text-xs text-muted-foreground">{detail || (done ? "Done" : "Pending")}</p>
+    </div>
+  );
 }
 
 function ToggleRow({ title, desc, checked, onCheckedChange }: { title: string; desc: string; checked?: boolean; onCheckedChange?: (v: boolean) => void }) {

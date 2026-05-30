@@ -598,6 +598,7 @@ export function InterviewPreviewQuoteModal({
   onRefreshQuote,
   onPayLaunch,
   quoteLoading,
+  quoteError,
   payBusy,
   gcAvailable = true,
 }: {
@@ -608,6 +609,7 @@ export function InterviewPreviewQuoteModal({
   onRefreshQuote?: () => void;
   onPayLaunch?: () => void | Promise<void>;
   quoteLoading?: boolean;
+  quoteError?: string | null;
   payBusy?: boolean;
   gcAvailable?: boolean;
 }) {
@@ -619,6 +621,19 @@ export function InterviewPreviewQuoteModal({
     : "—";
   const quoteTotal = data.quoteTotalDisplay || data.quoteTotalGbp;
   const canPay = scriptApproved && previewApproved && Boolean(quoteTotal) && !quoteLoading;
+  const launchBlockedReason = quoteLoading
+    ? "Loading quote…"
+    : quoteError
+      ? quoteError
+      : !scriptApproved
+        ? "Approve the script in this dialog first."
+        : !previewApproved
+          ? 'Click "Confirm preview" to unlock payment.'
+          : !quoteTotal
+            ? "Quote not ready — save draft with a calling window, then retry."
+            : !gcAvailable
+              ? "GoCardless is not configured."
+              : null;
   const waBody =
     data.waPreviewBody ||
     `Hi Alex 👋\n\nYou've been shortlisted for the *${data.role || "interview"}* role at *Your Company* ✨\n\nTap *Book My Interview* below to choose a time that works for you 🗓️\n\n— VOXBULK`;
@@ -708,17 +723,29 @@ export function InterviewPreviewQuoteModal({
                 <QuoteRow label="Total due" value={quoteTotal} bold />
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   {gcAvailable
-                    ? "Pay with GoCardless after confirming the preview. Calls launch once payment is approved."
+                    ? "Pay with GoCardless after confirming the preview. WhatsApp booking invites send after payment."
                     : "GoCardless checkout is not available — contact support."}
                 </p>
               </Panel>
             )}
+            {quoteError && onRefreshQuote ? (
+              <div className="mt-4 space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                <p className="text-destructive">{quoteError}</p>
+                <Button type="button" variant="outline" size="sm" onClick={onRefreshQuote}>
+                  Retry quote
+                </Button>
+              </div>
+            ) : null}
           </aside>
         </div>
 
-        <DialogFooter className="sticky bottom-0 border-t border-border bg-background/95 px-6 py-4 backdrop-blur sm:justify-between">
+        <DialogFooter className="sticky bottom-0 flex-col gap-3 border-t border-border bg-background/95 px-6 py-4 backdrop-blur sm:flex-row sm:justify-between">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={payBusy}>Back to edit</Button>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          <div className="flex w-full flex-col gap-2 sm:w-auto">
+            {!canPay && launchBlockedReason ? (
+              <p className="text-center text-xs text-muted-foreground sm:text-right">{launchBlockedReason}</p>
+            ) : null}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <Button
               variant="outline"
               className="gap-1.5"
@@ -744,6 +771,7 @@ export function InterviewPreviewQuoteModal({
               <CreditCard className="size-4" />
               {payBusy ? "Redirecting…" : `Pay ${quoteTotal || ""} & launch`}
             </Button>
+            </div>
           </div>
         </DialogFooter>
       </DialogContent>
