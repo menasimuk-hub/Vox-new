@@ -106,7 +106,18 @@ export async function completeGoCardlessOrderPayment(redirectFlowId: string) {
 }
 
 export async function startPaidInterviewOrder(orderId: string) {
-  return apiFetch(`/service-orders/${encodeURIComponent(orderId)}/start`, { method: "POST" });
+  return apiFetch<{
+    ok?: boolean;
+    message?: string;
+    invites?: { whatsapp_sent?: number; email_sent?: number; errors?: string[] };
+  }>(`/service-orders/${encodeURIComponent(orderId)}/interview/launch`, { method: "POST", body: "{}" });
+}
+
+export async function sendInterviewBookingInvites(orderId: string, force = false) {
+  return apiFetch<{ whatsapp_sent?: number; email_sent?: number; errors?: string[] }>(
+    `/service-orders/${encodeURIComponent(orderId)}/interview-booking/send-invites`,
+    { method: "POST", body: JSON.stringify({ force_resend: force }) },
+  );
 }
 
 export function gocardlessAvailable(subscription: Record<string, unknown> | null | undefined) {

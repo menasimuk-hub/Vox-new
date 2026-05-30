@@ -775,6 +775,7 @@ class InterviewBookingService:
         *,
         recipient_ids: list[str] | None = None,
         channels: list[str] | None = None,
+        force_resend: bool = False,
     ) -> dict[str, Any]:
         if order.service_code != "interview":
             raise ValueError("Booking invites are only for interview orders")
@@ -812,7 +813,9 @@ class InterviewBookingService:
             first = _first_name(recipient.name)
 
             if "whatsapp" in use_channels and recipient.phone:
-                if template_row is None:
+                if token_row.wa_sent_at and not force_resend:
+                    pass
+                elif template_row is None:
                     errors.append(f"{recipient.name}: no WhatsApp booking template selected")
                 else:
                     components = InterviewBookingService.build_booking_components(

@@ -360,19 +360,25 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
         pending_overage_pence = max(0, total_overage - int(row.overage_invoiced_pence or 0))
         billing_email = UsageWalletService.get_org_billing_email(db, principal.org_id)
         if billing_email and pending_overage_pence >= 100:
-            UsageWalletService.maybe_invoice_overage(
-                db,
-                org_id=principal.org_id,
-                client_email=billing_email,
-                row=row,
-            )
-            row = UsageWalletService.get_current(db, principal.org_id)
-            if row is not None:
-                usage_payload = UsageWalletService.summary_dict(row)
-                total_overage = UsageWalletService._calc_overage_pence(row)
-                pending_overage_pence = max(0, total_overage - int(row.overage_invoiced_pence or 0))
+            try:
+                UsageWalletService.maybe_invoice_overage(
+                    db,
+                    org_id=principal.org_id,
+                    client_email=billing_email,
+                    row=row,
+                )
+                row = UsageWalletService.get_current(db, principal.org_id)
+                if row is not None:
+                    usage_payload = UsageWalletService.summary_dict(row)
+                    total_overage = UsageWalletService._calc_overage_pence(row)
+                    pending_overage_pence = max(0, total_overage - int(row.overage_invoiced_pence or 0))
+            except Exception:
+                pass
 
     cv_included = int(getattr(current_plan, "cv_scans_included", 0) or 0) if current_plan else 0
+    cv_used = 0
+    if row is not None:
+        cv_used = int(getattr(row, "cv_scans_used", 0) or 0)
     wallet_pence = int(org.wallet_balance_pence or 0)
     promo = OrgServiceCreditService.balances_dict(org)
 
@@ -399,7 +405,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
         _meter("calls", "AI call minutes", int(calls.get("used") or 0), int(calls.get("included") or 0), unit="min"),
         _meter("whatsapp", "WhatsApp messages", int(whatsapp.get("used") or 0), int(whatsapp.get("included") or 0)),
         _meter("sms", "SMS messages", int(sms.get("used") or 0), int(sms.get("included") or 0)),
-        _meter("cv_scans", "CV scans (ATS)", 0, cv_included),
+        _meter("cv_scans", "CV scans (ATS)", cv_used, cv_included),
         _meter(
             "pack_credits",
             "Promo pack credits",

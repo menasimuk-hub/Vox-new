@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
-import { Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2 } from "lucide-react";
+import { Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -32,8 +32,10 @@ import {
   useInterviewDraft,
   useOrderQuote,
   usePatchServiceOrder,
+  useLaunchInterviewCampaign,
   useRunInterviewAts,
   useSaveInterviewDraft,
+  useSendInterviewBookingInvites,
 } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/interviews/new")({
@@ -134,6 +136,8 @@ function CreateInterview() {
   const order = draftQ.data?.order ?? null;
   const orderId = order?.id ?? "";
   const runAtsM = useRunInterviewAts(orderId || null);
+  const launchM = useLaunchInterviewCampaign(orderId || null);
+  const resendInvitesM = useSendInterviewBookingInvites(orderId || null);
   const quoteM = useOrderQuote(orderId || null);
   const [waPreviewBody, setWaPreviewBody] = React.useState<string | undefined>();
   const [waPreviewTemplateName, setWaPreviewTemplateName] = React.useState<string | undefined>();
@@ -626,6 +630,8 @@ function CreateInterview() {
   const cvEmailActive = cvEmailAllowed && cvEmailEnabled;
   const cvPhase = cvCollectionPhase(cvEmailActive, collectionStart, collectionEnd, config);
   const cvReadyForScreening = isCvCollectionComplete(cvEmailActive, collectionEnd, config);
+  const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
+  const bookingInvitesSent = Boolean(config.booking_invites_sent_at);
   const unscoredCount = candidates.filter((c) => c.ats == null && !c.atsStatus).length;
   const atsGatePassed =
     candidates.length > 0 &&
@@ -969,6 +975,51 @@ function CreateInterview() {
       </Card>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+        {paymentApproved && !bookingInvitesSent ? (
+          <Button
+            variant="secondary"
+            className="gap-1.5"
+            disabled={launchM.isPending || !callingStart || !callingEnd}
+            onClick={() => {
+              void (async () => {
+                try {
+                  const result = await launchM.mutateAsync();
+                  const wa = Number(result?.invites?.whatsapp_sent || 0);
+                  toast.success(
+                    wa > 0
+                      ? `Booking invites sent to ${wa} candidate(s) via WhatsApp.`
+                      : result?.message || "Campaign scheduled — booking invites sent.",
+                  );
+                  refreshDraft();
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Could not launch campaign");
+                }
+              })();
+            }}
+          >
+            <Send className="size-4" /> {launchM.isPending ? "Sending invites…" : "Send booking invites"}
+          </Button>
+        ) : null}
+        {paymentApproved && bookingInvitesSent ? (
+          <Button
+            variant="outline"
+            className="gap-1.5"
+            disabled={resendInvitesM.isPending}
+            onClick={() => {
+              void (async () => {
+                try {
+                  const result = await resendInvitesM.mutateAsync(true);
+                  const wa = Number(result?.whatsapp_sent || 0);
+                  toast.success(wa > 0 ? `Resent booking WhatsApp to ${wa} candidate(s).` : "Booking invites queued.");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Could not resend invites");
+                }
+              })();
+            }}
+          >
+            <Send className="size-4" /> Resend booking WhatsApp
+          </Button>
+        ) : null}
         <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending}>
           <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
         </Button>

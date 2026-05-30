@@ -293,6 +293,18 @@ def fetch_survey_transcript_from_telnyx(
 
     if call_summary:
         payload["call_summary"] = call_summary
+
+    try:
+        from app.services.telnyx_conversation_service import resolve_telnyx_recording
+
+        rec = resolve_telnyx_recording(db, conversation)
+        if rec and rec.get("download_url"):
+            payload["telnyx_recording_download_url"] = str(rec["download_url"])
+            payload["telnyx_recording_id"] = rec.get("id")
+            payload["recording_saved_at"] = datetime.utcnow().isoformat()
+    except Exception:
+        pass
+
     return payload
 
 

@@ -16,6 +16,7 @@ from app.models.plan import Plan
 from app.models.recovery_job import RecoveryJob
 from app.models.subscription import Subscription
 from app.models.user import User
+from app.services.market_zone import country_column_matches_zone, country_to_zone, normalize_zone
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class AdminOrganisationService:
         limit: int = 50,
         offset: int = 0,
         search: str | None = None,
+        zone: str | None = None,
     ) -> list[AdminOrganisationSummary]:
         limit = max(1, min(int(limit), 200))
         offset = max(0, int(offset))
@@ -63,6 +65,9 @@ class AdminOrganisationService:
         orgs_stmt = select(Organisation).order_by(Organisation.created_at.desc())
         if search:
             orgs_stmt = orgs_stmt.where(Organisation.name.ilike(f"%{search.strip()}%"))
+        zone_key = normalize_zone(zone)
+        if zone_key:
+            orgs_stmt = orgs_stmt.where(country_column_matches_zone(Organisation.country, zone_key))
 
         org_rows = list(db.execute(orgs_stmt.limit(limit).offset(offset)).scalars().all())
         if not org_rows:

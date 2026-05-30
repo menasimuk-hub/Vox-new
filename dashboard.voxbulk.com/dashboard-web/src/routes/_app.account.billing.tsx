@@ -68,6 +68,11 @@ function invoiceKind(description?: string | null, provider?: string | null) {
   return "Invoice";
 }
 
+function billingErrorMessage(err: unknown) {
+  if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message);
+  return "Could not load billing data. Try refreshing the page.";
+}
+
 function BillingPage() {
   const { session } = useSession();
   const subQ = useBillingSubscription();
@@ -80,6 +85,12 @@ function BillingPage() {
   const period = fmtPeriod(usageQ.data?.period_start, usageQ.data?.period_end);
   const overagePending = Number(usageQ.data?.overage_pending_pence || 0);
   const estimatedOverage = usageQ.data?.estimated_overage_gbp;
+  const billingLoadError = subQ.isError || usageQ.isError || invoicesQ.isError;
+  const billingErrorDetail =
+    (usageQ.error && billingErrorMessage(usageQ.error)) ||
+    (subQ.error && billingErrorMessage(subQ.error)) ||
+    (invoicesQ.error && billingErrorMessage(invoicesQ.error)) ||
+    "";
 
   const invoiceRows = (invoicesQ.data || []).map((inv) => ({
     invoiceId: inv.id,
@@ -111,6 +122,26 @@ function BillingPage() {
           </Button>
         }
       />
+
+      {billingLoadError ? (
+        <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <div>
+            <p className="font-medium text-foreground">Billing data could not be loaded</p>
+            <p className="text-muted-foreground">{billingErrorDetail}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {!billingLoadError && !subQ.isLoading && !usageQ.isLoading && !plan ? (
+        <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          No active plan is linked to this organisation yet. Choose a package on{" "}
+          <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
+            Packages & pricing
+          </Link>
+          . ATS and interview usage still appear here once a plan or wallet balance is active.
+        </div>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="md:col-span-2">
@@ -172,6 +203,10 @@ function BillingPage() {
               <Skeleton key={i} className="h-28" />
             ))}
           </div>
+        ) : usageMeters.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No usage meters yet for this billing period. If you recently subscribed, refresh in a moment or contact support.
+          </p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {usageMeters.map((m) => (

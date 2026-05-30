@@ -167,23 +167,19 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
           const order = result?.order;
 
           if (order?.payment_status === "approved" && order.id) {
-
             if (order.service_code === "interview") {
-
-              await startPaidInterviewOrder(order.id);
-
-              toast.success("Payment approved — AI interview calls are launching.");
-
+              const launched = await startPaidInterviewOrder(order.id);
+              const wa = Number(launched?.invites?.whatsapp_sent || 0);
+              toast.success(
+                wa > 0
+                  ? `Payment approved — WhatsApp booking invites sent to ${wa} candidate(s).`
+                  : launched?.message || "Payment approved — candidates can book their interview slots.",
+              );
             } else {
-
               toast.success("Payment approved — campaign is ready.");
-
             }
-
           } else {
-
             toast.success("GoCardless payment completed.");
-
           }
 
           onComplete();

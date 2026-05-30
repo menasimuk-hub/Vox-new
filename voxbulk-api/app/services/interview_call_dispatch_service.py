@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.models.interview_booking_token import InterviewBookingToken
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
+from app.services.interview_booking_service import SLOT_MINUTES
 from app.services.survey_dispatch_service import _first_name, _personalize
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
 from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id
@@ -79,6 +81,102 @@ def _set_recipient_result(db: Session, recipient: ServiceOrderRecipient, payload
     db.add(recipient)
     db.commit()
     db.refresh(recipient)
+
+
+def _booking_required(order: ServiceOrder, config: dict[str, Any]) -> bool:
+    if not is_ai_call_interview_order(order):
+        return False
+    return config.get("require_booking", True) is not False
+
+
+def _recipient_booking_token(db: Session, order_id: str, recipient_id: str) -> InterviewBookingToken | None:
+    return db.execute(
+        select(InterviewBookingToken).where(
+            InterviewBookingToken.order_id == order_id,
+            InterviewBookingToken.recipient_id == recipient_id,
+        )
+    ).scalar_one_or_none()
+
+
+def _recipient_eligible_for_dial(
+    db: Session,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    *,
+    now: datetime,
+    booking_required: bool,
+) -> tuple[bool, str | None]:
+    if not booking_required:
+        return True, None
+    token = _recipient_booking_token(db, order.id, recipient.id)
+    if token is None:
+        return False, "no_booking_token"
+    if token.booked_start_at is None:
+        return False, "not_booked"
+    slot_start = token.booked_start_at
+    slot_end = slot_start + timedelta(minutes=SLOT_MINUTES)
+    grace_end = slot_end + timedelta(minutes=15)
+    if now < slot_start:
+        return False, "slot_not_due"
+    if now > grace_end:
+        return False, "slot_missed"
+    return True, None
+
+
+def _mark_missed_booking_slots(
+    db: Session,
+    order: ServiceOrder,
+    recipients: list[ServiceOrderRecipient],
+    *,
+    now: datetime,
+    booking_required: bool,
+) -> None:
+    if not booking_required:
+        return
+    for recipient in recipients:
+        status = str(recipient.status or "pending").lower()
+        if status not in VOICE_PENDING:
+            continue
+        token = _recipient_booking_token(db, order.id, recipient.id)
+        if token is None or token.booked_start_at is None:
+            continue
+        grace_end = token.booked_start_at + timedelta(minutes=SLOT_MINUTES + 15)
+        if now <= grace_end:
+            continue
+        recipient.status = "skipped"
+        _set_recipient_result(
+            db,
+            recipient,
+            {
+                "error": "Missed booked interview slot",
+                "skipped_at": now.isoformat(),
+                "booked_start_at": token.booked_start_at.isoformat(),
+            },
+        )
+
+
+def _cancel_unbooked_at_window_end(
+    db: Session,
+    order: ServiceOrder,
+    recipients: list[ServiceOrderRecipient],
+    *,
+    booking_required: bool,
+) -> None:
+    if not booking_required:
+        return
+    for recipient in recipients:
+        status = str(recipient.status or "pending").lower()
+        if status not in VOICE_PENDING | VOICE_ACTIVE:
+            continue
+        token = _recipient_booking_token(db, order.id, recipient.id)
+        if token is not None and token.booked_start_at is not None:
+            continue
+        recipient.status = "cancelled"
+        _set_recipient_result(
+            db,
+            recipient,
+            {"error": "Did not book an interview slot before the calling window ended"},
+        )
 
 
 def build_interview_call_instructions(config: dict[str, Any], *, recipient_name: str) -> str:
@@ -165,6 +263,10 @@ def _finalize_order_if_done(db: Session, order: ServiceOrder) -> ServiceOrder:
 
 
 def _complete_order_window_expired(db: Session, order: ServiceOrder, *, reason: str) -> ServiceOrder:
+    recipients = ServiceOrderService.get_recipients(db, order.id)
+    config = _order_config(order)
+    booking_required = _booking_required(order, config)
+    _cancel_unbooked_at_window_end(db, order, recipients, booking_required=booking_required)
     recipients = ServiceOrderService.get_recipients(db, order.id)
     for recipient in recipients:
         if str(recipient.status or "pending").lower() in VOICE_PENDING | VOICE_ACTIVE:
@@ -287,7 +389,8 @@ class InterviewCallDispatchService:
         db.refresh(order)
         _log("campaign_started", order_id=order.id, org_id=order.org_id)
         _refresh_order_report(db, order)
-        return InterviewCallDispatchService.dial_next_recipient(db, order) is not None
+        InterviewCallDispatchService.dial_next_recipient(db, order)
+        return True
 
     @staticmethod
     def tick_running_order(db: Session, order: ServiceOrder) -> None:
@@ -298,6 +401,11 @@ class InterviewCallDispatchService:
             _complete_order_window_expired(db, order, reason=reason or "window_ended")
             return
 
+        config = _order_config(order)
+        booking_required = _booking_required(order, config)
+        now = datetime.utcnow()
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        _mark_missed_booking_slots(db, order, recipients, now=now, booking_required=booking_required)
         recipients = ServiceOrderService.get_recipients(db, order.id)
         if _all_recipients_terminal(recipients):
             _finalize_order_if_done(db, order)
@@ -333,6 +441,12 @@ class InterviewCallDispatchService:
         if _any_recipient_calling(recipients):
             return None
 
+        config = _order_config(order)
+        booking_required = _booking_required(order, config)
+        now = datetime.utcnow()
+        _mark_missed_booking_slots(db, order, recipients, now=now, booking_required=booking_required)
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+
         next_recipient = None
         for candidate in recipients:
             status = str(candidate.status or "pending").lower()
@@ -345,6 +459,11 @@ class InterviewCallDispatchService:
             if OrgOptOutService.is_phone_opted_out(db, order.org_id, str(candidate.phone or "")):
                 continue
             if should_wait_for_retry(candidate):
+                continue
+            eligible, _reason = _recipient_eligible_for_dial(
+                db, order, candidate, now=now, booking_required=booking_required
+            )
+            if not eligible:
                 continue
             next_recipient = candidate
             break

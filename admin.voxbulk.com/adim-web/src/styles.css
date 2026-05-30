@@ -1,22 +1,22 @@
-/* VOXBULK Admin — design system (Tabler icons + blue theme) */
+/* VOXBULK Admin — aligned with customer dashboard (beige + deep navy) */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:  #f5f5f8;
-  --s1:  #ffffff;
-  --s2:  #f0f0f6;
-  --s3:  #e8e8f2;
-  --b1:  rgba(0,0,0,0.07);
-  --b2:  rgba(0,0,0,0.13);
-  --t1:  #1a1a2e;
-  --t2:  #55556a;
-  --t3:  #9090a8;
-  /* Primary accent — blue */
-  --grn:  #2563eb;
-  --grn2: #1d4ed8;
-  --gd:   rgba(37,99,235,0.10);
-  --gd2:  rgba(37,99,235,0.16);
+  --bg:  #f5f1ea;
+  --s1:  #fbf8f3;
+  --s2:  #f0ebe3;
+  --s3:  #e8e2d8;
+  --b1:  rgba(42, 38, 32, 0.08);
+  --b2:  rgba(42, 38, 32, 0.14);
+  --t1:  #2a2620;
+  --t2:  #6b6458;
+  --t3:  #9a9288;
+  /* Primary accent — deep navy (dashboard primary) */
+  --grn:  #2d3550;
+  --grn2: #1e2640;
+  --gd:   rgba(45, 53, 80, 0.10);
+  --gd2:  rgba(45, 53, 80, 0.16);
   --pur:  #534AB7;
   --pd:   rgba(83,74,183,0.10);
   --pd2:  rgba(83,74,183,0.18);
@@ -60,19 +60,19 @@
 }
 
 body.dark {
-  --bg:  #0a0a0f;
-  --s1:  #111118;
-  --s2:  #17171f;
-  --s3:  #1e1e28;
+  --bg:  #1a1814;
+  --s1:  #242019;
+  --s2:  #2c2820;
+  --s3:  #363028;
   --b1:  rgba(255,255,255,0.07);
   --b2:  rgba(255,255,255,0.13);
-  --t1:  #f0f0f5;
-  --t2:  #a0a0b8;
-  --t3:  #787890;
-  --grn:  #3b82f6;
-  --grn2: #2563eb;
-  --gd:   rgba(59,130,246,0.12);
-  --gd2:  rgba(59,130,246,0.20);
+  --t1:  #f5f1ea;
+  --t2:  #b8b0a4;
+  --t3:  #8a8278;
+  --grn:  #6b7aad;
+  --grn2: #556299;
+  --gd:   rgba(107,122,173,0.14);
+  --gd2:  rgba(107,122,173,0.22);
   --pur:  #7c6ff7;
   --pd:   rgba(124,111,247,0.12);
   --pd2:  rgba(124,111,247,0.22);
@@ -179,6 +179,8 @@ img, svg { display: block; }
 .logo-light { display: block; }
 body.dark .logo-dark { display: block; }
 body.dark .logo-light { display: none; }
+.sb.collapsed .sb-logo-full { display: none !important; }
+.sb.collapsed .sb-logo-icon { display: flex; }
 .sb.collapsed .sb-logo {
   justify-content: center;
   align-items: center;
@@ -191,8 +193,6 @@ body.dark .logo-light { display: none; }
   justify-content: center;
   cursor: pointer;
 }
-.sb.collapsed .sb-logo-full { display: none !important; }
-.sb.collapsed .sb-logo-icon { display: flex; }
 
 .sb-toggle {
   margin-left: auto;
@@ -6497,4 +6497,46 @@ body.dark .matrix th {
 .pricingField .input.pricingNum { text-align: center; }
 .pricingActions { margin-top: 14px; }
 .content:has(.pricingShell) { max-width: none; }
+
+/* Zone org detail + dashboard-aligned helpers */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}
+.cellStack { display: grid; gap: 2px; }
+.cellSub { font-size: 12px; }
+.alertCard { margin-bottom: 16px; border-color: rgba(163, 45, 45, 0.35); }
+.alertText { color: var(--red); font-size: 14px; }
+.breadcrumb a { color: var(--grn); text-decoration: underline; text-underline-offset: 2px; }
+.breadcrumb a:hover { color: var(--grn2); }
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+  font-size: 14px;
+}
+.detailGrid .muted { display: block; font-size: 12px; margin-bottom: 4px; }
+.usageGrid { display: grid; gap: 14px; max-width: 520px; }
+.usageMeterHead {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.usageMeterTrack {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--s3);
+  overflow: hidden;
+}
+.usageMeterFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--grn);
+  transition: width 0.3s ease;
+}
 

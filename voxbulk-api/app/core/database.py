@@ -61,6 +61,10 @@ def ensure_schema_hotfixes() -> None:
         ("lead_sales_settings", "telnyx_greeting", "TEXT NULL"),
         ("organisations", "scheduling_config_json", "TEXT NULL"),
         ("organisations", "logo_storage_key", "VARCHAR(512) NULL"),
+        ("organisations", "allowed_services_json", "TEXT NULL"),
+        ("organisations", "hubspot_config_json", "TEXT NULL"),
+        ("org_usage_periods", "cv_scans_included", "INTEGER NOT NULL DEFAULT 0"),
+        ("org_usage_periods", "cv_scans_used", "INTEGER NOT NULL DEFAULT 0"),
         ("service_order_recipients", "ats_score", "INTEGER NULL"),
         ("service_order_recipients", "ats_status", "VARCHAR(32) NULL"),
         ("service_order_recipients", "ats_hash", "VARCHAR(64) NULL"),
@@ -110,5 +114,5 @@ def init_db() -> None:
         except Exception as exc:  # pragma: no cover - best-effort bootstrap
             logging.getLogger(__name__).warning("alembic upgrade failed; falling back to create_all: %s", exc)
 
-    Base.metadata.create_all(bind=get_engine())
     ensure_schema_hotfixes()
+    Base.metadata.create_all(bind=get_engine())

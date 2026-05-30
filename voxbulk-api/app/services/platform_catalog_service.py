@@ -1347,6 +1347,17 @@ class ServiceOrderService:
             )
 
             if is_ai_call_interview_order(order):
+                cfg = {}
+                try:
+                    cfg = json.loads(order.config_json or "{}")
+                except Exception:
+                    cfg = {}
+                if cfg.get("require_booking", True) is not False:
+                    from app.services.interview_launch_service import InterviewLaunchService
+
+                    result = InterviewLaunchService.launch_after_payment(db, order)
+                    db.refresh(order)
+                    return order
                 if not InterviewCallDispatchService.start_campaign(db, order):
                     raise ValueError(
                         "Could not start AI interviews — check payment, approved script, voice agent, and calling window."

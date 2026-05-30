@@ -1104,10 +1104,13 @@ def admin_list_organisations(
     limit: int = 50,
     offset: int = 0,
     search: str | None = None,
+    zone: str | None = None,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
-    items = AdminOrganisationService.list_orgs(db, limit=limit, offset=offset, search=search)
+    from app.services.market_zone import country_to_zone, format_wallet_pence, zone_label
+
+    items = AdminOrganisationService.list_orgs(db, limit=limit, offset=offset, search=search, zone=zone)
     return [
         {
             "id": o.id,
@@ -1117,6 +1120,10 @@ def admin_list_organisations(
             "profile_notes": o.profile_notes,
             "category_id": getattr(o, "category_id", None),
             "category_name": getattr(o, "category_name", None),
+            "city": getattr(o, "city", None),
+            "country": getattr(o, "country", None),
+            "contact_email": getattr(o, "contact_email", None),
+            "contact_name": getattr(o, "contact_name", None),
             "plan_code": o.plan_code,
             "plan_name": o.plan_name,
             "branch_count": o.branch_count,
@@ -1125,6 +1132,10 @@ def admin_list_organisations(
             "appointment_count": o.appointment_count,
             "recovery_job_count": o.recovery_job_count,
             "subscription_status": o.subscription_status,
+            "wallet_balance_pence": int(o.wallet_balance_pence or 0),
+            "market_zone": country_to_zone(getattr(o, "country", None)),
+            "market_label": zone_label(country_to_zone(getattr(o, "country", None))),
+            "wallet_balance_display": format_wallet_pence(int(o.wallet_balance_pence or 0), country_to_zone(getattr(o, "country", None))),
         }
         for o in items
     ]
@@ -1132,9 +1143,13 @@ def admin_list_organisations(
 
 @router.get("/organisations/{org_id}")
 def admin_get_organisation(org_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.market_zone import country_to_zone, format_wallet_pence, zone_label
+
     o = AdminOrganisationService.get_org_summary(db, org_id=org_id)
     if o is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    market_zone = country_to_zone(getattr(o, "country", None))
+    wallet_pence = int(o.wallet_balance_pence or 0)
     return {
         "id": o.id,
         "name": o.name,
@@ -1161,8 +1176,11 @@ def admin_get_organisation(org_id: str, db: Session = Depends(get_db), _admin=De
         "subscription_status": o.subscription_status,
         "plan_code": o.plan_code,
         "plan_name": o.plan_name,
-        "wallet_balance_pence": int(o.wallet_balance_pence or 0),
-        "wallet_balance_gbp": f"£{(int(o.wallet_balance_pence or 0) / 100):.2f}",
+        "wallet_balance_pence": wallet_pence,
+        "wallet_balance_gbp": f"£{(wallet_pence / 100):.2f}",
+        "market_zone": market_zone,
+        "market_label": zone_label(market_zone),
+        "wallet_balance_display": format_wallet_pence(wallet_pence, market_zone),
     }
 
 
@@ -1370,14 +1388,126 @@ def admin_credit_org_wallet(
     if amount <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="amount_pence must be positive")
     org = VoxbulkPricingService.deposit_wallet(db, org, amount)
+    from app.services.market_zone import country_to_zone, format_wallet_pence
+
+    market_zone = country_to_zone(getattr(org, "country", None))
+    wallet_pence = int(org.wallet_balance_pence or 0)
     return {
         "ok": True,
         "org_id": org_id,
         "credited_pence": amount,
         "note": str(payload.get("note") or "").strip() or None,
-        "wallet_balance_pence": int(org.wallet_balance_pence or 0),
-        "wallet_balance_gbp": f"£{(int(org.wallet_balance_pence or 0) / 100):.2f}",
+        "wallet_balance_pence": wallet_pence,
+        "wallet_balance_gbp": f"£{(wallet_pence / 100):.2f}",
+        "wallet_balance_display": format_wallet_pence(wallet_pence, market_zone),
     }
+
+
+@router.get("/organisations/{org_id}/operations")
+def admin_get_organisation_operations(
+    org_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.service_order import ServiceOrder
+    from app.models.subscription import Subscription
+    from app.services.invoice_service import InvoiceService
+    from app.services.market_zone import country_to_zone, format_wallet_pence, zone_currency_symbol, zone_label
+    from app.services.platform_catalog_service import ServiceOrderService
+    from app.services.usage_wallet_service import UsageWalletService
+
+    o = AdminOrganisationService.get_org_summary(db, org_id=org_id)
+    if o is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+
+    market_zone = country_to_zone(getattr(o, "country", None))
+    usage_row = UsageWalletService.get_current(db, org_id)
+    if usage_row is None:
+        sub = db.execute(
+            select(Subscription).where(Subscription.org_id == org_id).order_by(Subscription.created_at.desc()).limit(1)
+        ).scalar_one_or_none()
+        if sub is not None:
+            usage_row = UsageWalletService.bootstrap_from_plan(db, org_id=org_id, subscription=sub)
+
+    running_orders = list(
+        db.execute(
+            select(ServiceOrder)
+            .where(
+                ServiceOrder.org_id == org_id,
+                ServiceOrder.status.in_(("running", "paused", "draft")),
+            )
+            .order_by(ServiceOrder.updated_at.desc())
+            .limit(50)
+        ).scalars()
+    )
+    recent_orders = ServiceOrderService.list_orders(db, org_id=org_id, limit=30)
+    invoices = InvoiceService.list_for_org(db, org_id=org_id, limit=30)
+
+    users = list(
+        db.execute(
+            select(User.id, User.email, User.is_active, User.is_superuser, OrganisationMembership.role, OrganisationMembership.created_at)
+            .join(OrganisationMembership, OrganisationMembership.user_id == User.id)
+            .where(OrganisationMembership.org_id == org_id)
+            .order_by(OrganisationMembership.created_at.desc())
+            .limit(200)
+        ).all()
+    )
+
+    wallet_pence = int(o.wallet_balance_pence or 0)
+    return {
+        "organisation": {
+            "id": o.id,
+            "name": o.name,
+            "created_at": o.created_at,
+            "is_suspended": o.is_suspended,
+            "country": getattr(o, "country", None),
+            "city": getattr(o, "city", None),
+            "contact_name": getattr(o, "contact_name", None),
+            "contact_email": getattr(o, "contact_email", None),
+            "contact_phone": getattr(o, "contact_phone", None),
+            "plan_code": o.plan_code,
+            "plan_name": o.plan_name,
+            "subscription_status": o.subscription_status,
+            "user_count": o.user_count,
+            "branch_count": o.branch_count,
+            "wallet_balance_pence": wallet_pence,
+            "wallet_balance_display": format_wallet_pence(wallet_pence, market_zone),
+            "market_zone": market_zone,
+            "market_label": zone_label(market_zone),
+            "currency_symbol": zone_currency_symbol(market_zone),
+        },
+        "usage": UsageWalletService.summary_dict(usage_row) if usage_row else None,
+        "running_orders": [ServiceOrderService.order_to_admin_dict(db, r) for r in running_orders],
+        "recent_orders": [ServiceOrderService.order_to_admin_dict(db, r) for r in recent_orders],
+        "invoices": [InvoiceService.invoice_to_dict(db, inv) for inv in invoices],
+        "users": [
+            {
+                "user_id": uid,
+                "email": email,
+                "is_active": is_active,
+                "is_superuser": is_superuser,
+                "role": role,
+                "linked_at": created_at,
+            }
+            for uid, email, is_active, is_superuser, role, created_at in users
+        ],
+    }
+
+
+@router.get("/organisations/{org_id}/invoices")
+def admin_list_org_invoices(
+    org_id: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.invoice_service import InvoiceService
+
+    org = db.get(Organisation, org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    rows = InvoiceService.list_for_org(db, org_id=org_id, limit=limit)
+    return [InvoiceService.invoice_to_dict(db, r) for r in rows]
 
 
 @router.get("/organisations/{org_id}/users")

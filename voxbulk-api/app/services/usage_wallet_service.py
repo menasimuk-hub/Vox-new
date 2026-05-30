@@ -39,6 +39,7 @@ class UsageWalletService:
         calls = int(promo.calls_included or (plan.calls_included if plan else 0))
         wa = int(promo.whatsapp_included or (plan.whatsapp_included if plan else 0))
         sms = int(promo.sms_included or (plan.sms_included if plan else 0))
+        cv_scans = int(getattr(plan, "cv_scans_included", 0) or 0) if plan else 0
         overage = int(promo.overage_per_min_pence or (plan.overage_per_min_pence if plan else 20))
         pack_credits = int(promo.free_call_credits or 0)
         pack_expires = now + timedelta(days=90) if pack_credits > 0 else None
@@ -53,6 +54,7 @@ class UsageWalletService:
             calls_included=calls,
             whatsapp_included=wa,
             sms_included=sms,
+            cv_scans_included=cv_scans,
             pack_credits_included=pack_credits,
             pack_credits_expires_at=pack_expires,
             overage_per_min_pence=overage,
@@ -95,6 +97,8 @@ class UsageWalletService:
         wa_included = int(row.whatsapp_included or 0)
         sms_used = int(row.sms_used or 0)
         sms_included = int(row.sms_included or 0)
+        cv_used = int(getattr(row, "cv_scans_used", 0) or 0)
+        cv_included = int(getattr(row, "cv_scans_included", 0) or 0)
         pack_used = int(row.pack_credits_used or 0)
         pack_included = int(row.pack_credits_included or 0)
 
@@ -110,6 +114,7 @@ class UsageWalletService:
             "calls": {"used": calls_used, "included": calls_included, "percent": pct(calls_used, calls_included)},
             "whatsapp": {"used": wa_used, "included": wa_included, "percent": pct(wa_used, wa_included)},
             "sms": {"used": sms_used, "included": sms_included, "percent": pct(sms_used, sms_included)},
+            "cv_scans": {"used": cv_used, "included": cv_included, "percent": pct(cv_used, cv_included)},
             "pack_credits": {
                 "used": pack_used,
                 "included": pack_included,
@@ -148,6 +153,7 @@ class UsageWalletService:
         row.calls_included = int(plan.calls_included or 0)
         row.whatsapp_included = int(plan.whatsapp_included or 0)
         row.sms_included = int(plan.sms_included or 0)
+        row.cv_scans_included = int(getattr(plan, "cv_scans_included", 0) or 0)
         row.overage_per_min_pence = int(plan.overage_per_min_pence or 0)
         row.status = "trial" if subscription.status == "trial" else "active"
         row.updated_at = now
@@ -274,7 +280,56 @@ class UsageWalletService:
         return row
 
     @staticmethod
-    def on_call_completed(db: Session, *, org_id: str, call_log_id: int | None = None) -> None:
+    def record_cv_scan_usage(
+        db: Session,
+        *,
+        org_id: str,
+        units: int = 1,
+        client_email: str | None = None,
+        commit: bool = True,
+    ) -> OrgUsagePeriod | None:
+        row = UsageWalletService.get_current(db, org_id)
+        if row is None:
+            return None
+        row.cv_scans_used = int(getattr(row, "cv_scans_used", 0) or 0) + max(0, int(units))
+        row.updated_at = datetime.utcnow()
+        db.add(row)
+        if commit:
+            db.commit()
+            db.refresh(row)
+            UsageWalletService._after_usage_increment(db, org_id=org_id, row=row, client_email=client_email)
+        return row
+
+    @staticmethod
+    def _call_usage_minutes(
+        db: Session,
+        call_log_id: int | None,
+        duration_seconds: int | None = None,
+    ) -> int:
+        import math
+
+        secs = duration_seconds
+        if call_log_id is not None and secs is None:
+            from app.models.call_log import CallLog
+
+            log = db.get(CallLog, call_log_id)
+            if log is not None:
+                if log.started_at and log.ended_at:
+                    secs = int((log.ended_at - log.started_at).total_seconds())
+                elif log.answered_at and log.ended_at:
+                    secs = int((log.ended_at - log.answered_at).total_seconds())
+        if secs is None or secs <= 0:
+            return 1
+        return max(1, int(math.ceil(secs / 60)))
+
+    @staticmethod
+    def on_call_completed(
+        db: Session,
+        *,
+        org_id: str,
+        call_log_id: int | None = None,
+        duration_seconds: int | None = None,
+    ) -> None:
         from app.models.call_log import CallLog
 
         if call_log_id is not None:
@@ -282,7 +337,8 @@ class UsageWalletService:
             if log is not None and log.usage_metered:
                 return
         try:
-            UsageWalletService.record_call_usage(db, org_id=org_id, units=1)
+            units = UsageWalletService._call_usage_minutes(db, call_log_id, duration_seconds)
+            UsageWalletService.record_call_usage(db, org_id=org_id, units=units)
             if call_log_id is not None:
                 log = db.get(CallLog, call_log_id)
                 if log is not None and not log.usage_metered:

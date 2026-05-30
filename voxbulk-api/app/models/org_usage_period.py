@@ -25,6 +25,8 @@ class OrgUsagePeriod(Base):
     whatsapp_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     sms_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     sms_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cv_scans_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cv_scans_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pack_credits_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pack_credits_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pack_credits_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -3,6 +3,8 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/layout/Layout'
 import Dashboard from './pages/Dashboard'
 import Organisations from './pages/Organisations'
+import ZoneOrganisations from './pages/ZoneOrganisations'
+import OrganisationDetail from './pages/OrganisationDetail'
 import OrganisationProfile from './pages/OrganisationProfile'
 import Categories from './pages/Categories'
 import OperationsQueue from './pages/OperationsQueue'
@@ -86,6 +88,8 @@ export default function App() {
         <Route path='/organisations' element={<Organisations />} />
         <Route path='/organisations/profile' element={<OrganisationProfile />} />
         <Route path='/organisations/categories' element={<Categories />} />
+        <Route path='/organisations/zone/:zone' element={<ZoneOrganisations />} />
+        <Route path='/organisations/:orgId' element={<OrganisationDetail />} />
 
         <Route path='/onboarding/setup' element={G('New customer setup')} />
         <Route path='/onboarding/pending-signups' element={<PendingSignups />} />

@@ -1071,6 +1071,30 @@ def send_interview_scheduling(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/{order_id}/interview/launch")
+def launch_interview_after_payment(
+    order_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_launch_service import InterviewLaunchService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    body = payload or {}
+    try:
+        return InterviewLaunchService.launch_after_payment(
+            db,
+            order,
+            resend_invites=bool(body.get("resend_invites")),
+            channels=body.get("channels"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/{order_id}/interview-booking/preview-template")
 def preview_interview_booking_template(
     order_id: str,
@@ -1106,6 +1130,7 @@ def send_interview_booking_invites(
             order,
             recipient_ids=body.get("recipient_ids"),
             channels=body.get("channels"),
+            force_resend=bool(body.get("force_resend")),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

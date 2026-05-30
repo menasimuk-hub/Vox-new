@@ -72,6 +72,7 @@ export function useBillingSubscription() {
   return useQuery({
     queryKey: queryKeys.billingSubscription,
     queryFn: () => apiFetch("/billing/subscription"),
+    refetchOnMount: "always",
   });
 }
 
@@ -111,6 +112,7 @@ export function useBillingUsage() {
   return useQuery({
     queryKey: queryKeys.billingUsage,
     queryFn: () => apiFetch<UsageSummary>("/billing/usage-summary"),
+    refetchOnMount: "always",
   });
 }
 
@@ -118,6 +120,7 @@ export function useBillingInvoices() {
   return useQuery({
     queryKey: queryKeys.billingInvoices,
     queryFn: () => apiFetch<Invoice[]>("/billing/invoices"),
+    refetchOnMount: "always",
   });
 }
 
@@ -517,7 +520,33 @@ export function useRunInterviewAts(orderId: string | null) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
       if (orderId) void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.billingUsage });
     },
+  });
+}
+
+export function useLaunchInterviewCampaign(orderId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ ok?: boolean; message?: string; invites?: { whatsapp_sent?: number } }>(
+        `/service-orders/${encodeURIComponent(orderId!)}/interview/launch`,
+        { method: "POST", body: "{}" },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
+      if (orderId) void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
+    },
+  });
+}
+
+export function useSendInterviewBookingInvites(orderId: string | null) {
+  return useMutation({
+    mutationFn: (force = false) =>
+      apiFetch<{ whatsapp_sent?: number; email_sent?: number; errors?: string[] }>(
+        `/service-orders/${encodeURIComponent(orderId!)}/interview-booking/send-invites`,
+        { method: "POST", body: JSON.stringify({ force_resend: force }) },
+      ),
   });
 }
 

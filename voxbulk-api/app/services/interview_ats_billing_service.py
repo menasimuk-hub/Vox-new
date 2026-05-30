@@ -182,4 +182,11 @@ def charge_and_queue_ats(
 
     order = _save_order_config(db, order, cfg)
     queued = queue_ats_for_order(db, order, recipient_ids=recipient_ids or quote.get("recipient_ids"))
+    if queued > 0 and org is not None:
+        try:
+            from app.services.usage_wallet_service import UsageWalletService
+
+            UsageWalletService.record_cv_scan_usage(db, org_id=org.id, units=int(queued))
+        except Exception:
+            pass
     return {"ok": True, "queued": queued, "charged_pence": total, **quote}

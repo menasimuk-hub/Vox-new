@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { orgStatusPill, subscriptionLabel } from '../lib/marketZone'
 
 export default function Organisations() {
   const navigate = useNavigate()
@@ -63,7 +64,7 @@ export default function Organisations() {
         body: JSON.stringify({ name: String(name).trim() }),
       })
       localStorage.setItem('retover_admin_selected_org_id', created.id)
-      navigate('/organisations/profile')
+      navigate(`/organisations/${encodeURIComponent(created.id)}`)
     } catch (e) {
       window.alert(e?.message || 'Could not create organisation')
     }
@@ -72,8 +73,8 @@ export default function Organisations() {
   return (
     <>
       {listError && (
-        <div className='card' style={{ marginBottom: 16, borderColor: '#fecaca' }}>
-          <div className='cardBody' style={{ color: '#b91c1c', fontSize: 14 }}>{listError}</div>
+        <div className='card alertCard'>
+          <div className='cardBody alertText'>{listError}</div>
         </div>
       )}
       <div className='pageTop'>
@@ -112,45 +113,52 @@ export default function Organisations() {
               <thead>
                 <tr>
                   <th>Organisation</th>
-                  <th>Category</th>
-                  <th>Plan</th>
+                  <th>Zone</th>
+                  <th>Subscription</th>
                   <th>Status</th>
-                  <th>Contact</th>
                   <th>Users</th>
+                  <th>Wallet</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {(items || []).map((o) => (
+                {(items || []).map((o) => {
+                  const pill = orgStatusPill(o)
+                  return (
                   <tr key={o.id}>
                     <td>
-                      <div style={{ display: 'grid' }}>
+                      <div className='cellStack'>
                         <strong>{o.name}</strong>
-                        <span className='muted' style={{ fontSize: 12 }}>
+                        <span className='muted cellSub'>
                           {o.city || o.country ? `${o.city || ''}${o.city && o.country ? ', ' : ''}${o.country || ''}` : '—'}
                         </span>
                       </div>
                     </td>
-                    <td>{o.category_name || '—'}</td>
-                    <td>{o.plan_name || o.plan_code || '—'}</td>
+                    <td>{o.market_label || '—'}</td>
                     <td>
-                      {o.is_suspended ? <span className='pill p-amber'>Suspended</span> : <span className='pill p-green'>Active</span>}
+                      <div className='cellStack'>
+                        <span>{o.plan_name || o.plan_code || '—'}</span>
+                        <span className='muted cellSub'>{subscriptionLabel(o.subscription_status)}</span>
+                      </div>
                     </td>
-                    <td>{o.contact_email || o.contact_name || '—'}</td>
+                    <td>
+                      <span className={`pill ${pill.cls}`}>{pill.text}</span>
+                    </td>
                     <td>{o.user_count} users</td>
+                    <td>{o.wallet_balance_display || '—'}</td>
                     <td>
                       <button
                         className='btn soft'
                         onClick={() => {
                           localStorage.setItem('retover_admin_selected_org_id', o.id)
-                          navigate('/organisations/profile')
+                          navigate(`/organisations/${encodeURIComponent(o.id)}`)
                         }}
                       >
-                        Open
+                        Edit
                       </button>
                     </td>
                   </tr>
-                ))}
+                )})}
                 {!items && (
                   <tr>
                     <td colSpan={7}>Loading…</td>

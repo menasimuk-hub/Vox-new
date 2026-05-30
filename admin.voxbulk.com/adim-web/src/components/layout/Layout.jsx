@@ -76,6 +76,7 @@ export default function Layout() {
           aria-hidden={!mobileOpen}
         />
         <Sidebar
+          dark={dark}
           collapsed={collapsed}
           mobileOpen={mobileOpen}
           onToggleCollapse={() => setCollapsed((v) => !v)}
