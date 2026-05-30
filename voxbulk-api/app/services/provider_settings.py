@@ -57,7 +57,7 @@ class ProviderSettingsService:
         "zoom": {"account_id", "client_id", "client_secret"},
         "calendly": {"client_id", "client_secret", "redirect_uri"},
         "cronofy": {"client_id", "client_secret", "redirect_uri"},
-        "hubspot": {"client_id", "client_secret", "redirect_uri"},
+        "hubspot": set(),
     }
 
     SECRET_KEYS: dict[str, set[str]] = {
@@ -672,16 +672,20 @@ class ProviderSettingsService:
     @staticmethod
     def _validate_hubspot_config(config: dict[str, Any]) -> dict[str, Any]:
         cfg = {**config}
+        mode = str(cfg.get("auth_mode") or "private_app").strip().lower()
+        cfg["auth_mode"] = mode if mode in {"oauth", "private_app"} else "private_app"
+        if cfg["auth_mode"] != "oauth":
+            return cfg
         errors: dict[str, str] = {}
         client_id = str(cfg.get("client_id") or "").strip()
         client_secret = str(cfg.get("client_secret") or "").strip()
         redirect_uri = str(cfg.get("redirect_uri") or "").strip()
         if not client_id:
-            errors["client_id"] = "Client ID is required"
+            errors["client_id"] = "Client ID is required for OAuth mode"
         if not client_secret:
-            errors["client_secret"] = "Client secret is required"
+            errors["client_secret"] = "Client secret is required for OAuth mode"
         if not redirect_uri:
-            errors["redirect_uri"] = "Redirect URI is required"
+            errors["redirect_uri"] = "Redirect URI is required for OAuth mode"
         if errors:
             details = "; ".join(f"{field}: {message}" for field, message in errors.items())
             raise ValueError(f"HubSpot settings validation failed: {details}")
@@ -692,6 +696,16 @@ class ProviderSettingsService:
 
     @staticmethod
     def _missing_fields(provider: str, config: dict[str, Any] | None) -> list[str]:
+        if provider.lower() == "hubspot":
+            cfg = config or {}
+            mode = str(cfg.get("auth_mode") or "private_app").strip().lower()
+            if mode != "oauth":
+                return []
+            missing: list[str] = []
+            for key in ("client_id", "client_secret", "redirect_uri"):
+                if not str(cfg.get(key) or "").strip():
+                    missing.append(key)
+            return missing
         if provider.lower() == "telnyx":
             cfg = config or {}
             missing: list[str] = []

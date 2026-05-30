@@ -51,6 +51,9 @@ def test_hubspot_oauth_start_builds_authorize_url(db_session: Session):
     db_session.add(org)
     db_session.commit()
     with patch(
+        "app.services.hubspot_connection_service._hubspot_platform_auth_mode",
+        return_value="oauth",
+    ), patch(
         "app.services.hubspot_connection_service._hubspot_platform_credentials",
         return_value=("client-abc", "secret", "https://api.test/hubspot/oauth/callback"),
     ):
@@ -142,3 +145,18 @@ def test_platform_oauth_configured_with_env(monkeypatch):
     get_settings.cache_clear()
     assert platform_oauth_configured(None) is True
     get_settings.cache_clear()
+
+
+def test_hubspot_private_app_platform_config(db_session: Session):
+    from app.services.provider_settings import ProviderSettingsService
+
+    ProviderSettingsService.upsert_platform_config(
+        db_session,
+        provider="hubspot",
+        is_enabled=True,
+        config={"auth_mode": "private_app"},
+    )
+    result = verify_hubspot_platform_config(db_session)
+    assert result["ok"] is True
+    assert result.get("auth_mode") == "private_app"
+    assert platform_oauth_configured(db_session) is True

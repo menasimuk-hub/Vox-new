@@ -109,6 +109,14 @@ function oauthSchedulingValidation(config, draft, summary) {
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
+function hubspotValidation(config, draft, summary) {
+  const mode = String(config?.auth_mode || 'private_app').toLowerCase()
+  if (mode === 'private_app') {
+    return { errors: {}, valid: true }
+  }
+  return oauthSchedulingValidation(config, draft, summary)
+}
+
 function vapiValidation(config, draft, summary) {
   const errors = {}
   const hasPrivateKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
@@ -742,6 +750,9 @@ export default function Integrations() {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
+      if (providerKey === 'hubspot' && !config.auth_mode) {
+        config.auth_mode = 'private_app'
+      }
       const updated = await apiFetch(`/admin/integrations/${providerKey}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -778,7 +789,7 @@ export default function Integrations() {
   const zoomStatus = activeProvider === 'zoom' ? zoomValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const calendlyStatus = activeProvider === 'calendly' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const cronofyStatus = activeProvider === 'cronofy' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
-  const hubspotStatus = activeProvider === 'hubspot' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const hubspotStatus = activeProvider === 'hubspot' ? hubspotValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const groqStatus = activeProvider === 'groq' ? groqValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepgramStatus = activeProvider === 'deepgram' ? deepgramValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const cartesiaStatus = activeProvider === 'cartesia' ? cartesiaValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -1957,6 +1968,18 @@ export default function Integrations() {
                       <span>Enable HubSpot integration</span>
                     </label>
                     <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Connection type</label>
+                      <select className='input' value={String(activeConfig.auth_mode || 'private_app')} onChange={(e) => setProviderField('hubspot', 'auth_mode', e.target.value)}>
+                        <option value='private_app'>Private app — access token only (most common)</option>
+                        <option value='oauth'>OAuth app — Client ID + secret (multi-tenant Connect button)</option>
+                      </select>
+                      <div className='muted' style={{ fontSize: 12 }}>
+                        If HubSpot shows &quot;API only&quot; with an access token and no client secret, choose <strong>Private app</strong>.
+                      </div>
+                    </div>
+                    {String(activeConfig.auth_mode || 'private_app') === 'oauth' ? (
+                      <>
+                    <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Client ID</label>
                       <input className='input' style={hubspotStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('hubspot', 'client_id', e.target.value)} />
                     </div>
@@ -1968,6 +1991,8 @@ export default function Integrations() {
                       <label className='label'>Redirect URI</label>
                       <input className='input' style={hubspotStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('hubspot', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/hubspot/oauth/callback' />
                     </div>
+                      </>
+                    ) : null}
                     {hubspotTestResult ? <div className='note'>{hubspotTestResult}</div> : null}
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('hubspot')} disabled={providerSaving || !hubspotStatus.valid}>Save HubSpot</button>
@@ -1975,13 +2000,23 @@ export default function Integrations() {
                     </div>
                     <div className='note'>
                       <strong>Setup steps</strong>
-                      <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                        <li>Open <a href='https://developers.hubspot.com/' target='_blank' rel='noreferrer'>HubSpot Developers</a> → create a public app for VoxBulk.</li>
-                        <li>Add redirect URI: <code>https://api.voxbulk.com/service-orders/hubspot/oauth/callback</code> (use your API host if different).</li>
-                        <li>Scopes: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>oauth</code>.</li>
-                        <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>
-                        <li>Each customer org clicks <strong>Connect HubSpot</strong> in Dashboard → Integrations.</li>
-                      </ol>
+                      {String(activeConfig.auth_mode || 'private_app') === 'private_app' ? (
+                        <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                          <li>Enable HubSpot above → Save → Test.</li>
+                          <li>Each company: HubSpot → Settings → Integrations → <strong>Private apps</strong> → create app.</li>
+                          <li>Scopes: <code>crm.objects.contacts.read</code> and <code>crm.objects.contacts.write</code>.</li>
+                          <li>Copy the <strong>Access token</strong> (starts with <code>pat-</code>) — no client secret needed.</li>
+                          <li>Paste token in <strong>Dashboard → Integrations → HubSpot</strong>.</li>
+                        </ol>
+                      ) : (
+                        <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                          <li>Open <a href='https://developers.hubspot.com/' target='_blank' rel='noreferrer'>HubSpot Developers</a> → create a <strong>public OAuth app</strong> (not Private app).</li>
+                          <li>Add redirect URI: <code>https://api.voxbulk.com/service-orders/hubspot/oauth/callback</code>.</li>
+                          <li>Scopes: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>oauth</code>.</li>
+                          <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>
+                          <li>Each customer org clicks <strong>Connect HubSpot</strong> in Dashboard → Integrations.</li>
+                        </ol>
+                      )}
                     </div>
                   </div>
                 </div>

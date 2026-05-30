@@ -81,9 +81,15 @@ def hubspot_status(db: Session, org_id: str) -> dict[str, Any]:
     cfg = get_hubspot_config(db, org_id)
     connected = bool(str(cfg.get("access_token") or "").strip())
     platform = platform_oauth_configured(db)
+    platform_mode = _hubspot_platform_auth_mode(db)
+    org_mode = str(cfg.get("auth_mode") or platform_mode).strip().lower()
     return {
         "connected": connected,
         "platform_configured": platform,
+        "auth_mode": platform_mode,
+        "connection_mode": org_mode if connected else None,
+        "uses_oauth_connect": platform_mode == "oauth",
+        "uses_access_token": platform_mode == "private_app",
         "hub_id": cfg.get("hub_id"),
         "hub_domain": cfg.get("hub_domain"),
         "account_name": cfg.get("account_name"),
@@ -125,20 +131,35 @@ def disconnect_hubspot(db: Session, org_id: str) -> dict[str, Any]:
     return hubspot_status(db, org_id)
 
 
-def _hubspot_platform_credentials(db: Session | None = None) -> tuple[str, str, str]:
+def _hubspot_platform_config(db: Session | None = None) -> tuple[dict[str, Any], bool]:
     if db is not None:
         try:
             from app.services.provider_settings import ProviderSettingsService
 
             cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="hubspot")
-            if enabled:
-                cid = str(cfg.get("client_id") or "").strip()
-                secret = str(cfg.get("client_secret") or "").strip()
-                redirect = str(cfg.get("redirect_uri") or "").strip()
-                if cid and secret and redirect:
-                    return cid, secret, redirect
+            if isinstance(cfg, dict):
+                return cfg, bool(enabled)
         except Exception:
             pass
+    return {}, False
+
+
+def _hubspot_platform_auth_mode(db: Session | None = None) -> str:
+    cfg, enabled = _hubspot_platform_config(db)
+    if not enabled:
+        return "private_app"
+    mode = str(cfg.get("auth_mode") or "private_app").strip().lower()
+    return mode if mode in {"oauth", "private_app"} else "private_app"
+
+
+def _hubspot_platform_credentials(db: Session | None = None) -> tuple[str, str, str]:
+    cfg, enabled = _hubspot_platform_config(db)
+    if enabled and _hubspot_platform_auth_mode(db) == "oauth":
+        cid = str(cfg.get("client_id") or "").strip()
+        secret = str(cfg.get("client_secret") or "").strip()
+        redirect = str(cfg.get("redirect_uri") or "").strip()
+        if cid and secret and redirect:
+            return cid, secret, redirect
     settings = get_settings()
     return (
         str(getattr(settings, "hubspot_client_id", None) or "").strip(),
@@ -148,28 +169,88 @@ def _hubspot_platform_credentials(db: Session | None = None) -> tuple[str, str, 
 
 
 def platform_oauth_configured(db: Session | None = None) -> bool:
-    client_id, client_secret, redirect = _hubspot_platform_credentials(db)
+    cfg, enabled = _hubspot_platform_config(db)
+    if enabled:
+        if _hubspot_platform_auth_mode(db) == "private_app":
+            return True
+        client_id, client_secret, redirect = _hubspot_platform_credentials(db)
+        return bool(client_id and client_secret and redirect.startswith("http"))
+    client_id, client_secret, redirect = _hubspot_platform_credentials(None)
     return bool(client_id and client_secret and redirect.startswith("http"))
 
 
+def _fetch_token_info(access_token: str) -> dict[str, Any]:
+    token = str(access_token or "").strip()
+    if not token:
+        raise ValueError("Access token is required")
+    with httpx.Client(timeout=30.0) as client:
+        info_res = client.get(f"https://api.hubapi.com/oauth/v1/access-tokens/{token}")
+    if info_res.status_code >= 400:
+        with httpx.Client(timeout=30.0) as client:
+            probe = client.get(
+                f"{HUBSPOT_CONTACTS_URL}?limit=1",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if probe.status_code >= 400:
+            raise ValueError(f"HubSpot access token invalid: {info_res.text[:200]}")
+        return {"hub_id": "", "hub_domain": "", "account_name": "Private app"}
+    info = info_res.json() or {}
+    return {
+        "hub_id": str(info.get("hub_id") or "").strip(),
+        "hub_domain": str(info.get("hub_domain") or "").strip(),
+        "account_name": str(info.get("user") or info.get("user_id") or "HubSpot").strip(),
+    }
+
+
 def verify_hubspot_platform_config(db: Session) -> dict[str, Any]:
+    cfg, enabled = _hubspot_platform_config(db)
+    if not enabled:
+        return {"ok": False, "detail": "Enable HubSpot in Admin → Integrations → HubSpot first"}
+    mode = _hubspot_platform_auth_mode(db)
+    if mode == "private_app":
+        return {
+            "ok": True,
+            "auth_mode": "private_app",
+            "detail": "Private app mode enabled. Each company pastes their HubSpot access token in Dashboard → Integrations (no OAuth secret needed).",
+        }
     client_id, client_secret, redirect = _hubspot_platform_credentials(db)
     if not client_id or not client_secret or not redirect:
         return {
             "ok": False,
-            "detail": "HubSpot client ID, secret, and redirect URI are required (Admin → Integrations → HubSpot)",
+            "detail": "OAuth mode requires Client ID, Client secret, and redirect URI (or switch auth mode to Private app).",
         }
     if not redirect.startswith("http"):
         return {"ok": False, "detail": "Redirect URI must be a full URL (https://api…/hubspot/oauth/callback)"}
     return {
         "ok": True,
-        "detail": "HubSpot OAuth credentials saved. Connect from Dashboard → System to complete OAuth.",
+        "auth_mode": "oauth",
+        "detail": "HubSpot OAuth credentials saved. Companies click Connect HubSpot in Dashboard → Integrations.",
         "redirect_uri": redirect,
         "scopes": HUBSPOT_SCOPES,
     }
 
 
+def connect_hubspot_access_token(db: Session, org_id: str, access_token: str) -> dict[str, Any]:
+    if not platform_oauth_configured(db):
+        raise ValueError("HubSpot is not enabled in admin settings")
+    info = _fetch_token_info(access_token)
+    cfg = {
+        "auth_mode": "private_app",
+        "access_token": access_token.strip(),
+        "refresh_token": "",
+        "hub_id": info.get("hub_id"),
+        "hub_domain": info.get("hub_domain"),
+        "account_name": info.get("account_name"),
+        "auto_sync_shortlist": True,
+        "auto_sync_scheduling_send": True,
+        "connected_at": datetime.utcnow().isoformat(),
+    }
+    return save_hubspot_config(db, org_id, cfg)
+
+
 def hubspot_oauth_start(*, org_id: str, db: Session | None = None) -> str:
+    if _hubspot_platform_auth_mode(db) != "oauth":
+        raise ValueError("HubSpot is in Private app mode — paste your access token in Dashboard → Integrations")
     client_id, _, redirect = _hubspot_platform_credentials(db)
     if not client_id or not redirect:
         raise ValueError("HubSpot OAuth is not configured (Admin → Integrations → HubSpot or HUBSPOT_* env)")
@@ -222,6 +303,7 @@ def hubspot_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, A
 
     expires_in = int(token_data.get("expires_in") or 1800)
     cfg = {
+        "auth_mode": "oauth",
         "access_token": access_token,
         "refresh_token": str(token_data.get("refresh_token") or ""),
         "expires_at": (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat(),
@@ -285,7 +367,9 @@ def _ensure_access_token(db: Session, org_id: str) -> str:
     token = str(cfg.get("access_token") or "").strip()
     if not token:
         raise ValueError("HubSpot is not connected for this organisation")
-    if _token_expired(cfg):
+    if str(cfg.get("auth_mode") or "").lower() == "private_app":
+        return token
+    if _token_expired(cfg) and str(cfg.get("refresh_token") or "").strip():
         cfg = _refresh_access_token(db, org_id, cfg)
         token = str(cfg.get("access_token") or "").strip()
     return token

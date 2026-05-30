@@ -902,6 +902,21 @@ def disconnect_hubspot_account(db: Session = Depends(get_db), principal=Depends(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/hubspot/connect-token")
+def connect_hubspot_token(
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.hubspot_connection_service import connect_hubspot_access_token
+
+    token = str(body.get("access_token") or "").strip()
+    try:
+        return connect_hubspot_access_token(db, principal.org_id, token)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/hubspot/oauth/start")
 def start_hubspot_oauth(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.hubspot_connection_service import hubspot_oauth_start

@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
 import { useHubSpotStatus, useSchedulingStatus } from "@/lib/queries";
 
@@ -51,6 +52,10 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const cronPlatformReady = scheduling.cronofy_platform_configured === true;
   const hubspotConnected = hubspot.connected === true;
   const hubspotPlatformReady = hubspot.platform_configured === true;
+  const hubspotUsesOAuth = hubspot.uses_oauth_connect === true;
+  const hubspotUsesToken = hubspot.uses_access_token === true;
+  const [hubspotTokenDraft, setHubspotTokenDraft] = React.useState("");
+  const [hubspotTokenBusy, setHubspotTokenBusy] = React.useState(false);
 
   const startOAuth = async (provider: "calendly" | "cronofy") => {
     try {
@@ -91,9 +96,32 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     try {
       await apiFetch("/service-orders/hubspot/disconnect", { method: "POST" });
       toast.success("HubSpot disconnected");
+      setHubspotTokenDraft("");
       void hubspotQ.refetch();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Disconnect failed");
+    }
+  };
+
+  const saveHubSpotAccessToken = async () => {
+    const token = hubspotTokenDraft.trim();
+    if (!token) {
+      toast.error("Paste your HubSpot access token first");
+      return;
+    }
+    setHubspotTokenBusy(true);
+    try {
+      await apiFetch("/service-orders/hubspot/connect-token", {
+        method: "POST",
+        body: JSON.stringify({ access_token: token }),
+      });
+      toast.success("HubSpot connected");
+      setHubspotTokenDraft("");
+      void hubspotQ.refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not connect HubSpot");
+    } finally {
+      setHubspotTokenBusy(false);
     }
   };
 
@@ -169,6 +197,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
           <CardTitle className="flex items-center gap-2"><Users className="size-5 text-primary" /> HubSpot CRM</CardTitle>
           <CardDescription>
             Sync shortlisted candidates to HubSpot as contacts when you save a shortlist or send human interview links from Results.
+            {hubspotUsesToken ? " Use your HubSpot Private app access token (pat-…)." : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -188,13 +217,44 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
                   : "Connect HubSpot to push shortlisted candidates into your CRM"}
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" className="gap-1.5" disabled={!hubspotPlatformReady || hubspotConnected} onClick={() => void startHubSpotOAuth()}>
-                  <Plug className="size-4" /> Connect HubSpot
-                </Button>
+                {hubspotUsesOAuth ? (
+                  <Button variant="outline" className="gap-1.5" disabled={!hubspotPlatformReady || hubspotConnected} onClick={() => void startHubSpotOAuth()}>
+                    <Plug className="size-4" /> Connect HubSpot
+                  </Button>
+                ) : (
+                  <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
+                    <div className="grid flex-1 gap-1.5">
+                      <Label htmlFor="hubspot-token" className="text-sm">Private app access token</Label>
+                      <Input
+                        id="hubspot-token"
+                        type="password"
+                        autoComplete="off"
+                        placeholder={hubspotConnected ? "Paste new token to replace" : "pat-na1-…"}
+                        value={hubspotTokenDraft}
+                        onChange={(e) => setHubspotTokenDraft(e.target.value)}
+                        disabled={!hubspotPlatformReady || hubspotTokenBusy}
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="gap-1.5 shrink-0"
+                      disabled={!hubspotPlatformReady || hubspotTokenBusy || !hubspotTokenDraft.trim()}
+                      onClick={() => void saveHubSpotAccessToken()}
+                    >
+                      <Plug className="size-4" /> {hubspotConnected ? "Update token" : "Connect HubSpot"}
+                    </Button>
+                  </div>
+                )}
                 {hubspotConnected ? (
                   <Button variant="outline" onClick={() => void disconnectHubSpot()}>Disconnect</Button>
                 ) : null}
               </div>
+              {hubspotUsesToken && !hubspotConnected ? (
+                <p className="text-xs text-muted-foreground">
+                  In HubSpot: Settings → Integrations → Private apps → create app → scopes{" "}
+                  <code className="text-[11px]">crm.objects.contacts.read/write</code> → copy Access token.
+                </p>
+              ) : null}
               {hubspotConnected ? (
                 <div className="space-y-3 rounded-md border border-border p-3">
                   <div className="flex items-center justify-between gap-4">
