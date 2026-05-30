@@ -19,6 +19,7 @@ import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
   SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useServices, type ServiceKey } from "@/lib/services";
@@ -97,6 +98,10 @@ export function AppSidebar() {
   const path = useRouterState({ select: (r) => r.location.pathname });
   const { visible, loaded } = useServices();
   const { session } = useSession();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const closeMobile = React.useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+  }, [isMobile, setOpenMobile]);
   const orgQ = useOrganisation();
   const orgName = session?.org?.name || session?.org?.display_name || orgQ.data?.name || session?.profile?.email || "Your organisation";
   const planName = session?.subscription?.plan?.name || "Plan";
@@ -117,12 +122,13 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {visibleGroups.map((g) => <NavGroup key={g.key} group={g} path={path} />)}
+        {visibleGroups.map((g) => <NavGroup key={g.key} group={g} path={path} onNavigate={closeMobile} />)}
       </SidebarContent>
 
       <SidebarFooter>
         <Link
           to="/account/billing"
+          onClick={closeMobile}
           className="flex items-center gap-3 rounded-lg bg-sidebar-accent/70 p-2.5 text-sidebar-accent-foreground hover:bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1"
         >
           {orgLogo ? (
@@ -168,7 +174,7 @@ function BrandMark() {
 }
 
 
-function NavGroup({ group, path }: { group: Group; path: string }) {
+function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onNavigate?: () => void }) {
   const itemActive = (item: Item) =>
     item.isActive ? item.isActive(path) : normalizePath(path) === normalizePath(item.url);
   const hasActive = group.items.some((i) => itemActive(i));
@@ -185,7 +191,7 @@ function NavGroup({ group, path }: { group: Group; path: string }) {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild isActive={itemActive(item)} tooltip={item.title}>
-                <Link to={item.url}>
+                <Link to={item.url} onClick={onNavigate}>
                   <item.icon />
                   <span>{item.title}</span>
                 </Link>
@@ -218,7 +224,7 @@ function NavGroup({ group, path }: { group: Group; path: string }) {
                 {group.items.map((item) => (
                   <SidebarMenuSubItem key={item.title}>
                     <SidebarMenuSubButton asChild isActive={itemActive(item)}>
-                      <Link to={item.url}>
+                      <Link to={item.url} onClick={onNavigate}>
                         <item.icon className="size-3.5" />
                         <span>{item.title}</span>
                       </Link>

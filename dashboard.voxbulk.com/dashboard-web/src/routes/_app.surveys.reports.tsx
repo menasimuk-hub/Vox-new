@@ -111,6 +111,7 @@ function SurveyReports() {
         ) : rows.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">No survey campaigns yet.</p>
         ) : (
+          <div className="table-scroll">
           <Table>
             <TableHeader><TableRow>
               <SortHeader label="Survey campaign" sortKey="name" active={rowsSort.sortKey} dir={rowsSort.sortDir} onToggle={rowsSort.toggleSort} className="pl-6" />
@@ -135,6 +136,7 @@ function SurveyReports() {
               ))}
             </TableBody>
           </Table>
+          </div>
         )}
       </CardContent></Card>
     </div>

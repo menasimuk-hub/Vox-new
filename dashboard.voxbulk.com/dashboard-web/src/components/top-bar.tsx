@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
 import { useConnections, bookingSystemName } from "@/lib/connections";
+import { initialsFromName, useSession } from "@/lib/session";
 
 function SidebarToggle() {
   const { toggleSidebar } = useSidebar();
@@ -29,36 +30,42 @@ function SidebarToggle() {
 export function TopBar() {
   const path = useRouterState({ select: (r) => r.location.pathname });
   const { theme, toggle } = useTheme();
+  const { session } = useSession();
   const { title, subtitle } = titleForPath(path);
   const showSearch = path.startsWith("/surveys");
   const { bookingSystem } = useConnections();
   const connectedName = bookingSystemName(bookingSystem);
+  const avatar = initialsFromName(
+    session?.org?.name || session?.org?.display_name || session?.profile?.email || "U",
+  );
 
   return (
-    <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/85 px-3 backdrop-blur md:px-6">
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur sm:h-16 sm:gap-3 md:px-6">
       <SidebarToggle />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <h1 className="truncate text-sm font-semibold leading-tight">{title}</h1>
-        {subtitle && <p className="truncate text-[11px] text-muted-foreground">{subtitle}</p>}
+        {subtitle && <p className="hidden truncate text-[11px] text-muted-foreground sm:block">{subtitle}</p>}
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
         {showSearch && (
           <div className="relative hidden md:block">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Search surveys by name or company…" className="h-9 w-80 pl-8 bg-card" />
           </div>
         )}
-        <span className="hidden md:inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] text-muted-foreground">
+        <span className="hidden lg:inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] text-muted-foreground">
           <span className="size-1.5 rounded-full bg-success" />
           <Plug className="size-3" />
           {connectedName} connected
         </span>
-        <Button size="icon" variant="ghost" onClick={toggle} aria-label="Toggle theme">
+        <Button size="icon" variant="ghost" className="size-8 sm:size-9" onClick={toggle} aria-label="Toggle theme">
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
-        <NotificationsBell />
-        <div className="ml-1 grid size-8 place-items-center rounded-full bg-accent text-accent-foreground text-xs font-semibold">AM</div>
+        <div className="hidden sm:block">
+          <NotificationsBell />
+        </div>
+        <div className="grid size-8 place-items-center rounded-full bg-accent text-accent-foreground text-xs font-semibold sm:size-9">{avatar}</div>
       </div>
     </header>
   );

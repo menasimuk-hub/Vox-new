@@ -20,10 +20,10 @@ function AppLayout() {
             <TooltipProvider delayDuration={150}>
               <SidebarProvider>
                 <AppSidebar />
-                <SidebarInset className="relative bg-background overflow-hidden">
+                <SidebarInset className="relative min-w-0 max-w-full flex-1 overflow-x-hidden bg-background">
                   <AppBackdrop />
                   <TopBar />
-                  <main className="relative min-w-0 flex-1 px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8">
+                  <main className="relative min-w-0 w-full max-w-full flex-1 px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8">
                     <Outlet />
                   </main>
                 </SidebarInset>

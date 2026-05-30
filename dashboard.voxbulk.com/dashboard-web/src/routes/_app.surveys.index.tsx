@@ -89,6 +89,7 @@ function SavedSurveys() {
         ) : s.sorted.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">No {tab} surveys yet.</p>
         ) : (
+          <div className="table-scroll">
           <Table>
             <TableHeader><TableRow>
               <SortHeader label="Survey" sortKey="name" active={s.sortKey} dir={s.sortDir} onToggle={s.toggleSort} className="pl-6" />
@@ -124,6 +125,7 @@ function SavedSurveys() {
               ))}
             </TableBody>
           </Table>
+          </div>
         )}
       </CardContent></Card>
     </div>

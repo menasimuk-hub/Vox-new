@@ -115,6 +115,7 @@ function SavedInterviews() {
           ) : s.sorted.length === 0 ? (
             <p className="p-8 text-center text-sm text-muted-foreground">No {tab} interviews yet.</p>
           ) : (
+            <div className="table-scroll">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -174,6 +175,7 @@ function SavedInterviews() {
                 })}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -168,6 +168,16 @@
     margin-inline: 0;
   }
 
+  .table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-scroll > table {
+    min-width: 640px;
+  }
+
   @media (max-width: 640px) {
     main .rounded-xl {
       border-radius: var(--radius-lg);

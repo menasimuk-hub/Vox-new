@@ -215,7 +215,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
             Select all
           </label>
           <div className="flex flex-wrap gap-2">
-            <div className="relative"><Search className="absolute left-2 top-2 size-4 text-muted-foreground" /><Input placeholder="Search candidate" className="h-8 w-44 pl-8 text-xs" /></div>
+            <div className="relative w-full min-w-0 sm:w-44"><Search className="absolute left-2 top-2 size-4 text-muted-foreground" /><Input placeholder="Search candidate" className="h-8 w-full pl-8 text-xs" /></div>
             <Button size="sm" variant="outline" className="gap-1.5"><Filter className="size-3.5" /> Filter</Button>
             {!isLive && (
               <Button size="sm" className="gap-1.5" disabled={selectedCount === 0} onClick={() => setSendOpen(true)}>
@@ -226,7 +226,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
         <Card>
           <CardContent className="px-0">
             {resultsQ.isLoading ? (
@@ -234,6 +234,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
             ) : rowsForSort.length === 0 ? (
               <p className="p-8 text-center text-sm text-muted-foreground">No candidates yet for this campaign.</p>
             ) : (
+              <div className="table-scroll">
               <Table>
                 <TableHeader><TableRow>
                   <TableHead className="w-8 pl-4"></TableHead>
@@ -290,6 +291,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -390,7 +392,7 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
             Each shortlisted candidate gets a unique link to book on your company&apos;s connected Calendly or Cronofy account (Settings → System).
           </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ChannelOption icon={<Mail className="size-4" />} label="Email" active={channel === "email"} onClick={() => setChannel("email")} />
           <ChannelOption icon={<MessageCircle className="size-4" />} label="WhatsApp" active={channel === "whatsapp"} onClick={() => setChannel("whatsapp")} />
           <ChannelOption icon={<Send className="size-4" />} label="Both" active={channel === "both"} onClick={() => setChannel("both")} />
