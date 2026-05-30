@@ -299,7 +299,16 @@ class PlatformCatalogService:
     @staticmethod
     def get_service_by_code(db: Session, code: str) -> PlatformService | None:
         PlatformCatalogService.ensure_defaults(db)
-        return db.execute(select(PlatformService).where(PlatformService.code == code)).scalar_one_or_none()
+        return (
+            db.execute(
+                select(PlatformService)
+                .where(PlatformService.code == code)
+                .order_by(PlatformService.updated_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
 
     @staticmethod
     def list_rules_for_service(db: Session, service_id: str, *, active_only: bool = True) -> list[ServicePricingRule]:

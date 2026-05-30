@@ -105,7 +105,16 @@ class BillingService:
 
     @staticmethod
     def get_subscription(db: Session, org_id: str) -> Subscription | None:
-        return db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalar_one_or_none()
+        return (
+            db.execute(
+                select(Subscription)
+                .where(Subscription.org_id == org_id)
+                .order_by(Subscription.updated_at.desc(), Subscription.created_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
 
     @staticmethod
     def _is_payg_like_plan(plan: Plan | None) -> bool:
@@ -132,9 +141,16 @@ class BillingService:
         usage = UsageWalletService.get_current(db, org_id)
         wallet_plan: Plan | None = None
         if usage is not None and usage.plan_code:
-            wallet_plan = db.execute(
-                select(Plan).where(Plan.code == str(usage.plan_code).strip().lower())
-            ).scalar_one_or_none()
+            wallet_plan = (
+                db.execute(
+                    select(Plan)
+                    .where(Plan.code == str(usage.plan_code).strip().lower())
+                    .order_by(Plan.sort_order.asc(), Plan.price_gbp_pence.desc())
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
 
         # Active usage wallet often reflects the real package while subscription row is still payg.
         if wallet_plan is not None and not BillingService._is_payg_like_plan(wallet_plan):

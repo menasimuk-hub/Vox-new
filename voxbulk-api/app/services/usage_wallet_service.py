@@ -19,11 +19,16 @@ class UsageWalletService:
     @staticmethod
     def get_current(db: Session, org_id: str) -> OrgUsagePeriod | None:
         now = datetime.utcnow()
-        return db.execute(
-            select(OrgUsagePeriod)
-            .where(OrgUsagePeriod.org_id == org_id, OrgUsagePeriod.period_end >= now)
-            .order_by(OrgUsagePeriod.period_end.desc())
-        ).scalar_one_or_none()
+        return (
+            db.execute(
+                select(OrgUsagePeriod)
+                .where(OrgUsagePeriod.org_id == org_id, OrgUsagePeriod.period_end >= now)
+                .order_by(OrgUsagePeriod.period_end.desc(), OrgUsagePeriod.updated_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
 
     @staticmethod
     def bootstrap_from_promo(db: Session, *, org_id: str, promo: PromoOffer, subscription: Subscription) -> OrgUsagePeriod:
@@ -435,7 +440,16 @@ class UsageWalletService:
             if UsageWalletService.get_current(db, row.org_id) is not None:
                 continue
 
-            sub = db.execute(select(Subscription).where(Subscription.org_id == row.org_id)).scalar_one_or_none()
+            sub = (
+                db.execute(
+                    select(Subscription)
+                    .where(Subscription.org_id == row.org_id)
+                    .order_by(Subscription.updated_at.desc(), Subscription.created_at.desc())
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
             if sub is None:
                 stats["skipped"] += 1
                 continue

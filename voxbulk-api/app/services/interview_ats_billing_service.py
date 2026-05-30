@@ -26,15 +26,29 @@ class InterviewAtsBillingError(ValueError):
 def ats_unit_price_pence(db: Session) -> int:
     """Read ATS unit price without failing the quote if catalog seeding is unavailable."""
     try:
-        svc = db.execute(
-            select(PlatformService).where(PlatformService.code == ATS_SERVICE_CODE)
-        ).scalar_one_or_none()
+        svc = (
+            db.execute(
+                select(PlatformService)
+                .where(PlatformService.code == ATS_SERVICE_CODE)
+                .order_by(PlatformService.updated_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
         if svc is None:
             try:
                 PlatformCatalogService.ensure_defaults(db)
-                svc = db.execute(
-                    select(PlatformService).where(PlatformService.code == ATS_SERVICE_CODE)
-                ).scalar_one_or_none()
+                svc = (
+                    db.execute(
+                        select(PlatformService)
+                        .where(PlatformService.code == ATS_SERVICE_CODE)
+                        .order_by(PlatformService.updated_at.desc())
+                        .limit(1)
+                    )
+                    .scalars()
+                    .first()
+                )
             except Exception:
                 return DEFAULT_ATS_UNIT_PENCE
         if svc is None:

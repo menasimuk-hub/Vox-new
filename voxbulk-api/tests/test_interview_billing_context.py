@@ -143,3 +143,51 @@ def test_pro_usage_wallet_overrides_payg_subscription_for_cv_email():
         assert ctx["cv_email_allowed"] is True
         assert ctx["plan_code"] == "pro"
         assert ctx["has_active_subscription"] is True
+
+
+def test_billing_context_tolerates_duplicate_wallet_periods_and_subscriptions():
+    with get_sessionmaker()() as db:
+        org = _seed_org(db)
+        pro = _plan(db, code="pro", name="Pro")
+        payg = _plan(db, code="payg", name="Pay as you go", price=0)
+        db.add(
+            Subscription(
+                org_id=org.id,
+                plan_id=pro.id,
+                status="active",
+                payment_provider="gocardless",
+            )
+        )
+        db.add(
+            Subscription(
+                org_id=org.id,
+                plan_id=payg.id,
+                status="cancelled",
+                payment_provider="payg",
+            )
+        )
+        now = __import__("datetime").datetime.utcnow()
+        end = now + __import__("datetime").timedelta(days=30)
+        db.add(
+            OrgUsagePeriod(
+                org_id=org.id,
+                period_start=now,
+                period_end=end,
+                status="active",
+                plan_code="pro",
+            )
+        )
+        db.add(
+            OrgUsagePeriod(
+                org_id=org.id,
+                period_start=now,
+                period_end=end + __import__("datetime").timedelta(days=1),
+                status="active",
+                plan_code="pro",
+            )
+        )
+        db.commit()
+
+        ctx = org_interview_billing_context(db, org)
+        assert ctx["cv_email_allowed"] is True
+        assert ctx["plan_code"] == "pro"
