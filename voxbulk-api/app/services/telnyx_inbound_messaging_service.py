@@ -213,21 +213,40 @@ class TelnyxInboundMessagingService:
         db.refresh(row)
 
         if direction == "inbound" and channel == "whatsapp" and body:
+            handled_interview = False
             handled_survey = False
             try:
-                from app.services.survey_whatsapp_conversation_service import handle_inbound_reply
-
-                survey_result = handle_inbound_reply(
-                    db,
-                    from_phone=from_norm or from_number,
-                    body=body,
-                    org_id=org_id,
-                    log_id=row.id,
+                from app.services.interview_whatsapp_inbound_service import (
+                    handle_inbound_reply as handle_interview_booking_reply,
+                    parse_interview_booking_intent,
                 )
-                handled_survey = bool(survey_result.get("handled"))
+
+                if parse_interview_booking_intent(body):
+                    interview_result = handle_interview_booking_reply(
+                        db,
+                        from_phone=from_norm or from_number,
+                        body=body,
+                        org_id=org_id,
+                        log_id=row.id,
+                    )
+                    handled_interview = bool(interview_result.get("handled"))
             except Exception:
                 pass
-            if not handled_survey:
+            if not handled_interview:
+                try:
+                    from app.services.survey_whatsapp_conversation_service import handle_inbound_reply
+
+                    survey_result = handle_inbound_reply(
+                        db,
+                        from_phone=from_norm or from_number,
+                        body=body,
+                        org_id=org_id,
+                        log_id=row.id,
+                    )
+                    handled_survey = bool(survey_result.get("handled"))
+                except Exception:
+                    pass
+            if not handled_interview and not handled_survey:
                 try:
                     from app.services.sales_automation_service import SalesAutomationService
 

@@ -76,6 +76,10 @@ def booking_url_for_token(token: str) -> str:
     return f"{booking_public_origin()}/book/{quote(str(token).strip(), safe='')}"
 
 
+def booking_reschedule_url_for_token(token: str) -> str:
+    return f"{booking_url_for_token(token)}?reschedule=1"
+
+
 def _slot_starts(window_start: datetime, window_end: datetime, *, now: datetime | None = None) -> list[datetime]:
     if window_end <= window_start:
         return []

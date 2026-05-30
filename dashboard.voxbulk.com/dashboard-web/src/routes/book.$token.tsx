@@ -9,6 +9,9 @@ import { publicApiFetch } from "@/lib/api";
 
 export const Route = createFileRoute("/book/$token")({
   head: () => ({ meta: [{ title: "Book your interview — VoxBulk" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    reschedule: search.reschedule === "1" || search.reschedule === 1 || search.reschedule === true,
+  }),
   component: PublicBookingPage,
 });
 
@@ -162,6 +165,7 @@ function SlotPicker({
 
 function PublicBookingPage() {
   const { token } = Route.useParams();
+  const { reschedule: openReschedule } = Route.useSearch();
   const qc = useQueryClient();
   const [picked, setPicked] = React.useState<string | null>(null);
   const [mode, setMode] = React.useState<"book" | "reschedule">("book");
@@ -211,6 +215,13 @@ function PublicBookingPage() {
   });
 
   const data = pageQ.data;
+
+  React.useEffect(() => {
+    if (openReschedule && data?.already_booked) {
+      setMode("reschedule");
+    }
+  }, [openReschedule, data?.already_booked]);
+
   const activeError =
     (confirmM.error instanceof Error && confirmM.error.message) ||
     (rescheduleM.error instanceof Error && rescheduleM.error.message) ||
