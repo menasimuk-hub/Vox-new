@@ -24,7 +24,7 @@ function uniqueEmailTemplateKey(baseKey, existingKeys) {
   return slugifyTemplateKey(`${baseKey}_${Date.now()}`)
 }
 
-function StatusDot({ enabled }: { enabled: boolean }) {
+function StatusDot({ enabled }) {
   return (
     <span
       className={`statusDot ${enabled ? 'on' : 'off'}`}
