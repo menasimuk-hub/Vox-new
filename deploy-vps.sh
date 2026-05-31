@@ -68,7 +68,15 @@ git_pull() {
   if ! git merge-base "HEAD" "$GIT_REMOTE/$GIT_BRANCH" >/dev/null 2>&1; then
     fail "Git histories unrelated. On VPS run: git fetch $GIT_REMOTE && git reset --hard $GIT_REMOTE/$GIT_BRANCH (only if you accept overwriting local VPS changes)"
   fi
-  git pull --ff-only "$GIT_REMOTE" "$GIT_BRANCH" || fail "git pull failed — commit or stash local VPS changes first"
+  if ! git diff --quiet deploy-vps.sh vox.sh 2>/dev/null; then
+    warn "Local edits to deploy-vps.sh or vox.sh — resetting so git pull can proceed"
+    git checkout -- deploy-vps.sh vox.sh
+  fi
+  if ! git diff --quiet && [[ "${VOX_FORCE_PULL:-0}" == "1" ]]; then
+    warn "VOX_FORCE_PULL=1 — stashing other local changes before pull"
+    git stash push -u -m "voxbulk-deploy-auto-stash $(date -Iseconds)"
+  fi
+  git pull --ff-only "$GIT_REMOTE" "$GIT_BRANCH" || fail "git pull failed — run: git status; git stash -u; git pull origin main; or VOX_FORCE_PULL=1 ./deploy-vps.sh"
 }
 
 api_deps_and_migrate() {

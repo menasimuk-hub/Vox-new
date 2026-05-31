@@ -301,9 +301,9 @@ function CalendarSlotPicker({
 
 
 
-  const windowStart = new Date(data.window_start);
+  const windowStart = parseUtc(data.window_start);
 
-  const windowEnd = new Date(data.window_end);
+  const windowEnd = parseUtc(data.window_end);
 
 
 
