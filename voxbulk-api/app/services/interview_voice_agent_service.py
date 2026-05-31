@@ -80,16 +80,9 @@ def resolve_interview_telnyx_assistant_id(
     if agent and str(agent.telnyx_assistant_id or "").strip():
         return normalize_telnyx_assistant_id(agent.telnyx_assistant_id), agent
 
-    configured = str(get_settings().survey_telnyx_assistant_id or "").strip()
+    configured = str(get_settings().interview_telnyx_assistant_id or "").strip()
     if configured:
         return normalize_telnyx_assistant_id(configured), agent
-
-    from app.services.lead_sales_service import get_lead_sales_settings
-
-    settings = get_lead_sales_settings(db)
-    fallback = str(settings.telnyx_assistant_id or "").strip()
-    if fallback:
-        return normalize_telnyx_assistant_id(fallback), agent
     return "", agent
 
 

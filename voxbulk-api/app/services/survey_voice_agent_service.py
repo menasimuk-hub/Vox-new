@@ -156,15 +156,6 @@ def list_agents_for_service(db: Session, *, service_key: str, org_id: str | None
 
 def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: str) -> list[dict[str, Any]]:
     agents = list_agents_for_service(db, service_key=service_key, org_id=org_id)
-    if not agents and service_key == SERVICE_INTERVIEW:
-        agents = list(
-            db.execute(
-                select(AgentDefinition)
-                .where(AgentDefinition.is_active.is_(True))
-                .order_by(AgentDefinition.name.asc())
-                .limit(20)
-            ).scalars()
-        )
     assigned = resolve_agent_for_org_service(db, org_id=org_id, service_key=service_key, require_active=False)
     out: list[dict[str, Any]] = []
     default_field = _default_field(service_key) or "is_default_survey"

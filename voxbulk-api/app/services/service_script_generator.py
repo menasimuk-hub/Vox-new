@@ -38,17 +38,18 @@ Return ONLY valid JSON with these fields:
 Keep WhatsApp messages short (under 280 chars each). British English. No markdown fences.
 Never mention Voxbulk, VOXBULK, or any platform provider — the survey is from the client's business only."""
 
-_INTERVIEW_META = """You are an expert interview screener for VOXBULK outbound AI phone or Zoom interviews.
+_INTERVIEW_META = """You are an expert interview screener for outbound AI phone or Zoom job interviews.
 Return ONLY valid JSON with these fields:
-- "intro": short opening the AI says (mention recording, role name)
-- "questions": array of 4-10 screening questions as strings
-- "closing": next steps and goodbye
-- "script_text": full readable script for the customer to review (intro, numbered questions, closing)
-- "system_prompt": instructions for the AI interviewer (scoring hints, follow-ups, professionalism)
-- "expected_duration_minutes": integer estimate of total call length (intro + questions + closing; typically 8-18)
+- "intro": short opening after disclosure (confirm role, ask if they have time; mention call is recorded)
+- "questions": array of 6-10 screening questions as strings — the FIRST TWO must reference the candidate CV (experience, achievement, or gap); remaining questions from the role and screening criteria
+- "closing": next steps and goodbye (no job offer promises)
+- "script_text": full readable script for the customer to review with sections OPENING DISCLOSURE (placeholder), INTRO, QUESTIONS (numbered), CLOSING
+- "system_prompt": instructions for the AI interviewer (follow-ups, professionalism, never say survey)
+- "expected_duration_minutes": integer estimate of total call length (intro + questions + closing; typically 10-18)
 
 British English. No markdown fences.
-Never mention Voxbulk, VOXBULK, or any platform provider — the interview is on behalf of the hiring organisation only."""
+Never mention Voxbulk, VOXBULK, Telnyx, or any platform provider — the interview is on behalf of the hiring organisation only.
+Never describe this as a survey."""
 
 
 def _estimate_interview_duration_minutes(questions: list[str], *, ai_value: object = None) -> int:
@@ -643,8 +644,12 @@ def generate_interview_script(
             f"Screening criteria:\n{criteria_text}",
             f"Delivery: {channel}",
             "Write screening questions the customer can read and approve before launch.",
+            "The first TWO questions must reference the candidate CV. Remaining questions from the criteria above.",
         ]
     )
+    cv_hint = str(gen_config.get("cv_sample_summary") or gen_config.get("sample_cv") or "").strip()
+    if cv_hint:
+        user_parts.insert(-1, f"Sample CV context for question style:\n{cv_hint[:2000]}")
     user = "\n\n".join(user_parts)
     raw = _complete_json(db, meta=_INTERVIEW_META, user=user)
     result = _parse_script_payload(

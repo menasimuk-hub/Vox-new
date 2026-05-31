@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { downloadAuthenticatedFile } from "@/lib/api";
+import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab } from "@/lib/api";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
 import { useInterviewResults, useHubSpotStatus, useSaveInterviewShortlist, useSendInterviewScheduling, useServiceOrders, useSchedulingStatus, useStopInterviewCampaign } from "@/lib/queries";
 import type { CampaignTone } from "@/lib/types/campaign";
@@ -147,10 +147,15 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         kind === "pdf"
           ? `/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(recipientId)}/interview-candidate-report.pdf`
           : `/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(recipientId)}/interview-candidate-report.html`;
-      await downloadAuthenticatedFile(path, kind === "pdf" ? `interview-report-${recipientId}.pdf` : undefined);
-      if (kind === "html") toast.success("Report opened");
+      if (kind === "html") {
+        await openAuthenticatedHtmlInTab(path);
+        toast.success("Report opened in new tab");
+      } else {
+        await downloadAuthenticatedFile(path, `interview-report-${recipientId}.pdf`);
+        toast.success("PDF downloaded");
+      }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Report download failed");
+      toast.error(e instanceof Error ? e.message : "Report failed");
     }
   };
 

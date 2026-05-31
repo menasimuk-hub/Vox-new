@@ -1635,6 +1635,31 @@ textarea.input{
 
 .voiceAgentPlatformCard{
   margin-bottom:16px;
+  width:100%;
+  max-width:none;
+}
+
+.voiceAgentPlatformCard label{
+  display:block;
+  width:100%;
+}
+
+.voiceAgentPlatformCard .input,
+.voiceAgentPlatformCard textarea{
+  width:100%;
+  box-sizing:border-box;
+}
+
+.agentPromptAreaSm{
+  width:100%;
+  min-height:140px;
+  resize:vertical;
+  display:block;
+  line-height:1.55;
+}
+
+.agentsMainPage .voiceAgentPlatformCard{
+  grid-column:1 / -1;
 }
 
 .voiceAgentHelp{
@@ -2212,6 +2237,189 @@ textarea.input{
 .agentsMutedDash{
   color:var(--muted);
   font-size:11px;
+}
+
+/* Create / Edit agent — same theme as Main agents list */
+.agentsEditPage{
+  padding-bottom:24px;
+}
+
+.agentsEditBack{
+  border:none;
+  background:transparent;
+  color:var(--muted);
+  font-size:10px;
+  font-weight:700;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:0;
+  margin-bottom:6px;
+  letter-spacing:.02em;
+}
+
+.agentsEditBack:hover{
+  color:var(--blue);
+}
+
+.agentsEditMeta{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  align-items:center;
+  margin-top:8px;
+}
+
+.agentsChip.interview{
+  background:#ecfdf5;
+  color:#0f7b5a;
+}
+
+.agentsEditStack{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  margin-top:10px;
+}
+
+.agentsEditGrid2{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  align-items:start;
+}
+
+.agentsEditGrid2 > .agentsPanel{
+  margin:0;
+  height:100%;
+}
+
+.agentsEditField{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  margin-bottom:8px;
+}
+
+.agentsEditField.span2{
+  grid-column:1 / -1;
+}
+
+.agentsEditField > label:not(.agentActiveToggle){
+  font-size:10px;
+  font-weight:600;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+
+.agentsEditField .input,
+.agentsEditField input:not([type='checkbox']),
+.agentsEditField select,
+.agentsEditField textarea{
+  width:100%;
+  border:1px solid var(--line);
+  background:var(--s2);
+  color:var(--ink);
+  border-radius:10px;
+  padding:8px 10px;
+  font:inherit;
+  font-size:11px;
+  box-sizing:border-box;
+}
+
+.agentsEditField textarea.agentPromptArea{
+  min-height:220px;
+  resize:vertical;
+  line-height:1.55;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:11px;
+}
+
+.agentsEditSectionTitle{
+  font-size:13px;
+  font-weight:800;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+.agentsEditSectionTitle i{
+  color:var(--blue);
+}
+
+.agentsEditNote{
+  font-size:10px;
+  color:var(--muted);
+  line-height:1.5;
+  margin:0 0 8px;
+}
+
+.agentsEditActions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:4px;
+  padding-top:10px;
+  border-top:1px solid var(--line);
+}
+
+.agentsEditFooter{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  padding-top:4px;
+}
+
+.agentsEditServiceTable{
+  width:100%;
+  border-collapse:collapse;
+}
+
+.agentsEditServiceTable th{
+  text-align:left;
+  padding:8px 8px 8px 0;
+  font-size:10px;
+  color:var(--muted);
+  border-bottom:1px solid var(--line);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  font-weight:600;
+}
+
+.agentsEditServiceTable td{
+  padding:10px 8px 10px 0;
+  border-bottom:1px solid var(--line);
+  font-size:11px;
+  vertical-align:middle;
+}
+
+.agentsEditServiceTable tr:last-child td{
+  border-bottom:none;
+}
+
+.agentsEditLoading{
+  padding:32px;
+  text-align:center;
+  color:var(--muted);
+  font-size:12px;
+}
+
+.agentsEditPage .agentsPanel .agentsToolbar{
+  margin-bottom:8px;
+  padding-bottom:10px;
+}
+
+.agentsEditPage .agentActiveToggle{
+  font-size:11px;
+  margin-top:4px;
+}
+
+@media (max-width:900px){
+  .agentsEditGrid2{
+    grid-template-columns:1fr;
+  }
 }
 
 .leadSourcesPage .leadSourcesIntro{

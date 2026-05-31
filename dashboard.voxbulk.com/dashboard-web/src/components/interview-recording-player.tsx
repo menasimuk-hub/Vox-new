@@ -33,7 +33,7 @@ export function InterviewRecordingPlayer({ playPath, durationLabel, compact }: P
       setSrc(url);
       return url;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Recording not available from Telnyx yet");
+      toast.error(e instanceof Error ? e.message : "Recording not available yet");
       return null;
     } finally {
       setLoading(false);
@@ -78,7 +78,7 @@ export function InterviewRecordingPlayer({ playPath, durationLabel, compact }: P
             <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            {durationLabel || "—"} · Telnyx recording
+            {durationLabel || "—"} · Interview recording
             {getApiBaseUrl() ? "" : " (local API)"}
           </p>
         </div>

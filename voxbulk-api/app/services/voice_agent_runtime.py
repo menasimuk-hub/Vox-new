@@ -223,6 +223,14 @@ def build_script_generation_agent_block(
             "OPENING DISCLOSURE\n...\nINTRO\n...\nQUESTIONS\n1. ...\nCLOSING\n...\n"
             "INTRO must follow the call workflow (availability check) and must NOT repeat the disclosure."
         )
+    elif service_key == SERVICE_INTERVIEW:
+        parts.append(
+            "Interview scripts must use sections in this order inside script_text:\n"
+            "OPENING DISCLOSURE\n...\nINTRO\n...\nQUESTIONS\n1. ...\nCLOSING\n...\n"
+            "The first TWO questions must reference the candidate CV (experience, achievement, or gap). "
+            "Remaining questions must come from the role and screening criteria. "
+            "This is a job interview — never call it a survey."
+        )
     return "\n\n".join(parts)
 
 
@@ -239,11 +247,29 @@ def build_service_runtime_instructions(
     layers = build_voice_runtime_layers(db, agent=agent, config=config, service_key=service_key, org_id=org_id)
 
     org_name = str(config.get("organisation_name") or config.get("clinic_name") or "the organisation").strip()
-    organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
+    organiser = str(
+        config.get("organiser_name")
+        or config.get("survey_organiser_name")
+        or config.get("client_name")
+        or org_name
+    ).strip()
     first = _first_name(recipient.name if recipient else "")
     goal = str(config.get("goal") or config.get("role") or "").strip()
+    criteria = str(config.get("screening_criteria") or config.get("criteria") or "").strip()
     script = str(config.get("approved_script") or config.get("generated_script_draft") or "").strip()
     survey_prompt = str(config.get("survey_runtime_prompt") or script).strip()
+    cv_snippet = ""
+    if recipient is not None:
+        cv_snippet = str(recipient.cv_text or "").strip()[:2500]
+        if not cv_snippet and recipient.cv_parsed_json:
+            try:
+                import json
+
+                parsed = json.loads(recipient.cv_parsed_json or "{}")
+                if isinstance(parsed, dict):
+                    cv_snippet = str(parsed.get("summary") or parsed.get("raw_text") or "")[:2500]
+            except Exception:
+                pass
 
     parts: list[str] = []
     if layers.compliance:
@@ -266,14 +292,24 @@ def build_service_runtime_instructions(
         parts.append(
             "This is an anonymous survey. Answers are aggregated without identifying individuals in customer reports."
         )
-    elif goal:
-        parts.append(f"Role / goal: {goal}")
+    else:
+        parts.append(f"Calling on behalf of: {organiser}")
+        parts.append(f"Candidate first name: {first}")
+        if goal:
+            parts.append(f"Role / position: {goal}")
+        if criteria:
+            parts.append(f"Screening criteria:\n{criteria}")
+        if cv_snippet:
+            parts.append(f"Candidate CV summary (use for the first two questions):\n{cv_snippet}")
+        parts.append(
+            "This is a job interview screening call — NOT a survey. Ask the approved interview questions in order."
+        )
 
     if layers.campaign_system_prompt:
         parts.append("Campaign notes:\n" + layers.campaign_system_prompt)
 
     if survey_prompt:
-        label = "Approved survey script" if service_key == SERVICE_SURVEY else "Approved script"
+        label = "Approved survey script" if service_key == SERVICE_SURVEY else "Approved interview script"
         parts.append(
             f"{label} (follow this structure):\n"
             + _personalize(survey_prompt, first_name=first, org_name=org_name, organiser=organiser)
@@ -281,11 +317,12 @@ def build_service_runtime_instructions(
 
     platform = _platform_settings(db)
     mandatory = disclosure_mandatory(platform, agent)
+    question_label = "survey questions" if service_key == SERVICE_SURVEY else "interview questions"
     if layers.opening_disclosure:
         parts.append(
             "The opening disclosure has already been spoken to the recipient as the call greeting. "
             "Do NOT repeat the disclosure. Continue with the INTRO section from the approved script "
-            "(availability check / call workflow), then the survey questions."
+            f"(availability check / call workflow), then the {question_label}."
         )
     elif mandatory and disclosure_enabled(platform, agent, service_key=service_key):
         parts.append(

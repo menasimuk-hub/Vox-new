@@ -40,15 +40,10 @@ def get_interview_telnyx_assistant_id(db: Session, order: ServiceOrder | None = 
         assistant_id, _agent = resolve_interview_telnyx_assistant_id(db, order, _order_config(order))
         return assistant_id
     from app.core.config import get_settings
-    from app.services.lead_sales_service import get_lead_sales_settings
 
-    configured = str(get_settings().survey_telnyx_assistant_id or "").strip()
+    configured = str(get_settings().interview_telnyx_assistant_id or "").strip()
     if configured:
         return normalize_telnyx_assistant_id(configured)
-    settings = get_lead_sales_settings(db)
-    fallback = str(settings.telnyx_assistant_id or "").strip()
-    if fallback:
-        return normalize_telnyx_assistant_id(fallback)
     return ""
 
 
@@ -491,7 +486,9 @@ class InterviewCallDispatchService:
 
         assistant_id, agent = resolve_interview_telnyx_assistant_id(db, order, config)
         if not assistant_id:
-            raise ValueError("Interview voice agent is not configured")
+            raise ValueError(
+                "Interview voice agent is not configured — assign an interview agent with a Telnyx assistant ID in Admin → Main agents"
+            )
 
         ok, reason = _order_window_ok(db, order)
         if not ok:

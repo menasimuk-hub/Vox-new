@@ -11,7 +11,7 @@ REPORT_CSS = """
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--ink:#1a1a18;--ink-2:#4a4a46;--ink-3:#888780;--surface:#faf9f6;--surface-2:#f1efe8;--surface-3:#e5e3d8;--accent:#185fa5;--accent-light:#e6f1fb;--success:#3b6d11;--success-light:#eaf3de;--warn:#854f0b;--warn-light:#faeeda;--danger:#a32d2d;--danger-light:#fcebeb;--border:rgba(26,26,24,.12);--radius:10px}
 body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--surface);color:var(--ink);font-size:15px;line-height:1.65}
-.page{max-width:860px;margin:0 auto;padding:48px 40px 80px}
+.page{max-width:1200px;margin:0 auto;padding:48px 40px 80px}
 .logo-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;padding-bottom:16px;border-bottom:1px solid var(--border)}
 .logo-bar img{height:32px;width:auto}
 .report-header{display:grid;grid-template-columns:1fr auto;gap:24px;padding-bottom:32px;border-bottom:1px solid var(--border);margin-bottom:40px}
@@ -57,6 +57,15 @@ body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--
 .rec-point-icon.neg{background:var(--danger-light);color:var(--danger)}
 .rec-point-icon.neutral{background:var(--surface-2);color:var(--ink-2)}
 .report-footer{margin-top:48px;padding-top:24px;border-top:1px solid var(--border);font-size:12px;color:var(--ink-3);display:flex;justify-content:space-between}
+.qa-list{display:flex;flex-direction:column;gap:16px}
+.qa-card{background:#fff;border:.5px solid var(--border);border-radius:var(--radius);padding:20px 22px}
+.qa-q{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:12px;line-height:1.45}
+.qa-a{font-size:14px;color:var(--ink-2);line-height:1.65;padding:14px 16px;background:var(--surface-2);border-radius:8px;border-left:3px solid var(--accent);margin-bottom:10px;white-space:pre-wrap}
+.qa-comment{font-size:13px;color:var(--ink-2);padding-top:10px;border-top:.5px dashed var(--border)}
+.qa-badge{display:inline-block;font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;margin-bottom:8px;text-transform:capitalize}
+.qa-badge.strong{background:var(--success-light);color:var(--success)}
+.qa-badge.adequate{background:var(--warn-light);color:var(--warn)}
+.qa-badge.weak{background:var(--danger-light);color:var(--danger)}
 .cv-appendix{margin-top:40px;padding-top:24px;border-top:1px solid var(--border);page-break-before:always}
 @media print{body{background:#fff}.page{padding:20px}}
 """
@@ -112,6 +121,44 @@ def _tags(words: list[Any], css: str) -> str:
     return "".join(f'<span class="tag {css}">{_e(w)}</span>' for w in words if str(w).strip())
 
 
+def _quality_comment(quality: str) -> str:
+    q = str(quality or "adequate").strip().lower()
+    if q == "strong":
+        return "Strong, well-evidenced answer that directly addresses the question."
+    if q == "weak":
+        return "Answer lacked depth or did not fully address the question — follow up in the next stage."
+    return "Adequate response with some useful detail; consider probing further in a human interview."
+
+
+def _qa_section(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return ""
+    cards = []
+    for i, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            continue
+        question = str(item.get("question") or "").strip()
+        answer = str(item.get("answer") or "").strip()
+        if not question and not answer:
+            continue
+        quality = str(item.get("quality") or "adequate").strip().lower()
+        if quality not in {"strong", "adequate", "weak"}:
+            quality = "adequate"
+        comment = str(item.get("comment") or item.get("assessor_note") or _quality_comment(quality)).strip()
+        cards.append(
+            f"""<div class="qa-card">
+            <div class="qa-badge {quality}">{_e(quality)}</div>
+            <div class="qa-q">Q{i}. {_e(question or "Question")}</div>
+            <div class="qa-a">{_e(answer or "No clear answer captured in the transcript.")}</div>
+            <div class="qa-comment"><strong>Assessor note:</strong> {_e(comment)}</div>
+            </div>"""
+        )
+    if not cards:
+        return ""
+    return f"""<div class="section"><div class="section-header"><div class="section-title">Interview Q&amp;A</div></div>
+    <div class="qa-list">{"".join(cards)}</div></div>"""
+
+
 def build_candidate_report_html(payload: dict[str, Any], *, cv_text: str | None = None) -> str:
     cand = payload.get("candidate") or {}
     scores = payload.get("scores") or {}
@@ -165,6 +212,7 @@ def build_candidate_report_html(payload: dict[str, Any], *, cv_text: str | None 
     {_competency_cards(interview.get('competencies') or [])}
     {highlight}{concern}
   </div>
+  {_qa_section(interview.get('key_answers') or [])}
   <div class="section"><div class="section-header"><div class="section-title">Recommendation</div></div>
     <div class="rec-banner {rec_class}"><div>
       <div class="rec-verdict">{_e(interview.get('recommendation_verdict'))}</div>

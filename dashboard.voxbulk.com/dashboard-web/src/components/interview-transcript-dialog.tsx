@@ -30,7 +30,7 @@ export function InterviewTranscriptDialog({ open, onOpenChange, orderId, recipie
                 Call transcript
               </DialogTitle>
               <p className="mt-1 text-xs text-slate-400">
-                {candidateName || "Candidate"} · Telnyx voice · AI screening
+                {candidateName || "Candidate"} · AI voice screening
               </p>
             </div>
             <Button size="icon" variant="ghost" className="text-slate-300 hover:bg-white/10 hover:text-white" onClick={() => onOpenChange(false)}>
@@ -69,7 +69,7 @@ export function InterviewTranscriptDialog({ open, onOpenChange, orderId, recipie
           )}
         </div>
         <div className="border-t border-border bg-muted/40 px-5 py-3 text-[11px] text-muted-foreground">
-          Transcript synced from Telnyx after the call completes. Recording playback uses the same call session.
+          Transcript synced after the call completes. Recording playback uses the same interview session.
         </div>
       </DialogContent>
     </Dialog>

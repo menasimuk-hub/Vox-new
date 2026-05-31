@@ -297,6 +297,33 @@ export async function downloadAuthenticatedFile(path: string, filename: string) 
   URL.revokeObjectURL(objectUrl);
 }
 
+export async function openAuthenticatedHtmlInTab(path: string) {
+  const baseUrl = getApiBaseUrl();
+  const url = baseUrl ? `${baseUrl}${path}` : path;
+  const headers = buildAuthHeaders();
+  const res = await requestFetch(url, { headers });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = `${res.status} ${res.statusText}`.trim();
+    try {
+      const data = JSON.parse(text);
+      if (typeof data?.detail === "string") message = data.detail;
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(message, { status: res.status });
+  }
+  const html = await res.text();
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const objectUrl = URL.createObjectURL(blob);
+  const tab = window.open(objectUrl, "_blank", "noopener,noreferrer");
+  if (!tab) {
+    URL.revokeObjectURL(objectUrl);
+    throw new ApiError("Pop-up blocked — allow pop-ups to view the report.");
+  }
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000);
+}
+
 export async function fetchAuthenticatedBlob(path: string) {
   const baseUrl = getApiBaseUrl();
   const url = baseUrl ? `${baseUrl}${path}` : path;

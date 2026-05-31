@@ -55,8 +55,14 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
   const [kbUploading, setKbUploading] = useState(false)
   const [genPhase, setGenPhase] = useState('')
   const [msg, setMsg] = useState('')
+  const [msgError, setMsgError] = useState(false)
   const [kbFiles, setKbFiles] = useState([])
   const fileInputRef = useRef(null)
+
+  const flash = (text, isError = false) => {
+    setMsg(text)
+    setMsgError(isError)
+  }
 
   const loadKb = async () => {
     const data = await apiFetch('/admin/knowledge-base?scope=org')
@@ -76,7 +82,7 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
     setLoading(true)
     apiFetch(`/admin/agents/${agentId}`)
       .then((data) => setAgent({ ...emptyAgent, ...data, knowledge_file_ids: data.knowledge_file_ids || [] }))
-      .catch((e) => setMsg(e?.message || 'Failed to load agent'))
+      .catch((e) => flash(e?.message || 'Failed to load agent', true))
       .finally(() => setLoading(false))
   }, [agentId, initialDraft])
 
@@ -103,7 +109,7 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
     event.target.value = ''
     if (!file) return
     if (!file.name.toLowerCase().endsWith('.md')) {
-      setMsg('Only .md files are allowed for agent knowledge base.')
+      flash('Only .md files are allowed for agent knowledge base.', true)
       return
     }
     setKbUploading(true)
@@ -119,9 +125,9 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
         }))
       }
       await loadKb()
-      setMsg(`Uploaded ${file.name}. Save agent to persist KB link.`)
+      flash(`Uploaded ${file.name}. Save agent to persist KB link.`)
     } catch (e) {
-      setMsg(e?.message || 'Upload failed')
+      flash(e?.message || 'Upload failed', true)
     } finally {
       setKbUploading(false)
     }
@@ -136,9 +142,9 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
         knowledge_file_ids: (s.knowledge_file_ids || []).filter((id) => id !== file.id),
       }))
       await loadKb()
-      setMsg('Knowledge base file deleted.')
+      flash('Knowledge base file deleted.')
     } catch (e) {
-      setMsg(e?.message || 'Could not delete file')
+      flash(e?.message || 'Could not delete file', true)
     }
   }
 
@@ -153,7 +159,7 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
   const generateWorkflow = async () => {
     const description = String(agent.description || '').trim()
     if (!description) {
-      setMsg('Add a description first, then generate the call workflow.')
+      flash('Add a description first, then generate the call workflow.', true)
       return
     }
     const rewrite = hasWorkflow(agent)
@@ -161,18 +167,17 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
 
     setSaving(true)
     setGenPhase('workflow')
-    setMsg('Generating call workflow with AI...')
+    flash('Generating call workflow with AI...')
     const path = agent.id ? `/admin/agents/${agent.id}/generate-workflow` : '/admin/agents/generate-workflow'
     try {
       const generated = await apiFetch(path, {
         method: 'POST',
         body: JSON.stringify(generationPayload(rewrite)),
       })
-      const workflow = generated.call_workflow || ''
-      setField('call_workflow', workflow)
-      setMsg('Call workflow generated. Review it, then click Generate prompt.')
+      setField('call_workflow', generated.call_workflow || '')
+      flash('Call workflow generated. Review it, then click Generate prompt.')
     } catch (e) {
-      setMsg(e?.message || 'Workflow generation failed')
+      flash(e?.message || 'Workflow generation failed', true)
     } finally {
       setSaving(false)
       setGenPhase('')
@@ -183,17 +188,17 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
     const description = String(agent.description || '').trim()
     const workflow = String(agent.call_workflow || '').trim()
     if (!description) {
-      setMsg('Add a description first.')
+      flash('Add a description first.', true)
       return
     }
     if (!workflow) {
-      setMsg('Generate the call workflow first, or paste workflow text into the Call workflow field.')
+      flash('Generate the call workflow first, or paste workflow text into the Call workflow field.', true)
       return
     }
 
     setSaving(true)
     setGenPhase('prompt')
-    setMsg('Generating system prompt (30-60 seconds)...')
+    flash('Generating system prompt (30–60 seconds)...')
     const path = agent.id ? `/admin/agents/${agent.id}/generate-prompt` : '/admin/agents/generate-prompt'
     try {
       const generated = await apiFetch(path, {
@@ -202,7 +207,7 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
       })
       const prompt = String(generated?.system_prompt || '').trim()
       if (!prompt) {
-        setMsg('AI returned an empty system prompt.')
+        flash('AI returned an empty system prompt.', true)
         return
       }
       setAgent((s) => ({
@@ -210,9 +215,9 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
         system_prompt: prompt,
         base_role: s.base_role?.trim() ? s.base_role : prompt,
       }))
-      setMsg('System prompt generated. Review System prompt and Base role, then Save agent.')
+      flash('System prompt generated. Review System prompt and Base role, then Save agent.')
     } catch (e) {
-      setMsg(e?.message || 'Prompt generation failed')
+      flash(e?.message || 'Prompt generation failed', true)
     } finally {
       setSaving(false)
       setGenPhase('')
@@ -252,19 +257,16 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
 
   const saveAgent = async () => {
     if (!agent.name?.trim()) {
-      setMsg('Agent name is required')
+      flash('Agent name is required', true)
       return
     }
     if (!agent.slug?.trim()) {
-      setMsg('Slug is required')
+      flash('Slug is required', true)
       return
     }
     if (!agent.telnyx_assistant_id?.trim()) {
-      setMsg('Telnyx Assistant ID is required')
+      flash('Telnyx Assistant ID is required', true)
       return
-    }
-    if (agent.supports_survey && !agent.is_active) {
-      setMsg('Warning: frozen agents will not appear in dashboard survey agent dropdown.')
     }
 
     setSaving(true)
@@ -274,90 +276,100 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
         ? await apiFetch(`/admin/agents/${agent.id}`, { method: 'PUT', body: JSON.stringify(body) })
         : await apiFetch('/admin/agents', { method: 'POST', body: JSON.stringify(body) })
       setAgent({ ...emptyAgent, ...saved, knowledge_file_ids: saved.knowledge_file_ids || [] })
-      setMsg('Agent saved.')
+      flash('Agent saved.')
       onSaved?.(saved)
     } catch (e) {
-      setMsg(e?.message || 'Failed to save agent')
+      flash(e?.message || 'Failed to save agent', true)
     } finally {
       setSaving(false)
     }
   }
 
-  if (loading) return <div style={{ padding: 32, textAlign: 'center' }}>Loading...</div>
+  if (loading) {
+    return (
+      <div className="agentsMainPage agentsEditPage">
+        <div className="agentsEditLoading">Loading agent…</div>
+      </div>
+    )
+  }
 
   const enabledServices = SERVICE_CATALOG.filter((s) => agent[`supports_${s.id}`])
   const kbCount = validKnowledgeFileIds.length
 
   return (
-    <div style={styles.container}>
-      <div style={styles.topbar}>
-        <div style={styles.topbarLeft}>
-          <button type="button" onClick={onClose} style={styles.backBtn}>
-            <i className="ti ti-arrow-left"></i> Agents
+    <div className="agentsMainPage agentsEditPage">
+      <div className="agentsMainTop">
+        <div>
+          <button type="button" className="agentsEditBack" onClick={onClose}>
+            <i className="ti ti-arrow-left" /> Main agents
           </button>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a' }}>
-              {agent.id ? 'Edit agent' : 'Create agent'}
-            </div>
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-              Configure voice, prompts, KB files, and survey/interview assignment
-            </div>
+          <h1>{agent.id ? 'Edit agent' : 'Create agent'}</h1>
+          <div className="agentsMainSub">
+            Voice, prompts, knowledge base, and survey / interview service assignment.
+          </div>
+          <div className="agentsEditMeta">
+            <span className="agentsChip">
+              <i className="ti ti-file-text" /> {kbCount} KB
+            </span>
+            <span className="agentsChip">
+              <i className="ti ti-plug" /> {enabledServices.length} services
+            </span>
+            {agent.supports_survey ? (
+              <span className="agentsChip survey">
+                <i className="ti ti-clipboard-list" /> Survey
+              </span>
+            ) : null}
+            {agent.supports_interview ? (
+              <span className="agentsChip interview">
+                <i className="ti ti-microphone" /> Interview
+              </span>
+            ) : null}
+            <span className={`agentsStatus ${agent.is_active ? 'active' : 'frozen'}`}>
+              <i className={`ti ${agent.is_active ? 'ti-circle-check' : 'ti-lock'}`} />
+              {agent.is_active ? 'Active' : 'Frozen'}
+            </span>
           </div>
         </div>
-        <div style={styles.headerActions}>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <div style={styles.stat}>
-              <i className="ti ti-file-text"></i> {kbCount} KB
-            </div>
-            <div style={styles.stat}>
-              <i className="ti ti-building"></i> {enabledServices.length} services
-            </div>
-            {agent.supports_survey ? (
-              <div style={{ ...styles.stat, background: '#e7efff', color: '#2563eb' }}>
-                <i className="ti ti-phone"></i> Dashboard survey
-              </div>
-            ) : null}
-          </div>
-          <button type="button" onClick={saveAgent} disabled={saving} style={{ ...styles.btn, ...styles.btnPrimary }}>
-            <i className="ti ti-device-floppy"></i> {saving ? 'Saving...' : 'Save agent'}
+        <div className="agentsMainActions">
+          <button type="button" className="agentsBtn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="agentsBtn primary" onClick={saveAgent} disabled={saving}>
+            <i className="ti ti-device-floppy" /> {saving ? 'Saving…' : 'Save agent'}
           </button>
         </div>
       </div>
 
-      {msg ? (
-        <div style={{ ...styles.msg, margin: '0 32px 16px', padding: '12px 16px', borderRadius: 8 }}>{msg}</div>
-      ) : null}
+      {msg ? <div className={`agentsMsg${msgError ? ' is-error' : ''}`}>{msg}</div> : null}
 
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 32px 32px' }}>
-        <div style={styles.card}>
-          <div style={styles.cardTitle}>
-            <i className="ti ti-user-circle" style={{ color: '#2563eb' }}></i> Basics
+      <div className="agentsEditStack">
+        <section className="agentsPanel">
+          <div className="agentsToolbar">
+            <div className="agentsEditSectionTitle">
+              <i className="ti ti-user-circle" /> Basics
+            </div>
           </div>
-          <div style={styles.grid2}>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Agent name</label>
-              <input value={agent.name} onChange={(e) => setField('name', e.target.value)} style={styles.input} />
+          <div className="agentsEditGrid2">
+            <div className="agentsEditField">
+              <label>Agent name</label>
+              <input className="input" value={agent.name} onChange={(e) => setField('name', e.target.value)} />
             </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Slug identifier</label>
-              <input value={agent.slug} onChange={(e) => setField('slug', e.target.value)} style={styles.input} />
+            <div className="agentsEditField">
+              <label>Slug identifier</label>
+              <input className="input" value={agent.slug} onChange={(e) => setField('slug', e.target.value)} />
             </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Voice label (shown in dashboard)</label>
+            <div className="agentsEditField">
+              <label>Voice label (dashboard)</label>
               <input
+                className="input"
                 value={agent.voice_label || ''}
                 onChange={(e) => setField('voice_label', e.target.value)}
-                placeholder="Sophie, James..."
-                style={styles.input}
+                placeholder="Leo, Sophie…"
               />
             </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Voice type</label>
-              <select
-                value={agent.voice_type_label || ''}
-                onChange={(e) => setField('voice_type_label', e.target.value)}
-                style={styles.input}
-              >
+            <div className="agentsEditField">
+              <label>Voice type</label>
+              <select className="input" value={agent.voice_type_label || ''} onChange={(e) => setField('voice_type_label', e.target.value)}>
                 <option value="">Select voice type</option>
                 <option value="Female British English">Female British English</option>
                 <option value="Male British English">Male British English</option>
@@ -365,391 +377,259 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
                 <option value="Male Neutral">Male Neutral</option>
               </select>
             </div>
-            <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
-              <label style={styles.label}>Description / purpose (used for AI generation)</label>
-              <textarea
-                value={agent.description || ''}
-                onChange={(e) => setField('description', e.target.value)}
-                style={styles.textarea}
-                rows={3}
-              />
+            <div className="agentsEditField span2">
+              <label>Description / purpose (for AI generation)</label>
+              <textarea className="input agentPromptAreaSm" rows={4} value={agent.description || ''} onChange={(e) => setField('description', e.target.value)} />
             </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <input
-                  type="checkbox"
-                  checked={agent.is_active}
-                  onChange={(e) => setField('is_active', e.target.checked)}
-                  style={{ marginRight: 8 }}
-                />
-                Active (frozen agents hidden from dashboard)
+            <div className="agentsEditField">
+              <label className="agentActiveToggle">
+                <input type="checkbox" checked={agent.is_active} onChange={(e) => setField('is_active', e.target.checked)} />
+                <span>Active (frozen agents hidden from dashboard)</span>
               </label>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
-            <button type="button" onClick={generateWorkflow} disabled={saving || !agent.description?.trim()} style={styles.btn}>
-              {genPhase === 'workflow' ? 'Generating workflow...' : hasWorkflow(agent) ? 'Regenerate workflow' : '1. Generate workflow'}
+          <div className="agentsEditActions">
+            <button type="button" className="agentsBtn" onClick={generateWorkflow} disabled={saving || !agent.description?.trim()}>
+              {genPhase === 'workflow' ? 'Generating workflow…' : hasWorkflow(agent) ? 'Regenerate workflow' : '1. Generate workflow'}
             </button>
             <button
               type="button"
+              className="agentsBtn primary"
               onClick={generatePrompt}
               disabled={saving || !agent.description?.trim() || !hasWorkflow(agent)}
-              style={{ ...styles.btn, ...styles.btnPrimary }}
             >
-              {genPhase === 'prompt' ? 'Generating prompt...' : isPlaceholderPrompt(agent.system_prompt) ? '2. Generate prompt' : 'Regenerate prompt'}
+              {genPhase === 'prompt' ? 'Generating prompt…' : isPlaceholderPrompt(agent.system_prompt) ? '2. Generate prompt' : 'Regenerate prompt'}
             </button>
           </div>
-        </div>
+        </section>
 
-        <div style={styles.card}>
-          <div style={styles.cardTitle}>
-            <i className="ti ti-microphone" style={{ color: '#d97706' }}></i> Telnyx & disclosure
+        <section className="agentsPanel">
+          <div className="agentsToolbar">
+            <div className="agentsEditSectionTitle">
+              <i className="ti ti-microphone" /> Telnyx &amp; disclosure
+            </div>
           </div>
-          <div style={styles.grid2}>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Telnyx Assistant ID</label>
+          <div className="agentsEditGrid2">
+            <div className="agentsEditField">
+              <label>Telnyx Assistant ID</label>
               <input
+                className="input"
                 value={agent.telnyx_assistant_id || ''}
                 onChange={(e) => setField('telnyx_assistant_id', e.target.value)}
-                placeholder="asst_..."
-                style={styles.input}
+                placeholder="assistant-…"
               />
             </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Voicemail behavior</label>
-              <select
-                value={agent.voicemail_behavior || 'hang_up'}
-                onChange={(e) => setField('voicemail_behavior', e.target.value)}
-                style={styles.input}
-              >
+            <div className="agentsEditField">
+              <label>Voicemail behavior</label>
+              <select className="input" value={agent.voicemail_behavior || 'hang_up'} onChange={(e) => setField('voicemail_behavior', e.target.value)}>
                 <option value="hang_up">Hang up</option>
                 <option value="leave_message">Leave message</option>
                 <option value="retry_later">Mark for retry</option>
               </select>
             </div>
-            <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
-              <label style={styles.label}>Opening disclosure template</label>
-              <div style={styles.sectionNote}>
+            <div className="agentsEditField span2">
+              <label>Opening disclosure template</label>
+              <p className="agentsEditNote">
                 Leave blank to use the platform default from Main agents → Shared voice compliance.
-                Changes apply to new script generation and live calls; regenerate approved survey scripts after editing.
-              </div>
+              </p>
               <textarea
+                className="input agentPromptAreaSm"
+                rows={4}
                 value={agent.opening_disclosure_template || ''}
                 onChange={(e) => setField('opening_disclosure_template', e.target.value)}
-                style={styles.textarea}
-                rows={3}
               />
             </div>
           </div>
-        </div>
+        </section>
 
-        <div style={styles.grid2}>
-          <div style={styles.card}>
-            <div style={styles.cardTitle}>Call workflow</div>
-            <div style={styles.sectionNote}>
-              Step-by-step flow after the opening disclosure (e.g. ask if they have time now). Leave blank to rely on generated script defaults.
+        <div className="agentsEditGrid2">
+          <section className="agentsPanel">
+            <div className="agentsToolbar">
+              <div className="agentsEditSectionTitle">
+                <i className="ti ti-route" /> Call workflow
+              </div>
             </div>
+            <p className="agentsEditNote">
+              Step-by-step flow after the opening disclosure (e.g. confirm they have time now).
+            </p>
             <textarea
+              className="input agentPromptArea"
+              rows={10}
               value={agent.call_workflow || ''}
               onChange={(e) => setField('call_workflow', e.target.value)}
-              style={styles.textarea}
-              rows={8}
-              placeholder="Step-by-step call flow..."
+              placeholder="Step-by-step call flow…"
             />
-          </div>
-          <div style={styles.card}>
-            <div style={styles.cardTitle}>System prompt</div>
+          </section>
+          <section className="agentsPanel">
+            <div className="agentsToolbar">
+              <div className="agentsEditSectionTitle">
+                <i className="ti ti-brain" /> System prompt
+              </div>
+            </div>
             <textarea
+              className="input agentPromptArea"
+              rows={10}
               value={agent.system_prompt || ''}
               onChange={(e) => setField('system_prompt', e.target.value)}
-              style={styles.textarea}
-              rows={8}
-              placeholder="Generated or hand-written instructions..."
+              placeholder="Generated or hand-written instructions…"
             />
-          </div>
+          </section>
         </div>
 
-        <div style={styles.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div style={styles.cardTitle}>
-              <i className="ti ti-file-text" style={{ color: '#16a34a' }}></i> Knowledge base
+        <section className="agentsPanel">
+          <div className="agentsToolbar">
+            <div className="agentsEditSectionTitle">
+              <i className="ti ti-file-text" /> Knowledge base
             </div>
-            <label style={{ ...styles.btn, cursor: 'pointer' }}>
-              {kbUploading ? 'Uploading...' : 'Upload .md'}
+            <label className="agentsBtn">
+              {kbUploading ? 'Uploading…' : 'Upload .md'}
               <input ref={fileInputRef} type="file" accept=".md,text/markdown" hidden onChange={uploadKb} disabled={kbUploading} />
             </label>
           </div>
-          <div style={styles.sectionNote}>Upload .md files and tick to attach to this agent. Used during AI prompt generation.</div>
-          <div style={{ marginTop: 12 }}>
+          <p className="agentsEditNote">Upload .md files and tick to attach to this agent. Used during AI prompt generation.</p>
+          <div className="agentKbPanel">
             {kbFiles.length ? (
               kbFiles.map((file) => {
                 const selected = (agent.knowledge_file_ids || []).includes(file.id)
                 return (
                   <div
                     key={file.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '10px 0',
-                      borderBottom: '1px solid #e2e8f0',
-                      cursor: 'pointer',
-                      background: selected ? '#f0f7ff' : 'transparent',
-                    }}
+                    className={`agentKbItem${selected ? ' is-selected' : ''}`}
                     onClick={() => toggleKbFile(file.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => e.key === 'Enter' && toggleKbFile(file.id)}
                   >
-                    <input type="checkbox" checked={selected} readOnly />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{file.original_filename}</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                        {Math.round((file.size_bytes || 0) / 1024)} KB
-                      </div>
+                    <input type="checkbox" checked={selected} readOnly tabIndex={-1} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong>{file.original_filename}</strong>
+                      <div className="muted">{Math.round((file.size_bytes || 0) / 1024)} KB</div>
                     </div>
                     <button
                       type="button"
+                      className="agentsAction warn"
                       onClick={(e) => {
                         e.stopPropagation()
                         deleteKb(file)
                       }}
-                      style={{ background: 'none', border: 'none', color: '#e11d48', cursor: 'pointer' }}
                     >
-                      <i className="ti ti-trash"></i>
+                      <i className="ti ti-trash" />
                     </button>
                   </div>
                 )
               })
             ) : (
-              <div style={{ color: '#64748b', fontSize: 13 }}>No KB files yet. Upload a .md file above.</div>
+              <div className="agentsEmpty">No KB files yet. Upload a .md file above.</div>
             )}
           </div>
-        </div>
+        </section>
 
-        <div style={styles.card}>
-          <div style={styles.cardTitle}>
-            <i className="ti ti-list-check" style={{ color: '#5f4be3' }}></i> Service assignment
+        <section className="agentsPanel">
+          <div className="agentsToolbar">
+            <div className="agentsEditSectionTitle">
+              <i className="ti ti-list-check" /> Service assignment
+            </div>
           </div>
-          <div style={styles.sectionNote}>
-            Enable Survey to make this agent appear in the dashboard AI voice survey dropdown.
-          </div>
-          <table style={styles.serviceTable}>
-            <thead>
-              <tr>
-                <th style={styles.serviceTh}>Service</th>
-                <th style={styles.serviceTh}>Enable</th>
-                <th style={styles.serviceTh}>Default</th>
-              </tr>
-            </thead>
-            <tbody>
-              {SERVICE_CATALOG.map((svc) => (
-                <tr key={svc.id}>
-                  <td style={styles.serviceTd}>
-                    <i className={svc.icon}></i> {svc.name}
-                  </td>
-                  <td style={styles.serviceTd}>
-                    <input
-                      type="checkbox"
-                      checked={agent[`supports_${svc.id}`] || false}
-                      onChange={(e) => setField(`supports_${svc.id}`, e.target.checked)}
-                    />
-                  </td>
-                  <td style={styles.serviceTd}>
-                    <input
-                      type="checkbox"
-                      checked={agent[`is_default_${svc.id}`] || false}
-                      onChange={(e) => setField(`is_default_${svc.id}`, e.target.checked)}
-                      disabled={!agent[`supports_${svc.id}`]}
-                    />
-                  </td>
+          <p className="agentsEditNote">
+            Enable <strong>Interview</strong> or <strong>Survey</strong> so this agent appears in the matching dashboard dropdown.
+          </p>
+          <div className="agentsTableWrap">
+            <table className="agentsEditServiceTable">
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>Enable</th>
+                  <th>Default</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div style={styles.grid2}>
-          <div style={styles.card}>
-            <div style={styles.cardTitle}>Prompt layers</div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Base role</label>
-              <textarea value={agent.base_role || ''} onChange={(e) => setField('base_role', e.target.value)} style={styles.textarea} rows={4} />
-            </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Survey role override</label>
-              <textarea
-                value={agent.service_survey_role || ''}
-                onChange={(e) => setField('service_survey_role', e.target.value)}
-                style={styles.textarea}
-                rows={3}
-              />
-            </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Interview role override</label>
-              <textarea
-                value={agent.service_interview_role || ''}
-                onChange={(e) => setField('service_interview_role', e.target.value)}
-                style={styles.textarea}
-                rows={3}
-              />
-            </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Lead / Sales role override</label>
-              <textarea
-                value={agent.service_lead_sales_role || ''}
-                onChange={(e) => setField('service_lead_sales_role', e.target.value)}
-                style={styles.textarea}
-                rows={3}
-              />
-            </div>
+              </thead>
+              <tbody>
+                {SERVICE_CATALOG.map((svc) => (
+                  <tr key={svc.id}>
+                    <td>
+                      <i className={svc.icon} /> {svc.name}
+                    </td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={agent[`supports_${svc.id}`] || false}
+                        onChange={(e) => setField(`supports_${svc.id}`, e.target.checked)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={agent[`is_default_${svc.id}`] || false}
+                        onChange={(e) => setField(`is_default_${svc.id}`, e.target.checked)}
+                        disabled={!agent[`supports_${svc.id}`]}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div style={styles.card}>
-            <div style={styles.cardTitle}>Behavior settings</div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Interruption handling</label>
-              <textarea
-                value={agent.interruption_behavior_notes || ''}
-                onChange={(e) => setField('interruption_behavior_notes', e.target.value)}
-                style={styles.textarea}
-                rows={3}
-              />
+        </section>
+
+        <div className="agentsEditGrid2">
+          <section className="agentsPanel">
+            <div className="agentsToolbar">
+              <div className="agentsEditSectionTitle">
+                <i className="ti ti-layers-subtract" /> Prompt layers
+              </div>
             </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Opt-out handling</label>
-              <textarea
-                value={agent.opt_out_policy_notes || ''}
-                onChange={(e) => setField('opt_out_policy_notes', e.target.value)}
-                style={styles.textarea}
-                rows={3}
-              />
+            <div className="agentsEditField">
+              <label>Base role</label>
+              <textarea className="input agentPromptAreaSm" rows={4} value={agent.base_role || ''} onChange={(e) => setField('base_role', e.target.value)} />
             </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Retry policy</label>
-              <textarea
-                value={agent.retry_policy_notes || ''}
-                onChange={(e) => setField('retry_policy_notes', e.target.value)}
-                style={styles.textarea}
-                rows={2}
-              />
+            <div className="agentsEditField">
+              <label>Survey role override</label>
+              <textarea className="input agentPromptAreaSm" rows={3} value={agent.service_survey_role || ''} onChange={(e) => setField('service_survey_role', e.target.value)} />
             </div>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <input
-                  type="checkbox"
-                  checked={agent.disclosure_mandatory}
-                  onChange={(e) => setField('disclosure_mandatory', e.target.checked)}
-                  style={{ marginRight: 8 }}
-                />
-                Mandatory opening disclosure
+            <div className="agentsEditField">
+              <label>Interview role override</label>
+              <textarea className="input agentPromptAreaSm" rows={3} value={agent.service_interview_role || ''} onChange={(e) => setField('service_interview_role', e.target.value)} />
+            </div>
+            <div className="agentsEditField">
+              <label>Lead / Sales role override</label>
+              <textarea className="input agentPromptAreaSm" rows={3} value={agent.service_lead_sales_role || ''} onChange={(e) => setField('service_lead_sales_role', e.target.value)} />
+            </div>
+          </section>
+          <section className="agentsPanel">
+            <div className="agentsToolbar">
+              <div className="agentsEditSectionTitle">
+                <i className="ti ti-adjustments" /> Behavior settings
+              </div>
+            </div>
+            <div className="agentsEditField">
+              <label>Interruption handling</label>
+              <textarea className="input agentPromptAreaSm" rows={3} value={agent.interruption_behavior_notes || ''} onChange={(e) => setField('interruption_behavior_notes', e.target.value)} />
+            </div>
+            <div className="agentsEditField">
+              <label>Opt-out handling</label>
+              <textarea className="input agentPromptAreaSm" rows={3} value={agent.opt_out_policy_notes || ''} onChange={(e) => setField('opt_out_policy_notes', e.target.value)} />
+            </div>
+            <div className="agentsEditField">
+              <label>Retry policy</label>
+              <textarea className="input agentPromptAreaSm" rows={2} value={agent.retry_policy_notes || ''} onChange={(e) => setField('retry_policy_notes', e.target.value)} />
+            </div>
+            <div className="agentsEditField">
+              <label className="agentActiveToggle">
+                <input type="checkbox" checked={agent.disclosure_mandatory} onChange={(e) => setField('disclosure_mandatory', e.target.checked)} />
+                <span>Mandatory opening disclosure</span>
               </label>
             </div>
-          </div>
+          </section>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button type="button" onClick={onClose} style={styles.btn}>
+        <div className="agentsEditFooter">
+          <button type="button" className="agentsBtn" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" onClick={saveAgent} disabled={saving} style={{ ...styles.btn, ...styles.btnPrimary }}>
-            {saving ? 'Saving...' : 'Save agent'}
+          <button type="button" className="agentsBtn primary" onClick={saveAgent} disabled={saving}>
+            <i className="ti ti-device-floppy" /> {saving ? 'Saving…' : 'Save agent'}
           </button>
         </div>
       </div>
     </div>
   )
-}
-
-const styles = {
-  container: { width: '100%', background: '#f8fafc' },
-  topbar: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '16px 32px',
-    borderBottom: '1px solid #e2e8f0',
-    background: '#f8fafc',
-    position: 'sticky',
-    top: 0,
-    zIndex: 40,
-  },
-  topbarLeft: { display: 'flex', alignItems: 'center', gap: 24 },
-  backBtn: {
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    color: '#475569',
-    fontSize: 13,
-    fontWeight: 500,
-  },
-  headerActions: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
-  stat: {
-    fontSize: 12,
-    color: '#64748b',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    background: '#f1f5f9',
-    padding: '4px 12px',
-    borderRadius: 20,
-  },
-  btn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '8px 18px',
-    borderRadius: 40,
-    fontWeight: 600,
-    fontSize: 13,
-    border: '1px solid #e2e8f0',
-    cursor: 'pointer',
-    background: '#fff',
-    color: '#0f172a',
-  },
-  btnPrimary: { background: '#2563eb', color: '#fff', borderColor: '#2563eb' },
-  msg: { background: '#fef2f2', borderLeft: '4px solid #e11d48', color: '#991b1b' },
-  card: {
-    background: '#fff',
-    borderRadius: 20,
-    border: '1px solid #e2e8f0',
-    padding: '24px 28px',
-    marginBottom: 20,
-    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-  },
-  cardTitle: { fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 },
-  formGroup: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 },
-  label: { fontSize: 12, fontWeight: 600, color: '#475569' },
-  input: {
-    background: '#f1f5f9',
-    border: '1px solid #e2e8f0',
-    borderRadius: 14,
-    padding: '10px 14px',
-    fontSize: 13,
-    fontFamily: 'inherit',
-    color: '#0f172a',
-  },
-  textarea: {
-    background: '#f1f5f9',
-    border: '1px solid #e2e8f0',
-    borderRadius: 14,
-    padding: '10px 14px',
-    fontSize: 13,
-    fontFamily: 'inherit',
-    color: '#0f172a',
-    resize: 'vertical',
-    width: '100%',
-    boxSizing: 'border-box',
-  },
-  sectionNote: { color: '#64748b', fontSize: 12 },
-  serviceTable: { width: '100%', borderCollapse: 'collapse', marginTop: 12 },
-  serviceTh: {
-    textAlign: 'left',
-    padding: '10px 8px 10px 0',
-    fontWeight: 600,
-    fontSize: 12,
-    color: '#475569',
-    borderBottom: '1px solid #e2e8f0',
-  },
-  serviceTd: { padding: '10px 8px 10px 0', borderBottom: '1px solid #e2e8f0' },
 }

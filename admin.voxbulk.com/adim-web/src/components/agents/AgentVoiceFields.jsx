@@ -50,6 +50,7 @@ export function PlatformVoiceSettings({ settings, onChange, onSave, busy }) {
           <span className='label'>Global compliance / disclosure role</span>
           <textarea
             className='input agentPromptAreaSm'
+            rows={6}
             value={settings.global_compliance_role || ''}
             onChange={(e) => onChange({ ...settings, global_compliance_role: e.target.value })}
             placeholder='Shared rules: AI disclosure, recording notice, opt-out handling...'
@@ -58,8 +59,8 @@ export function PlatformVoiceSettings({ settings, onChange, onSave, busy }) {
         <label>
           <span className='label'>Default opening disclosure template</span>
           <textarea
-            className='input'
-            rows={3}
+            className='input agentPromptAreaSm'
+            rows={5}
             value={settings.opening_disclosure_template || ''}
             onChange={(e) => onChange({ ...settings, opening_disclosure_template: e.target.value })}
             placeholder='Hello, this is {agent_name}, the AI assistant calling from {company_name}...'

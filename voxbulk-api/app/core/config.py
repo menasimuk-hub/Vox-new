@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     # Telnyx (optional fallback when admin DB key is empty)
     telnyx_api_key: str = Field(default="", alias="TELNYX_API_KEY")
     survey_telnyx_assistant_id: str = Field(default="", alias="SURVEY_TELNYX_ASSISTANT_ID")
+    interview_telnyx_assistant_id: str = Field(default="", alias="INTERVIEW_TELNYX_ASSISTANT_ID")
 
     calendly_client_id: str = Field(default="", alias="CALENDLY_CLIENT_ID")
     calendly_client_secret: str = Field(default="", alias="CALENDLY_CLIENT_SECRET")

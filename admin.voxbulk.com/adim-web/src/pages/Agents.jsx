@@ -184,7 +184,7 @@ export default function Agents() {
         <div>
           <h1>Main agents</h1>
           <div className="agentsMainSub">
-            Voice agents for dashboard surveys — Telnyx, prompts, and service assignment.
+            Voice agents for surveys and interviews — Telnyx, prompts, and service assignment.
           </div>
         </div>
         <div className="agentsMainActions">

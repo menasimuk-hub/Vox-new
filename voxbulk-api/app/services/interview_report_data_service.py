@@ -138,6 +138,14 @@ class InterviewCandidateReportService:
         except (TypeError, ValueError):
             interview_score = None
 
+        key_answers = analysis.get("key_answers") if isinstance(analysis.get("key_answers"), list) else []
+        has_real_analysis = bool(
+            analysis.get("short_summary")
+            or analysis.get("score") is not None
+            or key_answers
+            or analysis.get("competencies")
+        )
+
         culture_fit = ats_report.get("culture_fit_score") or analysis.get("culture_fit_score")
         try:
             culture_fit = int(culture_fit) if culture_fit is not None else None
@@ -145,12 +153,19 @@ class InterviewCandidateReportService:
             culture_fit = None
 
         seed = _seed(recipient.id)
-        if ats_score is None:
+        if ats_score is None and not has_real_analysis:
             ats_score = max(40, min(95, 55 + seed % 40))
-        if interview_score is None:
+        if interview_score is None and not has_real_analysis:
             interview_score = max(40, min(95, 58 + (seed // 7) % 38))
+        if culture_fit is None and not has_real_analysis:
+            base = int((ats_score or 50) + (interview_score or 50)) // 2
+            culture_fit = max(35, min(92, base + (seed % 9) - 4))
+        if ats_score is None:
+            ats_score = 0
+        if interview_score is None:
+            interview_score = 0
         if culture_fit is None:
-            culture_fit = max(35, min(92, int((ats_score + interview_score) / 2) + (seed % 9) - 4))
+            culture_fit = 0
 
         overall = _overall_from_scores(ats_score, interview_score, culture_fit)
         criteria = ats_report.get("criteria")
@@ -166,7 +181,7 @@ class InterviewCandidateReportService:
 
         competencies = analysis.get("competencies")
         if not isinstance(competencies, list) or not competencies:
-            competencies = _default_competencies(int(interview_score), analysis, seed)
+            competencies = _default_competencies(int(interview_score or 50), analysis, seed) if not has_real_analysis else []
 
         recommendation = str(analysis.get("recommendation") or parsed.get("recommendation") or "Hold")
         rec_verdict = {
@@ -207,6 +222,7 @@ class InterviewCandidateReportService:
             },
             "interview": {
                 "competencies": competencies,
+                "key_answers": key_answers,
                 "standout_quote": analysis.get("standout_quote") or analysis.get("standout_moment") or "",
                 "skill_gap": analysis.get("skill_gap") or (analysis.get("concerns") or [""])[0],
                 "short_summary": analysis.get("short_summary") or "",
