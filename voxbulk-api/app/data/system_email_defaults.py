@@ -97,6 +97,21 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:13px;color:#6b6560;">We will call you at the booked time. Reply to this email if you need to reschedule.</p>""",
         ),
     },
+    "interview_booking_cancel": {
+        "title": "Interview booking cancellation",
+        "subject": "Interview cancelled — {{role}} at {{company_name}}",
+        "body": wrap_interview_email(
+            title="Interview cancelled",
+            inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>Your <strong>{{role}}</strong> interview at <strong>{{company_name}}</strong> has been cancelled.</p>
+  <div style="margin:20px 0;padding:16px;background:#f5f1ea;border-radius:10px;border:1px solid #e5e0d8;">
+    <p style="margin:0 0 6px;"><strong>Was scheduled for:</strong> {{interview_date}}</p>
+    <p style="margin:0;"><strong>Time:</strong> {{interview_time}}</p>
+  </div>
+  """ + cta_button(href="{{booking_url}}", label="Book a new time") + """
+  <p style="font-size:13px;color:#6b6560;">If you still want to take part, choose another slot using the link above.</p>""",
+        ),
+    },
     "interview_zoom_invite": {
         "title": "Interview Zoom invite",
         "subject": "Your Zoom interview — {{role}}",

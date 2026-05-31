@@ -75,3 +75,51 @@ def test_activity_status_booked_waiting():
         result_json=json.dumps({"booked_start_at": future, "booking_confirmed_at": "2026-05-01T11:00:00"}),
     )
     assert InterviewActivityService.activity_status(r) == "booked_waiting"
+
+
+def test_activity_status_booking_cancelled():
+    r = _recipient(
+        result_json=json.dumps(
+            {
+                "booking_cancelled_at": "2026-05-01T12:00:00",
+                "cancelled_booked_start_at": "2026-05-02T10:00:00",
+                "booking_cancelled_via": "whatsapp",
+            }
+        ),
+    )
+    assert InterviewActivityService.activity_status(r) == "booking_cancelled"
+
+
+def test_timeline_includes_cancel_and_reschedule_events():
+    order = ServiceOrder(
+        id="ord-1",
+        org_id="org-1",
+        user_id="user-1",
+        service_code="interview",
+        title="Engineer",
+        status="running",
+        payment_status="approved",
+    )
+    r = _recipient(
+        result_json=json.dumps(
+            {
+                "booking_confirmed_at": "2026-05-01T10:00:00",
+                "booked_start_at": "2026-05-02T10:00:00",
+                "booking_rescheduled_at": "2026-05-01T11:00:00",
+                "previous_booked_start_at": "2026-05-01T10:00:00",
+                "booking_cancelled_at": "2026-05-01T12:00:00",
+                "cancelled_booked_start_at": "2026-05-02T10:00:00",
+                "booking_cancelled_via": "whatsapp",
+                "cancellation_email_sent_at": "2026-05-01T12:01:00",
+            }
+        ),
+    )
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    db = MagicMock()
+    db.execute.return_value = mock_result
+    payload = InterviewActivityService.timeline(db, order, r)
+    codes = [e["code"] for e in payload["events"]]
+    assert "rescheduled" in codes
+    assert "cancelled" in codes
+    assert "cancel_email" in codes

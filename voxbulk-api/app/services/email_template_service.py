@@ -22,6 +22,7 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "interview_scheduling_invite",
     "interview_booking_invite",
     "interview_booking_confirm",
+    "interview_booking_cancel",
     "interview_zoom_invite",
 )
 

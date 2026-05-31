@@ -744,7 +744,43 @@ class InterviewBookingService:
             pass
 
     @staticmethod
-    def cancel_booking(db: Session, token: str) -> dict[str, Any]:
+    def _send_booking_cancellation(
+        db: Session,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+        *,
+        slot_start: datetime,
+        token: str,
+    ) -> bool:
+        config = _order_config(order)
+        role = str(config.get("role") or order.title or "Interview").strip()
+        company_name = InterviewBookingService._org_name(db, order)
+        date_line = _format_slot_date(slot_start)
+        time_line = _format_slot_time(slot_start)
+        book_url = booking_url_for_token(token)
+
+        if not recipient.email:
+            return False
+        try:
+            sent_ok, _err = CareerEmailService.send_templated_optional(
+                db,
+                template_key="interview_booking_cancel",
+                to_email=str(recipient.email).strip(),
+                variables={
+                    "candidate_name": recipient.name or "there",
+                    "role": role,
+                    "company_name": company_name,
+                    "interview_date": date_line,
+                    "interview_time": time_line,
+                    "booking_url": book_url,
+                },
+            )
+            return bool(sent_ok)
+        except Exception:
+            return False
+
+    @staticmethod
+    def cancel_booking(db: Session, token: str, *, source: str = "web") -> dict[str, Any]:
         row = db.execute(
             select(InterviewBookingToken).where(InterviewBookingToken.token == str(token).strip()).limit(1)
         ).scalar_one_or_none()
@@ -771,6 +807,7 @@ class InterviewBookingService:
             {
                 "booking_cancelled_at": now.isoformat(),
                 "cancelled_booked_start_at": previous_start.isoformat() if previous_start else None,
+                "booking_cancelled_via": str(source or "web").strip().lower() or "web",
             }
         )
         merged.pop("booked_start_at", None)
@@ -779,7 +816,17 @@ class InterviewBookingService:
         db.add(recipient)
         db.commit()
 
-        return {"ok": True, "cancelled": True, "candidate_name": recipient.name}
+        email_sent = InterviewBookingService._send_booking_cancellation(
+            db, order, recipient, slot_start=previous_start, token=row.token
+        )
+        if email_sent:
+            merged = _recipient_result(recipient)
+            merged["cancellation_email_sent_at"] = _now().isoformat()
+            recipient.result_json = json.dumps(merged, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
+
+        return {"ok": True, "cancelled": True, "candidate_name": recipient.name, "source": source}
 
     @staticmethod
     def reschedule_booking(db: Session, token: str, slot_start_iso: str) -> dict[str, Any]:

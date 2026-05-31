@@ -24,8 +24,21 @@ from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
 
-_CANCEL_RE = re.compile(r"(?:❌\s*)?cancel(?:\s+interview)?\s*$", re.I)
-_RESCHEDULE_RE = re.compile(r"(?:🔄\s*)?reschedule(?:\s+interview)?\s*$", re.I)
+_CANCEL_RE = re.compile(r"(?:❌\s*)?cancel(?:led|lation)?(?:\s+interview|\s+my\s+interview|\s+please|\s+it)?\s*$", re.I)
+_CANCEL_FREE_RE = re.compile(
+    r"(?:can'?t|cannot|won'?t)\s+(?:make|attend|do)\s+(?:it|the\s+interview)?|"
+    r"need\s+to\s+cancel|"
+    r"please\s+cancel|"
+    r"^cancel(?:led)?$",
+    re.I,
+)
+_RESCHEDULE_RE = re.compile(r"(?:🔄\s*)?reschedule(?:\s+interview|\s+please)?\s*$", re.I)
+_RESCHEDULE_FREE_RE = re.compile(
+    r"(?:change|move|pick)\s+(?:my\s+)?(?:time|slot|interview)|"
+    r"need\s+to\s+reschedule|"
+    r"different\s+time",
+    re.I,
+)
 _BOOK_RE = re.compile(r"(?:📅\s*)?book(?:\s+my)?\s+interview\s*$", re.I)
 
 
@@ -33,9 +46,9 @@ def parse_interview_booking_intent(body: str) -> str | None:
     text = str(body or "").strip()
     if not text:
         return None
-    if _CANCEL_RE.search(text):
+    if _CANCEL_RE.search(text) or _CANCEL_FREE_RE.search(text):
         return "cancel"
-    if _RESCHEDULE_RE.search(text):
+    if _RESCHEDULE_RE.search(text) or _RESCHEDULE_FREE_RE.search(text):
         return "reschedule"
     if _BOOK_RE.search(text):
         return "book"
@@ -160,7 +173,7 @@ def handle_inbound_reply(
                 return {"handled": True, "action": "cancel_none_booked", "sent": sent, "log_id": log_id}
 
             slot = token_row.booked_start_at
-            InterviewBookingService.cancel_booking(db, token_row.token)
+            InterviewBookingService.cancel_booking(db, token_row.token, source="whatsapp")
             when = f"{_format_slot_date(slot)} at {_format_slot_time(slot)}"
             msg = (
                 f"Hi {first}, your interview on {when} has been cancelled. "

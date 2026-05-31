@@ -38,6 +38,7 @@ function activityStatusLabel(code) {
     awaiting_booking: 'Awaiting booking',
     booked_waiting: 'Booked (upcoming)',
     booked: 'Booked',
+    booking_cancelled: 'Booking cancelled',
     calling: 'Calling',
     interview_completed: 'Interview done',
     report_ready: 'Report ready',
@@ -51,7 +52,7 @@ function activityPill(code) {
   const s = String(code || 'pending').toLowerCase()
   if (s === 'report_ready' || s === 'interview_completed') return 'leadPill leadPillAdvance'
   if (s === 'calling' || s === 'awaiting_booking') return 'leadPill leadPillHold'
-  if (s === 'call_failed') return 'leadPill leadPillDecline'
+  if (s === 'call_failed' || s === 'booking_cancelled') return 'leadPill leadPillDecline'
   return 'leadPill leadPillNeutral'
 }
 

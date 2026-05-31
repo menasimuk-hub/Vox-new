@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import json
 import uuid
 
 from app.core.database import get_sessionmaker
@@ -69,6 +70,9 @@ def test_parse_interview_booking_intent():
     assert parse_interview_booking_intent("❌ Cancel") == "cancel"
     assert parse_interview_booking_intent("🔄 Reschedule") == "reschedule"
     assert parse_interview_booking_intent("📅 Book My Interview") == "book"
+    assert parse_interview_booking_intent("I can't make it") == "cancel"
+    assert parse_interview_booking_intent("need to cancel") == "cancel"
+    assert parse_interview_booking_intent("Can I change my time?") == "reschedule"
     assert parse_interview_booking_intent("hello") is None
 
 
@@ -82,6 +86,7 @@ def test_find_active_booking_context_by_phone():
 
 def test_handle_cancel_booking(monkeypatch):
     sent: list[str] = []
+    emails: list[str] = []
 
     def fake_send(db, **kwargs):
         sent.append(kwargs["body"])
@@ -91,6 +96,10 @@ def test_handle_cancel_booking(monkeypatch):
 
         return Result()
 
+    def fake_email(db, **kwargs):
+        emails.append(kwargs.get("template_key"))
+        return True, None
+
     monkeypatch.setattr(
         "app.services.interview_whatsapp_inbound_service.TelnyxMessagingService.send_whatsapp",
         lambda db, **kwargs: fake_send(db, **kwargs),
@@ -99,9 +108,16 @@ def test_handle_cancel_booking(monkeypatch):
         "app.services.interview_whatsapp_inbound_service.TelnyxMessagingService.log_outbound",
         lambda *a, **k: None,
     )
+    monkeypatch.setattr(
+        "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
+        lambda db, **kwargs: fake_email(db, **kwargs),
+    )
 
     with get_sessionmaker()() as db:
         org, _, recipient, token = _seed_booking(db, booked=True)
+        recipient.email = "alex@example.com"
+        db.add(recipient)
+        db.commit()
         result = handle_inbound_reply(
             db,
             from_phone=recipient.phone,
@@ -111,8 +127,12 @@ def test_handle_cancel_booking(monkeypatch):
         assert result["handled"] is True
         assert result["action"] == "cancelled"
         db.refresh(token)
+        db.refresh(recipient)
         assert token.booked_start_at is None
         assert sent and "cancelled" in sent[0].lower()
+        assert "interview_booking_cancel" in emails
+        merged = json.loads(recipient.result_json or "{}")
+        assert merged.get("booking_cancelled_via") == "whatsapp"
 
 
 def test_handle_reschedule_sends_link(monkeypatch):

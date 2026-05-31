@@ -28,6 +28,17 @@ def _event(at: str | None, *, code: str, label: str, detail: str | None = None) 
     return {"at": at, "code": code, "label": label, "detail": detail}
 
 
+def _cancel_detail(parsed: dict[str, Any]) -> str | None:
+    slot = parsed.get("cancelled_booked_start_at")
+    via = str(parsed.get("booking_cancelled_via") or "").strip().lower()
+    parts: list[str] = []
+    if slot:
+        parts.append(str(slot))
+    if via:
+        parts.append(f"via {via}")
+    return " · ".join(parts) if parts else None
+
+
 class InterviewActivityService:
     @staticmethod
     def activity_status(recipient: ServiceOrderRecipient, *, parsed: dict[str, Any] | None = None) -> str:
@@ -45,6 +56,8 @@ class InterviewActivityService:
             return "interview_completed"
         if status in {"failed", "no_answer", "busy", "cancelled"}:
             return "call_failed"
+        if data.get("booking_cancelled_at") and not data.get("booked_start_at"):
+            return "booking_cancelled"
         if data.get("booked_start_at") or data.get("booking_confirmed_at"):
             booked = data.get("booked_start_at")
             if booked:
@@ -76,6 +89,24 @@ class InterviewActivityService:
             _event(parsed.get("invite_wa_sent_at"), code="invite_wa", label="WhatsApp email notice sent"),
             _event(parsed.get("booking_invite_sent_at"), code="invite_sent", label="Invites dispatched"),
             _event(parsed.get("booking_confirmed_at"), code="booked", label="Interview slot booked", detail=parsed.get("booked_start_at")),
+            _event(
+                parsed.get("booking_rescheduled_at"),
+                code="rescheduled",
+                label="Interview rescheduled",
+                detail=parsed.get("previous_booked_start_at"),
+            ),
+            _event(
+                parsed.get("booking_cancelled_at"),
+                code="cancelled",
+                label="Interview booking cancelled",
+                detail=_cancel_detail(parsed),
+            ),
+            _event(
+                parsed.get("cancellation_email_sent_at"),
+                code="cancel_email",
+                label="Cancellation email sent",
+                detail="careers@voxbulk.com",
+            ),
             _event(parsed.get("call_started_at"), code="calling", label="AI call started"),
             _event(parsed.get("call_completed_at"), code="call_done", label="AI call completed"),
             _event(parsed.get("analysis_saved_at"), code="analysis", label="Interview analysed"),

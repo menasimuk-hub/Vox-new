@@ -10,6 +10,7 @@ export const SYSTEM_EMAIL_META = {
   interview_scheduling_invite: { title: 'Interview scheduling invite', description: 'Sent to shortlisted candidates with Calendly/Cronofy booking link (email only)' },
   interview_booking_invite: { title: 'Interview booking invite', description: 'Pre-call slot booking link sent from careers@voxbulk.com at launch' },
   interview_booking_confirm: { title: 'Interview booking confirmation', description: 'Sent when candidate books their AI interview slot' },
+  interview_booking_cancel: { title: 'Interview booking cancellation', description: 'Sent when a candidate cancels their booked interview slot' },
   interview_zoom_invite: { title: 'Interview Zoom invite', description: 'Sent when interview delivery is Zoom with join URL' },
 }
 
