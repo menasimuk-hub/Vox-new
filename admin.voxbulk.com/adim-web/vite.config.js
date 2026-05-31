@@ -55,6 +55,7 @@ function buildApiProxy(target) {
     '/admin': { ...base },
     '/demo': { ...base },
     '/health': { ...base },
+    '/public': { ...base },
   }
 }
 

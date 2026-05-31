@@ -16,8 +16,11 @@ from app.models.interview_booking_token import InterviewBookingToken
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.platform_catalog_service import ServiceOrderService
-from app.services.sales_whatsapp_telnyx_service import url_button_has_dynamic_suffix, url_button_index_from_components
-from app.services.smtp_mailer_service import SmtpMailerService
+from app.services.sales_whatsapp_telnyx_service import (
+    build_telnyx_components,
+    url_button_has_dynamic_suffix,
+    url_button_index_from_components,
+)
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 from app.data.interview_booking_whatsapp_defaults import (
     INTERVIEW_BOOKING_BODY,
@@ -27,14 +30,16 @@ from app.data.interview_booking_whatsapp_defaults import (
     INTERVIEW_BOOKING_PREVIEW_BUTTONS,
     INTERVIEW_BOOKING_TEMPLATE_NAME,
     INTERVIEW_CONFIRMATION_TEMPLATE_NAME,
+    INTERVIEW_EMAIL_SENT_BODY,
+    INTERVIEW_EMAIL_SENT_TEMPLATE_NAME,
 )
+from app.services.career_email_service import CareerEmailService
 from app.services.telnyx_whatsapp_template_sync_service import (
     TelnyxWhatsappTemplateSyncService,
     full_body_preview,
     send_template_id_for_row,
     template_to_dict,
 )
-from app.services.transactional_email_service import TransactionalEmailService
 
 SLOT_MINUTES = 30
 
@@ -226,7 +231,27 @@ class InterviewBookingService:
         return row
 
     @staticmethod
+    def resolve_invite_wa_template(db: Session, order: ServiceOrder) -> TelnyxWhatsappTemplate | None:
+        config = _order_config(order)
+        template_id = str(config.get("wa_email_sent_template_id") or "").strip()
+        template_name = str(config.get("wa_email_sent_template_name") or "").strip()
+        row = TelnyxWhatsappTemplateSyncService.resolve_for_send(
+            db,
+            template_id=template_id or None,
+            template_name=template_name or INTERVIEW_EMAIL_SENT_TEMPLATE_NAME,
+            sales_template_key="interview_email_sent",
+        )
+        if row is not None:
+            return row
+        return TelnyxWhatsappTemplateSyncService.resolve_for_send(
+            db,
+            template_name=INTERVIEW_EMAIL_SENT_TEMPLATE_NAME,
+            sales_template_key="interview_email_sent",
+        )
+
+    @staticmethod
     def resolve_template(db: Session, order: ServiceOrder) -> TelnyxWhatsappTemplate | None:
+        """Legacy URL-button booking template (deprecated at launch)."""
         config = _order_config(order)
         template_id = str(config.get("wa_booking_template_id") or "").strip()
         template_name = str(config.get("wa_booking_template_name") or "").strip()
@@ -365,6 +390,40 @@ class InterviewBookingService:
         return generic or components
 
     @staticmethod
+    def build_email_sent_components(
+        row: TelnyxWhatsappTemplate,
+        *,
+        candidate_name: str,
+        role: str,
+        company_name: str,
+    ) -> list[dict[str, Any]] | None:
+        first = _first_name(candidate_name)
+        role_line = str(role or "Interview").strip() or "Interview"
+        company_line = str(company_name or "VOXBULK").strip() or "VOXBULK"
+        built = build_telnyx_components(
+            "interview_email_sent",
+            {
+                "first_name": first,
+                "role": role_line,
+                "company_name": company_line,
+            },
+            include_url_button=False,
+        )
+        if built:
+            return built
+        return [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": first[:1024]},
+                    {"type": "text", "text": role_line[:1024]},
+                    {"type": "text", "text": company_line[:1024]},
+                    {"type": "text", "text": company_line[:1024]},
+                ],
+            }
+        ]
+
+    @staticmethod
     def build_confirmation_components(
         row: TelnyxWhatsappTemplate,
         *,
@@ -405,20 +464,21 @@ class InterviewBookingService:
         sync_error: str | None,
     ) -> dict[str, Any]:
         return {
-            "name": INTERVIEW_BOOKING_TEMPLATE_NAME,
+            "name": INTERVIEW_EMAIL_SENT_TEMPLATE_NAME,
             "template_id": None,
             "status": "FALLBACK",
             "is_fallback": True,
+            "invite_mode": "email_first",
             "sync": sync_result,
             "sync_error": sync_error,
             "sample_booking_url": booking_url_for_token("sample-booking-token"),
             "rendered_body": InterviewBookingService._render_body_preview(
-                INTERVIEW_BOOKING_BODY,
+                INTERVIEW_EMAIL_SENT_BODY,
                 candidate_name="Alex",
                 role=role,
                 company_name=company_name,
             ),
-            "buttons": [dict(b) for b in INTERVIEW_BOOKING_INVITE_BUTTONS],
+            "buttons": [],
             "confirmation_template_name": INTERVIEW_CONFIRMATION_TEMPLATE_NAME,
             "confirmation_body": InterviewBookingService._render_body_preview(
                 INTERVIEW_BOOKING_CONFIRMATION_BODY,
@@ -442,7 +502,7 @@ class InterviewBookingService:
 
         role = str(_order_config(order).get("role") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
-        row = InterviewBookingService.resolve_template(db, order)
+        row = InterviewBookingService.resolve_invite_wa_template(db, order)
         confirm_row = InterviewBookingService.resolve_confirmation_template(db, order)
         if row is None:
             return InterviewBookingService._fallback_preview(
@@ -454,7 +514,7 @@ class InterviewBookingService:
 
         sample_token = "sample-booking-token"
         components = _template_components(row)
-        body_source = full_body_preview(components) or row.body_preview
+        body_source = full_body_preview(components) or row.body_preview or INTERVIEW_EMAIL_SENT_BODY
         confirm_components = _template_components(confirm_row) if confirm_row else []
         confirm_body_source = (
             full_body_preview(confirm_components) or (confirm_row.body_preview if confirm_row else None)
@@ -462,15 +522,15 @@ class InterviewBookingService:
 
         enriched = template_to_dict(row)
         enriched["is_fallback"] = False
+        enriched["invite_mode"] = "email_first"
         enriched["sync"] = sync_result
         enriched["sync_error"] = sync_error
         enriched["sample_booking_url"] = booking_url_for_token(sample_token)
-        enriched["sample_components"] = InterviewBookingService.build_booking_components(
+        enriched["sample_components"] = InterviewBookingService.build_email_sent_components(
             row,
             candidate_name="Alex",
             role=role,
             company_name=company_name,
-            booking_token=sample_token,
         )
         enriched["rendered_body"] = InterviewBookingService._render_body_preview(
             body_source,
@@ -478,7 +538,7 @@ class InterviewBookingService:
             role=role,
             company_name=company_name,
         )
-        enriched["buttons"] = _booking_invite_buttons(components)
+        enriched["buttons"] = []
         enriched["confirmation_template_name"] = (
             confirm_row.name if confirm_row else INTERVIEW_CONFIRMATION_TEMPLATE_NAME
         )
@@ -606,7 +666,7 @@ class InterviewBookingService:
         db.add(recipient)
         db.commit()
 
-        InterviewBookingService._send_confirmation_whatsapp(db, order, recipient, slot_start)
+        InterviewBookingService._send_booking_confirmations(db, order, recipient, slot_start)
 
         return {
             "ok": True,
@@ -616,29 +676,49 @@ class InterviewBookingService:
         }
 
     @staticmethod
-    def _send_confirmation_whatsapp(
+    def _send_booking_confirmations(
         db: Session,
         order: ServiceOrder,
         recipient: ServiceOrderRecipient,
         slot_start: datetime,
     ) -> None:
+        config = _order_config(order)
+        role = str(config.get("role") or order.title or "Interview").strip()
+        company_name = InterviewBookingService._org_name(db, order)
+        date_line = _format_slot_date(slot_start)
+        time_line = _format_slot_time(slot_start)
+        first = _first_name(recipient.name)
+
+        if recipient.email:
+            try:
+                CareerEmailService.send_templated_optional(
+                    db,
+                    template_key="interview_booking_confirm",
+                    to_email=str(recipient.email).strip(),
+                    variables={
+                        "candidate_name": recipient.name or "there",
+                        "role": role,
+                        "company_name": company_name,
+                        "interview_date": date_line,
+                        "interview_time": time_line,
+                    },
+                )
+            except Exception:
+                pass
+
         if not recipient.phone:
             return
         confirm_row = InterviewBookingService.resolve_confirmation_template(db, order)
         if confirm_row is None:
             return
-        config = _order_config(order)
-        role = str(config.get("role") or order.title or "Interview").strip()
         components = InterviewBookingService.build_confirmation_components(
             confirm_row,
             candidate_name=recipient.name or "Candidate",
             role=role,
             slot_start=slot_start,
         )
-        first = _first_name(recipient.name)
         fallback_body = (
-            f"Hi {first}, your {role} interview is confirmed for "
-            f"{_format_slot_date(slot_start)} at {_format_slot_time(slot_start)}."
+            f"Hi {first}, your {role} interview is confirmed for {date_line} at {time_line}."
         )
         try:
             result = TelnyxMessagingService.send_whatsapp(
@@ -657,7 +737,7 @@ class InterviewBookingService:
                     org_id=order.org_id,
                     to_number=str(recipient.phone),
                     from_number=None,
-                    body=fallback_body,
+                    body=f"[template:{confirm_row.name}] {fallback_body}",
                     result=result,
                 )
         except Exception:
@@ -762,7 +842,7 @@ class InterviewBookingService:
         db.add(recipient)
         db.commit()
 
-        InterviewBookingService._send_confirmation_whatsapp(db, order, recipient, slot_start)
+        InterviewBookingService._send_booking_confirmations(db, order, recipient, slot_start)
 
         return {
             "ok": True,
@@ -789,11 +869,11 @@ class InterviewBookingService:
         config = _order_config(order)
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
-        template_row = InterviewBookingService.resolve_template(db, order)
+        template_row = InterviewBookingService.resolve_invite_wa_template(db, order)
 
-        use_channels = [str(c).strip().lower() for c in (channels or ["whatsapp"]) if str(c).strip()]
+        use_channels = [str(c).strip().lower() for c in (channels or ["email", "whatsapp"]) if str(c).strip()]
         if not use_channels:
-            use_channels = ["whatsapp"]
+            use_channels = ["email", "whatsapp"]
 
         recipients = ServiceOrderService.get_recipients(db, order.id)
         id_filter = {str(x).strip() for x in (recipient_ids or []) if str(x).strip()}
@@ -805,10 +885,10 @@ class InterviewBookingService:
         errors: list[str] = []
 
         for recipient in recipients:
-            if not recipient.phone and "whatsapp" in use_channels:
-                if recipient.email and "email" in use_channels:
+            if not recipient.email and "email" in use_channels:
+                if recipient.phone and "whatsapp" in use_channels:
                     pass
-                elif not recipient.email:
+                elif not recipient.phone:
                     errors.append(f"{recipient.name or recipient.id}: no phone or email")
                     continue
 
@@ -816,22 +896,47 @@ class InterviewBookingService:
             url = booking_url_for_token(token_row.token)
             first = _first_name(recipient.name)
 
+            if "email" in use_channels and recipient.email:
+                merged_check = _recipient_result(recipient)
+                if merged_check.get("invite_email_sent_at") and not force_resend:
+                    pass
+                else:
+                    try:
+                        sent_ok, err = CareerEmailService.send_templated_optional(
+                            db,
+                            template_key="interview_booking_invite",
+                            to_email=str(recipient.email).strip(),
+                            variables={
+                                "candidate_name": recipient.name or "there",
+                                "role": role,
+                                "company_name": company_name,
+                                "booking_url": url,
+                            },
+                        )
+                        if sent_ok:
+                            email_sent += 1
+                        elif err:
+                            errors.append(f"Email {recipient.email}: {err}")
+                    except Exception as exc:
+                        errors.append(f"Email {recipient.email}: {exc}")
+
             if "whatsapp" in use_channels and recipient.phone:
                 if token_row.wa_sent_at and not force_resend:
                     pass
                 elif template_row is None:
-                    errors.append(f"{recipient.name}: no WhatsApp booking template selected")
+                    errors.append(f"{recipient.name}: no WhatsApp interview_email_sent template")
                 else:
-                    components = InterviewBookingService.build_booking_components(
+                    components = InterviewBookingService.build_email_sent_components(
                         template_row,
                         candidate_name=recipient.name or "Candidate",
                         role=role,
                         company_name=company_name,
-                        booking_token=token_row.token,
                     )
                     fallback_body = (
-                        f"Hi {first}, please book your {role} interview slot here: {url}"
+                        f"Dear {first}, we sent you an email from careers@voxbulk.com "
+                        f"about your {role} interview at {company_name}. Please check your inbox and spam folder."
                     )
+                    log_body = f"[template:{template_row.name}] {fallback_body}"
                     result = TelnyxMessagingService.send_whatsapp(
                         db,
                         to_number=str(recipient.phone),
@@ -853,56 +958,26 @@ class InterviewBookingService:
                             org_id=order.org_id,
                             to_number=str(recipient.phone),
                             from_number=None,
-                            body=fallback_body,
+                            body=log_body,
                             result=result,
                         )
                     else:
                         errors.append(f"{recipient.name} WA: {result.detail or result.status}")
 
-            if "email" in use_channels and recipient.email:
-                body = (
-                    f"Hi {recipient.name or 'there'},\n\n"
-                    f"Please choose a time for your {role} interview within our calling window.\n\n"
-                    f"Book here (unique link for you):\n{url}\n\n"
-                    "Best regards"
-                )
-                try:
-                    sent_ok, _err = TransactionalEmailService.send_templated_optional(
-                        db,
-                        template_key="interview_booking_invite",
-                        to_addr=str(recipient.email).strip(),
-                        variables={
-                            "candidate_name": recipient.name or "there",
-                            "role": role,
-                            "booking_url": url,
-                        },
-                    )
-                    if not sent_ok:
-                        SmtpMailerService.send_plain(
-                            db,
-                            to_addrs=[str(recipient.email).strip()],
-                            subject=f"Book your interview — {role}",
-                            body_text=body,
-                        )
-                    email_sent += 1
-                except Exception as exc:
-                    errors.append(f"Email {recipient.email}: {exc}")
-
             merged = _recipient_result(recipient)
-            merged.update(
-                {
-                    "booking_token": token_row.token,
-                    "booking_url": url,
-                    "booking_invite_sent_at": _now().isoformat(),
-                }
-            )
+            now_iso = _now().isoformat()
+            merged.update({"booking_token": token_row.token, "booking_url": url, "booking_invite_sent_at": now_iso})
+            if email_sent:
+                merged["invite_email_sent_at"] = now_iso
+            if wa_sent or token_row.wa_sent_at:
+                merged["invite_wa_sent_at"] = (token_row.wa_sent_at or _now()).isoformat()
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
             db.add(recipient)
 
         config["booking_invites_sent_at"] = _now().isoformat()
         if template_row is not None:
-            config["wa_booking_template_id"] = send_template_id_for_row(template_row)
-            config["wa_booking_template_name"] = template_row.name
+            config["wa_email_sent_template_id"] = send_template_id_for_row(template_row)
+            config["wa_email_sent_template_name"] = template_row.name
         order.config_json = json.dumps(config, ensure_ascii=False)
         order.updated_at = _now()
         db.add(order)

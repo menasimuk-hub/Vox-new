@@ -7,7 +7,9 @@ export const SYSTEM_EMAIL_META = {
   general_notification: { title: 'General activity', description: 'Notifications and activity' },
   sales_offer: { title: 'Sales offer link', description: 'Sent when sales agent shares signup promo link' },
   usage_warning: { title: 'Usage alert (80%)', description: 'Sent when calls, WhatsApp, or SMS reach 80% of included allowance' },
-  interview_scheduling_invite: { title: 'Interview scheduling invite', description: 'Sent to shortlisted candidates with Calendly/Cronofy booking link' },
+  interview_scheduling_invite: { title: 'Interview scheduling invite', description: 'Sent to shortlisted candidates with Calendly/Cronofy booking link (email only)' },
+  interview_booking_invite: { title: 'Interview booking invite', description: 'Pre-call slot booking link sent from careers@voxbulk.com at launch' },
+  interview_booking_confirm: { title: 'Interview booking confirmation', description: 'Sent when candidate books their AI interview slot' },
   interview_zoom_invite: { title: 'Interview Zoom invite', description: 'Sent when interview delivery is Zoom with join URL' },
 }
 
@@ -28,6 +30,14 @@ export const SYSTEM_WHATSAPP_META = {
     title: 'Keyword offer confirm',
     description: 'Customer tapped Send offer. Telnyx: voxbulk_sales_keyword_confirm — Start account URL',
   },
+  interview_email_sent: {
+    title: 'Interview email notice',
+    description: 'Launch notice — tells candidate to check careers@voxbulk.com email. Telnyx: interview_email_sent',
+  },
+  interview_booking_confirm: {
+    title: 'Interview slot confirmed',
+    description: 'After candidate books slot. Telnyx: voxbulk_interview_confirm — Reschedule / Cancel buttons',
+  },
 }
 
 export const WHATSAPP_TELNYX_TEMPLATE_NAMES = {
@@ -35,6 +45,8 @@ export const WHATSAPP_TELNYX_TEMPLATE_NAMES = {
   sales_offer: 'voxbulk_sales_offer',
   sales_offer_followup: 'voxbulk_sales_followup',
   sales_offer_keyword_confirm: 'voxbulk_sales_keyword_confirm',
+  interview_email_sent: 'interview_email_sent',
+  interview_booking_confirm: 'voxbulk_interview_confirm',
 }
 
 export const DEFAULT_WA_BODY_BY_KEY = {

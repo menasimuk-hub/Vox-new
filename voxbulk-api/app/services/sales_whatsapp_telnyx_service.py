@@ -14,6 +14,7 @@ TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
     "sales_offer_followup": "voxbulk_sales_followup",
     "sales_offer_keyword_confirm": "voxbulk_sales_keyword_confirm",
     "interview_booking_invite": "voxbulk_interview_book",
+    "interview_email_sent": "interview_email_sent",
     "interview_booking_confirm": "voxbulk_interview_confirm",
 }
 
@@ -161,6 +162,11 @@ def build_telnyx_components(
         if include_url_button:
             parts.append(_url_button_param(url_button_index, str(variables.get("booking_token") or "sample-token")))
         return parts
+
+    if template_key == "interview_email_sent":
+        role = str(variables.get("role") or "Interview").strip()
+        company = str(variables.get("company_name") or "VOXBULK").strip()
+        return [_body_params([first, role, company, company])]
 
     if template_key == "interview_booking_confirm":
         role = str(variables.get("role") or variables.get("offer_line") or "Interview").strip()

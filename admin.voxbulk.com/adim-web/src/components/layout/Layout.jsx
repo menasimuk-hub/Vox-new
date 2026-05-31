@@ -11,11 +11,32 @@ export default function Layout() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('vb-admin-sb-collapsed') === '1')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [session, setSession] = useState({ status: 'loading', message: '' })
+  const [sessionAttempt, setSessionAttempt] = useState(0)
+  const [loadingSlow, setLoadingSlow] = useState(false)
 
   useEffect(() => {
     document.body.classList.toggle('dark', dark)
     localStorage.setItem('vb-admin-dark', dark ? '1' : '0')
   }, [dark])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 769px)')
+    const closeIfDesktop = () => {
+      if (mq.matches) setMobileOpen(false)
+    }
+    closeIfDesktop()
+    mq.addEventListener('change', closeIfDesktop)
+    return () => mq.removeEventListener('change', closeIfDesktop)
+  }, [])
+
+  useEffect(() => {
+    if (!mobileOpen) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') setMobileOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileOpen])
 
   useEffect(() => {
     localStorage.setItem('vb-admin-sb-collapsed', collapsed ? '1' : '0')
@@ -27,21 +48,31 @@ export default function Layout() {
 
   useEffect(() => {
     let cancelled = false
+    setLoadingSlow(false)
     setSession({ status: 'loading', message: '' })
+    const slowTimer = window.setTimeout(() => {
+      if (!cancelled) setLoadingSlow(true)
+    }, 6000)
     ;(async () => {
       const s = await ensureAdminSession()
       if (cancelled) return
       setSession(s)
+      setLoadingSlow(false)
     })()
     return () => {
       cancelled = true
+      window.clearTimeout(slowTimer)
     }
-  }, [])
+  }, [sessionAttempt])
+
+  const retrySession = () => setSessionAttempt((n) => n + 1)
 
   if (session.status !== 'ready') {
     const msg =
       session.status === 'loading'
-        ? 'Loading admin session…'
+        ? loadingSlow
+          ? 'Still checking your admin session — the API may be starting or unreachable.\n\nUse the buttons below to sign in or retry.'
+          : 'Loading admin session…'
         : session.message || 'Admin session required.'
 
     const publicOrigin = getPublicAppOrigin()
@@ -52,8 +83,13 @@ export default function Layout() {
         <div className='auth-card'>
           <h2>Admin access</h2>
           <p className='muted' style={{ whiteSpace: 'pre-wrap' }}>{msg}</p>
-          {session.status !== 'loading' && (
+          {(session.status !== 'loading' || loadingSlow) && (
             <div className='auth-actions'>
+              {session.status === 'loading' && loadingSlow ? (
+                <button type='button' className='btn btng' onClick={retrySession}>
+                  Retry
+                </button>
+              ) : null}
               <button type='button' className='btn btng' onClick={goSignIn}>
                 Go to sign in
               </button>

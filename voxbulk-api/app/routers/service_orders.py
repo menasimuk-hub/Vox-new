@@ -1244,6 +1244,76 @@ def get_interview_recipient_detail(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/{order_id}/recipients/{recipient_id}/activity")
+def get_interview_recipient_activity(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_activity_service import InterviewActivityService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    return InterviewActivityService.timeline(db, order, recipient)
+
+
+@router.get("/{order_id}/recipients/{recipient_id}/interview-candidate-report.html")
+def get_interview_candidate_report_html(
+    order_id: str,
+    recipient_id: str,
+    include_cv: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
+    from fastapi.responses import HTMLResponse
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    html_doc = InterviewCandidateReportExportService.html(db, order, recipient, include_cv=include_cv)
+    return HTMLResponse(content=html_doc)
+
+
+@router.get("/{order_id}/recipients/{recipient_id}/interview-candidate-report.pdf")
+def get_interview_candidate_report_pdf(
+    order_id: str,
+    recipient_id: str,
+    include_cv: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
+    from fastapi.responses import Response
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    pdf_bytes = InterviewCandidateReportExportService.pdf(db, order, recipient, include_cv=include_cv)
+    name = (recipient.name or "candidate").replace(" ", "-").lower()[:40]
+    suffix = "-with-cv" if include_cv else ""
+    filename = f"interview-report-{name}{suffix}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @router.get("/{order_id}/recipients/{recipient_id}/recording")
 def get_interview_recipient_recording(
     order_id: str,

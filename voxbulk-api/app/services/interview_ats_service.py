@@ -18,15 +18,29 @@ from app.services.providers.openai_service import OpenAIProviderService
 
 logger = logging.getLogger(__name__)
 
-ATS_VERSION = "1"
+ATS_VERSION = "2"
 MAX_CV_CHARS = 12_000
 MAX_JOB_CHARS = 4_000
 _BATCH_SIZE = 8
 
 _ATS_SYSTEM = """You are an ATS (Applicant Tracking System) scorer for recruitment.
 Evaluate how well the candidate CV matches the job description.
-Consider: CV relevance, skills match, experience relevance, keyword match.
-Return ONLY valid JSON with a single field: {"ats_score": <integer 0-100>}
+Return ONLY valid JSON with this shape:
+{
+  "ats_score": <integer 0-100>,
+  "culture_fit_score": <integer 0-100>,
+  "criteria": [
+    {"label": "Skills Match", "sublabel": "Core JD requirements", "score": <0-100>},
+    {"label": "Experience Level", "sublabel": "Years & seniority fit", "score": <0-100>},
+    {"label": "Education", "sublabel": "Degree & certifications", "score": <0-100>},
+    {"label": "Job Title Relevance", "sublabel": "Previous role alignment", "score": <0-100>},
+    {"label": "Industry Background", "sublabel": "Sector experience", "score": <0-100>},
+    {"label": "Keyword Density", "sublabel": "Resume vs JD match", "score": <0-100>},
+    {"label": "Location / Availability", "sublabel": "Commute & start date", "score": <0-100>}
+  ],
+  "keywords_found": ["keyword", "..."],
+  "keywords_missing": ["keyword", "..."]
+}
 No markdown, no explanation, no other keys."""
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -77,7 +91,29 @@ def _parse_ats_score(raw: str) -> int | None:
     return None
 
 
-def score_cv_with_deepseek(db: Session, *, cv_text: str, job_description: str) -> int:
+def _parse_ats_report(raw: str) -> dict[str, Any]:
+    text = str(raw or "").strip()
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            data = json.loads(text[start : end + 1])
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            pass
+    score = _parse_ats_score(text)
+    return {"ats_score": score} if score is not None else {}
+
+
+def score_cv_with_deepseek(db: Session, *, cv_text: str, job_description: str) -> dict[str, Any]:
     clean_cv = sanitize_cv_text(cv_text)
     if len(clean_cv) < 80:
         raise ValueError("CV text is too short for ATS scoring")
@@ -87,14 +123,18 @@ def score_cv_with_deepseek(db: Session, *, cv_text: str, job_description: str) -
         db,
         system_prompt=_ATS_SYSTEM,
         messages=[AgentMessage(role="user", content=user)],
-        max_tokens=64,
+        max_tokens=900,
         temperature=0.1,
         provider="deepseek",
     )
-    score = _parse_ats_score(str(result.assistant_text or ""))
+    report = _parse_ats_report(str(result.assistant_text or ""))
+    score = report.get("ats_score")
+    if score is None:
+        score = _parse_ats_score(str(result.assistant_text or ""))
     if score is None:
         raise ValueError("DeepSeek did not return a valid ATS score")
-    return score
+    report["ats_score"] = max(0, min(100, int(score)))
+    return report
 
 
 def queue_ats_for_recipient(db: Session, recipient: ServiceOrderRecipient, *, order: ServiceOrder | None = None) -> None:
@@ -160,11 +200,21 @@ def process_one_ats_recipient(db: Session, recipient: ServiceOrderRecipient) -> 
     db.add(recipient)
     db.commit()
     try:
-        score = score_cv_with_deepseek(db, cv_text=cv_text, job_description=job)
-        recipient.ats_score = score
+        report = score_cv_with_deepseek(db, cv_text=cv_text, job_description=job)
+        recipient.ats_score = int(report.get("ats_score") or 0)
         recipient.ats_status = "complete"
         recipient.ats_hash = content_hash
         recipient.ats_error = None
+        try:
+            existing = json.loads(recipient.result_json or "{}")
+            if not isinstance(existing, dict):
+                existing = {}
+        except Exception:
+            existing = {}
+        existing["ats_report"] = report
+        existing["ats_report_version"] = ATS_VERSION
+        existing["ats_report_saved_at"] = datetime.utcnow().isoformat()
+        recipient.result_json = json.dumps(existing, ensure_ascii=False)
     except Exception as exc:
         logger.exception("interview_ats_score_failed recipient_id=%s", recipient.id)
         recipient.ats_status = "failed"

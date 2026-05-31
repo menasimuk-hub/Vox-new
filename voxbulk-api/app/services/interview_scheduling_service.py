@@ -172,9 +172,9 @@ class InterviewSchedulingService:
         if not ids:
             raise ValueError("Select at least one candidate")
 
-        channel_list = [str(c).strip().lower() for c in (channels or config.get("scheduling_channels") or ["whatsapp", "email"]) if str(c).strip()]
+        channel_list = [str(c).strip().lower() for c in (channels or config.get("scheduling_channels") or ["email"]) if str(c).strip()]
         if not channel_list:
-            channel_list = ["whatsapp", "email"]
+            channel_list = ["email"]
 
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = _org_name(db, order)
@@ -260,24 +260,22 @@ class InterviewSchedulingService:
                     "Best regards"
                 )
                 try:
-                    sent_ok, _err = TransactionalEmailService.send_templated_optional(
+                    from app.services.career_email_service import CareerEmailService
+
+                    sent_ok, err = CareerEmailService.send_templated_optional(
                         db,
                         template_key="interview_scheduling_invite",
-                        to_addr=str(recipient.email).strip(),
+                        to_email=str(recipient.email).strip(),
                         variables={
                             "candidate_name": recipient.name or "there",
                             "role": role,
                             "scheduling_url": sched_url,
                         },
                     )
-                    if not sent_ok:
-                        SmtpMailerService.send_plain(
-                            db,
-                            to_addrs=[str(recipient.email).strip()],
-                            subject=f"Next step — {role}",
-                            body_text=body,
-                        )
-                    email_sent += 1
+                    if sent_ok:
+                        email_sent += 1
+                    elif err:
+                        errors.append(f"Email {recipient.email}: {err}")
                 except Exception as exc:
                     errors.append(f"Email {recipient.email}: {exc}")
 

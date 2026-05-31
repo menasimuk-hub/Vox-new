@@ -88,6 +88,11 @@ const SidebarProvider = React.forwardRef<
       [setOpenProp, open],
     );
 
+    // Close mobile sheet when returning to desktop width (prevents stuck Radix overlay).
+    React.useEffect(() => {
+      if (!isMobile) setOpenMobile(false)
+    }, [isMobile])
+
     // Helper to toggle the sidebar.
     const toggleSidebar = React.useCallback(() => {
       return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);

@@ -27,7 +27,16 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{ open, close, isOpen }}>
       {children}
       {isOpen ? (
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-heading/40 backdrop-blur-md" onClick={close} />
+              <div className="relative rounded-2xl bg-white px-6 py-5 shadow-elevated text-sm text-muted-text">
+                Loading sign-in…
+              </div>
+            </div>
+          }
+        >
           <AuthModalPanel onClose={close} />
         </Suspense>
       ) : null}

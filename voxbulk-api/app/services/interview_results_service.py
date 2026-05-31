@@ -137,6 +137,9 @@ def _candidate_row(recipient: ServiceOrderRecipient, *, role: str, order_id: str
         "scheduling_sent_at": parsed.get("scheduling_url_sent_at") or parsed.get("scheduling_sent_at"),
     }
     row.update(_ats_fields(recipient))
+    from app.services.interview_activity_service import InterviewActivityService
+
+    row["activity_status"] = InterviewActivityService.activity_status(recipient, parsed=parsed)
     return row
 
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { filterSidebarNav } from '../../lib/adminPaths'
+import { brandAssets } from '../../lib/brand'
 import { useAdminProfile } from '../../context/AdminProfileContext'
 
 const GROUP_ICONS = {
@@ -269,10 +270,11 @@ export default function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onNav
           aria-label={collapsed ? 'Expand sidebar' : 'VOXBULK Admin'}
           title={collapsed ? 'Show menu' : 'VOXBULK Admin'}
         >
-          <img src='/logo-dark.svg' alt='VOXBULK' className='sb-logo-img logo-light sb-logo-full' />
-          <img src='/logo-light.svg' alt='VOXBULK' className='sb-logo-img logo-dark sb-logo-full' />
+          <img src={brandAssets.logoBlack} alt='VOXBULK' className='sb-logo-img logo-light sb-logo-full' />
+          <img src={brandAssets.logoWhite} alt='VOXBULK' className='sb-logo-img logo-dark sb-logo-full' />
           <span className='sb-logo-icon' aria-hidden={!collapsed}>
-            <img src='/favicon.png' alt='' />
+            <img src={brandAssets.iconBlack} alt='' className='icon-light' />
+            <img src={brandAssets.iconWhite} alt='' className='icon-dark' />
           </span>
         </button>
         {!collapsed ? (

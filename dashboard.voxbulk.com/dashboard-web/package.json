@@ -4,6 +4,9 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
+    "sync:brand": "node ../../scripts/sync-brand-assets.mjs",
+    "predev": "npm run sync:brand",
+    "prebuild": "npm run sync:brand",
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",

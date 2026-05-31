@@ -220,6 +220,16 @@ export function consumeAdminAuthHandoffFromHash() {
   return true
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const ctl = new AbortController()
+  const t = window.setTimeout(() => ctl.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: ctl.signal })
+  } finally {
+    window.clearTimeout(t)
+  }
+}
+
 export async function probeApiConnectivity(options = {}) {
   if (typeof window === 'undefined') {
     return { ok: false, url: '', error: 'No browser context' }
@@ -493,7 +503,7 @@ export async function ensureAdminSession() {
     try {
       const baseUrl = getApiBaseUrl()
       const url = joinOriginAndPath(baseUrl, '/auth/me')
-      const r = await fetch(url, {
+      const r = await fetchWithTimeout(url, {
         headers: { Authorization: `Bearer ${direct}`, Accept: 'application/json' },
       })
       const text = await r.text()
@@ -533,7 +543,7 @@ export async function ensureAdminSession() {
   try {
     const baseUrl = getApiBaseUrl()
     const url = joinOriginAndPath(baseUrl, '/auth/me')
-    const r = await fetch(url, {
+    const r = await fetchWithTimeout(url, {
       headers: { Authorization: `Bearer ${shared}`, Accept: 'application/json' },
     })
     const text = await r.text()

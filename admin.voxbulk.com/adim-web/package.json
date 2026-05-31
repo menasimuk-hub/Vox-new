@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "sync:brand": "node ../../scripts/sync-brand-assets.mjs",
+    "predev": "npm run sync:brand",
+    "prebuild": "npm run sync:brand",
     "dev": "vite",
     "dev:api": "node ../../scripts/dev-api.mjs",
     "dev:full": "concurrently -k -n api,admin -c blue,magenta \"npm run dev:api\" \"wait-on -t 120000 http-get://127.0.0.1:8000/health && vite\"",

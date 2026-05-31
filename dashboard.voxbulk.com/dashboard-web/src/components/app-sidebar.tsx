@@ -1,9 +1,6 @@
 import * as React from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import logoDark from "@/assets/logo-dark.png";
-import logoLight from "@/assets/logo-light.png";
-import iconDark from "@/assets/icon-dark.png";
-import iconLight from "@/assets/icon-light.png";
+import { brandAssets } from "@/lib/brand";
 import { useTheme } from "@/lib/theme";
 import {
   LayoutDashboard, ChevronDown, LogOut,
@@ -155,8 +152,8 @@ export function AppSidebar() {
 }
 function BrandMark() {
   const { theme } = useTheme();
-  const fullLogo = theme === "dark" ? logoLight : logoDark;
-  const iconLogo = theme === "dark" ? iconLight : iconDark;
+  const fullLogo = theme === "dark" ? brandAssets.logoWhite : brandAssets.logoBlack;
+  const iconLogo = theme === "dark" ? brandAssets.iconWhite : brandAssets.iconBlack;
   return (
     <Link to="/" className="flex items-center px-2 py-2">
       <img

@@ -37,6 +37,8 @@ class SmtpMailerService:
         body: str,
         html: bool,
         attachments: list[dict[str, Any]] | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
     ) -> None:
         row = SmtpSettingsService.get_row(db)
         configured, missing = SmtpSettingsService.compute_status(row)
@@ -58,8 +60,8 @@ class SmtpMailerService:
             if not pwd:
                 raise SmtpMailerError("SMTP password is required but not configured.")
 
-        from_email = (row.from_email or "").strip()
-        from_name = (row.from_name or "").strip()
+        from_email = str(from_email or row.from_email or "").strip()
+        from_name = str(from_name if from_name is not None else row.from_name or "").strip()
         msg = EmailMessage()
         msg["Subject"] = subject
         msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
@@ -120,9 +122,18 @@ class SmtpMailerService:
         subject: str,
         body: str,
         attachments: list[dict[str, Any]] | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
     ) -> None:
         SmtpMailerService._send_message(
-            db, to_addr=to_addr, subject=subject, body=body, html=False, attachments=attachments
+            db,
+            to_addr=to_addr,
+            subject=subject,
+            body=body,
+            html=False,
+            attachments=attachments,
+            from_email=from_email,
+            from_name=from_name,
         )
 
     @staticmethod
@@ -133,8 +144,17 @@ class SmtpMailerService:
         subject: str,
         body: str,
         attachments: list[dict[str, Any]] | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
     ) -> None:
         """Send message with text/html MIME (for DB-backed templates that store HTML)."""
         SmtpMailerService._send_message(
-            db, to_addr=to_addr, subject=subject, body=body, html=True, attachments=attachments
+            db,
+            to_addr=to_addr,
+            subject=subject,
+            body=body,
+            html=True,
+            attachments=attachments,
+            from_email=from_email,
+            from_name=from_name,
         )

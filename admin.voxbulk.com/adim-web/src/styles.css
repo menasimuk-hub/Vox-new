@@ -179,6 +179,10 @@ img, svg { display: block; }
 .logo-light { display: block; }
 body.dark .logo-dark { display: block; }
 body.dark .logo-light { display: none; }
+.sb-logo-icon .icon-dark { display: none; }
+.sb-logo-icon .icon-light { display: block; }
+body.dark .sb-logo-icon .icon-dark { display: block; }
+body.dark .sb-logo-icon .icon-light { display: none; }
 .sb.collapsed .sb-logo-full { display: none !important; }
 .sb.collapsed .sb-logo-icon { display: flex; }
 .sb.collapsed .sb-logo {
@@ -494,8 +498,14 @@ body.dark .logo-light { display: none; }
   background: rgba(0,0,0,0.45);
   z-index: 99;
   backdrop-filter: blur(2px);
+  pointer-events: none;
 }
-.sb-overlay.on { display: block; }
+.sb-overlay.on { display: block; pointer-events: auto; }
+
+/* Mobile menu backdrop only — never block desktop clicks if state is stale */
+@media (min-width: 769px) {
+  .sb-overlay { display: none !important; pointer-events: none !important; }
+}
 
 /* Cards */
 .card {

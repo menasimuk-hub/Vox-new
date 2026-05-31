@@ -115,7 +115,7 @@ def test_build_telnyx_components_interview_confirm():
     assert len(parts[0]["parameters"]) == 4
 
 
-def test_fallback_preview_has_buttons_and_emojis():
+def test_fallback_preview_email_first_notice():
     preview = InterviewBookingService._fallback_preview(
         role="Senior Engineer",
         company_name="VoxBulk",
@@ -123,9 +123,10 @@ def test_fallback_preview_has_buttons_and_emojis():
         sync_error="sync failed",
     )
     assert preview["is_fallback"] is True
-    assert preview["name"] == "voxbulk_interview_book"
-    assert "👋" in preview["rendered_body"]
-    assert len(preview["buttons"]) == 3
+    assert preview["name"] == "interview_email_sent"
+    assert preview["invite_mode"] == "email_first"
+    assert "careers@voxbulk.com" in preview["rendered_body"]
+    assert preview["buttons"] == []
     assert preview["confirmation_template_name"] == "voxbulk_interview_confirm"
     assert preview["confirmation_body"]
     assert len(preview["confirmation_buttons"]) == 2

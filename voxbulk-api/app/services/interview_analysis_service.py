@@ -20,7 +20,6 @@ from app.services.interview_voice_agent_service import is_ai_call_interview_orde
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_analysis_service import (
-    ANALYSIS_VERSION,
     MIN_TRANSCRIPT_CHARS,
     ensure_survey_transcript,
     fetch_survey_transcript_from_telnyx,
@@ -28,6 +27,7 @@ from app.services.survey_analysis_service import (
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[interview-analysis]"
+INTERVIEW_INTERVIEW_ANALYSIS_VERSION = "2"
 
 
 def _log(event: str, **detail: Any) -> None:
@@ -64,20 +64,28 @@ Return ONLY valid JSON with this exact shape:
 {
   "short_summary": "2-3 sentence summary for the hiring manager",
   "score": integer 0-100 overall fit score,
+  "culture_fit_score": integer 0-100,
   "recommendation": one of "Advance", "Hold", "Decline",
+  "recommendation_summary": "1-2 sentences explaining the recommendation",
   "sentiment": one of "Enthusiastic", "Neutral", "Hesitant",
   "strengths": ["brief strength bullets"],
   "concerns": ["brief concern bullets"],
   "key_answers": [
     {"question": "screening question", "answer": "candidate answer", "quality": one of "strong", "adequate", "weak"}
   ],
+  "competencies": [
+    {"name": "Communication", "category": "Verbal clarity", "score_10": 1-10, "badge": "Strong|Good|Average|Weak", "note": "brief evidence"}
+  ],
+  "standout_quote": "best direct quote from candidate or empty string",
+  "skill_gap": "main unverified skill gap for final round or empty string",
   "completion_quality": one of "complete", "partial", "declined", "unclear"
 }
 
 Rules:
 - British English.
 - Base score and recommendation on role fit and screening criteria in the prompt.
-- Do not invent facts not in the transcript."""
+- Do not invent facts not in the transcript.
+- Provide 4-6 competency objects covering communication, problem solving, technical knowledge, leadership, culture, judgement."""
 
 
 def _parse_analysis_json(text: str) -> dict[str, Any]:
@@ -141,13 +149,18 @@ def _normalize_analysis(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "short_summary": str(data.get("short_summary") or "").strip(),
         "score": score,
+        "culture_fit_score": max(0, min(100, int(float(data.get("culture_fit_score") or score)))),
         "recommendation": _normalize_recommendation(str(data.get("recommendation") or "")),
+        "recommendation_summary": str(data.get("recommendation_summary") or data.get("short_summary") or "").strip(),
         "sentiment": _normalize_sentiment(str(data.get("sentiment") or "")),
         "strengths": [str(x).strip() for x in strengths if str(x).strip()],
         "concerns": [str(x).strip() for x in concerns if str(x).strip()],
         "key_answers": key_answers,
+        "competencies": data.get("competencies") if isinstance(data.get("competencies"), list) else [],
+        "standout_quote": str(data.get("standout_quote") or data.get("standout_moment") or "").strip(),
+        "skill_gap": str(data.get("skill_gap") or "").strip(),
         "completion_quality": str(data.get("completion_quality") or "unclear").strip().lower(),
-        "analysis_version": ANALYSIS_VERSION,
+        "analysis_version": INTERVIEW_ANALYSIS_VERSION,
     }
 
 
@@ -181,7 +194,7 @@ def extract_interview_analysis(
         db,
         system_prompt=_INTERVIEW_ANALYSIS_META,
         messages=[AgentMessage(role="user", content=user_block)],
-        max_tokens=1200,
+        max_tokens=2200,
         temperature=0.2,
         provider="deepseek",
     )
@@ -196,7 +209,7 @@ def run_interview_analysis_if_needed(
     force: bool = False,
 ) -> dict[str, Any]:
     existing = _recipient_result(recipient)
-    if not force and existing.get("analysis_saved_at") and str(existing.get("analysis_version") or "") == ANALYSIS_VERSION:
+    if not force and existing.get("analysis_saved_at") and str(existing.get("analysis_version") or "") == INTERVIEW_ANALYSIS_VERSION:
         analysis = existing.get("analysis")
         if isinstance(analysis, dict) and analysis.get("short_summary"):
             return existing
@@ -220,7 +233,7 @@ def run_interview_analysis_if_needed(
     payload = {
         "analysis": analysis,
         "analysis_saved_at": datetime.utcnow().isoformat(),
-        "analysis_version": ANALYSIS_VERSION,
+        "analysis_version": INTERVIEW_ANALYSIS_VERSION,
         "score": analysis.get("score"),
         "recommendation": analysis.get("recommendation"),
         "sentiment": analysis.get("sentiment"),
