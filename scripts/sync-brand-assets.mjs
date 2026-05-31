@@ -17,10 +17,15 @@ const targets = [
 
 const files = [
   'logo-black.svg',
+  'logo-black.png',
   'logo-white.svg',
+  'logo-white.png',
   'icon-black.svg',
+  'icon-black.png',
   'icon-white.svg',
+  'icon-white.png',
   'favicon.ico',
+  'favicon.png',
 ]
 
 if (!existsSync(source)) {

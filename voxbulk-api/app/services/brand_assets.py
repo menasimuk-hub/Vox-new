@@ -22,26 +22,64 @@ BRAND_COLORS = {
     "border": "#e5e0d8",
 }
 
-PUBLIC_ASSETS: dict[str, str] = {
-    "logo-black": "logo-black.svg",
-    "logo-white": "logo-white.svg",
-    "icon-black": "icon-black.svg",
-    "icon-white": "icon-white.svg",
-    "favicon": "favicon.ico",
+PUBLIC_ASSET_KEYS: tuple[str, ...] = (
+    "logo-black",
+    "logo-white",
+    "icon-black",
+    "icon-white",
+    "favicon",
+)
+
+# Backwards-compatible alias map (legacy filenames without extension in PUBLIC_ASSETS).
+PUBLIC_ASSETS: dict[str, str] = {key: key for key in PUBLIC_ASSET_KEYS}
+
+_ASSET_EXTENSIONS: dict[str, tuple[str, ...]] = {
+    "favicon": (".ico", ".png", ".svg"),
+    "logo-black": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
+    "logo-white": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
+    "icon-black": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
+    "icon-white": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
 }
+
+_STRIP_EXTENSIONS = (".svg", ".png", ".ico", ".jpg", ".jpeg", ".webp")
 
 
 def logos_dir() -> Path:
     return _LOGOS_DIR
 
 
-def asset_path(name: str) -> Path | None:
+def normalize_asset_name(name: str) -> str:
     key = str(name or "").strip().lower()
-    filename = PUBLIC_ASSETS.get(key)
-    if not filename:
+    for ext in _STRIP_EXTENSIONS:
+        if key.endswith(ext):
+            return key[: -len(ext)]
+    return key
+
+
+def asset_extensions(name: str) -> tuple[str, ...]:
+    key = normalize_asset_name(name)
+    return _ASSET_EXTENSIONS.get(key, (".png", ".svg", ".webp", ".jpg", ".jpeg", ".ico"))
+
+
+def asset_path(name: str) -> Path | None:
+    key = normalize_asset_name(name)
+    if key not in PUBLIC_ASSETS:
         return None
-    path = _LOGOS_DIR / filename
-    return path if path.is_file() else None
+    for ext in asset_extensions(key):
+        path = _LOGOS_DIR / f"{key}{ext}"
+        if path.is_file():
+            return path
+    return None
+
+
+def list_available_assets() -> dict[str, str]:
+    """Return asset key -> filename on disk (for /public/brand listing)."""
+    out: dict[str, str] = {}
+    for key in PUBLIC_ASSET_KEYS:
+        path = asset_path(key)
+        if path is not None:
+            out[key] = path.name
+    return out
 
 
 def asset_media_type(path: Path) -> str:
@@ -79,7 +117,12 @@ def api_public_origin() -> str:
 
 
 def email_logo_url(*, variant: str = "logo-black") -> str:
-    return public_brand_url(api_public_origin(), variant)
+    """HTTPS URL for email clients. Uses .png in URL when a PNG file is on disk."""
+    path = asset_path(variant)
+    key = normalize_asset_name(variant)
+    if path is not None and path.suffix.lower() == ".png":
+        return public_brand_url(api_public_origin(), f"{key}.png")
+    return public_brand_url(api_public_origin(), key)
 
 
 def public_brand_url(api_origin: str, name: str) -> str:

@@ -14,7 +14,21 @@ Local dev:
 http://127.0.0.1:8000/public/brand/logo-black
 ```
 
-The API serves the file from `voxbulk-api/logos/logo-black.svg`.
+Put files in **`voxbulk-api/logos/`** (not the marketing site or frontend `public/brand/`).
+
+Supported names (PNG preferred for email, SVG also works):
+
+- `logo-black.png` or `logo-black.svg`
+- `logo-white.png` or `logo-white.svg`
+
+URLs (both work after deploy):
+
+```
+https://api.voxbulk.com/public/brand/logo-black
+https://api.voxbulk.com/public/brand/logo-black.png
+```
+
+Check what's on disk: `https://api.voxbulk.com/public/brand` → `"available"` object.
 
 After deploy, templates in the database that still contain `data:image` are auto-refreshed on the next API start for `interview_*` keys.
 

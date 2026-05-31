@@ -214,6 +214,8 @@ post_checks() {
   # New routes added in recent releases
   local checks=(
     "/health"
+    "/public/brand"
+    "/public/brand/logo-black"
     "/admin/knowledge-base?scope=lead"
     "/admin/messaging/whatsapp/templates"
     "/admin/email/templates"
