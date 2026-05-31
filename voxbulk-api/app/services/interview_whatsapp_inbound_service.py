@@ -18,6 +18,7 @@ from app.services.interview_booking_service import (
     _format_slot_time,
     booking_reschedule_url_for_token,
     booking_url_for_token,
+    interview_booking_locked,
 )
 from app.services.messaging_log_service import normalize_e164
 from app.services.telnyx_messaging_service import TelnyxMessagingService
@@ -105,6 +106,8 @@ def find_active_booking_context(
             continue
         if token_row.expires_at and now > token_row.expires_at:
             continue
+        if interview_booking_locked(recipient):
+            continue
         if token_row.wa_sent_at is None and token_row.booked_start_at is None:
             continue
         return token_row, order, recipient
@@ -114,6 +117,8 @@ def find_active_booking_context(
             if not needles.intersection(rec_phones):
                 continue
             if token_row.expires_at and now > token_row.expires_at:
+                continue
+            if interview_booking_locked(recipient):
                 continue
             if token_row.wa_sent_at is None and token_row.booked_start_at is None:
                 continue

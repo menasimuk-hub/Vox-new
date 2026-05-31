@@ -638,31 +638,26 @@ function PublicBookingPage() {
 
 
   if (pageQ.isError || !data) {
+    const errMsg = pageQ.error instanceof Error ? pageQ.error.message : "This booking link is invalid or has expired.";
+    const interviewComplete = /already complete|no longer available/i.test(errMsg);
 
     return (
-
       <div className="flex min-h-screen items-center justify-center bg-background p-6">
-
         <Card className="w-full max-w-md">
-
           <CardHeader>
-
-            <CardTitle>Link unavailable</CardTitle>
-
-            <CardDescription>
-
-              {pageQ.error instanceof Error ? pageQ.error.message : "This booking link is invalid or has expired."}
-
-            </CardDescription>
-
+            <div className="flex items-center gap-2">
+              {interviewComplete ? (
+                <CheckCircle2 className="size-5 text-primary" />
+              ) : (
+                <XCircle className="size-5 text-muted-foreground" />
+              )}
+              <CardTitle>{interviewComplete ? "Interview complete" : "Link unavailable"}</CardTitle>
+            </div>
+            <CardDescription>{errMsg}</CardDescription>
           </CardHeader>
-
         </Card>
-
       </div>
-
     );
-
   }
 
 

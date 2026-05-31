@@ -24,6 +24,16 @@ function uniqueEmailTemplateKey(baseKey, existingKeys) {
   return slugifyTemplateKey(`${baseKey}_${Date.now()}`)
 }
 
+function StatusDot({ enabled }: { enabled: boolean }) {
+  return (
+    <span
+      className={`statusDot ${enabled ? 'on' : 'off'}`}
+      title={enabled ? 'Enabled' : 'Disabled'}
+      aria-label={enabled ? 'Enabled' : 'Disabled'}
+    />
+  )
+}
+
 function TemplateActions({ onEdit, onDuplicate, onDelete, canDelete, showDuplicate = false }) {
   return (
     <div className="templateRowActions">
@@ -666,15 +676,15 @@ export default function EmailSettings() {
                   {listsLoading ? (
                     <div className="note" style={{ margin: 16 }}>Loading…</div>
                   ) : (
-                    <div className="tableWrap">
-                      <table className="table">
+                    <div className="tableWrap messagingTableWrap">
+                      <table className="table messagingTable">
                         <thead>
                           <tr>
                             <th>Template</th>
                             <th>Key</th>
                             <th>Subject</th>
-                            <th>Status</th>
-                            <th style={{ width: 120 }}>Actions</th>
+                            <th className="colStatus" aria-label="Status" />
+                            <th className="colActions">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -682,11 +692,11 @@ export default function EmailSettings() {
                             <tr key={row.template_key}>
                               <td>
                                 <strong>{emailDisplayTitle(row)}</strong>
-                                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{emailDisplayDescription(row)}</div>
+                                <div className="muted messagingTableDesc">{emailDisplayDescription(row)}</div>
                               </td>
                               <td><code>{row.template_key}</code></td>
-                              <td>{subjectPreview(row.subject)}</td>
-                              <td><span className={`pill ${row.is_enabled ? 'p-green' : 'p-amber'}`}>{row.is_enabled ? 'Enabled' : 'Disabled'}</span></td>
+                              <td className="colSubject">{subjectPreview(row.subject)}</td>
+                              <td className="colStatus"><StatusDot enabled={row.is_enabled !== false} /></td>
                               <td>
                                 <TemplateActions
                                   showDuplicate
@@ -729,15 +739,15 @@ export default function EmailSettings() {
                   ) : !waTemplates.length ? (
                     <div className="note" style={{ margin: 16 }}>No templates yet — create one.</div>
                   ) : (
-                    <div className="tableWrap">
-                      <table className="table">
+                    <div className="tableWrap messagingTableWrap">
+                      <table className="table messagingTable">
                         <thead>
                           <tr>
                             <th>Name</th>
                             <th>Key</th>
                             <th>Preview</th>
-                            <th>Status</th>
-                            <th style={{ width: 88 }}>Actions</th>
+                            <th className="colStatus" aria-label="Status" />
+                            <th className="colActions">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -745,11 +755,11 @@ export default function EmailSettings() {
                             <tr key={row.template_key}>
                               <td>
                                 <strong>{waDisplayTitle(row)}</strong>
-                                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{waDisplayDescription(row)}</div>
+                                <div className="muted messagingTableDesc">{waDisplayDescription(row)}</div>
                               </td>
                               <td><code>{row.template_key}</code></td>
-                              <td>{bodyPreview(row.body)}</td>
-                              <td><span className={`pill ${row.is_enabled ? 'p-green' : 'p-amber'}`}>{row.is_enabled ? 'Enabled' : 'Disabled'}</span></td>
+                              <td className="colPreview">{bodyPreview(row.body)}</td>
+                              <td className="colStatus"><StatusDot enabled={row.is_enabled !== false} /></td>
                               <td>
                                 <TemplateActions
                                   onEdit={() => navigate(`/settings/email/whatsapp/${encodeURIComponent(row.template_key)}/edit`)}
@@ -790,15 +800,15 @@ export default function EmailSettings() {
                   ) : !smsTemplates.length ? (
                     <div className="note" style={{ margin: 16 }}>No templates yet — create one.</div>
                   ) : (
-                    <div className="tableWrap">
-                      <table className="table">
+                    <div className="tableWrap messagingTableWrap">
+                      <table className="table messagingTable">
                         <thead>
                           <tr>
                             <th>Name</th>
                             <th>Key</th>
                             <th>Preview</th>
-                            <th>Status</th>
-                            <th style={{ width: 88 }}>Actions</th>
+                            <th className="colStatus" aria-label="Status" />
+                            <th className="colActions">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -806,8 +816,8 @@ export default function EmailSettings() {
                             <tr key={row.template_key}>
                               <td><strong>{row.name}</strong></td>
                               <td><code>{row.template_key}</code></td>
-                              <td>{bodyPreview(row.body)}</td>
-                              <td><span className={`pill ${row.is_enabled ? 'p-green' : 'p-amber'}`}>{row.is_enabled ? 'Enabled' : 'Disabled'}</span></td>
+                              <td className="colPreview">{bodyPreview(row.body)}</td>
+                              <td className="colStatus"><StatusDot enabled={row.is_enabled !== false} /></td>
                               <td>
                                 <TemplateActions
                                   onEdit={() => navigate(`/settings/email/sms/${encodeURIComponent(row.template_key)}/edit`)}

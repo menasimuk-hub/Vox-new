@@ -154,11 +154,38 @@ def list_agents_for_service(db: Session, *, service_key: str, org_id: str | None
     return agents
 
 
+def _agent_zone_match(agent: AgentDefinition, zone: str) -> bool:
+    name = (agent.name or "").upper()
+    z = str(zone or "gb").lower()
+    if z == "gb":
+        return "GB" in name
+    if z == "us":
+        return "US" in name
+    if z == "ca":
+        return "CA" in name
+    if z == "au":
+        return "AU" in name
+    return True
+
+
 def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: str) -> list[dict[str, Any]]:
+    from app.services.market_zone import country_to_zone
+    from app.services.recovery_service import OrganisationService
+
+    org = OrganisationService.get_org(db, org_id)
+    zone = country_to_zone(org.country if org else "United Kingdom")
     agents = list_agents_for_service(db, service_key=service_key, org_id=org_id)
     assigned = resolve_agent_for_org_service(db, org_id=org_id, service_key=service_key, require_active=False)
-    out: list[dict[str, Any]] = []
     default_field = _default_field(service_key) or "is_default_survey"
+
+    def _sort_key(agent: AgentDefinition) -> tuple:
+        assigned_prio = 0 if assigned and assigned.id == agent.id else 1
+        platform_prio = 0 if getattr(agent, default_field, False) else 1
+        zone_prio = 0 if _agent_zone_match(agent, zone) else 1
+        return (assigned_prio, platform_prio, zone_prio, agent.name or "")
+
+    agents = sorted(agents, key=_sort_key)
+    out: list[dict[str, Any]] = []
     for agent in agents:
         out.append(
             {
@@ -168,6 +195,8 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
                 "voice_type_label": agent.voice_type_label,
                 "is_default_for_org": bool(assigned and assigned.id == agent.id),
                 "is_platform_default": bool(getattr(agent, default_field, False)),
+                "is_zone_match": _agent_zone_match(agent, zone),
+                "market_zone": zone,
             }
         )
     return out

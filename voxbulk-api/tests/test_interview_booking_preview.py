@@ -131,3 +131,21 @@ def test_fallback_preview_email_first_notice():
     assert preview["confirmation_body"]
     assert len(preview["confirmation_buttons"]) == 2
     assert preview["sync_error"] == "sync failed"
+
+
+def test_interview_booking_locked_after_completion():
+    import json
+
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_booking_service import interview_booking_locked
+
+    recipient = ServiceOrderRecipient(name="Done Candidate")
+    recipient.status = "completed"
+    assert interview_booking_locked(recipient) is not None
+
+    recipient.status = "pending"
+    recipient.result_json = json.dumps({"analysis_saved_at": "2026-05-01T12:00:00"})
+    assert interview_booking_locked(recipient) is not None
+
+    recipient.result_json = json.dumps({"booked_start_at": "2026-05-01T10:00:00"})
+    assert interview_booking_locked(recipient) is None

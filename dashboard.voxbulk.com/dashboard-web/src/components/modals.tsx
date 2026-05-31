@@ -663,7 +663,7 @@ export function InterviewPreviewQuoteModal({
               : null;
   const waBody =
     data.waPreviewBody ||
-    `Hi Alex 👋\n\nYou've been shortlisted for the *${data.role || "interview"}* role at *Your Company* ✨\n\nTap *Book My Interview* below to choose a time that works for you 🗓️\n\n— VOXBULK`;
+    `Dear Alex 👋\nWe have sent you an email from 📧 careers@voxbulk.com regarding your interview for the position of *${data.role || "Interview"}* at *Your Company*\nPlease check your Spam / Junk folder in case it landed there 📁\nOnce you receive it, kindly book your interview slot as mentioned in the email 📅\nWe look forward to hearing from you! 🤝\nYour Company 🏢`;
 
   React.useEffect(() => {
     if (open) {

@@ -30,6 +30,7 @@ import {
   queryKeys,
   useGenerateInterviewScript,
   useInterviewAgents,
+  pickDefaultInterviewAgent,
   useInterviewDraft,
   useOrderQuote,
   usePatchServiceOrder,
@@ -189,7 +190,7 @@ function CreateInterview() {
   const [uploading, setUploading] = React.useState(false);
 
   const agents = agentsQ.data || [];
-  const selectedAgent = agents.find((a) => a.id === agentId) || agents.find((a) => a.is_default_for_org) || agents[0];
+  const selectedAgent = agents.find((a) => a.id === agentId) || pickDefaultInterviewAgent(agents);
 
   React.useEffect(() => {
     if (forceNew && draftQ.isSuccess && draftQ.data?.order?.id) {
@@ -277,7 +278,7 @@ function CreateInterview() {
 
   React.useEffect(() => {
     if (!agentId && agents.length) {
-      const def = agents.find((a) => a.is_default_for_org) || agents[0];
+      const def = pickDefaultInterviewAgent(agents);
       if (def) setAgentId(def.id);
     }
   }, [agents, agentId]);
@@ -1011,11 +1012,14 @@ function CreateInterview() {
             {agents.length === 0 ? (
               <p className="text-xs text-muted-foreground">No voice agents configured yet. Ask your admin to enable interview agents.</p>
             ) : (
-              <Select value={agentId || agents[0]?.id} onValueChange={setAgentId}>
+              <Select value={agentId || pickDefaultInterviewAgent(agents)?.id || ""} onValueChange={setAgentId}>
                 <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
                 <SelectContent>
                   {agents.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>{a.voice_label || a.name}{a.is_default_for_org ? " · default" : ""}</SelectItem>
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.voice_label || a.name}
+                      {a.is_default_for_org ? " · default" : a.is_zone_match ? " · GB" : ""}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

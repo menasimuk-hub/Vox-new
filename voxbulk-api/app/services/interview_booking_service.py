@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
@@ -45,6 +46,29 @@ from app.services.telnyx_whatsapp_template_sync_service import (
 )
 
 SLOT_MINUTES = 30
+VOICE_TERMINAL = frozenset(
+    {"completed", "no_answer", "failed", "busy", "skipped", "cancelled", "opted_out", "done"}
+)
+BOOKING_LOCKED_MESSAGE = "Your AI interview is already complete — booking is no longer available."
+
+
+def interview_booking_locked(recipient: ServiceOrderRecipient) -> str | None:
+    """Return a user-facing reason when this candidate must not book/reschedule/cancel."""
+    status = str(recipient.status or "").lower()
+    parsed = _recipient_result(recipient)
+    if status in {"completed", "done"}:
+        return BOOKING_LOCKED_MESSAGE
+    if parsed.get("analysis_saved_at"):
+        return BOOKING_LOCKED_MESSAGE
+    if parsed.get("ended_at") and status in VOICE_TERMINAL:
+        return BOOKING_LOCKED_MESSAGE
+    return None
+
+
+def _assert_booking_allowed(recipient: ServiceOrderRecipient) -> None:
+    reason = interview_booking_locked(recipient)
+    if reason:
+        raise ValueError(reason)
 
 
 def _now() -> datetime:
@@ -578,6 +602,8 @@ class InterviewBookingService:
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
 
+        _assert_booking_allowed(recipient)
+
         now = _now()
         if row.expires_at and now > row.expires_at:
             raise ValueError("This booking link has expired")
@@ -635,6 +661,8 @@ class InterviewBookingService:
         recipient = db.get(ServiceOrderRecipient, row.recipient_id)
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
+
+        _assert_booking_allowed(recipient)
 
         if row.booked_start_at is not None:
             raise ValueError("You have already booked a time slot")
@@ -820,6 +848,8 @@ class InterviewBookingService:
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
 
+        _assert_booking_allowed(recipient)
+
         if row.booked_start_at is None:
             raise ValueError("You do not have a booked interview to cancel")
 
@@ -868,6 +898,8 @@ class InterviewBookingService:
         recipient = db.get(ServiceOrderRecipient, row.recipient_id)
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
+
+        _assert_booking_allowed(recipient)
 
         if row.booked_start_at is None:
             raise ValueError("Book a time first before rescheduling")

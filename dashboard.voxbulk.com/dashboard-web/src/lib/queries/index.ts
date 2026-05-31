@@ -499,7 +499,20 @@ export type InterviewAgent = {
   voice_label?: string;
   voice_type_label?: string;
   is_default_for_org?: boolean;
+  is_platform_default?: boolean;
+  is_zone_match?: boolean;
+  market_zone?: string;
 };
+
+export function pickDefaultInterviewAgent(agents: InterviewAgent[]): InterviewAgent | undefined {
+  if (!agents.length) return undefined;
+  return (
+    agents.find((a) => a.is_default_for_org) ||
+    agents.find((a) => a.is_zone_match) ||
+    agents.find((a) => a.is_platform_default) ||
+    agents[0]
+  );
+}
 
 export function useInterviewAgents() {
   return useQuery({
