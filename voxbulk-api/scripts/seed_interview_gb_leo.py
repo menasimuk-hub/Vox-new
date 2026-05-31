@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Seed or update the default GB interview voice agent (interview_GB-Leo).
 
-Usage (from voxbulk-api):
+Usage (from voxbulk-api, project venv — NOT system python):
+  source .venv/bin/activate
   python scripts/seed_interview_gb_leo.py
+
+Or:
+  .venv/bin/python scripts/seed_interview_gb_leo.py
 """
 from __future__ import annotations
 
@@ -13,6 +17,39 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def _require_sqlalchemy2() -> None:
+    try:
+        import sqlalchemy
+        from sqlalchemy.orm import DeclarativeBase  # noqa: F401
+    except ImportError:
+        print(
+            "ERROR: SQLAlchemy 2.x required. Do not use system python (/usr/bin/python3).\n"
+            "Run:\n"
+            "  cd voxbulk-api\n"
+            "  source .venv/bin/activate\n"
+            "  python scripts/seed_interview_gb_leo.py\n"
+            "Or:\n"
+            "  .venv/bin/python scripts/seed_interview_gb_leo.py",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
+    parts = str(getattr(sqlalchemy, "__version__", "0")).split(".")
+    try:
+        major = int(parts[0])
+    except ValueError:
+        major = 0
+    if major < 2:
+        print(
+            f"ERROR: Found SQLAlchemy {sqlalchemy.__version__} — need 2.x from voxbulk-api/.venv.\n"
+            "Run: .venv/bin/python scripts/seed_interview_gb_leo.py",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+
+_require_sqlalchemy2()
 
 from sqlalchemy import select
 

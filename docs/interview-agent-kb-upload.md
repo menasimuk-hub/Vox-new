@@ -16,10 +16,19 @@ You do **not** need both if the seed script ran successfully. Use **Admin upload
 ## A. VPS — seed agent + KB (after git pull)
 
 ```bash
-cd /path/to/Vox   # your repo on VPS
-git pull origin main
-python voxbulk-api/scripts/seed_interview_gb_leo.py
+cd /www/voxbulk/voxbulk-api
+source .venv/bin/activate
+python scripts/seed_interview_gb_leo.py
+cd ..
 ./deploy-vps.sh
+```
+
+If `.venv` does not exist yet, run `./deploy-vps.sh` once first (it creates the venv and installs dependencies).
+
+One-liner without activating venv:
+
+```bash
+cd /www/voxbulk/voxbulk-api && .venv/bin/python scripts/seed_interview_gb_leo.py
 ```
 
 This creates/updates **interview_GB-Leo** with Telnyx ID `assistant-19b10379-bea4-4a0e-ad82-c220d0fd54fd` and loads KB text into the agent.
