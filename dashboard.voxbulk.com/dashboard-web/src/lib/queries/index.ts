@@ -577,7 +577,7 @@ export function useLaunchInterviewCampaign(orderId: string | null) {
 export function useSendInterviewBookingInvites(orderId: string | null) {
   return useMutation({
     mutationFn: (force = false) =>
-      apiFetch<{ whatsapp_sent?: number; email_sent?: number; errors?: string[] }>(
+      apiFetch<{ whatsapp_sent?: number; email_sent?: number; skipped_locked?: number; errors?: string[] }>(
         `/service-orders/${encodeURIComponent(orderId!)}/interview-booking/send-invites`,
         { method: "POST", body: JSON.stringify({ force_resend: force }) },
       ),

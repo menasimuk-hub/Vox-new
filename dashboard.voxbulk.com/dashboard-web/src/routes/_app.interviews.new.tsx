@@ -57,7 +57,14 @@ type CandidateRow = {
   source: string;
   ats: number | null;
   atsStatus?: string | null;
+  status?: string;
+  activityStatus?: string;
 };
+
+function isBookingResendBlocked(status?: string | null, activityStatus?: string | null) {
+  if (String(status || "").toLowerCase() === "completed") return true;
+  return ["report_ready", "interview_completed", "scheduling_sent"].includes(String(activityStatus || ""));
+}
 
 function toLocalInput(iso?: string | null) {
   if (!iso) return "";
@@ -299,6 +306,8 @@ function CreateInterview() {
       source: String(r.intake_source || r.source || "Upload"),
       ats: r.ats_score != null ? Number(r.ats_score) : null,
       atsStatus: String(r.ats_status || ""),
+      status: String(r.status || ""),
+      activityStatus: String(r.activity_status || ""),
     }));
   }, [draftQ.data?.recipients]);
 
@@ -707,6 +716,7 @@ function CreateInterview() {
   const cvReadyForScreening = isCvCollectionComplete(cvEmailActive, collectionEnd, config);
   const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
   const bookingInvitesSent = Boolean(config.booking_invites_sent_at);
+  const canResendBookingInvites = candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
   const unscoredCount = candidates.filter((c) => c.ats == null && !c.atsStatus).length;
   const atsGatePassed =
     candidates.length > 0 &&
@@ -1136,13 +1146,21 @@ function CreateInterview() {
           <Button
             variant="outline"
             className="gap-1.5"
-            disabled={resendInvitesM.isPending}
+            disabled={resendInvitesM.isPending || !canResendBookingInvites}
+            title={canResendBookingInvites ? "Resend booking WhatsApp to eligible candidates" : "All candidates have completed their interview — booking is locked"}
             onClick={() => {
               void (async () => {
                 try {
                   const result = await resendInvitesM.mutateAsync(true);
                   const wa = Number(result?.whatsapp_sent || 0);
-                  toast.success(wa > 0 ? `Resent booking WhatsApp to ${wa} candidate(s).` : "Booking invites queued.");
+                  const skipped = Number(result?.skipped_locked || 0);
+                  if (wa > 0) {
+                    toast.success(`Resent booking WhatsApp to ${wa} candidate(s).`);
+                  } else if (skipped > 0) {
+                    toast.message("No invites sent — all candidates have already completed their interview.");
+                  } else {
+                    toast.success("Booking invites queued.");
+                  }
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : "Could not resend invites");
                 }

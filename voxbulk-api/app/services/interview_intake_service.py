@@ -128,6 +128,9 @@ def recipient_intake_dict(recipient: ServiceOrderRecipient, *, position: str = "
         }
     )
     base.update(ats_display_for_recipient(recipient, position=position))
+    from app.services.interview_activity_service import InterviewActivityService
+
+    base["activity_status"] = InterviewActivityService.activity_status(recipient)
     return base
 
 
