@@ -70,6 +70,13 @@ def _e(text: Any) -> str:
     return html.escape(str(text or ""), quote=True)
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def _logo_html(*, for_pdf: bool = False) -> str:
     if for_pdf:
         path = asset_path("logo-black")
@@ -86,10 +93,10 @@ def _logo_html(*, for_pdf: bool = False) -> str:
 
 def _score_table(scores: dict[str, Any]) -> str:
     cells = [
-        ("ATS Score", int(scores.get("ats") or 0), "ats"),
-        ("Interview Score", int(scores.get("interview") or 0), "interview"),
-        ("Culture Fit", int(scores.get("culture_fit") or 0), "culture"),
-        ("Overall", int(scores.get("overall") or 0), "overall"),
+        ("ATS Score", _safe_int(scores.get("ats")), "ats"),
+        ("Interview Score", _safe_int(scores.get("interview")), "interview"),
+        ("Culture Fit", _safe_int(scores.get("culture_fit")), "culture"),
+        ("Overall", _safe_int(scores.get("overall")), "overall"),
     ]
     tds = []
     for label, val, _key in cells:
@@ -103,7 +110,7 @@ def _score_table(scores: dict[str, Any]) -> str:
 def _criteria_rows(criteria: list[dict[str, Any]]) -> str:
     rows = []
     for c in criteria:
-        pct = int(c.get("score") or c.get("percent") or 0)
+        pct = _safe_int(c.get("score") if c.get("score") is not None else c.get("percent"))
         rows.append(
             f"""<div class="criteria-row">
             <div class="criteria-head">
@@ -120,7 +127,10 @@ def _criteria_rows(criteria: list[dict[str, Any]]) -> str:
 def _competency_cards(items: list[dict[str, Any]]) -> str:
     cards = []
     for c in items:
-        score10 = int(c.get("score_10") or 0)
+        score10 = _safe_int(c.get("score_10") if c.get("score_10") is not None else c.get("score"), 0)
+        if score10 > 10:
+            score10 = max(1, min(10, round(score10 / 10)))
+        score10 = max(0, min(10, score10))
         pct = score10 * 10
         cards.append(
             f"""<div class="competency-card">

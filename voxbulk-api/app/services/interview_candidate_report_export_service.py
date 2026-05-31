@@ -77,7 +77,8 @@ class InterviewCandidateReportExportService:
         payload = InterviewCandidateReportService.build_payload(db, order, recipient)
         cv_text = _read_cv_text(recipient) if include_cv and not recipient.cv_storage_key else None
         pdf_html = build_candidate_report_html(payload, cv_text=cv_text, for_pdf=True)
-        pdf_bytes = render_html_to_pdf_bytes(pdf_html)        if include_cv and recipient.cv_storage_key:
+        pdf_bytes = render_html_to_pdf_bytes(pdf_html)
+        if include_cv and recipient.cv_storage_key:
             cv_path = resolve_cv_path(recipient.cv_storage_key)
             if cv_path and cv_path.is_file() and cv_path.suffix.lower() == ".pdf":
                 return _merge_pdf_bytes(pdf_bytes, cv_path)
