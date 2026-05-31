@@ -7,7 +7,7 @@
 #   ./deploy-vps.sh
 #
 # Optional env overrides:
-#   VOX_GIT_REMOTE=voxnew          git remote name (default: origin)
+#   VOX_GIT_REMOTE=origin           git remote name (default: origin → menasimuk-hub/Vox-new)
 #   VOX_GIT_BRANCH=main            branch to pull
 #   VOX_SKIP_GIT=1                 skip git pull (deploy current tree only)
 #   VOX_SKIP_BUILD=1               skip npm build (API + migrate only)
@@ -254,8 +254,7 @@ After deploy — manual checks
    Then: pip install -r voxbulk-api/requirements.txt && ./vox.sh restart
 
 Known problems to watch:
-- origin vs voxnew remotes may differ; VPS should track voxnew/main
-- Unrelated git history on origin/main — use voxnew or reset --hard once
+- Canonical GitHub repo: menasimuk-hub/Vox-new only (not menasimuk-hub/Vox)
 - Port 8000 already in use → ./vox.sh stop before deploy
 - SQLite vs MySQL: set DATABASE_URL in voxbulk-api/.env before migrate
 NOTES

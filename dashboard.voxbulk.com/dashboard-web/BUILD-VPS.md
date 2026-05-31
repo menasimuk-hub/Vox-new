@@ -6,7 +6,7 @@ The **new UI** builds to `dist/client/` (not `dist/`).
 
 ```bash
 cd /www/voxbulk
-git pull voxnew main
+git pull origin main
 
 cd dashboard.voxbulk.com/dashboard-web
 npm install

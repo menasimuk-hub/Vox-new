@@ -1,0 +1,35 @@
+---
+description: Canonical GitHub repo — menasimuk-hub/Vox-new only
+alwaysApply: true
+---
+
+# GitHub remote (VoxBulk)
+
+This project uses **one** GitHub repository:
+
+- **Repo:** `https://github.com/menasimuk-hub/Vox-new.git`
+- **Owner/repo:** `menasimuk-hub/Vox-new`
+- **Default branch:** `main`
+
+## Agent rules
+
+- **Push and pull only to `origin`** on `menasimuk-hub/Vox-new`.
+- **Do not** push to, pull from, or reference `menasimuk-hub/Vox` (legacy duplicate).
+- **Do not** add or use a second remote for the same codebase unless the user explicitly asks.
+- After commits, run: `git push origin main`
+- VPS deploy: `git pull origin main` then `./deploy-vps.sh`
+
+## Clone (new machine)
+
+```bash
+git clone https://github.com/menasimuk-hub/Vox-new.git
+cd Vox-new
+```
+
+## If `origin` points elsewhere
+
+```bash
+git remote set-url origin https://github.com/menasimuk-hub/Vox-new.git
+git fetch origin
+git branch -u origin/main main
+```

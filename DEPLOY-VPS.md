@@ -15,8 +15,6 @@ chmod +x vox.sh deploy-vps.sh
 ```bash
 git clone https://github.com/menasimuk-hub/Vox-new.git Vox
 cd Vox
-git remote add voxnew https://github.com/menasimuk-hub/Vox-new.git   # if needed
-
 python3 -m venv voxbulk-api/.venv
 cp voxbulk-api/.env.example voxbulk-api/.env   # edit DATABASE_URL, secrets
 
@@ -33,18 +31,14 @@ export VOX_PUBLIC_DIST=/var/www/voxbulk.com
 ./deploy-vps.sh
 ```
 
-## Git remotes (important)
+## Git remote (important)
 
-| Remote | Repo | Status |
-|--------|------|--------|
-| **voxnew** | `menasimuk-hub/Vox-new` | Matches this codebase (`main`) |
-| **origin** | `menasimuk-hub/Vox` | **Unrelated history** — do not pull without reset |
+**Canonical repo:** `https://github.com/menasimuk-hub/Vox-new.git` (`origin` → `main`)
 
-On VPS, prefer:
+Do **not** use `menasimuk-hub/Vox` (legacy duplicate).
 
 ```bash
-export VOX_GIT_REMOTE=voxnew
-export VOX_GIT_BRANCH=main
+git pull origin main
 ./deploy-vps.sh
 ```
 
