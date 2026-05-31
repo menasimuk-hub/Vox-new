@@ -108,6 +108,16 @@ def find_active_booking_context(
         if token_row.wa_sent_at is None and token_row.booked_start_at is None:
             continue
         return token_row, order, recipient
+    if org_id:
+        for token_row, order, recipient in rows:
+            rec_phones = _phone_candidates(recipient.phone or "")
+            if not needles.intersection(rec_phones):
+                continue
+            if token_row.expires_at and now > token_row.expires_at:
+                continue
+            if token_row.wa_sent_at is None and token_row.booked_start_at is None:
+                continue
+            return token_row, order, recipient
     return None
 
 

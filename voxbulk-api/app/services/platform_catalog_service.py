@@ -1187,8 +1187,14 @@ class ServiceOrderService:
 
     @staticmethod
     def update_order(db: Session, order: ServiceOrder, payload: dict[str, Any]) -> ServiceOrder:
-        if order.payment_status == "approved" and order.status in {"running", "completed"}:
+        if order.status == "completed":
             raise ValueError("Order can no longer be edited")
+        running_like = order.payment_status == "approved" and order.status in {"running", "paused", "scheduled"}
+        if running_like:
+            allowed = {"scheduled_start_at", "scheduled_end_at", "title", "config"}
+            payload = {k: v for k, v in payload.items() if k in allowed}
+            if not payload:
+                raise ValueError("This interview can only update schedule times or title while running")
         config = {}
         try:
             config = json.loads(order.config_json or "{}")

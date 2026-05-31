@@ -68,11 +68,20 @@ type BookingPage = {
 
 
 
+function parseUtc(iso: string) {
+  const raw = String(iso || "").trim();
+  if (!raw) return new Date(NaN);
+  if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(raw)) return new Date(`${raw}Z`);
+  return new Date(raw);
+}
+
+
+
 function fmtDate(iso: string) {
 
   try {
 
-    return new Date(iso).toLocaleDateString(undefined, {
+    return parseUtc(iso).toLocaleDateString(undefined, {
 
       weekday: "long",
 
@@ -98,7 +107,7 @@ function fmtTime(iso: string) {
 
   try {
 
-    return new Date(iso).toLocaleTimeString(undefined, {
+    return parseUtc(iso).toLocaleTimeString(undefined, {
 
       hour: "2-digit",
 
@@ -120,7 +129,7 @@ function fmtWindow(iso: string) {
 
   try {
 
-    return new Date(iso).toLocaleString(undefined, {
+    return parseUtc(iso).toLocaleString(undefined, {
 
       weekday: "short",
 
@@ -146,7 +155,7 @@ function fmtWindow(iso: string) {
 
 function dayKey(iso: string) {
 
-  return new Date(iso).toDateString();
+  return parseUtc(iso).toDateString();
 
 }
 
@@ -184,11 +193,11 @@ function groupSlotsByDay(slots: string[]) {
 
     dayKey: key,
 
-    date: startOfDay(new Date(daySlots[0])),
+    date: startOfDay(parseUtc(daySlots[0])),
 
     label: fmtDate(daySlots[0]),
 
-    slots: daySlots.sort((a, b) => new Date(a).getTime() - new Date(b).getTime()),
+    slots: daySlots.sort((a, b) => parseUtc(a).getTime() - parseUtc(b).getTime()),
 
   }));
 
@@ -260,7 +269,7 @@ function CalendarSlotPicker({
 
     if (picked) {
 
-      setSelectedDay(startOfDay(new Date(picked)));
+      setSelectedDay(startOfDay(parseUtc(picked)));
 
       return;
 

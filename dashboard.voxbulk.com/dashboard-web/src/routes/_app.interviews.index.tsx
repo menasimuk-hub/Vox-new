@@ -7,13 +7,15 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
-import { useArchiveOrder, useDeleteOrder, useHomeSummary, usePromoCredits, useServiceOrders } from "@/lib/queries";
+import { useArchiveOrder, useDeleteOrder, useHomeSummary, usePromoCredits, useServiceOrders, useStopInterviewCampaign } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/interviews/")({
   head: () => ({ meta: [{ title: "Saved interviews — VoxBulk" }] }),
@@ -36,6 +38,9 @@ function SavedInterviews() {
   const creditsQ = usePromoCredits();
   const archiveM = useArchiveOrder();
   const deleteM = useDeleteOrder();
+  const stopM = useStopInterviewCampaign();
+  const [stopTarget, setStopTarget] = React.useState<{ id: string; name: string } | null>(null);
+  const [stopConfirmText, setStopConfirmText] = React.useState("");
 
   const filtered = React.useMemo(
     () =>
@@ -64,6 +69,18 @@ function SavedInterviews() {
       toast.success("Interview archived");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Archive failed");
+    }
+  };
+
+  const onStop = async () => {
+    if (!stopTarget) return;
+    try {
+      await stopM.mutateAsync({ orderId: stopTarget.id, reason: "Stopped by user" });
+      toast.success("Interview stopped");
+      setStopTarget(null);
+      setStopConfirmText("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Stop failed");
     }
   };
 
@@ -157,9 +174,16 @@ function SavedInterviews() {
                           <Button size="sm" variant="ghost" asChild>
                             <Link to="/interviews/results/$orderId" params={{ orderId: c.id }}>Results</Link>
                           </Button>
-                          {tab === "live" && (
-                            <Button size="sm" variant="ghost" asChild><Link to="/interviews/new">Edit</Link></Button>
-                          )}
+                          {tab === "live" && raw && (raw.status === "draft" || raw.status === "quoted" || raw.status === "scheduled") ? (
+                            <Button size="sm" variant="ghost" asChild>
+                              <Link to="/interviews/new" search={{ order_id: c.id }}>Edit</Link>
+                            </Button>
+                          ) : null}
+                          {tab === "live" && raw && ["running", "paused", "scheduled"].includes(String(raw.status || "")) ? (
+                            <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setStopTarget({ id: c.id, name: c.name })}>
+                              Stop
+                            </Button>
+                          ) : null}
                           {tab === "finished" && (
                             <>
                               <Button size="sm" variant="ghost" onClick={() => void onArchive(c.id)}>Archive</Button>
@@ -179,6 +203,25 @@ function SavedInterviews() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!stopTarget} onOpenChange={(open) => { if (!open) { setStopTarget(null); setStopConfirmText(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Stop interview campaign</DialogTitle>
+            <DialogDescription>
+              This stops pending AI calls for <strong>{stopTarget?.name}</strong>. Candidates already booked keep their slots until you cancel them individually.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">Type <strong>STOP</strong> to confirm.</p>
+          <Input value={stopConfirmText} onChange={(e) => setStopConfirmText(e.target.value)} placeholder="STOP" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setStopTarget(null); setStopConfirmText(""); }}>Cancel</Button>
+            <Button variant="destructive" disabled={stopConfirmText !== "STOP" || stopM.isPending} onClick={() => void onStop()}>
+              {stopM.isPending ? "Stopping…" : "Stop campaign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

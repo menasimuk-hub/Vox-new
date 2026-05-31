@@ -90,6 +90,8 @@ export default function RunningInterviews() {
   const [activityRow, setActivityRow] = useState(null)
   const [activityData, setActivityData] = useState(null)
   const [activityLoading, setActivityLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const detailRef = React.useRef(null)
 
   const load = useCallback(async () => {
     setError('')
@@ -101,14 +103,18 @@ export default function RunningInterviews() {
     setOverview(stats || null)
   }, [])
 
-  const loadDetail = useCallback(async (orderId) => {
+  const loadDetail = useCallback(async (orderId, { auditOnly = false } = {}) => {
     if (!orderId) return
-    const [row, auditRes] = await Promise.all([
-      apiFetch(`/admin/platform-services/orders/${encodeURIComponent(orderId)}`),
-      apiFetch(`/admin/platform-services/orders/${encodeURIComponent(orderId)}/audit`),
-    ])
-    setSelected(row)
-    setAudit(auditRes?.timeline || [])
+    if (!auditOnly) {
+      const row = await apiFetch(`/admin/platform-services/orders/${encodeURIComponent(orderId)}`)
+      setSelected(row)
+    }
+    try {
+      const auditRes = await apiFetch(`/admin/platform-services/orders/${encodeURIComponent(orderId)}/audit`)
+      setAudit(auditRes?.timeline || [])
+    } catch {
+      if (!auditOnly) setAudit([])
+    }
   }, [])
 
   useEffect(() => {
@@ -149,10 +155,16 @@ export default function RunningInterviews() {
     setPanelTab('overview')
     setEditingId(null)
     setError('')
+    setDetailLoading(true)
     try {
       await loadDetail(order.id)
+      window.setTimeout(() => {
+        detailRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      }, 50)
     } catch (e) {
       setError(e?.message || 'Could not load interview detail')
+    } finally {
+      setDetailLoading(false)
     }
   }
 
@@ -397,8 +409,8 @@ export default function RunningInterviews() {
                         <td>{done} / {total}</td>
                         <td>{o.quote_total_gbp || '—'}</td>
                         <td>
-                          <button type="button" className="btn soft bsm" onClick={() => openRow(o)}>
-                            Manage
+                          <button type="button" className="btn soft bsm" disabled={detailLoading} onClick={() => openRow(o)}>
+                            {detailLoading && selected?.id === o.id ? 'Loading…' : 'Manage'}
                           </button>
                         </td>
                       </tr>
@@ -412,7 +424,7 @@ export default function RunningInterviews() {
       </div>
 
       {selected ? (
-        <div className="card runningSurveyDetailCard">
+        <div className="card runningSurveyDetailCard" ref={detailRef}>
           <div className="cardHead runningSurveyDetailHead">
             <div>
               <h3>{selected.title}</h3>
@@ -445,7 +457,11 @@ export default function RunningInterviews() {
               <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'resume')}>
                 <Play size={14} /> Resume
               </button>
-              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'stop', { reason: 'Stopped by admin' })}>
+              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => {
+                if (!window.confirm(`Stop interview "${selected.title}"? Pending calls will not be placed.`)) return
+                if (!window.confirm('Final confirmation: stop this interview campaign now?')) return
+                runAction(selected.id, 'stop', { reason: 'Stopped by admin' })
+              }}>
                 <Square size={14} /> Stop
               </button>
               {selected.owner_email ? (
@@ -537,7 +553,7 @@ export default function RunningInterviews() {
                       {recipients.map((r) => (
                         <tr key={r.id}>
                           <td>{r.row_number}</td>
-                          <td>{r.name}</td>
+                          <td title={r.id}>{r.name}</td>
                           <td>{r.phone || '—'}</td>
                           <td>{r.email || '—'}</td>
                           <td>{cvQualityLabel(r.cv_quality)}{r.cv_filename ? ` · ${r.cv_filename}` : ''}</td>

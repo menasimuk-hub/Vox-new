@@ -90,6 +90,12 @@ class InterviewActivityService:
             _event(parsed.get("booking_invite_sent_at"), code="invite_sent", label="Invites dispatched"),
             _event(parsed.get("booking_confirmed_at"), code="booked", label="Interview slot booked", detail=parsed.get("booked_start_at")),
             _event(
+                parsed.get("confirmation_email_sent_at"),
+                code="confirm_email",
+                label="Booking confirmation email sent",
+                detail="careers@voxbulk.com",
+            ),
+            _event(
                 parsed.get("booking_rescheduled_at"),
                 code="rescheduled",
                 label="Interview rescheduled",

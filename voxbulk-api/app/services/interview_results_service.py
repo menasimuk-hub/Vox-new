@@ -135,6 +135,8 @@ def _candidate_row(recipient: ServiceOrderRecipient, *, role: str, order_id: str
         "transcript_preview": transcript[:240] if transcript else None,
         "short_summary": analysis.get("short_summary") or parsed.get("short_summary"),
         "scheduling_sent_at": parsed.get("scheduling_url_sent_at") or parsed.get("scheduling_sent_at"),
+        "booked_start_at": parsed.get("booked_start_at"),
+        "booked_end_at": parsed.get("booked_end_at"),
     }
     row.update(_ats_fields(recipient))
     from app.services.interview_activity_service import InterviewActivityService

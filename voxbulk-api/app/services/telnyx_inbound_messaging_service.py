@@ -86,6 +86,19 @@ def _extract_message_text(record: dict[str, Any]) -> str:
                 nested = text_obj.get("body")
                 if isinstance(nested, str) and nested.strip():
                     return nested.strip()
+        if str(whatsapp_message.get("type") or "").lower() in {"button", "interactive"}:
+            for key in ("button", "interactive", "button_reply", "list_reply"):
+                block = whatsapp_message.get(key)
+                if isinstance(block, dict):
+                    for field in ("text", "title", "description", "id"):
+                        val = block.get(field)
+                        if isinstance(val, str) and val.strip():
+                            return val.strip()
+
+    for key in ("button_text", "title", "payload", "reply"):
+        val = record.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
 
     return ""
 

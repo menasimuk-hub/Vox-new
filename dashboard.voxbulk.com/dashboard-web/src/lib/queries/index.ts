@@ -271,7 +271,7 @@ export function useInterviewDraft(options?: { forceNew?: boolean; orderId?: stri
         ? `/service-orders/interview/draft?order_id=${encodeURIComponent(orderId)}`
         : "/service-orders/interview/draft";
       const draft = await apiFetch<InterviewDraftPayload>(draftPath);
-      if (draft?.order) return draft;
+      if (draft?.order || orderId) return draft;
       return apiFetch<InterviewDraftPayload>("/service-orders/interview/draft/new", {
         method: "POST",
         body: "{}",
@@ -318,6 +318,23 @@ export function usePatchServiceOrder() {
       apiFetch<ServiceOrder>(`/service-orders/${encodeURIComponent(orderId)}`, {
         method: "PATCH",
         body: JSON.stringify(body),
+      }),
+    onSuccess: (order) => {
+      void qc.invalidateQueries({ queryKey: ["service-orders"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(order.id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
+      void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
+    },
+  });
+}
+
+export function useStopInterviewCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, reason }: { orderId: string; reason?: string }) =>
+      apiFetch<ServiceOrder>(`/service-orders/${encodeURIComponent(orderId)}/stop`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason || "Stopped by user" }),
       }),
     onSuccess: (order) => {
       void qc.invalidateQueries({ queryKey: ["service-orders"] });

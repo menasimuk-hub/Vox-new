@@ -405,13 +405,26 @@ function CreateInterview() {
 
   const onSaveDraft = async (silent?: boolean, extraConfig?: Record<string, unknown>) => {
     if (!orderId) return;
+    const body = buildSaveBody(extraConfig);
+    const locked = ["running", "paused", "scheduled"].includes(String(order?.status || ""));
     try {
-      const body = buildSaveBody(extraConfig);
-      await saveDraftM.mutateAsync(body);
-      await patchOrderM.mutateAsync({ orderId, body });
-      if (!silent) toast.success("Draft saved");
+      if (locked) {
+        await patchOrderM.mutateAsync({
+          orderId,
+          body: {
+            title: body.title,
+            scheduled_start_at: body.scheduled_start_at,
+            scheduled_end_at: body.scheduled_end_at,
+            config: body.config,
+          },
+        });
+      } else {
+        await saveDraftM.mutateAsync(body);
+        await patchOrderM.mutateAsync({ orderId, body });
+      }
+      if (!silent) toast.success(locked ? "Interview updated" : "Draft saved");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save draft");
+      toast.error(e instanceof Error ? e.message : "Could not save");
       throw e;
     }
   };
@@ -822,10 +835,12 @@ function CreateInterview() {
               {cvPhase === "ready" && "CV collection finished — you can run ATS, remove weak candidates, and open Preview & approve to launch calls."}
             </div>
           )}
-          <div className="grid grid-cols-1 gap-2 md:col-span-2 sm:grid-cols-2">
-            <Field label="Collection start"><Input type="datetime-local" value={collectionStart} onChange={(e) => setCollectionStart(e.target.value)} className="w-full min-w-0" /></Field>
-            <Field label="Collection end"><Input type="datetime-local" value={collectionEnd} onChange={(e) => setCollectionEnd(e.target.value)} className="w-full min-w-0" /></Field>
-          </div>
+          {cvEmailActive && (
+            <div className="grid grid-cols-1 gap-2 md:col-span-2 sm:grid-cols-2">
+              <Field label="Collection start"><Input type="datetime-local" value={collectionStart} onChange={(e) => setCollectionStart(e.target.value)} className="w-full min-w-0" /></Field>
+              <Field label="Collection end"><Input type="datetime-local" value={collectionEnd} onChange={(e) => setCollectionEnd(e.target.value)} className="w-full min-w-0" /></Field>
+            </div>
+          )}
 
           <div className="md:col-span-2 group relative overflow-hidden rounded-xl border-2 border-dashed border-border bg-gradient-to-br from-background/60 via-background/40 to-accent/20 px-4 py-8 transition-colors hover:border-primary/40 sm:px-6 sm:py-10">
             <BackdropIllustration />

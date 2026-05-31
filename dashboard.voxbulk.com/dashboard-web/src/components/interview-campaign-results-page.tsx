@@ -16,7 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { downloadAuthenticatedFile } from "@/lib/api";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
-import { useInterviewResults, useHubSpotStatus, useSaveInterviewShortlist, useSendInterviewScheduling, useServiceOrders, useSchedulingStatus } from "@/lib/queries";
+import { useInterviewResults, useHubSpotStatus, useSaveInterviewShortlist, useSendInterviewScheduling, useServiceOrders, useSchedulingStatus, useStopInterviewCampaign } from "@/lib/queries";
 import type { CampaignTone } from "@/lib/types/campaign";
 import type { ServiceOrder } from "@/lib/types/api";
 import { AtsScore } from "@/components/ats-score";
@@ -35,6 +35,8 @@ export type CandidateRow = {
   sentiment?: string;
   status?: string;
   scheduledAt?: string;
+  booked_start_at?: string | null;
+  activity_status?: string;
   transcript_preview?: string | null;
   recording_play_url?: string | null;
   ats_score?: number | null;
@@ -42,10 +44,17 @@ export type CandidateRow = {
   ats_label?: string | null;
 };
 
+function parseUtc(iso?: string | null) {
+  const raw = String(iso || "").trim();
+  if (!raw) return new Date(NaN);
+  if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(raw)) return new Date(`${raw}Z`);
+  return new Date(raw);
+}
+
 function fmtSchedule(iso?: string | null) {
   if (!iso) return "Pending";
   try {
-    return new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    return parseUtc(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   } catch {
     return iso;
   }
@@ -69,6 +78,9 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   const isLive = isLiveOrder(rawOrder, current?.status || "quoted");
 
   const resultsQ = useInterviewResults(orderId);
+  const stopM = useStopInterviewCampaign();
+  const [stopOpen, setStopOpen] = React.useState(false);
+  const [stopConfirmText, setStopConfirmText] = React.useState("");
   const results = resultsQ.data || {};
   const orderMeta = (results.order || {}) as Record<string, unknown>;
   const kpis = (results.kpis || {}) as Record<string, unknown>;
@@ -83,7 +95,9 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         phone: String(c.phone || ""),
         email: String(c.email || ""),
         status: String(c.status || "Pending"),
-        scheduledAt: fmtSchedule(String(c.scheduling_sent_at || orderMeta.scheduled_start_at || "")),
+        scheduledAt: fmtSchedule(String(c.booked_start_at || c.scheduling_sent_at || orderMeta.scheduled_start_at || "")),
+        booked_start_at: c.booked_start_at ? String(c.booked_start_at) : null,
+        activity_status: String(c.activity_status || ""),
         ats_score: c.ats_score != null ? Number(c.ats_score) : null,
         ats_status: String(c.ats_status || ""),
         ats_label: String(c.ats_label || ""),
@@ -126,6 +140,30 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
     setSelectedRows({});
     setOpen(null);
   }, [orderId]);
+
+  const downloadReport = async (recipientId: string, kind: "html" | "pdf") => {
+    try {
+      const path =
+        kind === "pdf"
+          ? `/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(recipientId)}/interview-candidate-report.pdf`
+          : `/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(recipientId)}/interview-candidate-report.html`;
+      await downloadAuthenticatedFile(path, kind === "pdf" ? `interview-report-${recipientId}.pdf` : undefined);
+      if (kind === "html") toast.success("Report opened");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Report download failed");
+    }
+  };
+
+  const onStopCampaign = async () => {
+    try {
+      await stopM.mutateAsync({ orderId, reason: "Stopped by user from results" });
+      toast.success("Interview stopped");
+      setStopOpen(false);
+      setStopConfirmText("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Stop failed");
+    }
+  };
 
   const exportResults = async (kind: "pdf" | "csv") => {
     try {
@@ -172,7 +210,11 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
             <Button variant="ghost" className="gap-1.5" asChild>
               <Link to="/interviews"><ArrowLeft className="size-4" /> Back</Link>
             </Button>
-            {!isLive && (
+            {isLive ? (
+              <Button variant="destructive" className="gap-1.5" onClick={() => setStopOpen(true)}>
+                Stop campaign
+              </Button>
+            ) : (
               <>
                 <Button variant="outline" className="gap-1.5" onClick={() => void exportResults("pdf")}><Download className="size-4" /> Export PDF</Button>
                 <Button variant="outline" className="gap-1.5" onClick={() => void exportResults("csv")}><Download className="size-4" /> Export CSV</Button>
@@ -263,7 +305,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                       <TableCell className="pl-4">
                         <Checkbox checked={!!selectedRows[c.id]} onCheckedChange={(v) => setSelectedRows((s) => ({ ...s, [c.id]: !!v }))} onClick={(e) => e.stopPropagation()} />
                       </TableCell>
-                      <TableCell className="font-medium">{c.name}</TableCell>
+                      <TableCell className="font-medium" title={c.id}>{c.name}</TableCell>
                       {isLive ? (
                         <>
                           <TableCell className="text-xs"><span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5 text-muted-foreground" />{c.scheduledAt}</span></TableCell>
@@ -282,9 +324,17 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                       )}
                       <TableCell className="pr-4 text-right">
                         {!isLive && (
-                          <Button size="icon" variant="ghost" aria-label="Play recording" onClick={(e) => { e.stopPropagation(); setOpen(c.id); }}>
-                            <Play className="size-4" />
-                          </Button>
+                          <div className="inline-flex gap-1">
+                            {(c.status === "completed" || c.activity_status === "report_ready") && (
+                              <>
+                                <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); void downloadReport(c.id, "html"); }}>Report</Button>
+                                <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); void downloadReport(c.id, "pdf"); }}>PDF</Button>
+                              </>
+                            )}
+                            <Button size="icon" variant="ghost" aria-label="Play recording" onClick={(e) => { e.stopPropagation(); setOpen(c.id); }}>
+                              <Play className="size-4" />
+                            </Button>
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>
@@ -323,6 +373,12 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
               <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => setTranscriptOpen(true)}>
                 <FileText className="size-3.5" /> Open transcript
               </Button>
+              <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "html")}>
+                <FileText className="size-3.5" /> Full report
+              </Button>
+              <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "pdf")}>
+                <Download className="size-3.5" /> Report PDF
+              </Button>
               <div className="rounded-lg border border-success/30 bg-success/10 p-3">
                 <div className="flex items-start gap-2">
                   <UserCheck className="mt-0.5 size-4 text-success" />
@@ -345,6 +401,25 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         recipientIds={Object.entries(selectedRows).filter(([, v]) => v).map(([id]) => id)}
       />
       <InterviewTranscriptDialog open={transcriptOpen} onOpenChange={setTranscriptOpen} orderId={orderId} recipientId={open} candidateName={candidateOpen?.name} />
+
+      <Dialog open={stopOpen} onOpenChange={setStopOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Stop interview campaign</DialogTitle>
+            <DialogDescription>
+              Pending AI calls will stop. Booked candidates keep their slots until cancelled individually.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">Type <strong>STOP</strong> to confirm.</p>
+          <Input value={stopConfirmText} onChange={(e) => setStopConfirmText(e.target.value)} placeholder="STOP" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setStopOpen(false); setStopConfirmText(""); }}>Cancel</Button>
+            <Button variant="destructive" disabled={stopConfirmText !== "STOP" || stopM.isPending} onClick={() => void onStopCampaign()}>
+              {stopM.isPending ? "Stopping…" : "Stop campaign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-import json
-import secrets
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
+UK_TZ = ZoneInfo("Europe/London")
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -155,11 +158,21 @@ def _render_template_body(body: str | None, variables: dict[int, str]) -> str:
 
 
 def _format_slot_date(dt: datetime) -> str:
-    return dt.strftime("%a %d %b %Y").replace(" 0", " ")
+    aware = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    local = aware.astimezone(UK_TZ)
+    return local.strftime("%a %d %b %Y").replace(" 0", " ")
 
 
 def _format_slot_time(dt: datetime) -> str:
-    return dt.strftime("%I:%M %p").lstrip("0")
+    aware = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    local = aware.astimezone(UK_TZ)
+    return local.strftime("%I:%M %p").lstrip("0")
+
+
+def _iso_utc(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=None).isoformat() + "Z"
 
 
 def _booking_invite_buttons(components: list[Any] | None) -> list[dict[str, str]]:
@@ -598,12 +611,12 @@ class InterviewBookingService:
             "candidate_name": recipient.name or "Candidate",
             "role": role,
             "organisation_name": org_name,
-            "window_start": order.scheduled_start_at.isoformat(),
-            "window_end": order.scheduled_end_at.isoformat(),
             "slot_minutes": SLOT_MINUTES,
-            "available_slots": [s.isoformat() for s in available],
-            "booked_start_at": row.booked_start_at.isoformat() if row.booked_start_at else None,
-            "booked_end_at": row.booked_end_at.isoformat() if row.booked_end_at else None,
+            "available_slots": [_iso_utc(s) for s in available],
+            "booked_start_at": _iso_utc(row.booked_start_at),
+            "booked_end_at": _iso_utc(row.booked_end_at),
+            "window_start": _iso_utc(order.scheduled_start_at),
+            "window_end": _iso_utc(order.scheduled_end_at),
             "already_booked": row.booked_start_at is not None,
             "cancelled_at": str(cancelled_at) if cancelled_at else None,
             "can_reschedule": row.booked_start_at is not None,
@@ -690,8 +703,9 @@ class InterviewBookingService:
         first = _first_name(recipient.name)
 
         if recipient.email:
+            sent_ok = False
             try:
-                CareerEmailService.send_templated_optional(
+                sent_ok, err = CareerEmailService.send_templated_optional(
                     db,
                     template_key="interview_booking_confirm",
                     to_email=str(recipient.email).strip(),
@@ -703,8 +717,22 @@ class InterviewBookingService:
                         "interview_time": time_line,
                     },
                 )
-            except Exception:
-                pass
+                if not sent_ok:
+                    logger.warning(
+                        "booking_confirm_email_failed",
+                        extra={"recipient_id": recipient.id, "error": err},
+                    )
+            except Exception as exc:
+                logger.exception(
+                    "booking_confirm_email_error",
+                    extra={"recipient_id": recipient.id, "error": str(exc)},
+                )
+            if sent_ok:
+                merged = _recipient_result(recipient)
+                merged["confirmation_email_sent_at"] = _now().isoformat()
+                recipient.result_json = json.dumps(merged, ensure_ascii=False)
+                db.add(recipient)
+                db.commit()
 
         if not recipient.phone:
             return

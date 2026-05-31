@@ -276,7 +276,7 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
         if order.service_code != "interview":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an interview order")
         if order.status in {"running", "completed", "cancelled"}:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot edit a running or finished interview")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot save draft for a running or finished interview — use schedule updates instead")
     else:
         order = ensure_interview_draft_order(
             db,
