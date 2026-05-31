@@ -715,7 +715,17 @@ class ServiceOrderService:
             "updated_at": order.updated_at.isoformat() if order.updated_at else None,
         }
         if include_recipients:
-            out["recipients"] = [ServiceOrderService.recipient_to_dict(r) for r in (recipients or [])]
+            if order.service_code == "interview":
+                from app.services.interview_activity_service import InterviewActivityService
+
+                enriched: list[dict[str, Any]] = []
+                for r in recipients or []:
+                    row = ServiceOrderService.recipient_to_dict(r)
+                    row["activity_status"] = InterviewActivityService.activity_status(r)
+                    enriched.append(row)
+                out["recipients"] = enriched
+            else:
+                out["recipients"] = [ServiceOrderService.recipient_to_dict(r) for r in (recipients or [])]
         out["is_archived"] = ServiceOrderService.is_archived_order(order)
         if order.service_code == "survey":
             out["next_action"] = ServiceOrderService.survey_next_action(order)

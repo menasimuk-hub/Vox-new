@@ -32,6 +32,29 @@ function candidatePill(status) {
   return 'leadPill leadPillNeutral'
 }
 
+function activityStatusLabel(code) {
+  const map = {
+    pending: 'Pending',
+    awaiting_booking: 'Awaiting booking',
+    booked_waiting: 'Booked (upcoming)',
+    booked: 'Booked',
+    calling: 'Calling',
+    interview_completed: 'Interview done',
+    report_ready: 'Report ready',
+    scheduling_sent: 'Scheduling sent',
+    call_failed: 'Call failed',
+  }
+  return map[String(code || '').toLowerCase()] || code || 'Pending'
+}
+
+function activityPill(code) {
+  const s = String(code || 'pending').toLowerCase()
+  if (s === 'report_ready' || s === 'interview_completed') return 'leadPill leadPillAdvance'
+  if (s === 'calling' || s === 'awaiting_booking') return 'leadPill leadPillHold'
+  if (s === 'call_failed') return 'leadPill leadPillDecline'
+  return 'leadPill leadPillNeutral'
+}
+
 function cvQualityLabel(q) {
   const v = String(q || 'missing')
   if (v === 'good') return 'Good'
@@ -63,6 +86,9 @@ export default function RunningInterviews() {
   const [busyKey, setBusyKey] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [editForm, setEditForm] = useState(EMPTY_CANDIDATE)
+  const [activityRow, setActivityRow] = useState(null)
+  const [activityData, setActivityData] = useState(null)
+  const [activityLoading, setActivityLoading] = useState(false)
 
   const load = useCallback(async () => {
     setError('')
@@ -181,6 +207,77 @@ export default function RunningInterviews() {
     }
   }
 
+  const openActivity = async (recipient) => {
+    if (!selected?.id || !recipient?.id) return
+    setActivityRow(recipient)
+    setActivityData(null)
+    setActivityLoading(true)
+    setError('')
+    try {
+      const data = await apiFetch(
+        `/admin/platform-services/orders/${encodeURIComponent(selected.id)}/recipients/${encodeURIComponent(recipient.id)}/activity`,
+      )
+      setActivityData(data)
+    } catch (e) {
+      setError(e?.message || 'Could not load activity')
+      setActivityRow(null)
+    } finally {
+      setActivityLoading(false)
+    }
+  }
+
+  const closeActivity = () => {
+    setActivityRow(null)
+    setActivityData(null)
+  }
+
+  const downloadReport = async (recipient, kind) => {
+    if (!selected?.id || !recipient?.id) return
+    const key = `report-${kind}-${recipient.id}`
+    setBusyKey(key)
+    setError('')
+    try {
+      const path =
+        kind === 'pdf'
+          ? `/admin/platform-services/orders/${encodeURIComponent(selected.id)}/recipients/${encodeURIComponent(recipient.id)}/interview-candidate-report.pdf`
+          : `/admin/platform-services/orders/${encodeURIComponent(selected.id)}/recipients/${encodeURIComponent(recipient.id)}/interview-candidate-report.html`
+      const blob = await apiFetchBlob(path)
+      const url = URL.createObjectURL(blob)
+      if (kind === 'html') {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      } else {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `interview-report-${recipient.id}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e) {
+      setError(e?.message || 'Could not download report')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  const resendInvite = async (recipient) => {
+    if (!selected?.id || !recipient?.id) return
+    setBusyKey(`invite-${recipient.id}`)
+    setError('')
+    try {
+      await apiFetch(`/admin/platform-services/orders/${encodeURIComponent(selected.id)}/send-invites`, {
+        method: 'POST',
+        body: JSON.stringify({ recipient_ids: [recipient.id], force_resend: true }),
+      })
+      await loadDetail(selected.id)
+    } catch (e) {
+      setError(e?.message || 'Could not resend invite')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
   const recipients = selected?.recipients || []
   const config = selected?.config || {}
   const report = selected?.report || {}
@@ -276,6 +373,7 @@ export default function RunningInterviews() {
                     <th>Task</th>
                     <th>Reference</th>
                     <th>Organisation</th>
+                    <th>Headcount</th>
                     <th>Owner</th>
                     <th>Status</th>
                     <th>Progress</th>
@@ -292,6 +390,7 @@ export default function RunningInterviews() {
                         <td><strong>{o.title}</strong></td>
                         <td><code>{o.reference_id || '—'}</code></td>
                         <td>{o.org_name || o.org_id}</td>
+                        <td>{total || '—'}</td>
                         <td>{o.owner_email || '—'}</td>
                         <td><span className={statusPill(o.status, o.payment_status)}>{o.status_label || o.status}</span></td>
                         <td>{done} / {total}</td>
@@ -428,6 +527,7 @@ export default function RunningInterviews() {
                         <th>Email</th>
                         <th>CV</th>
                         <th>Source</th>
+                        <th>Activity</th>
                         <th>Status</th>
                         <th>Actions</th>
                       </tr>
@@ -441,9 +541,28 @@ export default function RunningInterviews() {
                           <td>{r.email || '—'}</td>
                           <td>{cvQualityLabel(r.cv_quality)}{r.cv_filename ? ` · ${r.cv_filename}` : ''}</td>
                           <td>{r.intake_source || '—'}</td>
+                          <td>
+                            <span className={activityPill(r.activity_status)}>{activityStatusLabel(r.activity_status)}</span>
+                          </td>
                           <td><span className={candidatePill(r.status)}>{r.status || 'pending'}</span></td>
                           <td>
                             <div className="runningSurveyRowActions">
+                              <button type="button" className="btn soft bsm" onClick={() => openActivity(r)}>
+                                <Activity size={14} /> Activity
+                              </button>
+                              {r.activity_status === 'report_ready' || r.status === 'completed' ? (
+                                <>
+                                  <button type="button" className="btn soft bsm" disabled={busyKey === `report-html-${r.id}`} onClick={() => downloadReport(r, 'html')}>
+                                    Report
+                                  </button>
+                                  <button type="button" className="btn soft bsm" disabled={busyKey === `report-pdf-${r.id}`} onClick={() => downloadReport(r, 'pdf')}>
+                                    PDF
+                                  </button>
+                                </>
+                              ) : null}
+                              <button type="button" className="btn soft bsm" disabled={busyKey === `invite-${r.id}`} onClick={() => resendInvite(r)}>
+                                Resend
+                              </button>
                               {r.has_cv_file ? (
                                 <button type="button" className="btn soft bsm" disabled={busyKey === `cv-${r.id}`} onClick={() => downloadCv(r)}>
                                   <Download size={14} /> CV
@@ -479,6 +598,40 @@ export default function RunningInterviews() {
           <div className="cardBody muted">Select an interview task and click <strong>Manage</strong> to monitor and support the customer.</div>
         </div>
       )}
+
+      {activityRow ? (
+        <div className="modalOverlay" role="presentation" onClick={closeActivity}>
+          <div className="ticketModal runningSurveyActivityModal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="cardHead">
+              <h3>Candidate activity — {activityRow.name || activityRow.email || activityRow.id}</h3>
+              <button type="button" className="btn soft bsm" onClick={closeActivity}>Close</button>
+            </div>
+            <div className="cardBody">
+              {activityLoading ? <div className="muted">Loading activity…</div> : null}
+              {!activityLoading && activityData ? (
+                <>
+                  <div className="runningSurveyMetaBlock" style={{ marginBottom: 12 }}>
+                    <span className={activityPill(activityData.activity_status)}>{activityStatusLabel(activityData.activity_status)}</span>
+                    {activityData.booked_start_at ? (
+                      <span className="muted" style={{ marginLeft: 10 }}>Booked: {fmtWhen(activityData.booked_start_at)}</span>
+                    ) : null}
+                  </div>
+                  <ul className="runningSurveyAuditList">
+                    {(activityData.events || []).map((ev, idx) => (
+                      <li key={`${ev.at}-${idx}`}>
+                        <div className="runningSurveyAuditLabel">{ev.label}</div>
+                        <div className="muted">{fmtWhen(ev.at)}</div>
+                        {ev.detail ? <div className="runningSurveyAuditDetail">{ev.detail}</div> : null}
+                      </li>
+                    ))}
+                    {!(activityData.events || []).length ? <li className="muted">No activity recorded yet.</li> : null}
+                  </ul>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }

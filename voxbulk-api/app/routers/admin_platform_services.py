@@ -202,6 +202,105 @@ def admin_download_recipient_cv(
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CV file not available for download")
 
 
+@router.get("/orders/{order_id}/recipients/{recipient_id}/activity")
+def admin_recipient_activity(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_activity_service import InterviewActivityService
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "interview":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Activity timeline is only for interview orders")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    return InterviewActivityService.timeline(db, order, recipient)
+
+
+@router.get("/orders/{order_id}/recipients/{recipient_id}/interview-candidate-report.html")
+def admin_interview_candidate_report_html(
+    order_id: str,
+    recipient_id: str,
+    include_cv: bool = False,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
+    from fastapi.responses import HTMLResponse
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    html_doc = InterviewCandidateReportExportService.html(db, order, recipient, include_cv=include_cv)
+    return HTMLResponse(content=html_doc)
+
+
+@router.get("/orders/{order_id}/recipients/{recipient_id}/interview-candidate-report.pdf")
+def admin_interview_candidate_report_pdf(
+    order_id: str,
+    recipient_id: str,
+    include_cv: bool = False,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
+    from fastapi.responses import Response
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    pdf_bytes = InterviewCandidateReportExportService.pdf(db, order, recipient, include_cv=include_cv)
+    name = (recipient.name or "candidate").replace(" ", "-").lower()[:40]
+    suffix = "-with-cv" if include_cv else ""
+    filename = f"interview-report-{name}{suffix}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.post("/orders/{order_id}/send-invites")
+def admin_send_interview_invites(
+    order_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.interview_booking_service import InterviewBookingService
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "interview":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invites are only for interview orders")
+    body = payload or {}
+    try:
+        return InterviewBookingService.send_invites(
+            db,
+            order,
+            recipient_ids=body.get("recipient_ids"),
+            channels=body.get("channels"),
+            force_resend=bool(body.get("force_resend", True)),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/orders/{order_id}/recipients/{recipient_id}")
 def admin_get_recipient_detail(
     order_id: str,
