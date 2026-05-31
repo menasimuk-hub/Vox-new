@@ -1,6 +1,7 @@
 """Default content for system email templates (upserted when missing)."""
 
-from app.data.interview_email_layout import cta_button, wrap_interview_email
+from app.data.brand_email_layout import cta_button, wrap_brand_email
+from app.data.interview_email_layout import wrap_interview_email
 from app.data.invoice_document_default import INVOICE_DOCUMENT_BODY, INVOICE_DOCUMENT_SUBJECT, NEW_INVOICE_EMAIL_BODY
 from app.data.sales_offer_email_default import SALES_OFFER_EMAIL_BODY, SALES_OFFER_EMAIL_SUBJECT
 
@@ -115,12 +116,12 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     "interview_zoom_invite": {
         "title": "Interview Zoom invite",
         "subject": "Your Zoom interview — {{role}}",
-        "body": """<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
-  <p>Hi <strong>{{candidate_name}}</strong>,</p>
+        "body": wrap_brand_email(
+            title="Zoom interview",
+            inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
   <p>Your Zoom interview for <strong>{{role}}</strong> is ready.</p>
-  <p><a href="{{join_url}}" style="display:inline-block;background:#00C896;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Join Zoom meeting</a></p>
-  <p style="word-break:break-all;font-size:13px;"><a href="{{join_url}}" style="color:#00C896;">{{join_url}}</a></p>
-  <p style="font-size:12px;color:#64748b;">— VOXBULK</p>
-</body></html>""",
+  """ + cta_button(href="{{join_url}}", label="Join Zoom meeting") + """
+  <p style="word-break:break-all;font-size:13px;color:#6b6560;"><a href="{{join_url}}" style="color:#1a2d5c;">{{join_url}}</a></p>""",
+        ),
     },
 }

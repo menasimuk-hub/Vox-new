@@ -40,19 +40,30 @@ class EmailTemplateError(ValueError):
 class EmailTemplateService:
     @staticmethod
     def ensure_system_templates(db: Session) -> None:
-        """Insert any missing system templates so admin always sees the full set."""
+        """Insert any missing system templates; refresh interview bodies with broken data: logos."""
+        changed = False
         for key in EMAIL_TEMPLATE_KEYS:
-            if EmailTemplateService.get(db, key=key) is not None:
-                continue
             defaults = SYSTEM_EMAIL_DEFAULTS.get(key, {})
-            EmailTemplateService.create(
-                db,
-                key=key,
-                title=defaults.get("title") or key.replace("_", " ").title(),
-                subject=defaults.get("subject") or key.replace("_", " ").title(),
-                body=defaults.get("body") or "",
-                is_enabled=True,
-            )
+            row = EmailTemplateService.get(db, key=key)
+            if row is None:
+                EmailTemplateService.create(
+                    db,
+                    key=key,
+                    title=defaults.get("title") or key.replace("_", " ").title(),
+                    subject=defaults.get("subject") or key.replace("_", " ").title(),
+                    body=defaults.get("body") or "",
+                    is_enabled=True,
+                )
+                continue
+            body = str(row.body or "")
+            default_body = str(defaults.get("body") or "")
+            if default_body and key.startswith("interview_") and ("data:image" in body or "data:" in body and "base64" in body):
+                row.body = default_body
+                row.updated_at = datetime.utcnow()
+                db.add(row)
+                changed = True
+        if changed:
+            db.commit()
 
     @staticmethod
     def is_system_key(key: str) -> bool:

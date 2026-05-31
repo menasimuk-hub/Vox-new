@@ -64,6 +64,24 @@ def logo_data_uri(*, variant: str = "logo-black") -> str | None:
     return asset_data_uri(variant)
 
 
+def api_public_origin() -> str:
+    """Public API base URL for absolute links in emails and PDFs."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    dash = str(settings.dashboard_app_origin or settings.public_app_origin or "").strip().rstrip("/")
+    if dash and "dashboard." in dash:
+        return dash.replace("dashboard.", "api.", 1)
+    env = str(settings.env or "").lower()
+    if env in {"production", "prod", "staging"}:
+        return "https://api.voxbulk.com"
+    return "http://127.0.0.1:8000"
+
+
+def email_logo_url(*, variant: str = "logo-black") -> str:
+    return public_brand_url(api_public_origin(), variant)
+
+
 def public_brand_url(api_origin: str, name: str) -> str:
     origin = str(api_origin or "").rstrip("/")
     return f"{origin}/public/brand/{name}"

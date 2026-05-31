@@ -1,0 +1,92 @@
+# VOXBULK email logo — copy into all HTML email templates
+
+## Logo URL (production)
+
+Use this **HTTPS** URL in every email (never `data:image` base64 — most clients block it):
+
+```
+https://api.voxbulk.com/public/brand/logo-black
+```
+
+Local dev:
+
+```
+http://127.0.0.1:8000/public/brand/logo-black
+```
+
+The API serves the file from `voxbulk-api/logos/logo-black.svg`.
+
+After deploy, templates in the database that still contain `data:image` are auto-refreshed on the next API start for `interview_*` keys.
+
+---
+
+## Logo HTML block (paste into any email)
+
+```html
+<a href="https://voxbulk.com" style="text-decoration:none;display:inline-block;">
+  <img
+    src="https://api.voxbulk.com/public/brand/logo-black"
+    alt="VOXBULK"
+    width="140"
+    style="display:block;border:0;outline:none;max-width:140px;height:auto;"
+  />
+</a>
+```
+
+---
+
+## Full email wrapper (recommended)
+
+Use `wrap_brand_email()` in Python (`app/data/brand_email_layout.py`) or paste this structure:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Your subject</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f1ea;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#2a2824;line-height:1.65;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f5f1ea;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#fbf8f3;border:1px solid #e5e0d8;border-radius:14px;overflow:hidden;">
+          <tr>
+            <td style="padding:24px 28px 12px;border-bottom:1px solid #e5e0d8;">
+              <a href="https://voxbulk.com" style="text-decoration:none;display:inline-block;">
+                <img src="https://api.voxbulk.com/public/brand/logo-black" alt="VOXBULK" width="140" style="display:block;border:0;max-width:140px;height:auto;" />
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px;">
+              <!-- YOUR CONTENT HERE -->
+              <p>Hi <strong>{{candidate_name}}</strong>,</p>
+              <p>Your message…</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px 24px;border-top:1px solid #e5e0d8;font-size:12px;color:#6b6560;">
+              Sent by VOXBULK · careers@voxbulk.com
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+```
+
+---
+
+## CTA button snippet
+
+```html
+<p style="margin:24px 0;">
+  <a href="{{booking_url}}" style="display:inline-block;background:#1a2d5c;color:#ffffff;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600;">
+    Book my interview slot
+  </a>
+</p>
+```
