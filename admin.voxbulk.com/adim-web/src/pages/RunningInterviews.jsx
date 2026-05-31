@@ -276,6 +276,13 @@ export default function RunningInterviews() {
 
   const resendInvite = async (recipient) => {
     if (!selected?.id || !recipient?.id) return
+    const locked =
+      recipient.status === 'completed' ||
+      ['report_ready', 'interview_completed', 'scheduling_sent'].includes(String(recipient.activity_status || ''))
+    if (locked) {
+      setError('This candidate has already completed screening — booking invites cannot be resent.')
+      return
+    }
     setBusyKey(`invite-${recipient.id}`)
     setError('')
     try {
@@ -577,7 +584,22 @@ export default function RunningInterviews() {
                                   </button>
                                 </>
                               ) : null}
-                              <button type="button" className="btn soft bsm" disabled={busyKey === `invite-${r.id}`} onClick={() => resendInvite(r)}>
+                              <button
+                                type="button"
+                                className="btn soft bsm"
+                                disabled={
+                                  busyKey === `invite-${r.id}` ||
+                                  r.status === 'completed' ||
+                                  ['report_ready', 'interview_completed', 'scheduling_sent'].includes(String(r.activity_status || ''))
+                                }
+                                title={
+                                  r.status === 'completed' ||
+                                  ['report_ready', 'interview_completed', 'scheduling_sent'].includes(String(r.activity_status || ''))
+                                    ? 'Interview complete — cannot resend slot booking'
+                                    : 'Resend booking invite'
+                                }
+                                onClick={() => resendInvite(r)}
+                              >
                                 Resend
                               </button>
                               {r.has_cv_file ? (

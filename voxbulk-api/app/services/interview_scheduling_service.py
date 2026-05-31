@@ -175,6 +175,8 @@ class InterviewSchedulingService:
         channel_list = [str(c).strip().lower() for c in (channels or config.get("scheduling_channels") or ["email"]) if str(c).strip()]
         if not channel_list:
             channel_list = ["email"]
+        # Post-screening human interview links are email-only (Calendly/Cronofy).
+        channel_list = ["email"]
 
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = _org_name(db, order)
@@ -201,6 +203,11 @@ class InterviewSchedulingService:
                 elif not recipient.email:
                     errors.append(f"{recipient.name or recipient.id}: no phone or email")
                     continue
+
+            parsed_existing = _recipient_result(recipient)
+            if parsed_existing.get("scheduling_url_sent_at") or parsed_existing.get("scheduling_sent_at"):
+                errors.append(f"{recipient.name or recipient.id}: human interview link already sent")
+                continue
 
             try:
                 sched_url = create_scheduling_link(

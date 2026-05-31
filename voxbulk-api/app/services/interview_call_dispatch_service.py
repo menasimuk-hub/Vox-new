@@ -588,6 +588,7 @@ class InterviewCallDispatchService:
                 "call_control_id": result.external_id,
                 "provider_status": result.status,
                 "started_at": now.isoformat(),
+                "call_started_at": now.isoformat(),
             },
         )
         _refresh_order_report(db, order)
@@ -609,11 +610,14 @@ class InterviewCallDispatchService:
         extra: dict[str, Any] | None = None,
     ) -> None:
         recipient.status = status
+        now_iso = datetime.utcnow().isoformat()
         payload = {
             "channel": "ai_call",
             "final_status": status,
-            "ended_at": datetime.utcnow().isoformat(),
+            "ended_at": now_iso,
         }
+        if str(status or "").lower() in {"completed", "done"}:
+            payload["call_completed_at"] = now_iso
         if extra:
             payload.update(extra)
         merged = _recipient_result(recipient)

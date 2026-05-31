@@ -39,6 +39,16 @@ def _cancel_detail(parsed: dict[str, Any]) -> str | None:
     return " · ".join(parts) if parts else None
 
 
+def _call_started_at(parsed: dict[str, Any]) -> str | None:
+    raw = parsed.get("call_started_at") or parsed.get("started_at")
+    return str(raw).strip() if raw else None
+
+
+def _call_completed_at(parsed: dict[str, Any]) -> str | None:
+    raw = parsed.get("call_completed_at") or parsed.get("ended_at")
+    return str(raw).strip() if raw else None
+
+
 class InterviewActivityService:
     @staticmethod
     def activity_status(recipient: ServiceOrderRecipient, *, parsed: dict[str, Any] | None = None) -> str:
@@ -113,8 +123,8 @@ class InterviewActivityService:
                 label="Cancellation email sent",
                 detail="careers@voxbulk.com",
             ),
-            _event(parsed.get("call_started_at"), code="calling", label="AI call started"),
-            _event(parsed.get("call_completed_at"), code="call_done", label="AI call completed"),
+            _event(_call_started_at(parsed), code="calling", label="AI call started"),
+            _event(_call_completed_at(parsed), code="call_done", label="AI call completed"),
             _event(parsed.get("analysis_saved_at"), code="analysis", label="Interview analysed"),
             _event(parsed.get("scheduling_url_sent_at") or parsed.get("scheduling_sent_at"), code="scheduling", label="Human interview link sent"),
         ):

@@ -283,6 +283,12 @@ function CreateInterview() {
     }
   }, [agents, agentId]);
 
+  React.useEffect(() => {
+    if (!orderId || !agentId) return;
+    if (String(config.agent_id || "") === agentId) return;
+    void onSaveDraft(true);
+  }, [orderId, agentId, config.agent_id]);
+
   const candidates = React.useMemo<CandidateRow[]>(() => {
     const rows = draftQ.data?.recipients || [];
     return rows.map((r) => ({

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, CalendarClock, Download, FileText, Filter, Mail, MessageCircle, Play, Search, Send, UserCheck } from "lucide-react";
+import { ArrowLeft, CalendarClock, Download, FileText, Filter, Play, Search, Send, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -439,13 +439,11 @@ function LiveMeta({ label, value }: { label: string; value: string }) {
 }
 
 function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }: { open: boolean; onOpenChange: (v: boolean) => void; count: number; orderId: string; recipientIds: string[] }) {
-  const [channel, setChannel] = React.useState<"email" | "whatsapp" | "both">("both");
   const shortlistM = useSaveInterviewShortlist(orderId);
   const sendM = useSendInterviewScheduling(orderId);
   const schedulingQ = useSchedulingStatus();
   const hubspotQ = useHubSpotStatus();
   const [busy, setBusy] = React.useState(false);
-  const channels = channel === "both" ? ["whatsapp", "email"] : channel === "whatsapp" ? ["whatsapp"] : ["email"];
   const scheduling = (schedulingQ.data || {}) as Record<string, unknown>;
   const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
   const calendarReady = scheduling.human_scheduling_ready === true;
@@ -456,12 +454,14 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
     setBusy(true);
     try {
       await shortlistM.mutateAsync(recipientIds);
-      const res = await sendM.mutateAsync({ recipient_ids: recipientIds, channels });
-      const wa = Number((res as Record<string, unknown>).whatsapp_sent || 0);
+      const res = await sendM.mutateAsync({ recipient_ids: recipientIds, channels: ["email"] });
       const em = Number((res as Record<string, unknown>).email_sent || 0);
       const hs = Number((res as Record<string, unknown>).hubspot_synced || 0);
-      if (wa + em > 0) {
-        toast.success(`Sent ${wa} WhatsApp and ${em} email invite(s)${hs > 0 ? ` · ${hs} synced to HubSpot` : ""}`);
+      const errs = (res as Record<string, unknown>).errors;
+      if (em > 0) {
+        toast.success(`Sent ${em} email invite(s)${hs > 0 ? ` · ${hs} synced to HubSpot` : ""}`);
+      } else if (Array.isArray(errs) && errs.length) {
+        toast.error(String(errs[0]));
       } else {
         toast.error("Nothing was sent");
       }
@@ -479,7 +479,7 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
         <DialogHeader>
           <DialogTitle>Send human interview links</DialogTitle>
           <DialogDescription>
-            Each shortlisted candidate gets a unique link to book on your company&apos;s connected Calendly or Cronofy account.
+            Each shortlisted candidate receives an email with a unique Calendly or Cronofy link to book their next-stage interview.
             {hubspotReady ? " Connected HubSpot contacts will be updated automatically." : ""}
           </DialogDescription>
         </DialogHeader>
@@ -501,25 +501,15 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
             to sync shortlisted candidates to your CRM.
           </p>
         ) : null}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <ChannelOption icon={<Mail className="size-4" />} label="Email" active={channel === "email"} onClick={() => setChannel("email")} />
-          <ChannelOption icon={<MessageCircle className="size-4" />} label="WhatsApp" active={channel === "whatsapp"} onClick={() => setChannel("whatsapp")} />
-          <ChannelOption icon={<Send className="size-4" />} label="Both" active={channel === "both"} onClick={() => setChannel("both")} />
-        </div>
+        <p className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+          Human interview links are sent by <strong>email only</strong> from your connected calendar provider.
+        </p>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={() => void onSend()} disabled={count === 0 || busy || !calendarReady}>{busy ? "Sending…" : `Send to ${count}`}</Button>
+          <Button onClick={() => void onSend()} disabled={count === 0 || busy || !calendarReady}>{busy ? "Sending…" : `Send email to ${count}`}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function ChannelOption({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className={"flex flex-col items-center gap-1 rounded-md border p-3 text-xs " + (active ? "border-primary bg-primary/10" : "border-border")}>
-      {icon}<span>{label}</span>
-    </button>
   );
 }
 

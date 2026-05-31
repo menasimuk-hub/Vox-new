@@ -200,7 +200,9 @@ class InterviewCandidateReportService:
                 "email": recipient.email,
                 "phone": recipient.phone,
                 "applied_at": _fmt_date(recipient.created_at.isoformat() if recipient.created_at else None),
-                "interview_date": _fmt_date(parsed.get("call_completed_at") or parsed.get("booked_start_at")),
+                "interview_date": _fmt_date(
+                    parsed.get("call_completed_at") or parsed.get("ended_at") or parsed.get("booked_start_at")
+                ),
             },
             "role": role,
             "company_name": company,

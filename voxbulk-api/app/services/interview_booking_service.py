@@ -989,9 +989,14 @@ class InterviewBookingService:
 
         wa_sent = 0
         email_sent = 0
+        skipped_locked = 0
         errors: list[str] = []
 
         for recipient in recipients:
+            if interview_booking_locked(recipient):
+                skipped_locked += 1
+                errors.append(f"{recipient.name or recipient.id}: interview already complete — invite skipped")
+                continue
             if not recipient.email and "email" in use_channels:
                 if recipient.phone and "whatsapp" in use_channels:
                     pass
@@ -1090,4 +1095,10 @@ class InterviewBookingService:
         db.add(order)
         db.commit()
 
-        return {"ok": True, "whatsapp_sent": wa_sent, "email_sent": email_sent, "errors": errors}
+        return {
+            "ok": True,
+            "whatsapp_sent": wa_sent,
+            "email_sent": email_sent,
+            "skipped_locked": skipped_locked,
+            "errors": errors,
+        }

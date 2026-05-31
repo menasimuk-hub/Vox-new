@@ -108,7 +108,7 @@ def test_send_scheduling_requires_org_connection(db_session: Session):
 
 
 @patch("app.services.interview_scheduling_service.TelnyxMessagingService.send_whatsapp")
-@patch("app.services.interview_scheduling_service.TransactionalEmailService.send_templated_optional")
+@patch("app.services.career_email_service.CareerEmailService.send_templated_optional")
 @patch("app.services.interview_scheduling_service.create_scheduling_link")
 @patch("app.services.interview_scheduling_service._resolve_scheduling_wa_template")
 def test_send_scheduling_links_stores_url(
@@ -147,7 +147,7 @@ def test_send_scheduling_links_stores_url(
     )
 
     assert result["ok"] is True
-    assert result["whatsapp_sent"] == 1
+    assert result["whatsapp_sent"] == 0
     assert result["email_sent"] == 1
     assert result["provider"] == "calendly"
     mock_create_link.assert_called_once()

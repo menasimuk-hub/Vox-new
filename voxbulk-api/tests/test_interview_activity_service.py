@@ -123,3 +123,28 @@ def test_timeline_includes_cancel_and_reschedule_events():
     assert "rescheduled" in codes
     assert "cancelled" in codes
     assert "cancel_email" in codes
+
+
+def test_timeline_call_completed_from_ended_at():
+    order = ServiceOrder(
+        id="ord-1",
+        org_id="org-1",
+        user_id="user-1",
+        service_code="interview",
+        title="Engineer",
+        status="running",
+        payment_status="approved",
+    )
+    r = _recipient(
+        status="completed",
+        result_json=json.dumps({"started_at": "2026-05-01T10:00:00", "ended_at": "2026-05-01T10:12:00"}),
+    )
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    db = MagicMock()
+    db.execute.return_value = mock_result
+    payload = InterviewActivityService.timeline(db, order, r)
+    codes = [e["code"] for e in payload["events"]]
+    assert "calling" in codes
+    assert "call_done" in codes
+    assert payload["booking_url"] is None
