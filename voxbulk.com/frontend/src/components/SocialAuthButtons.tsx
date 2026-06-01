@@ -40,16 +40,18 @@ export function SocialAuthButtons({ onOAuth, oauthLoading, compact }: SocialAuth
 
   return (
     <div className={`grid ${compact ? "gap-2" : "gap-2.5"}`}>
-      {MARKETING_SOCIAL_PROVIDERS.map((provider) => (
-        <SocialBtn
-          key={provider}
-          onClick={() => handleClick(provider)}
-          loading={oauthLoading === provider}
-          label={labelFor(provider)}
-          icon={iconFor(provider)}
-          compact={compact}
-        />
-      ))}
+      {MARKETING_SOCIAL_PROVIDERS.map((provider) =>
+        readyProviders.has(provider) ? (
+          <SocialBtn
+            key={provider}
+            onClick={() => handleClick(provider)}
+            loading={oauthLoading === provider}
+            label={labelFor(provider)}
+            icon={iconFor(provider)}
+            compact={compact}
+          />
+        ) : null,
+      )}
     </div>
   );
 }
