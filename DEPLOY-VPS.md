@@ -72,6 +72,7 @@ Verify dashboard: view source — must **not** contain `tabler-icons` (old theme
 | `retover-celery: ERROR (no such process)` | Optional — only if you use Celery via supervisor; safe to ignore otherwise |
 | KB files wrong library | Re-upload on Lead or Sales page (scoped upload) |
 | `git pull` unrelated histories | `git fetch origin && git reset --hard origin/main` (destroys local VPS edits) |
+| `untracked working tree files would be overwritten` (brand `*.png`) | Remove untracked PNGs under `admin/.../public/brand/` and `dashboard/.../public/brand/`, then `git pull origin main` — or run latest `./deploy-vps.sh` (auto-clears before pull) |
 | Admin blank after deploy | Set `VOX_ADMIN_DIST` and point nginx `root` to `dist` |
 | Dashboard shows old orange theme | Wrong rsync: use `dist/client/` not `dist/`. Rebuild + rsync — see `dashboard-web/BUILD-VPS.md` |
 | Dashboard 502 after nginx change | Run `cd dashboard-web && npm run build && ./vox.sh restart`; check `/tmp/voxbulk-dashboard.log` |

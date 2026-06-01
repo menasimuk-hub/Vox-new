@@ -1,0 +1,82 @@
+---
+description: VoxBulk production VPS — Baota/aaPanel paths, deploy workflow, git pull fixes
+alwaysApply: true
+---
+
+# VoxBulk VPS (production)
+
+User deploys from a **Linux VPS** (Baota / aaPanel). Treat VPS deploy and git pull issues as first-class when they ask about production.
+
+## Repository on VPS
+
+- **GitHub:** `https://github.com/menasimuk-hub/Vox-new.git` — branch `main`
+- **Repo root:** folder containing `deploy-vps.sh`, `vox.sh`, `voxbulk-api/`
+- Typical path on server: `/www/voxbulk` or similar (confirm with user if needed)
+
+## Deploy (on VPS — not Windows)
+
+```bash
+cd /path/to/Vox
+chmod +x deploy-vps.sh vox.sh
+./deploy-vps.sh
+```
+
+- Prefer **`./deploy-vps.sh`** as the deploy user — **not** `sudo sh ./deploy-vps.sh`
+- Script uses `bash`; it calls `sudo` internally for `apt-get` and rsync to wwwroot
+- Equivalent: `./vox.sh update`
+
+## Static wwwroot (Baota defaults in deploy-vps.sh)
+
+| App | Build output | wwwroot |
+|-----|--------------|---------|
+| Admin | `admin.voxbulk.com/adim-web/dist/` | `/www/wwwroot/admin.voxbulk.com` |
+| Dashboard | `dashboard.voxbulk.com/dashboard-web/dist/client/` | `/www/wwwroot/dashboard.voxbulk.com` |
+| Public site | vite preview :5173 (not static wwwroot by default) | — |
+
+## API
+
+- FastAPI: `127.0.0.1:8000` (uvicorn via `vox.sh`)
+- Production API host: `https://api.voxbulk.com`
+- Config: `voxbulk-api/.env` (never commit)
+
+## Git pull blocked by untracked brand/logo files
+
+Common after brand assets were synced manually on VPS then added to git:
+
+```
+error: The following untracked working tree files would be overwritten by merge:
+  admin.voxbulk.com/adim-web/public/brand/*.png
+  dashboard.voxbulk.com/dashboard-web/public/brand/*.png
+```
+
+**Fix on VPS (safe — only removes untracked copies):**
+
+```bash
+cd /path/to/Vox
+rm -f admin.voxbulk.com/adim-web/public/brand/icon-black.png \
+      admin.voxbulk.com/adim-web/public/brand/icon-white.png \
+      admin.voxbulk.com/adim-web/public/brand/logo-black.png \
+      admin.voxbulk.com/adim-web/public/brand/logo-white.png \
+      dashboard.voxbulk.com/dashboard-web/public/brand/icon-black.png \
+      dashboard.voxbulk.com/dashboard-web/public/brand/icon-white.png \
+      dashboard.voxbulk.com/dashboard-web/public/brand/logo-black.png \
+      dashboard.voxbulk.com/dashboard-web/public/brand/logo-white.png
+git pull origin main
+./deploy-vps.sh
+```
+
+Newer `deploy-vps.sh` runs `_clear_untracked_pull_conflicts` before pull automatically.
+
+## OAuth redirect URIs (production)
+
+- Google/Apple/LinkedIn callback: `https://api.voxbulk.com/auth/oauth/{provider}/callback`
+- Configure in Admin → Integrations → Social login **and** the provider console
+
+## Skip flags
+
+```bash
+VOX_SKIP_GIT=1 ./deploy-vps.sh
+VOX_SKIP_BUILD=1 ./deploy-vps.sh
+VOX_SKIP_MIGRATE=1 ./deploy-vps.sh
+VOX_FORCE_PULL=1 ./deploy-vps.sh   # stash + retry pull (use with care)
+```

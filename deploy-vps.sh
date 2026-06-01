@@ -56,16 +56,24 @@ preflight() {
   [[ -f "$VOX_SH" ]] || fail "vox.sh missing at $VOX_SH"
 }
 
-_clear_untracked_logo_conflicts() {
+_clear_untracked_pull_conflicts() {
   local remote_ref="$GIT_REMOTE/$GIT_BRANCH"
-  local path
-  while IFS= read -r path; do
-    [[ -n "$path" ]] || continue
-    if [[ -f "$path" ]] && ! git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
-      warn "Removing untracked $path (now tracked in git) so pull can proceed"
-      rm -f "$path"
-    fi
-  done < <(git ls-tree -r --name-only "$remote_ref" -- voxbulk-api/logos 2>/dev/null || true)
+  local prefix path
+  local prefixes=(
+    voxbulk-api/logos
+    admin.voxbulk.com/adim-web/public/brand
+    dashboard.voxbulk.com/dashboard-web/public/brand
+    voxbulk.com/frontend/public/brand
+  )
+  for prefix in "${prefixes[@]}"; do
+    while IFS= read -r path; do
+      [[ -n "$path" ]] || continue
+      if [[ -f "$path" ]] && ! git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
+        warn "Removing untracked $path (now tracked in git) so pull can proceed"
+        rm -f "$path"
+      fi
+    done < <(git ls-tree -r --name-only "$remote_ref" -- "$prefix" 2>/dev/null || true)
+  done
 }
 
 git_pull() {
@@ -88,14 +96,15 @@ git_pull() {
     warn "VOX_FORCE_PULL=1 — stashing other local changes before pull"
     git stash push -u -m "voxbulk-deploy-auto-stash $(date -Iseconds)"
   fi
-  _clear_untracked_logo_conflicts
+  _clear_untracked_pull_conflicts
   if ! git pull --ff-only "$GIT_REMOTE" "$GIT_BRANCH"; then
     if [[ "${VOX_FORCE_PULL:-0}" == "1" ]]; then
       warn "VOX_FORCE_PULL=1 — stashing all local/untracked changes and retrying pull"
       git stash push -u -m "voxbulk-deploy-force-pull $(date -Iseconds)" || true
+      _clear_untracked_pull_conflicts
       git pull --ff-only "$GIT_REMOTE" "$GIT_BRANCH" || fail "git pull failed after stash — run: git status; git reset --hard $GIT_REMOTE/$GIT_BRANCH"
     else
-      fail "git pull failed — run on VPS: rm -f voxbulk-api/logos/*.png && git pull origin main; or VOX_FORCE_PULL=1 ./deploy-vps.sh"
+      fail "git pull failed — remove untracked brand/logo files blocking merge, or run: VOX_FORCE_PULL=1 ./deploy-vps.sh"
     fi
   fi
 }
