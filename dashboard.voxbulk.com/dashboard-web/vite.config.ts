@@ -38,7 +38,7 @@ export default defineConfig({
       maskPath: "/",
       prerender: { outputPath: "/index.html", crawlLinks: false },
     },
-    prerender: { enabled: true, crawlLinks: false, failOnError: false },
+    prerender: { enabled: false },
   },
   vite: {
     build: {
