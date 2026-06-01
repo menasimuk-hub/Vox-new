@@ -166,6 +166,10 @@ function CreateInterview() {
   const cvEmailBlockReason = billing.blockReason;
   const billingPlanName = billing.planName;
   const hasPackageSub = billing.hasPackageSub;
+  const interviewDeliveryOptions = draftQ.data?.interview_delivery_options?.length
+    ? draftQ.data.interview_delivery_options
+    : ["ai_call"];
+  const zoomInterviewEnabled = interviewDeliveryOptions.includes("zoom");
 
   const [preview, setPreview] = React.useState(false);
   const [upgradeOpen, setUpgradeOpen] = React.useState(false);
@@ -219,7 +223,8 @@ function CreateInterview() {
     );
     setScriptApproved(Boolean(config.script_approved));
     setAgentId(String(config.agent_id || ""));
-    setDelivery(String(config.delivery || "ai_call"));
+    const savedDelivery = String(config.delivery || "ai_call");
+    setDelivery(savedDelivery === "zoom" && !zoomInterviewEnabled ? "ai_call" : savedDelivery);
     setCollectionStart(toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || "")));
     setCollectionEnd(toLocalInput(String(config.cv_collection_end_at || config.cv_email_end_at || "")));
     setCallingStart(toLocalInput(order.scheduled_start_at));
@@ -231,7 +236,7 @@ function CreateInterview() {
     if (config.ats_skipped === true) {
       setAtsSkipped(true);
     }
-  }, [order, config, order?.scheduled_start_at, order?.scheduled_end_at, cvEmailAllowed]);
+  }, [order, config, order?.scheduled_start_at, order?.scheduled_end_at, cvEmailAllowed, zoomInterviewEnabled]);
 
   const loadWaPreview = React.useCallback(async () => {
     if (!orderId) return;
@@ -1041,15 +1046,19 @@ function CreateInterview() {
               </Select>
             )}
           </Field>
-          <Field label="Interview format">
-            <Select value={delivery} onValueChange={setDelivery}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ai_call">Phone call</SelectItem>
-                <SelectItem value="zoom">Zoom video meeting</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
+          {interviewDeliveryOptions.length > 1 ? (
+            <Field label="Interview format">
+              <Select value={delivery} onValueChange={setDelivery}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ai_call">Phone call</SelectItem>
+                  {zoomInterviewEnabled ? (
+                    <SelectItem value="zoom">Zoom video meeting</SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
+            </Field>
+          ) : null}
           <div className="md:col-span-2 space-y-1.5">
             <Label className="text-xs">Screening criteria</Label>
             <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration…" />

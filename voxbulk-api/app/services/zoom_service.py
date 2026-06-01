@@ -99,8 +99,12 @@ class ZoomService:
             ZoomService._config(db)
             return True
         except ValueError:
-            cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
-            return bool(enabled and cfg)
+            return False
+
+    @staticmethod
+    def is_interview_delivery_enabled(db: Session) -> bool:
+        """True when Admin → Integrations → Zoom is enabled with valid OAuth credentials."""
+        return ZoomService.is_configured(db)
 
     @staticmethod
     def _vtt_to_text(raw: str) -> str:

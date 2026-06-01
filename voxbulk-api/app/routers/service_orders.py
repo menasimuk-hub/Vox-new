@@ -16,6 +16,18 @@ from app.services.gocardless_service import BillingService, GoCardlessConfigErro
 router = APIRouter(prefix="/service-orders", tags=["service-orders"])
 
 
+def _interview_draft_payload(db: Session, *, order, recipients, summary, billing) -> dict:
+    from app.services.platform_catalog_service import PlatformCatalogService
+
+    return {
+        "order": ServiceOrderService.order_to_dict(order) if order is not None else None,
+        "recipients": recipients,
+        "summary": summary,
+        "billing_context": billing,
+        **PlatformCatalogService.interview_platform_capabilities(db),
+    }
+
+
 def _require_org_service(db: Session, org_id: str, service_code: str) -> Organisation:
     from app.services.org_enabled_services import (
         is_service_enabled,
@@ -237,14 +249,15 @@ def get_interview_draft(
     if order is None:
         order = get_latest_interview_draft(db, org_id=principal.org_id)
     if order is None:
-        return {"order": None, "recipients": [], "summary": intake_summary([]), "billing_context": billing}
+        return _interview_draft_payload(db, order=None, recipients=[], summary=intake_summary([]), billing=billing)
     recipients = list_intake_recipients(db, order)
-    return {
-        "order": ServiceOrderService.order_to_dict(order),
-        "recipients": recipients,
-        "summary": intake_summary(recipients),
-        "billing_context": billing,
-    }
+    return _interview_draft_payload(
+        db,
+        order=order,
+        recipients=recipients,
+        summary=intake_summary(recipients),
+        billing=billing,
+    )
 
 
 @router.post("/interview/draft/new")
@@ -255,12 +268,7 @@ def create_new_interview_draft_route(db: Session = Depends(get_db), principal=De
     org = _require_org_service(db, principal.org_id, "interview")
     order = create_new_interview_draft(db, org_id=principal.org_id, user_id=principal.user_id)
     billing = org_interview_billing_context(db, org)
-    return {
-        "order": ServiceOrderService.order_to_dict(order),
-        "recipients": [],
-        "summary": intake_summary([]),
-        "billing_context": billing,
-    }
+    return _interview_draft_payload(db, order=order, recipients=[], summary=intake_summary([]), billing=billing)
 
 
 @router.post("/interview/draft")
@@ -296,6 +304,14 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
         if config_patch.get("cv_email_enabled") and not billing.get("cv_email_allowed"):
             config_patch = dict(config_patch)
             config_patch["cv_email_enabled"] = False
+        if "delivery" in config_patch:
+            try:
+                config_patch = dict(config_patch)
+                config_patch["delivery"] = PlatformCatalogService.normalize_interview_delivery(
+                    db, str(config_patch.get("delivery") or "ai_call")
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         order = ServiceOrderService.update_order(db, order, {"config": config_patch})
     sched_patch = {}
     for key in ("run_mode", "scheduled_start_at", "scheduled_end_at"):
@@ -307,12 +323,13 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
         order = ServiceOrderService.update_order(db, order, {"title": str(payload.get("title"))})
     recipients = list_intake_recipients(db, order)
     billing = org_interview_billing_context(db, org) if org else {}
-    return {
-        "order": ServiceOrderService.order_to_dict(order),
-        "recipients": recipients,
-        "summary": intake_summary(recipients),
-        "billing_context": billing,
-    }
+    return _interview_draft_payload(
+        db,
+        order=order,
+        recipients=recipients,
+        summary=intake_summary(recipients),
+        billing=billing,
+    )
 
 
 @router.get("/gocardless/browser-return")

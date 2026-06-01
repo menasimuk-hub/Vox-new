@@ -31,6 +31,40 @@ def test_resolve_survey_channel_rejects_both(db):
         PlatformCatalogService.resolve_survey_channel({"channels": ["whatsapp", "ai_call"]})
 
 
+def test_interview_delivery_options_without_zoom(db):
+    options = PlatformCatalogService.interview_delivery_options(db)
+    assert options == ["ai_call"]
+    caps = PlatformCatalogService.interview_platform_capabilities(db)
+    assert caps["interview_zoom_enabled"] is False
+    assert caps["interview_delivery_options"] == ["ai_call"]
+    with pytest.raises(ValueError, match="Zoom interviews are not available"):
+        PlatformCatalogService.normalize_interview_delivery(db, "zoom")
+
+
+def test_interview_delivery_options_with_zoom_enabled(db):
+    from app.core.encryption import get_encryptor
+    from app.models.provider_config import ProviderConfig
+
+    enc = get_encryptor()
+    payload = enc.encrypt_str(
+        '{"account_id":"acct","client_id":"cid","client_secret":"secret","base_url":"https://api.zoom.us/v2"}'
+    )
+    db.add(
+        ProviderConfig(
+            scope="platform",
+            org_id=None,
+            provider="zoom",
+            is_enabled=True,
+            encrypted_json=payload,
+        )
+    )
+    db.commit()
+
+    options = PlatformCatalogService.interview_delivery_options(db)
+    assert options == ["ai_call", "zoom"]
+    assert PlatformCatalogService.normalize_interview_delivery(db, "zoom") == "zoom"
+
+
 def test_survey_quote_ai_call_only(db):
     quote = PlatformCatalogService.calculate_quote(
         db,

@@ -127,6 +127,34 @@ class PlatformCatalogService:
         return SURVEY_CHANNEL_ALIASES.get(channel, channel)
 
     @staticmethod
+    def interview_delivery_options(db: Session) -> list[str]:
+        from app.services.zoom_service import ZoomService
+
+        options = ["ai_call"]
+        if ZoomService.is_interview_delivery_enabled(db):
+            options.append("zoom")
+        return options
+
+    @staticmethod
+    def interview_platform_capabilities(db: Session) -> dict[str, Any]:
+        options = PlatformCatalogService.interview_delivery_options(db)
+        return {
+            "interview_zoom_enabled": "zoom" in options,
+            "interview_delivery_options": options,
+        }
+
+    @staticmethod
+    def normalize_interview_delivery(db: Session, raw: str | None) -> str:
+        delivery = PlatformCatalogService.normalize_survey_channel(str(raw or "ai_call"))
+        if delivery not in {"ai_call", "zoom"}:
+            raise ValueError("Interview delivery must be ai_call or zoom")
+        if delivery == "zoom" and delivery not in PlatformCatalogService.interview_delivery_options(db):
+            raise ValueError(
+                "Zoom interviews are not available — ask your admin to enable Zoom under Integrations"
+            )
+        return delivery
+
+    @staticmethod
     def resolve_survey_channel(options: dict[str, Any] | None) -> str:
         options = options or {}
 
@@ -517,9 +545,9 @@ class PlatformCatalogService:
             }
 
         if service_code == "interview":
-            delivery = PlatformCatalogService.normalize_survey_channel(str(options.get("delivery") or "ai_call"))
-            if delivery not in {"ai_call", "zoom"}:
-                raise ValueError("Interview delivery must be ai_call or zoom")
+            delivery = PlatformCatalogService.normalize_interview_delivery(
+                db, str(options.get("delivery") or "ai_call")
+            )
             rule = next((r for r in rules if PlatformCatalogService.normalize_survey_channel(r.channel) == delivery), None)
             if rule is None:
                 raise ValueError(f"No pricing rule for interview channel: {delivery}")
@@ -1330,7 +1358,9 @@ class ServiceOrderService:
                 config_iv = json.loads(order.config_json or "{}")
             except Exception:
                 config_iv = {}
-            delivery = str(config_iv.get("delivery") or "ai_call").strip().lower()
+            delivery = PlatformCatalogService.normalize_interview_delivery(
+                db, str(config_iv.get("delivery") or "ai_call")
+            )
             if delivery == "zoom":
                 from app.services.interview_zoom_service import InterviewZoomService
 
