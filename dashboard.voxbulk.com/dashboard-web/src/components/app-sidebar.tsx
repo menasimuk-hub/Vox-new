@@ -29,6 +29,7 @@ import { useOrganisation } from "@/lib/queries";
 type Item = {
   title: string;
   url: string;
+  search?: Record<string, unknown>;
   icon: React.ComponentType<{ className?: string }>;
   isActive?: (path: string) => boolean;
 };
@@ -42,7 +43,13 @@ function normalizePath(value: string) {
 const groups: Group[] = [
   { key: "workspace", label: "Workspace", items: [{ title: "Dashboard", url: "/", icon: LayoutDashboard }] },
   { key: "interviews", label: "Interviews", items: [
-    { title: "Create new interview", url: "/interviews/new?new=1", icon: FilePlus2 },
+    {
+      title: "Create new interview",
+      url: "/interviews/new",
+      search: { new: true },
+      icon: FilePlus2,
+      isActive: (path) => normalizePath(path) === "/interviews/new",
+    },
     {
       title: "Saved interviews",
       url: "/interviews",
@@ -188,7 +195,7 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild isActive={itemActive(item)} tooltip={item.title}>
-                <Link to={item.url} onClick={onNavigate}>
+                <Link to={item.url} search={item.search} onClick={onNavigate}>
                   <item.icon />
                   <span>{item.title}</span>
                 </Link>
@@ -221,7 +228,7 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
                 {group.items.map((item) => (
                   <SidebarMenuSubItem key={item.title}>
                     <SidebarMenuSubButton asChild isActive={itemActive(item)}>
-                      <Link to={item.url} onClick={onNavigate}>
+                      <Link to={item.url} search={item.search} onClick={onNavigate}>
                         <item.icon className="size-3.5" />
                         <span>{item.title}</span>
                       </Link>

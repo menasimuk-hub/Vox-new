@@ -38,6 +38,7 @@ import {
   useRunInterviewAts,
   useSaveInterviewDraft,
   useSendInterviewBookingInvites,
+  useCreateNewInterviewDraft,
 } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/interviews/new")({
@@ -152,19 +153,19 @@ function cvCollectionPhase(
 }
 
 function CreateInterview() {
-  const { new: forceNewRaw, order_id: returnOrderId } = Route.useSearch();
-  const forceNew = forceNewRaw && !returnOrderId;
+  const { new: wantNew, order_id: draftOrderId } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { session } = useSession();
   const gcReady = gocardlessAvailable(session?.subscription as Record<string, unknown> | null);
-  const draftQ = useInterviewDraft({ forceNew, orderId: returnOrderId });
+  const createDraftM = useCreateNewInterviewDraft();
+  const draftQ = useInterviewDraft({ orderId: draftOrderId });
   const agentsQ = useInterviewAgents();
   const saveDraftM = useSaveInterviewDraft();
   const patchOrderM = usePatchServiceOrder();
   const generateM = useGenerateInterviewScript();
 
-  const order = draftQ.data?.order ?? null;
+  const order = draftQ.data?.order ?? createDraftM.data?.order ?? null;
   const orderId = order?.id ?? "";
   const runAtsM = useRunInterviewAts(orderId || null);
   const launchM = useLaunchInterviewCampaign(orderId || null);
@@ -223,15 +224,27 @@ function CreateInterview() {
 
   const agents = agentsQ.data || [];
   const selectedAgent = agents.find((a) => a.id === agentId) || pickDefaultInterviewAgent(agents);
+  const createStartedRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (!forceNew || !draftQ.isSuccess || !draftQ.data?.order?.id) return;
-    void navigate({
-      to: "/interviews/new",
-      search: { order_id: draftQ.data.order.id },
-      replace: true,
-    });
-  }, [forceNew, draftQ.isSuccess, draftQ.data?.order?.id, navigate]);
+    if (draftOrderId || !wantNew) return;
+    if (createStartedRef.current || createDraftM.isPending || createDraftM.isSuccess) return;
+    createStartedRef.current = true;
+    void createDraftM
+      .mutateAsync()
+      .then((payload) => {
+        const id = payload?.order?.id;
+        if (!id) return;
+        void navigate({
+          to: "/interviews/new",
+          search: { order_id: id },
+          replace: true,
+        });
+      })
+      .catch(() => {
+        createStartedRef.current = false;
+      });
+  }, [createDraftM, createDraftM.isPending, createDraftM.isSuccess, draftOrderId, navigate, wantNew]);
 
   React.useEffect(() => {
     if (!order) return;
@@ -817,7 +830,7 @@ function CreateInterview() {
 
   const candSort = useTableSort(candidates, "ats", "desc");
 
-  if (draftQ.isLoading) {
+  if (draftQ.isLoading || (wantNew && !draftOrderId && createDraftM.isPending)) {
     return (
       <div className="flex w-full flex-col gap-6">
         <PageHeader eyebrow="Interviews" title="Create new interview" description="Set up an AI phone screening campaign in three steps." />
@@ -843,7 +856,7 @@ function CreateInterview() {
   }
 
   if (!orderId) {
-    if (returnOrderId && draftQ.isSuccess) {
+    if (draftOrderId && draftQ.isSuccess) {
       return (
         <div className="flex w-full flex-col gap-6">
           <PageHeader eyebrow="Interviews" title="Create new interview" description="This draft is no longer available." />
@@ -858,7 +871,33 @@ function CreateInterview() {
         </div>
       );
     }
-    if (!forceNew && draftQ.isSuccess) {
+    if (createDraftM.isError) {
+      return (
+        <div className="flex w-full flex-col gap-6">
+          <PageHeader eyebrow="Interviews" title="Create new interview" description="Could not start a new interview." />
+          <Card>
+            <CardContent className="p-6 text-sm text-destructive">
+              {createDraftM.error instanceof Error ? createDraftM.error.message : "Failed to create interview draft"}
+              <div className="mt-4">
+                <Button
+                  onClick={() => {
+                    createStartedRef.current = false;
+                    void createDraftM.mutateAsync().then((payload) => {
+                      const id = payload?.order?.id;
+                      if (!id) return;
+                      void navigate({ to: "/interviews/new", search: { order_id: id }, replace: true });
+                    });
+                  }}
+                >
+                  Try again
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+    if (!wantNew) {
       return (
         <div className="flex w-full flex-col gap-6">
           <PageHeader eyebrow="Interviews" title="Create new interview" description="Start a fresh AI phone screening campaign." />

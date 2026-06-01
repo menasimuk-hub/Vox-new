@@ -258,28 +258,16 @@ export type InterviewDraftPayload = {
   interview_delivery_options?: string[];
 };
 
-export function useInterviewDraft(options?: { forceNew?: boolean; orderId?: string }) {
-  const forceNew = Boolean(options?.forceNew);
+export function useInterviewDraft(options?: { orderId?: string | null }) {
   const orderId = String(options?.orderId || "").trim();
-  const shouldCreate = forceNew && !orderId;
 
   return useQuery({
-    queryKey: [...queryKeys.interviewDraft, shouldCreate ? "new" : orderId || "latest"],
-    queryFn: async () => {
-      if (shouldCreate) {
-        return apiFetch<InterviewDraftPayload>("/service-orders/interview/draft/new", {
-          method: "POST",
-          body: "{}",
-        });
-      }
-      const draftPath = orderId
-        ? `/service-orders/interview/draft?order_id=${encodeURIComponent(orderId)}`
-        : "/service-orders/interview/draft";
-      return apiFetch<InterviewDraftPayload>(draftPath);
-    },
-    enabled: shouldCreate || Boolean(orderId) || !forceNew,
-    staleTime: shouldCreate ? Infinity : 0,
-    refetchOnMount: shouldCreate ? false : true,
+    queryKey: [...queryKeys.interviewDraft, orderId || "none"],
+    queryFn: async () =>
+      apiFetch<InterviewDraftPayload>(
+        `/service-orders/interview/draft?order_id=${encodeURIComponent(orderId)}`,
+      ),
+    enabled: Boolean(orderId),
   });
 }
 

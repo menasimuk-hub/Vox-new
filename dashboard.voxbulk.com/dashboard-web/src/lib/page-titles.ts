@@ -36,9 +36,9 @@ const map: Record<string, T> = {
 };
 
 export function titleForPath(path: string): T {
-  if (map[path]) return map[path];
-  // fallback by longest prefix
+  const clean = path.split("?")[0].split("#")[0].replace(/\/+$/, "") || "/";
+  if (map[clean]) return map[clean];
   const keys = Object.keys(map).sort((a, b) => b.length - a.length);
-  const k = keys.find((k) => path.startsWith(k + "/") || path.startsWith(k));
+  const k = keys.find((key) => clean.startsWith(key + "/") || clean === key);
   return k ? map[k] : { title: "VoxBulk" };
 }
