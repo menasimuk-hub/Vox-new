@@ -46,7 +46,7 @@ const credSchema = z.object({
 function AuthModal({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const auth = useAuth();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [orgName, setOrgName] = useState("");
@@ -63,6 +63,28 @@ function AuthModal({ onClose }: { onClose: () => void }) {
 
   const handleEmail = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === "forgot") {
+      const emailSchema = z.string().trim().email("Enter a valid email").max(255);
+      const parsed = emailSchema.safeParse(email);
+      if (!parsed.success) { toast.error(parsed.error.message); return; }
+      setLoading(true);
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/auth/forgot-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) throw new Error("Failed to send reset email");
+        toast.success("Check your email for a password reset link!");
+        setMode("signin");
+        setEmail("");
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Something went wrong");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     const parsed = credSchema.safeParse({ email, password });
     if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
     if (mode === "signup" && !orgName.trim()) {
@@ -111,23 +133,27 @@ function AuthModal({ onClose }: { onClose: () => void }) {
 
         <div className="p-7">
           <h2 className="text-[24px] font-bold tracking-[-0.02em] text-heading text-center">
-            {mode === "signin" ? "Welcome back" : "Create your account"}
+            {mode === "signin" ? "Welcome back" : mode === "signup" ? "Create your account" : "Reset password"}
           </h2>
           <p className="mt-1 text-[13.5px] text-body text-center">
-            {mode === "signin" ? "Sign in to access your dashboard." : "Get started in 30 seconds."}
+            {mode === "signin" ? "Sign in to access your dashboard." : mode === "signup" ? "Get started in 30 seconds." : "Enter your email to receive a password reset link."}
           </p>
 
-          <div className="mt-6">
-            <SocialAuthButtons onOAuth={oauth} oauthLoading={oauthLoading} compact />
-          </div>
+          {mode !== "forgot" && (
+            <div className="mt-6">
+              <SocialAuthButtons onOAuth={oauth} oauthLoading={oauthLoading} compact />
+            </div>
+          )}
 
-          <div className="my-5 flex items-center gap-3">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-[11px] uppercase tracking-wider text-muted-text">or with email</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
+          {mode !== "forgot" && (
+            <div className="my-5 flex items-center gap-3">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-[11px] uppercase tracking-wider text-muted-text">or with email</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+          )}
 
-          <form onSubmit={handleEmail} className="space-y-3">
+          <form onSubmit={handleEmail} className={mode === "forgot" ? "space-y-3 mt-6" : "space-y-3"}>
             {mode === "signup" ? (
               <div className="relative">
                 <label htmlFor="auth-org" className="sr-only">Company name</label>
@@ -153,27 +179,55 @@ function AuthModal({ onClose }: { onClose: () => void }) {
                 className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/40 text-[14.5px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
-            <div className="relative">
-              <label htmlFor="auth-password" className="sr-only">Password</label>
-              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-text" />
-              <input
-                id="auth-password"
-                type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password" minLength={6}
-                className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/40 text-[14.5px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-              />
-            </div>
+            {mode !== "forgot" && (
+              <div className="relative">
+                <label htmlFor="auth-password" className="sr-only">Password</label>
+                <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-text" />
+                <input
+                  id="auth-password"
+                  type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password" minLength={6}
+                  className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/40 text-[14.5px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                />
+              </div>
+            )}
             <button type="submit" disabled={loading} className="btn-primary w-full !py-3">
-              {loading ? <Loader2 size={16} className="animate-spin" /> : <>{mode === "signin" ? "Sign in" : "Create account"} <ArrowRight size={15} /></>}
+              {loading ? <Loader2 size={16} className="animate-spin" /> : <>{mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send reset link"} <ArrowRight size={15} /></>}
             </button>
           </form>
 
           <p className="mt-4 text-center text-[13px] text-muted-text">
-            {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
-            <button onClick={() => setMode(mode === "signin" ? "signup" : "signin")} className="text-primary font-semibold hover:underline">
-              {mode === "signin" ? "Create an account" : "Sign in"}
-            </button>
+            {mode === "forgot" ? (
+              <>
+                Remember your password?{" "}
+                <button onClick={() => { setMode("signin"); setEmail(""); }} className="text-primary font-semibold hover:underline">
+                  Sign in
+                </button>
+              </>
+            ) : mode === "signin" ? (
+              <>
+                New here?{" "}
+                <button onClick={() => setMode("signup")} className="text-primary font-semibold hover:underline">
+                  Create an account
+                </button>
+              </>
+            ) : (
+              <>
+                Already have an account?{" "}
+                <button onClick={() => setMode("signin")} className="text-primary font-semibold hover:underline">
+                  Sign in
+                </button>
+              </>
+            )}
           </p>
+
+          {mode === "signin" && (
+            <div className="mt-2 text-center">
+              <button onClick={() => setMode("forgot")} className="text-[12px] text-primary hover:underline font-medium">
+                Forgot password?
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

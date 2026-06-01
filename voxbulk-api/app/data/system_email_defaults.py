@@ -18,7 +18,15 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     "forgot_password": {
         "title": "Forgot password",
         "subject": "Reset your password",
-        "body": "<p>Hello,</p><p>We received a password reset for <strong>{{user_email}}</strong>.</p><p>If this was not you, ignore this email.</p>",
+        "body": wrap_brand_email(
+            title="Reset your password",
+            inner_html="""<p>Hi <strong>{{user_email}}</strong>,</p>
+  <p>We received a request to reset the password for your VOXBULK account.</p>
+  <p>Click the button below to set a new password. This link expires in 60 minutes.</p>
+  """ + cta_button(href="{{reset_link}}", label="Reset password") + """
+  <p style="word-break:break-all;font-size:13px;color:#6b6560;"><a href="{{reset_link}}" style="color:#1a2d5c;">{{reset_link}}</a></p>
+  <p style="font-size:13px;color:#6b6560;"><strong>Didn't request this?</strong> You can safely ignore this email. Your password won't change unless you click the link above.</p>""",
+        ),
     },
     "new_invoice": {
         "title": "New invoice notification",
