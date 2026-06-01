@@ -1046,7 +1046,7 @@ function CreateInterview() {
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ai_call">Phone call</SelectItem>
-                <SelectItem value="zoom" disabled>Zoom (coming soon)</SelectItem>
+                <SelectItem value="zoom">Zoom video meeting</SelectItem>
               </SelectContent>
             </Select>
           </Field>
