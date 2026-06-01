@@ -16,13 +16,13 @@
           var params = new URLSearchParams(q);
           var token = params.get('access_token');
           if (!token) return;
-          localStorage.setItem('retover_admin_access_token', token);
+          localStorage.setItem('voxbulk_admin_access_token', token);
           localStorage.setItem('access_token', token);
-          localStorage.setItem('retover_access_token', token);
+          localStorage.setItem('voxbulk_access_token', token);
           var oid = params.get('org_id');
           var uid = params.get('user_id');
-          if (oid) localStorage.setItem('retover_org_id', oid);
-          if (uid) localStorage.setItem('retover_user_id', uid);
+          if (oid) localStorage.setItem('voxbulk_org_id', oid);
+          if (uid) localStorage.setItem('voxbulk_user_id', uid);
           window.history.replaceState(window.history.state || null, '', window.location.pathname + window.location.search);
         } catch (e) {}
       })();

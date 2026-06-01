@@ -29,7 +29,7 @@ export const INTEGRATION_EXTRAS = [
     key: 'social-login',
     label: 'Social login',
     icon: 'ti-brand-google',
-    blurb: 'Google, Facebook, and LinkedIn sign-in.',
+    blurb: 'Google, Apple, and LinkedIn sign-in.',
     route: '/integrations/social-login',
     kind: 'config',
   },

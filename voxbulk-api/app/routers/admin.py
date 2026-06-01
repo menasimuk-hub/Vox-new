@@ -1064,7 +1064,7 @@ def get_telnyx_message_detail(message_id: str, db: Session = Depends(get_db), _a
 @router.get("/social-login/providers")
 def admin_list_social_login_providers(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     """Admin-safe read of social login provider config (no secrets)."""
-    return [ProviderSettingsService.get_platform_config_admin_view(db, provider=p) for p in ["google", "facebook", "linkedin"]]
+    return [ProviderSettingsService.get_platform_config_admin_view(db, provider=p) for p in ["google", "apple", "linkedin"]]
 
 
 @router.put("/social-login/{provider}")
@@ -1088,9 +1088,11 @@ def admin_upsert_social_login_provider(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="config must be an object")
 
     # Basic validation (avoid saving unusable empty strings).
-    for k in ["client_id", "client_secret", "redirect_uri"]:
+    for k in ["client_id", "client_secret", "redirect_uri", "team_id", "key_id"]:
         if k in config and config[k] is not None and isinstance(config[k], str):
             config[k] = config[k].strip()
+    if "private_key" in config and config["private_key"] is not None and isinstance(config["private_key"], str):
+        config["private_key"] = config["private_key"].strip()
 
     try:
         ProviderSettingsService.upsert_platform_config(db, provider=provider, is_enabled=is_enabled, config=config)

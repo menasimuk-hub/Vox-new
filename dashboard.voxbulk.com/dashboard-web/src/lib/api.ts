@@ -1,3 +1,10 @@
+import {
+  clearAllSessionStorage,
+  LOGOUT_QUERY,
+  readAccessTokenFromStorage,
+  readOrgIdFromStorage,
+} from "@/lib/session-storage";
+
 function productionApiOrigin() {
   if (typeof window === "undefined") return "";
   if (window.location.hostname === "dashboard.voxbulk.com") return "https://api.voxbulk.com";
@@ -54,18 +61,16 @@ function syncOrgIdFromToken(token: string) {
   const payload = decodeJwtPayload(token);
   if (!payload?.org_id) return;
   const orgId = String(payload.org_id);
-  if (localStorage.getItem("retover_org_id") !== orgId) {
-    localStorage.setItem("retover_org_id", orgId);
+  if (readOrgIdFromStorage() !== orgId) {
+    localStorage.setItem("voxbulk_org_id", orgId);
+    localStorage.removeItem("retover_org_id");
   }
 }
 
 export function getAccessToken() {
-  const candidates = [
-    localStorage.getItem("retover_access_token") || "",
-    localStorage.getItem("access_token") || "",
-  ].filter(Boolean);
+  const candidates = [readAccessTokenFromStorage()].filter(Boolean);
 
-  const storedOrgId = localStorage.getItem("retover_org_id") || "";
+  const storedOrgId = readOrgIdFromStorage();
   const usable = candidates
     .filter(isTokenUsable)
     .map((token) => ({ token, payload: decodeJwtPayload(token) }));
@@ -84,8 +89,8 @@ export function buildAuthHeaders(extraHeaders?: HeadersInit) {
   const headers = new Headers(extraHeaders || {});
   const token = getAccessToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const orgId = localStorage.getItem("retover_org_id");
-  if (orgId && !headers.has("X-Retover-Org-Id")) headers.set("X-Retover-Org-Id", orgId);
+  const orgId = readOrgIdFromStorage();
+  if (orgId && !headers.has("X-Voxbulk-Org-Id")) headers.set("X-Voxbulk-Org-Id", orgId);
   return headers;
 }
 
@@ -158,21 +163,14 @@ function marketingOriginAfterLogout() {
 
 function getPublicLogoutLandingUrl() {
   const u = new URL(`${marketingOriginAfterLogout().replace(/\/+$/, "")}/`);
-  u.searchParams.set("retover_logout", "1");
+  u.searchParams.set(LOGOUT_QUERY, "1");
   return u.toString();
 }
 
 export function logoutDashboard() {
   if (typeof window === "undefined") return;
   try {
-    localStorage.removeItem("retover_access_token");
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("retover_org_id");
-    localStorage.removeItem("retover_user_id");
-    localStorage.removeItem("retover_admin_access_token");
-    localStorage.removeItem("retover_admin_selected_org_id");
-    localStorage.removeItem("retover_signup_org_id");
-    localStorage.removeItem("retover_user_email");
+    clearAllSessionStorage();
   } catch {
     /* ignore */
   }

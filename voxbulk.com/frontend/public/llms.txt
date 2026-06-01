@@ -1,0 +1,25 @@
+# VoxBulk
+
+VoxBulk is an AI assistant platform that automates conversations, workflows and
+data collection for businesses. We build intelligent voice and messaging tools
+that save teams time and deliver real insights.
+
+## Live services
+
+- CV upload & ATS — bulk CV ingestion, scoring and ranking against role requirements
+- AI interview question generation — tailored questions per role and candidate
+- Automated candidate scheduling — AI contacts candidates and books interviews
+- AI-run voice interviews — fully automated voice interviews at scheduled times
+- Results dashboard — scores, answers and highlights for hiring teams
+- One-click final round booking — Cronofy / Calendly integration
+- WhatsApp surveys — AI-built surveys, response collection, named or anonymous reports
+
+## Key pages
+
+- Homepage: /
+- Contact / demo: /contact
+- Privacy: /privacy
+- Terms: /terms
+- Cookies: /cookies
+- GDPR: /gdpr
+- Legal: /legal

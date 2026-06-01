@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, resolveApiUrl } from '../lib/api'
+import { readAdminAccessToken, readSharedAccessToken } from '../lib/sessionStorage'
 import { downloadAdminCsv } from '../lib/csvDownload'
 
 const TelnyxDualWaveform = lazy(() => import('../components/TelnyxDualWaveform'))
@@ -30,7 +31,7 @@ function pillClass(kind, value) {
 
 async function resolveAdminBearerToken() {
   if (typeof window === 'undefined') return ''
-  return localStorage.getItem('retover_admin_access_token') || localStorage.getItem('access_token') || ''
+  return readAdminAccessToken() || readSharedAccessToken()
 }
 
 function formatTime(seconds) {

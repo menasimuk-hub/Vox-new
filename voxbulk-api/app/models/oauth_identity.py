@@ -15,7 +15,7 @@ class OAuthIdentity(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # google/facebook/linkedin
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # google/apple/linkedin
     provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
 
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)

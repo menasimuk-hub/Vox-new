@@ -64,7 +64,7 @@ export default function PendingSignups() {
   }
 
   const openOrgUsers = (organisationId) => {
-    localStorage.setItem('retover_admin_selected_org_id', organisationId)
+    localStorage.setItem('voxbulk_admin_selected_org_id', organisationId)
     navigate('/organisations/profile?tab=users')
   }
 

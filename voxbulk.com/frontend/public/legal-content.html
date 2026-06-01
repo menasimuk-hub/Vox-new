@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Legal — VoxBulk</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+/* VoxBulk Official Theme – Matches live site voxbulk.com */
+:root{
+  --bg:#0B0C10;           /* main background */
+  --surface:#13151C;      /* card / panel background */
+  --surface2:#1A1D26;     
+  --border:rgba(255,255,255,0.06);
+  --border2:rgba(255,255,255,0.1);
+  --text:#EFF0F5;
+  --muted:#7F8FA4;
+  --hint:#2D313E;
+  --green:#00C896;        /* VoxBulk signature green */
+  --green-dim:rgba(0,200,150,0.08);
+  --green-dim2:rgba(0,200,150,0.12);
+  --green-badge-bg:#00C896; /* solid green for badge background */
+}
+
+body{
+  font-family:'DM Sans',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* Navigation – clean, no logo */
+.nav{
+  position:sticky;
+  top:0;
+  z-index:100;
+  background:rgba(11,12,16,0.92);
+  backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);
+  padding:0 32px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  height:56px;
+}
+.nav-tabs{
+  display:flex;
+  gap:0;
+  overflow-x:auto;
+  scrollbar-width:none;
+}
+.nav-tabs::-webkit-scrollbar{display:none}
+.nav-tab{
+  padding:0 20px;
+  height:56px;
+  display:flex;
+  align-items:center;
+  font-size:13px;
+  font-weight:500;
+  color:var(--muted);
+  cursor:pointer;
+  border-bottom:2px solid transparent;
+  white-space:nowrap;
+  transition:all 0.2s ease;
+  text-decoration:none;
+  letter-spacing:0.2px;
+}
+.nav-tab:hover{color:var(--text)}
+.nav-tab.active{
+  color:var(--green);
+  border-bottom-color:var(--green);
+}
+
+/* Layout */
+.layout{
+  display:flex;
+  max-width:1200px;
+  margin:0 auto;
+  padding:48px 28px 80px;
+  gap:56px;
+}
+.sidebar-nav{
+  width:220px;
+  flex-shrink:0;
+  position:sticky;
+  top:88px;
+  align-self:flex-start;
+}
+.sidebar-nav-title{
+  font-size:10px;
+  font-weight:600;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:0.1em;
+  margin-bottom:20px;
+  padding-left:8px;
+}
+.sidebar-link{
+  display:block;
+  font-size:12.5px;
+  font-weight:450;
+  color:var(--muted);
+  text-decoration:none;
+  padding:8px 0px 8px 16px;
+  border-left:2px solid transparent;
+  transition:all 0.15s;
+  cursor:pointer;
+  margin-bottom:4px;
+}
+.sidebar-link:hover{
+  color:var(--text);
+  background:rgba(255,255,255,0.02);
+}
+.sidebar-link.active{
+  color:var(--green);
+  border-left-color:var(--green);
+  background:var(--green-dim);
+}
+.main{
+  flex:1;
+  min-width:0;
+}
+
+/* Page content */
+.page{display:none}
+.page.active{display:block}
+.page-header{
+  margin-bottom:40px;
+  padding-bottom:20px;
+  border-bottom:1px solid var(--border);
+}
+
+/* Badge – matches VoxBulk "Live demo" / tag style */
+.page-tag{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  font-weight:700;
+  color:#0B0C10;          /* dark text on green badge */
+  background:var(--green-badge-bg); /* solid brand green */
+  padding:4px 12px;
+  border-radius:40px;
+  margin-bottom:20px;
+  text-transform:uppercase;
+  letter-spacing:0.04em;
+}
+.page-title{
+  font-size:32px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:10px;
+  letter-spacing:-0.4px;
+}
+.page-meta{
+  font-size:12px;
+  color:var(--muted);
+  display:flex;
+  gap:24px;
+  flex-wrap:wrap;
+  margin-top:6px;
+}
+.page-meta span{
+  display:flex;
+  align-items:center;
+  gap:5px;
+}
+
+/* Typography & cards */
+.section{margin-bottom:44px}
+.section-title{
+  font-size:15px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:14px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.section-title::before{
+  content:'';
+  display:block;
+  width:4px;
+  height:20px;
+  background:var(--green);
+  border-radius:3px;
+}
+.section-sub{
+  font-size:13px;
+  font-weight:600;
+  color:var(--text);
+  margin:20px 0 8px;
+}
+p{
+  font-size:14px;
+  color:rgba(235,238,250,0.78);
+  margin-bottom:12px;
+  line-height:1.75;
+}
+ul,ol{
+  padding-left:20px;
+  margin-bottom:16px;
+}
+li{
+  font-size:14px;
+  color:rgba(235,238,250,0.78);
+  margin-bottom:6px;
+  line-height:1.7;
+}
+a{
+  color:var(--green);
+  text-decoration:none;
+  transition:0.1s;
+}
+a:hover{
+  text-decoration:underline;
+  color:#00dfa3;
+}
+
+/* Info & warning boxes */
+.info-box{
+  background:var(--green-dim);
+  border:1px solid var(--green-dim2);
+  border-radius:14px;
+  padding:16px 20px;
+  margin-bottom:28px;
+}
+.info-box p{
+  color:rgba(0,200,150,0.9);
+  margin:0;
+  font-size:13.5px;
+  font-weight:450;
+}
+.warn-box{
+  background:rgba(245,166,35,0.07);
+  border:1px solid rgba(245,166,35,0.2);
+  border-radius:14px;
+  padding:16px 20px;
+  margin-bottom:28px;
+}
+.warn-box p{
+  color:rgba(245,166,35,0.85);
+  margin:0;
+  font-size:13.5px;
+}
+
+/* Tables */
+.table-wrap{
+  overflow-x:auto;
+  margin-bottom:24px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background:var(--surface);
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:13px;
+}
+th{
+  text-align:left;
+  font-size:11px;
+  font-weight:600;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  padding:12px 14px;
+  border-bottom:1px solid var(--border2);
+  background:rgba(0,0,0,0.2);
+}
+td{
+  padding:11px 14px;
+  border-bottom:1px solid var(--border);
+  color:rgba(235,238,250,0.8);
+  vertical-align:top;
+}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,0.02)}
+
+/* Contact card */
+.contact-card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:22px;
+  margin-top:16px;
+  transition:0.1s;
+}
+.contact-card-title{
+  font-size:14px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:14px;
+}
+.contact-item{
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  padding:8px 0;
+  border-bottom:1px solid var(--border);
+  font-size:13px;
+}
+.contact-item:last-child{border-bottom:none}
+.contact-label{
+  color:var(--muted);
+  min-width:120px;
+  flex-shrink:0;
+  font-weight:450;
+}
+.contact-value{
+  color:rgba(235,238,250,0.85);
+  word-break:break-word;
+}
+
+.last-updated{
+  font-family:'DM Mono',monospace;
+  font-size:11px;
+  color:var(--muted);
+  margin-top:48px;
+  padding-top:24px;
+  border-top:1px solid var(--border);
+  text-align:right;
+}
+
+/* Cookie toggles */
+.cookie-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 0;
+  border-bottom:1px solid var(--border);
+}
+.cookie-row:last-child{border-bottom:none}
+.cookie-info{flex:1}
+.cookie-name{
+  font-size:13px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:4px;
+}
+.cookie-desc{
+  font-size:12px;
+  color:var(--muted);
+}
+.toggle{
+  width:38px;
+  height:22px;
+  border-radius:40px;
+  cursor:pointer;
+  position:relative;
+  flex-shrink:0;
+  transition:background 0.2s;
+}
+.toggle.on{background:var(--green)}
+.toggle.off{background:var(--hint)}
+.toggle.locked{
+  background:var(--green);
+  opacity:0.5;
+  cursor:not-allowed;
+}
+.toggle-th{
+  position:absolute;
+  top:3px;
+  width:16px;
+  height:16px;
+  background:#fff;
+  border-radius:50%;
+  transition:left 0.2s;
+  box-shadow:0 1px 3px rgba(0,0,0,0.3);
+}
+.toggle.on .toggle-th,
+.toggle.locked .toggle-th{left:19px}
+.toggle.off .toggle-th{left:3px}
+
+/* Responsive */
+@media(max-width:820px){
+  .layout{flex-direction:column;padding:28px 20px 60px;gap:28px}
+  .sidebar-nav{width:100%;position:relative;top:0;margin-bottom:8px}
+  .nav{padding:0 16px}
+  .page-title{font-size:26px}
+  .contact-item{flex-direction:column;gap:4px}
+  .contact-label{min-width:auto}
+}
+@media(max-width:550px){
+  .nav-tab{padding:0 12px;font-size:12px}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-tabs">
+    <a class="nav-tab active" href="/terms" onclick="switchPage('terms',this);return false">Terms &amp; Conditions</a>
+    <a class="nav-tab" href="/privacy" onclick="switchPage('privacy',this);return false">Privacy Policy</a>
+    <a class="nav-tab" href="/cookies" onclick="switchPage('cookies',this);return false">Cookie Policy</a>
+    <a class="nav-tab" href="/gdpr" onclick="switchPage('gdpr',this);return false">GDPR</a>
+    <a class="nav-tab" href="/legal" onclick="switchPage('legal',this);return false">Legal</a>
+  </div>
+</nav>
+
+<div class="layout">
+  <div class="sidebar-nav">
+    <div class="sidebar-nav-title">On this page</div>
+    <div id="sidebar-links"></div>
+  </div>
+  <div class="main">
+
+    <!-- TERMS -->
+    <div class="page active" id="page-terms">
+      <div class="page-header">
+        <div class="page-tag">Legal document</div>
+        <div class="page-title">Terms &amp; Conditions</div>
+        <div class="page-meta"><span>VoxBulk Ltd · Company No. 15466735</span><span>Effective: 1 January 2025</span><span>Last updated: May 2026</span></div>
+      </div>
+      <div class="info-box"><p>These Terms &amp; Conditions govern your use of the VoxBulk platform and services. By creating an account or using any VoxBulk service you agree to these terms in full. Please read them carefully.</p></div>
+      <div class="section" id="t-1"><div class="section-title">1. About VoxBulk</div><p>VoxBulk Ltd is a company registered in England and Wales under company number 15466735, with its registered office in London, United Kingdom. We operate an AI-powered communication platform that enables appointment-based businesses to automate outbound calls, WhatsApp messages, and related customer communications.</p><p>References to "VoxBulk", "we", "us", or "our" in these terms refer to VoxBulk Ltd. References to "you" or "your" refer to the business or individual who has registered for and uses the VoxBulk platform.</p></div>
+      <div class="section" id="t-2"><div class="section-title">2. The service</div><p>VoxBulk provides a software-as-a-service platform that allows businesses to automate outbound voice calls and WhatsApp messages for the purposes of appointment recovery, patient recall, offer campaigns, interview screening, and customer surveys.</p><p>The platform connects to your booking system via API or processes appointment data you upload manually. VoxBulk does not provide telephony infrastructure directly — calls are placed through third party telephony providers including Twilio.</p><div class="section-sub">2.1 Business customers only</div><p>VoxBulk sells exclusively to businesses. Our platform is not intended for and may not be used by individual consumers for personal purposes. By registering you confirm that you are acting in a business capacity and that the contacts you instruct VoxBulk to communicate with are your own customers, patients, or clients with whom you have an existing relationship.</p><div class="section-sub">2.2 Free trial</div><p>We offer a free trial period for eligible services — fifteen days for appointment recovery, recall, and campaign services, and five days for interview screening and survey services. No payment details are required during the trial. At the end of the trial period you may choose to subscribe or discontinue use with no obligation.</p></div>
+      <div class="section" id="t-3"><div class="section-title">3. Your responsibilities</div><p>You are responsible for ensuring that your use of VoxBulk complies with all applicable laws and regulations including but not limited to the UK Privacy and Electronic Communications Regulations 2003 (PECR), UK GDPR, and any industry-specific regulations that apply to your business.</p><ul><li>You must have a lawful basis under UK GDPR to process the personal data of the individuals you instruct VoxBulk to contact.</li><li>For marketing communications — including offer campaigns and recall campaigns targeting individuals not seen in over twelve months — you must have either explicit consent or a documented legitimate interest assessment in place before launching any campaign.</li><li>You must maintain an up-to-date do-not-contact list and ensure that individuals who have opted out are not contacted through VoxBulk.</li><li>You must not use VoxBulk to contact individuals registered with the Telephone Preference Service (TPS) for unsolicited marketing purposes.</li><li>You must not upload personal data of individuals who have not had a prior relationship with your business.</li><li>You must ensure that any scripts, messages, or campaign content you configure within VoxBulk are accurate, not misleading, and compliant with applicable advertising and consumer protection law.</li></ul></div>
+      <div class="section" id="t-4"><div class="section-title">4. Acceptable use</div><p>You may not use VoxBulk for any purpose that is unlawful, harmful, or that VoxBulk in its sole discretion considers inappropriate. Prohibited uses include:</p><ul><li>Contacting individuals who have not given consent for marketing communications where consent is required</li><li>Sending misleading, fraudulent, or deceptive messages</li><li>Harassing or repeatedly contacting individuals who have asked not to be contacted</li><li>Using the platform for debt collection, political campaigning, or any purpose other than legitimate appointment and hiring-related business communications</li><li>Attempting to reverse engineer, copy, or replicate any part of the VoxBulk platform</li><li>Sharing account credentials with third parties not authorised under your account</li></ul><p>VoxBulk reserves the right to suspend or terminate any account that breaches these acceptable use terms without prior notice.</p></div>
+      <div class="section" id="t-5"><div class="section-title">5. Pricing, billing and overage</div><p>Subscription pricing is as published on voxbulk.com at the time of purchase. We reserve the right to change pricing with thirty days notice to existing subscribers.</p><p>Each subscription plan includes a defined call credit allowance. When calls exceed the included credit, overage charges apply at the rates published on our pricing page. Overage is calculated at the end of each billing month and displayed in your dashboard with a three-day review window before invoicing. You will receive an email notification when overage exceeds ten pounds.</p><p>Interview and survey bundles are pay-as-you-go credits valid for ninety days from purchase. Unused credits after ninety days are forfeited.</p><p>Calls exceeding the per-call time limit in interview bundles are billed at the published per-minute overage rate and invoiced separately at month end.</p></div>
+      <div class="section" id="t-6"><div class="section-title">6. Data processing</div><p>VoxBulk acts as a data processor when processing personal data of your customers, patients, or clients on your behalf. You remain the data controller for that personal data and are responsible for ensuring you have the necessary legal basis to share it with us and instruct us to process it.</p><p>A Data Processing Agreement governing the processing of personal data is available for download from our platform and forms part of the agreement between VoxBulk and business customers.</p><p>Call recordings are stored for sixty days from the date of the call and are then automatically and permanently deleted. You may configure a shorter retention period of thirty days within your account settings.</p></div>
+      <div class="section" id="t-7"><div class="section-title">7. Intellectual property</div><p>The VoxBulk platform, including all software, AI models, interfaces, and documentation, is the intellectual property of VoxBulk Ltd. You are granted a limited, non-exclusive, non-transferable licence to use the platform for your own business purposes during the term of your subscription.</p><p>You retain ownership of any data, scripts, or content you create or upload to the platform.</p></div>
+      <div class="section" id="t-8"><div class="section-title">8. Limitation of liability</div><p>VoxBulk provides the platform on an as-is basis. We do not guarantee any specific outcome, recovery rate, booking rate, or business result from use of the platform.</p><p>To the maximum extent permitted by law, VoxBulk's total liability to you for any claim arising from your use of the platform is limited to the total fees paid by you to VoxBulk in the three months preceding the claim.</p><p>VoxBulk is not liable for any indirect, consequential, or special losses including loss of revenue, loss of data, or reputational damage.</p></div>
+      <div class="section" id="t-9"><div class="section-title">9. Governing law</div><p>These terms are governed by the laws of England and Wales. Any disputes arising from these terms shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p><p>Customers based in the EU or EEA are responsible for ensuring their own compliance with EU GDPR where applicable in addition to UK GDPR.</p></div>
+      <div class="section" id="t-10"><div class="section-title">10. Contact</div><div class="contact-card"><div class="contact-card-title">VoxBulk Ltd — Legal enquiries</div><div class="contact-item"><span class="contact-label">Company</span><span class="contact-value">VoxBulk Ltd</span></div><div class="contact-item"><span class="contact-label">Reg. number</span><span class="contact-value">15466735</span></div><div class="contact-item"><span class="contact-label">Registered in</span><span class="contact-value">England and Wales</span></div><div class="contact-item"><span class="contact-label">Address</span><span class="contact-value">London, United Kingdom</span></div><div class="contact-item"><span class="contact-label">Data &amp; privacy</span><span class="contact-value"><a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a></span></div></div></div>
+      <div class="last-updated">Version 1.0 · Effective January 2025 · Last reviewed May 2026</div>
+    </div>
+
+    <!-- PRIVACY (full content kept for completeness) -->
+    <div class="page" id="page-privacy"><div class="page-header"><div class="page-tag">Legal document</div><div class="page-title">Privacy Policy</div><div class="page-meta"><span>VoxBulk Ltd · Company No. 15466735</span><span>Last updated: May 2026</span></div></div><div class="info-box"><p>This policy explains what personal data VoxBulk collects, why we collect it, how we use it, and your rights. VoxBulk is committed to handling all personal data responsibly and in compliance with UK GDPR.</p></div><div class="section" id="p-1"><div class="section-title">1. Who we are</div><p>VoxBulk Ltd (company number 15466735), registered in England and Wales with offices in London, United Kingdom, is the data controller for the personal data of our business customers and website visitors.</p><p>Our Data Protection contact is: <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a></p></div><div class="section" id="p-2"><div class="section-title">2. Data we collect about business customers</div><ul><li>Contact details — name, email address, phone number, company name and address</li><li>Account credentials — email and encrypted password</li><li>Billing information — processed securely by our payment provider</li><li>Booking system credentials — API keys or login credentials for connected booking systems, stored encrypted</li><li>Platform usage data — pages visited, features used, session duration</li><li>Communications — any emails or messages you send to our support team</li></ul></div><div class="section" id="p-3"><div class="section-title">3. Data we process on your behalf</div><ul><li>Names and phone numbers from your appointment list or booking system</li><li>Appointment details — date, time, treatment type, practitioner</li><li>Call recordings and transcripts</li><li>Survey responses and interview scores</li></ul><p>Call recordings and transcripts are retained for sixty days from the date of the call and then permanently deleted.</p></div><div class="section" id="p-4"><div class="section-title">4. How we use your data</div><div class="table-wrap"><table><thead><tr><th>Purpose</th><th>Legal basis</th></tr></thead><tbody><tr><td>Providing and managing your account</td><td>Contract</td></tr><tr><td>Processing payments</td><td>Contract</td></tr><tr><td>Sending service notifications and invoices</td><td>Contract</td></tr><tr><td>Improving the platform</td><td>Legitimate interest</td></tr><tr><td>Responding to support requests</td><td>Legitimate interest</td></tr></tbody></table></div></div><div class="section" id="p-5"><div class="section-title">5. Third party processors</div><div class="table-wrap"><table><thead><tr><th>Provider</th><th>Purpose</th></tr></thead><tbody><tr><td>Twilio</td><td>Voice calls & WhatsApp API</td></tr><tr><td>ElevenLabs</td><td>AI voice synthesis</td></tr><tr><td>Deepgram</td><td>Speech-to-text transcription</td></tr><tr><td>Stripe</td><td>Payment processing</td></tr></tbody></table></div></div><div class="section" id="p-6"><div class="section-title">6. Your rights</div><p>Under UK GDPR you have the right to access, rectification, erasure, restriction, portability, objection, and to withdraw consent. Contact <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a> to exercise any of these rights. You also have the right to lodge a complaint with the ICO.</p></div><div class="last-updated">Version 1.0 · Last reviewed May 2026</div></div>
+
+    <!-- COOKIES -->
+    <div class="page" id="page-cookies"><div class="page-header"><div class="page-tag">Legal document</div><div class="page-title">Cookie Policy</div><div class="page-meta"><span>VoxBulk Ltd · Company No. 15466735</span><span>Last updated: May 2026</span></div></div><div class="section"><div class="section-title">1. What cookies are</div><p>Cookies are small text files placed on your device when you visit a website.</p></div><div class="section"><div class="section-title">2. Cookies we use</div><div class="cookie-row"><div class="cookie-info"><div class="cookie-name">Strictly necessary cookies</div><div class="cookie-desc">Required for the platform to function. Cannot be disabled.</div></div><div class="toggle locked"><div class="toggle-th"></div></div></div><div class="cookie-row"><div class="cookie-info"><div class="cookie-name">Functional cookies</div><div class="cookie-desc">Remember your preferences such as language and display settings.</div></div><div class="toggle on" onclick="togCookie(this)"><div class="toggle-th"></div></div></div><div class="cookie-row"><div class="cookie-info"><div class="cookie-name">Analytics cookies</div><div class="cookie-desc">Help us understand how visitors use our website. Currently not active.</div></div><div class="toggle off" onclick="togCookie(this)"><div class="toggle-th"></div></div></div></div><div class="last-updated">Version 1.0 · Last reviewed May 2026</div></div>
+
+    <!-- GDPR -->
+    <div class="page" id="page-gdpr"><div class="page-header"><div class="page-tag">Legal document</div><div class="page-title">GDPR</div><div class="page-meta"><span>VoxBulk Ltd · Company No. 15466735</span><span>Last updated: May 2026</span></div></div><div class="info-box"><p>VoxBulk is built to operate within UK GDPR. This page explains our approach to data protection, your obligations as a VoxBulk customer, and how we manage personal data across the platform.</p></div><div class="section" id="g-1"><div class="section-title">1. Controller and processor roles</div><p><strong>VoxBulk as controller</strong> — VoxBulk Ltd is the data controller for personal data of its own business customers and website visitors.</p><p><strong>VoxBulk as processor</strong> — When VoxBulk processes personal data belonging to your patients, clients, or candidates, VoxBulk acts as a data processor on your behalf.</p></div><div class="section" id="g-2"><div class="section-title">2. Lawful basis for processing</div><div class="table-wrap"><table><thead><tr><th>Communication type</th><th>Typical lawful basis</th></tr></thead><tbody><tr><td>Appointment reminders and recovery calls to existing patients</td><td>Legitimate interest — existing customer relationship</td></tr><tr><td>Recall campaigns for patients seen within 12 months</td><td>Legitimate interest</td></tr><tr><td>Recall campaigns for patients not seen in over 12 months</td><td>Consent or legitimate interest</td></tr><tr><td>Offer and promotional campaigns</td><td>Consent or legitimate interest</td></tr></tbody></table></div><div class="warn-box"><p>VoxBulk shows a compliance reminder when you launch offer campaigns and long-lapsed recall campaigns. We strongly recommend seeking independent legal advice if you are unsure about your lawful basis for any campaign type.</p></div></div><div class="section" id="g-3"><div class="section-title">3. AI disclosure and recording consent</div><p>VoxBulk's AI agents disclose at the start of every call that they are AI assistants calling on behalf of your business and that the call may be recorded. This disclosure is locked and cannot be removed or modified.</p></div><div class="section" id="g-4"><div class="section-title">4. Opt-out management</div><p>VoxBulk maintains a do-not-contact list within your account. When an individual opts out during an AI call or via WhatsApp reply, they are automatically added to this list and will not be contacted again through VoxBulk.</p></div><div class="section" id="g-5"><div class="section-title">5. Data Processing Agreement</div><p>VoxBulk provides a Data Processing Agreement (DPA) that governs the processing of personal data by VoxBulk on your behalf. To request a countersigned copy of the DPA contact <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>.</p></div><div class="last-updated">Version 1.0 · Last reviewed May 2026</div></div>
+
+    <!-- LEGAL -->
+    <div class="page" id="page-legal"><div class="page-header"><div class="page-tag">Legal document</div><div class="page-title">Legal</div><div class="page-meta"><span>VoxBulk Ltd · Company No. 15466735</span><span>Last updated: May 2026</span></div></div><div class="section"><div class="section-title">1. Company information</div><div class="contact-card"><div class="contact-item"><span class="contact-label">Legal name</span><span class="contact-value">VoxBulk Ltd</span></div><div class="contact-item"><span class="contact-label">Reg. number</span><span class="contact-value">15466735</span></div><div class="contact-item"><span class="contact-label">Registered in</span><span class="contact-value">England and Wales</span></div><div class="contact-item"><span class="contact-label">Office</span><span class="contact-value">London, United Kingdom</span></div><div class="contact-item"><span class="contact-label">Data protection</span><span class="contact-value"><a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a></span></div></div></div><div class="section"><div class="section-title">2. Regulatory compliance</div><p>VoxBulk Ltd processes personal data in accordance with UK GDPR and the Data Protection Act 2018. Outbound voice calls placed through VoxBulk use registered telephony infrastructure and AI agents disclose their automated nature at the start of every call in line with Ofcom guidance.</p></div><div class="section"><div class="section-title">3. Intellectual property</div><p>All intellectual property in the VoxBulk platform — including software, AI systems, branding, and documentation — is owned by VoxBulk Ltd. The VoxBulk name, logo, and associated marks are trademarks of VoxBulk Ltd.</p></div><div class="section"><div class="section-title">4. Disclaimer</div><p>The information on this page and in our legal documents is provided for general information purposes. It does not constitute legal advice. VoxBulk recommends that business customers seek independent legal advice regarding their own compliance obligations.</p></div><div class="last-updated">Version 1.0 · Last reviewed May 2026</div></div>
+
+  </div>
+</div>
+
+<script>
+var pages={
+  terms:{id:'page-terms',sections:[{id:'t-1',label:'About VoxBulk'},{id:'t-2',label:'The service'},{id:'t-3',label:'Your responsibilities'},{id:'t-4',label:'Acceptable use'},{id:'t-5',label:'Pricing & billing'},{id:'t-6',label:'Data processing'},{id:'t-7',label:'Intellectual property'},{id:'t-8',label:'Limitation of liability'},{id:'t-9',label:'Governing law'},{id:'t-10',label:'Contact'}]},
+  privacy:{id:'page-privacy',sections:[{id:'p-1',label:'Who we are'},{id:'p-2',label:'Data we collect'},{id:'p-3',label:'Data we process'},{id:'p-4',label:'How we use data'},{id:'p-5',label:'Third parties'},{id:'p-6',label:'Your rights'}]},
+  cookies:{id:'page-cookies',sections:[{id:'c-1',label:'What cookies are'},{id:'c-2',label:'Cookies we use'},{id:'c-3',label:'Managing cookies'}]},
+  gdpr:{id:'page-gdpr',sections:[{id:'g-1',label:'Controller & processor'},{id:'g-2',label:'Lawful basis'},{id:'g-3',label:'AI disclosure'},{id:'g-4',label:'Opt-out management'},{id:'g-5',label:'DPA'}]},
+  legal:{id:'page-legal',sections:[{id:'l-1',label:'Company information'},{id:'l-2',label:'Regulatory compliance'},{id:'l-3',label:'Intellectual property'},{id:'l-4',label:'Disclaimer'}]}
+};
+
+function buildSidebar(key){
+  var links=document.getElementById('sidebar-links');
+  links.innerHTML='';
+  pages[key].sections.forEach(function(s,i){
+    var a=document.createElement('a');
+    a.className='sidebar-link'+(i===0?' active':'');
+    a.textContent=s.label;
+    a.onclick=function(e){
+      document.getElementById(s.id).scrollIntoView({behavior:'smooth',block:'start'});
+      document.querySelectorAll('.sidebar-link').forEach(l=>l.classList.remove('active'));
+      a.classList.add('active');
+    };
+    links.appendChild(a);
+  });
+}
+
+function switchPage(key,tabEl){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById(pages[key].id).classList.add('active');
+  if(tabEl) tabEl.classList.add('active');
+  buildSidebar(key);
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function togCookie(el){ if(!el.classList.contains('locked')) el.classList.toggle('on'); el.classList.toggle('off'); }
+
+buildSidebar('terms');
+var path=window.location.pathname.replace('/','');
+if(pages[path]){ var tabs=document.querySelectorAll('.nav-tab'); var keys=Object.keys(pages); var idx=keys.indexOf(path); switchPage(path,tabs[idx]||null); }
+</script>
+</body>
+</html>

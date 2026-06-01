@@ -175,7 +175,7 @@ export default function EmailSettings() {
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem('retover_admin_test_email_to') || ''
+      const stored = window.localStorage.getItem('voxbulk_admin_test_email_to') || ''
       if (stored.trim()) setTestTo(stored.trim())
     } catch {
       /* ignore */
@@ -314,7 +314,7 @@ export default function EmailSettings() {
     const to = testTo.trim()
     if (to) {
       try {
-        window.localStorage.setItem('retover_admin_test_email_to', to)
+        window.localStorage.setItem('voxbulk_admin_test_email_to', to)
       } catch {
         /* ignore */
       }

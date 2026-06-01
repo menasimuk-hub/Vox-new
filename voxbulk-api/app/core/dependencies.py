@@ -34,7 +34,7 @@ def get_current_principal(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
 
     user_id = payload.get("sub")
-    org_id = payload.get("org_id") or request.headers.get("X-Retover-Org-Id")
+    org_id = payload.get("org_id") or request.headers.get("X-Voxbulk-Org-Id") or request.headers.get("X-Retover-Org-Id")
 
     if not user_id or not org_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")

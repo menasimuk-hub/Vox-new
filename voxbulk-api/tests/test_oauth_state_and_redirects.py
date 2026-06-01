@@ -34,8 +34,8 @@ def test_oauth_start_sets_nonce_cookie_and_state_matches(app_client):
 
     # Cookie should exist
     cookies = r.headers.get("set-cookie", "")
-    assert "retover_oauth_nonce" in cookies
-    assert "retover_oauth_provider" in cookies
+    assert "voxbulk_oauth_nonce" in cookies
+    assert "voxbulk_oauth_provider" in cookies
 
     # Decode state and compare nonce
     payload = jwt.decode(state, "test-secret", algorithms=["HS256"])
@@ -70,7 +70,7 @@ def test_callback_rejects_state_provider_mismatch(app_client, monkeypatch):
     start = app_client.get("/auth/oauth/google/start", follow_redirects=False)
     assert start.status_code == 302
 
-    # Build a state for google but hit facebook callback
+    # Build a state for google but hit apple callback
     state_raw = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
     payload = jwt.decode(state_raw, "test-secret", algorithms=["HS256"])
     # Re-encode with same nonce/provider but we'll call a different provider route
@@ -82,7 +82,7 @@ def test_callback_rejects_state_provider_mismatch(app_client, monkeypatch):
     monkeypatch.setattr("app.routers.auth.SocialOAuthService.handle_callback", fake_handle_callback)
 
     r = app_client.get(
-        f"/auth/oauth/facebook/callback?code=abc&state={state}",
+        f"/auth/oauth/apple/callback?code=abc&state={state}",
         follow_redirects=False,
         cookies=start.cookies,
     )

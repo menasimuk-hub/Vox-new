@@ -1,33 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LegalPoliciesPage } from "@/components/LegalPoliciesPage";
-import { isLegalTabId, LEGAL_TAB_LABELS, type LegalTabId } from "@/lib/legalPoliciesConfig";
-
-type LegalPoliciesSearch = {
-  tab?: LegalTabId;
-};
+import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 
 export const Route = createFileRoute("/legal-policies")({
-  validateSearch: (search: Record<string, unknown>): LegalPoliciesSearch => ({
-    tab: isLegalTabId(search.tab) ? search.tab : "terms",
+  head: () => ({
+    meta: [
+      { title: "Legal & Policies — VoxBulk" },
+      { name: "description", content: "Terms, Privacy, Cookies, GDPR and other legal policies for VoxBulk." },
+      { property: "og:title", content: "Legal & Policies — VoxBulk" },
+      { property: "og:url", content: "https://voxbulk.com/legal-policies" },
+    ],
+    links: [{ rel: "canonical", href: "https://voxbulk.com/legal-policies" }],
   }),
-  head: ({ search }) => {
-    const tab = isLegalTabId(search.tab) ? search.tab : "terms";
-    const title = LEGAL_TAB_LABELS[tab];
-    return {
-      meta: [
-        { title: `${title} — VOXBULK Legal & policies` },
-        {
-          name: "description",
-          content: `VOXBULK ${title}. Legal documents, privacy, cookies, and GDPR information.`,
-        },
-      ],
-    };
-  },
-  component: LegalPoliciesRoute,
+  component: LegalPoliciesPage,
 });
 
-function LegalPoliciesRoute() {
-  const { tab } = Route.useSearch();
-  const activeTab = tab ?? "terms";
-  return <LegalPoliciesPage activeTab={activeTab} />;
+function LegalPoliciesPage() {
+  return (
+    <div className="bg-background min-h-screen flex flex-col">
+      <SiteHeader />
+      <main className="flex-1 pt-[88px]">
+        <iframe
+          src="/legal-content.html"
+          title="Legal & Policies"
+          className="w-full border-0"
+          style={{ height: "calc(100vh - 88px)" }}
+        />
+      </main>
+      <SiteFooter />
+    </div>
+  );
 }

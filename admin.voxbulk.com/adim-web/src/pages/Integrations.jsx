@@ -8,9 +8,34 @@ import TelnyxIntegration from './TelnyxIntegration'
 
 const SOCIAL_PROVIDERS = [
   { key: 'google', label: 'Google' },
-  { key: 'facebook', label: 'Facebook' },
+  { key: 'apple', label: 'Apple' },
   { key: 'linkedin', label: 'LinkedIn' },
 ]
+
+function defaultSocialProviderState(key) {
+  if (key === 'apple') {
+    return {
+      provider: key,
+      exists: false,
+      is_enabled: false,
+      configured: false,
+      updated_at: null,
+      missing_fields: ['client_id', 'redirect_uri', 'team_id', 'key_id', 'private_key'],
+      config: { client_id: '', redirect_uri: '', team_id: '', key_id: '' },
+      secret_set: { private_key: false },
+    }
+  }
+  return {
+    provider: key,
+    exists: false,
+    is_enabled: false,
+    configured: false,
+    updated_at: null,
+    missing_fields: ['client_id', 'client_secret', 'redirect_uri'],
+    config: { client_id: '', redirect_uri: '' },
+    secret_set: { client_secret: false },
+  }
+}
 
 const PROVIDERS = [
   { key: 'dentally', label: 'Dentally' },
@@ -261,21 +286,7 @@ function SocialLoginSettings() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [providers, setProviders] = useState(() =>
-    Object.fromEntries(
-      SOCIAL_PROVIDERS.map((p) => [
-        p.key,
-        {
-          provider: p.key,
-          exists: false,
-          is_enabled: false,
-          configured: false,
-          updated_at: null,
-          missing_fields: ['client_id', 'client_secret', 'redirect_uri'],
-          config: { client_id: '', redirect_uri: '' },
-          secret_set: { client_secret: false },
-        },
-      ])
-    )
+    Object.fromEntries(SOCIAL_PROVIDERS.map((p) => [p.key, defaultSocialProviderState(p.key)]))
   )
 
   const load = async () => {
@@ -325,10 +336,13 @@ function SocialLoginSettings() {
     try {
       const p = providers[providerKey]
       const config = { ...(p?.config || {}) }
-      // allow empty secret (means "keep existing") unless none exists yet
-      const secretKey = `${providerKey}_client_secret_draft`
-      const draft = (p && p[secretKey] != null) ? String(p[secretKey]) : ''
-      if (draft.trim()) config.client_secret = draft.trim()
+      if (providerKey === 'apple') {
+        const draft = String(p?.[`${providerKey}_private_key_draft`] || '').trim()
+        if (draft) config.private_key = draft
+      } else {
+        const draft = String(p?.[`${providerKey}_client_secret_draft`] || '').trim()
+        if (draft) config.client_secret = draft
+      }
 
       const updated = await apiFetch(`/admin/social-login/${providerKey}`, {
         method: 'PUT',
@@ -342,8 +356,8 @@ function SocialLoginSettings() {
     }
   }
 
-  const updateSecretDraft = (providerKey, value) => {
-    const secretKey = `${providerKey}_client_secret_draft`
+  const updateSecretDraft = (providerKey, field, value) => {
+    const secretKey = `${providerKey}_${field}_draft`
     setProviders((s) => ({
       ...s,
       [providerKey]: { ...s[providerKey], [secretKey]: value },
@@ -354,7 +368,7 @@ function SocialLoginSettings() {
     <div className='card'>
       <div className='cardHead'>
         <h3>Providers</h3>
-        <span className='pill p-cyan'>Google · Facebook · LinkedIn</span>
+        <span className='pill p-cyan'>Google · Apple · LinkedIn</span>
       </div>
       <div className='cardBody'>
         {error && (
@@ -370,7 +384,10 @@ function SocialLoginSettings() {
               const pill = statusPill(row)
               const last = row?.updated_at ? new Date(row.updated_at).toLocaleString() : '-'
               const missing = joinMissingFields(row?.missing_fields)
-              const secretIsSet = Boolean(row?.secret_set?.client_secret)
+              const isApple = sp.key === 'apple'
+              const secretIsSet = isApple
+                ? Boolean(row?.secret_set?.private_key)
+                : Boolean(row?.secret_set?.client_secret)
               return (
                 <div key={sp.key} className='card' style={{ margin: 0 }}>
                   <div className='cardHead'>
@@ -405,7 +422,7 @@ function SocialLoginSettings() {
                         <strong>{missing || '-'}</strong>
                       </div>
                       <div className='mini'>
-                        <label>Client secret</label>
+                        <label>{isApple ? 'Private key' : 'Client secret'}</label>
                         <strong>{secretIsSet ? 'Set' : 'Not set'}</strong>
                       </div>
                     </div>
@@ -430,30 +447,68 @@ function SocialLoginSettings() {
                       </div>
 
                       <div style={{ display: 'grid', gap: 6 }}>
-                        <label className='label'>Client ID</label>
+                        <label className='label'>{isApple ? 'Services ID (Client ID)' : 'Client ID'}</label>
                         <input
                           className='input'
                           style={{ width: '100%', minWidth: 0 }}
                           value={String(row?.config?.client_id || '')}
                           onChange={(e) => setField(sp.key, 'client_id', e.target.value)}
-                          placeholder='Client ID'
+                          placeholder={isApple ? 'com.example.web' : 'Client ID'}
                         />
                       </div>
 
-                      <div style={{ display: 'grid', gap: 6 }}>
-                        <label className='label'>Client secret</label>
-                        <input
-                          className='input'
-                          style={{ width: '100%', minWidth: 0 }}
-                          type='password'
-                          value={String(row?.[`${sp.key}_client_secret_draft`] || '')}
-                          onChange={(e) => updateSecretDraft(sp.key, e.target.value)}
-                          placeholder={secretIsSet ? 'Leave blank to keep current' : 'Required'}
-                        />
-                        <div className='muted' style={{ fontSize: 12 }}>
-                          Existing secrets are never shown. Leave blank to keep the current one.
+                      {isApple ? (
+                        <>
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            <label className='label'>Team ID</label>
+                            <input
+                              className='input'
+                              style={{ width: '100%', minWidth: 0 }}
+                              value={String(row?.config?.team_id || '')}
+                              onChange={(e) => setField(sp.key, 'team_id', e.target.value)}
+                              placeholder='Apple Developer Team ID'
+                            />
+                          </div>
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            <label className='label'>Key ID</label>
+                            <input
+                              className='input'
+                              style={{ width: '100%', minWidth: 0 }}
+                              value={String(row?.config?.key_id || '')}
+                              onChange={(e) => setField(sp.key, 'key_id', e.target.value)}
+                              placeholder='Sign in with Apple key ID'
+                            />
+                          </div>
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            <label className='label'>Private key (.p8)</label>
+                            <textarea
+                              className='input'
+                              style={{ width: '100%', minWidth: 0, minHeight: 120, fontFamily: 'monospace' }}
+                              value={String(row?.[`${sp.key}_private_key_draft`] || '')}
+                              onChange={(e) => updateSecretDraft(sp.key, 'private_key', e.target.value)}
+                              placeholder={secretIsSet ? 'Leave blank to keep current key' : 'Paste Apple .p8 private key'}
+                            />
+                            <div className='muted' style={{ fontSize: 12 }}>
+                              Existing keys are never shown. Leave blank to keep the current one.
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          <label className='label'>Client secret</label>
+                          <input
+                            className='input'
+                            style={{ width: '100%', minWidth: 0 }}
+                            type='password'
+                            value={String(row?.[`${sp.key}_client_secret_draft`] || '')}
+                            onChange={(e) => updateSecretDraft(sp.key, 'client_secret', e.target.value)}
+                            placeholder={secretIsSet ? 'Leave blank to keep current' : 'Required'}
+                          />
+                          <div className='muted' style={{ fontSize: 12 }}>
+                            Existing secrets are never shown. Leave blank to keep the current one.
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       <div style={{ display: 'grid', gap: 6 }}>
                         <label className='label'>Redirect / callback URL</label>

@@ -480,7 +480,7 @@ def oauth_start(
         except Exception:
             secure = False
         res.set_cookie(
-            key="retover_oauth_nonce",
+            key="voxbulk_oauth_nonce",
             value=nonce,
             httponly=True,
             secure=secure,
@@ -489,7 +489,7 @@ def oauth_start(
             path="/auth/oauth",
         )
         res.set_cookie(
-            key="retover_oauth_provider",
+            key="voxbulk_oauth_provider",
             value=str(provider).lower(),
             httponly=True,
             secure=secure,
@@ -534,8 +534,12 @@ async def oauth_callback(
         nonce_cookie = None
         provider_cookie = None
         try:
-            nonce_cookie = request.cookies.get("retover_oauth_nonce") if request else None
-            provider_cookie = request.cookies.get("retover_oauth_provider") if request else None
+            nonce_cookie = request.cookies.get("voxbulk_oauth_nonce") if request else None
+            provider_cookie = request.cookies.get("voxbulk_oauth_provider") if request else None
+            if not nonce_cookie:
+                nonce_cookie = request.cookies.get("retover_oauth_nonce") if request else None
+            if not provider_cookie:
+                provider_cookie = request.cookies.get("retover_oauth_provider") if request else None
         except Exception:
             nonce_cookie = None
             provider_cookie = None
@@ -577,6 +581,8 @@ async def oauth_callback(
         q = httpx.QueryParams({"oauth_error": str(e) or "OAuth failed", "provider": provider})
         res = RedirectResponse(url=f"{base}/signin?{q}", status_code=302)
         # Clear cookies on failure too.
+        res.delete_cookie("voxbulk_oauth_nonce", path="/auth/oauth")
+        res.delete_cookie("voxbulk_oauth_provider", path="/auth/oauth")
         res.delete_cookie("retover_oauth_nonce", path="/auth/oauth")
         res.delete_cookie("retover_oauth_provider", path="/auth/oauth")
         return res
@@ -592,6 +598,8 @@ async def oauth_callback(
         }
     )
     res = RedirectResponse(url=f"{base}/signin#{frag}", status_code=302)
+    res.delete_cookie("voxbulk_oauth_nonce", path="/auth/oauth")
+    res.delete_cookie("voxbulk_oauth_provider", path="/auth/oauth")
     res.delete_cookie("retover_oauth_nonce", path="/auth/oauth")
     res.delete_cookie("retover_oauth_provider", path="/auth/oauth")
     return res

@@ -233,7 +233,7 @@ export default function Billing() {
 
   const openOrganisation = (orgId, billingTab = 'plan') => {
     if (!orgId) return
-    localStorage.setItem('retover_admin_selected_org_id', orgId)
+    localStorage.setItem('voxbulk_admin_selected_org_id', orgId)
     navigate(`/organisations/profile?tab=${billingTab}`)
   }
 

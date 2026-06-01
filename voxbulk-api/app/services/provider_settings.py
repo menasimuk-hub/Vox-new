@@ -29,7 +29,7 @@ class ProviderSettingsService:
         "azure_speech",
         "openai",
         "google",
-        "facebook",
+        "apple",
         "linkedin",
         "zoom",
         "calendly",
@@ -52,7 +52,7 @@ class ProviderSettingsService:
         "openai": {"api_key", "default_model", "realtime_model", "temperature", "max_output_tokens"},
         # Social OAuth providers. These settings are consumed by the FastAPI OAuth start/callback flow.
         "google": {"client_id", "client_secret", "redirect_uri"},
-        "facebook": {"client_id", "client_secret", "redirect_uri"},
+        "apple": {"client_id", "redirect_uri", "team_id", "key_id", "private_key"},
         "linkedin": {"client_id", "client_secret", "redirect_uri"},
         "zoom": {"account_id", "client_id", "client_secret"},
         "calendly": {"client_id", "client_secret", "redirect_uri"},
@@ -73,7 +73,7 @@ class ProviderSettingsService:
         "azure_speech": {"api_key"},
         "openai": {"api_key"},
         "google": {"client_secret"},
-        "facebook": {"client_secret"},
+        "apple": {"private_key"},
         "linkedin": {"client_secret"},
         "zoom": {"client_secret"},
         "calendly": {"client_secret"},
@@ -836,7 +836,7 @@ class ProviderSettingsService:
         Note: OAuth login is supported when enabled + configured.
         """
         out: list[dict[str, Any]] = []
-        for provider in ["google", "facebook", "linkedin"]:
+        for provider in ["google", "apple", "linkedin"]:
             s = ProviderSettingsService.summary(db, provider=provider)
             enabled = bool(s.get("exists")) and bool(s.get("is_enabled"))
             configured = bool(s.get("configured"))

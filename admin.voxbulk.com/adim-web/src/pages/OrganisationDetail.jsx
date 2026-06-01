@@ -84,7 +84,7 @@ export default function OrganisationDetail() {
   }
 
   const openProfile = () => {
-    localStorage.setItem('retover_admin_selected_org_id', orgId)
+    localStorage.setItem('voxbulk_admin_selected_org_id', orgId)
     navigate('/organisations/profile')
   }
 

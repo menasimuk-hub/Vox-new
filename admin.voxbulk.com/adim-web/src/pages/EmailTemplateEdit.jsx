@@ -40,7 +40,7 @@ export default function EmailTemplateEdit() {
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem('retover_admin_test_email_to') || ''
+      const stored = window.localStorage.getItem('voxbulk_admin_test_email_to') || ''
       if (stored.trim()) setTestTo(stored.trim())
     } catch {
       /* ignore */
@@ -125,7 +125,7 @@ export default function EmailTemplateEdit() {
     setTestBusy(true)
     setTestMsg('')
     try {
-      window.localStorage.setItem('retover_admin_test_email_to', to)
+      window.localStorage.setItem('voxbulk_admin_test_email_to', to)
       const variables = { ...buildEmailTestVariables(templateKey), user_email: to }
       const payload = { to, variables }
       if (String(draft.subject || '').trim()) payload.subject = draft.subject

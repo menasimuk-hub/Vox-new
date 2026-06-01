@@ -208,6 +208,7 @@ _cors_kw = dict(
         "Accept",
         "Content-Type",
         "Origin",
+        "X-Voxbulk-Org-Id",
         "X-Retover-Org-Id",
         "X-Requested-With",
     ],

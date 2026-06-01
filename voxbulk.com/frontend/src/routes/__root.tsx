@@ -1,15 +1,11 @@
-import { useEffect } from "react";
-import {
-  Outlet,
-  Link,
-  createRootRoute,
-  HeadContent,
-  Scripts,
-  useRouter,
-} from "@tanstack/react-router";
+import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthModalProvider } from "@/components/AuthModal";
-import { clearAllRetoverSiteLocalKeys } from "@/lib/retoverApi";
+import { TalkModalProvider } from "@/components/TalkModal";
+import { CurrencyProvider } from "@/components/CurrencyContext";
+import { AuthProvider } from "@/lib/auth";
+
+import { brandAssets, SITE_ORIGIN } from "@/lib/brand";
 
 import appCss from "../styles.css?url";
 
@@ -40,49 +36,55 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "VOXBULK.COM" },
-      {
-        name: "description",
-        content:
-          "VOXBULK.COM automates appointment recovery and booking for UK dental clinics using AI.",
-      },
-      { name: "author", content: "VOXBULK.COM" },
-      { property: "og:title", content: "VOXBULK.COM" },
-      {
-        property: "og:description",
-        content:
-          "VOXBULK.COM automates appointment recovery and booking for UK dental clinics using AI.",
-      },
+      { title: "VoxBulk" },
+      { name: "description", content: "VoxBulk is an AI assistant platform that automates conversations, workflows and data collection for modern businesses." },
+      { name: "author", content: "VoxBulk" },
+      { property: "og:title", content: "VoxBulk" },
+      { property: "og:description", content: "AI assistant platform automating conversations, workflows and data collection." },
       { property: "og:type", content: "website" },
+      { property: "og:site_name", content: "VoxBulk" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@VOXBULK" },
-      { name: "twitter:title", content: "VOXBULK.COM" },
-      {
-        name: "twitter:description",
-        content:
-          "VOXBULK.COM automates appointment recovery and booking for UK dental clinics using AI.",
-      },
-      {
-        property: "og:image",
-        content:
-          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/87551d18-c0da-40a6-8e8a-6ea6f29405bb/id-preview-20c3aaaa--de49a3cc-7504-412a-ba67-d8a82d68ccf5.lovable.app-1777888311232.png",
-      },
-      {
-        name: "twitter:image",
-        content:
-          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/87551d18-c0da-40a6-8e8a-6ea6f29405bb/id-preview-20c3aaaa--de49a3cc-7504-412a-ba67-d8a82d68ccf5.lovable.app-1777888311232.png",
-      },
+      { name: "twitter:title", content: "VoxBulk" },
+      { name: "twitter:description", content: "AI assistant platform automating conversations, workflows and data collection." },
     ],
+
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Instrument+Serif&display=swap",
       },
+      { rel: "icon", type: "image/x-icon", href: brandAssets.favicon },
+      { rel: "icon", type: "image/png", href: brandAssets.faviconPng },
+      { rel: "apple-touch-icon", href: brandAssets.faviconPng },
       {
         rel: "stylesheet",
         href: appCss,
+      },
+    ],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "Organization",
+              name: "VoxBulk",
+              legalName: "VoxBulk LTD",
+              url: "https://voxbulk.com",
+              logo: `${SITE_ORIGIN}${brandAssets.logoBlack}`,
+              description: "AI assistant platform automating conversations, workflows and data collection.",
+            },
+            {
+              "@type": "WebSite",
+              name: "VoxBulk",
+              url: "https://voxbulk.com",
+            },
+
+          ],
+        }),
       },
     ],
   }),
@@ -106,34 +108,16 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  const router = useRouter();
-  // Dashboard/admin logout lands here with ?retover_logout=1 to clear THIS origin's storage (5173).
-  // Must use router.navigate — raw replaceState desyncs TanStack Start after hydration and can white-screen the app.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const sp = new URLSearchParams(window.location.search);
-    if (sp.get("retover_logout") !== "1") return;
-    try {
-      clearAllRetoverSiteLocalKeys();
-    } catch {
-      /* localStorage blocked / quota */
-    }
-    sp.delete("retover_logout");
-    const rest = sp.toString();
-    const nextHref = `${window.location.pathname}${rest ? `?${rest}` : ""}`;
-    void router.navigate({ href: nextHref, replace: true, resetScroll: false }).catch(() => {
-      try {
-        window.history.replaceState(window.history.state ?? {}, "", nextHref);
-      } catch {
-        /* ignore */
-      }
-    });
-  }, [router]);
-
   return (
-    <AuthModalProvider>
-      <Outlet />
-      <Toaster />
-    </AuthModalProvider>
+    <AuthProvider>
+      <CurrencyProvider>
+        <AuthModalProvider>
+          <TalkModalProvider>
+            <Outlet />
+            <Toaster />
+          </TalkModalProvider>
+        </AuthModalProvider>
+      </CurrencyProvider>
+    </AuthProvider>
   );
 }

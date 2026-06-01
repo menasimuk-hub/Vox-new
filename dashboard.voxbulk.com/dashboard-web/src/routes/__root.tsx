@@ -8,11 +8,11 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 
-import { consumeRetoverAuthHandoffFromHash } from "@/lib/auth-handoff";
+import { consumeAuthHandoffFromHash } from "@/lib/auth-handoff";
 import appCss from "../styles.css?url";
 
 if (typeof window !== "undefined") {
-  consumeRetoverAuthHandoffFromHash();
+  consumeAuthHandoffFromHash();
 }
 
 function NotFoundComponent() {

@@ -136,7 +136,7 @@ export default function ZoneOrganisations() {
                           className='btn soft'
                           type='button'
                           onClick={() => {
-                            localStorage.setItem('retover_admin_selected_org_id', o.id)
+                            localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
                             navigate(`/organisations/${encodeURIComponent(o.id)}`)
                           }}
                         >

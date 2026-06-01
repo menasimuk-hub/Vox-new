@@ -37,11 +37,49 @@ def _require_config(provider: str, cfg: dict[str, Any] | None, enabled: bool) ->
     if not enabled or not cfg:
         raise OAuthFlowError("Provider is disabled or not configured")
     client_id = str(cfg.get("client_id") or "").strip()
-    client_secret = str(cfg.get("client_secret") or "").strip()
     redirect_uri = str(cfg.get("redirect_uri") or "").strip()
+
+    if provider == "apple":
+        team_id = str(cfg.get("team_id") or "").strip()
+        key_id = str(cfg.get("key_id") or "").strip()
+        private_key = str(cfg.get("private_key") or "").strip()
+        if not client_id or not redirect_uri or not team_id or not key_id or not private_key:
+            raise OAuthFlowError("Provider settings incomplete")
+        return {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "team_id": team_id,
+            "key_id": key_id,
+            "private_key": private_key,
+        }
+
+    client_secret = str(cfg.get("client_secret") or "").strip()
     if not client_id or not client_secret or not redirect_uri:
         raise OAuthFlowError("Provider settings incomplete")
     return {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri}
+
+
+def _normalize_apple_private_key(private_key: str) -> str:
+    key = private_key.strip().replace("\\n", "\n")
+    if "BEGIN PRIVATE KEY" in key:
+        return key
+    compact = "".join(key.split())
+    wrapped = "\n".join(compact[i : i + 64] for i in range(0, len(compact), 64))
+    return f"-----BEGIN PRIVATE KEY-----\n{wrapped}\n-----END PRIVATE KEY-----"
+
+
+def _apple_client_secret(conf: dict[str, str]) -> str:
+    now = int(datetime.now(timezone.utc).timestamp())
+    headers = {"kid": conf["key_id"], "alg": "ES256"}
+    payload = {
+        "iss": conf["team_id"],
+        "iat": now,
+        "exp": now + 15777000,
+        "aud": "https://appleid.apple.com",
+        "sub": conf["client_id"],
+    }
+    key = _normalize_apple_private_key(conf["private_key"])
+    return jwt.encode(payload, key, algorithm="ES256", headers=headers)
 
 
 def _build_state(*, provider: str, nonce: str, invite_token: str | None, org_id: str | None) -> str:
@@ -72,7 +110,7 @@ def _decode_state(state: str) -> dict[str, Any]:
 
 
 class SocialOAuthService:
-    PROVIDERS = {"google", "facebook", "linkedin"}
+    PROVIDERS = {"google", "apple", "linkedin"}
 
     @staticmethod
     def build_authorize_url(db: Session, *, provider: str, nonce: str, invite_token: str | None, org_id: str | None) -> str:
@@ -98,15 +136,16 @@ class SocialOAuthService:
                 url = url.copy_add_param(k, v)
             return str(url)
 
-        if provider == "facebook":
+        if provider == "apple":
             params = {
                 "client_id": conf["client_id"],
                 "redirect_uri": conf["redirect_uri"],
                 "response_type": "code",
-                "scope": "email,public_profile",
+                "scope": "name email",
+                "response_mode": "query",
                 "state": state,
             }
-            url = httpx.URL("https://www.facebook.com/v19.0/dialog/oauth")
+            url = httpx.URL("https://appleid.apple.com/auth/authorize")
             for k, v in params.items():
                 url = url.copy_add_param(k, v)
             return str(url)
@@ -145,14 +184,16 @@ class SocialOAuthService:
                 r.raise_for_status()
                 return r.json()
 
-            if provider == "facebook":
-                r = await client.get(
-                    "https://graph.facebook.com/v19.0/oauth/access_token",
-                    params={
+            if provider == "apple":
+                client_secret = _apple_client_secret(conf)
+                r = await client.post(
+                    "https://appleid.apple.com/auth/token",
+                    data={
                         "client_id": conf["client_id"],
-                        "client_secret": conf["client_secret"],
-                        "redirect_uri": conf["redirect_uri"],
+                        "client_secret": client_secret,
                         "code": code,
+                        "grant_type": "authorization_code",
+                        "redirect_uri": conf["redirect_uri"],
                     },
                     headers={"Accept": "application/json"},
                 )
@@ -177,6 +218,20 @@ class SocialOAuthService:
         raise OAuthFlowError("Unknown provider")
 
     @staticmethod
+    def _provider_user_from_apple_id_token(id_token: str) -> ProviderUser:
+        try:
+            data = jwt.get_unverified_claims(id_token)
+        except JWTError as e:
+            raise OAuthFlowError("Invalid Apple id_token") from e
+        email = str(data.get("email") or "") or None
+        return ProviderUser(
+            provider="apple",
+            provider_user_id=str(data.get("sub") or ""),
+            email=email,
+            email_verified=bool(data.get("email_verified", False)),
+        )
+
+    @staticmethod
     async def _fetch_provider_user(*, provider: str, access_token: str) -> ProviderUser:
         timeout = httpx.Timeout(10.0, connect=10.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -192,23 +247,6 @@ class SocialOAuthService:
                     provider_user_id=str(data.get("sub") or ""),
                     email=str(data.get("email") or "") or None,
                     email_verified=bool(data.get("email_verified", False)),
-                )
-
-            if provider == "facebook":
-                r = await client.get(
-                    "https://graph.facebook.com/me",
-                    params={"fields": "id,email", "access_token": access_token},
-                    headers={"Accept": "application/json"},
-                )
-                r.raise_for_status()
-                data = r.json()
-                # Facebook does not provide a reliable "email_verified" field. Treat email as unverified.
-                email = str(data.get("email") or "") or None
-                return ProviderUser(
-                    provider="facebook",
-                    provider_user_id=str(data.get("id") or ""),
-                    email=email,
-                    email_verified=False,
                 )
 
             if provider == "linkedin":
@@ -406,11 +444,16 @@ class SocialOAuthService:
         conf = _require_config(provider, cfg, enabled)
 
         token_payload = await SocialOAuthService._exchange_code_for_token(provider=provider, conf=conf, code=code)
-        access_token = str(token_payload.get("access_token") or "")
-        if not access_token:
-            raise OAuthFlowError("Missing access token")
-
-        puser = await SocialOAuthService._fetch_provider_user(provider=provider, access_token=access_token)
+        if provider == "apple":
+            id_token = str(token_payload.get("id_token") or "")
+            if not id_token:
+                raise OAuthFlowError("Missing id_token")
+            puser = SocialOAuthService._provider_user_from_apple_id_token(id_token)
+        else:
+            access_token = str(token_payload.get("access_token") or "")
+            if not access_token:
+                raise OAuthFlowError("Missing access token")
+            puser = await SocialOAuthService._fetch_provider_user(provider=provider, access_token=access_token)
         user, resolved_org_id, is_new = SocialOAuthService.link_or_create_user(
             db,
             provider=provider,

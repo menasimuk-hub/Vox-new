@@ -63,7 +63,7 @@ export default function Organisations() {
         method: 'POST',
         body: JSON.stringify({ name: String(name).trim() }),
       })
-      localStorage.setItem('retover_admin_selected_org_id', created.id)
+      localStorage.setItem('voxbulk_admin_selected_org_id', created.id)
       navigate(`/organisations/${encodeURIComponent(created.id)}`)
     } catch (e) {
       window.alert(e?.message || 'Could not create organisation')
@@ -150,7 +150,7 @@ export default function Organisations() {
                       <button
                         className='btn soft'
                         onClick={() => {
-                          localStorage.setItem('retover_admin_selected_org_id', o.id)
+                          localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
                           navigate(`/organisations/${encodeURIComponent(o.id)}`)
                         }}
                       >

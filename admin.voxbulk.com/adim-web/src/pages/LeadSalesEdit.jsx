@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch, resolveApiUrl } from '../lib/api'
+import { readAdminAccessToken, readSharedAccessToken } from '../lib/sessionStorage'
 import { resolveTemplateForLead, templateSummary } from '../lib/salesOfferResolve'
 import { categoryLabel } from '../lib/salesOfferTypes'
 import TelnyxDualWaveform from '../components/TelnyxDualWaveform'
@@ -9,7 +10,7 @@ import TelnyxPromptPreview from '../components/TelnyxPromptPreview'
 
 async function resolveAdminBearerToken() {
   if (typeof window === 'undefined') return ''
-  return localStorage.getItem('retover_admin_access_token') || localStorage.getItem('access_token') || ''
+  return readAdminAccessToken() || readSharedAccessToken()
 }
 
 function formatWhen(value) {

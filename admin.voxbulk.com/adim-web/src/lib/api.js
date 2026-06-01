@@ -1,5 +1,15 @@
 /* global __ADMIN_PROXY_TARGET__ */
 
+import {
+  LOGOUT_QUERY,
+  LEGACY_LOGOUT_QUERY,
+  STORAGE_KEYS,
+  clearAllSessionStorage,
+  persistPromotedAdminSession,
+  readAdminAccessToken,
+  readSharedAccessToken,
+} from './sessionStorage'
+
 /**
  * Browser → API routing
  * ─────────────────────────────────────────────────────────────────────────────
@@ -33,10 +43,9 @@ function forceCrossOriginApi() {
   return ['true', '1'].includes(String(import.meta?.env?.VITE_FORCE_CROSS_ORIGIN_API ?? '').toLowerCase())
 }
 
-/** Public SPA (port 5173) stores `access_token`; older handoff used `retover_access_token` — read both on this origin. */
+/** Public SPA (port 5173) stores `access_token`; legacy handoff used `retover_access_token`. */
 export function getSharedJwtFromStorage() {
-  if (typeof window === 'undefined') return ''
-  return localStorage.getItem('access_token') || localStorage.getItem('retover_access_token') || ''
+  return readSharedAccessToken()
 }
 
 function isLocalDevHost() {
@@ -159,15 +168,8 @@ export function getEmbeddedViteProxyTarget() {
   }
 }
 
-function persistPromotedAdminSession(token) {
-  if (typeof window === 'undefined' || !token) return
-  try {
-    localStorage.setItem('retover_admin_access_token', token)
-    localStorage.setItem('access_token', token)
-    localStorage.setItem('retover_access_token', token)
-  } catch {
-    /* ignore quota / private mode */
-  }
+function persistPromotedAdminSessionLocal(token) {
+  persistPromotedAdminSession(token)
 }
 
 function _safeDecodeHashParam(s) {
@@ -204,9 +206,9 @@ export function consumeAdminAuthHandoffFromHash() {
   if (!access_token) return false
 
   try {
-    persistPromotedAdminSession(access_token)
-    if (map.org_id) localStorage.setItem('retover_org_id', map.org_id)
-    if (map.user_id) localStorage.setItem('retover_user_id', map.user_id)
+    persistPromotedAdminSessionLocal(access_token)
+    if (map.org_id) localStorage.setItem(STORAGE_KEYS.orgId, map.org_id)
+    if (map.user_id) localStorage.setItem(STORAGE_KEYS.userId, map.user_id)
   } catch {
     return false
   }
@@ -363,7 +365,7 @@ function networkFailureHelp() {
 
 /** Dedicated admin JWT — never send clinic `access_token` to `/admin/*` (wrong tenant → Invalid authentication credentials). */
 export function getAdminAccessTokenRaw() {
-  return localStorage.getItem('retover_admin_access_token') || ''
+  return readAdminAccessToken()
 }
 
 /** Concurrent apiFetch calls must await the same admin sync (avoid parallel race → empty token). */
@@ -456,8 +458,8 @@ export function getPublicAppHomeUrl() {
 
 /** After logout, land on public sign-in (works once voxbulk.com nginx proxies :5173). */
 export function getPublicLogoutLandingUrl() {
-  const u = new URL(`${getPublicAppOrigin()}/signin`)
-  u.searchParams.set('retover_logout', '1')
+  const u = new URL(`${getPublicAppOrigin()}/`)
+  u.searchParams.set(LOGOUT_QUERY, '1')
   return u.toString()
 }
 
@@ -598,7 +600,7 @@ export async function apiFetch(path, options = {}) {
   const token = await resolveAdminBearerToken()
   if (!token) {
     throw new Error(
-      'No admin session. Sign in on the public app with a platform-admin account first; the console will stash retover_admin_access_token.'
+      'No admin session. Sign in on the public app with a platform-admin account first; the console will stash voxbulk_admin_access_token.'
     )
   }
   headers.set('Authorization', `Bearer ${token}`)
@@ -713,14 +715,7 @@ export function adminLogoutRedirect() {
   if (typeof window === 'undefined') return
   try {
     _adminSyncInFlight = null
-    localStorage.removeItem('retover_admin_access_token')
-    localStorage.removeItem('retover_admin_selected_org_id')
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('retover_access_token')
-    localStorage.removeItem('retover_org_id')
-    localStorage.removeItem('retover_user_id')
-    localStorage.removeItem('retover_signup_org_id')
-    localStorage.removeItem('retover_user_email')
+    clearAllSessionStorage()
   } catch {
     /* ignore */
   }

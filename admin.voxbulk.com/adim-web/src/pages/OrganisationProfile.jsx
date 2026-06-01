@@ -23,7 +23,7 @@ function publicAppBase() {
 }
 
 export default function OrganisationProfile() {
-  const orgId = localStorage.getItem('retover_admin_selected_org_id') || ''
+  const orgId = localStorage.getItem('voxbulk_admin_selected_org_id') || ''
   const signupUrl = orgId ? `${publicAppBase()}/signin?org_id=${encodeURIComponent(orgId)}` : ''
 
   const [searchParams, setSearchParams] = useSearchParams()

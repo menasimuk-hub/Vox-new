@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import Vapi from '@vapi-ai/web'
 import { apiFetch, resolveApiUrl, resolveApiWebSocketUrl } from '../lib/api'
+import { readAdminAccessToken, readSharedAccessToken } from '../lib/sessionStorage'
 
 const DEFAULT_AGENT_SLUG = 'vox-sales'
 const FINAL_SEND_DELAY_MS = 150
@@ -82,7 +83,7 @@ function streamUrl(path) {
 
 function adminToken() {
   if (typeof window === 'undefined') return ''
-  return localStorage.getItem('retover_admin_access_token') || localStorage.getItem('access_token') || localStorage.getItem('retover_access_token') || ''
+  return readAdminAccessToken() || readSharedAccessToken()
 }
 
 function parseSseBlock(block) {

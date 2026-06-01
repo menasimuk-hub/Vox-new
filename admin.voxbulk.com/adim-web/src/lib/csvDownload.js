@@ -1,8 +1,9 @@
 import { resolveApiUrl } from './api'
+import { readAdminAccessToken, readSharedAccessToken } from './sessionStorage'
 
 async function resolveAdminBearerToken() {
   if (typeof window === 'undefined') return ''
-  return localStorage.getItem('retover_admin_access_token') || localStorage.getItem('access_token') || ''
+  return readAdminAccessToken() || readSharedAccessToken()
 }
 
 export async function downloadAdminCsv(path, filename) {

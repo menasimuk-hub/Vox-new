@@ -134,7 +134,7 @@ def test_missing_email_is_rejected(app_client):
         try:
             SocialOAuthService.link_or_create_user(
                 db,
-                provider="facebook",
+                provider="apple",
                 provider_user_id="x",
                 email=None,
                 email_verified=False,
@@ -159,7 +159,7 @@ def test_unverified_email_does_not_link_existing_account(app_client):
         try:
             SocialOAuthService.link_or_create_user(
                 db,
-                provider="facebook",
+                provider="apple",
                 provider_user_id="fb-1",
                 email="exists_fb@example.com",
                 email_verified=False,

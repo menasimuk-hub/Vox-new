@@ -15,7 +15,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("organisations", sa.Column("allowed_services_json", sa.Text(), nullable=True))
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    cols = {c["name"] for c in insp.get_columns("organisations")}
+    if "allowed_services_json" not in cols:
+        op.add_column("organisations", sa.Column("allowed_services_json", sa.Text(), nullable=True))
     op.execute(
         """
         UPDATE organisations

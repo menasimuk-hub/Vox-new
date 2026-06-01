@@ -26,7 +26,7 @@ export default function OnboardingServices() {
         if (cancelled) return
         const list = Array.isArray(data) ? data : []
         setOrgs(list)
-        const stored = localStorage.getItem('retover_admin_selected_org_id') || ''
+        const stored = localStorage.getItem('voxbulk_admin_selected_org_id') || ''
         if (stored && list.some((o) => o.id === stored)) setOrgId(stored)
         else if (list.length) setOrgId(list[0].id)
       } catch (e) {
@@ -129,7 +129,7 @@ export default function OnboardingServices() {
             value={orgId}
             onChange={(e) => {
               setOrgId(e.target.value)
-              localStorage.setItem('retover_admin_selected_org_id', e.target.value)
+              localStorage.setItem('voxbulk_admin_selected_org_id', e.target.value)
             }}
           >
             {(orgs || []).map((o) => (

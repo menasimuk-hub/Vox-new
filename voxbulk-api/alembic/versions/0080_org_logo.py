@@ -15,7 +15,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("organisations", sa.Column("logo_storage_key", sa.String(length=512), nullable=True))
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    cols = {c["name"] for c in insp.get_columns("organisations")}
+    if "logo_storage_key" not in cols:
+        op.add_column("organisations", sa.Column("logo_storage_key", sa.String(length=512), nullable=True))
 
 
 def downgrade() -> None:

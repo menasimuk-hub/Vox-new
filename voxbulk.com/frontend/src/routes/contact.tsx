@@ -3,16 +3,20 @@ import { useState, useRef, useEffect } from "react";
 import { z } from "zod";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { ArrowRight, ArrowLeft, Check, Mail, User, MessageSquare } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/contact")({
   head: () => ({
     meta: [
-      { title: "Contact us — VOXBULK" },
-      { name: "description", content: "Get in touch with the VOXBULK team." },
+      { title: "Contact us — VoxBulk" },
+      { name: "description", content: "Get in touch with the VoxBulk team — book a demo, ask about pricing, integrations, GDPR or onboarding for your business." },
+      { property: "og:title", content: "Contact the VoxBulk Team" },
+      { property: "og:description", content: "Reach the VoxBulk team about demos, integrations, pricing and onboarding." },
+      { property: "og:url", content: "https://voxbulk.com/contact" },
     ],
+    links: [{ rel: "canonical", href: "https://voxbulk.com/contact" }],
   }),
+
   component: ContactPage,
 });
 
@@ -42,18 +46,12 @@ function ContactPage() {
     }
     setStep((s) => (s + 1) as 0 | 1 | 2 | 3);
   };
-  const back = () => {
-    setError(null);
-    setStep((s) => Math.max(0, s - 1) as 0 | 1 | 2 | 3);
-  };
+  const back = () => { setError(null); setStep((s) => Math.max(0, s - 1) as 0 | 1 | 2 | 3); };
 
   const submit = async () => {
     setError(null);
     const parsed = schema.safeParse({ name, email, message });
-    if (!parsed.success) {
-      setError(parsed.error.issues[0].message);
-      return;
-    }
+    if (!parsed.success) { setError(parsed.error.issues[0].message); return; }
     setSubmitting(true);
     // Best-effort: store in a generic table if it exists; otherwise just simulate
     try {
@@ -76,24 +74,24 @@ function ContactPage() {
           <div className="text-center">
             <span className="eyebrow">Contact us</span>
             <h1 className="mt-3 text-[34px] md:text-[44px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
-              Let's <span className="italic font-serif font-normal text-primary">talk</span>.
+              Contact the VoxBulk <span className="italic font-serif font-normal text-primary">Team</span>.
             </h1>
             <p className="mt-4 text-body text-[16px]">A few quick steps and we'll be in touch.</p>
+
+            <h2 className="sr-only">Send us a message</h2>
           </div>
 
           {/* Progress */}
           <div className="mt-10 flex items-center justify-center gap-2">
             {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className={`h-1.5 rounded-full transition-all ${step >= i ? "bg-primary w-10" : "bg-border w-6"}`}
-              />
+              <div key={i} className={`h-1.5 rounded-full transition-all ${step >= i ? "bg-primary w-10" : "bg-border w-6"}`} />
             ))}
           </div>
 
           <div className="mt-10 bg-white border border-border rounded-3xl p-7 md:p-10 shadow-elegant">
             {step === 0 && (
               <Field
+                id="contact-name"
                 icon={<User size={18} />}
                 label="What's your name?"
                 value={name}
@@ -105,26 +103,30 @@ function ContactPage() {
             )}
             {step === 1 && (
               <Field
+                id="contact-email"
                 icon={<Mail size={18} />}
                 label="Your email address"
                 type="email"
                 value={email}
                 onChange={setEmail}
-                placeholder="jane@clinic.co.uk"
+                placeholder="jane@company.com"
+
                 autoFocus
                 onEnter={next}
               />
             )}
             {step === 2 && (
               <div>
-                <label className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-text mb-3">
+                <label htmlFor="contact-message" className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-text mb-3">
                   <MessageSquare size={16} /> Your message
                 </label>
                 <textarea
+                  id="contact-message"
                   autoFocus
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Tell us a bit about your clinic and what you're looking for…"
+                  placeholder="Tell us a bit about your team and what you're looking to automate…"
+
                   rows={6}
                   className="w-full rounded-xl border border-border bg-secondary/30 px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
                 />
@@ -136,9 +138,7 @@ function ContactPage() {
                   <Check size={32} strokeWidth={3} />
                 </div>
                 <h3 className="mt-5 text-[24px] font-bold text-heading">Message sent</h3>
-                <p className="mt-2 text-body">
-                  Thanks {name.split(" ")[0]}, we'll reply to {email} within one working day.
-                </p>
+                <p className="mt-2 text-body">Thanks {name.split(" ")[0]}, we'll reply to {email} within one working day.</p>
               </div>
             )}
 
@@ -172,37 +172,23 @@ function ContactPage() {
 }
 
 function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-  icon,
-  autoFocus,
-  onEnter,
+  id, label, value, onChange, placeholder, type = "text", icon, autoFocus, onEnter,
 }: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-  icon?: React.ReactNode;
-  autoFocus?: boolean;
-  onEnter?: () => void;
+  id: string; label: string; value: string; onChange: (v: string) => void; placeholder?: string;
+  type?: string; icon?: React.ReactNode; autoFocus?: boolean; onEnter?: () => void;
 }) {
   return (
     <div>
-      <label className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-text mb-3">
+      <label htmlFor={id} className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-text mb-3">
         {icon} {label}
       </label>
       <input
+        id={id}
         autoFocus={autoFocus}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") onEnter?.();
-        }}
+        onKeyDown={(e) => { if (e.key === "Enter") onEnter?.(); }}
         placeholder={placeholder}
         className="w-full rounded-xl border border-border bg-secondary/30 px-4 py-3.5 text-[16px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
       />
@@ -256,6 +242,10 @@ function SlideToSubmit({ onConfirm, loading }: { onConfirm: () => void; loading:
   return (
     <div
       ref={trackRef}
+      role="button"
+      tabIndex={0}
+      aria-label="Slide to send your message"
+      onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !confirmed && !loading) { e.preventDefault(); setConfirmed(true); onConfirm(); } }}
       className="relative flex-1 max-w-[320px] h-14 rounded-full bg-secondary border border-border overflow-hidden select-none touch-none"
     >
       {/* Filled track */}
@@ -265,9 +255,7 @@ function SlideToSubmit({ onConfirm, loading }: { onConfirm: () => void; loading:
       />
       {/* Label */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <span
-          className={`text-[13.5px] font-semibold uppercase tracking-[0.18em] transition-colors ${pct > 50 ? "text-white/80" : "text-muted-text"}`}
-        >
+        <span className={`text-[13.5px] font-semibold uppercase tracking-[0.18em] transition-colors ${pct > 50 ? "text-white/80" : "text-muted-text"}`}>
           {loading ? "Sending…" : confirmed ? "Sent" : "Slide to send"}
         </span>
       </div>
@@ -280,11 +268,7 @@ function SlideToSubmit({ onConfirm, loading }: { onConfirm: () => void; loading:
         className="absolute top-1 left-1 w-12 h-12 rounded-full bg-white shadow-elevated flex items-center justify-center cursor-grab active:cursor-grabbing transition-transform"
         style={{ transform: `translateX(${x}px)` }}
       >
-        {confirmed || loading ? (
-          <Check size={18} className="text-primary" />
-        ) : (
-          <ArrowRight size={18} className="text-primary" />
-        )}
+        {confirmed || loading ? <Check size={18} className="text-primary" /> : <ArrowRight size={18} className="text-primary" />}
       </div>
     </div>
   );
