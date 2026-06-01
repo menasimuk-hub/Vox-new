@@ -162,7 +162,7 @@ def test_handle_reschedule_sends_link(monkeypatch):
 
 
 def test_extract_telnyx_nested_button_reply():
-    from app.services.telnyx_inbound_messaging_service import _extract_message_text
+    from app.services.telnyx_inbound_messaging_service import _extract_message_text, extract_wa_button_reply
 
     payload = {
         "type": "whatsapp",
@@ -175,6 +175,24 @@ def test_extract_telnyx_nested_button_reply():
         },
     }
     assert _extract_message_text(payload) == "❌ Cancel"
+    assert extract_wa_button_reply(payload)["title"] == "❌ Cancel"
+
+    telnyx_uuid_body = {
+        "body": "db65f888-138e-4d9f-bbd3-0516a8acfc68",
+        "type": "whatsapp",
+        "whatsapp_message": {
+            "type": "interactive",
+            "interactive": {
+                "type": "button_reply",
+                "button_reply": {
+                    "id": "db65f888-138e-4d9f-bbd3-0516a8acfc68",
+                    "title": "❌ Cancel",
+                },
+            },
+        },
+    }
+    assert _extract_message_text(telnyx_uuid_body) == "❌ Cancel"
+    assert extract_wa_button_reply(telnyx_uuid_body)["id"] == "db65f888-138e-4d9f-bbd3-0516a8acfc68"
 
     nested = {
         "data": {
@@ -188,3 +206,36 @@ def test_extract_telnyx_nested_button_reply():
     from app.services.telnyx_inbound_messaging_service import _deep_wa_reply_text
 
     assert _deep_wa_reply_text(nested) == "Cancel"
+
+
+def test_resolve_intent_from_template_button_id():
+    import json
+    import uuid
+
+    from app.core.database import get_sessionmaker
+    from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+    from app.services.interview_whatsapp_inbound_service import resolve_interview_booking_intent
+
+    button_id = "db65f888-138e-4d9f-bbd3-0516a8acfc68"
+    components = [
+        {
+            "type": "BUTTONS",
+            "buttons": [
+                {"type": "QUICK_REPLY", "text": "🔄 Reschedule", "id": "reschedule-id"},
+                {"type": "QUICK_REPLY", "text": "❌ Cancel", "id": button_id},
+            ],
+        }
+    ]
+    with get_sessionmaker()() as db:
+        db.add(
+            TelnyxWhatsappTemplate(
+                telnyx_record_id="rec-" + uuid.uuid4().hex[:8],
+                template_id="tpl-" + uuid.uuid4().hex[:8],
+                name="voxbulk_interview_confirm",
+                language="en_US",
+                status="APPROVED",
+                components_json=json.dumps(components),
+            )
+        )
+        db.commit()
+        assert resolve_interview_booking_intent(db, body=button_id, button_id=button_id) == "cancel"

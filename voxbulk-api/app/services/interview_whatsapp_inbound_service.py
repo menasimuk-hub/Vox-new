@@ -41,7 +41,110 @@ _RESCHEDULE_FREE_RE = re.compile(
     re.I,
 )
 _BOOK_RE = re.compile(r"(?:📅\s*)?book(?:\s+my)?\s+interview\s*$", re.I)
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.I,
+)
 
+
+def _looks_like_uuid(value: str) -> bool:
+    return bool(_UUID_RE.match(str(value or "").strip()))
+
+
+def _iter_template_button_labels(components: Any) -> list[tuple[str, str]]:
+    if not isinstance(components, list):
+        return []
+    out: list[tuple[str, str]] = []
+    for comp in components:
+        if str(comp.get("type") or "").upper() != "BUTTONS":
+            continue
+        for btn in comp.get("buttons") or []:
+            if not isinstance(btn, dict):
+                continue
+            label = str(
+                btn.get("text") or btn.get("title") or btn.get("label") or btn.get("button_text") or ""
+            ).strip()
+            if not label:
+                continue
+            button_id = str(btn.get("id") or btn.get("payload") or "").strip()
+            out.append((button_id, label))
+    return out
+
+
+def resolve_button_label_from_templates(db: Session, button_id: str) -> str | None:
+    clean_id = str(button_id or "").strip()
+    if not clean_id:
+        return None
+    from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+
+    rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars())
+    for row in rows:
+        try:
+            import json as _json
+
+            components = _json.loads(row.components_json or "null")
+        except Exception:
+            components = None
+        if not isinstance(components, list):
+            continue
+        for bid, label in _iter_template_button_labels(components):
+            if bid and bid == clean_id:
+                return label
+    return None
+
+
+def resolve_intent_from_order_templates(db: Session, button_id: str, order: ServiceOrder) -> str | None:
+    clean_id = str(button_id or "").strip()
+    if not clean_id:
+        return None
+    from app.services.interview_booking_service import InterviewBookingService, _template_components
+
+    template_rows = [
+        InterviewBookingService.resolve_confirmation_template(db, order),
+        InterviewBookingService.resolve_invite_wa_template(db, order),
+        InterviewBookingService.resolve_template(db, order),
+    ]
+    for row in template_rows:
+        if row is None:
+            continue
+        for bid, label in _iter_template_button_labels(_template_components(row)):
+            if bid == clean_id:
+                intent = parse_interview_booking_intent(label)
+                if intent:
+                    return intent
+    return None
+
+
+def resolve_interview_booking_intent(
+    db: Session,
+    *,
+    body: str,
+    button_id: str = "",
+    button_title: str = "",
+    org_id: str | None = None,
+    order: ServiceOrder | None = None,
+) -> str | None:
+    for candidate in (button_title, body):
+        intent = parse_interview_booking_intent(candidate)
+        if intent:
+            return intent
+
+    clean_id = str(button_id or "").strip()
+    if not clean_id and _looks_like_uuid(body):
+        clean_id = str(body).strip()
+    if not clean_id:
+        return None
+
+    label = resolve_button_label_from_templates(db, clean_id)
+    if label:
+        intent = parse_interview_booking_intent(label)
+        if intent:
+            return intent
+
+    if order is not None:
+        return resolve_intent_from_order_templates(db, clean_id, order)
+
+    return None
 
 def parse_interview_booking_intent(body: str) -> str | None:
     text = re.sub(r"[\u200b-\u200d\ufeff]", "", str(body or "")).strip()
@@ -189,16 +292,30 @@ def handle_inbound_reply(
     *,
     from_phone: str,
     body: str,
+    button_id: str = "",
+    button_title: str = "",
     org_id: str | None = None,
     log_id: str | int | None = None,
 ) -> dict[str, Any]:
-    intent = parse_interview_booking_intent(body)
-    if not intent:
-        return {"handled": False, "reason": "no_matching_intent"}
-
     ctx = find_active_booking_context(db, from_phone=from_phone, org_id=org_id)
+    order = ctx[1] if ctx else None
+    intent = resolve_interview_booking_intent(
+        db,
+        body=body,
+        button_id=button_id,
+        button_title=button_title,
+        org_id=org_id,
+        order=order,
+    )
+    if not intent and ctx is not None:
+        clean_id = str(button_id or "").strip() or (str(body).strip() if _looks_like_uuid(body) else "")
+        if clean_id:
+            intent = resolve_intent_from_order_templates(db, clean_id, ctx[1])
+    if not intent:
+        return {"handled": False, "reason": "no_matching_intent", "button_id": button_id, "body": body[:120]}
+
     if ctx is None:
-        return {"handled": False, "reason": "no_active_booking"}
+        return {"handled": False, "reason": "no_active_booking", "intent": intent}
 
     token_row, order, recipient = ctx
     if not recipient.phone:

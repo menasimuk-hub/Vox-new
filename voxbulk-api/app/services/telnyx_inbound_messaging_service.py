@@ -55,14 +55,72 @@ def _phone_from(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _looks_like_uuid(value: str) -> bool:
+    import re
+
+    return bool(
+        re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            str(value or "").strip(),
+            re.I,
+        )
+    )
+
+
+def _deep_find_button_reply(value: Any, *, depth: int = 0) -> dict[str, str] | None:
+    if depth > 12:
+        return None
+    if isinstance(value, dict):
+        nested = value.get("button_reply")
+        if isinstance(nested, dict):
+            reply = {
+                "id": str(nested.get("id") or "").strip(),
+                "title": str(nested.get("title") or nested.get("text") or "").strip(),
+            }
+            if reply["id"] or reply["title"]:
+                return reply
+        if str(value.get("type") or "").lower() == "button_reply":
+            reply = {
+                "id": str(value.get("id") or "").strip(),
+                "title": str(value.get("title") or value.get("text") or "").strip(),
+            }
+            if reply["id"] or reply["title"]:
+                return reply
+        for nested_value in value.values():
+            if isinstance(nested_value, (dict, list)):
+                found = _deep_find_button_reply(nested_value, depth=depth + 1)
+                if found:
+                    return found
+    elif isinstance(value, list):
+        for item in value:
+            found = _deep_find_button_reply(item, depth=depth + 1)
+            if found:
+                return found
+    return None
+
+
+def extract_wa_button_reply(record: dict[str, Any]) -> dict[str, str]:
+    found = _deep_find_button_reply(record) or {}
+    return {
+        "id": str(found.get("id") or "").strip(),
+        "title": str(found.get("title") or "").strip(),
+    }
+
+
 def _extract_message_text(record: dict[str, Any]) -> str:
+    button = extract_wa_button_reply(record)
+    if button.get("title"):
+        return button["title"]
+
     text = record.get("text")
     if isinstance(text, str) and text.strip():
         return text.strip()
 
     body = record.get("body")
     if isinstance(body, str) and body.strip():
-        return body.strip()
+        clean = body.strip()
+        if not _looks_like_uuid(clean):
+            return clean
     if isinstance(body, dict):
         inner = body.get("text")
         if isinstance(inner, str) and inner.strip():
@@ -115,9 +173,17 @@ def _deep_wa_reply_text(value: Any, *, depth: int = 0) -> str:
     if isinstance(value, str):
         return value.strip()
     if isinstance(value, dict):
-        for key in ("title", "text", "body", "description", "id", "payload", "reply"):
+        if "button_reply" in value and isinstance(value["button_reply"], dict):
+            nested = value["button_reply"]
+            for key in ("title", "text", "description"):
+                val = nested.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+        for key in ("title", "text", "body", "description", "payload", "reply", "id"):
             found = _deep_wa_reply_text(value.get(key), depth=depth + 1)
-            if found:
+            if found and not (_looks_like_uuid(found) and key == "id"):
+                return found
+            if found and key != "id":
                 return found
         for key in ("button_reply", "list_reply", "interactive", "whatsapp_message", "message", "payload"):
             found = _deep_wa_reply_text(value.get(key), depth=depth + 1)
@@ -261,25 +327,38 @@ class TelnyxInboundMessagingService:
         if direction == "inbound" and channel == "whatsapp":
             handled_interview = False
             handled_survey = False
+            button_reply = extract_wa_button_reply(record)
             inbound_text = (_extract_message_text(record) or body or "").strip()
+            button_id = button_reply.get("id") or (
+                inbound_text if _looks_like_uuid(inbound_text) else ""
+            )
             try:
                 from app.services.interview_whatsapp_inbound_service import (
                     find_active_booking_context,
                     handle_inbound_reply as handle_interview_booking_reply,
-                    parse_interview_booking_intent,
+                    resolve_interview_booking_intent,
                 )
 
-                intent = parse_interview_booking_intent(inbound_text) if inbound_text else None
                 booking_ctx = find_active_booking_context(
                     db,
                     from_phone=from_norm or from_number,
                     org_id=org_id,
                 )
-                if intent or (booking_ctx is not None and inbound_text):
+                intent = resolve_interview_booking_intent(
+                    db,
+                    body=inbound_text,
+                    button_id=button_id,
+                    button_title=button_reply.get("title") or "",
+                    org_id=org_id,
+                    order=booking_ctx[1] if booking_ctx else None,
+                )
+                if intent or (booking_ctx is not None and (inbound_text or button_id)):
                     interview_result = handle_interview_booking_reply(
                         db,
                         from_phone=from_norm or from_number,
                         body=inbound_text,
+                        button_id=button_id,
+                        button_title=button_reply.get("title") or "",
                         org_id=org_id,
                         log_id=row.id if direction == "inbound" else None,
                     )
@@ -288,8 +367,10 @@ class TelnyxInboundMessagingService:
                         import logging
 
                         logging.getLogger(__name__).warning(
-                            "interview_wa_inbound_not_handled body=%r intent=%s reason=%s",
+                            "interview_wa_inbound_not_handled body=%r button_id=%r button_title=%r intent=%s reason=%s",
                             inbound_text[:120],
+                            button_id[:80] if button_id else "",
+                            (button_reply.get("title") or "")[:80],
                             intent,
                             interview_result.get("reason"),
                         )
