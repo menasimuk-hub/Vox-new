@@ -42,8 +42,10 @@ def _client_branding(db: Session, org_id: str, payload: dict) -> dict:
     if agent:
         agent_name = str(agent.name or agent.voice_label or "").strip()
 
+    # Always use agent name if provided, otherwise fall back to configured organiser
     if agent_name:
         organiser = agent_name
+        assistant = agent_name
     else:
         organiser = str(
             ctx.get("survey_organiser_name")
@@ -52,11 +54,14 @@ def _client_branding(db: Session, org_id: str, payload: dict) -> dict:
             or identity.get("assistant_name")
             or client_name
         ).strip()
+        assistant = str(ctx.get("assistant_name") or ctx.get("survey_organiser_name") or identity.get("assistant_name") or organiser).strip()
+    
+    # Clean up any platform brand names
     if "voxbulk" in organiser.lower():
         organiser = client_name
-    assistant = str(ctx.get("assistant_name") or ctx.get("survey_organiser_name") or identity.get("assistant_name") or organiser).strip()
     if "voxbulk" in assistant.lower():
         assistant = organiser or client_name
+    
     return {
         "organisation_name": org_name,
         "client_name": client_name,
