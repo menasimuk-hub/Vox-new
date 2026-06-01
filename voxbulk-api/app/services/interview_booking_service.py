@@ -1009,6 +1009,7 @@ class InterviewBookingService:
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
 
+        _assert_order_accepts_booking(db, order)
         _assert_booking_allowed(recipient)
 
         if row.booked_start_at is None:
