@@ -328,6 +328,10 @@ function SocialLoginSettings() {
       ...s,
       [providerKey]: { ...s[providerKey], is_enabled: Boolean(enabled) },
     }))
+    // Auto-save when toggled
+    setTimeout(() => {
+      saveProvider(providerKey)
+    }, 0)
   }
 
   const saveProvider = async (providerKey) => {
