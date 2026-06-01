@@ -99,11 +99,12 @@ def test_activity_status_booking_cancelled():
 
 def test_activity_status_skipped_after_cancel_not_call_failed():
     r = _recipient(
-        status="skipped",
+        status="cancelled",
         result_json=json.dumps(
             {
                 "booking_cancelled_at": "2026-05-01T12:00:00",
                 "booking_cancelled_via": "whatsapp",
+                "booking_withdrawn": True,
             }
         ),
     )

@@ -115,6 +115,10 @@ def _recipient_eligible_for_dial(
         merged = {}
     if merged.get("booking_cancelled_at") and not token.booked_start_at:
         return False, "booking_cancelled"
+    if merged.get("booking_withdrawn"):
+        return False, "booking_withdrawn"
+    if str(recipient.status or "").lower() == "cancelled":
+        return False, "booking_cancelled"
     if token.booked_start_at is None:
         return False, "not_booked"
     slot_start = token.booked_start_at
@@ -143,6 +147,9 @@ def _mark_missed_booking_slots(
             continue
         token = _recipient_booking_token(db, order.id, recipient.id)
         if token is None or token.booked_start_at is None:
+            continue
+        merged = _recipient_result(recipient)
+        if merged.get("booking_cancelled_at") or merged.get("booking_withdrawn"):
             continue
         grace_end = token.booked_start_at + timedelta(minutes=SLOT_MINUTES + 15)
         if now <= grace_end:
@@ -174,6 +181,11 @@ def _cancel_unbooked_at_window_end(
             continue
         token = _recipient_booking_token(db, order.id, recipient.id)
         if token is not None and token.booked_start_at is not None:
+            continue
+        merged = _recipient_result(recipient)
+        if merged.get("booking_cancelled_at") or merged.get("booking_withdrawn"):
+            continue
+        if str(recipient.status or "").lower() == "cancelled":
             continue
         recipient.status = "cancelled"
         _set_recipient_result(

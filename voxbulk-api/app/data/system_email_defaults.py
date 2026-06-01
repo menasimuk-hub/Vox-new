@@ -131,8 +131,7 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     <p style="margin:0 0 6px;"><strong>Was scheduled for:</strong> {{interview_date}}</p>
     <p style="margin:0;"><strong>Time:</strong> {{interview_time}}</p>
   </div>
-  """ + cta_button(href="{{booking_url}}", label="Book a new time") + """
-  <p style="font-size:13px;color:#6b6560;">If you still want to take part, choose another slot using the link above.</p>""",
+  <p style="font-size:13px;color:#6b6560;">You will not receive an AI call for this role.</p>""",
         ),
     },
     "interview_zoom_invite": {

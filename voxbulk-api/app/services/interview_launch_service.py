@@ -88,39 +88,11 @@ class InterviewLaunchService:
                 (_order_config(order).get("last_invite_dispatch") or {}).get("ok")
             )
             if resend_invites or not already_sent:
-                order_id = order.id
-                channels_copy = list(channels or ["whatsapp", "email"])
-
-                def _send_invites_background() -> None:
-                    try:
-                        from app.core.database import get_sessionmaker
-
-                        with get_sessionmaker()() as bg_db:
-                            bg_order = bg_db.get(ServiceOrder, order_id)
-                            if bg_order is None:
-                                return
-                            InterviewBookingService.send_invites(
-                                bg_db,
-                                bg_order,
-                                channels=channels_copy,
-                            )
-                    except Exception:
-                        import logging
-
-                        logging.getLogger(__name__).exception(
-                            "interview_launch_send_invites_failed order_id=%s", order_id
-                        )
-
-                import threading
-
-                threading.Thread(target=_send_invites_background, daemon=True).start()
-                invite_result = {
-                    "ok": True,
-                    "whatsapp_sent": 0,
-                    "email_sent": 0,
-                    "async": True,
-                    "message": "Booking invites are sending in the background",
-                }
+                invite_result = InterviewBookingService.send_invites(
+                    db,
+                    order,
+                    channels=list(channels or ["whatsapp", "email"]),
+                )
             config = _order_config(order)
             config["require_booking"] = config.get("require_booking", True) is not False
             config["booking_flow"] = "whatsapp_slot"

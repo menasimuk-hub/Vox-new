@@ -68,10 +68,22 @@ def interview_booking_locked(recipient: ServiceOrderRecipient) -> str | None:
     return None
 
 
+def _booking_withdrawn(recipient: ServiceOrderRecipient) -> bool:
+    """True when the candidate cancelled and must not book or receive AI calls again."""
+    if str(recipient.status or "").lower() == "cancelled":
+        return True
+    merged = _recipient_result(recipient)
+    if merged.get("booking_withdrawn"):
+        return True
+    return bool(merged.get("booking_cancelled_at")) and not merged.get("booked_start_at")
+
+
 def _assert_booking_allowed(recipient: ServiceOrderRecipient) -> None:
     reason = interview_booking_locked(recipient)
     if reason:
         raise ValueError(reason)
+    if _booking_withdrawn(recipient):
+        raise ValueError("This interview was cancelled — you are no longer scheduled for an AI call.")
 
 
 def _order_booking_closed_message(order: ServiceOrder, db: Session) -> str | None:
@@ -696,6 +708,28 @@ class InterviewBookingService:
         except Exception:
             org_name = ""
 
+        merged = _recipient_result(recipient)
+        if _booking_withdrawn(recipient):
+            cancelled_at = merged.get("booking_cancelled_at")
+            return {
+                "token": row.token,
+                "candidate_name": recipient.name or "Candidate",
+                "role": role,
+                "organisation_name": org_name,
+                "booking_closed": True,
+                "closed_message": "Your interview was cancelled. You will not receive an AI call for this role.",
+                "slot_minutes": SLOT_MINUTES,
+                "available_slots": [],
+                "booked_start_at": None,
+                "booked_end_at": None,
+                "window_start": _iso_utc(order.scheduled_start_at),
+                "window_end": _iso_utc(order.scheduled_end_at),
+                "already_booked": False,
+                "cancelled_at": str(cancelled_at) if cancelled_at else None,
+                "can_reschedule": False,
+                "can_cancel": False,
+            }
+
         closed_message = _order_booking_closed_message(order, db)
         if closed_message:
             return {
@@ -719,7 +753,6 @@ class InterviewBookingService:
 
         _assert_booking_allowed(recipient)
 
-        merged = _recipient_result(recipient)
         cancelled_at = merged.get("booking_cancelled_at")
 
         booked = _booked_starts(db, order.id, exclude_token_id=row.id)
@@ -805,7 +838,6 @@ class InterviewBookingService:
         db.add(row)
 
         merged = _recipient_result(recipient)
-        merged.pop("booking_cancelled_at", None)
         merged.update(
             {
                 "booking_token": row.token,
@@ -980,7 +1012,7 @@ class InterviewBookingService:
             plain = (
                 f"Hi {variables['candidate_name']},\n\n"
                 f"Your {role} interview at {company_name} on {date_line} at {time_line} has been cancelled.\n\n"
-                f"Book a new time: {book_url}\n"
+                f"You will not receive an AI call for this role.\n"
             )
             CareerEmailService.send(
                 db,
@@ -1045,13 +1077,13 @@ class InterviewBookingService:
                 "booking_cancelled_at": now.isoformat(),
                 "cancelled_booked_start_at": previous_start.isoformat() if previous_start else None,
                 "booking_cancelled_via": str(source or "web").strip().lower() or "web",
+                "booking_withdrawn": True,
             }
         )
         merged.pop("booked_start_at", None)
         merged.pop("booked_end_at", None)
         InterviewBookingService._hangup_active_call_if_any(db, order, recipient)
-        if str(recipient.status or "").lower() in {"calling", "in_progress", "ringing", "pending", "sent"}:
-            recipient.status = "skipped"
+        recipient.status = "cancelled"
         recipient.result_json = json.dumps(merged, ensure_ascii=False)
         db.add(recipient)
         db.commit()
@@ -1144,6 +1176,7 @@ class InterviewBookingService:
 
         merged = _recipient_result(recipient)
         merged.pop("booking_cancelled_at", None)
+        merged.pop("booking_withdrawn", None)
         merged.update(
             {
                 "booking_token": row.token,
@@ -1296,6 +1329,10 @@ class InterviewBookingService:
                             )
                         else:
                             errors.append(f"{recipient.name} WA: {result.detail or result.status}")
+
+            if recipient_email_sent or recipient_wa_sent:
+                if str(recipient.status or "").lower() in {"", "pending"}:
+                    recipient.status = "sent"
 
             merged = _recipient_result(recipient)
             now_iso = _now().isoformat()

@@ -18,6 +18,7 @@ from app.services.interview_whatsapp_inbound_service import (
     handle_inbound_reply,
     parse_interview_booking_intent,
 )
+from app.services.interview_booking_service import InterviewBookingService
 
 
 def _seed_booking(db, *, booked: bool = False):
@@ -130,7 +131,9 @@ def test_handle_cancel_booking(monkeypatch):
         db.refresh(token)
         db.refresh(recipient)
         assert token.booked_start_at is None
+        assert recipient.status == "cancelled"
         assert sent and "cancelled" in sent[0].lower()
+        assert "will not receive" in sent[0].lower()
         assert "interview_booking_cancel" in emails
         merged = json.loads(recipient.result_json or "{}")
         assert merged.get("booking_cancelled_via") == "whatsapp"
@@ -151,10 +154,6 @@ def test_handle_cancel_uses_stored_invite_booking_url(monkeypatch):
     monkeypatch.setattr(
         "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
         lambda db, **kwargs: (True, None),
-    )
-    monkeypatch.setattr(
-        "app.services.interview_booking_service.booking_url_for_token",
-        lambda token: f"https://dashboard.voxbulk.com/book/{token}",
     )
 
     with get_sessionmaker()() as db:
@@ -178,8 +177,20 @@ def test_handle_cancel_uses_stored_invite_booking_url(monkeypatch):
         assert result["handled"] is True
         assert result["action"] == "cancelled"
         assert sent
-        assert invite_url in sent[0]
-        assert "dashboard.voxbulk.com" not in sent[0]
+        assert invite_url not in sent[0]
+        assert "will not receive" in sent[0].lower()
+
+
+def test_confirm_booking_blocked_after_cancel():
+    with get_sessionmaker()() as db:
+        org, order, recipient, token = _seed_booking(db, booked=True)
+        InterviewBookingService.cancel_booking(db, token.token, source="whatsapp")
+        slot = (datetime.utcnow() + timedelta(hours=2)).isoformat()
+        try:
+            InterviewBookingService.confirm_booking(db, token.token, slot)
+            assert False, "expected confirm to fail after cancel"
+        except ValueError as exc:
+            assert "cancelled" in str(exc).lower()
 
 
 def test_handle_reschedule_sends_link(monkeypatch):

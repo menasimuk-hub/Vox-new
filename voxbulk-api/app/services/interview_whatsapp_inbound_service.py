@@ -340,7 +340,7 @@ def handle_inbound_reply(
             when = f"{_format_slot_date(slot)} at {_format_slot_time(slot)}"
             msg = (
                 f"Hi {first}, your interview on {when} has been cancelled. "
-                f"You can book again anytime: {book_url}"
+                f"You will not receive an AI call for this role."
             )
             sent = _send_text_reply(db, org_id=order.org_id, to_number=recipient.phone, body=msg)
             return {"handled": True, "action": "cancelled", "sent": sent, "log_id": log_id}
