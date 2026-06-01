@@ -33,6 +33,8 @@ export const queryKeys = {
   interviewAgents: ["service-orders", "interview-agents"] as const,
   interviewBilling: ["service-orders", "interview-billing"] as const,
   orderRecipients: (orderId: string) => ["service-orders", orderId, "recipients"] as const,
+  interviewRecipientActivity: (orderId: string, recipientId: string) =>
+    ["service-orders", orderId, "recipients", recipientId, "activity"] as const,
   recoveryJobs: ["calls", "recovery", "jobs"] as const,
   callLogs: ["calls"] as const,
   supportTickets: ["support", "tickets"] as const,
@@ -288,6 +290,33 @@ export function useCreateNewInterviewDraft() {
         qc.setQueryData([...queryKeys.interviewDraft, id], data);
       }
     },
+  });
+}
+
+export function useInterviewRecipientActivity(
+  orderId: string | null | undefined,
+  recipientId: string | null | undefined,
+  enabled = true,
+) {
+  const oid = String(orderId || "").trim();
+  const rid = String(recipientId || "").trim();
+  return useQuery({
+    queryKey: queryKeys.interviewRecipientActivity(oid || "none", rid || "none"),
+    queryFn: () =>
+      apiFetch<{
+        recipient_id: string;
+        name?: string;
+        email?: string;
+        phone?: string;
+        status?: string;
+        activity_status?: string;
+        booked_start_at?: string | null;
+        booked_end_at?: string | null;
+        booking_url?: string | null;
+        events?: { at: string; code: string; label: string; detail?: string | null }[];
+      }>(`/service-orders/${encodeURIComponent(oid)}/recipients/${encodeURIComponent(rid)}/activity`),
+    enabled: enabled && Boolean(oid) && Boolean(rid),
+    staleTime: 5_000,
   });
 }
 

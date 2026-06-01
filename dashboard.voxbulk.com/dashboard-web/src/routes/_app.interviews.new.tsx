@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
-import { Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles } from "lucide-react";
+import { Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
 
@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { AtsPreviewGateModal, InterviewPreviewQuoteModal, PackageUpgradeModal, type InterviewPreviewData } from "@/components/modals";
 import { AtsScore } from "@/components/ats-score";
+import { CandidateActivityDialog, activityStatusLabel, activityStatusTone } from "@/components/candidate-activity-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -68,33 +69,6 @@ type CandidateRow = {
 function isBookingResendBlocked(status?: string | null, activityStatus?: string | null) {
   if (String(status || "").toLowerCase() === "completed") return true;
   return ["report_ready", "interview_completed", "scheduling_sent"].includes(String(activityStatus || ""));
-}
-
-function activityStatusLabel(status?: string | null) {
-  const key = String(status || "").toLowerCase();
-  const labels: Record<string, string> = {
-    pending: "Pending",
-    booking_email_sent: "Booking email sent",
-    awaiting_booking: "Awaiting booking",
-    booked: "Booked",
-    booked_waiting: "Booked — waiting",
-    booking_cancelled: "Booking cancelled",
-    calling: "Calling",
-    interview_completed: "Interview done",
-    report_ready: "Report ready",
-    call_failed: "Call failed",
-    scheduling_sent: "Scheduling sent",
-  };
-  return labels[key] || (key ? key.replace(/_/g, " ") : "Pending");
-}
-
-function activityStatusTone(status?: string | null): "live" | "scheduled" | "finished" | "paused" | "quoted" | "awaiting-payment" {
-  const key = String(status || "").toLowerCase();
-  if (key === "booking_cancelled" || key === "call_failed") return "paused";
-  if (key === "booked" || key === "booked_waiting" || key === "calling") return "live";
-  if (key === "report_ready" || key === "interview_completed") return "finished";
-  if (key === "booking_email_sent" || key === "awaiting_booking") return "scheduled";
-  return "quoted";
 }
 
 function toLocalInput(iso?: string | null) {
@@ -218,6 +192,7 @@ function CreateInterview() {
   const [callingEnd, setCallingEnd] = React.useState("");
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
+  const [activityCandidate, setActivityCandidate] = React.useState<CandidateRow | null>(null);
 
   const config = (order?.config || {}) as Record<string, unknown>;
   const referenceId = order?.reference_id || "";
@@ -1197,6 +1172,16 @@ function CreateInterview() {
                             size="icon"
                             variant="ghost"
                             className="size-8"
+                            aria-label="View activity"
+                            title="View activity"
+                            onClick={() => setActivityCandidate(r)}
+                          >
+                            <Activity className="size-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-8"
                             aria-label="Download CV"
                             onClick={() => void onDownloadCv(r.id, r.cvFilename)}
                           >
@@ -1431,6 +1416,15 @@ function CreateInterview() {
         gcAvailable={gcReady}
         hasPackageSubscription={hasPackageSub}
         packagePlanName={billingPlanName || undefined}
+      />
+      <CandidateActivityDialog
+        open={activityCandidate != null}
+        onOpenChange={(open) => {
+          if (!open) setActivityCandidate(null);
+        }}
+        orderId={orderId}
+        recipientId={activityCandidate?.id ?? null}
+        candidateName={activityCandidate?.name}
       />
     </div>
   );

@@ -905,6 +905,11 @@ class InterviewBookingService:
                     body=f"[template:{confirm_row.name}] {fallback_body}",
                     result=result,
                 )
+                merged = _recipient_result(recipient)
+                merged["confirmation_wa_sent_at"] = _now().isoformat()
+                recipient.result_json = json.dumps(merged, ensure_ascii=False)
+                db.add(recipient)
+                db.commit()
         except Exception:
             pass
 

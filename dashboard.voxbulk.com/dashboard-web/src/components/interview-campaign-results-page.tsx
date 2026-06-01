@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, CalendarClock, Download, FileText, Filter, Play, Search, Send, UserCheck } from "lucide-react";
+import { ArrowLeft, Activity, CalendarClock, Download, FileText, Filter, Play, Search, Send, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -22,6 +22,7 @@ import type { ServiceOrder } from "@/lib/types/api";
 import { AtsScore } from "@/components/ats-score";
 import { InterviewRecordingPlayer } from "@/components/interview-recording-player";
 import { InterviewTranscriptDialog } from "@/components/interview-transcript-dialog";
+import { CandidateActivityDialog } from "@/components/candidate-activity-dialog";
 
 export type CandidateRow = {
   id: string;
@@ -70,6 +71,7 @@ function isLiveOrder(order: ServiceOrder | undefined, tone: CampaignTone) {
 
 export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   const [open, setOpen] = React.useState<string | null>(null);
+  const [activityCandidate, setActivityCandidate] = React.useState<CandidateRow | null>(null);
   const [transcriptOpen, setTranscriptOpen] = React.useState(false);
   const [sendOpen, setSendOpen] = React.useState(false);
   const [selectedRows, setSelectedRows] = React.useState<Record<string, boolean>>({});
@@ -338,8 +340,31 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                         </>
                       )}
                       <TableCell className="pr-4 text-right">
-                        {!isLive && (
+                        {isLive ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="gap-1.5"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActivityCandidate(c);
+                            }}
+                          >
+                            <Activity className="size-4" /> Activity
+                          </Button>
+                        ) : (
                           <div className="inline-flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="gap-1.5"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActivityCandidate(c);
+                              }}
+                            >
+                              <Activity className="size-4" /> Activity
+                            </Button>
                             {c.has_interview_report && (c.status === "completed" || c.activity_status === "report_ready") && (
                               <>
                                 <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); void downloadReport(c.id, "html"); }}>Report</Button>
@@ -428,6 +453,15 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         recipientIds={Object.entries(selectedRows).filter(([, v]) => v).map(([id]) => id)}
       />
       <InterviewTranscriptDialog open={transcriptOpen} onOpenChange={setTranscriptOpen} orderId={orderId} recipientId={open} candidateName={candidateOpen?.name} />
+      <CandidateActivityDialog
+        open={activityCandidate != null}
+        onOpenChange={(next) => {
+          if (!next) setActivityCandidate(null);
+        }}
+        orderId={orderId}
+        recipientId={activityCandidate?.id ?? null}
+        candidateName={activityCandidate?.name}
+      />
 
       <Dialog open={stopOpen} onOpenChange={setStopOpen}>
         <DialogContent>

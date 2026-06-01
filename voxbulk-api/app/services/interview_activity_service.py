@@ -33,10 +33,40 @@ def _cancel_detail(parsed: dict[str, Any]) -> str | None:
     via = str(parsed.get("booking_cancelled_via") or "").strip().lower()
     parts: list[str] = []
     if slot:
-        parts.append(str(slot))
+        formatted = _slot_detail(str(slot))
+        parts.append(f"Was booked for {formatted}" if formatted else str(slot))
     if via:
         parts.append(f"via {via}")
     return " · ".join(parts) if parts else None
+
+
+def _slot_detail(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    try:
+        from app.services.interview_booking_service import _format_slot_date, _format_slot_time
+
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        return f"{_format_slot_date(dt)} at {_format_slot_time(dt)}"
+    except Exception:
+        return str(raw).strip() or None
+
+
+def _merge_token_into_parsed(parsed: dict[str, Any], token_row: InterviewBookingToken | None) -> dict[str, Any]:
+    if token_row is None:
+        return parsed
+    merged = dict(parsed)
+    if getattr(token_row, "booked_start_at", None) and not merged.get("booking_cancelled_at"):
+        merged.setdefault("booked_start_at", token_row.booked_start_at.isoformat())
+        if getattr(token_row, "booked_end_at", None):
+            merged.setdefault("booked_end_at", token_row.booked_end_at.isoformat())
+        if getattr(token_row, "updated_at", None):
+            merged.setdefault("booking_confirmed_at", token_row.updated_at.isoformat())
+    if getattr(token_row, "wa_sent_at", None):
+        merged.setdefault("invite_wa_sent_at", token_row.wa_sent_at.isoformat())
+    return merged
 
 
 def _call_started_at(parsed: dict[str, Any]) -> str | None:
@@ -93,45 +123,6 @@ class InterviewActivityService:
         token_row: InterviewBookingToken | None = None,
     ) -> dict[str, Any]:
         parsed = _loads(recipient.result_json)
-        events: list[dict[str, Any]] = []
-
-        for item in (
-            _event(recipient.created_at.isoformat() if recipient.created_at else None, code="added", label="Added to campaign"),
-            _event(parsed.get("invite_email_sent_at"), code="invite_email", label="Booking email sent", detail="careers@voxbulk.com"),
-            _event(parsed.get("invite_wa_sent_at"), code="invite_wa", label="WhatsApp email notice sent"),
-            _event(parsed.get("booking_invite_sent_at"), code="invite_sent", label="Invites dispatched"),
-            _event(parsed.get("booking_confirmed_at"), code="booked", label="Interview slot booked", detail=parsed.get("booked_start_at")),
-            _event(
-                parsed.get("confirmation_email_sent_at"),
-                code="confirm_email",
-                label="Booking confirmation email sent",
-                detail="careers@voxbulk.com",
-            ),
-            _event(
-                parsed.get("booking_rescheduled_at"),
-                code="rescheduled",
-                label="Interview rescheduled",
-                detail=parsed.get("previous_booked_start_at"),
-            ),
-            _event(
-                parsed.get("booking_cancelled_at"),
-                code="cancelled",
-                label="Interview booking cancelled",
-                detail=_cancel_detail(parsed),
-            ),
-            _event(
-                parsed.get("cancellation_email_sent_at"),
-                code="cancel_email",
-                label="Cancellation email sent",
-                detail="careers@voxbulk.com",
-            ),
-            _event(_call_started_at(parsed), code="calling", label="AI call started"),
-            _event(_call_completed_at(parsed), code="call_done", label="AI call completed"),
-            _event(parsed.get("analysis_saved_at"), code="analysis", label="Interview analysed"),
-            _event(parsed.get("scheduling_url_sent_at") or parsed.get("scheduling_sent_at"), code="scheduling", label="Human interview link sent"),
-        ):
-            if item:
-                events.append(item)
 
         if token_row is None:
             token_row = db.execute(
@@ -140,9 +131,56 @@ class InterviewActivityService:
                     InterviewBookingToken.order_id == order.id,
                     InterviewBookingToken.recipient_id == recipient.id,
                 )
-                .order_by(InterviewBookingToken.created_at.desc())
+                .order_by(InterviewBookingToken.updated_at.desc())
                 .limit(1)
             ).scalar_one_or_none()
+
+        parsed = _merge_token_into_parsed(parsed, token_row)
+        events: list[dict[str, Any]] = []
+
+        for item in (
+            _event(recipient.created_at.isoformat() if recipient.created_at else None, code="added", label="Added to campaign"),
+            _event(parsed.get("invite_email_sent_at"), code="invite_email", label="Appointment booking email sent", detail="careers@voxbulk.com"),
+            _event(parsed.get("invite_wa_sent_at"), code="invite_wa", label="WhatsApp booking notice sent"),
+            _event(parsed.get("booking_invite_sent_at"), code="invite_sent", label="Booking invites dispatched"),
+            _event(
+                parsed.get("booking_confirmed_at") or parsed.get("booked_start_at"),
+                code="booked",
+                label="Appointment booked",
+                detail=_slot_detail(parsed.get("booked_start_at")),
+            ),
+            _event(
+                parsed.get("confirmation_email_sent_at"),
+                code="confirm_email",
+                label="Appointment confirmation email sent",
+                detail="careers@voxbulk.com",
+            ),
+            _event(parsed.get("confirmation_wa_sent_at"), code="confirm_wa", label="Appointment confirmation WhatsApp sent"),
+            _event(
+                parsed.get("booking_rescheduled_at"),
+                code="rescheduled",
+                label="Appointment rescheduled",
+                detail=_slot_detail(parsed.get("previous_booked_start_at")),
+            ),
+            _event(
+                parsed.get("booking_cancelled_at"),
+                code="cancelled",
+                label="Appointment cancelled",
+                detail=_cancel_detail(parsed),
+            ),
+            _event(
+                parsed.get("cancellation_email_sent_at"),
+                code="cancel_email",
+                label="Appointment cancellation email sent",
+                detail="careers@voxbulk.com",
+            ),
+            _event(_call_started_at(parsed), code="calling", label="AI interview call started"),
+            _event(_call_completed_at(parsed), code="call_done", label="AI interview call completed"),
+            _event(parsed.get("analysis_saved_at"), code="analysis", label="Interview report ready"),
+            _event(parsed.get("scheduling_url_sent_at") or parsed.get("scheduling_sent_at"), code="scheduling", label="Human interview link sent"),
+        ):
+            if item:
+                events.append(item)
 
         book_url = parsed.get("booking_url")
         if not book_url and token_row and not interview_booking_locked(recipient):
