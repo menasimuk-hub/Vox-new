@@ -34,6 +34,13 @@ def _order_config(order: ServiceOrder) -> dict[str, Any]:
         return {}
 
 
+def is_zoom_interview_order(order: ServiceOrder) -> bool:
+    if order.service_code != "interview":
+        return False
+    config = _order_config(order)
+    return str(config.get("delivery") or "").strip().lower() == "zoom"
+
+
 def is_ai_call_interview_order(order: ServiceOrder) -> bool:
     if order.service_code != "interview":
         return False

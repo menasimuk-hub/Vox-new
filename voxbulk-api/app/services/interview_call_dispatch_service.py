@@ -1025,6 +1025,11 @@ async def interview_call_scheduler_loop(stop_event: asyncio.Event) -> None:
                 count = process_due_interview_call_orders(db)
                 if count:
                     logger.info("interview_call_campaigns_started", extra={"count": count})
+                from app.services.interview_zoom_service import InterviewZoomService
+
+                zoom_synced = InterviewZoomService.process_pending_sync(db)
+                if zoom_synced:
+                    logger.info("interview_zoom_artifacts_synced", extra={"count": zoom_synced})
                 InterviewAnalysisService.process_pending_analysis(db)
         except Exception:
             logger.exception("interview_call_scheduler_tick_failed")

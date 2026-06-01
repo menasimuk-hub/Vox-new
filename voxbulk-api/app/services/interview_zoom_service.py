@@ -1,17 +1,49 @@
-"""Zoom meeting creation for interview orders with delivery=zoom via Telnyx."""
+"""Zoom interview campaigns via Telnyx native Zoom integration."""
 
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any
 
+import httpx
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.http_ssl import httpx_ssl_verify
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import ServiceOrderService
+from app.services.provider_settings import ProviderSettingsService
+from app.services.telnyx_api_key import require_telnyx_api_key
 from app.services.transactional_email_service import TransactionalEmailService
-from app.services.telnyx_voice_service import TelnyxCallerIdService
+
+logger = logging.getLogger(__name__)
+
+LOG_PREFIX = "[interview-zoom]"
+TELNYX_API_BASE = "https://api.telnyx.com/v2"
+MIN_TRANSCRIPT_CHARS = 20
+
+_TERMINAL_RECIPIENT = frozenset({"completed", "failed", "cancelled", "opted_out"})
+_MEETING_END_EVENTS = frozenset(
+    {
+        "zoom.meeting.ended",
+        "meeting.ended",
+        "zoom.meeting.completed",
+        "meeting.completed",
+        "zoom.recording.available",
+        "recording.available",
+        "zoom.transcript.available",
+        "transcript.available",
+    }
+)
+
+
+def is_zoom_interview_order(order: ServiceOrder) -> bool:
+    if order.service_code != "interview":
+        return False
+    config = _order_config(order)
+    return str(config.get("delivery") or "").strip().lower() == "zoom"
 
 
 def _order_config(order: ServiceOrder) -> dict[str, Any]:
@@ -30,50 +62,335 @@ def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
         return {}
 
 
+def _set_recipient_result(db: Session, recipient: ServiceOrderRecipient, payload: dict[str, Any]) -> None:
+    merged = _recipient_result(recipient)
+    merged.update(payload)
+    recipient.result_json = json.dumps(merged, ensure_ascii=False)
+    db.add(recipient)
+    db.commit()
+    db.refresh(recipient)
+
+
+def _telnyx_request(
+    db: Session,
+    method: str,
+    path: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+    timeout: float = 30.0,
+) -> tuple[int, dict[str, Any] | list[Any] | None, str]:
+    api_key, _source = require_telnyx_api_key(db)
+    url = f"{TELNYX_API_BASE}{path if path.startswith('/') else '/' + path}"
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    with httpx.Client(timeout=timeout, verify=httpx_ssl_verify()) as client:
+        response = client.request(method.upper(), url, headers=headers, json=json_body)
+    text = response.text or ""
+    parsed: dict[str, Any] | list[Any] | None = None
+    if text:
+        try:
+            parsed = response.json()
+        except Exception:
+            parsed = None
+    return response.status_code, parsed, text
+
+
+def _telnyx_data(parsed: dict[str, Any] | list[Any] | None) -> dict[str, Any]:
+    if not isinstance(parsed, dict):
+        return {}
+    data = parsed.get("data")
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data[0]
+    return parsed
+
+
+def _optional_zoom_assistant_id(db: Session) -> str | None:
+    cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+    if not enabled or not cfg:
+        return None
+    for key in ("zoom_interview_assistant_id", "interview_assistant_id", "default_assistant_id"):
+        value = str(cfg.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _extract_transcript(payload: dict[str, Any]) -> str:
+    for key in ("transcript", "transcript_text", "text", "content"):
+        raw = payload.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    files = payload.get("recording_files") or payload.get("files")
+    if isinstance(files, list):
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            file_type = str(item.get("file_type") or item.get("type") or "").upper()
+            if "TRANSCRIPT" in file_type or file_type in {"VTT", "TXT"}:
+                for key in ("download_url", "url", "play_url"):
+                    if str(item.get(key) or "").strip():
+                        return str(item.get("transcript") or item.get("content") or "").strip()
+    return ""
+
+
+def _extract_recording_url(payload: dict[str, Any]) -> str:
+    for key in ("recording_url", "download_url", "play_url", "url"):
+        raw = str(payload.get(key) or "").strip()
+        if raw.startswith("http"):
+            return raw
+    files = payload.get("recording_files") or payload.get("files") or payload.get("recordings")
+    if isinstance(files, list):
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            file_type = str(item.get("file_type") or item.get("type") or "").upper()
+            if file_type in {"MP4", "M4A", "AUDIO", "VIDEO"} or "RECORDING" in file_type:
+                for key in ("download_url", "play_url", "url"):
+                    raw = str(item.get(key) or "").strip()
+                    if raw.startswith("http"):
+                        return raw
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            for key in ("download_url", "play_url", "url"):
+                raw = str(item.get(key) or "").strip()
+                if raw.startswith("http"):
+                    return raw
+    return ""
+
+
 class InterviewZoomService:
     @staticmethod
     def create_zoom_meeting_via_telnyx(db: Session, topic: str) -> dict[str, Any]:
-        """Create Zoom meeting through Telnyx integration."""
-        try:
-            # Get Telnyx zoom connection from provider settings
-            from app.services.provider_settings import ProviderSettingsService
-            
-            config, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
-            if not enabled or not config:
-                raise ValueError("Zoom is not configured in Telnyx")
-            
-            # Use Telnyx API to create meeting
-            import httpx
-            from app.core.config import get_settings
-            
-            settings = get_settings()
-            telnyx_api_key = config.get("telnyx_api_key") or settings.telnyx_api_key
-            
-            if not telnyx_api_key:
-                raise ValueError("Telnyx API key not found")
-            
-            # Call Telnyx to create Zoom meeting
-            headers = {"Authorization": f"Bearer {telnyx_api_key}"}
-            payload = {"topic": topic}
-            
-            with httpx.Client(timeout=30.0) as client:
-                response = client.post(
-                    "https://api.telnyx.com/v2/zoom/meetings",
-                    json=payload,
-                    headers=headers
+        """Create a Zoom meeting using Telnyx's Zoom integration (Bearer = Telnyx API key)."""
+        cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        if not enabled:
+            raise ValueError("Telnyx integration is disabled — enable it under Admin → Integrations → Telnyx")
+
+        payload: dict[str, Any] = {"topic": str(topic or "Interview").strip() or "Interview"}
+        assistant_id = _optional_zoom_assistant_id(db)
+        if assistant_id:
+            payload["assistant_id"] = assistant_id
+
+        status, parsed, raw = _telnyx_request(db, "POST", "/zoom/meetings", json_body=payload)
+        if status != 201:
+            detail = raw[:300]
+            if isinstance(parsed, dict):
+                errors = parsed.get("errors")
+                if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                    detail = str(errors[0].get("detail") or errors[0].get("title") or detail)
+            raise ValueError(f"Telnyx Zoom meeting creation failed (HTTP {status}): {detail}")
+
+        data = _telnyx_data(parsed if isinstance(parsed, dict) else {})
+        meeting_id = data.get("id") or data.get("meeting_id")
+        join_url = data.get("join_url") or data.get("join_url_for_participant")
+        if not meeting_id or not join_url:
+            raise ValueError("Telnyx returned a meeting without id or join_url")
+
+        return {
+            "id": meeting_id,
+            "join_url": str(join_url).strip(),
+            "start_url": data.get("start_url"),
+            "topic": data.get("topic") or payload["topic"],
+            "assistant_id": data.get("assistant_id") or assistant_id,
+        }
+
+    @staticmethod
+    def fetch_meeting_artifacts(db: Session, meeting_id: str) -> dict[str, Any]:
+        """Best-effort fetch of transcript + recording from Telnyx Zoom APIs."""
+        mid = str(meeting_id or "").strip()
+        if not mid:
+            return {"ready": False, "error": "missing meeting id"}
+
+        transcript = ""
+        recording_url = ""
+        conversation_id = ""
+        last_error = ""
+
+        for path in (
+            f"/zoom/meetings/{mid}",
+            f"/zoom/meetings/{mid}/transcript",
+            f"/zoom/meetings/{mid}/recordings",
+        ):
+            status, parsed, raw = _telnyx_request(db, "GET", path)
+            if status >= 400:
+                last_error = raw[:200]
+                continue
+            data = _telnyx_data(parsed if isinstance(parsed, dict) else {})
+            if not transcript:
+                transcript = _extract_transcript(data)
+            if not recording_url:
+                recording_url = _extract_recording_url(data)
+            if not conversation_id:
+                conversation_id = str(data.get("conversation_id") or data.get("telnyx_conversation_id") or "").strip()
+
+        ready = bool(transcript and len(transcript) >= MIN_TRANSCRIPT_CHARS) or bool(recording_url)
+        return {
+            "ready": ready,
+            "transcript": transcript or None,
+            "recording_url": recording_url or None,
+            "conversation_id": conversation_id or None,
+            "error": None if ready else (last_error or "transcript/recording not ready"),
+        }
+
+    @staticmethod
+    def _find_recipient_for_meeting(db: Session, meeting_id: str) -> ServiceOrderRecipient | None:
+        needle = str(meeting_id or "").strip()
+        if not needle:
+            return None
+        rows = list(
+            db.execute(
+                select(ServiceOrderRecipient)
+                .join(ServiceOrder, ServiceOrder.id == ServiceOrderRecipient.order_id)
+                .where(
+                    ServiceOrder.service_code == "interview",
+                    ServiceOrderRecipient.status.in_(("scheduled", "calling", "in_progress", "pending")),
                 )
-                
-                if response.status_code != 201:
-                    raise ValueError(f"Telnyx Zoom meeting creation failed: {response.text[:300]}")
-                
-                data = response.json().get("data", {})
-                return {
-                    "id": data.get("id"),
-                    "join_url": data.get("join_url"),
-                    "topic": data.get("topic"),
-                }
-        except Exception as exc:
-            raise ValueError(f"Failed to create Zoom meeting via Telnyx: {str(exc)}")
+                .order_by(ServiceOrderRecipient.updated_at.desc())
+                .limit(200)
+            ).scalars()
+        )
+        for row in rows:
+            parsed = _recipient_result(row)
+            if str(parsed.get("zoom_meeting_id") or "") == needle:
+                return row
+        return None
+
+    @staticmethod
+    def finalize_recipient_artifacts(
+        db: Session,
+        *,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+        artifacts: dict[str, Any],
+        source: str,
+    ) -> bool:
+        transcript = str(artifacts.get("transcript") or "").strip()
+        recording_url = str(artifacts.get("recording_url") or "").strip()
+        if len(transcript) < MIN_TRANSCRIPT_CHARS and not recording_url:
+            return False
+
+        now = datetime.utcnow().isoformat()
+        payload: dict[str, Any] = {
+            "zoom_sync_source": source,
+            "zoom_synced_at": now,
+            "meeting_completed_at": now,
+        }
+        if transcript:
+            payload["transcript"] = transcript
+        if recording_url:
+            payload["recording_url"] = recording_url
+        if artifacts.get("conversation_id"):
+            payload["telnyx_conversation_id"] = artifacts["conversation_id"]
+
+        _set_recipient_result(db, recipient, payload)
+        recipient.status = "completed"
+        db.add(recipient)
+        db.commit()
+
+        from app.services.interview_analysis_service import refresh_order_interview_report, run_interview_analysis_if_needed
+
+        if transcript:
+            run_interview_analysis_if_needed(db, order=order, recipient=recipient)
+        InterviewZoomService._finalize_order_if_ready(db, order)
+        refresh_order_interview_report(db, order)
+        logger.info("%s recipient_finalized", LOG_PREFIX, extra={"recipient_id": recipient.id, "source": source})
+        return True
+
+    @staticmethod
+    def _finalize_order_if_ready(db: Session, order: ServiceOrder) -> None:
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        if not recipients:
+            return
+        if any(str(r.status or "").lower() not in _TERMINAL_RECIPIENT for r in recipients):
+            order.status = "running"
+            order.updated_at = datetime.utcnow()
+            db.add(order)
+            db.commit()
+            return
+        order.status = "completed"
+        order.completed_at = order.completed_at or datetime.utcnow()
+        order.updated_at = datetime.utcnow()
+        db.add(order)
+        db.commit()
+
+    @staticmethod
+    def handle_webhook(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        event_type = str(data.get("event_type") or data.get("type") or "").strip().lower()
+        inner = data.get("payload") if isinstance(data.get("payload"), dict) else data
+        if event_type not in _MEETING_END_EVENTS and "ended" not in event_type and "recording" not in event_type:
+            return {"ok": True, "ignored": True, "event_type": event_type or None}
+
+        meeting_id = str(
+            inner.get("meeting_id")
+            or inner.get("zoom_meeting_id")
+            or inner.get("id")
+            or data.get("meeting_id")
+            or ""
+        ).strip()
+        if not meeting_id:
+            return {"ok": True, "ignored": True, "reason": "no meeting id"}
+
+        recipient = InterviewZoomService._find_recipient_for_meeting(db, meeting_id)
+        if recipient is None:
+            return {"ok": True, "ignored": True, "meeting_id": meeting_id}
+
+        order = db.get(ServiceOrder, recipient.order_id)
+        if order is None or not is_zoom_interview_order(order):
+            return {"ok": True, "ignored": True, "meeting_id": meeting_id}
+
+        artifacts = InterviewZoomService.fetch_meeting_artifacts(db, meeting_id)
+        if not artifacts.get("ready"):
+            _set_recipient_result(
+                db,
+                recipient,
+                {"zoom_webhook_event": event_type, "zoom_pending_sync_at": datetime.utcnow().isoformat()},
+            )
+            return {"ok": True, "queued": True, "meeting_id": meeting_id}
+
+        InterviewZoomService.finalize_recipient_artifacts(
+            db, order=order, recipient=recipient, artifacts=artifacts, source="webhook"
+        )
+        return {"ok": True, "finalized": True, "meeting_id": meeting_id}
+
+    @staticmethod
+    def process_pending_sync(db: Session, *, limit: int = 10) -> int:
+        """Poll Telnyx for Zoom meetings awaiting transcript/recording."""
+        rows = list(
+            db.execute(
+                select(ServiceOrderRecipient)
+                .join(ServiceOrder, ServiceOrder.id == ServiceOrderRecipient.order_id)
+                .where(
+                    ServiceOrder.service_code == "interview",
+                    ServiceOrderRecipient.status == "scheduled",
+                )
+                .order_by(ServiceOrderRecipient.updated_at.asc())
+                .limit(max(limit * 3, 10))
+            ).scalars()
+        )
+        processed = 0
+        for recipient in rows:
+            if processed >= limit:
+                break
+            order = db.get(ServiceOrder, recipient.order_id)
+            if order is None or not is_zoom_interview_order(order):
+                continue
+            parsed = _recipient_result(recipient)
+            if parsed.get("channel") != "zoom" or not parsed.get("zoom_meeting_id"):
+                continue
+            if parsed.get("transcript") and len(str(parsed.get("transcript"))) >= MIN_TRANSCRIPT_CHARS:
+                continue
+
+            artifacts = InterviewZoomService.fetch_meeting_artifacts(db, str(parsed["zoom_meeting_id"]))
+            if not artifacts.get("ready"):
+                continue
+            if InterviewZoomService.finalize_recipient_artifacts(
+                db, order=order, recipient=recipient, artifacts=artifacts, source="poll"
+            ):
+                processed += 1
+        return processed
 
     @staticmethod
     def start_campaign(db: Session, order: ServiceOrder) -> None:
@@ -105,7 +422,7 @@ class InterviewZoomService:
                 continue
 
             join_url = str(meeting.get("join_url") or "").strip()
-            recipient.status = "completed" if join_url else "failed"
+            recipient.status = "scheduled" if join_url else "failed"
             merged = _recipient_result(recipient)
             merged.update(
                 {
@@ -113,7 +430,9 @@ class InterviewZoomService:
                     "zoom_meeting_id": meeting.get("id"),
                     "join_url": join_url,
                     "scheduling_url": join_url,
+                    "scheduling_url_sent_at": now.isoformat(),
                     "delivered_at": now.isoformat(),
+                    "invite_sent_at": now.isoformat(),
                 }
             )
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
@@ -134,9 +453,6 @@ class InterviewZoomService:
                 except Exception:
                     pass
 
-        order.status = "completed"
-        order.completed_at = datetime.utcnow()
-        order.updated_at = datetime.utcnow()
-        db.add(order)
         db.commit()
+        InterviewZoomService._finalize_order_if_ready(db, order)
         db.refresh(order)

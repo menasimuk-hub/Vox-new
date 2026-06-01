@@ -94,6 +94,20 @@ async def telnyx_messages_webhook(
     return result
 
 
+@router.get("/webhooks/zoom")
+@router.head("/webhooks/zoom")
+async def telnyx_zoom_webhook_probe():
+    return {"ok": True, "endpoint": "telnyx_zoom_webhook"}
+
+
+@router.post("/webhooks/zoom")
+async def telnyx_zoom_webhook(request: Request, db: Session = Depends(get_db)):
+    payload = await request.json()
+    from app.services.interview_zoom_service import InterviewZoomService
+
+    return InterviewZoomService.handle_webhook(db, payload)
+
+
 @router.websocket("/media-stream")
 async def telnyx_media_stream(websocket: WebSocket):
     await websocket.accept()

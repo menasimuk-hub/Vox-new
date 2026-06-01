@@ -494,6 +494,11 @@ export default function TelnyxIntegration({
               <p className='muted' style={{ fontSize: 14, marginBottom: 6 }}>
                 Test the Zoom connection configured in your Telnyx account. This verifies Zoom is properly set up for creating interview meetings.
               </p>
+              <p className='muted' style={{ fontSize: 12, marginBottom: 6 }}>
+                After interviews, point Telnyx Zoom webhooks to{' '}
+                <code>{String(activeConfig.webhook_base_url || 'https://api.voxbulk.com').replace(/\/+$/, '')}/telnyx/webhooks/zoom</code>{' '}
+                (or your API host + <code>/telnyx/webhooks/zoom</code>) so recordings and transcripts sync automatically.
+              </p>
               <div className='actions telnyxTestActions'>
                 <button type='button' className='btn soft' onClick={testTelnyxZoom} disabled={providerSaving}>
                   Test Zoom Connection
