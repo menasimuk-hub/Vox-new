@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -17,6 +18,19 @@ def get_booking_page(token: str, db: Session = Depends(get_db)):
         return InterviewBookingService.public_page(db, token)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.get("/{token}/calendar.ics")
+def download_booking_calendar(token: str, db: Session = Depends(get_db)):
+    try:
+        ics_body, filename = InterviewBookingService.calendar_ics_payload(db, token)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    return Response(
+        content=ics_body,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/{token}/confirm")

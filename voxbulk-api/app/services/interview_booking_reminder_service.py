@@ -117,6 +117,19 @@ class InterviewBookingReminderService:
         date_line = _format_slot_date(slot_start)
         time_line = _format_slot_time(slot_start)
 
+        calendar_vars: dict[str, str] = {}
+        token = str(token_row.token or "").strip()
+        if token:
+            from app.services.interview_calendar_service import build_interview_calendar_variables
+
+            calendar_vars = build_interview_calendar_variables(
+                token=token,
+                slot_start=slot_start,
+                slot_end=token_row.booked_end_at or (slot_start + timedelta(minutes=SLOT_MINUTES)),
+                role=role,
+                company_name=company_name,
+            )
+
         email_ok = False
         wa_ok = False
         err_notes: list[str] = []
@@ -133,6 +146,7 @@ class InterviewBookingReminderService:
                         "company_name": company_name,
                         "interview_date": date_line,
                         "interview_time": time_line,
+                        **calendar_vars,
                     },
                 )
                 if not email_ok and err:

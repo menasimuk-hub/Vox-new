@@ -543,15 +543,13 @@ class InterviewBookingService:
             1: _first_name(candidate_name),
             2: str(role or "interview").strip(),
         }
-        # {{3}} = company_name
-        if company_name is not None:
-            variables[3] = str(company_name or "VOXBULK").strip() or "VOXBULK"
-        # {{4}} = interview_date (only if not using company_name in that slot)
+        # Confirmation templates: {{3}} date, {{4}} time. Invite templates: {{3}} company.
         if interview_date is not None:
-            variables[4] = str(interview_date).strip()
-        # {{5}} = interview_time (if needed)
-        if interview_time is not None:
-            variables[5] = str(interview_time).strip()
+            variables[3] = str(interview_date).strip()
+            if interview_time is not None:
+                variables[4] = str(interview_time).strip()
+        elif company_name is not None:
+            variables[3] = str(company_name or "VOXBULK").strip() or "VOXBULK"
         return _render_template_body(text, variables)
 
     @staticmethod
@@ -989,6 +987,64 @@ class InterviewBookingService:
         }
 
     @staticmethod
+    def _booking_token_for_recipient(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> str | None:
+        merged = _recipient_result(recipient)
+        tok = str(merged.get("booking_token") or "").strip()
+        if tok:
+            return tok
+        row = db.execute(
+            select(InterviewBookingToken)
+            .where(
+                InterviewBookingToken.order_id == order.id,
+                InterviewBookingToken.recipient_id == recipient.id,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        return str(row.token).strip() if row is not None else None
+
+    @staticmethod
+    def calendar_ics_payload(db: Session, token: str) -> tuple[str, str]:
+        row = db.execute(
+            select(InterviewBookingToken).where(InterviewBookingToken.token == str(token).strip()).limit(1)
+        ).scalar_one_or_none()
+        if row is None or row.booked_start_at is None:
+            raise ValueError("No booked interview found for this calendar link")
+
+        order = db.get(ServiceOrder, row.order_id)
+        recipient = db.get(ServiceOrderRecipient, row.recipient_id)
+        if order is None or recipient is None:
+            raise ValueError("Booking link is no longer valid")
+        if _booking_withdrawn(recipient):
+            raise ValueError("This interview was cancelled")
+
+        closed_message = _order_booking_closed_message(order, db)
+        if closed_message:
+            raise ValueError(closed_message)
+
+        config = _order_config(order)
+        role = str(config.get("role") or order.title or "Interview").strip()
+        company_name = InterviewBookingService._org_name(db, order)
+        slot_start = row.booked_start_at
+        slot_end = row.booked_end_at or (slot_start + timedelta(minutes=SLOT_MINUTES))
+        title = f"{role} interview — {company_name}"
+        description = (
+            f"AI phone interview for the {role} role at {company_name}. "
+            "We will call you at the booked time."
+        )
+
+        from app.services.interview_calendar_service import build_interview_ics
+
+        ics = build_interview_ics(
+            slot_start=slot_start,
+            slot_end=slot_end,
+            title=title,
+            description=description,
+            uid=f"interview-{row.token}@voxbulk.com",
+        )
+        filename = f"interview-{role[:40].replace(' ', '-').lower()}.ics"
+        return ics, filename
+
+    @staticmethod
     def _send_booking_confirmations(
         db: Session,
         order: ServiceOrder,
@@ -1001,6 +1057,18 @@ class InterviewBookingService:
         date_line = _format_slot_date(slot_start)
         time_line = _format_slot_time(slot_start)
         first = _first_name(recipient.name)
+        token = InterviewBookingService._booking_token_for_recipient(db, order, recipient)
+        calendar_vars: dict[str, str] = {}
+        if token:
+            from app.services.interview_calendar_service import build_interview_calendar_variables
+
+            calendar_vars = build_interview_calendar_variables(
+                token=token,
+                slot_start=slot_start,
+                slot_end=slot_start + timedelta(minutes=SLOT_MINUTES),
+                role=role,
+                company_name=company_name,
+            )
 
         if recipient.email:
             sent_ok = False
@@ -1015,6 +1083,7 @@ class InterviewBookingService:
                         "company_name": company_name,
                         "interview_date": date_line,
                         "interview_time": time_line,
+                        **calendar_vars,
                     },
                 )
                 if not sent_ok:

@@ -64,3 +64,22 @@ def cta_button(*, href: str, label: str) -> str:
         f'padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600;">{label}</a>'
         f"</p>"
     )
+
+
+def calendar_links_html(*, google_url: str, outlook_url: str, ics_url: str) -> str:
+    """Inline add-to-calendar links for interview confirmation/reminder emails."""
+    c = BRAND_COLORS
+    link_style = (
+        f"display:inline-block;margin:4px 6px 4px 0;padding:8px 14px;border-radius:8px;"
+        f"border:1px solid {c['border']};background:{c['surface']};color:{c['primary']};"
+        f"text-decoration:none;font-size:13px;font-weight:600;"
+    )
+    return (
+        f'<div style="margin:20px 0;padding:16px;background:#f5f1ea;border-radius:10px;border:1px solid #e5e0d8;">'
+        f'<p style="margin:0 0 10px;font-size:13px;font-weight:600;color:{c["ink"]};">Add to your calendar</p>'
+        f'<p style="margin:0;line-height:2;">'
+        f'<a href="{google_url}" style="{link_style}">Google Calendar</a>'
+        f'<a href="{outlook_url}" style="{link_style}">Outlook</a>'
+        f'<a href="{ics_url}" style="{link_style}">Apple / .ics</a>'
+        f"</p></div>"
+    )

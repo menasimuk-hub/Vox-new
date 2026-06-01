@@ -103,6 +103,7 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     <p style="margin:0 0 6px;"><strong>Date:</strong> {{interview_date}}</p>
     <p style="margin:0;"><strong>Time:</strong> {{interview_time}}</p>
   </div>
+  {{calendar_links_html}}
   <p style="font-size:13px;color:#6b6560;">We will call you at the booked time. Reply to this email if you need to reschedule.</p>""",
         ),
     },
@@ -117,6 +118,7 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     <p style="margin:0 0 6px;"><strong>Date:</strong> {{interview_date}}</p>
     <p style="margin:0;"><strong>Time:</strong> {{interview_time}}</p>
   </div>
+  {{calendar_links_html}}
   <p style="font-size:13px;color:#6b6560;">Please keep your phone nearby — we will call you at the booked time.</p>""",
         ),
     },

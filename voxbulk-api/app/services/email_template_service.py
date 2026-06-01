@@ -59,8 +59,21 @@ class EmailTemplateService:
                 continue
             body = str(row.body or "")
             default_body = str(defaults.get("body") or "")
-            if default_body and key.startswith("interview_") and ("data:image" in body or "data:" in body and "base64" in body):
+            default_subject = str(defaults.get("subject") or "")
+            needs_calendar_refresh = (
+                key in {"interview_booking_confirm", "interview_booking_reminder"}
+                and default_body
+                and "{{calendar_links_html}}" in default_body
+                and "{{calendar_links_html}}" not in body
+            )
+            if default_body and key.startswith("interview_") and (
+                "data:image" in body
+                or ("data:" in body and "base64" in body)
+                or needs_calendar_refresh
+            ):
                 row.body = default_body
+                if default_subject:
+                    row.subject = default_subject
                 row.updated_at = datetime.utcnow()
                 db.add(row)
                 changed = True
