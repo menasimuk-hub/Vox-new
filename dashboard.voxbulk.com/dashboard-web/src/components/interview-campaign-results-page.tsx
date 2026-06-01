@@ -62,8 +62,9 @@ function fmtSchedule(iso?: string | null) {
 }
 
 function isLiveOrder(order: ServiceOrder | undefined, tone: CampaignTone) {
-  if (order?.is_finished) return false;
-  if (order?.status === "running" || order?.status === "scheduled") return true;
+  if (order?.is_live === true) return true;
+  if (order?.is_finished === true) return false;
+  if (order?.status === "running" || order?.status === "scheduled" || order?.status === "paused") return true;
   return tone === "live" || tone === "scheduled" || tone === "paused";
 }
 

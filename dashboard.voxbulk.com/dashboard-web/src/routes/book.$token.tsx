@@ -59,6 +59,8 @@ type BookingPage = {
   already_booked: boolean;
 
   cancelled_at?: string | null;
+  booking_closed?: boolean;
+  closed_message?: string | null;
 
   can_reschedule?: boolean;
 
@@ -658,6 +660,44 @@ function PublicBookingPage() {
         </Card>
       </div>
     );
+  }
+
+
+
+  if (data.booking_closed) {
+
+    return (
+
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+
+        <Card className="w-full max-w-md">
+
+          <CardHeader>
+
+            <div className="flex items-center gap-2">
+
+              <XCircle className="size-5 text-muted-foreground" />
+
+              <CardTitle>Campaign closed</CardTitle>
+
+            </div>
+
+            <CardDescription>
+
+              {data.closed_message ||
+
+                `The ${data.role} role${data.organisation_name ? ` at ${data.organisation_name}` : ""} is no longer accepting bookings.`}
+
+            </CardDescription>
+
+          </CardHeader>
+
+        </Card>
+
+      </div>
+
+    );
+
   }
 
 

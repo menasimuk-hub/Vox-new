@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import json
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -47,6 +47,8 @@ from app.services.telnyx_whatsapp_template_sync_service import (
 )
 
 SLOT_MINUTES = 30
+BOOKING_HOURS_START = (9, 0)
+BOOKING_HOURS_END = (17, 30)
 VOICE_TERMINAL = frozenset(
     {"completed", "no_answer", "failed", "busy", "skipped", "cancelled", "opted_out", "done"}
 )
@@ -70,6 +72,27 @@ def _assert_booking_allowed(recipient: ServiceOrderRecipient) -> None:
     reason = interview_booking_locked(recipient)
     if reason:
         raise ValueError(reason)
+
+
+def _order_booking_closed_message(order: ServiceOrder, db: Session) -> str | None:
+    config = _order_config(order)
+    if config.get("booking_closed_at") or str(order.status or "") == "cancelled":
+        role = str(config.get("role") or config.get("position") or order.title or "Interview").strip()
+        company = InterviewBookingService._org_name(db, order)
+        return (
+            f"The {role} role at {company} is no longer accepting bookings — this campaign has ended."
+        )
+    if str(order.status or "") == "completed":
+        role = str(config.get("role") or config.get("position") or order.title or "Interview").strip()
+        company = InterviewBookingService._org_name(db, order)
+        return f"The {role} role at {company} has expired — interviews for this position are closed."
+    return None
+
+
+def _assert_order_accepts_booking(db: Session, order: ServiceOrder) -> None:
+    message = _order_booking_closed_message(order, db)
+    if message:
+        raise ValueError(message)
 
 
 def _now() -> datetime:
@@ -127,6 +150,34 @@ def _slot_starts(window_start: datetime, window_end: datetime, *, now: datetime 
         slots.append(cursor)
         cursor += timedelta(minutes=SLOT_MINUTES)
     return slots
+
+
+def _filter_slots_to_calling_hours(
+    db: Session,
+    order: ServiceOrder,
+    slots: list[datetime],
+) -> list[datetime]:
+    """Only expose booking slots between 09:00 and 17:30 (org timezone, UK default)."""
+    from app.utils.ofcom import is_weekend_uk, resolve_org_call_window
+
+    out: list[datetime] = []
+    for slot in slots:
+        local = slot.replace(tzinfo=timezone.utc).astimezone(UK_TZ)
+        if is_weekend_uk(local):
+            from app.models.organisation_ai_config import OrganisationComplianceConfig
+
+            row = db.execute(
+                select(OrganisationComplianceConfig).where(OrganisationComplianceConfig.org_id == order.org_id)
+            ).scalar_one_or_none()
+            if row is not None and not row.weekend_allowed:
+                continue
+        window = resolve_org_call_window(db, order.org_id, now=local)
+        day_start = max(window.start, time(9, 0))
+        day_end = min(window.end, time(17, 30))
+        slot_end_local = local + timedelta(minutes=SLOT_MINUTES)
+        if day_start <= local.time() and slot_end_local.time() <= day_end:
+            out.append(slot)
+    return out
 
 
 def _booked_starts(db: Session, order_id: str, *, exclude_token_id: str | None = None) -> set[datetime]:
@@ -605,8 +656,6 @@ class InterviewBookingService:
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
 
-        _assert_booking_allowed(recipient)
-
         now = _now()
         if row.expires_at and now > row.expires_at:
             raise ValueError("This booking link has expired")
@@ -625,13 +674,38 @@ class InterviewBookingService:
         except Exception:
             org_name = ""
 
+        closed_message = _order_booking_closed_message(order, db)
+        if closed_message:
+            return {
+                "token": row.token,
+                "candidate_name": recipient.name or "Candidate",
+                "role": role,
+                "organisation_name": org_name,
+                "booking_closed": True,
+                "closed_message": closed_message,
+                "slot_minutes": SLOT_MINUTES,
+                "available_slots": [],
+                "booked_start_at": _iso_utc(row.booked_start_at),
+                "booked_end_at": _iso_utc(row.booked_end_at),
+                "window_start": _iso_utc(order.scheduled_start_at),
+                "window_end": _iso_utc(order.scheduled_end_at),
+                "already_booked": row.booked_start_at is not None,
+                "cancelled_at": None,
+                "can_reschedule": False,
+                "can_cancel": False,
+            }
+
+        _assert_booking_allowed(recipient)
+
         merged = _recipient_result(recipient)
         cancelled_at = merged.get("booking_cancelled_at")
 
         booked = _booked_starts(db, order.id, exclude_token_id=row.id)
+        raw_slots = _slot_starts(order.scheduled_start_at, order.scheduled_end_at, now=now)
+        filtered = _filter_slots_to_calling_hours(db, order, raw_slots)
         available = [
             start
-            for start in _slot_starts(order.scheduled_start_at, order.scheduled_end_at, now=now)
+            for start in filtered
             if start not in booked or (row.booked_start_at and start == row.booked_start_at)
         ]
 
@@ -640,6 +714,8 @@ class InterviewBookingService:
             "candidate_name": recipient.name or "Candidate",
             "role": role,
             "organisation_name": org_name,
+            "booking_closed": False,
+            "closed_message": None,
             "slot_minutes": SLOT_MINUTES,
             "available_slots": [_iso_utc(s) for s in available],
             "booked_start_at": _iso_utc(row.booked_start_at),
@@ -665,6 +741,7 @@ class InterviewBookingService:
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
 
+        _assert_order_accepts_booking(db, order)
         _assert_booking_allowed(recipient)
 
         if row.booked_start_at is not None:
@@ -685,6 +762,16 @@ class InterviewBookingService:
         now = _now()
         if slot_start < now:
             raise ValueError("Selected time is in the past")
+
+        allowed_slots = set(
+            _filter_slots_to_calling_hours(
+                db,
+                order,
+                _slot_starts(order.scheduled_start_at, order.scheduled_end_at, now=now),
+            )
+        )
+        if slot_start not in allowed_slots:
+            raise ValueError("Selected time is outside calling hours (09:00–17:30)")
 
         booked = _booked_starts(db, order.id)
         if slot_start in booked:
@@ -710,7 +797,26 @@ class InterviewBookingService:
         db.add(recipient)
         db.commit()
 
-        InterviewBookingService._send_booking_confirmations(db, order, recipient, slot_start)
+        order_id = order.id
+        recipient_id = recipient.id
+        slot_copy = slot_start
+
+        def _notify() -> None:
+            try:
+                from app.core.database import get_sessionmaker
+
+                with get_sessionmaker()() as bg_db:
+                    bg_order = bg_db.get(ServiceOrder, order_id)
+                    bg_recipient = bg_db.get(ServiceOrderRecipient, recipient_id)
+                    if bg_order is None or bg_recipient is None:
+                        return
+                    InterviewBookingService._send_booking_confirmations(bg_db, bg_order, bg_recipient, slot_copy)
+            except Exception:
+                logger.exception("booking_confirm_notify_failed order_id=%s recipient_id=%s", order_id, recipient_id)
+
+        import threading
+
+        threading.Thread(target=_notify, daemon=True).start()
 
         return {
             "ok": True,
@@ -851,6 +957,7 @@ class InterviewBookingService:
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
 
+        _assert_order_accepts_booking(db, order)
         _assert_booking_allowed(recipient)
 
         if row.booked_start_at is None:
@@ -922,6 +1029,16 @@ class InterviewBookingService:
         now = _now()
         if slot_start < now:
             raise ValueError("Selected time is in the past")
+
+        allowed_slots = set(
+            _filter_slots_to_calling_hours(
+                db,
+                order,
+                _slot_starts(order.scheduled_start_at, order.scheduled_end_at, now=now),
+            )
+        )
+        if slot_start not in allowed_slots:
+            raise ValueError("Selected time is outside calling hours (09:00–17:30)")
 
         if row.booked_start_at == slot_start:
             raise ValueError("You are already booked for that time")

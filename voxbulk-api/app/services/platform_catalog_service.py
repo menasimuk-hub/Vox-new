@@ -762,8 +762,9 @@ class ServiceOrderService:
             out["is_finished"] = ServiceOrderService.is_finished_survey(order)
             out["audit_timeline"] = ServiceOrderService.order_audit_timeline(order)
         if order.service_code == "interview":
-            out["is_live"] = ServiceOrderService.is_live_interview(order)
-            out["is_finished"] = ServiceOrderService.is_finished_interview(order)
+            recs = recipients if recipients is not None else None
+            out["is_live"] = ServiceOrderService.is_live_interview(order, recipients=recs)
+            out["is_finished"] = ServiceOrderService.is_finished_interview(order, recipients=recs)
             out["status_label"] = ServiceOrderService.interview_status_label(order)
             from app.services.interview_cv_email_service import interview_cv_phase_payload
 
@@ -938,18 +939,55 @@ class ServiceOrderService:
         return str(order.status or "") == "archived"
 
     @staticmethod
-    def is_finished_interview(order: ServiceOrder) -> bool:
-        return (
-            order.service_code == "interview"
-            and str(order.status or "") in {"completed", "cancelled"}
-            and not ServiceOrderService.is_archived_order(order)
-        )
+    def is_finished_interview(
+        order: ServiceOrder,
+        recipients: list[ServiceOrderRecipient] | None = None,
+    ) -> bool:
+        if order.service_code != "interview":
+            return False
+        if ServiceOrderService.is_archived_order(order):
+            return False
+        if order.status == "cancelled":
+            return True
+        if order.status != "completed":
+            return False
+        if recipients:
+            for recipient in recipients:
+                parsed: dict[str, Any] = {}
+                try:
+                    raw = json.loads(recipient.result_json or "{}")
+                    if isinstance(raw, dict):
+                        parsed = raw
+                except Exception:
+                    parsed = {}
+                status = str(recipient.status or "").lower()
+                if parsed.get("analysis_saved_at") or parsed.get("call_completed_at"):
+                    continue
+                if status in {"completed", "done"}:
+                    continue
+                if status in {"", "pending", "queued", "sent", "ringing", "calling", "in_progress"}:
+                    return False
+                if parsed.get("booked_start_at") and status not in {
+                    "completed",
+                    "no_answer",
+                    "failed",
+                    "busy",
+                    "skipped",
+                    "cancelled",
+                    "opted_out",
+                    "done",
+                }:
+                    return False
+        return True
 
     @staticmethod
-    def is_live_interview(order: ServiceOrder) -> bool:
+    def is_live_interview(
+        order: ServiceOrder,
+        recipients: list[ServiceOrderRecipient] | None = None,
+    ) -> bool:
         return (
             order.service_code == "interview"
-            and not ServiceOrderService.is_finished_interview(order)
+            and not ServiceOrderService.is_finished_interview(order, recipients=recipients)
             and not ServiceOrderService.is_archived_order(order)
         )
 
@@ -1140,6 +1178,16 @@ class ServiceOrderService:
         note = (reason or "").strip()
         if note:
             order.admin_decision_note = note
+        try:
+            cfg = json.loads(order.config_json or "{}")
+            if not isinstance(cfg, dict):
+                cfg = {}
+        except Exception:
+            cfg = {}
+        cfg["booking_closed_at"] = now.isoformat()
+        if note:
+            cfg["booking_closed_reason"] = note
+        order.config_json = json.dumps(cfg, ensure_ascii=False)
         db.add(order)
         db.commit()
         db.refresh(order)

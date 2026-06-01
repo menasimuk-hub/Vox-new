@@ -44,7 +44,7 @@ _BOOK_RE = re.compile(r"(?:📅\s*)?book(?:\s+my)?\s+interview\s*$", re.I)
 
 
 def parse_interview_booking_intent(body: str) -> str | None:
-    text = str(body or "").strip()
+    text = re.sub(r"[\u200b-\u200d\ufeff]", "", str(body or "")).strip()
     if not text:
         return None
     compact = re.sub(r"\s+", " ", text).strip().lower()
@@ -55,6 +55,8 @@ def parse_interview_booking_intent(body: str) -> str | None:
     if compact in {"book my interview", "📅 book my interview", "book interview"}:
         return "book"
     if _CANCEL_RE.search(text) or _CANCEL_FREE_RE.search(text):
+        return "cancel"
+    if "cancel" in compact and "reschedule" not in compact and len(compact) <= 32:
         return "cancel"
     if _RESCHEDULE_RE.search(text) or _RESCHEDULE_FREE_RE.search(text):
         return "reschedule"

@@ -262,28 +262,15 @@ def _complete_order_window_expired(db: Session, order: ServiceOrder, *, reason: 
     config = _order_config(order)
     booking_required = _booking_required(order, config)
     _cancel_unbooked_at_window_end(db, order, recipients, booking_required=booking_required)
-    recipients = ServiceOrderService.get_recipients(db, order.id)
-    for recipient in recipients:
-        if str(recipient.status or "pending").lower() in VOICE_PENDING | VOICE_ACTIVE:
-            recipient.status = "cancelled"
-            _set_recipient_result(
-                db,
-                recipient,
-                {"error": reason, "cancelled_at": datetime.utcnow().isoformat()},
-            )
-    from app.services.interview_analysis_service import build_order_interview_report
-
-    recipients = ServiceOrderService.get_recipients(db, order.id)
-    report = build_order_interview_report(order, recipients)
-    report["note"] = reason
-    order.report_json = json.dumps(report, ensure_ascii=False)
-    order.status = "completed"
-    order.completed_at = datetime.utcnow()
+    config = _order_config(order)
+    config["calling_window_ended_at"] = datetime.utcnow().isoformat()
+    config["calling_window_ended_reason"] = reason
+    order.config_json = json.dumps(config, ensure_ascii=False)
     order.updated_at = datetime.utcnow()
     db.add(order)
     db.commit()
     db.refresh(order)
-    _log("order_window_ended", order_id=order.id, reason=reason)
+    _log("order_calling_window_ended", order_id=order.id, reason=reason)
     return order
 
 

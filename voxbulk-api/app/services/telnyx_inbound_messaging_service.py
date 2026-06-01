@@ -225,22 +225,23 @@ class TelnyxInboundMessagingService:
         db.commit()
         db.refresh(row)
 
-        if direction == "inbound" and channel == "whatsapp" and body:
+        if direction == "inbound" and channel == "whatsapp":
             handled_interview = False
             handled_survey = False
+            inbound_text = body or _extract_message_text(record)
             try:
                 from app.services.interview_whatsapp_inbound_service import (
                     handle_inbound_reply as handle_interview_booking_reply,
                     parse_interview_booking_intent,
                 )
 
-                if parse_interview_booking_intent(body):
+                if inbound_text and parse_interview_booking_intent(inbound_text):
                     interview_result = handle_interview_booking_reply(
                         db,
                         from_phone=from_norm or from_number,
-                        body=body,
+                        body=inbound_text,
                         org_id=org_id,
-                        log_id=row.id,
+                        log_id=row.id if direction == "inbound" else None,
                     )
                     handled_interview = bool(interview_result.get("handled"))
                     if not handled_interview:
