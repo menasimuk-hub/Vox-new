@@ -431,17 +431,41 @@ function SocialLoginSettings() {
                       <div style={{ display: 'grid', gap: 6 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                           <label className='label' style={{ margin: 0 }}>
-                            Enabled
+                            Show on sign-in page
                           </label>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative', width: 50, height: 28 }}>
                             <input
                               type='checkbox'
                               checked={Boolean(row?.is_enabled)}
                               onChange={(e) => setEnabled(sp.key, e.target.checked)}
+                              style={{ display: 'none' }}
                             />
-                            <span className='muted' style={{ fontSize: 12 }}>
-                              Show on sign-in page
-                            </span>
+                            <span
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: Boolean(row?.is_enabled) ? '#10b981' : '#d1d5db',
+                                borderRadius: '9999px',
+                                transition: 'background-color 0.3s ease',
+                                border: '1px solid transparent',
+                              }}
+                            />
+                            <span
+                              style={{
+                                position: 'absolute',
+                                top: 2,
+                                left: Boolean(row?.is_enabled) ? 24 : 2,
+                                width: 24,
+                                height: 24,
+                                backgroundColor: 'white',
+                                borderRadius: '9999px',
+                                transition: 'left 0.3s ease',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                              }}
+                            />
                           </label>
                         </div>
                       </div>
