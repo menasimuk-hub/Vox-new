@@ -49,9 +49,11 @@ def parse_interview_booking_intent(body: str) -> str | None:
         return None
     compact = re.sub(r"\s+", " ", text).strip().lower()
     compact_no_emoji = re.sub(r"[^\w\s]", "", compact).strip()
-    if compact in {"cancel", "❌ cancel", "cancel interview", "cancel booking", "cancelled"}:
+    if compact in {"cancel", "❌ cancel", "cancel interview", "cancel booking", "cancelled", "🛑 cancel"}:
         return "cancel"
     if compact_no_emoji in {"cancel", "cancelled", "cancel interview", "cancel booking"}:
+        return "cancel"
+    if re.search(r"\bcancel\b", compact_no_emoji) and "reschedule" not in compact_no_emoji:
         return "cancel"
     if compact in {"reschedule", "🔄 reschedule", "reschedule interview", "reschedule booking"}:
         return "reschedule"

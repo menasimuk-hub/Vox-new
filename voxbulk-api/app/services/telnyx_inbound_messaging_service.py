@@ -106,6 +106,33 @@ def _extract_message_text(record: dict[str, Any]) -> str:
         if isinstance(val, str) and val.strip():
             return val.strip()
 
+    return _deep_wa_reply_text(record)
+
+
+def _deep_wa_reply_text(value: Any, *, depth: int = 0) -> str:
+    if depth > 8:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("title", "text", "body", "description", "id", "payload", "reply"):
+            found = _deep_wa_reply_text(value.get(key), depth=depth + 1)
+            if found:
+                return found
+        for key in ("button_reply", "list_reply", "interactive", "whatsapp_message", "message", "payload"):
+            found = _deep_wa_reply_text(value.get(key), depth=depth + 1)
+            if found:
+                return found
+        for nested in value.values():
+            if isinstance(nested, (dict, list)):
+                found = _deep_wa_reply_text(nested, depth=depth + 1)
+                if found:
+                    return found
+    if isinstance(value, list):
+        for item in value:
+            found = _deep_wa_reply_text(item, depth=depth + 1)
+            if found:
+                return found
     return ""
 
 
@@ -234,14 +261,21 @@ class TelnyxInboundMessagingService:
         if direction == "inbound" and channel == "whatsapp":
             handled_interview = False
             handled_survey = False
-            inbound_text = body or _extract_message_text(record)
+            inbound_text = (_extract_message_text(record) or body or "").strip()
             try:
                 from app.services.interview_whatsapp_inbound_service import (
+                    find_active_booking_context,
                     handle_inbound_reply as handle_interview_booking_reply,
                     parse_interview_booking_intent,
                 )
 
-                if inbound_text and parse_interview_booking_intent(inbound_text):
+                intent = parse_interview_booking_intent(inbound_text) if inbound_text else None
+                booking_ctx = find_active_booking_context(
+                    db,
+                    from_phone=from_norm or from_number,
+                    org_id=org_id,
+                )
+                if intent or (booking_ctx is not None and inbound_text):
                     interview_result = handle_interview_booking_reply(
                         db,
                         from_phone=from_norm or from_number,
@@ -254,8 +288,9 @@ class TelnyxInboundMessagingService:
                         import logging
 
                         logging.getLogger(__name__).warning(
-                            "interview_wa_inbound_not_handled body=%r reason=%s",
-                            body[:120],
+                            "interview_wa_inbound_not_handled body=%r intent=%s reason=%s",
+                            inbound_text[:120],
+                            intent,
                             interview_result.get("reason"),
                         )
             except Exception:

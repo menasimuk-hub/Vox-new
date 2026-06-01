@@ -66,8 +66,6 @@ class InterviewActivityService:
             return "interview_completed"
         if data.get("booking_cancelled_at") and not data.get("booked_start_at"):
             return "booking_cancelled"
-        if status in {"failed", "no_answer", "busy", "cancelled", "skipped"}:
-            return "call_failed"
         if data.get("booked_start_at") or data.get("booking_confirmed_at"):
             booked = data.get("booked_start_at")
             if booked:
@@ -78,6 +76,8 @@ class InterviewActivityService:
                 except Exception:
                     pass
             return "booked"
+        if status in {"failed", "no_answer", "busy", "cancelled", "skipped"}:
+            return "call_failed"
         if data.get("invite_email_sent_at"):
             return "booking_email_sent"
         if data.get("invite_wa_sent_at") or data.get("booking_invite_sent_at"):

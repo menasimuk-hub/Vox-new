@@ -97,6 +97,28 @@ def test_activity_status_booking_cancelled():
     assert InterviewActivityService.activity_status(r) == "booking_cancelled"
 
 
+def test_activity_status_skipped_after_cancel_not_call_failed():
+    r = _recipient(
+        status="skipped",
+        result_json=json.dumps(
+            {
+                "booking_cancelled_at": "2026-05-01T12:00:00",
+                "booking_cancelled_via": "whatsapp",
+            }
+        ),
+    )
+    assert InterviewActivityService.activity_status(r) == "booking_cancelled"
+
+
+def test_activity_status_skipped_with_booked_shows_booked():
+    future = (datetime.utcnow() + timedelta(days=1)).isoformat()
+    r = _recipient(
+        status="skipped",
+        result_json=json.dumps({"booked_start_at": future, "booking_confirmed_at": "2026-05-01T11:00:00"}),
+    )
+    assert InterviewActivityService.activity_status(r) == "booked_waiting"
+
+
 def test_timeline_includes_cancel_and_reschedule_events():
     order = ServiceOrder(
         id="ord-1",

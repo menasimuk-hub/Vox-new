@@ -268,6 +268,9 @@ export function useInterviewDraft(options?: { orderId?: string | null }) {
         `/service-orders/interview/draft?order_id=${encodeURIComponent(orderId)}`,
       ),
     enabled: Boolean(orderId),
+    staleTime: 5_000,
+    refetchOnMount: false,
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -279,9 +282,11 @@ export function useCreateNewInterviewDraft() {
         method: "POST",
         body: "{}",
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
-      void qc.invalidateQueries({ queryKey: ["service-orders"] });
+    onSuccess: (data) => {
+      const id = String(data?.order?.id || "").trim();
+      if (id) {
+        qc.setQueryData([...queryKeys.interviewDraft, id], data);
+      }
     },
   });
 }

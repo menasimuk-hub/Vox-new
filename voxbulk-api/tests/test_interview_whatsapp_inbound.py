@@ -68,6 +68,7 @@ def _seed_booking(db, *, booked: bool = False):
 
 def test_parse_interview_booking_intent():
     assert parse_interview_booking_intent("❌ Cancel") == "cancel"
+    assert parse_interview_booking_intent("🛑 Cancel") == "cancel"
     assert parse_interview_booking_intent("🔄 Reschedule") == "reschedule"
     assert parse_interview_booking_intent("📅 Book My Interview") == "book"
     assert parse_interview_booking_intent("I can't make it") == "cancel"
@@ -158,3 +159,32 @@ def test_handle_reschedule_sends_link(monkeypatch):
         assert result["handled"] is True
         assert result["action"] == "reschedule_link"
         assert sent and "reschedule=1" in sent[0]
+
+
+def test_extract_telnyx_nested_button_reply():
+    from app.services.telnyx_inbound_messaging_service import _extract_message_text
+
+    payload = {
+        "type": "whatsapp",
+        "whatsapp_message": {
+            "type": "interactive",
+            "interactive": {
+                "type": "button_reply",
+                "button_reply": {"id": "cancel", "title": "❌ Cancel"},
+            },
+        },
+    }
+    assert _extract_message_text(payload) == "❌ Cancel"
+
+    nested = {
+        "data": {
+            "payload": {
+                "whatsapp_message": {
+                    "interactive": {"button_reply": {"title": "Cancel"}},
+                }
+            }
+        }
+    }
+    from app.services.telnyx_inbound_messaging_service import _deep_wa_reply_text
+
+    assert _deep_wa_reply_text(nested) == "Cancel"

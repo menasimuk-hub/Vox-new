@@ -108,9 +108,29 @@ def compute_intake_errors(recipient: ServiceOrderRecipient) -> list[str]:
     return out
 
 
-def recipient_intake_dict(recipient: ServiceOrderRecipient, *, position: str = "") -> dict[str, Any]:
+def recipient_intake_dict(
+    recipient: ServiceOrderRecipient,
+    *,
+    position: str = "",
+    booking_token: Any | None = None,
+) -> dict[str, Any]:
     base = ServiceOrderService.recipient_to_dict(recipient)
-    parsed = _loads_json(recipient.cv_parsed_json) or {}
+    result_parsed = _loads_json(recipient.result_json) or {}
+    if not isinstance(result_parsed, dict):
+        result_parsed = {}
+    if booking_token is not None:
+        result_parsed = dict(result_parsed)
+        if getattr(booking_token, "booked_start_at", None) and not result_parsed.get("booking_cancelled_at"):
+            result_parsed["booked_start_at"] = booking_token.booked_start_at.isoformat()
+            if getattr(booking_token, "booked_end_at", None):
+                result_parsed["booked_end_at"] = booking_token.booked_end_at.isoformat()
+            if getattr(booking_token, "updated_at", None):
+                result_parsed.setdefault("booking_confirmed_at", booking_token.updated_at.isoformat())
+        if getattr(booking_token, "wa_sent_at", None):
+            result_parsed.setdefault("invite_wa_sent_at", booking_token.wa_sent_at.isoformat())
+    cv_parsed = _loads_json(recipient.cv_parsed_json) or {}
+    if not isinstance(cv_parsed, dict):
+        cv_parsed = {}
     errors = compute_intake_errors(recipient)
     ready = bool(str(recipient.name or "").strip() and str(recipient.phone or "").strip())
     from app.services.interview_ats_service import ats_display_for_recipient
@@ -122,15 +142,17 @@ def recipient_intake_dict(recipient: ServiceOrderRecipient, *, position: str = "
             "intake_source": recipient.intake_source,
             "intake_errors": errors,
             "intake_ready": ready,
-            "cv_skills": parsed.get("skills") or [],
-            "cv_job_titles": parsed.get("job_titles") or [],
+            "cv_skills": cv_parsed.get("skills") or [],
+            "cv_job_titles": cv_parsed.get("job_titles") or [],
             "has_cv_file": bool(recipient.cv_storage_key or (recipient.cv_text or "").strip()),
         }
     )
     base.update(ats_display_for_recipient(recipient, position=position))
     from app.services.interview_activity_service import InterviewActivityService
 
-    base["activity_status"] = InterviewActivityService.activity_status(recipient)
+    base["activity_status"] = InterviewActivityService.activity_status(recipient, parsed=result_parsed)
+    base["booked_start_at"] = result_parsed.get("booked_start_at")
+    base["booked_end_at"] = result_parsed.get("booked_end_at")
     phone_raw = str(recipient.phone or "").strip()
     if phone_raw:
         from sqlalchemy.orm import object_session
@@ -842,10 +864,22 @@ def list_intake_recipients(db: Session, order: ServiceOrder) -> list[dict[str, A
             .order_by(ServiceOrderRecipient.row_number)
         ).scalars()
     )
+    from app.models.interview_booking_token import InterviewBookingToken
     from app.services.interview_ats_service import _order_job_context
 
+    tokens = list(
+        db.execute(
+            select(InterviewBookingToken).where(InterviewBookingToken.order_id == order.id)
+        ).scalars()
+    )
+    token_by_recipient: dict[str, InterviewBookingToken] = {}
+    for token in tokens:
+        existing = token_by_recipient.get(token.recipient_id)
+        if existing is None or (token.updated_at or token.created_at) > (existing.updated_at or existing.created_at):
+            token_by_recipient[token.recipient_id] = token
+
     role, _ = _order_job_context(order)
-    return [recipient_intake_dict(r, position=role) for r in rows]
+    return [recipient_intake_dict(r, position=role, booking_token=token_by_recipient.get(r.id)) for r in rows]
 
 
 def update_intake_recipient(

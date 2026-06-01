@@ -85,7 +85,16 @@ function activityStatusLabel(status?: string | null) {
     call_failed: "Call failed",
     scheduling_sent: "Scheduling sent",
   };
-  return labels[key] || (key ? key.replace(/_/g, " ") : "—");
+  return labels[key] || (key ? key.replace(/_/g, " ") : "Pending");
+}
+
+function activityStatusTone(status?: string | null): "live" | "scheduled" | "finished" | "paused" | "quoted" | "awaiting-payment" {
+  const key = String(status || "").toLowerCase();
+  if (key === "booking_cancelled" || key === "call_failed") return "paused";
+  if (key === "booked" || key === "booked_waiting" || key === "calling") return "live";
+  if (key === "report_ready" || key === "interview_completed") return "finished";
+  if (key === "booking_email_sent" || key === "awaiting_booking") return "scheduled";
+  return "quoted";
 }
 
 function toLocalInput(iso?: string | null) {
@@ -180,19 +189,6 @@ function CreateInterview() {
   const [waPreviewConfirmationTemplateName, setWaPreviewConfirmationTemplateName] = React.useState<string | undefined>();
   const [waPreviewSyncLabel, setWaPreviewSyncLabel] = React.useState<string | undefined>();
   const [waPreviewLoading, setWaPreviewLoading] = React.useState(false);
-  const config = (order?.config || {}) as Record<string, unknown>;
-  const referenceId = order?.reference_id || "";
-  const billingContext = (draftQ.data as { billing_context?: Record<string, unknown> })?.billing_context;
-  const sessionPlan = (session?.subscription as { plan?: Record<string, unknown> } | null)?.plan;
-  const billing = interviewBillingFromSources(billingContext, sessionPlan as { code?: string; name?: string; price_gbp_pence?: number; interval?: string; is_enterprise?: boolean; is_payg?: boolean });
-  const cvEmailAllowed = billing.cvEmailAllowed;
-  const cvEmailBlockReason = billing.blockReason;
-  const billingPlanName = billing.planName;
-  const hasPackageSub = billing.hasPackageSub;
-  const interviewDeliveryOptions = draftQ.data?.interview_delivery_options?.length
-    ? draftQ.data.interview_delivery_options
-    : ["ai_call"];
-  const zoomInterviewEnabled = interviewDeliveryOptions.includes("zoom");
 
   const [preview, setPreview] = React.useState(false);
   const [upgradeOpen, setUpgradeOpen] = React.useState(false);
@@ -223,6 +219,49 @@ function CreateInterview() {
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
 
+  const config = (order?.config || {}) as Record<string, unknown>;
+  const referenceId = order?.reference_id || "";
+  const billingContext = (draftQ.data as { billing_context?: Record<string, unknown> })?.billing_context;
+  const sessionPlan = (session?.subscription as { plan?: Record<string, unknown> } | null)?.plan;
+  const billing = interviewBillingFromSources(billingContext, sessionPlan as { code?: string; name?: string; price_gbp_pence?: number; interval?: string; is_enterprise?: boolean; is_payg?: boolean });
+  const cvEmailAllowed = billing.cvEmailAllowed;
+  const cvEmailBlockReason = billing.blockReason;
+  const billingPlanName = billing.planName;
+  const hasPackageSub = billing.hasPackageSub;
+  const interviewDeliveryOptions = draftQ.data?.interview_delivery_options?.length
+    ? draftQ.data.interview_delivery_options
+    : ["ai_call"];
+  const zoomInterviewEnabled = interviewDeliveryOptions.includes("zoom");
+
+  const orderHydrationKey = React.useMemo(() => {
+    if (!order) return "";
+    const cfg = (order.config || {}) as Record<string, unknown>;
+    return [
+      order.id,
+      order.updated_at,
+      order.scheduled_start_at,
+      order.scheduled_end_at,
+      cfg.position,
+      cfg.role,
+      cfg.criteria,
+      cfg.screening_criteria,
+      cfg.approved_script,
+      cfg.generated_script_draft,
+      cfg.expected_duration_minutes,
+      cfg.script_approved,
+      cfg.agent_id,
+      cfg.delivery,
+      cfg.cv_collection_start_at,
+      cfg.cv_email_start_at,
+      cfg.cv_collection_end_at,
+      cfg.cv_email_end_at,
+      cfg.cv_email_enabled,
+      cfg.ats_last_charge_at,
+      cfg.ats_skipped,
+    ].join("|");
+  }, [order]);
+  const lastHydrationKeyRef = React.useRef("");
+
   const agents = agentsQ.data || [];
   const selectedAgent = agents.find((a) => a.id === agentId) || pickDefaultInterviewAgent(agents);
   const createStartedRef = React.useRef(false);
@@ -236,6 +275,7 @@ function CreateInterview() {
       .then((payload) => {
         const id = payload?.order?.id;
         if (!id) return;
+        qc.setQueryData([...queryKeys.interviewDraft, id], payload);
         void navigate({
           to: "/interviews/new",
           search: { order_id: id },
@@ -245,10 +285,23 @@ function CreateInterview() {
       .catch(() => {
         createStartedRef.current = false;
       });
-  }, [createDraftM, createDraftM.isPending, createDraftM.isSuccess, draftOrderId, navigate, wantNew]);
+  }, [createDraftM, createDraftM.isPending, createDraftM.isSuccess, draftOrderId, navigate, qc, wantNew]);
+
+  const orderStatus = String(order?.status || "").toLowerCase();
+  const shouldPollRecipients = ["running", "scheduled", "paused"].includes(orderStatus);
 
   React.useEffect(() => {
-    if (!order) return;
+    if (!orderId || !shouldPollRecipients) return;
+    const timer = window.setInterval(() => {
+      void qc.refetchQueries({ queryKey: [...queryKeys.interviewDraft, orderId] });
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [orderId, qc, shouldPollRecipients]);
+
+  React.useEffect(() => {
+    if (!order || !orderHydrationKey) return;
+    if (lastHydrationKeyRef.current === orderHydrationKey) return;
+    lastHydrationKeyRef.current = orderHydrationKey;
     setPosition(String(config.position || order.title || config.role || ""));
     setRole(String(config.role || ""));
     setCriteria(String(config.criteria || config.screening_criteria || ""));
@@ -274,7 +327,7 @@ function CreateInterview() {
     if (config.ats_skipped === true) {
       setAtsSkipped(true);
     }
-  }, [order, config, order?.scheduled_start_at, order?.scheduled_end_at, cvEmailAllowed, zoomInterviewEnabled]);
+  }, [order, orderHydrationKey, config, zoomInterviewEnabled]);
 
   const loadWaPreview = React.useCallback(async () => {
     if (!orderId) return;
@@ -831,7 +884,7 @@ function CreateInterview() {
 
   const candSort = useTableSort(candidates, "ats", "desc");
 
-  if (draftQ.isLoading || (wantNew && !draftOrderId && createDraftM.isPending)) {
+  if (!order && ((wantNew && !draftOrderId && createDraftM.isPending) || (draftOrderId && draftQ.isLoading && !createDraftM.data?.order))) {
     return (
       <div className="flex w-full flex-col gap-6">
         <PageHeader eyebrow="Interviews" title="Create new interview" description="Set up an AI phone screening campaign in three steps." />
@@ -1079,7 +1132,7 @@ function CreateInterview() {
                   <SortHeader label="Email" sortKey="email" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} className="hidden sm:table-cell" />
                   <TableHead className="sm:hidden">Contact</TableHead>
                   <SortHeader label="ATS score" sortKey="ats" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
-                  <TableHead className="hidden md:table-cell">Status</TableHead>
+                  <TableHead>Status</TableHead>
                   <SortHeader label="Source" sortKey="source" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
                   <TableHead className="pr-4 text-right">Actions</TableHead>
                 </TableRow></TableHeader>
@@ -1113,7 +1166,7 @@ function CreateInterview() {
                       </TableCell>
                       <TableCell className="hidden text-xs sm:table-cell">{r.email || "—"}</TableCell>
                       <TableCell className="text-xs sm:hidden">
-                        <div className="space-y-0.5 text-muted-foreground">
+                        <div className="space-y-1 text-muted-foreground">
                           {r.phone ? (
                             <div className={r.phoneCallAllowed === false ? "truncate font-medium text-destructive" : "truncate"}>{r.phone}</div>
                           ) : null}
@@ -1126,23 +1179,16 @@ function CreateInterview() {
                             </div>
                           ) : null}
                           {r.email ? <div className="truncate">{r.email}</div> : null}
+                          <StatusBadge tone={activityStatusTone(r.activityStatus)} className="mt-1">
+                            {activityStatusLabel(r.activityStatus)}
+                          </StatusBadge>
                         </div>
                       </TableCell>
                       <TableCell><AtsScore score={r.ats} status={r.atsStatus} /></TableCell>
-                      <TableCell className="hidden text-xs md:table-cell">
-                        <span
-                          className={
-                            r.activityStatus === "booking_cancelled"
-                              ? "font-medium text-destructive"
-                              : r.activityStatus === "booked" || r.activityStatus === "booked_waiting"
-                                ? "font-medium text-success"
-                                : r.activityStatus === "booking_email_sent"
-                                  ? "font-medium text-primary"
-                                  : "text-muted-foreground"
-                          }
-                        >
+                      <TableCell className="text-xs">
+                        <StatusBadge tone={activityStatusTone(r.activityStatus)}>
                           {activityStatusLabel(r.activityStatus)}
-                        </span>
+                        </StatusBadge>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{r.source}</TableCell>
                       <TableCell className="pr-4">
