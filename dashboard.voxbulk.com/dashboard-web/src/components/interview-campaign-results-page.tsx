@@ -37,6 +37,7 @@ export type CandidateRow = {
   scheduledAt?: string;
   booked_start_at?: string | null;
   activity_status?: string;
+  has_interview_report?: boolean;
   transcript_preview?: string | null;
   recording_play_url?: string | null;
   ats_score?: number | null;
@@ -110,9 +111,10 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
       email: String(c.email || ""),
       duration: String(c.duration_label || c.duration || "—"),
       duration_label: String(c.duration_label || ""),
-      score: Number(c.score || 0),
+      score: c.score != null ? Number(c.score) : null,
       recommendation: String(c.recommendation || "—"),
       sentiment: String(c.sentiment || "—"),
+      has_interview_report: Boolean(c.has_interview_report),
       transcript_preview: (c.transcript_preview as string | null) ?? null,
       recording_play_url: (c.recording_play_url as string | null) ?? null,
       ats_score: c.ats_score != null ? Number(c.ats_score) : null,
@@ -247,8 +249,9 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
           ) : (
             <>
               <ResultKpi label="Campaign ID" value={campaignId} sub="tracking reference" />
-              <ResultKpi label="Completed calls" value={String(kpis.reached ?? apiCandidates.length)} sub={`${kpis.reach_rate_pct ?? 100}% reached`} />
-              <ResultKpi label="Recommended advance" value={String(kpis.recommended_advance ?? 0)} sub="AI shortlist" />
+              <ResultKpi label="Completed calls" value={String(kpis.reached ?? 0)} sub={`${kpis.reach_rate_pct ?? 0}% reached`} />
+              <ResultKpi label="Awaiting interview" value={String(kpis.awaiting_interview ?? 0)} sub="Not called yet" />
+              <ResultKpi label="Recommended advance" value={String(kpis.recommended_advance ?? 0)} sub="After AI interview" />
               <ResultKpi label="Avg duration" value={String(kpis.avg_duration_label ?? "—")} sub="per call" />
             </>
           )}
@@ -322,23 +325,27 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                         <>
                           <TableCell className="text-xs tabular-nums">{c.duration}</TableCell>
                           <TableCell><AtsScore score={c.ats_score} status={c.ats_status} label={c.ats_label} /></TableCell>
-                          <TableCell><ScoreBar score={c.score || 0} /></TableCell>
-                          <TableCell className="text-sm">{c.recommendation}</TableCell>
-                          <TableCell className="text-sm">{c.sentiment}</TableCell>
+                          <TableCell><ScoreBar score={c.has_interview_report ? (c.score || 0) : 0} /></TableCell>
+                          <TableCell className="text-sm">{c.has_interview_report ? c.recommendation : "Awaiting interview"}</TableCell>
+                          <TableCell className="text-sm">{c.has_interview_report ? c.sentiment : "—"}</TableCell>
                         </>
                       )}
                       <TableCell className="pr-4 text-right">
                         {!isLive && (
                           <div className="inline-flex gap-1">
-                            {(c.status === "completed" || c.activity_status === "report_ready") && (
+                            {c.has_interview_report && (c.status === "completed" || c.activity_status === "report_ready") && (
                               <>
                                 <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); void downloadReport(c.id, "html"); }}>Report</Button>
                                 <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); void downloadReport(c.id, "pdf"); }}>PDF</Button>
                               </>
                             )}
-                            <Button size="icon" variant="ghost" aria-label="Play recording" onClick={(e) => { e.stopPropagation(); setOpen(c.id); }}>
-                              <Play className="size-4" />
-                            </Button>
+                            {c.has_interview_report ? (
+                              <Button size="icon" variant="ghost" aria-label="Play recording" onClick={(e) => { e.stopPropagation(); setOpen(c.id); }}>
+                                <Play className="size-4" />
+                              </Button>
+                            ) : (
+                              <span className="px-2 text-xs text-muted-foreground">No interview yet</span>
+                            )}
                           </div>
                         )}
                       </TableCell>
@@ -374,25 +381,33 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
               <Button size="sm" variant="ghost" onClick={() => setOpen(null)}>Close</Button>
             </CardHeader>
             <CardContent className="space-y-3">
-              <InterviewRecordingPlayer playPath={candidateOpen.recording_play_url} durationLabel={candidateOpen.duration_label || candidateOpen.duration} />
-              <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => setTranscriptOpen(true)}>
-                <FileText className="size-3.5" /> Open transcript
-              </Button>
-              <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "html")}>
-                <FileText className="size-3.5" /> Full report
-              </Button>
-              <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "pdf")}>
-                <Download className="size-3.5" /> Report PDF
-              </Button>
-              <div className="rounded-lg border border-success/30 bg-success/10 p-3">
-                <div className="flex items-start gap-2">
-                  <UserCheck className="mt-0.5 size-4 text-success" />
-                  <div>
-                    <p className="text-sm font-medium">AI recommendation</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{candidateOpen.recommendation} — {candidateOpen.sentiment}</p>
+              {candidateOpen.has_interview_report ? (
+                <>
+                  <InterviewRecordingPlayer playPath={candidateOpen.recording_play_url} durationLabel={candidateOpen.duration_label || candidateOpen.duration} />
+                  <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => setTranscriptOpen(true)}>
+                    <FileText className="size-3.5" /> Open transcript
+                  </Button>
+                  <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "html")}>
+                    <FileText className="size-3.5" /> Full report
+                  </Button>
+                  <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "pdf")}>
+                    <Download className="size-3.5" /> Report PDF
+                  </Button>
+                  <div className="rounded-lg border border-success/30 bg-success/10 p-3">
+                    <div className="flex items-start gap-2">
+                      <UserCheck className="mt-0.5 size-4 text-success" />
+                      <div>
+                        <p className="text-sm font-medium">AI recommendation</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{candidateOpen.recommendation} — {candidateOpen.sentiment}</p>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Interview not completed yet. Results and reports appear here after the AI phone call finishes.
+                </p>
+              )}
             </CardContent>
           </Card>
         )}

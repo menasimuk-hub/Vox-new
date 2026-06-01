@@ -111,13 +111,34 @@ class InterviewLaunchService:
             db.refresh(order)
 
         order = ServiceOrderService.schedule_order(db, order)
+        dispatch = invite_result or {}
         return {
-            "ok": True,
+            "ok": bool(dispatch.get("ok", invite_result is None or dispatch.get("email_sent", 0) > 0 or dispatch.get("whatsapp_sent", 0) > 0)),
             "order_id": order.id,
             "status": order.status,
             "invites": invite_result,
-            "message": (
-                "Booking invites sent. Candidates choose a slot via WhatsApp; "
-                "AI calls run at each booked time within your calling window."
-            ),
+            "message": InterviewLaunchService._launch_message(invite_result),
         }
+
+    @staticmethod
+    def _launch_message(invite_result: dict[str, Any] | None) -> str:
+        if not invite_result:
+            return (
+                "Campaign scheduled. Booking invites were already sent — use Resend if candidates need another notice."
+            )
+        email_n = int(invite_result.get("email_sent") or 0)
+        wa_n = int(invite_result.get("whatsapp_sent") or 0)
+        errors = invite_result.get("errors") or []
+        if email_n == 0 and wa_n == 0:
+            if errors:
+                return f"No invites delivered. First error: {errors[0]}"
+            return "No booking invites were sent — check candidate email/phone and SMTP/Telnyx settings."
+        parts = []
+        if email_n:
+            parts.append(f"{email_n} email(s)")
+        if wa_n:
+            parts.append(f"{wa_n} WhatsApp notice(s)")
+        msg = f"Booking invites sent: {', '.join(parts)}."
+        if errors:
+            msg += f" {len(errors)} issue(s) — see invite details."
+        return msg

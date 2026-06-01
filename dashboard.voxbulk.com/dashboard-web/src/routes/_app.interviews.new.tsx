@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
 import { Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
@@ -697,12 +697,7 @@ function CreateInterview() {
       await onSaveDraft(true);
       const result = await launchM.mutateAsync();
       setPreview(false);
-      const wa = Number(result?.invites?.whatsapp_sent || 0);
-      toast.success(
-        wa > 0
-          ? `Launched — booking invites sent to ${wa} candidate(s) via WhatsApp.`
-          : result?.message || "Interview campaign launched.",
-      );
+      notifyInterviewLaunch(result);
       refreshDraft();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not launch campaign");
@@ -1179,12 +1174,7 @@ function CreateInterview() {
               void (async () => {
                 try {
                   const result = await launchM.mutateAsync();
-                  const wa = Number(result?.invites?.whatsapp_sent || 0);
-                  toast.success(
-                    wa > 0
-                      ? `Booking invites sent to ${wa} candidate(s) via WhatsApp.`
-                      : result?.message || "Campaign scheduled — booking invites sent.",
-                  );
+                  notifyInterviewLaunch(result);
                   refreshDraft();
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : "Could not launch campaign");

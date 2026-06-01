@@ -1,5 +1,6 @@
 """Tests for interview results and Phase 3 shortlist."""
 
+import json
 import uuid
 
 import pytest
@@ -43,7 +44,7 @@ def interview_order(db_session: Session):
     )
 
 
-def test_interview_results_shortlist(db_session: Session, interview_order: ServiceOrder):
+def test_interview_results_without_call_shows_awaiting(db_session: Session, interview_order: ServiceOrder):
     db_session.add(
         ServiceOrderRecipient(
             order_id=interview_order.id,
@@ -51,25 +52,47 @@ def test_interview_results_shortlist(db_session: Session, interview_order: Servi
             name="Alice Example",
             phone="+447700900001",
             email="alice@example.com",
-            status="completed",
-        )
-    )
-    db_session.add(
-        ServiceOrderRecipient(
-            order_id=interview_order.id,
-            row_number=2,
-            name="Bob Example",
-            phone="+447700900002",
-            status="completed",
+            status="pending",
         )
     )
     db_session.commit()
     db_session.refresh(interview_order)
 
     results = InterviewResultsService.get_results(db_session, interview_order)
-    assert results["phase"] == 5
-    assert results["is_mock"] is True
-    assert len(results["candidates"]) == 2
-    assert len(results["shortlist"]) == 2
-    assert results["shortlist"][0]["scheduling_url_mock"]
-    assert results["kpis"]["called"] >= 2
+    assert results["is_mock"] is False
+    assert len(results["candidates"]) == 1
+    row = results["candidates"][0]
+    assert row["has_interview_report"] is False
+    assert row["score"] is None
+    assert results["kpis"]["called"] == 0
+    assert results["kpis"]["reached"] == 0
+    assert results["kpis"]["awaiting_interview"] == 1
+
+
+def test_interview_results_with_analysis(db_session: Session, interview_order: ServiceOrder):
+    db_session.add(
+        ServiceOrderRecipient(
+            order_id=interview_order.id,
+            row_number=1,
+            name="Bob Example",
+            phone="+447700900002",
+            email="bob@example.com",
+            status="completed",
+            result_json=json.dumps(
+                {
+                    "analysis": {"score": 82, "recommendation": "Advance", "sentiment": "Positive"},
+                    "analysis_saved_at": "2026-01-01T12:00:00",
+                    "transcript": "Agent: Hello\nCandidate: Hi",
+                    "duration_seconds": 360,
+                }
+            ),
+        )
+    )
+    db_session.commit()
+    db_session.refresh(interview_order)
+
+    results = InterviewResultsService.get_results(db_session, interview_order)
+    row = results["candidates"][0]
+    assert row["has_interview_report"] is True
+    assert row["score"] == 82
+    assert results["kpis"]["reached"] == 1

@@ -1051,6 +1051,11 @@ async def interview_call_scheduler_loop(stop_event: asyncio.Event) -> None:
                 if zoom_synced:
                     logger.info("interview_zoom_artifacts_synced", extra={"count": zoom_synced})
                 InterviewAnalysisService.process_pending_analysis(db)
+                from app.services.interview_booking_reminder_service import InterviewBookingReminderService
+
+                reminder_stats = InterviewBookingReminderService.process_due_reminders(db)
+                if reminder_stats.get("email_sent") or reminder_stats.get("whatsapp_sent"):
+                    logger.info("interview_booking_reminders_sent", extra=reminder_stats)
         except Exception:
             logger.exception("interview_call_scheduler_tick_failed")
         try:

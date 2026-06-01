@@ -1010,11 +1010,13 @@ class InterviewBookingService:
             token_row = InterviewBookingService.ensure_token(db, order, recipient)
             url = booking_url_for_token(token_row.token)
             first = _first_name(recipient.name)
+            recipient_email_sent = False
+            recipient_wa_sent = False
 
             if "email" in use_channels and recipient.email:
                 merged_check = _recipient_result(recipient)
                 if merged_check.get("invite_email_sent_at") and not force_resend:
-                    pass
+                    recipient_email_sent = True
                 else:
                     try:
                         sent_ok, err = CareerEmailService.send_templated_optional(
@@ -1030,6 +1032,7 @@ class InterviewBookingService:
                         )
                         if sent_ok:
                             email_sent += 1
+                            recipient_email_sent = True
                         elif err:
                             errors.append(f"Email {recipient.email}: {err}")
                     except Exception as exc:
@@ -1037,59 +1040,76 @@ class InterviewBookingService:
 
             if "whatsapp" in use_channels and recipient.phone:
                 if token_row.wa_sent_at and not force_resend:
-                    pass
+                    recipient_wa_sent = True
                 elif template_row is None:
                     errors.append(f"{recipient.name}: no WhatsApp interview_email_sent template")
                 else:
-                    components = InterviewBookingService.build_email_sent_components(
-                        template_row,
-                        candidate_name=recipient.name or "Candidate",
-                        role=role,
-                        company_name=company_name,
-                    )
-                    fallback_body = (
-                        f"Dear {first}, we sent you an email from careers@voxbulk.com "
-                        f"about your {role} interview at {company_name}. Please check your inbox and spam folder."
-                    )
-                    log_body = f"[template:{template_row.name}] {fallback_body}"
-                    result = TelnyxMessagingService.send_whatsapp(
-                        db,
-                        to_number=str(recipient.phone),
-                        body=fallback_body,
-                        template_name=template_row.name,
-                        template_id=send_template_id_for_row(template_row),
-                        template_language=template_row.language or "en_US",
-                        template_components=components,
-                        org_id=order.org_id,
-                    )
-                    if result.ok:
-                        token_row.wa_sent_at = _now()
-                        token_row.wa_message_id = result.external_id
-                        token_row.updated_at = _now()
-                        db.add(token_row)
-                        wa_sent += 1
-                        TelnyxMessagingService.log_outbound(
-                            db,
-                            org_id=order.org_id,
-                            to_number=str(recipient.phone),
-                            from_number=None,
-                            body=log_body,
-                            result=result,
+                    from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+                    phone_check = TelnyxPhoneAllowlistService.validate_phone_db(db, str(recipient.phone))
+                    if not phone_check.get("allowed"):
+                        errors.append(
+                            f"{recipient.name} WA: {phone_check.get('reason') or 'phone not on allow list'}"
                         )
                     else:
-                        errors.append(f"{recipient.name} WA: {result.detail or result.status}")
+                        components = InterviewBookingService.build_email_sent_components(
+                            template_row,
+                            candidate_name=recipient.name or "Candidate",
+                            role=role,
+                            company_name=company_name,
+                        )
+                        fallback_body = (
+                            f"Dear {first}, we sent you an email from careers@voxbulk.com "
+                            f"about your {role} interview at {company_name}. Please check your inbox and spam folder."
+                        )
+                        log_body = f"[template:{template_row.name}] {fallback_body}"
+                        result = TelnyxMessagingService.send_whatsapp(
+                            db,
+                            to_number=str(recipient.phone),
+                            body=fallback_body,
+                            template_name=template_row.name,
+                            template_id=send_template_id_for_row(template_row),
+                            template_language=template_row.language or "en_US",
+                            template_components=components,
+                            org_id=order.org_id,
+                        )
+                        if result.ok:
+                            token_row.wa_sent_at = _now()
+                            token_row.wa_message_id = result.external_id
+                            token_row.updated_at = _now()
+                            db.add(token_row)
+                            wa_sent += 1
+                            recipient_wa_sent = True
+                            TelnyxMessagingService.log_outbound(
+                                db,
+                                org_id=order.org_id,
+                                to_number=str(recipient.phone),
+                                from_number=None,
+                                body=log_body,
+                                result=result,
+                            )
+                        else:
+                            errors.append(f"{recipient.name} WA: {result.detail or result.status}")
 
             merged = _recipient_result(recipient)
             now_iso = _now().isoformat()
             merged.update({"booking_token": token_row.token, "booking_url": url, "booking_invite_sent_at": now_iso})
-            if email_sent:
-                merged["invite_email_sent_at"] = now_iso
-            if wa_sent or token_row.wa_sent_at:
+            if recipient_email_sent:
+                merged["invite_email_sent_at"] = merged.get("invite_email_sent_at") or now_iso
+            if recipient_wa_sent:
                 merged["invite_wa_sent_at"] = (token_row.wa_sent_at or _now()).isoformat()
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
             db.add(recipient)
 
         config["booking_invites_sent_at"] = _now().isoformat()
+        config["last_invite_dispatch"] = {
+            "at": _now().isoformat(),
+            "whatsapp_sent": wa_sent,
+            "email_sent": email_sent,
+            "skipped_locked": skipped_locked,
+            "errors": errors[:50],
+            "ok": email_sent > 0 or wa_sent > 0,
+        }
         if template_row is not None:
             config["wa_email_sent_template_id"] = send_template_id_for_row(template_row)
             config["wa_email_sent_template_name"] = template_row.name

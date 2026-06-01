@@ -106,6 +106,20 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:13px;color:#6b6560;">We will call you at the booked time. Reply to this email if you need to reschedule.</p>""",
         ),
     },
+    "interview_booking_reminder": {
+        "title": "Interview reminder (30 min)",
+        "subject": "Reminder — {{role}} interview in 30 minutes",
+        "body": wrap_interview_email(
+            title="Interview starting soon",
+            inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>This is a reminder that your <strong>{{role}}</strong> phone interview with <strong>{{company_name}}</strong> starts in about 30 minutes.</p>
+  <div style="margin:20px 0;padding:16px;background:#f5f1ea;border-radius:10px;border:1px solid #e5e0d8;">
+    <p style="margin:0 0 6px;"><strong>Date:</strong> {{interview_date}}</p>
+    <p style="margin:0;"><strong>Time:</strong> {{interview_time}}</p>
+  </div>
+  <p style="font-size:13px;color:#6b6560;">Please keep your phone nearby — we will call you at the booked time.</p>""",
+        ),
+    },
     "interview_booking_cancel": {
         "title": "Interview booking cancellation",
         "subject": "Interview cancelled — {{role}} at {{company_name}}",

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 
 import { apiFetch, getAccessToken, logoutDashboard, redirectToSignIn } from "@/lib/api";
+import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
 
 import {
 
@@ -166,12 +167,7 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
             if (order.service_code === "interview") {
               try {
                 const launched = await startPaidInterviewOrder(resolvedOrderId);
-                const wa = Number(launched?.invites?.whatsapp_sent || 0);
-                toast.success(
-                  wa > 0
-                    ? `Payment approved — WhatsApp booking invites sent to ${wa} candidate(s).`
-                    : launched?.message || "Payment approved — candidates can book their interview slots.",
-                );
+                notifyInterviewLaunch(launched);
               } catch (launchErr) {
                 toast.success("Payment approved.");
                 toast.error(
