@@ -33,6 +33,7 @@ function ProfileSettings() {
 
   const [name, setName] = React.useState("");
   const [contactName, setContactName] = React.useState("");
+  const [contactEmail, setContactEmail] = React.useState("");
   const [contactPhone, setContactPhone] = React.useState("");
   const [website, setWebsite] = React.useState("");
   const [country, setCountry] = React.useState("United Kingdom");
@@ -43,6 +44,7 @@ function ProfileSettings() {
     if (!org) return;
     setName(org.name || "");
     setContactName(String(org.contact_name || ""));
+    setContactEmail(String(org.contact_email || ""));
     setContactPhone(String(org.contact_phone || ""));
     setWebsite(String(org.website || ""));
     setCountry(String(org.country || "United Kingdom"));
@@ -54,7 +56,8 @@ function ProfileSettings() {
       await uploadLogoM.mutateAsync(file);
       toast.success("Logo updated");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not upload logo");
+      const errorMsg = e instanceof Error ? e.message : "Could not upload logo";
+      toast.error(errorMsg);
     } finally {
       if (logoInputRef.current) logoInputRef.current.value = "";
     }
@@ -83,6 +86,7 @@ function ProfileSettings() {
       await saveM.mutateAsync({
         name,
         contact_name: contactName || null,
+        contact_email: contactEmail || null,
         contact_phone: contactPhone || null,
         website: website || null,
         country: nextCountry || "United Kingdom",
@@ -111,6 +115,7 @@ function ProfileSettings() {
             <>
               <Field label="Company name" value={name} onChange={setName} />
               <Field label="Survey organiser" value={contactName} onChange={setContactName} />
+              <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
               <Field label="Phone" value={contactPhone} onChange={setContactPhone} />
               <Field label="Website" value={website} onChange={setWebsite} />
               <div className="space-y-1.5">
@@ -226,11 +231,11 @@ function ProfileSettings() {
   );
 }
 
-function Field({ label, value, onChange, readOnly }: { label: string; value: string; onChange: (v: string) => void; readOnly?: boolean }) {
+function Field({ label, value, onChange, readOnly, type = "text" }: { label: string; value: string; onChange: (v: string) => void; readOnly?: boolean; type?: string }) {
   return (
     <div className="space-y-1.5">
       <Label className="text-xs">{label}</Label>
-      <Input value={value} onChange={(e) => onChange(e.target.value)} readOnly={readOnly} />
+      <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} readOnly={readOnly} />
     </div>
   );
 }
