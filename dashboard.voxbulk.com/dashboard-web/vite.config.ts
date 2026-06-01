@@ -51,6 +51,7 @@ export default defineConfig({
       host: true,
       port: 5175,
       strictPort: true,
+      allowedHosts: ["dashboard.voxbulk.com", "localhost", "127.0.0.1"],
       proxy: buildApiProxy("http://127.0.0.1:8000"),
     },
   },

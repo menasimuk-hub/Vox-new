@@ -72,6 +72,10 @@ Newer `deploy-vps.sh` runs `_clear_untracked_pull_conflicts` before pull automat
 - Google/Apple/LinkedIn callback: `https://api.voxbulk.com/auth/oauth/{provider}/callback`
 - Configure in Admin → Integrations → Social login **and** the provider console
 
+## Vite preview host check (nginx → :5173)
+
+If the public site shows **Blocked request. This host ("voxbulk.com") is not allowed**, ensure `voxbulk.com/frontend/vite.config.ts` has `preview.allowedHosts` including `voxbulk.com` and `www.voxbulk.com`, then rebuild and `./vox.sh restart`.
+
 ## Skip flags
 
 ```bash
