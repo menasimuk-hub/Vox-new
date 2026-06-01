@@ -55,6 +55,7 @@ type CandidateRow = {
   phone: string;
   email: string;
   source: string;
+  cvFilename?: string | null;
   ats: number | null;
   atsStatus?: string | null;
   status?: string;
@@ -311,6 +312,7 @@ function CreateInterview() {
       phone: String(r.phone || ""),
       email: String(r.email || ""),
       source: String(r.intake_source || r.source || "Upload"),
+      cvFilename: r.cv_filename ? String(r.cv_filename) : null,
       ats: r.ats_score != null ? Number(r.ats_score) : null,
       atsStatus: String(r.ats_status || ""),
       status: String(r.status || ""),
@@ -319,6 +321,24 @@ function CreateInterview() {
       phoneCallBlockReason: r.phone_call_block_reason ? String(r.phone_call_block_reason) : null,
     }));
   }, [draftQ.data?.recipients]);
+
+  const atsInProgress = React.useMemo(
+    () =>
+      runAtsM.isPending ||
+      candidates.some((c) => {
+        const status = String(c.atsStatus || "").toLowerCase();
+        return status === "pending" || status === "analyzing";
+      }),
+    [candidates, runAtsM.isPending],
+  );
+
+  React.useEffect(() => {
+    if (!orderId || !atsInProgress) return;
+    const timer = window.setInterval(() => {
+      void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [orderId, atsInProgress, qc]);
 
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const allSelected = selected.size > 0 && selected.size === candidates.length;
@@ -389,13 +409,12 @@ function CreateInterview() {
     }
   };
 
-  const onDownloadCv = async (recipientId: string, name: string) => {
+  const onDownloadCv = async (recipientId: string, cvFilename?: string | null) => {
     if (!orderId) return;
     try {
-      const safe = name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "candidate";
       await downloadAuthenticatedFile(
         `/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(recipientId)}/cv`,
-        `${safe}-cv.pdf`,
+        cvFilename || "cv",
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "CV download failed");
@@ -575,7 +594,7 @@ function CreateInterview() {
       setAtsSkipped(false);
       setAtsRunAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       refreshDraft();
-      toast.success("ATS scoring started — scores appear in the table as each CV is processed");
+      toast.success("ATS scoring in progress — scores will update automatically");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "ATS run failed");
     }
@@ -1030,7 +1049,7 @@ function CreateInterview() {
                             variant="ghost"
                             className="size-8"
                             aria-label="Download CV"
-                            onClick={() => void onDownloadCv(r.id, r.name)}
+                            onClick={() => void onDownloadCv(r.id, r.cvFilename)}
                           >
                             <FileDown className="size-4" />
                           </Button>

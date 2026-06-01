@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.organisation import Organisation
 from app.models.platform_service import PlatformService
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
-from app.services.interview_ats_service import queue_ats_for_order, sanitize_cv_text
+from app.services.interview_ats_service import process_pending_ats_scans, queue_ats_for_order, sanitize_cv_text
 from app.services.platform_catalog_service import PlatformCatalogService
 
 ATS_SERVICE_CODE = "interview_ats"
@@ -196,6 +196,10 @@ def charge_and_queue_ats(
 
     order = _save_order_config(db, order, cfg)
     queued = queue_ats_for_order(db, order, recipient_ids=recipient_ids or quote.get("recipient_ids"))
+    processed = 0
+    if queued > 0:
+        # Score the first batch immediately so the dashboard does not wait on the background loop.
+        processed = process_pending_ats_scans(db, limit=max(1, min(int(queued), 8)))
     if queued > 0 and org is not None:
         try:
             from app.services.usage_wallet_service import UsageWalletService
@@ -203,4 +207,4 @@ def charge_and_queue_ats(
             UsageWalletService.record_cv_scan_usage(db, org_id=org.id, units=int(queued))
         except Exception:
             pass
-    return {"ok": True, "queued": queued, "charged_pence": total, **quote}
+    return {"ok": True, "queued": queued, "processed": processed, "charged_pence": total, **quote}

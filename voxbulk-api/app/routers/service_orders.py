@@ -598,7 +598,7 @@ def download_recipient_cv(
 ):
     from fastapi.responses import FileResponse, Response
 
-    from app.services.career_cv_storage_service import resolve_cv_path
+    from app.services.career_cv_storage_service import cv_media_type, resolve_cv_path
 
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
@@ -611,7 +611,7 @@ def download_recipient_cv(
     path = resolve_cv_path(recipient.cv_storage_key or "")
     if path is not None:
         filename = recipient.cv_filename or path.name
-        return FileResponse(path, filename=filename, media_type="application/octet-stream")
+        return FileResponse(path, filename=filename, media_type=cv_media_type(filename))
     text = (recipient.cv_text or "").strip()
     if text:
         from pathlib import Path as PathLib

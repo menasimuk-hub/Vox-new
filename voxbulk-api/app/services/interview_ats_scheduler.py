@@ -7,7 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-_LOOP_INTERVAL_SEC = 15
+_LOOP_INTERVAL_SEC = 5
 
 
 async def interview_ats_scheduler_loop(stop_event: asyncio.Event) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 import os
 import uuid
 from pathlib import Path
@@ -9,6 +10,20 @@ from pathlib import Path
 from app.core.config import get_settings
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt"}
+
+
+def cv_media_type(filename: str) -> str:
+    ext = Path(filename or "").suffix.lower()
+    if ext == ".pdf":
+        return "application/pdf"
+    if ext == ".docx":
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if ext == ".doc":
+        return "application/msword"
+    if ext == ".txt":
+        return "text/plain; charset=utf-8"
+    guessed, _ = mimetypes.guess_type(filename or "")
+    return guessed or "application/octet-stream"
 
 
 def _base_dir() -> Path:

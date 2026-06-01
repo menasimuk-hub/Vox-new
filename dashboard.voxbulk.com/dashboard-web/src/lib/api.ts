@@ -268,7 +268,23 @@ export async function apiUploadFiles(
   return data;
 }
 
-export async function downloadAuthenticatedFile(path: string, filename: string) {
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1]);
+    } catch {
+      /* ignore */
+    }
+  }
+  const quoted = /filename="([^"]+)"/i.exec(header);
+  if (quoted?.[1]) return quoted[1].trim();
+  const plain = /filename=([^;]+)/i.exec(header);
+  return plain?.[1]?.trim().replace(/^["']|["']$/g, "") || null;
+}
+
+export async function downloadAuthenticatedFile(path: string, filename = "download") {
   const baseUrl = getApiBaseUrl();
   const url = baseUrl ? `${baseUrl}${path}` : path;
   const headers = buildAuthHeaders();
@@ -285,10 +301,12 @@ export async function downloadAuthenticatedFile(path: string, filename: string) 
     throw new ApiError(message, { status: res.status });
   }
   const blob = await res.blob();
+  const resolvedName =
+    filenameFromContentDisposition(res.headers.get("content-disposition")) || filename;
   const objectUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = objectUrl;
-  anchor.download = filename;
+  anchor.download = resolvedName;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
