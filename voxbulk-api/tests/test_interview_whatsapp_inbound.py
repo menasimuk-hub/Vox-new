@@ -136,6 +136,52 @@ def test_handle_cancel_booking(monkeypatch):
         assert merged.get("booking_cancelled_via") == "whatsapp"
 
 
+def test_handle_cancel_uses_stored_invite_booking_url(monkeypatch):
+    sent: list[str] = []
+    invite_url = "https://book.voxbulk.com/book/wa-test-invite-link"
+
+    monkeypatch.setattr(
+        "app.services.interview_whatsapp_inbound_service.TelnyxMessagingService.send_whatsapp",
+        lambda db, **kwargs: sent.append(kwargs["body"]) or type("R", (), {"ok": True})(),
+    )
+    monkeypatch.setattr(
+        "app.services.interview_whatsapp_inbound_service.TelnyxMessagingService.log_outbound",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
+        lambda db, **kwargs: (True, None),
+    )
+    monkeypatch.setattr(
+        "app.services.interview_booking_service.booking_url_for_token",
+        lambda token: f"https://dashboard.voxbulk.com/book/{token}",
+    )
+
+    with get_sessionmaker()() as db:
+        org, _, recipient, token = _seed_booking(db, booked=True)
+        recipient.email = "alex@example.com"
+        recipient.result_json = json.dumps(
+            {
+                "booking_token": token.token,
+                "booking_url": invite_url,
+                "invite_email_sent_at": datetime.utcnow().isoformat(),
+            }
+        )
+        db.add(recipient)
+        db.commit()
+        result = handle_inbound_reply(
+            db,
+            from_phone=recipient.phone,
+            body="❌ Cancel",
+            org_id=org.id,
+        )
+        assert result["handled"] is True
+        assert result["action"] == "cancelled"
+        assert sent
+        assert invite_url in sent[0]
+        assert "dashboard.voxbulk.com" not in sent[0]
+
+
 def test_handle_reschedule_sends_link(monkeypatch):
     sent: list[str] = []
 

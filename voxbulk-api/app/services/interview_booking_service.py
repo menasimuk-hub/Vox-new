@@ -135,8 +135,27 @@ def booking_url_for_token(token: str) -> str:
     return f"{booking_public_origin()}/book/{quote(str(token).strip(), safe='')}"
 
 
-def booking_reschedule_url_for_token(token: str) -> str:
-    return f"{booking_url_for_token(token)}?reschedule=1"
+def resolve_booking_url(
+    recipient: ServiceOrderRecipient | None,
+    token: str,
+) -> str:
+    """Prefer the booking link stored on the invite email (result_json.booking_url)."""
+    tok = str(token or "").strip()
+    if recipient is not None and tok:
+        merged = _recipient_result(recipient)
+        stored_url = str(merged.get("booking_url") or "").strip()
+        stored_token = str(merged.get("booking_token") or "").strip()
+        if stored_url and (not stored_token or stored_token == tok):
+            return stored_url
+    return booking_url_for_token(tok)
+
+
+def booking_reschedule_url_for_token(token: str, *, recipient: ServiceOrderRecipient | None = None) -> str:
+    base = resolve_booking_url(recipient, token)
+    if "reschedule=" in base:
+        return base
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}reschedule=1"
 
 
 def _slot_starts(window_start: datetime, window_end: datetime, *, now: datetime | None = None) -> list[datetime]:
@@ -930,7 +949,7 @@ class InterviewBookingService:
         company_name = InterviewBookingService._org_name(db, order)
         date_line = _format_slot_date(slot_start)
         time_line = _format_slot_time(slot_start)
-        book_url = booking_url_for_token(token)
+        book_url = resolve_booking_url(recipient, token)
 
         if not recipient.email:
             return False
@@ -1128,7 +1147,7 @@ class InterviewBookingService:
         merged.update(
             {
                 "booking_token": row.token,
-                "booking_url": booking_url_for_token(row.token),
+                "booking_url": resolve_booking_url(recipient, row.token),
                 "booked_start_at": slot_start.isoformat(),
                 "booked_end_at": slot_end.isoformat(),
                 "booking_rescheduled_at": now.isoformat(),

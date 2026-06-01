@@ -17,7 +17,7 @@ from app.services.interview_booking_service import (
     _format_slot_date,
     _format_slot_time,
     booking_reschedule_url_for_token,
-    booking_url_for_token,
+    resolve_booking_url,
     interview_booking_locked,
 )
 from app.services.messaging_log_service import normalize_e164
@@ -322,8 +322,8 @@ def handle_inbound_reply(
         return {"handled": False, "reason": "no_recipient_phone"}
 
     first = str(recipient.name or "there").strip().split()[0] or "there"
-    book_url = booking_url_for_token(token_row.token)
-    reschedule_url = booking_reschedule_url_for_token(token_row.token)
+    book_url = resolve_booking_url(recipient, token_row.token)
+    reschedule_url = booking_reschedule_url_for_token(token_row.token, recipient=recipient)
 
     try:
         if intent == "cancel":

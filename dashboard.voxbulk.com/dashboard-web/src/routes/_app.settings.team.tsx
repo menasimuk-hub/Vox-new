@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { Copy, Mail, Trash2, UserPlus } from "lucide-react";
+import { Check, Copy, Mail, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -42,6 +42,7 @@ function TeamSettings() {
 
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState("accountant");
+  const [copiedLinkId, setCopiedLinkId] = React.useState<string | null>(null);
 
   const myRole = String(session?.profile?.role || "owner").toLowerCase();
   const canManage = !myRole || myRole === "owner" || myRole === "manager";
@@ -61,9 +62,11 @@ function TeamSettings() {
     }
   };
 
-  const copyLink = async (url: string) => {
+  const copyLink = async (url: string, inviteId: string) => {
     try {
       await navigator.clipboard.writeText(url);
+      setCopiedLinkId(inviteId);
+      window.setTimeout(() => setCopiedLinkId((current) => (current === inviteId ? null : current)), 2000);
       toast.success("Invite link copied");
     } catch {
       toast.error("Could not copy link");
@@ -139,8 +142,9 @@ function TeamSettings() {
                       {inv.is_expired ? " (expired)" : ""}
                     </TableCell>
                     <TableCell className="pr-6 text-right">
-                      <Button size="sm" variant="ghost" className="gap-1" onClick={() => void copyLink(inv.signup_url)}>
-                        <Copy className="size-3.5" /> Link
+                      <Button size="sm" variant="ghost" className="gap-1" onClick={() => void copyLink(inv.signup_url, inv.id)}>
+                        {copiedLinkId === inv.id ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                        {copiedLinkId === inv.id ? "Copied" : "Link"}
                       </Button>
                       {canManage && (
                         <Button

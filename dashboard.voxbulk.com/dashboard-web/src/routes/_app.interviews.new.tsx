@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
-import { Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity } from "lucide-react";
+import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
 
@@ -180,6 +180,8 @@ function CreateInterview() {
   const [payBusy, setPayBusy] = React.useState(false);
 
   const [cvEmailEnabled, setCvEmailEnabled] = React.useState(false);
+  const [copiedReference, setCopiedReference] = React.useState(false);
+  const [copiedCareersEmail, setCopiedCareersEmail] = React.useState(false);
   const [position, setPosition] = React.useState("");
   const [role, setRole] = React.useState("");
   const [criteria, setCriteria] = React.useState("");
@@ -692,7 +694,11 @@ function CreateInterview() {
     try {
       await apiUploadFiles(`/service-orders/${encodeURIComponent(orderId)}/recipients/intake-files`, Array.from(files));
       refreshDraft();
-      toast.success("Files uploaded — run ATS after generating your AI script");
+      toast.success(
+        cvEmailAllowed && cvEmailEnabled
+          ? "Files uploaded — candidates added to the table"
+          : "Files uploaded — run ATS after generating your AI script",
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -709,10 +715,16 @@ function CreateInterview() {
     }
   };
 
+  const flashCopied = (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
+    setter(true);
+    window.setTimeout(() => setter(false), 2000);
+  };
+
   const copyReference = async () => {
     if (!referenceId) return;
     try {
       await navigator.clipboard.writeText(referenceId);
+      flashCopied(setCopiedReference);
       toast.success("Reference copied");
     } catch {
       toast.error("Could not copy reference");
@@ -722,6 +734,7 @@ function CreateInterview() {
   const copyCareersInbox = async () => {
     try {
       await navigator.clipboard.writeText(CAREERS_INBOX);
+      flashCopied(setCopiedCareersEmail);
       toast.success("Email address copied");
     } catch {
       toast.error("Could not copy email");
@@ -829,13 +842,15 @@ function CreateInterview() {
   const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
   const canResendBookingInvites = candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
   const unscoredCount = candidates.filter((c) => c.ats == null && !c.atsStatus).length;
+  const allCandidatesScored =
+    candidates.length > 0 && candidates.every((c) => c.ats != null || Boolean(c.atsStatus));
   const atsGatePassed =
     candidates.length > 0 &&
     (atsSkipped ||
       Boolean(config.ats_skipped) ||
       Boolean(atsRunAt) ||
       Boolean(config.ats_last_charge_at) ||
-      candidates.some((c) => c.ats != null || Boolean(c.atsStatus)));
+      allCandidatesScored);
 
   const onAttemptPreview = () => {
     if (!script.trim()) {
@@ -846,12 +861,16 @@ function CreateInterview() {
       toast.error("Approve your script before preview & launch");
       return;
     }
-    if (candidates.length === 0) {
-      toast.error("Upload at least one candidate first");
+    if (cvEmailActive && !cvReadyForScreening) {
+      toast.error("CV email collection is still open — wait for applicants by email or close collection early.");
       return;
     }
-    if (cvEmailActive && !cvReadyForScreening) {
-      toast.error("CV email collection is still open — wait until the window ends or close collection early, then run AI screening.");
+    if (candidates.length === 0) {
+      if (cvEmailActive) {
+        toast.error(`No CVs received yet — applicants should email ${CAREERS_INBOX} with your job reference.`);
+      } else {
+        toast.error("Upload at least one candidate first");
+      }
       return;
     }
     if (!atsGatePassed) {
@@ -974,7 +993,8 @@ function CreateInterview() {
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input value={referenceId} readOnly className="min-w-0 font-mono text-xs sm:text-sm" />
                 <Button variant="outline" className="w-full shrink-0 gap-1.5 sm:w-auto" onClick={() => void copyReference()}>
-                  <Copy className="size-4" /> Copy reference
+                  {copiedReference ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
+                  {copiedReference ? "Copied!" : "Copy reference"}
                 </Button>
               </div>
               {cvEmailAllowed && cvEmailEnabled ? (
@@ -985,10 +1005,11 @@ function CreateInterview() {
                     <button
                       type="button"
                       className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
-                      aria-label="Copy careers email"
+                      aria-label={copiedCareersEmail ? "Email copied" : "Copy careers email"}
+                      title={copiedCareersEmail ? "Copied!" : "Copy email"}
                       onClick={() => void copyCareersInbox()}
                     >
-                      <Copy className="size-3.5" />
+                      {copiedCareersEmail ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
                     </button>
                   </span>
                   . Each CV is added automatically and ATS scored (charged per CV). Re-sending replaces the CV and runs ATS again.
@@ -1029,9 +1050,9 @@ function CreateInterview() {
           </div>
           {cvEmailActive && (
             <div className="md:col-span-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {cvPhase === "before" && "CV collection has not started yet."}
-              {cvPhase === "open" && "Collection is live — CVs are added and ATS scored automatically (charged per CV). When the window ends, approve your script and launch."}
-              {cvPhase === "ready" && "CV collection finished — review ATS scores, remove weak candidates, then launch."}
+              {cvPhase === "before" && "CV collection has not started yet — share the reference and careers email when the window opens."}
+              {cvPhase === "open" && "Collection is live — CVs arrive by email, appear in the table below, and are ATS scored automatically (charged per CV). Manual upload is optional."}
+              {cvPhase === "ready" && "CV collection finished — review ATS scores, remove weak candidates, then launch. No manual upload required."}
             </div>
           )}
           {cvEmailActive && (
@@ -1048,8 +1069,14 @@ function CreateInterview() {
               <div className="rounded-full bg-primary/10 p-3 ring-1 ring-primary/20 transition-transform group-hover:scale-110">
                 <Upload className="size-6 text-primary" />
               </div>
-              <p className="text-sm font-medium">Drop CSV, Excel, PDF, DOCX, or ZIP</p>
-              <p className="text-xs text-muted-foreground">Or click to upload</p>
+              <p className="text-sm font-medium">
+                {cvEmailActive ? "Optional — upload CVs manually" : "Drop CSV, Excel, PDF, DOCX, or ZIP"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {cvEmailActive
+                  ? "CVs also arrive by email during your collection window — you do not need to upload files here."
+                  : "Or click to upload"}
+              </p>
               <div className="mt-2 flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
                 <Button size="sm" className="w-full sm:w-auto" onClick={() => fileRef.current?.click()} disabled={uploading || !orderId}>
                   {uploading ? "Uploading…" : "Choose files"}
@@ -1064,7 +1091,9 @@ function CreateInterview() {
           <div className="md:col-span-2 min-w-0">
             <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <p className="text-xs text-muted-foreground">Candidates uploaded · {candidates.length}</p>
+                <p className="text-xs text-muted-foreground">
+                  {cvEmailActive ? `Candidates · ${candidates.length}` : `Candidates uploaded · ${candidates.length}`}
+                </p>
                 {selected.size > 0 && (
                   <span className="animate-fade-in inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
                     {selected.size} selected
@@ -1141,7 +1170,13 @@ function CreateInterview() {
                 </TableRow></TableHeader>
                 <TableBody>
                   {candSort.sorted.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">Upload candidates to get started.</TableCell></TableRow>
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                        {cvEmailActive
+                          ? `No CVs yet — applicants email ${CAREERS_INBOX} with your job reference. They appear here automatically.`
+                          : "Upload candidates to get started."}
+                      </TableCell>
+                    </TableRow>
                   ) : candSort.sorted.map((r) => (
                     <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
                       <TableCell className="pl-4">
@@ -1319,12 +1354,31 @@ function CreateInterview() {
         <CardHeader>
           <CardTitle>Step 3 · ATS, preview & launch</CardTitle>
           <CardDescription>
-            Run ATS on uploaded CVs, approve the preview, then launch — {hasPackageSub ? "included in your package" : "pay per campaign"}, then WhatsApp booking invites go to candidates.
+            {cvEmailActive
+              ? "When CV collection ends, review email applicants, approve the preview, then launch — booking invites go out by WhatsApp and email."
+              : `Run ATS on uploaded CVs, approve the preview, then launch — ${hasPackageSub ? "included in your package" : "pay per campaign"}, then WhatsApp booking invites go to candidates.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <LaunchStatus label="ATS scoring" done={atsGatePassed} pending={runAtsM.isPending} detail={atsSkipped || config.ats_skipped ? "Skipped" : atsRunAt ? `Run ${atsRunAt}` : unscoredCount > 0 ? `${unscoredCount} unscored` : "Not run"} />
+            <LaunchStatus
+              label="ATS scoring"
+              done={atsGatePassed}
+              pending={runAtsM.isPending}
+              detail={
+                atsSkipped || config.ats_skipped
+                  ? "Skipped"
+                  : allCandidatesScored && cvEmailActive
+                    ? "Scored from email"
+                    : atsRunAt
+                      ? `Run ${atsRunAt}`
+                      : unscoredCount > 0
+                        ? `${unscoredCount} unscored`
+                        : cvEmailActive && candidates.length === 0
+                          ? "Waiting for CVs"
+                          : "Not run"
+              }
+            />
             <LaunchStatus label="Script approved" done={scriptIsApproved} detail={scriptIsApproved ? "Ready" : "Approve in Step 2"} />
             <LaunchStatus label="Payment" done={paymentApproved || hasPackageSub} detail={paymentApproved ? "Approved" : hasPackageSub ? `Included in ${billingPlanName || "package"}` : "After preview"} />
             <LaunchStatus
@@ -1342,7 +1396,12 @@ function CreateInterview() {
             />
           </div>
           <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-            <li><strong className="text-foreground">Run ATS</strong> — scores each CV in the table above (or skip when prompted).</li>
+            <li>
+              <strong className="text-foreground">Run ATS</strong> —{" "}
+              {cvEmailActive
+                ? "email CVs are scored automatically; run ATS only if you uploaded files manually."
+                : "scores each CV in the table above (or skip when prompted)."}
+            </li>
             <li><strong className="text-foreground">Preview &amp; approve</strong> — confirm script and preview, then <strong className="text-foreground">{hasPackageSub ? "Launch" : "Pay & launch"}</strong>.</li>
             <li><strong className="text-foreground">Send booking invites</strong> — {hasPackageSub ? "sent when you launch" : "appears after payment"}; WhatsApp links go to each candidate.</li>
           </ol>

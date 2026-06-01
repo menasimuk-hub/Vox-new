@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.interview_booking_token import InterviewBookingToken
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
-from app.services.interview_booking_service import booking_url_for_token, interview_booking_locked
+from app.services.interview_booking_service import interview_booking_locked, resolve_booking_url
 
 
 def _loads(raw: str | None) -> dict[str, Any]:
@@ -182,9 +182,9 @@ class InterviewActivityService:
             if item:
                 events.append(item)
 
-        book_url = parsed.get("booking_url")
-        if not book_url and token_row and not interview_booking_locked(recipient):
-            book_url = booking_url_for_token(token_row.token)
+        book_url = None
+        if token_row and not interview_booking_locked(recipient):
+            book_url = resolve_booking_url(recipient, token_row.token)
         if interview_booking_locked(recipient):
             book_url = None
 
