@@ -45,7 +45,7 @@ function Dashboard() {
           <>
             <Button variant="outline" className="gap-1.5" onClick={openChat}><Sparkles className="size-4" /> Ask AI</Button>
             {visible.interviews && (
-              <Button asChild className="gap-1.5"><Link to="/interviews/new"><Plus className="size-4" /> New campaign</Link></Button>
+              <Button asChild className="gap-1.5"><Link to="/interviews/new" search={{ new: true }}><Plus className="size-4" /> New campaign</Link></Button>
             )}
             {!visible.interviews && visible.surveys && (
               <Button asChild className="gap-1.5"><Link to="/surveys/new"><Plus className="size-4" /> New survey</Link></Button>

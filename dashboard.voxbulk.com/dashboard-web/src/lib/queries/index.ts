@@ -274,11 +274,7 @@ export function useInterviewDraft(options?: { forceNew?: boolean; orderId?: stri
         ? `/service-orders/interview/draft?order_id=${encodeURIComponent(orderId)}`
         : "/service-orders/interview/draft";
       const draft = await apiFetch<InterviewDraftPayload>(draftPath);
-      if (draft?.order || orderId) return draft;
-      return apiFetch<InterviewDraftPayload>("/service-orders/interview/draft/new", {
-        method: "POST",
-        body: "{}",
-      });
+      return draft;
     },
   });
 }

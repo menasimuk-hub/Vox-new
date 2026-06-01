@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
 import { Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -228,6 +228,13 @@ function CreateInterview() {
       void navigate({ to: "/interviews/new", search: { new: false }, replace: true });
     }
   }, [forceNew, draftQ.isSuccess, draftQ.data?.order?.id, navigate]);
+
+  React.useEffect(() => {
+    if (forceNew || returnOrderId || draftQ.isLoading || !draftQ.isSuccess) return;
+    if (!draftQ.data?.order) {
+      void navigate({ to: "/interviews/new", search: { new: true }, replace: true });
+    }
+  }, [forceNew, returnOrderId, draftQ.isLoading, draftQ.isSuccess, draftQ.data?.order, navigate]);
 
   React.useEffect(() => {
     if (!order) return;
@@ -844,6 +851,21 @@ function CreateInterview() {
   }
 
   if (!orderId) {
+    if (returnOrderId && draftQ.isSuccess) {
+      return (
+        <div className="flex w-full flex-col gap-6">
+          <PageHeader eyebrow="Interviews" title="Create new interview" description="This draft is no longer available." />
+          <Card>
+            <CardContent className="p-6 text-sm text-muted-foreground">
+              The interview draft was empty or has been removed.
+              <div className="mt-4">
+                <Button asChild><Link to="/interviews/new" search={{ new: true }}>Start a new interview</Link></Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
     return (
       <div className="flex w-full flex-col gap-6">
         <PageHeader eyebrow="Interviews" title="Create new interview" description="Starting a new draft…" />

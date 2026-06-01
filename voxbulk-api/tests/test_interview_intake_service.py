@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder
 from app.models.user import User
-from app.services.interview_intake_service import intake_cv_files, intake_mixed_files
+from app.services.interview_intake_service import (
+    abandon_empty_interview_draft,
+    create_new_interview_draft,
+    intake_cv_files,
+    intake_mixed_files,
+    is_empty_interview_draft,
+    purge_empty_interview_drafts,
+)
 from app.services.platform_catalog_service import ServiceOrderService
 
 
@@ -96,3 +103,30 @@ def test_intake_mixed_zip_and_csv(db_session: Session, interview_order: ServiceO
     )
     assert result["recipient_count"] >= 2
     assert len(result["recipients"]) >= 2
+
+
+def test_empty_interview_draft_detection(db_session: Session, interview_order: ServiceOrder):
+    assert is_empty_interview_draft(interview_order, recipient_count=0) is True
+
+    interview_order.title = "Senior Engineer"
+    assert is_empty_interview_draft(interview_order, recipient_count=0) is False
+
+    interview_order.title = "Interview draft"
+    interview_order.config_json = '{"role": "Engineer"}'
+    assert is_empty_interview_draft(interview_order, recipient_count=0) is False
+
+
+def test_purge_empty_interview_drafts(db_session: Session, interview_order: ServiceOrder):
+    org_id = interview_order.org_id
+    user_id = interview_order.user_id
+    kept = create_new_interview_draft(db_session, org_id=org_id, user_id=user_id)
+    assert db_session.get(ServiceOrder, interview_order.id) is None
+    assert db_session.get(ServiceOrder, kept.id) is not None
+    deleted = purge_empty_interview_drafts(db_session, org_id=org_id, keep_order_id=kept.id)
+    assert deleted == 0
+
+
+def test_abandon_empty_interview_draft(db_session: Session, interview_order: ServiceOrder):
+    org_id = interview_order.org_id
+    assert abandon_empty_interview_draft(db_session, org_id=org_id, order_id=interview_order.id) is True
+    assert db_session.get(ServiceOrder, interview_order.id) is None

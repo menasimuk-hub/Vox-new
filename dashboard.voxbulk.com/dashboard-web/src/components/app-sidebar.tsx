@@ -42,7 +42,7 @@ function normalizePath(value: string) {
 const groups: Group[] = [
   { key: "workspace", label: "Workspace", items: [{ title: "Dashboard", url: "/", icon: LayoutDashboard }] },
   { key: "interviews", label: "Interviews", items: [
-    { title: "Create new interview", url: "/interviews/new", icon: FilePlus2 },
+    { title: "Create new interview", url: "/interviews/new?new=1", icon: FilePlus2 },
     {
       title: "Saved interviews",
       url: "/interviews",

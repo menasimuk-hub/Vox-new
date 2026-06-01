@@ -182,12 +182,7 @@ def get_latest_interview_draft(db: Session, *, org_id: str) -> ServiceOrder | No
     return rows[0] if rows else None
 
 
-def is_empty_interview_draft(order: ServiceOrder, *, recipient_count: int) -> bool:
-    if order.status != "draft" or order.payment_status != "unpaid":
-        return False
-    if recipient_count > 0:
-        return False
-    cfg = _loads_json(order.config_json) or {}
+def _interview_draft_has_meaningful_config(cfg: dict[str, Any]) -> bool:
     meaningful = [
         cfg.get("role"),
         cfg.get("position"),
@@ -196,13 +191,37 @@ def is_empty_interview_draft(order: ServiceOrder, *, recipient_count: int) -> bo
         cfg.get("approved_script"),
         cfg.get("generated_script_draft"),
         cfg.get("agent_id"),
+        cfg.get("title"),
     ]
     if any(str(v or "").strip() for v in meaningful):
-        return False
+        return True
     if cfg.get("script_approved") or cfg.get("cv_email_enabled"):
+        return True
+    if str(cfg.get("scheduled_start") or "").strip() or str(cfg.get("scheduled_end") or "").strip():
+        return True
+    if str(cfg.get("calling_start") or "").strip() or str(cfg.get("calling_end") or "").strip():
+        return True
+    delivery = str(cfg.get("delivery") or "").strip().lower()
+    if delivery and delivery not in {"ai_call", ""}:
+        return True
+    duration = cfg.get("expected_duration_minutes")
+    if duration is not None and str(duration).strip() not in {"", "0"}:
+        return True
+    return False
+
+
+def is_empty_interview_draft(order: ServiceOrder, *, recipient_count: int) -> bool:
+    if order.status != "draft" or order.payment_status != "unpaid":
+        return False
+    if recipient_count > 0:
+        return False
+    if int(order.recipient_count or 0) > 0:
+        return False
+    cfg = _loads_json(order.config_json) or {}
+    if _interview_draft_has_meaningful_config(cfg):
         return False
     title = str(order.title or "").strip().lower()
-    return title in {"", "interview draft", "interview"}
+    return title in {"", "interview draft", "interview", "untitled interview"}
 
 
 def purge_empty_interview_drafts(db: Session, *, org_id: str, keep_order_id: str | None = None) -> int:
@@ -243,6 +262,7 @@ def ensure_interview_draft_order(
     role: str = "",
     criteria: str = "",
 ) -> ServiceOrder:
+    purge_empty_interview_drafts(db, org_id=org_id)
     rows = list(
         db.execute(
             select(ServiceOrder)
@@ -311,7 +331,27 @@ def create_new_interview_draft(
     )
     from app.services.interview_reference_service import ensure_order_reference_id
 
-    return ensure_order_reference_id(db, order)
+    order = ensure_order_reference_id(db, order)
+    purge_empty_interview_drafts(db, org_id=org_id, keep_order_id=order.id)
+    return order
+
+
+def abandon_empty_interview_draft(db: Session, *, org_id: str, order_id: str) -> bool:
+    """Delete a draft interview order when it has no saved content."""
+    order = ServiceOrderService.get_order(db, order_id, org_id=org_id)
+    if order is None or order.service_code != "interview":
+        return False
+    from sqlalchemy import func
+
+    count = db.execute(
+        select(func.count())
+        .select_from(ServiceOrderRecipient)
+        .where(ServiceOrderRecipient.order_id == order.id)
+    ).scalar_one()
+    if not is_empty_interview_draft(order, recipient_count=int(count or 0)):
+        return False
+    ServiceOrderService.delete_order(db, order)
+    return True
 
 
 def _apply_parsed_cv(recipient: ServiceOrderRecipient, parsed: ParsedCv, *, merge: bool) -> None:

@@ -177,6 +177,10 @@ def list_my_orders(
 ):
     if service_code:
         _require_org_service(db, principal.org_id, service_code)
+    if service_code == "interview":
+        from app.services.interview_intake_service import purge_empty_interview_drafts
+
+        purge_empty_interview_drafts(db, org_id=principal.org_id)
     rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code)
     return [ServiceOrderService.order_to_dict(r) for r in rows]
 
@@ -236,12 +240,13 @@ def get_interview_draft(
     principal=Depends(get_current_principal),
 ):
     from app.services.interview_billing_context import org_interview_billing_context
-    from app.services.interview_intake_service import get_latest_interview_draft, intake_summary, list_intake_recipients
+    from app.services.interview_intake_service import get_latest_interview_draft, intake_summary, list_intake_recipients, purge_empty_interview_drafts
 
     org = _require_org_service(db, principal.org_id, "interview")
     billing = org_interview_billing_context(db, org) if org else {}
     order = None
     requested_id = str(order_id or "").strip()
+    purge_empty_interview_drafts(db, org_id=principal.org_id, keep_order_id=requested_id or None)
     if requested_id:
         order = ServiceOrderService.get_order(db, requested_id, org_id=principal.org_id)
         if order is None or order.service_code != "interview":
@@ -269,6 +274,18 @@ def create_new_interview_draft_route(db: Session = Depends(get_db), principal=De
     order = create_new_interview_draft(db, org_id=principal.org_id, user_id=principal.user_id)
     billing = org_interview_billing_context(db, org)
     return _interview_draft_payload(db, order=order, recipients=[], summary=intake_summary([]), billing=billing)
+
+
+@router.post("/interview/draft/abandon")
+def abandon_interview_draft(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.interview_intake_service import abandon_empty_interview_draft
+
+    _require_org_service(db, principal.org_id, "interview")
+    order_id = str(payload.get("order_id") or "").strip()
+    if not order_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="order_id is required")
+    deleted = abandon_empty_interview_draft(db, org_id=principal.org_id, order_id=order_id)
+    return {"ok": True, "deleted": deleted}
 
 
 @router.post("/interview/draft")
