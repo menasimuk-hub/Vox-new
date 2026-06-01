@@ -51,6 +51,7 @@ export function useHomeSummary() {
   return useQuery({
     queryKey: queryKeys.homeSummary,
     queryFn: () => apiFetch<HomeSummary>("/dashboard/home-summary"),
+    staleTime: 1000 * 60 * 2, // Home data fresh for 2 minutes
   });
 }
 
@@ -469,6 +470,7 @@ export function useOrganisation() {
   return useQuery({
     queryKey: queryKeys.organisation,
     queryFn: () => apiFetch<Organisation>("/organisations/me"),
+    staleTime: 1000 * 60 * 5, // Org data fresh for 5 minutes
   });
 }
 

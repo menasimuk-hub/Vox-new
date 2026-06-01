@@ -41,6 +41,25 @@ export default defineConfig({
     prerender: { enabled: true, crawlLinks: false, failOnError: false },
   },
   vite: {
+    build: {
+      target: "esnext",
+      minify: "terser",
+      terserOptions: {
+        compress: {
+          drop_console: true,
+          drop_debugger: true,
+        },
+      },
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            "react-vendor": ["react", "react-dom"],
+            "tanstack-vendor": ["@tanstack/react-router", "@tanstack/react-query"],
+            "ui-vendor": ["lucide-react", "sonner"],
+          },
+        },
+      },
+    },
     server: {
       host: true,
       port: 5175,
