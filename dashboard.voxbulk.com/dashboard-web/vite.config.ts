@@ -44,15 +44,6 @@ export default defineConfig({
     build: {
       target: "esnext",
       minify: "esbuild",
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            "react-vendor": ["react", "react-dom"],
-            "tanstack-vendor": ["@tanstack/react-router", "@tanstack/react-query"],
-            "ui-vendor": ["lucide-react", "sonner"],
-          },
-        },
-      },
     },
     server: {
       host: true,
