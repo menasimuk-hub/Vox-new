@@ -86,7 +86,7 @@ export default function Organisations() {
           <button className='btn' onClick={() => load(search)} disabled={busy}>
             Refresh
           </button>
-          <button className='btn primary' onClick={createOrg}>New organisation</button>
+          <button className='btn primary' onClick={() => navigate('/onboarding/add-customer')}>Add customer</button>
         </div>
       </div>
       <div className='card' style={{ marginBottom: 16 }}>
@@ -147,15 +147,26 @@ export default function Organisations() {
                     <td>{o.user_count} users</td>
                     <td>{o.wallet_balance_display || '—'}</td>
                     <td>
-                      <button
-                        className='btn soft'
-                        onClick={() => {
-                          localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
-                          navigate(`/organisations/${encodeURIComponent(o.id)}`)
-                        }}
-                      >
-                        Edit
-                      </button>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button
+                          className='btn soft'
+                          onClick={() => {
+                            localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
+                            navigate('/organisations/profile')
+                          }}
+                        >
+                          Profile
+                        </button>
+                        <button
+                          className='btn soft'
+                          onClick={() => {
+                            localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
+                            navigate(`/organisations/${encodeURIComponent(o.id)}`)
+                          }}
+                        >
+                          Ops
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )})}

@@ -11,7 +11,7 @@ export function defaultAdminHome(role) {
   const r = normalizeAdminRole(role)
   if (r === 'marketing') return '/settings/email'
   if (r === 'accountant') return '/billing/subscriptions'
-  return '/dashboard/mrr'
+  return '/dashboard'
 }
 
 export function canAccessAdminPath(role, pathname) {

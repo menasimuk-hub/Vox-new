@@ -131,6 +131,27 @@ def recipient_intake_dict(recipient: ServiceOrderRecipient, *, position: str = "
     from app.services.interview_activity_service import InterviewActivityService
 
     base["activity_status"] = InterviewActivityService.activity_status(recipient)
+    phone_raw = str(recipient.phone or "").strip()
+    if phone_raw:
+        from sqlalchemy.orm import object_session
+
+        from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+        db = object_session(recipient)
+        phone_check = (
+            TelnyxPhoneAllowlistService.validate_phone_db(db, phone_raw)
+            if db is not None
+            else TelnyxPhoneAllowlistService.validate_phone(phone_raw)
+        )
+        base["phone_call_allowed"] = bool(phone_check.get("allowed"))
+        base["phone_call_block_reason"] = phone_check.get("reason")
+        base["phone_country"] = phone_check.get("country")
+        base["phone_line_type"] = phone_check.get("line_type")
+        if phone_check.get("normalized"):
+            base["phone_normalized"] = phone_check.get("normalized")
+    else:
+        base["phone_call_allowed"] = False
+        base["phone_call_block_reason"] = "Phone number is required"
     return base
 
 

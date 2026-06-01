@@ -544,6 +544,26 @@ class InterviewCallDispatchService:
             db, agent=agent, config=config, recipient_name=recipient.name, org_id=order.org_id
         )
         voicemail_behavior = _resolve_voicemail_behavior({}, agent)
+        from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+        phone_check = TelnyxPhoneAllowlistService.validate_phone_db(db, str(recipient.phone or ""))
+        if not phone_check.get("allowed"):
+            now = datetime.utcnow()
+            recipient.status = "failed"
+            _set_recipient_result(
+                db,
+                recipient,
+                {
+                    "channel": "ai_call",
+                    "error": phone_check.get("reason") or "Phone number not allowed",
+                    "failed_at": now.isoformat(),
+                    "phone_call_block_reason": phone_check.get("reason"),
+                },
+            )
+            _refresh_order_report(db, order)
+            _log("dial_blocked_allowlist", order_id=order.id, recipient_id=recipient.id, detail=phone_check.get("reason"))
+            return None
+
         to_number = normalize_telnyx_e164(str(recipient.phone or ""))
 
         result = TelnyxVoiceAdapter.start_outbound_call(

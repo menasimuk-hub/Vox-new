@@ -4013,6 +4013,112 @@ body.dark .emailPreviewInner {
   margin: 0;
 }
 
+.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--grn, #0f766e);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.rowSelected td {
+  background: rgba(15, 118, 110, 0.06);
+}
+
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.telnyxTabBtnActive {
+  border-color: var(--grn);
+  color: var(--grn);
+}
+
+.telnyxMessageFilters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.telnyxWaLayout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.telnyxWaTemplatesCard {
+  position: sticky;
+  top: 12px;
+}
+
+.telnyxWaTemplatesBody {
+  padding-top: 0;
+}
+
+.telnyxWaTemplateList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+}
+
+.telnyxWaTemplateListItem {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: var(--card, #fff);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.telnyxWaTemplateListItem:hover:not(:disabled) {
+  border-color: var(--grn, #16a34a);
+}
+
+.telnyxWaTemplateListItem:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.telnyxWaTemplateListItemActive {
+  border-color: var(--grn, #16a34a);
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.telnyxWaTemplateListMain {
+  display: grid;
+  gap: 2px;
+}
+
+.telnyxWaTemplateListMeta {
+  font-size: 11px;
+}
+
+.telnyxWaTemplateListFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.telnyxWaTemplateListSynced {
+  font-size: 11px;
+}
+
 .telnyxIntegrationPage {
   width: 100%;
   max-width: none;
@@ -4161,8 +4267,13 @@ body.dark .emailPreviewInner {
 
 @media (max-width: 1100px) {
   .telnyxGrid3,
-  .telnyxGrid2 {
+  .telnyxGrid2,
+  .telnyxWaLayout {
     grid-template-columns: 1fr;
+  }
+
+  .telnyxWaTemplatesCard {
+    position: static;
   }
 }
 

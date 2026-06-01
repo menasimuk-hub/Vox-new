@@ -28,8 +28,8 @@ import FAQManagement from './pages/FAQManagement'
 import LegalPages from './pages/LegalPages'
 import LegalPageEdit from './pages/LegalPageEdit'
 import HelpCentreContent from './pages/HelpCentreContent'
-import PendingSignups from './pages/PendingSignups'
 import OnboardingServices from './pages/OnboardingServices'
+import OnboardingAddCustomer from './pages/OnboardingAddCustomer'
 import AdminUsers from './pages/AdminUsers'
 import AdminUserCreate from './pages/AdminUserCreate'
 import AdminUserEdit from './pages/AdminUserEdit'
@@ -78,12 +78,12 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<HomeRedirect />} />
 
-        <Route path='/dashboard' element={<Navigate to='/dashboard/mrr' replace />} />
-        <Route path='/dashboard/mrr' element={<Dashboard title='MRR' />} />
-        <Route path='/dashboard/total-organisations' element={<Dashboard title='Total organisations' />} />
-        <Route path='/dashboard/trial-conversions' element={<Dashboard title='Trial conversions' />} />
-        <Route path='/dashboard/system-health' element={<Dashboard title='System health' />} />
-        <Route path='/dashboard/llm-call-spend' element={<Dashboard title='LLM / call spend' />} />
+        <Route path='/dashboard' element={<Dashboard />} />
+        <Route path='/dashboard/mrr' element={<Navigate to='/dashboard' replace />} />
+        <Route path='/dashboard/total-organisations' element={<Navigate to='/dashboard' replace />} />
+        <Route path='/dashboard/trial-conversions' element={<Navigate to='/dashboard' replace />} />
+        <Route path='/dashboard/system-health' element={<Navigate to='/dashboard' replace />} />
+        <Route path='/dashboard/llm-call-spend' element={<Navigate to='/dashboard' replace />} />
 
         <Route path='/organisations' element={<Organisations />} />
         <Route path='/organisations/profile' element={<OrganisationProfile />} />
@@ -91,11 +91,12 @@ export default function App() {
         <Route path='/organisations/zone/:zone' element={<ZoneOrganisations />} />
         <Route path='/organisations/:orgId' element={<OrganisationDetail />} />
 
-        <Route path='/onboarding/setup' element={G('New customer setup')} />
-        <Route path='/onboarding/pending-signups' element={<PendingSignups />} />
+        <Route path='/onboarding/add-customer' element={<OnboardingAddCustomer />} />
+        <Route path='/onboarding/setup' element={<Navigate to='/onboarding/add-customer' replace />} />
+        <Route path='/onboarding/pending-signups' element={<Navigate to='/dashboard' replace />} />
         <Route path='/onboarding/services' element={<OnboardingServices />} />
-        <Route path='/onboarding/dentally' element={G('Dentally connection status')} />
-        <Route path='/onboarding/numbers' element={G('Number verification')} />
+        <Route path='/onboarding/dentally' element={<Navigate to='/integrations/dentally' replace />} />
+        <Route path='/onboarding/numbers' element={<Navigate to='/integrations/telnyx' replace />} />
         <Route path='/onboarding/checklist' element={G('Go-live checklist')} />
 
         <Route path='/operations/running-surveys' element={<RunningSurveys />} />

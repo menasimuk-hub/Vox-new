@@ -613,6 +613,13 @@ export default function Integrations() {
   const [telnyxZoomTestResult, setTelnyxZoomTestResult] = useState('')
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxMessageDetailBusy, setTelnyxMessageDetailBusy] = useState('')
+  const [telnyxMessageFilters, setTelnyxMessageFilters] = useState({
+    date_from: '',
+    date_to: '',
+    from_number: '',
+    to_number: '',
+    q: '',
+  })
   const [telnyxTestNumber, setTelnyxTestNumber] = useState('')
   const [telnyxWaTemplateName, setTelnyxWaTemplateName] = useState('')
   const [telnyxWaTemplateId, setTelnyxWaTemplateId] = useState('')
@@ -1321,13 +1328,19 @@ export default function Integrations() {
     }
   }
 
-  const loadTelnyxInboundMessages = async (silent = false) => {
+  const loadTelnyxInboundMessages = async (silent = false, filters = telnyxMessageFilters) => {
     if (!silent) {
       setProviderError('')
       setTelnyxSmsTestResult('Loading messages…')
     }
     try {
-      const result = await apiFetch('/admin/integrations/telnyx/inbound-messages?limit=50')
+      const params = new URLSearchParams({ limit: '50' })
+      if (filters?.date_from) params.set('date_from', new Date(filters.date_from).toISOString())
+      if (filters?.date_to) params.set('date_to', new Date(filters.date_to).toISOString())
+      if (filters?.from_number) params.set('from_number', String(filters.from_number).trim())
+      if (filters?.to_number) params.set('to_number', String(filters.to_number).trim())
+      if (filters?.q) params.set('q', String(filters.q).trim())
+      const result = await apiFetch(`/admin/integrations/telnyx/inbound-messages?${params.toString()}`)
       const rows = Array.isArray(result.messages) ? result.messages : []
       setTelnyxInboundMessages(rows)
       if (!silent) {
@@ -1503,6 +1516,8 @@ export default function Integrations() {
           testTelnyxSms={testTelnyxSms}
           testTelnyxWhatsApp={testTelnyxWhatsApp}
           loadTelnyxInboundMessages={() => loadTelnyxInboundMessages(false)}
+          telnyxMessageFilters={telnyxMessageFilters}
+          setTelnyxMessageFilters={setTelnyxMessageFilters}
           />
         </div>
       ) : isKpiRoute ? (

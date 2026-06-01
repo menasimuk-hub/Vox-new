@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 
 const TAB_IDS = ['overview', 'profile', 'branches', 'users', 'plan', 'suspend']
@@ -28,6 +28,7 @@ export default function OrganisationProfile() {
 
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = useMemo(() => tabFromSearchParams(searchParams), [searchParams])
+  const selectedUserId = String(searchParams.get('user_id') || '').trim()
 
   const selectTab = useCallback(
     (id) => {
@@ -35,8 +36,17 @@ export default function OrganisationProfile() {
       if (next === 'overview') {
         setSearchParams({}, { replace: true })
       } else {
-        setSearchParams({ tab: next }, { replace: true })
+        const params = { tab: next }
+        if (selectedUserId && next === 'users') params.user_id = selectedUserId
+        setSearchParams(params, { replace: true })
       }
+    },
+    [setSearchParams, selectedUserId],
+  )
+
+  const selectUserActivity = useCallback(
+    (userId) => {
+      setSearchParams({ tab: 'users', user_id: userId }, { replace: true })
     },
     [setSearchParams],
   )
@@ -81,6 +91,8 @@ export default function OrganisationProfile() {
   const [inviteBusy, setInviteBusy] = useState(false)
   const [lastInviteUrl, setLastInviteUrl] = useState('')
   const [pendingInvites, setPendingInvites] = useState(null)
+  const [userActivity, setUserActivity] = useState(null)
+  const [userActivityLoading, setUserActivityLoading] = useState(false)
 
   const refreshOrg = useCallback(async () => {
     if (!orgId) {
@@ -143,6 +155,22 @@ export default function OrganisationProfile() {
     setPendingInvites(Array.isArray(list) ? list : [])
   }, [orgId])
 
+  const refreshUserActivity = useCallback(async () => {
+    if (!orgId || !selectedUserId) {
+      setUserActivity(null)
+      return
+    }
+    setUserActivityLoading(true)
+    try {
+      const data = await apiFetch(`/admin/organisations/${orgId}/users/${selectedUserId}/activity`)
+      setUserActivity(data)
+    } catch {
+      setUserActivity(null)
+    } finally {
+      setUserActivityLoading(false)
+    }
+  }, [orgId, selectedUserId])
+
   useEffect(() => {
     let cancelled = false
     setLoadError('')
@@ -177,13 +205,16 @@ export default function OrganisationProfile() {
       refreshUsers().catch(() => setUsers([]))
       refreshInvites().catch(() => setPendingInvites([]))
     }
+    if (tab === 'users' && selectedUserId) {
+      refreshUserActivity().catch(() => setUserActivity(null))
+    }
     if (tab === 'plan') {
       refreshPlans().catch(() => setPlans([]))
     }
     if (tab === 'profile') {
       refreshCategories().catch(() => setCategories([]))
     }
-  }, [tab, orgId, refreshBranches, refreshUsers, refreshPlans, refreshCategories])
+  }, [tab, orgId, refreshBranches, refreshUsers, refreshPlans, refreshCategories, refreshInvites, selectedUserId, refreshUserActivity])
 
   useEffect(() => {
     if (!orgId || tab !== 'users') return
@@ -203,17 +234,21 @@ export default function OrganisationProfile() {
   const createOrgUserDirect = async () => {
     if (!orgId) return
     const email = newUserEmail.trim().toLowerCase()
-    if (!email) {
-      window.alert('Enter an email.')
+    if (!email || !email.includes('@')) {
+      window.alert('Enter a valid email.')
+      return
+    }
+    if (!newUserPassword.trim() || newUserPassword.trim().length < 6) {
+      window.alert('Password is required (minimum 6 characters) for new users.')
       return
     }
     setUserCreateBusy(true)
     try {
-      await apiFetch(`/admin/organisations/${orgId}/users`, {
+      const res = await apiFetch(`/admin/organisations/${orgId}/users`, {
         method: 'POST',
         body: JSON.stringify({
           email,
-          password: newUserPassword || undefined,
+          password: newUserPassword.trim(),
           role: newUserRole,
         }),
       })
@@ -222,6 +257,7 @@ export default function OrganisationProfile() {
       setNewUserPassword('')
       await refreshUsers()
       await refreshInvites()
+      if (res?.user_id) selectUserActivity(res.user_id)
     } catch (e) {
       window.alert(e?.message || 'Could not create user')
     } finally {
@@ -488,6 +524,10 @@ export default function OrganisationProfile() {
                   <div className='listRow'><span>Status</span><strong>{org?.subscription_status || '—'}</strong></div>
                   <div className='listRow'><span>Plan</span><strong>{org?.plan_name || org?.plan_code || '—'}</strong></div>
                 </div>
+                <div className='actions' style={{ marginTop: 12, flexWrap: 'wrap' }}>
+                  <button type='button' className='btn soft' onClick={() => selectTab('plan')}>Manage plan</button>
+                  <Link to='/onboarding/services' className='btn soft'>Product services</Link>
+                </div>
               </div>
             </div>
           </div>
@@ -677,8 +717,10 @@ export default function OrganisationProfile() {
                 <input className='input' value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} disabled={!orgId} placeholder='name@clinic.com' />
               </label>
               <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Temporary password (new users only)</span>
-                <input className='input' type='password' autoComplete='new-password' value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} disabled={!orgId} placeholder='Min 6 characters' />
+                <span className='muted' style={{ fontSize: 12 }}>
+                  Temporary password <span style={{ color: '#dc2626' }}>*</span>
+                </span>
+                <input className='input' type='password' autoComplete='new-password' required minLength={6} value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} disabled={!orgId} placeholder='Min 6 characters' />
               </label>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>Role</span>
@@ -790,19 +832,31 @@ export default function OrganisationProfile() {
                       <th>Status</th>
                       <th>Flags</th>
                       <th>Linked</th>
-                      <th style={{ width: 220 }}>Actions</th>
+                      <th style={{ width: 260 }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(users || []).map((u) => (
-                      <tr key={u.user_id}>
-                        <td>{u.email}</td>
+                      <tr key={u.user_id} className={selectedUserId === u.user_id ? 'rowSelected' : ''}>
+                        <td>
+                          <button type='button' className='linkish' onClick={() => selectUserActivity(u.user_id)}>
+                            {u.email}
+                          </button>
+                        </td>
                         <td>{u.role || '—'}</td>
                         <td>{u.is_active ? <span className='pill p-green'>Active</span> : <span className='pill p-amber'>Blocked</span>}</td>
                         <td>{u.is_superuser ? <span className='pill'>Platform admin</span> : '—'}</td>
                         <td>{u.linked_at ? new Date(u.linked_at).toLocaleString() : '—'}</td>
                         <td>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <button
+                              type='button'
+                              className='btn soft'
+                              style={{ padding: '4px 10px', fontSize: 12 }}
+                              onClick={() => selectUserActivity(u.user_id)}
+                            >
+                              Activity
+                            </button>
                             {u.is_superuser ? (
                               <span className='muted' style={{ fontSize: 11 }}>Protected</span>
                             ) : (
@@ -821,7 +875,7 @@ export default function OrganisationProfile() {
                                   style={{ padding: '4px 10px', fontSize: 12 }}
                                   onClick={() => removeUser(u.user_id, u.email)}
                                 >
-                                  Remove from org
+                                  Remove
                                 </button>
                               </>
                             )}
@@ -840,6 +894,101 @@ export default function OrganisationProfile() {
               </p>
             </div>
           </div>
+
+          {selectedUserId ? (
+            <div className='card'>
+              <div className='cardHead'>
+                <h3>User activity</h3>
+                <button type='button' className='btn soft' onClick={() => refreshUserActivity()} disabled={userActivityLoading}>
+                  {userActivityLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+              <div className='cardBody stack' style={{ gap: 14 }}>
+                {userActivityLoading && !userActivity ? (
+                  <p className='muted'>Loading activity…</p>
+                ) : userActivity ? (
+                  <>
+                    <div className='list'>
+                      <div className='listRow'><span>Email</span><strong>{userActivity.user?.email}</strong></div>
+                      <div className='listRow'><span>Role</span><strong>{userActivity.user?.role || '—'}</strong></div>
+                      <div className='listRow'><span>Linked</span><strong>{userActivity.user?.linked_at ? new Date(userActivity.user.linked_at).toLocaleString() : '—'}</strong></div>
+                      <div className='listRow'><span>Account created</span><strong>{userActivity.user?.account_created_at ? new Date(userActivity.user.account_created_at).toLocaleString() : '—'}</strong></div>
+                    </div>
+
+                    <div>
+                      <h4 style={{ margin: '0 0 8px', fontSize: 14 }}>Audit log ({userActivity.counts?.audit_events ?? 0})</h4>
+                      {(userActivity.audit_events || []).length ? (
+                        <div className='tableWrap'>
+                          <table className='table'>
+                            <thead><tr><th>Time</th><th>Action</th><th>Detail</th></tr></thead>
+                            <tbody>
+                              {userActivity.audit_events.map((ev) => (
+                                <tr key={ev.id}>
+                                  <td className='muted'>{ev.created_at ? new Date(ev.created_at).toLocaleString() : '—'}</td>
+                                  <td>{ev.action}</td>
+                                  <td>{ev.detail || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className='muted' style={{ fontSize: 13 }}>No audit events recorded for this user yet.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 style={{ margin: '0 0 8px', fontSize: 14 }}>Service orders ({userActivity.counts?.service_orders ?? 0})</h4>
+                      {(userActivity.service_orders || []).length ? (
+                        <div className='tableWrap'>
+                          <table className='table'>
+                            <thead><tr><th>Title</th><th>Service</th><th>Status</th><th>Updated</th></tr></thead>
+                            <tbody>
+                              {userActivity.service_orders.map((o) => (
+                                <tr key={o.id}>
+                                  <td>{o.title || o.reference_id || o.id}</td>
+                                  <td>{o.service_code}</td>
+                                  <td><span className='pill p-cyan'>{o.status}</span></td>
+                                  <td className='muted'>{o.updated_at ? new Date(o.updated_at).toLocaleString() : '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className='muted' style={{ fontSize: 13 }}>No surveys or interviews created by this user.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 style={{ margin: '0 0 8px', fontSize: 14 }}>Support tickets ({userActivity.counts?.support_tickets ?? 0})</h4>
+                      {(userActivity.support_tickets || []).length ? (
+                        <div className='tableWrap'>
+                          <table className='table'>
+                            <thead><tr><th>Subject</th><th>Category</th><th>Status</th><th>Updated</th></tr></thead>
+                            <tbody>
+                              {userActivity.support_tickets.map((t) => (
+                                <tr key={t.id}>
+                                  <td>{t.subject}</td>
+                                  <td>{t.category}</td>
+                                  <td><span className='pill p-cyan'>{t.status}</span></td>
+                                  <td className='muted'>{t.updated_at ? new Date(t.updated_at).toLocaleString() : '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className='muted' style={{ fontSize: 13 }}>No support tickets opened by this user.</p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p className='muted'>Could not load activity for this user.</p>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

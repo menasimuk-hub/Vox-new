@@ -158,11 +158,50 @@ class LogService:
         return out  # type: ignore[return-value]
 
     @staticmethod
-    def list_platform_message_logs(db: Session, *, limit: int = 100) -> list[dict]:
-        rows = db.execute(select(WhatsAppLog).order_by(WhatsAppLog.id.desc()).limit(max(1, min(limit, 500)))).scalars().all()
+    def list_platform_message_logs(
+        db: Session,
+        *,
+        limit: int = 100,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        from_number: str | None = None,
+        to_number: str | None = None,
+        q: str | None = None,
+    ) -> list[dict]:
+        from datetime import datetime
+
+        from sqlalchemy import select
+
+        stmt = select(WhatsAppLog).order_by(WhatsAppLog.id.desc()).limit(max(1, min(limit, 500)))
+        rows = db.execute(stmt).scalars().all()
         out: list[dict] = []
+        needle = str(q or "").strip().lower()
+        from_filter = str(from_number or "").strip()
+        to_filter = str(to_number or "").strip()
+        start = None
+        end = None
+        if date_from:
+            try:
+                start = datetime.fromisoformat(str(date_from).replace("Z", "+00:00"))
+            except Exception:
+                start = None
+        if date_to:
+            try:
+                end = datetime.fromisoformat(str(date_to).replace("Z", "+00:00"))
+            except Exception:
+                end = None
         for row in rows:
+            if start and row.created_at and row.created_at < start:
+                continue
+            if end and row.created_at and row.created_at > end:
+                continue
+            if from_filter and from_filter not in str(row.from_number or ""):
+                continue
+            if to_filter and to_filter not in str(row.to_number or ""):
+                continue
             body = str(row.body or "")
+            if needle and needle not in body.lower() and needle not in str(row.from_number or "").lower() and needle not in str(row.to_number or "").lower():
+                continue
             delivery_error = None
             if "Delivery error:" in body:
                 delivery_error = body.split("Delivery error:", 1)[1].strip().split("\n")[0].strip()

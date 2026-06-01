@@ -57,6 +57,39 @@ class OrgAuditService:
         )
 
     @staticmethod
+    def list_events_for_user(
+        db: Session,
+        org_id: str,
+        user_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        rows = list(
+            db.execute(
+                select(OrganisationAuditEvent)
+                .where(
+                    OrganisationAuditEvent.org_id == org_id,
+                    OrganisationAuditEvent.actor_user_id == user_id,
+                )
+                .order_by(OrganisationAuditEvent.created_at.desc())
+                .limit(max(1, min(limit, 500)))
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "action": r.action,
+                "detail": r.detail,
+                "actor_email": r.actor_email,
+                "actor_user_id": r.actor_user_id,
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ]
+
+    @staticmethod
     def list_events(db: Session, org_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
         rows = list(
             db.execute(

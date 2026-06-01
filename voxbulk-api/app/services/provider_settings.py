@@ -601,6 +601,11 @@ class ProviderSettingsService:
         cfg["whatsapp_messaging_profile_id"] = str(cfg.get("whatsapp_messaging_profile_id") or "").strip()
         cfg["messaging_org_id"] = str(cfg.get("messaging_org_id") or cfg.get("default_messaging_org_id") or "").strip()
         cfg["api_key"] = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
+        from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+        allowlist, enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
+        cfg["phone_allowlist"] = allowlist
+        cfg["phone_allowlist_enabled"] = enabled
         return cfg
 
     @staticmethod

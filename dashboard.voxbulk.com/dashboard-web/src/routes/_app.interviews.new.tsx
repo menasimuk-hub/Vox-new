@@ -59,6 +59,8 @@ type CandidateRow = {
   atsStatus?: string | null;
   status?: string;
   activityStatus?: string;
+  phoneCallAllowed?: boolean;
+  phoneCallBlockReason?: string | null;
 };
 
 function isBookingResendBlocked(status?: string | null, activityStatus?: string | null) {
@@ -313,6 +315,8 @@ function CreateInterview() {
       atsStatus: String(r.ats_status || ""),
       status: String(r.status || ""),
       activityStatus: String(r.activity_status || ""),
+      phoneCallAllowed: r.phone_call_allowed !== false,
+      phoneCallBlockReason: r.phone_call_block_reason ? String(r.phone_call_block_reason) : null,
     }));
   }, [draftQ.data?.recipients]);
 
@@ -331,6 +335,22 @@ function CreateInterview() {
   const refreshDraft = () => {
     void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
     if (orderId) void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
+  };
+
+  const onEditRecipientPhone = async (recipientId: string, currentPhone: string) => {
+    if (!orderId) return;
+    const next = window.prompt("Enter phone number (E.164 or local format)", currentPhone || "");
+    if (next == null) return;
+    try {
+      await apiFetch(`/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(recipientId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ phone: next.trim() }),
+      });
+      void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
+      toast.success("Phone number updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update phone");
+    }
   };
 
   const onDeleteRecipient = async (recipientId: string) => {
@@ -974,11 +994,35 @@ function CreateInterview() {
                         />
                       </TableCell>
                       <TableCell className="font-medium max-w-[120px] truncate sm:max-w-none">{r.name}</TableCell>
-                      <TableCell className="hidden text-xs tabular-nums sm:table-cell">{r.phone || "—"}</TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <div className="space-y-1">
+                          <div className={`text-xs tabular-nums ${r.phone && r.phoneCallAllowed === false ? "font-medium text-destructive" : ""}`}>
+                            {r.phone || "—"}
+                          </div>
+                          {r.phone && r.phoneCallAllowed === false ? (
+                            <div className="text-[11px] leading-snug text-destructive">
+                              Can&apos;t call this number{r.phoneCallBlockReason ? `: ${r.phoneCallBlockReason}` : ""}.{" "}
+                              <button type="button" className="underline" onClick={() => void onEditRecipientPhone(r.id, r.phone)}>
+                                Change number
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </TableCell>
                       <TableCell className="hidden text-xs sm:table-cell">{r.email || "—"}</TableCell>
                       <TableCell className="text-xs sm:hidden">
                         <div className="space-y-0.5 text-muted-foreground">
-                          {r.phone ? <div className="truncate">{r.phone}</div> : null}
+                          {r.phone ? (
+                            <div className={r.phoneCallAllowed === false ? "truncate font-medium text-destructive" : "truncate"}>{r.phone}</div>
+                          ) : null}
+                          {r.phone && r.phoneCallAllowed === false ? (
+                            <div className="text-[11px] leading-snug text-destructive">
+                              Can&apos;t call this number.{" "}
+                              <button type="button" className="underline" onClick={() => void onEditRecipientPhone(r.id, r.phone)}>
+                                Change
+                              </button>
+                            </div>
+                          ) : null}
                           {r.email ? <div className="truncate">{r.email}</div> : null}
                         </div>
                       </TableCell>

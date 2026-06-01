@@ -42,13 +42,7 @@ const GROUP_SECTION = {
 const NAV = [
   [
     'Dashboard',
-    [
-      ['MRR', '/dashboard/mrr'],
-      ['Total organisations', '/dashboard/total-organisations'],
-      ['Trial conversions', '/dashboard/trial-conversions'],
-      ['System health', '/dashboard/system-health'],
-      ['LLM / call spend', '/dashboard/llm-call-spend'],
-    ],
+    [['Overview', '/dashboard']],
   ],
   [
     'Organisations',
@@ -65,11 +59,7 @@ const NAV = [
   [
     'Onboarding',
     [
-      ['New customer setup', '/onboarding/setup'],
-      ['Pending signups', '/onboarding/pending-signups'],
-      ['Services', '/onboarding/services'],
-      ['Dentally connection status', '/onboarding/dentally'],
-      ['Number verification', '/onboarding/numbers'],
+      ['Add customer', '/onboarding/add-customer'],
       ['Go-live checklist', '/onboarding/checklist'],
     ],
   ],

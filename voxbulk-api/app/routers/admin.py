@@ -1050,9 +1050,33 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
 
 
 @router.get("/integrations/telnyx/inbound-messages")
-def list_telnyx_inbound_messages(limit: int = 50, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    rows = LogService.list_platform_message_logs(db, limit=limit)
+def list_telnyx_inbound_messages(
+    limit: int = 50,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    from_number: str | None = None,
+    to_number: str | None = None,
+    q: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    rows = LogService.list_platform_message_logs(
+        db,
+        limit=limit,
+        date_from=date_from,
+        date_to=date_to,
+        from_number=from_number,
+        to_number=to_number,
+        q=q,
+    )
     return {"ok": True, "messages": rows[: max(1, min(limit, 200))]}
+
+
+@router.get("/integrations/telnyx/phone-allowlist/defaults")
+def telnyx_phone_allowlist_defaults(_admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+    return {"ok": True, **TelnyxPhoneAllowlistService.admin_view({})}
 
 
 @router.get("/integrations/telnyx/messages/{message_id}")
@@ -1562,6 +1586,78 @@ def admin_list_org_users(org_id: str, db: Session = Depends(get_db), _admin=Depe
         }
         for uid, email, is_active, is_superuser, role, created_at in rows
     ]
+
+
+@router.get("/organisations/{org_id}/users/{user_id}/activity")
+def admin_org_user_activity(
+    org_id: str,
+    user_id: str,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.service_order import ServiceOrder
+    from app.models.support_ticket import SupportTicket
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.platform_catalog_service import ServiceOrderService
+
+    mem = db.execute(
+        select(OrganisationMembership).where(
+            OrganisationMembership.org_id == org_id,
+            OrganisationMembership.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+    if mem is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not in this organisation")
+    user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    audit_events = OrgAuditService.list_events_for_user(db, org_id, user_id, limit=limit)
+    orders = list(
+        db.execute(
+            select(ServiceOrder)
+            .where(ServiceOrder.org_id == org_id, ServiceOrder.user_id == user_id)
+            .order_by(ServiceOrder.updated_at.desc())
+            .limit(max(1, min(int(limit or 100), 100)))
+        ).scalars()
+    )
+    tickets = list(
+        db.execute(
+            select(SupportTicket)
+            .where(SupportTicket.organisation_id == org_id, SupportTicket.created_by_user_id == user_id)
+            .order_by(SupportTicket.updated_at.desc())
+            .limit(max(1, min(int(limit or 100), 50)))
+        ).scalars()
+    )
+    return {
+        "user": {
+            "user_id": user.id,
+            "email": user.email,
+            "is_active": user.is_active,
+            "role": mem.role,
+            "linked_at": mem.created_at,
+            "account_created_at": user.created_at,
+        },
+        "audit_events": audit_events,
+        "service_orders": [ServiceOrderService.order_to_admin_dict(db, o) for o in orders],
+        "support_tickets": [
+            {
+                "id": t.id,
+                "subject": t.subject,
+                "status": t.status,
+                "category": t.category,
+                "created_at": t.created_at,
+                "updated_at": t.updated_at,
+            }
+            for t in tickets
+        ],
+        "counts": {
+            "audit_events": len(audit_events),
+            "service_orders": len(orders),
+            "support_tickets": len(tickets),
+        },
+    }
 
 
 @router.post("/organisations/{org_id}/users/{user_id}/block")

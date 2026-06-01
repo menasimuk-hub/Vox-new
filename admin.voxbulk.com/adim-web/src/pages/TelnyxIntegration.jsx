@@ -73,6 +73,32 @@ function CopyInput({ label, value, onChange, hint }) {
   )
 }
 
+function listToCsv(value) {
+  if (Array.isArray(value)) return value.join(', ')
+  return String(value || '')
+}
+
+function csvToList(raw) {
+  return String(raw || '')
+    .split(/[,;\s]+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+}
+
+function csvToIntList(raw) {
+  return csvToList(raw)
+    .map((x) => parseInt(x, 10))
+    .filter((n) => !Number.isNaN(n))
+}
+
+const TELNYX_TABS = [
+  { id: 'api', label: 'Telnyx API' },
+  { id: 'whitelist', label: 'Whitelist numbers' },
+  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'messages', label: 'Messages' },
+  { id: 'zoom', label: 'Zoom' },
+]
+
 export default function TelnyxIntegration({
   activeSummary,
   activeConfig,
@@ -118,8 +144,30 @@ export default function TelnyxIntegration({
   testTelnyxWhatsApp,
   testTelnyxZoom,
   loadTelnyxInboundMessages,
+  telnyxMessageFilters,
+  setTelnyxMessageFilters,
 }) {
   const pill = statusPill(activeSummary)
+  const [activeTab, setActiveTab] = React.useState('api')
+  const allowlist = activeConfig.phone_allowlist || {}
+  const allowlistEnabled = activeConfig.phone_allowlist_enabled || { GB: true, AU: true, CA: true, USA: true }
+
+  const setAllowlistEnabled = (country, checked) => {
+    setProviderField('telnyx', 'phone_allowlist_enabled', { ...allowlistEnabled, [country]: checked })
+  }
+
+  const patchAllowlistCountry = (country, patch) => {
+    const current = allowlist[country] || {}
+    setProviderField('telnyx', 'phone_allowlist', { ...allowlist, [country]: { ...current, ...patch } })
+  }
+
+  const patchAllowlistPrefixes = (country, field, raw) => {
+    patchAllowlistCountry(country, { [field]: csvToList(raw) })
+  }
+
+  const patchCanadaAreaCodes = (raw) => {
+    patchAllowlistCountry('CA', { area_codes: csvToIntList(raw) })
+  }
 
   return (
     <div className='telnyxIntegrationPage'>
@@ -149,6 +197,21 @@ export default function TelnyxIntegration({
       {providerError ? <div className='note telnyxErrorNote'>{providerError}</div> : null}
       {telnyxTestResult ? <div className='note'>{telnyxTestResult}</div> : null}
 
+      <div className='telnyxTabBar'>
+        {TELNYX_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type='button'
+            className={`btn soft telnyxTabBtn${activeTab === tab.id ? ' telnyxTabBtnActive' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'api' ? (
+      <>
       <div className='telnyxGrid3'>
         <div className='card'>
           <div className='cardHead'>
@@ -336,7 +399,7 @@ export default function TelnyxIntegration({
       <div className='telnyxGrid2'>
         <div className='card'>
           <div className='cardHead'>
-            <h3>Test outgoing</h3>
+            <h3>Test voice call</h3>
             <span className='pill p-cyan'>Your mobile</span>
           </div>
           <div className='cardBody stack'>
@@ -366,76 +429,185 @@ export default function TelnyxIntegration({
               </div>
               {telnyxActiveCallId ? <div className='muted telnyxFieldHint'>Active call: {telnyxActiveCallId}</div> : null}
             </div>
+          </div>
+        </div>
+
+        <div className='card'>
+          <div className='cardHead'>
+            <h3>Setup checklist</h3>
+            <span className='pill p-cyan'>Telnyx portal</span>
+          </div>
+          <div className='cardBody'>
+            <ol className='telnyxChecklist'>
+              <li><strong>Landline</strong> → Call Control → voice webhook URL.</li>
+              <li><strong>SMS mobile</strong> → Messaging Profile → messaging webhook URL.</li>
+              <li><strong>WhatsApp number</strong> → Meta WABA in Telnyx → same messaging webhook + WABA webhooks.</li>
+              <li>Save all three numbers here (they can be different lines).</li>
+              <li>Save settings, then <strong>Test connection</strong>.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+      </>
+      ) : null}
+
+      {activeTab === 'whitelist' ? (
+        <div className='stack' style={{ gap: 16 }}>
+          <div className='note'>
+            Control which countries and number prefixes Telnyx AI voice can dial for interview campaigns.
+            Save settings after editing. Numbers outside the allow list show as blocked in the user dashboard.
+          </div>
+          {['GB', 'AU', 'CA', 'USA'].map((country) => {
+            const cfg = allowlist[country] || {}
+            const enabled = allowlistEnabled[country] !== false
+            return (
+              <div key={country} className='card'>
+                <div className='cardHead'>
+                  <h3>{country}</h3>
+                  <label className='telnyxEnableRow'>
+                    <input type='checkbox' checked={enabled} onChange={(e) => setAllowlistEnabled(country, e.target.checked)} />
+                    <span>{enabled ? 'Enabled' : 'Disabled'}</span>
+                  </label>
+                </div>
+                <div className='cardBody stack'>
+                  <Field label='Country code' hint={`Dial prefix +${cfg.code || (country === 'USA' || country === 'CA' ? '1' : country === 'GB' ? '44' : '61')}`}>
+                    <input className='input' value={String(cfg.code || '')} onChange={(e) => patchAllowlistCountry(country, { code: e.target.value.trim() })} />
+                  </Field>
+                  {country === 'GB' || country === 'AU' ? (
+                    <>
+                      <Field label='Landline prefixes (comma-separated)'>
+                        <input className='input' value={listToCsv(cfg.landline_prefixes)} onChange={(e) => patchAllowlistPrefixes(country, 'landline_prefixes', e.target.value)} />
+                      </Field>
+                      <Field label='Mobile prefixes (comma-separated)'>
+                        <input className='input' value={listToCsv(cfg.mobile_prefixes)} onChange={(e) => patchAllowlistPrefixes(country, 'mobile_prefixes', e.target.value)} />
+                      </Field>
+                      <div className='telnyxGrid2'>
+                        <Field label='Landline price (USD/min)'>
+                          <input className='input' type='number' step='0.0001' value={cfg.landline_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { landline_price: parseFloat(e.target.value) || 0 })} />
+                        </Field>
+                        <Field label='Mobile price (USD/min)'>
+                          <input className='input' type='number' step='0.0001' value={cfg.mobile_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { mobile_price: parseFloat(e.target.value) || 0 })} />
+                        </Field>
+                      </div>
+                    </>
+                  ) : null}
+                  {country === 'CA' ? (
+                    <>
+                      <Field label='Canada area codes (comma-separated)' hint='NANP +1 numbers matching these area codes are treated as Canada.'>
+                        <textarea className='input' rows={4} value={listToCsv(cfg.area_codes)} onChange={(e) => patchCanadaAreaCodes(e.target.value)} />
+                      </Field>
+                      <div className='telnyxGrid2'>
+                        <Field label='Landline price (USD/min)'>
+                          <input className='input' type='number' step='0.0001' value={cfg.landline_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { landline_price: parseFloat(e.target.value) || 0 })} />
+                        </Field>
+                        <Field label='Mobile price (USD/min)'>
+                          <input className='input' type='number' step='0.0001' value={cfg.mobile_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { mobile_price: parseFloat(e.target.value) || 0 })} />
+                        </Field>
+                      </div>
+                    </>
+                  ) : null}
+                  {country === 'USA' ? (
+                    <>
+                      <Field label='Default price (USD/min)'>
+                        <input className='input' type='number' step='0.0001' value={cfg.default_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { default_price: parseFloat(e.target.value) || 0 })} />
+                      </Field>
+                      <Field label='Note'>
+                        <input className='input' value={String(cfg.note || '')} onChange={(e) => patchAllowlistCountry(country, { note: e.target.value })} />
+                      </Field>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+
+      {activeTab === 'whatsapp' ? (
+      <div className='telnyxWaLayout'>
+        <div className='card telnyxWaTemplatesCard'>
+          <div className='cardHead'>
+            <h3>WhatsApp templates</h3>
+            <div className='actions'>
+              <button
+                type='button'
+                className='btn soft'
+                onClick={syncTelnyxWaTemplates}
+                disabled={providerSaving || telnyxWaSyncBusy || !activeSummary?.exists}
+              >
+                {telnyxWaSyncBusy ? 'Syncing…' : 'Sync'}
+              </button>
+              <button
+                type='button'
+                className='btn soft'
+                onClick={() => loadTelnyxWaTemplates(false)}
+                disabled={providerSaving || !activeSummary?.exists}
+              >
+                Reload
+              </button>
+            </div>
+          </div>
+          <div className='cardBody telnyxWaTemplatesBody'>
+            <div className='muted telnyxFieldHint' style={{ marginBottom: 12 }}>
+              Sync pulls live templates from Telnyx and removes stale rows. Only <strong>Approved</strong> templates can be used for test sends.
+            </div>
+            {(telnyxWaTemplates || []).length > 0 ? (
+              <ul className='telnyxWaTemplateList'>
+                {(telnyxWaTemplates || []).map((t) => {
+                  const pill = waTemplateStatusPill(t.status)
+                  const id = String(t.template_id || t.id || '')
+                  const selected = id && id === String(telnyxWaTemplateId || '')
+                  const approved = String(t.status || '').toUpperCase() === 'APPROVED'
+                  return (
+                    <li key={t.template_id || t.id || t.name}>
+                      <button
+                        type='button'
+                        className={`telnyxWaTemplateListItem${selected ? ' telnyxWaTemplateListItemActive' : ''}`}
+                        onClick={() => approved && onSelectTelnyxWaTemplate(id)}
+                        disabled={!approved}
+                        title={approved ? 'Select for test send' : 'Only approved templates can be selected'}
+                      >
+                        <div className='telnyxWaTemplateListMain'>
+                          <strong>{t.name}</strong>
+                          {t.sales_template_key ? (
+                            <span className='muted telnyxWaTemplateListMeta'>sales: {t.sales_template_key}</span>
+                          ) : null}
+                        </div>
+                        <div className='telnyxWaTemplateListFoot'>
+                          <span className='muted'>{t.language || '—'}</span>
+                          <span className={`pill ${pill.cls}`}>{pill.label}</span>
+                        </div>
+                        {t.synced_at ? (
+                          <div className='muted telnyxWaTemplateListSynced'>Synced {fmtTime(t.synced_at)}</div>
+                        ) : null}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <div className='note'>
+                No templates cached yet. Click <strong>Sync</strong> to pull from Telnyx.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className='card'>
+          <div className='cardHead'>
+            <h3>Test outgoing — WhatsApp & SMS</h3>
+            <span className='pill p-cyan'>Your mobile</span>
+          </div>
+          <div className='cardBody stack'>
+            <Field label='Destination number (E.164)' hint='Your personal mobile, e.g. +447700900123'>
+              <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+447700900123' />
+            </Field>
             <div className='telnyxTestBlock'>
               <div className='telnyxTestBlockTitle'>SMS & WhatsApp</div>
-              <div className='muted telnyxFieldHint'>Uses mobile SMS/WA numbers configured above</div>
-              <div className='actions telnyxTestActions' style={{ marginBottom: 12 }}>
-                <button
-                  type='button'
-                  className='btn soft'
-                  onClick={syncTelnyxWaTemplates}
-                  disabled={providerSaving || telnyxWaSyncBusy || !activeSummary?.exists}
-                >
-                  {telnyxWaSyncBusy ? 'Syncing…' : 'Sync WhatsApp templates'}
-                </button>
-                <button
-                  type='button'
-                  className='btn soft'
-                  onClick={() => loadTelnyxWaTemplates(false)}
-                  disabled={providerSaving || !activeSummary?.exists}
-                >
-                  Reload templates
-                </button>
-              </div>
-              <div className='muted telnyxFieldHint' style={{ marginBottom: 10 }}>
-                Sync pulls live templates from Telnyx and <strong>removes</strong> any cached rows that were deleted in Telnyx or Meta.
-                Only <strong>Approved</strong> templates can be used for test sends.
-              </div>
-              {(telnyxWaTemplates || []).length > 0 ? (
-                <div className='telnyxWaTemplateTableWrap' style={{ marginBottom: 14 }}>
-                  <table className='table telnyxWaTemplateTable'>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Language</th>
-                        <th>Status</th>
-                        <th>Synced</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(telnyxWaTemplates || []).map((t) => {
-                        const pill = waTemplateStatusPill(t.status)
-                        return (
-                          <tr key={t.template_id || t.id || t.name}>
-                            <td>
-                              <strong>{t.name}</strong>
-                              {t.sales_template_key ? (
-                                <div className='muted' style={{ fontSize: 11 }}>
-                                  sales: {t.sales_template_key}
-                                </div>
-                              ) : null}
-                            </td>
-                            <td>{t.language || '—'}</td>
-                            <td>
-                              <span className={`pill ${pill.cls}`}>{pill.label}</span>
-                            </td>
-                            <td className='muted' style={{ fontSize: 12 }}>
-                              {fmtTime(t.synced_at)}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className='note' style={{ marginBottom: 12 }}>
-                  No templates cached yet. Sync to refresh from Telnyx (stale deleted templates are cleared automatically).
-                </div>
-              )}
+              <div className='muted telnyxFieldHint'>Uses mobile SMS/WA numbers configured in Telnyx API tab</div>
               <Field
                 label='WhatsApp template (approved only)'
-                hint='Pick an approved template for Test WhatsApp — uses template_id from Telnyx.'
+                hint='Pick from the list on the left, or choose here.'
               >
                 <select
                   className='input'
@@ -455,7 +627,7 @@ export default function TelnyxIntegration({
               </Field>
               <Field
                 label='Or template name / UUID (manual)'
-                hint='Optional override. Prefer the synced dropdown above.'
+                hint='Optional override. Prefer the synced list on the left.'
               >
                 <input
                   className='input'
@@ -484,59 +656,40 @@ export default function TelnyxIntegration({
             {telnyxSmsTestResult ? <div className='note'>{telnyxSmsTestResult}</div> : null}
           </div>
         </div>
-
-        <div className='card'>
-          <div className='cardHead'>
-            <h3>Zoom for AI interviews</h3>
-          </div>
-          <div className='cardBody'>
-            <div className='stack' style={{ gap: 12 }}>
-              <p className='muted' style={{ fontSize: 14, marginBottom: 6 }}>
-                Creates a test interview meeting. Telnyx does not expose <code>/zoom/meetings</code> on most accounts, so VoxBulk falls back to{' '}
-                <strong>Integrations → Zoom</strong> (Server-to-Server OAuth) for meeting links. Telnyx AI/voice settings remain separate.
-              </p>
-              <p className='muted' style={{ fontSize: 12, marginBottom: 6 }}>
-                After interviews, point Telnyx Zoom webhooks to{' '}
-                <code>{String(activeConfig.webhook_base_url || 'https://api.voxbulk.com').replace(/\/+$/, '')}/telnyx/webhooks/zoom</code>{' '}
-                (or your API host + <code>/telnyx/webhooks/zoom</code>) so recordings and transcripts sync automatically.
-              </p>
-              <div className='actions telnyxTestActions'>
-                <button type='button' className='btn soft' onClick={testTelnyxZoom} disabled={providerSaving}>
-                  Test Zoom Connection
-                </button>
-              </div>
-              {telnyxZoomTestResult ? <div className='note'>{telnyxZoomTestResult}</div> : null}
-            </div>
-          </div>
-        </div>
-
-        <div className='card'>
-          <div className='cardHead'>
-            <h3>Setup checklist</h3>
-            <span className='pill p-cyan'>Telnyx portal</span>
-          </div>
-          <div className='cardBody'>
-            <ol className='telnyxChecklist'>
-              <li><strong>Landline</strong> → Call Control → voice webhook URL.</li>
-              <li><strong>SMS mobile</strong> → Messaging Profile → messaging webhook URL.</li>
-              <li><strong>WhatsApp number</strong> → Meta WABA in Telnyx → same messaging webhook + WABA webhooks.</li>
-              <li>Save all three numbers here (they can be different lines).</li>
-              <li>Save settings, then <strong>Test connection</strong>.</li>
-            </ol>
-          </div>
-        </div>
       </div>
+      ) : null}
 
+      {activeTab === 'messages' ? (
       <div className='card telnyxInboundCard'>
         <div className='cardHead'>
           <h3>Messages</h3>
           <div className='actions'>
             <button type='button' className='btn soft' onClick={loadTelnyxInboundMessages} disabled={providerSaving || !activeSummary?.exists}>
+              Search
+            </button>
+            <button type='button' className='btn soft' onClick={() => loadTelnyxInboundMessages(true)} disabled={providerSaving || !activeSummary?.exists}>
               Refresh
             </button>
           </div>
         </div>
         <div className='cardBody'>
+          <div className='telnyxMessageFilters'>
+            <Field label='From date'>
+              <input className='input' type='datetime-local' value={telnyxMessageFilters.date_from || ''} onChange={(e) => setTelnyxMessageFilters((s) => ({ ...s, date_from: e.target.value }))} />
+            </Field>
+            <Field label='To date'>
+              <input className='input' type='datetime-local' value={telnyxMessageFilters.date_to || ''} onChange={(e) => setTelnyxMessageFilters((s) => ({ ...s, date_to: e.target.value }))} />
+            </Field>
+            <Field label='From number'>
+              <input className='input' value={telnyxMessageFilters.from_number || ''} onChange={(e) => setTelnyxMessageFilters((s) => ({ ...s, from_number: e.target.value }))} placeholder='+447…' />
+            </Field>
+            <Field label='To number'>
+              <input className='input' value={telnyxMessageFilters.to_number || ''} onChange={(e) => setTelnyxMessageFilters((s) => ({ ...s, to_number: e.target.value }))} placeholder='+447…' />
+            </Field>
+            <Field label='Search'>
+              <input className='input' value={telnyxMessageFilters.q || ''} onChange={(e) => setTelnyxMessageFilters((s) => ({ ...s, q: e.target.value }))} placeholder='Message text or number…' />
+            </Field>
+          </div>
           {telnyxInboundMessages.length ? (
             <div className='tableWrap'>
               <table className='table telnyxInboundTable'>
@@ -598,6 +751,34 @@ export default function TelnyxIntegration({
           )}
         </div>
       </div>
+      ) : null}
+
+      {activeTab === 'zoom' ? (
+        <div className='card'>
+          <div className='cardHead'>
+            <h3>Zoom for AI interviews</h3>
+          </div>
+          <div className='cardBody'>
+            <div className='stack' style={{ gap: 12 }}>
+              <p className='muted' style={{ fontSize: 14, marginBottom: 6 }}>
+                Creates a test interview meeting. Telnyx does not expose <code>/zoom/meetings</code> on most accounts, so VoxBulk falls back to{' '}
+                <strong>Integrations → Zoom</strong> (Server-to-Server OAuth) for meeting links. Telnyx AI/voice settings remain separate.
+              </p>
+              <p className='muted' style={{ fontSize: 12, marginBottom: 6 }}>
+                After interviews, point Telnyx Zoom webhooks to{' '}
+                <code>{String(activeConfig.webhook_base_url || 'https://api.voxbulk.com').replace(/\/+$/, '')}/telnyx/webhooks/zoom</code>{' '}
+                (or your API host + <code>/telnyx/webhooks/zoom</code>) so recordings and transcripts sync automatically.
+              </p>
+              <div className='actions telnyxTestActions'>
+                <button type='button' className='btn soft' onClick={testTelnyxZoom} disabled={providerSaving}>
+                  Test Zoom Connection
+                </button>
+              </div>
+              {telnyxZoomTestResult ? <div className='note'>{telnyxZoomTestResult}</div> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
