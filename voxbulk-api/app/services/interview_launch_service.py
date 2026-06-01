@@ -84,7 +84,9 @@ class InterviewLaunchService:
         if delivery == "ai_call":
             if not order.scheduled_start_at or not order.scheduled_end_at:
                 raise ValueError("Set the calling window (start and end) before launch")
-            already_sent = bool(config.get("booking_invites_sent_at"))
+            already_sent = bool(config.get("booking_invites_sent_at")) and bool(
+                (_order_config(order).get("last_invite_dispatch") or {}).get("ok")
+            )
             if resend_invites or not already_sent:
                 try:
                     invite_result = InterviewBookingService.send_invites(

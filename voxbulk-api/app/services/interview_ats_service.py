@@ -124,7 +124,7 @@ def score_cv_with_deepseek(db: Session, *, cv_text: str, job_description: str) -
         system_prompt=_ATS_SYSTEM,
         messages=[AgentMessage(role="user", content=user)],
         max_tokens=900,
-        temperature=0.1,
+        temperature=0,
         provider="deepseek",
     )
     report = _parse_ats_report(str(result.assistant_text or ""))
@@ -137,7 +137,13 @@ def score_cv_with_deepseek(db: Session, *, cv_text: str, job_description: str) -
     return report
 
 
-def queue_ats_for_recipient(db: Session, recipient: ServiceOrderRecipient, *, order: ServiceOrder | None = None) -> None:
+def queue_ats_for_recipient(
+    db: Session,
+    recipient: ServiceOrderRecipient,
+    *,
+    order: ServiceOrder | None = None,
+    force: bool = False,
+) -> None:
     cv_text = sanitize_cv_text(recipient.cv_text or "")
     if len(cv_text) < 80:
         return
@@ -146,7 +152,12 @@ def queue_ats_for_recipient(db: Session, recipient: ServiceOrderRecipient, *, or
         return
     _, job = _order_job_context(order)
     content_hash = compute_ats_input_hash(cv_text=cv_text, job_description=job)
-    if recipient.ats_status == "complete" and recipient.ats_hash == content_hash:
+    if (
+        not force
+        and recipient.ats_status == "complete"
+        and recipient.ats_hash == content_hash
+        and recipient.ats_score is not None
+    ):
         return
     recipient.ats_hash = content_hash
     recipient.ats_score = None
@@ -155,7 +166,13 @@ def queue_ats_for_recipient(db: Session, recipient: ServiceOrderRecipient, *, or
     db.add(recipient)
 
 
-def queue_ats_for_order(db: Session, order: ServiceOrder, *, recipient_ids: list[str] | None = None) -> int:
+def queue_ats_for_order(
+    db: Session,
+    order: ServiceOrder,
+    *,
+    recipient_ids: list[str] | None = None,
+    force: bool = False,
+) -> int:
     if order.service_code != "interview":
         return 0
     rows = list(
@@ -168,7 +185,7 @@ def queue_ats_for_order(db: Session, order: ServiceOrder, *, recipient_ids: list
         if recipient_ids and row.id not in recipient_ids:
             continue
         before = row.ats_status
-        queue_ats_for_recipient(db, row, order=order)
+        queue_ats_for_recipient(db, row, order=order, force=force)
         if row.ats_status == "pending" and before != "pending":
             queued += 1
         elif row.ats_status == "pending":

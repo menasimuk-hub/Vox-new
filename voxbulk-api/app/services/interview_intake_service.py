@@ -165,6 +165,7 @@ def _assert_interview_draft(order: ServiceOrder) -> None:
 
 
 def get_latest_interview_draft(db: Session, *, org_id: str) -> ServiceOrder | None:
+    purge_empty_interview_drafts(db, org_id=org_id)
     rows = list(
         db.execute(
             select(ServiceOrder)
@@ -179,6 +180,58 @@ def get_latest_interview_draft(db: Session, *, org_id: str) -> ServiceOrder | No
         ).scalars()
     )
     return rows[0] if rows else None
+
+
+def is_empty_interview_draft(order: ServiceOrder, *, recipient_count: int) -> bool:
+    if order.status != "draft" or order.payment_status != "unpaid":
+        return False
+    if recipient_count > 0:
+        return False
+    cfg = _loads_json(order.config_json) or {}
+    meaningful = [
+        cfg.get("role"),
+        cfg.get("position"),
+        cfg.get("criteria"),
+        cfg.get("screening_criteria"),
+        cfg.get("approved_script"),
+        cfg.get("generated_script_draft"),
+        cfg.get("agent_id"),
+    ]
+    if any(str(v or "").strip() for v in meaningful):
+        return False
+    if cfg.get("script_approved") or cfg.get("cv_email_enabled"):
+        return False
+    title = str(order.title or "").strip().lower()
+    return title in {"", "interview draft", "interview"}
+
+
+def purge_empty_interview_drafts(db: Session, *, org_id: str, keep_order_id: str | None = None) -> int:
+    from sqlalchemy import func
+
+    rows = list(
+        db.execute(
+            select(ServiceOrder)
+            .where(
+                ServiceOrder.org_id == org_id,
+                ServiceOrder.service_code == "interview",
+                ServiceOrder.status == "draft",
+                ServiceOrder.payment_status == "unpaid",
+            )
+        ).scalars()
+    )
+    deleted = 0
+    for order in rows:
+        if keep_order_id and order.id == keep_order_id:
+            continue
+        count = db.execute(
+            select(func.count())
+            .select_from(ServiceOrderRecipient)
+            .where(ServiceOrderRecipient.order_id == order.id)
+        ).scalar_one()
+        if is_empty_interview_draft(order, recipient_count=int(count or 0)):
+            ServiceOrderService.delete_order(db, order)
+            deleted += 1
+    return deleted
 
 
 def ensure_interview_draft_order(
@@ -247,6 +300,7 @@ def create_new_interview_draft(
     user_id: str,
 ) -> ServiceOrder:
     """Always create a fresh draft (new reference ID) without touching existing drafts."""
+    purge_empty_interview_drafts(db, org_id=org_id)
     order = ServiceOrderService.create_order(
         db,
         org_id=org_id,

@@ -195,7 +195,7 @@ def charge_and_queue_ats(
         cfg["ats_wallet_ledger"] = ledger[-50:]
 
     order = _save_order_config(db, order, cfg)
-    queued = queue_ats_for_order(db, order, recipient_ids=recipient_ids or quote.get("recipient_ids"))
+    queued = queue_ats_for_order(db, order, recipient_ids=recipient_ids or quote.get("recipient_ids"), force=force)
     processed = 0
     if queued > 0:
         # Score the first batch immediately so the dashboard does not wait on the background loop.

@@ -318,7 +318,13 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                         <>
                           <TableCell className="text-xs"><span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5 text-muted-foreground" />{c.scheduledAt}</span></TableCell>
                           <TableCell className="text-xs text-muted-foreground">{c.phone}</TableCell>
-                          <TableCell className="text-xs capitalize">{c.status}</TableCell>
+                          <TableCell className="text-xs">
+                            {c.activity_status === "booking_cancelled" ? (
+                              <span className="font-medium text-destructive">Booking cancelled</span>
+                            ) : (
+                              <span className="capitalize">{String(c.activity_status || c.status || "pending").replace(/_/g, " ")}</span>
+                            )}
+                          </TableCell>
                           <TableCell><AtsScore score={c.ats_score} status={c.ats_status} label={c.ats_label} /></TableCell>
                         </>
                       ) : (

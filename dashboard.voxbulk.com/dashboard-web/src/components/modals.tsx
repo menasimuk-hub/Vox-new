@@ -667,11 +667,13 @@ export function InterviewPreviewQuoteModal({
 
   React.useEffect(() => {
     if (open) {
-      setPreviewApproved(false);
-      setScriptApproved(Boolean(data.scriptApproved));
+      const approved = Boolean(data.scriptApproved);
+      setScriptApproved(approved);
+      // Step 2 approval already done — unlock preview + launch without repeating gates.
+      setPreviewApproved(approved);
       onRefreshQuote?.();
     }
-  }, [open, data.scriptApproved, data.script]);
+  }, [open, data.scriptApproved, onRefreshQuote]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -796,7 +798,11 @@ export function InterviewPreviewQuoteModal({
               <Button
                 className="gap-1.5"
                 disabled={!canLaunchPackage}
-                onClick={() => void onLaunch?.()}
+                onClick={() => {
+                  void (async () => {
+                    await onLaunch?.();
+                  })();
+                }}
               >
                 <PlayCircle className="size-4" />
                 {payBusy ? "Launching…" : "Launch"}

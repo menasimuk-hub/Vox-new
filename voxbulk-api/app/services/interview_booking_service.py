@@ -459,7 +459,6 @@ class InterviewBookingService:
                     {"type": "text", "text": first[:1024]},
                     {"type": "text", "text": role_line[:1024]},
                     {"type": "text", "text": company_line[:1024]},
-                    {"type": "text", "text": company_line[:1024]},
                 ],
             }
         ]
@@ -1102,15 +1101,17 @@ class InterviewBookingService:
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
             db.add(recipient)
 
-        config["booking_invites_sent_at"] = _now().isoformat()
+        dispatch_ok = email_sent > 0 or wa_sent > 0
         config["last_invite_dispatch"] = {
             "at": _now().isoformat(),
             "whatsapp_sent": wa_sent,
             "email_sent": email_sent,
             "skipped_locked": skipped_locked,
             "errors": errors[:50],
-            "ok": email_sent > 0 or wa_sent > 0,
+            "ok": dispatch_ok,
         }
+        if dispatch_ok:
+            config["booking_invites_sent_at"] = _now().isoformat()
         if template_row is not None:
             config["wa_email_sent_template_id"] = send_template_id_for_row(template_row)
             config["wa_email_sent_template_name"] = template_row.name
@@ -1120,7 +1121,7 @@ class InterviewBookingService:
         db.commit()
 
         return {
-            "ok": True,
+            "ok": dispatch_ok,
             "whatsapp_sent": wa_sent,
             "email_sent": email_sent,
             "skipped_locked": skipped_locked,

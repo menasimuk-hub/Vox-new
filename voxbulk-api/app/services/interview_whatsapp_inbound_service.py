@@ -47,6 +47,13 @@ def parse_interview_booking_intent(body: str) -> str | None:
     text = str(body or "").strip()
     if not text:
         return None
+    compact = re.sub(r"\s+", " ", text).strip().lower()
+    if compact in {"cancel", "❌ cancel", "cancel interview", "cancel booking", "cancelled"}:
+        return "cancel"
+    if compact in {"reschedule", "🔄 reschedule", "reschedule interview", "reschedule booking"}:
+        return "reschedule"
+    if compact in {"book my interview", "📅 book my interview", "book interview"}:
+        return "book"
     if _CANCEL_RE.search(text) or _CANCEL_FREE_RE.search(text):
         return "cancel"
     if _RESCHEDULE_RE.search(text) or _RESCHEDULE_FREE_RE.search(text):
@@ -98,9 +105,8 @@ def find_active_booking_context(
     )
 
     now = datetime.utcnow()
+    matches: list[tuple[InterviewBookingToken, ServiceOrder, ServiceOrderRecipient, int]] = []
     for token_row, order, recipient in rows:
-        if org_id and order.org_id != org_id:
-            continue
         rec_phones = _phone_candidates(recipient.phone or "")
         if not needles.intersection(rec_phones):
             continue
@@ -108,22 +114,40 @@ def find_active_booking_context(
             continue
         if interview_booking_locked(recipient):
             continue
-        if token_row.wa_sent_at is None and token_row.booked_start_at is None:
+        merged = {}
+        try:
+            import json as _json
+
+            merged = _json.loads(recipient.result_json or "{}")
+            if not isinstance(merged, dict):
+                merged = {}
+        except Exception:
+            merged = {}
+        has_context = (
+            token_row.booked_start_at is not None
+            or token_row.wa_sent_at is not None
+            or merged.get("invite_wa_sent_at")
+            or merged.get("booking_confirmed_at")
+            or merged.get("booked_start_at")
+        )
+        if not has_context:
             continue
-        return token_row, order, recipient
+        priority = 0
+        if token_row.booked_start_at is not None:
+            priority += 10
+        if merged.get("booking_confirmed_at") or merged.get("booked_start_at"):
+            priority += 5
+        matches.append((token_row, order, recipient, priority))
+
+    if not matches:
+        return None
+
+    matches.sort(key=lambda item: item[3], reverse=True)
     if org_id:
-        for token_row, order, recipient in rows:
-            rec_phones = _phone_candidates(recipient.phone or "")
-            if not needles.intersection(rec_phones):
-                continue
-            if token_row.expires_at and now > token_row.expires_at:
-                continue
-            if interview_booking_locked(recipient):
-                continue
-            if token_row.wa_sent_at is None and token_row.booked_start_at is None:
-                continue
-            return token_row, order, recipient
-    return None
+        for token_row, order, recipient, _priority in matches:
+            if order.org_id == org_id:
+                return token_row, order, recipient
+    return matches[0][0], matches[0][1], matches[0][2]
 
 
 def _send_text_reply(

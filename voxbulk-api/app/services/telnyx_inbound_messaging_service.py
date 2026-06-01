@@ -243,8 +243,22 @@ class TelnyxInboundMessagingService:
                         log_id=row.id,
                     )
                     handled_interview = bool(interview_result.get("handled"))
+                    if not handled_interview:
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "interview_wa_inbound_not_handled body=%r reason=%s",
+                            body[:120],
+                            interview_result.get("reason"),
+                        )
             except Exception:
-                pass
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "interview_wa_inbound_handler_failed body=%r from=%r",
+                    (body or "")[:120],
+                    from_norm or from_number,
+                )
             if not handled_interview:
                 try:
                     from app.services.survey_whatsapp_conversation_service import handle_inbound_reply

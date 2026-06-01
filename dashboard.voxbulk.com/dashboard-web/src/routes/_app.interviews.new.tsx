@@ -69,6 +69,23 @@ function isBookingResendBlocked(status?: string | null, activityStatus?: string 
   return ["report_ready", "interview_completed", "scheduling_sent"].includes(String(activityStatus || ""));
 }
 
+function activityStatusLabel(status?: string | null) {
+  const key = String(status || "").toLowerCase();
+  const labels: Record<string, string> = {
+    pending: "Pending",
+    awaiting_booking: "Awaiting booking",
+    booked: "Booked",
+    booked_waiting: "Booked — waiting",
+    booking_cancelled: "Booking cancelled",
+    calling: "Calling",
+    interview_completed: "Interview done",
+    report_ready: "Report ready",
+    call_failed: "Call failed",
+    scheduling_sent: "Scheduling sent",
+  };
+  return labels[key] || (key ? key.replace(/_/g, " ") : "—");
+}
+
 function toLocalInput(iso?: string | null) {
   if (!iso) return "";
   try {
@@ -754,7 +771,10 @@ function CreateInterview() {
   const cvPhase = cvCollectionPhase(cvEmailActive, collectionStart, collectionEnd, config);
   const cvReadyForScreening = isCvCollectionComplete(cvEmailActive, collectionEnd, config);
   const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
-  const bookingInvitesSent = Boolean(config.booking_invites_sent_at);
+  const lastInviteDispatch = config.last_invite_dispatch as { ok?: boolean; whatsapp_sent?: number; email_sent?: number; errors?: string[] } | undefined;
+  const bookingInvitesSent =
+    Boolean(config.booking_invites_sent_at) && (lastInviteDispatch == null || lastInviteDispatch.ok !== false);
+  const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
   const canResendBookingInvites = candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
   const unscoredCount = candidates.filter((c) => c.ats == null && !c.atsStatus).length;
   const atsGatePassed =
@@ -992,12 +1012,13 @@ function CreateInterview() {
                   <SortHeader label="Email" sortKey="email" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} className="hidden sm:table-cell" />
                   <TableHead className="sm:hidden">Contact</TableHead>
                   <SortHeader label="ATS score" sortKey="ats" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
+                  <TableHead className="hidden md:table-cell">Status</TableHead>
                   <SortHeader label="Source" sortKey="source" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
                   <TableHead className="pr-4 text-right">Actions</TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
                   {candSort.sorted.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">Upload candidates to get started.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">Upload candidates to get started.</TableCell></TableRow>
                   ) : candSort.sorted.map((r) => (
                     <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
                       <TableCell className="pl-4">
@@ -1041,6 +1062,19 @@ function CreateInterview() {
                         </div>
                       </TableCell>
                       <TableCell><AtsScore score={r.ats} status={r.atsStatus} /></TableCell>
+                      <TableCell className="hidden text-xs md:table-cell">
+                        <span
+                          className={
+                            r.activityStatus === "booking_cancelled"
+                              ? "font-medium text-destructive"
+                              : r.activityStatus === "booked" || r.activityStatus === "booked_waiting"
+                                ? "font-medium text-success"
+                                : "text-muted-foreground"
+                          }
+                        >
+                          {activityStatusLabel(r.activityStatus)}
+                        </span>
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{r.source}</TableCell>
                       <TableCell className="pr-4">
                         <div className="flex justify-end gap-1">
@@ -1165,7 +1199,19 @@ function CreateInterview() {
             <LaunchStatus label="ATS scoring" done={atsGatePassed} pending={runAtsM.isPending} detail={atsSkipped || config.ats_skipped ? "Skipped" : atsRunAt ? `Run ${atsRunAt}` : unscoredCount > 0 ? `${unscoredCount} unscored` : "Not run"} />
             <LaunchStatus label="Script approved" done={scriptIsApproved} detail={scriptIsApproved ? "Ready" : "Approve in Step 2"} />
             <LaunchStatus label="Payment" done={paymentApproved || hasPackageSub} detail={paymentApproved ? "Approved" : hasPackageSub ? `Included in ${billingPlanName || "package"}` : "After preview"} />
-            <LaunchStatus label="WhatsApp invites" done={bookingInvitesSent} detail={bookingInvitesSent ? "Sent" : paymentApproved ? "Ready to send" : "After payment"} />
+            <LaunchStatus
+              label="WhatsApp invites"
+              done={bookingInvitesSent}
+              detail={
+                inviteDispatchFailed
+                  ? `Failed — ${String(lastInviteDispatch?.errors?.[0] || "check Telnyx template & allowlist")}`
+                  : bookingInvitesSent
+                    ? `Sent (${lastInviteDispatch?.whatsapp_sent ?? "—"} WA, ${lastInviteDispatch?.email_sent ?? "—"} email)`
+                    : paymentApproved
+                      ? "Ready to send"
+                      : "After payment"
+              }
+            />
           </div>
           <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
             <li><strong className="text-foreground">Run ATS</strong> — scores each CV in the table above (or skip when prompted).</li>
@@ -1184,7 +1230,7 @@ function CreateInterview() {
       </Card>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-        {paymentApproved && !bookingInvitesSent ? (
+        {paymentApproved && (!bookingInvitesSent || inviteDispatchFailed) ? (
           <Button
             variant="secondary"
             className="gap-1.5"
