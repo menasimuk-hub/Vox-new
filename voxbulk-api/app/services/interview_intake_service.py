@@ -165,7 +165,9 @@ def _assert_interview_draft(order: ServiceOrder) -> None:
 
 
 def get_latest_interview_draft(db: Session, *, org_id: str) -> ServiceOrder | None:
-    purge_empty_interview_drafts(db, org_id=org_id)
+    """Return the most recent in-progress draft that has saved content (do not purge here)."""
+    from sqlalchemy import func
+
     rows = list(
         db.execute(
             select(ServiceOrder)
@@ -176,10 +178,31 @@ def get_latest_interview_draft(db: Session, *, org_id: str) -> ServiceOrder | No
                 ServiceOrder.payment_status == "unpaid",
             )
             .order_by(ServiceOrder.updated_at.desc())
-            .limit(1)
         ).scalars()
     )
-    return rows[0] if rows else None
+    for order in rows:
+        count = db.execute(
+            select(func.count())
+            .select_from(ServiceOrderRecipient)
+            .where(ServiceOrderRecipient.order_id == order.id)
+        ).scalar_one()
+        if not is_empty_interview_draft(order, recipient_count=int(count or 0)):
+            return order
+    return None
+
+
+def interview_draft_visible_in_saved_list(order: ServiceOrder, *, recipient_count: int) -> bool:
+    """Unpaid interview drafts only appear in Saved after the user saves or adds candidates."""
+    if order.service_code != "interview":
+        return True
+    if order.status != "draft" or order.payment_status != "unpaid":
+        return True
+    if recipient_count > 0 or int(order.recipient_count or 0) > 0:
+        return True
+    cfg = _loads_json(order.config_json) or {}
+    if cfg.get("draft_saved_by_user"):
+        return True
+    return False
 
 
 def _interview_draft_has_meaningful_config(cfg: dict[str, Any]) -> bool:

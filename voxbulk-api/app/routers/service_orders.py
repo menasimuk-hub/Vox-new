@@ -4,11 +4,13 @@ import json
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import PlainTextResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_principal
 from app.models.organisation import Organisation
+from app.models.service_order import ServiceOrderRecipient
 from app.services.org_service_credit_service import OrgServiceCreditError, OrgServiceCreditService
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
@@ -178,11 +180,24 @@ def list_my_orders(
     if service_code:
         _require_org_service(db, principal.org_id, service_code)
     if service_code == "interview":
-        from app.services.interview_intake_service import purge_empty_interview_drafts
+        from app.services.interview_intake_service import interview_draft_visible_in_saved_list, purge_empty_interview_drafts
+        from sqlalchemy import func
 
         purge_empty_interview_drafts(db, org_id=principal.org_id)
-    rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code)
-    return [ServiceOrderService.order_to_dict(r) for r in rows]
+        rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code)
+        visible: list = []
+        for row in rows:
+            if row.service_code != "interview" or row.status != "draft" or row.payment_status != "unpaid":
+                visible.append(row)
+                continue
+            count = db.execute(
+                select(func.count())
+                .select_from(ServiceOrderRecipient)
+                .where(ServiceOrderRecipient.order_id == row.id)
+            ).scalar_one()
+            if interview_draft_visible_in_saved_list(row, recipient_count=int(count or 0)):
+                visible.append(row)
+        return [ServiceOrderService.order_to_dict(r) for r in visible]
 
 
 @router.post("")
@@ -240,13 +255,12 @@ def get_interview_draft(
     principal=Depends(get_current_principal),
 ):
     from app.services.interview_billing_context import org_interview_billing_context
-    from app.services.interview_intake_service import get_latest_interview_draft, intake_summary, list_intake_recipients, purge_empty_interview_drafts
+    from app.services.interview_intake_service import get_latest_interview_draft, intake_summary, list_intake_recipients
 
     org = _require_org_service(db, principal.org_id, "interview")
     billing = org_interview_billing_context(db, org) if org else {}
     order = None
     requested_id = str(order_id or "").strip()
-    purge_empty_interview_drafts(db, org_id=principal.org_id, keep_order_id=requested_id or None)
     if requested_id:
         order = ServiceOrderService.get_order(db, requested_id, org_id=principal.org_id)
         if order is None or order.service_code != "interview":

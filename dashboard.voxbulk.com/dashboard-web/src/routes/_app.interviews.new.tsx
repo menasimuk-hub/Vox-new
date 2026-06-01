@@ -152,7 +152,8 @@ function cvCollectionPhase(
 }
 
 function CreateInterview() {
-  const { new: forceNew, order_id: returnOrderId } = Route.useSearch();
+  const { new: forceNewRaw, order_id: returnOrderId } = Route.useSearch();
+  const forceNew = forceNewRaw && !returnOrderId;
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { session } = useSession();
@@ -224,17 +225,13 @@ function CreateInterview() {
   const selectedAgent = agents.find((a) => a.id === agentId) || pickDefaultInterviewAgent(agents);
 
   React.useEffect(() => {
-    if (forceNew && draftQ.isSuccess && draftQ.data?.order?.id) {
-      void navigate({ to: "/interviews/new", search: { new: false }, replace: true });
-    }
+    if (!forceNew || !draftQ.isSuccess || !draftQ.data?.order?.id) return;
+    void navigate({
+      to: "/interviews/new",
+      search: { order_id: draftQ.data.order.id },
+      replace: true,
+    });
   }, [forceNew, draftQ.isSuccess, draftQ.data?.order?.id, navigate]);
-
-  React.useEffect(() => {
-    if (forceNew || returnOrderId || draftQ.isLoading || !draftQ.isSuccess) return;
-    if (!draftQ.data?.order) {
-      void navigate({ to: "/interviews/new", search: { new: true }, replace: true });
-    }
-  }, [forceNew, returnOrderId, draftQ.isLoading, draftQ.isSuccess, draftQ.data?.order, navigate]);
 
   React.useEffect(() => {
     if (!order) return;
@@ -321,12 +318,6 @@ function CreateInterview() {
       if (def) setAgentId(def.id);
     }
   }, [agents, agentId]);
-
-  React.useEffect(() => {
-    if (!orderId || !agentId) return;
-    if (String(config.agent_id || "") === agentId) return;
-    void onSaveDraft(true);
-  }, [orderId, agentId, config.agent_id]);
 
   const candidates = React.useMemo<CandidateRow[]>(() => {
     const rows = draftQ.data?.recipients || [];
@@ -459,7 +450,7 @@ function CreateInterview() {
     }
   };
 
-  const buildSaveBody = (extraConfig?: Record<string, unknown>) => ({
+  const buildSaveBody = (extraConfig?: Record<string, unknown>, options?: { markSaved?: boolean }) => ({
     order_id: orderId,
     title: position || order?.title || "Interview draft",
     role: role || position,
@@ -481,6 +472,7 @@ function CreateInterview() {
       expected_duration_minutes: expectedDurationMinutes,
       approved_script: scriptApproved ? script : config.approved_script || "",
       script_approved: scriptApproved,
+      ...(options?.markSaved ? { draft_saved_by_user: true } : {}),
       ...extraConfig,
     },
     scheduled_start_at: toIsoFromLocal(callingStart),
@@ -489,7 +481,7 @@ function CreateInterview() {
 
   const onSaveDraft = async (silent?: boolean, extraConfig?: Record<string, unknown>) => {
     if (!orderId) return;
-    const body = buildSaveBody(extraConfig);
+    const body = buildSaveBody(extraConfig, { markSaved: !silent });
     const locked = ["running", "paused", "scheduled"].includes(String(order?.status || ""));
     try {
       if (locked) {
@@ -861,6 +853,19 @@ function CreateInterview() {
               <div className="mt-4">
                 <Button asChild><Link to="/interviews/new" search={{ new: true }}>Start a new interview</Link></Button>
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+    if (!forceNew && draftQ.isSuccess) {
+      return (
+        <div className="flex w-full flex-col gap-6">
+          <PageHeader eyebrow="Interviews" title="Create new interview" description="Start a fresh AI phone screening campaign." />
+          <Card>
+            <CardContent className="flex flex-col gap-4 p-6">
+              <p className="text-sm text-muted-foreground">No draft in progress. Create a new interview when you are ready.</p>
+              <Button asChild className="w-fit"><Link to="/interviews/new" search={{ new: true }}>Create new interview</Link></Button>
             </CardContent>
           </Card>
         </div>

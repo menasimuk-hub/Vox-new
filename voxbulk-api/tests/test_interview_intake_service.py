@@ -14,6 +14,7 @@ from app.services.interview_intake_service import (
     create_new_interview_draft,
     intake_cv_files,
     intake_mixed_files,
+    interview_draft_visible_in_saved_list,
     is_empty_interview_draft,
     purge_empty_interview_drafts,
 )
@@ -130,3 +131,11 @@ def test_abandon_empty_interview_draft(db_session: Session, interview_order: Ser
     org_id = interview_order.org_id
     assert abandon_empty_interview_draft(db_session, org_id=org_id, order_id=interview_order.id) is True
     assert db_session.get(ServiceOrder, interview_order.id) is None
+
+
+def test_interview_draft_visible_in_saved_list(db_session: Session, interview_order: ServiceOrder):
+    assert interview_draft_visible_in_saved_list(interview_order, recipient_count=0) is False
+    interview_order.config_json = '{"draft_saved_by_user": true}'
+    assert interview_draft_visible_in_saved_list(interview_order, recipient_count=0) is True
+    interview_order.config_json = "{}"
+    assert interview_draft_visible_in_saved_list(interview_order, recipient_count=2) is True
