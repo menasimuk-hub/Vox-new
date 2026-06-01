@@ -1,19 +1,20 @@
 import { useEffect, useState } from "react";
-import { useSearchParams, useNavigate } from "@tanstack/react-router";
+import { useSearch, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { toast } from "sonner";
 import { Lock, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
+import { createFileRoute } from "@tanstack/react-router";
 
 export function ResetPassword() {
-  const [searchParams] = useSearchParams({ from: "/" });
+  const search = useSearch({ from: "/reset-password" }) as Record<string, string>;
   const navigate = useNavigate();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [tokenValid, setTokenValid] = useState<boolean | null>(null);
 
-  const token = (searchParams as Record<string, string>).token || "";
+  const token = search?.token || "";
 
   useEffect(() => {
     if (!token) {
@@ -153,4 +154,6 @@ export function ResetPassword() {
   );
 }
 
-export default ResetPassword;
+export const Route = createFileRoute("/reset-password")({
+  component: ResetPassword,
+});

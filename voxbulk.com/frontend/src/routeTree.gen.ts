@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as SigninRouteImport } from './routes/signin'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LegalPoliciesRouteImport } from './routes/legal-policies'
@@ -34,6 +35,11 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
 const SigninRoute = SigninRouteImport.update({
   id: '/signin',
   path: '/signin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -86,6 +92,7 @@ export interface FileRoutesByFullPath {
   '/legal-policies': typeof LegalPoliciesRoute
   '/onboarding': typeof OnboardingRoute
   '/privacy': typeof PrivacyRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/signin': typeof SigninRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
@@ -99,6 +106,7 @@ export interface FileRoutesByTo {
   '/legal-policies': typeof LegalPoliciesRoute
   '/onboarding': typeof OnboardingRoute
   '/privacy': typeof PrivacyRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/signin': typeof SigninRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
@@ -113,6 +121,7 @@ export interface FileRoutesById {
   '/legal-policies': typeof LegalPoliciesRoute
   '/onboarding': typeof OnboardingRoute
   '/privacy': typeof PrivacyRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/signin': typeof SigninRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
@@ -128,6 +137,7 @@ export interface FileRouteTypes {
     | '/legal-policies'
     | '/onboarding'
     | '/privacy'
+    | '/reset-password'
     | '/signin'
     | '/sitemap.xml'
     | '/terms'
@@ -141,6 +151,7 @@ export interface FileRouteTypes {
     | '/legal-policies'
     | '/onboarding'
     | '/privacy'
+    | '/reset-password'
     | '/signin'
     | '/sitemap.xml'
     | '/terms'
@@ -154,6 +165,7 @@ export interface FileRouteTypes {
     | '/legal-policies'
     | '/onboarding'
     | '/privacy'
+    | '/reset-password'
     | '/signin'
     | '/sitemap.xml'
     | '/terms'
@@ -168,6 +180,7 @@ export interface RootRouteChildren {
   LegalPoliciesRoute: typeof LegalPoliciesRoute
   OnboardingRoute: typeof OnboardingRoute
   PrivacyRoute: typeof PrivacyRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SigninRoute: typeof SigninRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
@@ -194,6 +207,13 @@ declare module '@tanstack/react-router' {
       path: '/signin'
       fullPath: '/signin'
       preLoaderRoute: typeof SigninRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -264,6 +284,7 @@ const rootRouteChildren: RootRouteChildren = {
   LegalPoliciesRoute: LegalPoliciesRoute,
   OnboardingRoute: OnboardingRoute,
   PrivacyRoute: PrivacyRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SigninRoute: SigninRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRoute,
