@@ -68,7 +68,11 @@ class ZoomService:
             "topic": topic,
             "type": 2,
             "duration": max(int(duration_min or 30), 15),
-            "settings": {"join_before_host": True, "waiting_room": False},
+            "settings": {
+                "join_before_host": True,
+                "waiting_room": False,
+                "auto_recording": "cloud",
+            },
         }
         if start_time_iso:
             payload["start_time"] = start_time_iso
@@ -86,4 +90,87 @@ class ZoomService:
             "join_url": data.get("join_url"),
             "start_url": data.get("start_url"),
             "password": data.get("password"),
+            "uuid": data.get("uuid"),
+        }
+
+    @staticmethod
+    def is_configured(db: Session) -> bool:
+        try:
+            ZoomService._config(db)
+            return True
+        except ValueError:
+            cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
+            return bool(enabled and cfg)
+
+    @staticmethod
+    def _vtt_to_text(raw: str) -> str:
+        lines: list[str] = []
+        for line in str(raw or "").splitlines():
+            s = line.strip()
+            if not s or s.upper().startswith("WEBVTT"):
+                continue
+            if s.isdigit() or "-->" in s:
+                continue
+            lines.append(s)
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def fetch_meeting_artifacts(db: Session, meeting_id: str) -> dict[str, Any]:
+        """Fetch cloud recording + transcript for a completed Zoom meeting."""
+        mid = str(meeting_id or "").strip()
+        if not mid:
+            return {"ready": False, "error": "missing meeting id", "provider": "zoom_oauth"}
+
+        token = ZoomService.get_access_token(db)
+        cfg = ZoomService._config(db)
+        with httpx.Client(timeout=30.0) as client:
+            res = client.get(
+                f"{cfg['base_url']}/meetings/{mid}/recordings",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if res.status_code == 404:
+            return {
+                "ready": False,
+                "provider": "zoom_oauth",
+                "error": "Zoom recording not ready yet (404)",
+            }
+        if res.status_code >= 400:
+            return {
+                "ready": False,
+                "provider": "zoom_oauth",
+                "error": f"Zoom recordings API HTTP {res.status_code}: {res.text[:200]}",
+            }
+
+        body = res.json()
+        files = body.get("recording_files") if isinstance(body, dict) else None
+        if not isinstance(files, list):
+            files = []
+
+        recording_url = ""
+        transcript = ""
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            file_type = str(item.get("file_type") or "").upper()
+            download_url = str(item.get("download_url") or "").strip()
+            if not download_url:
+                continue
+            if file_type in {"MP4", "M4A", "AUDIO_ONLY", "SHARED_SCREEN_WITH_SPEAKER_VIEW"} and not recording_url:
+                recording_url = download_url
+            if file_type in {"TRANSCRIPT", "CC", "CHAT_FILE"} or "TRANSCRIPT" in file_type:
+                try:
+                    with httpx.Client(timeout=30.0) as client:
+                        tr = client.get(download_url, headers={"Authorization": f"Bearer {token}"})
+                    if tr.status_code < 400 and tr.text.strip():
+                        transcript = ZoomService._vtt_to_text(tr.text)
+                except Exception:
+                    pass
+
+        ready = bool(recording_url) or len(transcript) >= 20
+        return {
+            "ready": ready,
+            "provider": "zoom_oauth",
+            "transcript": transcript or None,
+            "recording_url": recording_url or None,
+            "error": None if ready else "Zoom cloud recording/transcript not ready yet",
         }

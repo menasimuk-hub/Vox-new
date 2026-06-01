@@ -70,10 +70,35 @@ def test_create_zoom_meeting_uses_telnyx_key(mock_cfg, mock_key, mock_request, a
         result = InterviewZoomService.create_zoom_meeting_via_telnyx(db, topic="Test")
         assert result["id"] == "zm-999"
         assert result["join_url"].startswith("https://zoom.us/")
+        assert result["meeting_provider"] == "telnyx_zoom"
         mock_request.assert_called_once()
         args = mock_request.call_args
         assert args[0][1] == "POST"
         assert args[0][2] == "/zoom/meetings"
+
+
+@patch("app.services.zoom_service.ZoomService.create_meeting")
+@patch("app.services.zoom_service.ZoomService.is_configured")
+@patch("app.services.interview_zoom_service._telnyx_request")
+@patch("app.services.provider_settings.ProviderSettingsService.get_platform_config_decrypted")
+def test_create_zoom_meeting_falls_back_to_zoom_oauth_on_telnyx_404(
+    mock_cfg, mock_request, mock_zoom_configured, mock_create_meeting, app_client
+):
+    mock_cfg.return_value = ({"api_key": "KEY01234567890123456789012345678901234567890123456789012"}, True)
+    mock_request.return_value = (404, {}, "The requested resource or URL could not be found.")
+    mock_zoom_configured.return_value = True
+    mock_create_meeting.return_value = {
+        "id": "123456789",
+        "join_url": "https://zoom.us/j/123456789",
+        "start_url": "https://zoom.us/s/123456789",
+    }
+
+    with get_sessionmaker()() as db:
+        result = InterviewZoomService.create_zoom_meeting_via_telnyx(db, topic="Fallback Test")
+        assert result["id"] == "123456789"
+        assert result["meeting_provider"] == "zoom_oauth"
+        assert "telnyx_zoom_note" in result
+        mock_create_meeting.assert_called_once()
 
 
 @patch("app.services.interview_analysis_service.run_interview_analysis_if_needed")

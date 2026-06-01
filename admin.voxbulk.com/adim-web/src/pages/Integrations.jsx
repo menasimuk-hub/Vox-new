@@ -1308,7 +1308,10 @@ export default function Integrations() {
     try {
       const result = await apiFetch('/admin/integrations/telnyx/test-zoom', { method: 'POST' })
       if (result.ok) {
-        setTelnyxZoomTestResult(`✓ Zoom OK · Meeting ID: ${result.meeting_id || '—'} · ${result.message || 'Connection verified'}`)
+        const provider = result.meeting_provider === 'telnyx_zoom' ? 'Telnyx' : 'Zoom OAuth'
+        setTelnyxZoomTestResult(
+          `✓ ${provider} · Meeting ID: ${result.meeting_id || '—'} · ${result.message || 'Connection verified'}`,
+        )
       } else {
         setTelnyxZoomTestResult(`✗ Zoom failed: ${result.detail || 'Unknown error'}`)
       }

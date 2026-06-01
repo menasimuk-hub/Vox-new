@@ -268,9 +268,15 @@ def test_telnyx_zoom_integration(db: Session = Depends(get_db), _admin=Depends(r
             raise ValueError("Meeting created but missing ID or join URL")
         return {
             "ok": True,
-            "message": "Zoom connection via Telnyx is working",
+            "message": (
+                "Zoom meeting created via Telnyx"
+                if meeting.get("meeting_provider") == "telnyx_zoom"
+                else "Zoom meeting created via Zoom OAuth (Telnyx /zoom/meetings not available on this account)"
+            ),
             "meeting_id": meeting.get("id"),
             "join_url": meeting.get("join_url"),
+            "meeting_provider": meeting.get("meeting_provider"),
+            "note": meeting.get("telnyx_zoom_note"),
         }
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

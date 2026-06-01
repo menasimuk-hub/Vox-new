@@ -492,7 +492,8 @@ export default function TelnyxIntegration({
           <div className='cardBody'>
             <div className='stack' style={{ gap: 12 }}>
               <p className='muted' style={{ fontSize: 14, marginBottom: 6 }}>
-                Test the Zoom connection configured in your Telnyx account. This verifies Zoom is properly set up for creating interview meetings.
+                Creates a test interview meeting. Telnyx does not expose <code>/zoom/meetings</code> on most accounts, so VoxBulk falls back to{' '}
+                <strong>Integrations → Zoom</strong> (Server-to-Server OAuth) for meeting links. Telnyx AI/voice settings remain separate.
               </p>
               <p className='muted' style={{ fontSize: 12, marginBottom: 6 }}>
                 After interviews, point Telnyx Zoom webhooks to{' '}
