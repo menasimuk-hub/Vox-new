@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
-import { Upload, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -9,10 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { useServices } from "@/lib/services";
 import { useDeleteOrgLogo, useOrganisation, useUpdateOrganisation, useUploadOrgLogo } from "@/lib/queries";
 import { PROFILE_COUNTRIES } from "@/lib/billing/market";
@@ -72,13 +69,6 @@ function ProfileSettings() {
     }
   };
 
-  const treatments = [
-    { treatment: "Hygiene", price: "£75" },
-    { treatment: "Check-up", price: "£55" },
-    { treatment: "White filling", price: "£180" },
-    { treatment: "Whitening", price: "£399" },
-  ];
-  const t = useTableSort(treatments);
 
   const onSave = async (overrides?: Partial<{ country: string }>) => {
     const nextCountry = overrides?.country ?? country;
@@ -114,7 +104,7 @@ function ProfileSettings() {
           ) : (
             <>
               <Field label="Company name" value={name} onChange={setName} />
-              <Field label="Survey organiser" value={contactName} onChange={setContactName} />
+              <Field label="Contact name" value={contactName} onChange={setContactName} />
               <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
               <Field label="Phone" value={contactPhone} onChange={setContactPhone} />
               <Field label="Website" value={website} onChange={setWebsite} />
@@ -168,61 +158,6 @@ function ProfileSettings() {
           )}
         </CardContent>
       </Card>
-
-      {visible.recovery ? (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Revenue for ROI</CardTitle>
-                <p className="mt-1 text-xs text-muted-foreground">Used by Clinic recovery to calculate recovered revenue and ROI per call.</p>
-              </div>
-              <Button variant="outline" size="sm" className="gap-1.5"><RefreshCw className="size-3.5" /> Sync prices</Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Avg. appointment value" value="£120" onChange={() => undefined} readOnly />
-              <div className="flex items-center justify-between rounded-lg border border-border p-3">
-                <div>
-                  <p className="text-sm font-medium">Per-treatment values</p>
-                  <p className="text-xs text-muted-foreground">Use per-treatment instead of average</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-            </div>
-            <div className="rounded-lg border border-border">
-              <Table>
-                <TableHeader><TableRow>
-                  <SortHeader label="Treatment" sortKey="treatment" active={t.sortKey} dir={t.sortDir} onToggle={t.toggleSort} className="pl-4" />
-                  <SortHeader label="Price" sortKey="price" active={t.sortKey} dir={t.sortDir} onToggle={t.toggleSort} />
-                  <TableHead className="pr-4 text-right"></TableHead>
-                </TableRow></TableHeader>
-                <TableBody>
-                  {t.sorted.map((row) => (
-                    <TableRow key={row.treatment}>
-                      <TableCell className="pl-4">{row.treatment}</TableCell>
-                      <TableCell><Input defaultValue={row.price} className="h-8 w-28" readOnly /></TableCell>
-                      <TableCell className="pr-4 text-right"><Button size="sm" variant="ghost" disabled>Remove</Button></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <Button variant="outline" size="sm" className="gap-1.5" disabled><Plus className="size-3.5" /> Add treatment type</Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardContent className="flex items-start gap-3 p-5 text-sm text-muted-foreground">
-            <div className="grid size-9 place-items-center rounded-lg bg-muted text-foreground/70">£</div>
-            <div>
-              <p className="text-sm font-medium text-foreground">Revenue for ROI is part of Clinic recovery</p>
-              <p className="mt-1 text-xs">Enable the <span className="font-medium text-foreground">Recovery</span> service in Settings → Services to configure treatment prices and ROI calculations.</p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       <div className="flex justify-end">
         <Button onClick={() => void onSave()} disabled={saveM.isPending}>{saveM.isPending ? "Saving…" : "Save profile"}</Button>
