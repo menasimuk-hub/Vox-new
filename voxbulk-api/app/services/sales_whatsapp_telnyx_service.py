@@ -16,6 +16,8 @@ TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
     "interview_booking_invite": "voxbulk_interview_book",
     "interview_email_sent": "interview_email_sent",
     "interview_booking_confirm": "voxbulk_interview_confirm",
+    "interview_booking_cancel": "voxbulk_interview_cancel",
+    "interview_job_closed": "voxbulk_interview_job_closed",
 }
 
 TELNYX_SALES_TEMPLATE_LANGUAGE = "en_US"
@@ -173,6 +175,18 @@ def build_telnyx_components(
         date_line = str(variables.get("interview_date") or "Sat 14 Jun 2026").strip()
         time_line = str(variables.get("interview_time") or "10:00 AM").strip()
         return [_body_params([first, role, date_line, time_line])]
+
+    if template_key == "interview_booking_cancel":
+        role = str(variables.get("role") or "Interview").strip()
+        company = str(variables.get("company_name") or "VOXBULK").strip()
+        date_line = str(variables.get("interview_date") or "—").strip()
+        time_line = str(variables.get("interview_time") or "—").strip()
+        return [_body_params([first, role, company, date_line, time_line])]
+
+    if template_key == "interview_job_closed":
+        role = str(variables.get("role") or "Interview").strip()
+        company = str(variables.get("company_name") or "VOXBULK").strip()
+        return [_body_params([first, role, company])]
 
     return [_body_params([first])]
 

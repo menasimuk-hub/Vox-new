@@ -5,6 +5,24 @@ from __future__ import annotations
 INTERVIEW_BOOKING_TEMPLATE_NAME = "voxbulk_interview_book"
 INTERVIEW_EMAIL_SENT_TEMPLATE_NAME = "interview_email_sent"
 INTERVIEW_CONFIRMATION_TEMPLATE_NAME = "voxbulk_interview_confirm"
+INTERVIEW_CANCEL_TEMPLATE_NAME = "voxbulk_interview_cancel"
+INTERVIEW_JOB_CLOSED_TEMPLATE_NAME = "voxbulk_interview_job_closed"
+
+# Candidate self-cancel: {{1}} name, {{2}} role, {{3}} company, {{4}} date, {{5}} time
+INTERVIEW_BOOKING_CANCEL_BODY = (
+    "Hi {{1}} 👋\n\n"
+    "Your *{{2}}* interview at *{{3}}* on {{4}} at {{5}} has been cancelled ❌\n\n"
+    "You will not receive any further messages about this role.\n\n"
+    "Thank you."
+)
+
+# Employer closed the campaign: {{1}} name, {{2}} role, {{3}} company
+INTERVIEW_JOB_CLOSED_BODY = (
+    "Hi {{1}} 👋\n\n"
+    "The *{{2}}* role at *{{3}}* is no longer available — this interview campaign has ended 🛑\n\n"
+    "You will not receive any further messages about this job.\n\n"
+    "Thank you for your interest."
+)
 
 # Launch notice (no booking link on WA): {{1}} name, {{2}} role, {{3}} company
 INTERVIEW_EMAIL_SENT_BODY = """Dear {{1}} 👋

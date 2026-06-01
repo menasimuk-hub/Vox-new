@@ -1127,6 +1127,21 @@ class ServiceOrderService:
             raise ValueError("Stop the survey before deleting")
         if order.payment_status == "approved" and order.status not in {"completed", "cancelled", "draft", "quoted"}:
             raise ValueError("Cannot delete a paid survey that has started")
+        if order.service_code == "interview":
+            try:
+                from app.services.interview_booking_service import InterviewBookingService
+
+                InterviewBookingService.notify_campaign_closed(
+                    db,
+                    order,
+                    reason="This interview campaign was removed.",
+                )
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "interview_campaign_cancel_notify_failed order_id=%s", order.id
+                )
         db.execute(delete(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id))
         db.delete(order)
         db.commit()
@@ -1191,6 +1206,21 @@ class ServiceOrderService:
         db.add(order)
         db.commit()
         db.refresh(order)
+        if order.service_code == "interview":
+            try:
+                from app.services.interview_booking_service import InterviewBookingService
+
+                InterviewBookingService.notify_campaign_closed(
+                    db,
+                    order,
+                    reason=note or "This interview campaign was cancelled by the employer.",
+                )
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "interview_campaign_cancel_notify_failed order_id=%s", order.id
+                )
         return order
 
     @staticmethod

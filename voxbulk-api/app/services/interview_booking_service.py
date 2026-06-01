@@ -35,6 +35,10 @@ from app.data.interview_booking_whatsapp_defaults import (
     INTERVIEW_BOOKING_PREVIEW_BUTTONS,
     INTERVIEW_BOOKING_TEMPLATE_NAME,
     INTERVIEW_CONFIRMATION_TEMPLATE_NAME,
+    INTERVIEW_CANCEL_TEMPLATE_NAME,
+    INTERVIEW_JOB_CLOSED_TEMPLATE_NAME,
+    INTERVIEW_BOOKING_CANCEL_BODY,
+    INTERVIEW_JOB_CLOSED_BODY,
     INTERVIEW_EMAIL_SENT_BODY,
     INTERVIEW_EMAIL_SENT_TEMPLATE_NAME,
 )
@@ -88,16 +92,20 @@ def _assert_booking_allowed(recipient: ServiceOrderRecipient) -> None:
 
 def _order_booking_closed_message(order: ServiceOrder, db: Session) -> str | None:
     config = _order_config(order)
+    role = str(config.get("role") or config.get("position") or order.title or "Interview").strip()
+    company = InterviewBookingService._org_name(db, order)
+    now = _now()
     if config.get("booking_closed_at") or str(order.status or "") == "cancelled":
-        role = str(config.get("role") or config.get("position") or order.title or "Interview").strip()
-        company = InterviewBookingService._org_name(db, order)
-        return (
-            f"The {role} role at {company} is no longer accepting bookings — this campaign has ended."
-        )
+        reason = str(config.get("booking_closed_reason") or "").strip()
+        if reason:
+            return f"The {role} role at {company} is no longer available — {reason}"
+        return f"The {role} role at {company} is no longer accepting bookings — this campaign has ended."
     if str(order.status or "") == "completed":
-        role = str(config.get("role") or config.get("position") or order.title or "Interview").strip()
-        company = InterviewBookingService._org_name(db, order)
         return f"The {role} role at {company} has expired — interviews for this position are closed."
+    if order.scheduled_end_at and now >= order.scheduled_end_at:
+        return f"The {role} role at {company} has closed — the interview booking window has ended."
+    if config.get("calling_window_ended_at"):
+        return f"The {role} role at {company} has closed — the interview calling window has ended."
     return None
 
 
@@ -422,6 +430,105 @@ class InterviewBookingService:
         )
 
     @staticmethod
+    def resolve_cancel_template(db: Session, order: ServiceOrder) -> TelnyxWhatsappTemplate | None:
+        config = _order_config(order)
+        template_id = str(config.get("wa_cancel_template_id") or "").strip()
+        template_name = str(config.get("wa_cancel_template_name") or "").strip()
+        row = TelnyxWhatsappTemplateSyncService.resolve_for_send(
+            db,
+            template_id=template_id or None,
+            template_name=template_name or INTERVIEW_CANCEL_TEMPLATE_NAME,
+            sales_template_key="interview_booking_cancel",
+        )
+        if row is not None:
+            return row
+        return TelnyxWhatsappTemplateSyncService.resolve_for_send(
+            db,
+            template_name=INTERVIEW_CANCEL_TEMPLATE_NAME,
+            sales_template_key="interview_booking_cancel",
+        )
+
+    @staticmethod
+    def resolve_job_closed_template(db: Session, order: ServiceOrder) -> TelnyxWhatsappTemplate | None:
+        config = _order_config(order)
+        template_id = str(config.get("wa_job_closed_template_id") or "").strip()
+        template_name = str(config.get("wa_job_closed_template_name") or "").strip()
+        row = TelnyxWhatsappTemplateSyncService.resolve_for_send(
+            db,
+            template_id=template_id or None,
+            template_name=template_name or INTERVIEW_JOB_CLOSED_TEMPLATE_NAME,
+            sales_template_key="interview_job_closed",
+        )
+        if row is not None:
+            return row
+        return TelnyxWhatsappTemplateSyncService.resolve_for_send(
+            db,
+            template_name=INTERVIEW_JOB_CLOSED_TEMPLATE_NAME,
+            sales_template_key="interview_job_closed",
+        )
+
+    @staticmethod
+    def build_cancel_components(
+        row: TelnyxWhatsappTemplate,
+        *,
+        candidate_name: str,
+        role: str,
+        company_name: str,
+        slot_start: datetime,
+    ) -> list[dict[str, Any]] | None:
+        built = build_telnyx_components(
+            "interview_booking_cancel",
+            {
+                "first_name": _first_name(candidate_name),
+                "role": str(role or "Interview").strip(),
+                "company_name": str(company_name or "VOXBULK").strip(),
+                "interview_date": _format_slot_date(slot_start),
+                "interview_time": _format_slot_time(slot_start),
+            },
+            include_url_button=False,
+        )
+        if built:
+            return built
+        return TelnyxWhatsappTemplateSyncService.build_components_for_row(
+            row,
+            variables={
+                "first_name": _first_name(candidate_name),
+                "role": role,
+                "company_name": company_name,
+                "interview_date": _format_slot_date(slot_start),
+                "interview_time": _format_slot_time(slot_start),
+            },
+        )
+
+    @staticmethod
+    def build_job_closed_components(
+        row: TelnyxWhatsappTemplate,
+        *,
+        candidate_name: str,
+        role: str,
+        company_name: str,
+    ) -> list[dict[str, Any]] | None:
+        built = build_telnyx_components(
+            "interview_job_closed",
+            {
+                "first_name": _first_name(candidate_name),
+                "role": str(role or "Interview").strip(),
+                "company_name": str(company_name or "VOXBULK").strip(),
+            },
+            include_url_button=False,
+        )
+        if built:
+            return built
+        return TelnyxWhatsappTemplateSyncService.build_components_for_row(
+            row,
+            variables={
+                "first_name": _first_name(candidate_name),
+                "role": role,
+                "company_name": company_name,
+            },
+        )
+
+    @staticmethod
     def _render_body_preview(
         body: str | None,
         *,
@@ -717,7 +824,9 @@ class InterviewBookingService:
                 "role": role,
                 "organisation_name": org_name,
                 "booking_closed": True,
-                "closed_message": "Your interview was cancelled. You will not receive an AI call for this role.",
+                "closed_message": (
+                    "Your interview was cancelled. You will not receive an AI call or any further messages about this job."
+                ),
                 "slot_minutes": SLOT_MINUTES,
                 "available_slots": [],
                 "booked_start_at": None,
@@ -974,14 +1083,12 @@ class InterviewBookingService:
         recipient: ServiceOrderRecipient,
         *,
         slot_start: datetime,
-        token: str,
     ) -> bool:
         config = _order_config(order)
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
         date_line = _format_slot_date(slot_start)
         time_line = _format_slot_time(slot_start)
-        book_url = resolve_booking_url(recipient, token)
 
         if not recipient.email:
             return False
@@ -991,7 +1098,6 @@ class InterviewBookingService:
             "company_name": company_name,
             "interview_date": date_line,
             "interview_time": time_line,
-            "booking_url": book_url,
         }
         try:
             sent_ok, err = CareerEmailService.send_templated_optional(
@@ -1008,11 +1114,10 @@ class InterviewBookingService:
                     extra={"recipient_id": recipient.id, "error": err},
                 )
                 return False
-            # Template disabled or empty — send branded fallback
             plain = (
                 f"Hi {variables['candidate_name']},\n\n"
                 f"Your {role} interview at {company_name} on {date_line} at {time_line} has been cancelled.\n\n"
-                f"You will not receive an AI call for this role.\n"
+                f"You will not receive an AI call, booking link, or any further emails or messages about this job.\n"
             )
             CareerEmailService.send(
                 db,
@@ -1027,6 +1132,70 @@ class InterviewBookingService:
                 extra={"recipient_id": recipient.id},
             )
             return False
+
+    @staticmethod
+    def _send_booking_cancellation_whatsapp(
+        db: Session,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+        *,
+        slot_start: datetime,
+    ) -> bool:
+        if not recipient.phone:
+            return False
+        config = _order_config(order)
+        role = str(config.get("role") or order.title or "Interview").strip()
+        company_name = InterviewBookingService._org_name(db, order)
+        first = _first_name(recipient.name)
+        date_line = _format_slot_date(slot_start)
+        time_line = _format_slot_time(slot_start)
+        cancel_row = InterviewBookingService.resolve_cancel_template(db, order)
+        fallback_body = (
+            f"Hi {first}, your {role} interview at {company_name} on {date_line} at {time_line} "
+            f"has been cancelled. You will not receive any further messages about this job."
+        )
+        try:
+            if cancel_row is not None:
+                components = InterviewBookingService.build_cancel_components(
+                    cancel_row,
+                    candidate_name=recipient.name or "Candidate",
+                    role=role,
+                    company_name=company_name,
+                    slot_start=slot_start,
+                )
+                result = TelnyxMessagingService.send_whatsapp(
+                    db,
+                    to_number=str(recipient.phone),
+                    body=fallback_body,
+                    template_name=cancel_row.name,
+                    template_id=send_template_id_for_row(cancel_row),
+                    template_language=cancel_row.language or "en_US",
+                    template_components=components,
+                    org_id=order.org_id,
+                )
+            else:
+                result = TelnyxMessagingService.send_whatsapp(
+                    db,
+                    to_number=str(recipient.phone),
+                    body=fallback_body,
+                    org_id=order.org_id,
+                )
+            if result.ok:
+                TelnyxMessagingService.log_outbound(
+                    db,
+                    org_id=order.org_id,
+                    to_number=str(recipient.phone),
+                    from_number=None,
+                    body=f"[template:{cancel_row.name if cancel_row else 'text'}] {fallback_body}",
+                    result=result,
+                )
+                return True
+        except Exception:
+            logger.exception(
+                "booking_cancel_wa_error",
+                extra={"recipient_id": recipient.id},
+            )
+        return False
 
     @staticmethod
     def _hangup_active_call_if_any(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> None:
@@ -1044,6 +1213,174 @@ class InterviewBookingService:
                 "booking_cancel_hangup_failed",
                 extra={"order_id": order.id, "recipient_id": recipient.id, "call_control_id": call_id},
             )
+
+    @staticmethod
+    def notify_campaign_closed(
+        db: Session,
+        order: ServiceOrder,
+        *,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Email (and optional WhatsApp) all active candidates when the employer closes a campaign."""
+        if order.service_code != "interview":
+            return {"ok": True, "skipped": True, "reason": "not_interview"}
+
+        config = _order_config(order)
+        if config.get("campaign_cancel_notified_at"):
+            return {"ok": True, "skipped": True, "reason": "already_notified"}
+
+        role = str(config.get("role") or config.get("position") or order.title or "Interview").strip()
+        company_name = InterviewBookingService._org_name(db, order)
+        closure_reason = (reason or config.get("booking_closed_reason") or "This interview campaign has been closed.").strip()
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+
+        email_sent = 0
+        wa_sent = 0
+        skipped = 0
+        job_closed_row = InterviewBookingService.resolve_job_closed_template(db, order)
+
+        for recipient in recipients:
+            if interview_booking_locked(recipient):
+                skipped += 1
+                continue
+            if _booking_withdrawn(recipient):
+                skipped += 1
+                continue
+            merged = _recipient_result(recipient)
+            if merged.get("campaign_cancel_email_sent_at"):
+                skipped += 1
+                continue
+
+            InterviewBookingService._hangup_active_call_if_any(db, order, recipient)
+            token_row = db.execute(
+                select(InterviewBookingToken)
+                .where(
+                    InterviewBookingToken.order_id == order.id,
+                    InterviewBookingToken.recipient_id == recipient.id,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            if token_row is not None and token_row.booked_start_at is not None:
+                token_row.booked_start_at = None
+                token_row.booked_end_at = None
+                token_row.updated_at = _now()
+                db.add(token_row)
+
+            recipient_email_sent = False
+            recipient_wa_sent = False
+            if recipient.email:
+                try:
+                    sent_ok, err = CareerEmailService.send_templated_optional(
+                        db,
+                        template_key="interview_campaign_cancelled",
+                        to_email=str(recipient.email).strip(),
+                        variables={
+                            "candidate_name": recipient.name or "there",
+                            "role": role,
+                            "company_name": company_name,
+                            "closure_reason": closure_reason,
+                        },
+                    )
+                    if sent_ok:
+                        recipient_email_sent = True
+                    elif not err:
+                        plain = (
+                            f"Hi {recipient.name or 'there'},\n\n"
+                            f"The {role} position at {company_name} is no longer running interviews.\n"
+                            f"{closure_reason}\n\n"
+                            f"Your booking link is closed. You will not receive any further messages about this job.\n"
+                        )
+                        CareerEmailService.send(
+                            db,
+                            to_email=str(recipient.email).strip(),
+                            subject=f"{role} at {company_name} — campaign closed",
+                            body=plain,
+                        )
+                        recipient_email_sent = True
+                except Exception:
+                    logger.exception(
+                        "campaign_cancel_email_error",
+                        extra={"recipient_id": recipient.id, "order_id": order.id},
+                    )
+
+            if recipient.phone:
+                first = _first_name(recipient.name)
+                fallback_body = (
+                    f"Hi {first}, the {role} role at {company_name} is no longer available. "
+                    f"You will not receive any further messages about this job."
+                )
+                try:
+                    if job_closed_row is not None:
+                        components = InterviewBookingService.build_job_closed_components(
+                            job_closed_row,
+                            candidate_name=recipient.name or "Candidate",
+                            role=role,
+                            company_name=company_name,
+                        )
+                        result = TelnyxMessagingService.send_whatsapp(
+                            db,
+                            to_number=str(recipient.phone),
+                            body=fallback_body,
+                            template_name=job_closed_row.name,
+                            template_id=send_template_id_for_row(job_closed_row),
+                            template_language=job_closed_row.language or "en_US",
+                            template_components=components,
+                            org_id=order.org_id,
+                        )
+                    else:
+                        result = TelnyxMessagingService.send_whatsapp(
+                            db,
+                            to_number=str(recipient.phone),
+                            body=fallback_body,
+                            org_id=order.org_id,
+                        )
+                    if result.ok:
+                        recipient_wa_sent = True
+                        TelnyxMessagingService.log_outbound(
+                            db,
+                            org_id=order.org_id,
+                            to_number=str(recipient.phone),
+                            from_number=None,
+                            body=f"[template:{job_closed_row.name if job_closed_row else 'text'}] {fallback_body}",
+                            result=result,
+                        )
+                except Exception:
+                    logger.exception(
+                        "campaign_cancel_wa_error",
+                        extra={"recipient_id": recipient.id, "order_id": order.id},
+                    )
+
+            if recipient_email_sent:
+                email_sent += 1
+            if recipient_wa_sent:
+                wa_sent += 1
+            merged = _recipient_result(recipient)
+            if recipient_email_sent:
+                merged["campaign_cancel_email_sent_at"] = _now().isoformat()
+            if recipient_wa_sent:
+                merged["campaign_cancel_wa_sent_at"] = _now().isoformat()
+            merged["booking_withdrawn"] = True
+            merged["campaign_closed_at"] = _now().isoformat()
+            recipient.result_json = json.dumps(merged, ensure_ascii=False)
+            if str(recipient.status or "").lower() in {"pending", "calling", "queued"}:
+                recipient.status = "cancelled"
+            db.add(recipient)
+
+        config = _order_config(order)
+        config["campaign_cancel_notified_at"] = _now().isoformat()
+        if reason:
+            config["booking_closed_reason"] = reason
+        order.config_json = json.dumps(config, ensure_ascii=False)
+        db.add(order)
+        db.commit()
+
+        return {
+            "ok": True,
+            "email_sent": email_sent,
+            "whatsapp_sent": wa_sent,
+            "skipped": skipped,
+            "recipient_count": len(recipients),
+        }
 
     @staticmethod
     def cancel_booking(db: Session, token: str, *, source: str = "web") -> dict[str, Any]:
@@ -1089,20 +1426,26 @@ class InterviewBookingService:
         db.commit()
 
         email_sent = InterviewBookingService._send_booking_cancellation(
-            db, order, recipient, slot_start=previous_start, token=row.token
+            db, order, recipient, slot_start=previous_start
         )
-        if email_sent:
+        wa_sent = InterviewBookingService._send_booking_cancellation_whatsapp(
+            db, order, recipient, slot_start=previous_start
+        )
+        if email_sent or wa_sent:
             merged = _recipient_result(recipient)
-            merged["cancellation_email_sent_at"] = _now().isoformat()
+            if email_sent:
+                merged["cancellation_email_sent_at"] = _now().isoformat()
+            if wa_sent:
+                merged["cancellation_wa_sent_at"] = _now().isoformat()
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
             db.add(recipient)
             db.commit()
-        elif not str(recipient.email or "").strip():
+        elif not str(recipient.email or "").strip() and not str(recipient.phone or "").strip():
             logger.warning(
-                "booking_cancel_no_email",
+                "booking_cancel_no_contact",
                 extra={"order_id": order.id, "recipient_id": recipient.id, "source": source},
             )
-        else:
+        elif not email_sent and str(recipient.email or "").strip():
             logger.warning(
                 "booking_cancel_email_failed",
                 extra={"order_id": order.id, "recipient_id": recipient.id, "source": source, "email": recipient.email},
@@ -1114,6 +1457,7 @@ class InterviewBookingService:
             "candidate_name": recipient.name,
             "source": source,
             "cancellation_email_sent": email_sent,
+            "cancellation_wa_sent": wa_sent,
         }
 
     @staticmethod

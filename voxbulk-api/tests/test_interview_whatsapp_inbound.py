@@ -103,11 +103,11 @@ def test_handle_cancel_booking(monkeypatch):
         return True, None
 
     monkeypatch.setattr(
-        "app.services.interview_whatsapp_inbound_service.TelnyxMessagingService.send_whatsapp",
+        "app.services.interview_booking_service.TelnyxMessagingService.send_whatsapp",
         lambda db, **kwargs: fake_send(db, **kwargs),
     )
     monkeypatch.setattr(
-        "app.services.interview_whatsapp_inbound_service.TelnyxMessagingService.log_outbound",
+        "app.services.interview_booking_service.TelnyxMessagingService.log_outbound",
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
@@ -128,6 +128,7 @@ def test_handle_cancel_booking(monkeypatch):
         )
         assert result["handled"] is True
         assert result["action"] == "cancelled"
+        assert result.get("sent") is True
         db.refresh(token)
         db.refresh(recipient)
         assert token.booked_start_at is None
@@ -137,6 +138,8 @@ def test_handle_cancel_booking(monkeypatch):
         assert "interview_booking_cancel" in emails
         merged = json.loads(recipient.result_json or "{}")
         assert merged.get("booking_cancelled_via") == "whatsapp"
+        assert merged.get("cancellation_email_sent_at")
+        assert merged.get("cancellation_wa_sent_at")
 
 
 def test_handle_cancel_uses_stored_invite_booking_url(monkeypatch):

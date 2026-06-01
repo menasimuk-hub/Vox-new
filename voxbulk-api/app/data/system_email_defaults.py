@@ -131,7 +131,18 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     <p style="margin:0 0 6px;"><strong>Was scheduled for:</strong> {{interview_date}}</p>
     <p style="margin:0;"><strong>Time:</strong> {{interview_time}}</p>
   </div>
-  <p style="font-size:13px;color:#6b6560;">You will not receive an AI call for this role.</p>""",
+  <p style="font-size:13px;color:#6b6560;">You will not receive an AI call, booking link, or any further emails or messages about this job.</p>""",
+        ),
+    },
+    "interview_campaign_cancelled": {
+        "title": "Interview campaign cancelled",
+        "subject": "{{role}} at {{company_name}} — campaign closed",
+        "body": wrap_interview_email(
+            title="Interview campaign closed",
+            inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>The <strong>{{role}}</strong> position at <strong>{{company_name}}</strong> is no longer running interviews.</p>
+  <p style="font-size:14px;color:#3d3832;">{{closure_reason}}</p>
+  <p style="font-size:13px;color:#6b6560;">Your booking link is now closed. You will not receive any further messages about this job.</p>""",
         ),
     },
     "interview_zoom_invite": {

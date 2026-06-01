@@ -285,6 +285,9 @@ def _complete_order_window_expired(db: Session, order: ServiceOrder, *, reason: 
     _cancel_unbooked_at_window_end(db, order, recipients, booking_required=booking_required)
     config = _order_config(order)
     config["calling_window_ended_at"] = datetime.utcnow().isoformat()
+    config["booking_closed_at"] = config.get("booking_closed_at") or datetime.utcnow().isoformat()
+    if not config.get("booking_closed_reason"):
+        config["booking_closed_reason"] = "The interview calling window has ended."
     config["calling_window_ended_reason"] = reason
     order.config_json = json.dumps(config, ensure_ascii=False)
     order.updated_at = datetime.utcnow()

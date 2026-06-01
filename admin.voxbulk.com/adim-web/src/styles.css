@@ -156,7 +156,7 @@ img, svg { display: block; }
 .sb-logo-img {
   height: auto;
   width: auto;
-  max-width: 100%;
+  max-width: 85%;
   object-fit: contain;
   flex-shrink: 0;
 }

@@ -336,14 +336,13 @@ def handle_inbound_reply(
                 return {"handled": True, "action": "cancel_none_booked", "sent": sent, "log_id": log_id}
 
             slot = token_row.booked_start_at
-            InterviewBookingService.cancel_booking(db, token_row.token, source="whatsapp")
-            when = f"{_format_slot_date(slot)} at {_format_slot_time(slot)}"
-            msg = (
-                f"Hi {first}, your interview on {when} has been cancelled. "
-                f"You will not receive an AI call for this role."
-            )
-            sent = _send_text_reply(db, org_id=order.org_id, to_number=recipient.phone, body=msg)
-            return {"handled": True, "action": "cancelled", "sent": sent, "log_id": log_id}
+            result = InterviewBookingService.cancel_booking(db, token_row.token, source="whatsapp")
+            return {
+                "handled": True,
+                "action": "cancelled",
+                "sent": bool(result.get("cancellation_wa_sent")),
+                "log_id": log_id,
+            }
 
         if intent == "reschedule":
             if token_row.booked_start_at is not None:
