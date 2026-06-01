@@ -610,6 +610,7 @@ export default function Integrations() {
   const [elevenLabsTestResult, setElevenLabsTestResult] = useState('')
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
   const [telnyxSmsTestResult, setTelnyxSmsTestResult] = useState('')
+  const [telnyxZoomTestResult, setTelnyxZoomTestResult] = useState('')
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxMessageDetailBusy, setTelnyxMessageDetailBusy] = useState('')
   const [telnyxTestNumber, setTelnyxTestNumber] = useState('')
@@ -1301,6 +1302,22 @@ export default function Integrations() {
     }
   }
 
+  const testTelnyxZoom = async () => {
+    setProviderError('')
+    setTelnyxZoomTestResult('Testing Zoom connection via Telnyx…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/test-zoom', { method: 'POST' })
+      if (result.ok) {
+        setTelnyxZoomTestResult(`✓ Zoom OK · Meeting ID: ${result.meeting_id || '—'} · ${result.message || 'Connection verified'}`)
+      } else {
+        setTelnyxZoomTestResult(`✗ Zoom failed: ${result.detail || 'Unknown error'}`)
+      }
+    } catch (e) {
+      setTelnyxZoomTestResult('')
+      setProviderError(e?.message || 'Telnyx Zoom test failed')
+    }
+  }
+
   const loadTelnyxInboundMessages = async (silent = false) => {
     if (!silent) {
       setProviderError('')
@@ -1461,6 +1478,7 @@ export default function Integrations() {
           setTelnyxWaTemplateLang={setTelnyxWaTemplateLang}
           telnyxTestResult={telnyxTestResult}
           telnyxSmsTestResult={telnyxSmsTestResult}
+          telnyxZoomTestResult={telnyxZoomTestResult}
           telnyxInboundMessages={telnyxInboundMessages}
           telnyxMessageDetailBusy={telnyxMessageDetailBusy}
           fetchTelnyxMessageDetail={fetchTelnyxMessageDetail}
@@ -1478,6 +1496,7 @@ export default function Integrations() {
           testTelnyx={testTelnyx}
           testTelnyxCall={testTelnyxCall}
           hangupTelnyxCall={hangupTelnyxCall}
+          testTelnyxZoom={testTelnyxZoom}
           testTelnyxSms={testTelnyxSms}
           testTelnyxWhatsApp={testTelnyxWhatsApp}
           loadTelnyxInboundMessages={() => loadTelnyxInboundMessages(false)}

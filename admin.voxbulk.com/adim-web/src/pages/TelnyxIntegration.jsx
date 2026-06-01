@@ -96,6 +96,7 @@ export default function TelnyxIntegration({
   setTelnyxWaTemplateLang,
   telnyxTestResult,
   telnyxSmsTestResult,
+  telnyxZoomTestResult,
   telnyxInboundMessages,
   telnyxMessageDetailBusy,
   fetchTelnyxMessageDetail,
@@ -115,6 +116,7 @@ export default function TelnyxIntegration({
   hangupTelnyxCall,
   testTelnyxSms,
   testTelnyxWhatsApp,
+  testTelnyxZoom,
   loadTelnyxInboundMessages,
 }) {
   const pill = statusPill(activeSummary)
@@ -480,6 +482,25 @@ export default function TelnyxIntegration({
               </div>
             </div>
             {telnyxSmsTestResult ? <div className='note'>{telnyxSmsTestResult}</div> : null}
+          </div>
+        </div>
+
+        <div className='card'>
+          <div className='cardHead'>
+            <h3>Zoom for AI interviews</h3>
+          </div>
+          <div className='cardBody'>
+            <div className='stack' style={{ gap: 12 }}>
+              <p className='muted' style={{ fontSize: 14, marginBottom: 6 }}>
+                Test the Zoom connection configured in your Telnyx account. This verifies Zoom is properly set up for creating interview meetings.
+              </p>
+              <div className='actions telnyxTestActions'>
+                <button type='button' className='btn soft' onClick={testTelnyxZoom} disabled={providerSaving}>
+                  Test Zoom Connection
+                </button>
+              </div>
+              {telnyxZoomTestResult ? <div className='note'>{telnyxZoomTestResult}</div> : null}
+            </div>
           </div>
         </div>
 

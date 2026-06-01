@@ -256,6 +256,28 @@ def test_zoom_integration(db: Session = Depends(get_db), _admin=Depends(require_
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Zoom test failed: {e}") from e
 
 
+@router.post("/integrations/telnyx/test-zoom")
+def test_telnyx_zoom_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    """Test Zoom connection via Telnyx for interview campaigns."""
+    from app.services.interview_zoom_service import InterviewZoomService
+
+    try:
+        # Test by attempting to create a test meeting
+        meeting = InterviewZoomService.create_zoom_meeting_via_telnyx(db, topic="VoxBulk Zoom Connection Test")
+        if not meeting.get("id") or not meeting.get("join_url"):
+            raise ValueError("Meeting created but missing ID or join URL")
+        return {
+            "ok": True,
+            "message": "Zoom connection via Telnyx is working",
+            "meeting_id": meeting.get("id"),
+            "join_url": meeting.get("join_url"),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx Zoom test failed: {str(e)[:300]}") from e
+
+
 @router.post("/integrations/calendly/test")
 def test_calendly_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     from app.services.scheduling_connection_service import test_calendly_platform_config
