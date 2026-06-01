@@ -208,7 +208,7 @@ export default function RunningInterviews() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = recipient.cv_filename || `cv-${recipient.id}.pdf`
+      a.download = recipient.cv_filename || `cv-${recipient.id}`
       document.body.appendChild(a)
       a.click()
       a.remove()
