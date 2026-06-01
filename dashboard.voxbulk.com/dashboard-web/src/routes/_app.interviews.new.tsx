@@ -74,6 +74,7 @@ function activityStatusLabel(status?: string | null) {
   const key = String(status || "").toLowerCase();
   const labels: Record<string, string> = {
     pending: "Pending",
+    booking_email_sent: "Booking email sent",
     awaiting_booking: "Awaiting booking",
     booked: "Booked",
     booked_waiting: "Booked — waiting",
@@ -1135,7 +1136,9 @@ function CreateInterview() {
                               ? "font-medium text-destructive"
                               : r.activityStatus === "booked" || r.activityStatus === "booked_waiting"
                                 ? "font-medium text-success"
-                                : "text-muted-foreground"
+                                : r.activityStatus === "booking_email_sent"
+                                  ? "font-medium text-primary"
+                                  : "text-muted-foreground"
                           }
                         >
                           {activityStatusLabel(r.activityStatus)}

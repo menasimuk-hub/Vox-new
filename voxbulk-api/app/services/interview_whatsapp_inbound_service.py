@@ -48,7 +48,10 @@ def parse_interview_booking_intent(body: str) -> str | None:
     if not text:
         return None
     compact = re.sub(r"\s+", " ", text).strip().lower()
+    compact_no_emoji = re.sub(r"[^\w\s]", "", compact).strip()
     if compact in {"cancel", "❌ cancel", "cancel interview", "cancel booking", "cancelled"}:
+        return "cancel"
+    if compact_no_emoji in {"cancel", "cancelled", "cancel interview", "cancel booking"}:
         return "cancel"
     if compact in {"reschedule", "🔄 reschedule", "reschedule interview", "reschedule booking"}:
         return "reschedule"
@@ -112,7 +115,7 @@ def find_active_booking_context(
         rec_phones = _phone_candidates(recipient.phone or "")
         if not needles.intersection(rec_phones):
             continue
-        if token_row.expires_at and now > token_row.expires_at:
+        if token_row.expires_at and now > token_row.expires_at and token_row.booked_start_at is None:
             continue
         if interview_booking_locked(recipient):
             continue

@@ -106,6 +106,15 @@ def _recipient_eligible_for_dial(
     token = _recipient_booking_token(db, order.id, recipient.id)
     if token is None:
         return False, "no_booking_token"
+    merged = {}
+    try:
+        merged = json.loads(recipient.result_json or "{}")
+        if not isinstance(merged, dict):
+            merged = {}
+    except Exception:
+        merged = {}
+    if merged.get("booking_cancelled_at") and not token.booked_start_at:
+        return False, "booking_cancelled"
     if token.booked_start_at is None:
         return False, "not_booked"
     slot_start = token.booked_start_at

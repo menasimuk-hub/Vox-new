@@ -27,9 +27,16 @@ def _recipient(**kwargs) -> ServiceOrderRecipient:
 
 def test_activity_status_awaiting_booking():
     r = _recipient(
-        result_json=json.dumps({"invite_email_sent_at": "2026-05-01T10:00:00"}),
+        result_json=json.dumps({"invite_wa_sent_at": "2026-05-01T10:00:00"}),
     )
     assert InterviewActivityService.activity_status(r) == "awaiting_booking"
+
+
+def test_activity_status_booking_email_sent():
+    r = _recipient(
+        result_json=json.dumps({"invite_email_sent_at": "2026-05-01T10:00:00"}),
+    )
+    assert InterviewActivityService.activity_status(r) == "booking_email_sent"
 
 
 def test_activity_status_report_ready():
@@ -66,7 +73,7 @@ def test_timeline_includes_invite_events():
     codes = [e["code"] for e in payload["events"]]
     assert "invite_email" in codes
     assert "invite_wa" in codes
-    assert payload["activity_status"] == "awaiting_booking"
+    assert payload["activity_status"] == "booking_email_sent"
 
 
 def test_activity_status_booked_waiting():

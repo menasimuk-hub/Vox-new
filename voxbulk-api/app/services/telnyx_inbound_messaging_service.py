@@ -94,6 +94,12 @@ def _extract_message_text(record: dict[str, Any]) -> str:
                         val = block.get(field)
                         if isinstance(val, str) and val.strip():
                             return val.strip()
+                    nested = block.get("button_reply") or block.get("list_reply")
+                    if isinstance(nested, dict):
+                        for field in ("text", "title", "description", "id"):
+                            val = nested.get(field)
+                            if isinstance(val, str) and val.strip():
+                                return val.strip()
 
     for key in ("button_text", "title", "payload", "reply"):
         val = record.get(key)

@@ -945,6 +945,23 @@ class InterviewBookingService:
             return False
 
     @staticmethod
+    def _hangup_active_call_if_any(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> None:
+        merged = _recipient_result(recipient)
+        call_id = str(merged.get("call_control_id") or "").strip()
+        if not call_id:
+            return
+        try:
+            from app.services.telnyx_voice_service import TelnyxVoiceAdapter, _telnyx_config
+
+            config = _telnyx_config(db, org_id=order.org_id)
+            TelnyxVoiceAdapter.hangup_call(call_control_id=call_id, config=config)
+        except Exception:
+            logger.exception(
+                "booking_cancel_hangup_failed",
+                extra={"order_id": order.id, "recipient_id": recipient.id, "call_control_id": call_id},
+            )
+
+    @staticmethod
     def cancel_booking(db: Session, token: str, *, source: str = "web") -> dict[str, Any]:
         row = db.execute(
             select(InterviewBookingToken).where(InterviewBookingToken.token == str(token).strip()).limit(1)
@@ -980,6 +997,9 @@ class InterviewBookingService:
         )
         merged.pop("booked_start_at", None)
         merged.pop("booked_end_at", None)
+        InterviewBookingService._hangup_active_call_if_any(db, order, recipient)
+        if str(recipient.status or "").lower() in {"calling", "in_progress", "ringing", "pending", "sent"}:
+            recipient.status = "skipped"
         recipient.result_json = json.dumps(merged, ensure_ascii=False)
         db.add(recipient)
         db.commit()
@@ -993,8 +1013,24 @@ class InterviewBookingService:
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
             db.add(recipient)
             db.commit()
+        elif not str(recipient.email or "").strip():
+            logger.warning(
+                "booking_cancel_no_email",
+                extra={"order_id": order.id, "recipient_id": recipient.id, "source": source},
+            )
+        else:
+            logger.warning(
+                "booking_cancel_email_failed",
+                extra={"order_id": order.id, "recipient_id": recipient.id, "source": source},
+            )
 
-        return {"ok": True, "cancelled": True, "candidate_name": recipient.name, "source": source}
+        return {
+            "ok": True,
+            "cancelled": True,
+            "candidate_name": recipient.name,
+            "source": source,
+            "cancellation_email_sent": email_sent,
+        }
 
     @staticmethod
     def reschedule_booking(db: Session, token: str, slot_start_iso: str) -> dict[str, Any]:

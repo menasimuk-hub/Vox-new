@@ -35,6 +35,7 @@ function candidatePill(status) {
 function activityStatusLabel(code) {
   const map = {
     pending: 'Pending',
+    booking_email_sent: 'Booking email sent',
     awaiting_booking: 'Awaiting booking',
     booked_waiting: 'Booked (upcoming)',
     booked: 'Booked',
@@ -48,10 +49,51 @@ function activityStatusLabel(code) {
   return map[String(code || '').toLowerCase()] || code || 'Pending'
 }
 
+const ACTIVITY_PIPELINE = [
+  'pending',
+  'booking_email_sent',
+  'awaiting_booking',
+  'booked_waiting',
+  'booked',
+  'calling',
+  'interview_completed',
+  'report_ready',
+  'booking_cancelled',
+  'call_failed',
+]
+
+function activityPipelineIndex(code) {
+  const idx = ACTIVITY_PIPELINE.indexOf(String(code || 'pending').toLowerCase())
+  return idx >= 0 ? idx : 0
+}
+
+function ActivityStatusRail({ current }) {
+  const currentIdx = activityPipelineIndex(current)
+  const isTerminal = ['booking_cancelled', 'call_failed', 'report_ready'].includes(String(current || '').toLowerCase())
+  return (
+    <div className="activityStatusRail" aria-label="Candidate status progress">
+      {ACTIVITY_PIPELINE.filter((code) => code !== 'call_failed' || current === 'call_failed').map((code, idx) => {
+        const on = code === String(current || '').toLowerCase()
+        const done = !isTerminal && idx < currentIdx
+        const show = code !== 'booking_cancelled' || on
+        if (!show) return null
+        return (
+          <span
+            key={code}
+            className={`activityStatusChip${on ? ' on' : ''}${done ? ' done' : ''}`}
+          >
+            {activityStatusLabel(code)}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 function activityPill(code) {
   const s = String(code || 'pending').toLowerCase()
   if (s === 'report_ready' || s === 'interview_completed') return 'leadPill leadPillAdvance'
-  if (s === 'calling' || s === 'awaiting_booking') return 'leadPill leadPillHold'
+  if (s === 'calling' || s === 'awaiting_booking' || s === 'booking_email_sent') return 'leadPill leadPillHold'
   if (s === 'call_failed' || s === 'booking_cancelled') return 'leadPill leadPillDecline'
   return 'leadPill leadPillNeutral'
 }
@@ -649,16 +691,17 @@ export default function RunningInterviews() {
               {activityLoading ? <div className="muted">Loading activity…</div> : null}
               {!activityLoading && activityData ? (
                 <>
+                  <ActivityStatusRail current={activityData.activity_status} />
                   <div className="runningSurveyMetaBlock" style={{ marginBottom: 12 }}>
                     <span className={activityPill(activityData.activity_status)}>{activityStatusLabel(activityData.activity_status)}</span>
                     {activityData.booked_start_at ? (
                       <span className="muted" style={{ marginLeft: 10 }}>Booked: {fmtWhen(activityData.booked_start_at)}</span>
                     ) : null}
                   </div>
-                  <ul className="runningSurveyAuditList">
+                  <ul className="activityTimeline">
                     {(activityData.events || []).map((ev, idx) => (
-                      <li key={`${ev.at}-${idx}`}>
-                        <div className="runningSurveyAuditLabel">{ev.label}</div>
+                      <li key={`${ev.at}-${idx}`} className="isDone">
+                        <div className="activityTimelineLabel">{ev.label}</div>
                         <div className="muted">{fmtWhen(ev.at)}</div>
                         {ev.detail ? <div className="runningSurveyAuditDetail">{ev.detail}</div> : null}
                       </li>
