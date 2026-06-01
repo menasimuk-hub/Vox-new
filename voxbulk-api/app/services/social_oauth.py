@@ -142,7 +142,7 @@ class SocialOAuthService:
                 "redirect_uri": conf["redirect_uri"],
                 "response_type": "code",
                 "scope": "name email",
-                "response_mode": "query",
+                "response_mode": "form_post",
                 "state": state,
             }
             url = httpx.URL("https://appleid.apple.com/auth/authorize")
