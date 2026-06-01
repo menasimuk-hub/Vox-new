@@ -4028,6 +4028,7 @@ body.dark .emailPreviewInner {
   background: rgba(15, 118, 110, 0.06);
 }
 
+.telnyxTabBar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
