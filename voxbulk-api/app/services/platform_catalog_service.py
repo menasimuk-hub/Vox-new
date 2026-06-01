@@ -1296,6 +1296,16 @@ class ServiceOrderService:
     @staticmethod
     def quote_order(db: Session, order: ServiceOrder) -> ServiceOrder:
         if order.recipient_count <= 0:
+            cfg: dict[str, Any] = {}
+            try:
+                cfg = json.loads(order.config_json or "{}")
+            except Exception:
+                cfg = {}
+            if isinstance(cfg, dict) and cfg.get("cv_email_enabled"):
+                raise ValueError(
+                    "No CVs received yet — share your job reference and careers@voxbulk.com with applicants, "
+                    "or upload candidates manually"
+                )
             raise ValueError("Upload a contact list before requesting a quote")
         if order.service_code == "interview":
             from app.services.interview_cv_email_service import assert_cv_collection_complete

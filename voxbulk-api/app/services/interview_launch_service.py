@@ -46,6 +46,12 @@ class InterviewLaunchService:
         if order.service_code != "interview":
             raise ValueError("Launch is only for interview orders")
         if order.recipient_count <= 0:
+            cfg = _order_config(order)
+            if cfg.get("cv_email_enabled"):
+                raise ValueError(
+                    "No CVs received yet — wait for email submissions to careers@voxbulk.com "
+                    "or upload candidates manually"
+                )
             raise ValueError("Upload candidates before launch")
 
         if not InterviewLaunchService.org_has_package_launch_access(db, org):

@@ -444,6 +444,8 @@ export type InterviewPreviewData = {
   candidateCount: number;
   referenceId: string;
   cvEmailEnabled: boolean;
+  cvCollectionComplete?: boolean;
+  careersInbox?: string;
   collectionStart: string;
   collectionEnd: string;
   callingStart: string;
@@ -642,12 +644,27 @@ export function InterviewPreviewQuoteModal({
     : "—";
   const quoteTotal = data.quoteTotalDisplay || data.quoteTotalGbp;
   const packageLabel = packagePlanName ? `Included in ${packagePlanName}` : "Included in your package";
-  const canLaunchPackage = hasPackageSubscription && scriptApproved && previewApproved && !quoteLoading && !payBusy;
-  const canPay = !hasPackageSubscription && scriptApproved && previewApproved && Boolean(quoteTotal) && !quoteLoading;
+  const launchReadinessErrors: string[] = [];
+  if (data.cvEmailEnabled) {
+    if (!data.cvCollectionComplete) {
+      launchReadinessErrors.push("CV collection must finish first (or close early in Step 1).");
+    }
+    if (data.candidateCount <= 0) {
+      launchReadinessErrors.push(
+        `No CVs received — share reference ${data.referenceId || "—"} and ${data.careersInbox || "careers@voxbulk.com"} with applicants.`,
+      );
+    }
+  } else if (data.candidateCount <= 0) {
+    launchReadinessErrors.push("Upload at least one candidate in Step 1.");
+  }
+  const canLaunchPackage = hasPackageSubscription && scriptApproved && previewApproved && !quoteLoading && !payBusy && launchReadinessErrors.length === 0;
+  const canPay = !hasPackageSubscription && scriptApproved && previewApproved && Boolean(quoteTotal) && !quoteLoading && launchReadinessErrors.length === 0;
   const launchBlockedReason = quoteLoading
     ? "Loading quote…"
     : payBusy
       ? "Please wait…"
+    : launchReadinessErrors.length > 0
+      ? launchReadinessErrors[0]
     : quoteError && !hasPackageSubscription
       ? quoteError
       : !scriptApproved
@@ -693,7 +710,7 @@ export function InterviewPreviewQuoteModal({
         <div className="grid gap-0 lg:grid-cols-[1.35fr_0.85fr]">
           <div className="space-y-5 p-6">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <PreviewMetric icon={<Users className="size-4" />} label="Candidates" value={`${data.candidateCount} ready`} />
+              <PreviewMetric icon={<Users className="size-4" />} label="Candidates" value={data.cvEmailEnabled ? `${data.candidateCount} via email` : `${data.candidateCount} ready`} />
               <PreviewMetric icon={<PhoneCall className="size-4" />} label="Agent" value={data.agentName || "—"} />
               <PreviewMetric icon={<Clock className="size-4" />} label="Expected call time" value={expectedTimeLabel} />
               <PreviewMetric icon={<ReceiptText className="size-4" />} label="Est. cost" value={quoteLoading ? "…" : hasPackageSubscription ? packageLabel : quoteTotal || "—"} />
@@ -726,7 +743,10 @@ export function InterviewPreviewQuoteModal({
           <aside className="border-t border-border bg-muted/25 p-6 lg:border-l lg:border-t-0">
             <Panel title="Approval checklist" icon={<ClipboardCheck className="size-4" />}>
               <ChecklistItem done={Boolean(data.position && data.role)} text="Position and role confirmed" />
-              <ChecklistItem done={data.candidateCount > 0} text="Candidate list uploaded" />
+              <ChecklistItem
+                done={data.cvEmailEnabled ? data.cvCollectionComplete && data.candidateCount > 0 : data.candidateCount > 0}
+                text={data.cvEmailEnabled ? "Candidates collected via email" : "Candidate list uploaded"}
+              />
               <ChecklistItem done={Boolean(data.criteria.trim())} text="Screening criteria set" />
               <ChecklistItem done={Boolean(data.script.trim())} text="AI script generated" />
               <ChecklistItem done={Boolean(data.expectedDurationMinutes)} text={`Expected time reviewed (${expectedTimeLabel})`} />
@@ -759,6 +779,16 @@ export function InterviewPreviewQuoteModal({
                 </p>
               </Panel>
             )}
+            {launchReadinessErrors.length > 0 ? (
+              <div className="mt-4 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-900 dark:text-amber-100">
+                <p className="font-medium">Before you can launch:</p>
+                <ul className="list-disc space-y-1 pl-5 text-xs">
+                  {launchReadinessErrors.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {quoteError && !hasPackageSubscription && onRefreshQuote ? (
               <div className="mt-4 space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
                 <p className="text-destructive">{quoteError}</p>

@@ -138,6 +138,56 @@ function cvCollectionPhase(
 
 const CAREERS_INBOX = "careers@voxbulk.com";
 
+function collectInterviewSetupErrors(opts: {
+  position: string;
+  role: string;
+  criteria: string;
+  script: string;
+  scriptIsApproved: boolean;
+  callingStart: string;
+  callingEnd: string;
+  cvEmailActive: boolean;
+  collectionStart: string;
+  collectionEnd: string;
+}): string[] {
+  const errors: string[] = [];
+  if (!opts.position.trim() && !opts.role.trim()) errors.push("Add position and role in Step 2");
+  if (!opts.criteria.trim()) errors.push("Add screening criteria in Step 2");
+  if (!opts.script.trim()) errors.push("Generate the AI script in Step 2");
+  if (!opts.scriptIsApproved) errors.push("Approve your script in Step 2");
+  if (!opts.callingStart || !opts.callingEnd) errors.push("Set calling start and end in Step 2");
+  if (opts.cvEmailActive && (!opts.collectionStart || !opts.collectionEnd)) {
+    errors.push("Set CV collection start and end in Step 1");
+  }
+  return errors;
+}
+
+function collectInterviewLaunchErrors(opts: {
+  cvEmailActive: boolean;
+  cvReadyForScreening: boolean;
+  candidateCount: number;
+  referenceId: string;
+  atsGatePassed: boolean;
+}): string[] {
+  const errors: string[] = [];
+  if (opts.cvEmailActive) {
+    if (!opts.cvReadyForScreening) {
+      errors.push("CV collection is still open — wait for applicants or close collection early");
+    }
+    if (opts.candidateCount <= 0) {
+      errors.push(
+        `No CVs received yet — applicants should email ${CAREERS_INBOX} with reference ${opts.referenceId || "your job code"}`,
+      );
+    }
+  } else if (opts.candidateCount <= 0) {
+    errors.push("Upload at least one candidate in Step 1");
+  }
+  if (opts.candidateCount > 0 && !opts.atsGatePassed && !opts.cvEmailActive) {
+    errors.push("Run ATS scoring or continue without ATS");
+  }
+  return errors;
+}
+
 function CreateInterview() {
   const { new: wantNew, order_id: draftOrderId } = Route.useSearch();
   const navigate = useNavigate();
@@ -741,9 +791,67 @@ function CreateInterview() {
     }
   };
 
+  const cvEmailActive = cvEmailAllowed && cvEmailEnabled;
+  const cvPhase = cvCollectionPhase(cvEmailActive, collectionStart, collectionEnd, config);
+  const cvReadyForScreening = isCvCollectionComplete(cvEmailActive, collectionEnd, config);
+  const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
+  const lastInviteDispatch = config.last_invite_dispatch as { ok?: boolean; whatsapp_sent?: number; email_sent?: number; errors?: string[] } | undefined;
+  const bookingInvitesSent =
+    Boolean(config.booking_invites_sent_at) && (lastInviteDispatch == null || lastInviteDispatch.ok !== false);
+  const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
+  const canResendBookingInvites = candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
+  const unscoredCount = candidates.filter((c) => c.ats == null && !c.atsStatus).length;
+  const allCandidatesScored =
+    candidates.length > 0 && candidates.every((c) => c.ats != null || Boolean(c.atsStatus));
+  const atsGatePassed =
+    cvEmailActive
+      ? candidates.length === 0 ||
+        allCandidatesScored ||
+        atsSkipped ||
+        Boolean(config.ats_skipped) ||
+        Boolean(atsRunAt) ||
+        Boolean(config.ats_last_charge_at)
+      : candidates.length > 0 &&
+        (atsSkipped ||
+          Boolean(config.ats_skipped) ||
+          Boolean(atsRunAt) ||
+          Boolean(config.ats_last_charge_at) ||
+          allCandidatesScored);
+  const setupErrors = collectInterviewSetupErrors({
+    position,
+    role,
+    criteria,
+    script,
+    scriptIsApproved,
+    callingStart,
+    callingEnd,
+    cvEmailActive,
+    collectionStart,
+    collectionEnd,
+  });
+  const launchErrors = collectInterviewLaunchErrors({
+    cvEmailActive,
+    cvReadyForScreening,
+    candidateCount: candidates.length,
+    referenceId,
+    atsGatePassed,
+  });
+
   const refreshQuote = async () => {
-    if (!orderId || candidates.length === 0) return;
+    if (!orderId) return;
     setQuoteError(null);
+    if (candidates.length === 0) {
+      if (cvEmailActive) {
+        setQuoteError(
+          cvReadyForScreening
+            ? `No CVs received yet — share reference ${referenceId || "—"} and ${CAREERS_INBOX} with applicants`
+            : "Quote unlocks when CV collection ends and at least one CV is received",
+        );
+      } else {
+        setQuoteError("Upload at least one candidate before requesting a quote");
+      }
+      return;
+    }
     if (hasPackageSub) {
       setQuoteTotalDisplay(
         billingPlanName ? `Included in ${billingPlanName}` : "Included in your package",
@@ -777,6 +885,10 @@ function CreateInterview() {
       toast.error("Save your draft before paying");
       return;
     }
+    if (launchErrors.length > 0) {
+      toast.error(launchErrors.length === 1 ? launchErrors[0] : launchErrors.join(" · "));
+      return;
+    }
     if (!gcReady) {
       toast.error("GoCardless checkout is not configured");
       return;
@@ -793,6 +905,10 @@ function CreateInterview() {
 
   const onLaunchFromPackage = async () => {
     if (!orderId) return;
+    if (launchErrors.length > 0) {
+      toast.error(launchErrors.length === 1 ? launchErrors[0] : launchErrors.join(" · "));
+      return;
+    }
     setPreview(false);
     setPayBusy(true);
     try {
@@ -816,6 +932,8 @@ function CreateInterview() {
     candidateCount: candidates.length,
     referenceId,
     cvEmailEnabled: cvEmailAllowed && cvEmailEnabled,
+    cvCollectionComplete: cvReadyForScreening,
+    careersInbox: CAREERS_INBOX,
     collectionStart: collectionStart || "—",
     collectionEnd: collectionEnd || "—",
     callingStart: callingStart || "—",
@@ -832,48 +950,16 @@ function CreateInterview() {
     waPreviewSyncLabel: waPreviewLoading ? "Syncing WhatsApp templates…" : waPreviewSyncLabel,
   };
 
-  const cvEmailActive = cvEmailAllowed && cvEmailEnabled;
-  const cvPhase = cvCollectionPhase(cvEmailActive, collectionStart, collectionEnd, config);
-  const cvReadyForScreening = isCvCollectionComplete(cvEmailActive, collectionEnd, config);
-  const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
-  const lastInviteDispatch = config.last_invite_dispatch as { ok?: boolean; whatsapp_sent?: number; email_sent?: number; errors?: string[] } | undefined;
-  const bookingInvitesSent =
-    Boolean(config.booking_invites_sent_at) && (lastInviteDispatch == null || lastInviteDispatch.ok !== false);
-  const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
-  const canResendBookingInvites = candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
-  const unscoredCount = candidates.filter((c) => c.ats == null && !c.atsStatus).length;
-  const allCandidatesScored =
-    candidates.length > 0 && candidates.every((c) => c.ats != null || Boolean(c.atsStatus));
-  const atsGatePassed =
-    candidates.length > 0 &&
-    (atsSkipped ||
-      Boolean(config.ats_skipped) ||
-      Boolean(atsRunAt) ||
-      Boolean(config.ats_last_charge_at) ||
-      allCandidatesScored);
-
   const onAttemptPreview = () => {
-    if (!script.trim()) {
-      toast.error("Generate the AI script before preview");
+    if (setupErrors.length > 0) {
+      toast.error(
+        setupErrors.length === 1
+          ? setupErrors[0]
+          : `Complete setup first:\n${setupErrors.map((e) => `• ${e}`).join("\n")}`,
+      );
       return;
     }
-    if (!scriptIsApproved) {
-      toast.error("Approve your script before preview & launch");
-      return;
-    }
-    if (cvEmailActive && !cvReadyForScreening) {
-      toast.error("CV email collection is still open — wait for applicants by email or close collection early.");
-      return;
-    }
-    if (candidates.length === 0) {
-      if (cvEmailActive) {
-        toast.error(`No CVs received yet — applicants should email ${CAREERS_INBOX} with your job reference.`);
-      } else {
-        toast.error("Upload at least one candidate first");
-      }
-      return;
-    }
-    if (!atsGatePassed) {
+    if (!cvEmailActive && candidates.length > 0 && !atsGatePassed) {
       setAtsQuote(null);
       setAtsQuoteError(null);
       setAtsPromptOpen(true);
@@ -881,6 +967,11 @@ function CreateInterview() {
       return;
     }
     setPreview(true);
+    if (launchErrors.length > 0) {
+      toast.message("Preview opened — finish these before launch", {
+        description: launchErrors.join(" · "),
+      });
+    }
   };
 
   const onContinueWithoutAtsHandler = () => {
@@ -1405,6 +1496,32 @@ function CreateInterview() {
             <li><strong className="text-foreground">Preview &amp; approve</strong> — confirm script and preview, then <strong className="text-foreground">{hasPackageSub ? "Launch" : "Pay & launch"}</strong>.</li>
             <li><strong className="text-foreground">Send booking invites</strong> — {hasPackageSub ? "sent when you launch" : "appears after payment"}; WhatsApp links go to each candidate.</li>
           </ol>
+          {(setupErrors.length > 0 || launchErrors.length > 0) && (
+            <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
+              {setupErrors.length > 0 ? (
+                <div>
+                  <p className="font-medium text-foreground">Complete before preview:</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                    {setupErrors.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {launchErrors.length > 0 ? (
+                <div>
+                  <p className="font-medium text-foreground">
+                    {setupErrors.length > 0 ? "Also before launch:" : cvEmailActive ? "You can preview now — finish before launch:" : "Before launch:"}
+                  </p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                    {launchErrors.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0} onClick={onRunAtsClick}>
               <Sparkles className="size-4" /> {runAtsM.isPending ? "Running ATS…" : "Run ATS"}
