@@ -350,12 +350,15 @@ class InterviewBookingService:
             1: _first_name(candidate_name),
             2: str(role or "interview").strip(),
         }
+        # {{3}} = company_name
         if company_name is not None:
             variables[3] = str(company_name or "VOXBULK").strip() or "VOXBULK"
+        # {{4}} = interview_date (only if not using company_name in that slot)
         if interview_date is not None:
-            variables[3] = str(interview_date).strip()
+            variables[4] = str(interview_date).strip()
+        # {{5}} = interview_time (if needed)
         if interview_time is not None:
-            variables[4] = str(interview_time).strip()
+            variables[5] = str(interview_time).strip()
         return _render_template_body(text, variables)
 
     @staticmethod

@@ -309,7 +309,7 @@ def _rec_icon(recommendation: str) -> str:
         return "✓"
     if rec == "Decline":
         return "✗"
-    return "?"
+    return "⏳"  # Hourglass for "Hold"
 
 
 def _quality_comment(quality: str) -> str:

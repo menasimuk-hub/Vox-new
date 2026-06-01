@@ -6,7 +6,7 @@ INTERVIEW_BOOKING_TEMPLATE_NAME = "voxbulk_interview_book"
 INTERVIEW_EMAIL_SENT_TEMPLATE_NAME = "interview_email_sent"
 INTERVIEW_CONFIRMATION_TEMPLATE_NAME = "voxbulk_interview_confirm"
 
-# Launch notice (no booking link on WA): {{1}} name, {{2}} role, {{3}} company, {{4}} company
+# Launch notice (no booking link on WA): {{1}} name, {{2}} role, {{3}} company
 INTERVIEW_EMAIL_SENT_BODY = """Dear {{1}} 👋
 
 We have sent you an email from 📧 careers@voxbulk.com regarding your interview for the position of {{2}} at {{3}}
@@ -15,9 +15,7 @@ Please check your Spam / Junk folder in case it landed there 📁
 
 Once you receive it, kindly book your interview slot as mentioned in the email 📅
 
-We look forward to hearing from you! 🤝
-
-{{4}} 🏢"""
+We look forward to hearing from you! 🤝"""
 
 # Legacy booking invite with URL button (deprecated at launch)
 INTERVIEW_BOOKING_BODY = """Hi {{1}} 👋
