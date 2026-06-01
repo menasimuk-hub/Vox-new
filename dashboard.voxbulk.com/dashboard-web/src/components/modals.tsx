@@ -771,7 +771,7 @@ export function InterviewPreviewQuoteModal({
         </div>
 
         <DialogFooter className="sticky bottom-0 flex-col gap-3 border-t border-border bg-background/95 px-6 py-4 backdrop-blur sm:flex-row sm:justify-between">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={payBusy}>Back to edit</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Back to edit</Button>
           <div className="flex w-full flex-col gap-2 sm:w-auto">
             {!canPay && !canLaunchPackage && launchBlockedReason ? (
               <p className="text-center text-xs text-muted-foreground sm:text-right">{launchBlockedReason}</p>

@@ -147,7 +147,13 @@ def _process_message(db: Session, msg: Message) -> tuple[str, int]:
         parsed: ParsedCv = parsed_list[0]
         key = storage_key_for(org_id=order.org_id, order_id=order.id, filename=filename)
         save_cv_bytes(storage_key=key, content=content)
-        intake_email_cv_for_order(db, order, parsed=parsed, storage_key=key, sender_email=reply_to or None)
+        _order, recipient = intake_email_cv_for_order(
+            db, order, parsed=parsed, storage_key=key, sender_email=reply_to or None
+        )
+        order = _order
+        from app.services.interview_email_ats_service import auto_ats_after_email_cv
+
+        auto_ats_after_email_cv(db, order, recipient, is_update=True)
         added += 1
     return "accepted", added
 

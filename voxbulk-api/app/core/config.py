@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     # Invite links returned by admin API (public sign-in origin)
     public_app_origin: str = Field(default="http://localhost:5173", alias="PUBLIC_APP_ORIGIN")
     dashboard_app_origin: str = Field(default="http://localhost:5175", alias="DASHBOARD_APP_ORIGIN")
+    booking_app_origin: str = Field(default="", alias="BOOKING_APP_ORIGIN")
 
     # Password reset email links expire after this window (minutes)
     password_reset_token_expire_minutes: int = Field(default=60, alias="PASSWORD_RESET_TOKEN_EXPIRE_MINUTES")

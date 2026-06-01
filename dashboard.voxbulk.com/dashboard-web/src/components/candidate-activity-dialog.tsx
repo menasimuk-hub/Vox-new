@@ -96,6 +96,86 @@ function eventIcon(code: string) {
   }
 }
 
+type CandidateActivityPanelProps = {
+  orderId: string;
+  recipientId: string | null;
+  enabled?: boolean;
+};
+
+export function CandidateActivityPanel({ orderId, recipientId, enabled = true }: CandidateActivityPanelProps) {
+  const activityQ = useInterviewRecipientActivity(orderId, recipientId, enabled && Boolean(recipientId));
+  const data = activityQ.data;
+  const events = (data?.events || []) as CandidateActivityEvent[];
+
+  if (activityQ.isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-14 w-full rounded-lg" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
+  }
+
+  if (activityQ.isError) {
+    return <p className="text-sm text-destructive">Could not load activity.</p>;
+  }
+
+  if (!data) {
+    return <p className="text-sm text-muted-foreground">Select a candidate to view activity.</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border bg-muted/30 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge tone={activityStatusTone(data.activity_status)}>
+            {activityStatusLabel(data.activity_status)}
+          </StatusBadge>
+          {data.booked_start_at ? (
+            <span className="text-xs text-muted-foreground">Booked: {fmtWhen(data.booked_start_at)}</span>
+          ) : null}
+        </div>
+        {(data.phone || data.email) && (
+          <div className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+            {data.phone ? <div>{data.phone}</div> : null}
+            {data.email ? <div>{data.email}</div> : null}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">All activity</h4>
+        {events.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
+        ) : (
+          <ul className="space-y-0">
+            {events.map((ev, idx) => {
+              const Icon = eventIcon(ev.code);
+              const isLast = idx === events.length - 1;
+              return (
+                <li key={`${ev.code}-${ev.at}-${idx}`} className="relative flex gap-2.5 pb-3">
+                  {!isLast ? (
+                    <span className="absolute left-[10px] top-6 bottom-0 w-px bg-border" aria-hidden />
+                  ) : null}
+                  <span className="relative z-[1] mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+                    <Icon className="size-3 text-muted-foreground" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium leading-snug">{ev.label}</div>
+                    <div className="text-[11px] text-muted-foreground">{fmtWhen(ev.at)}</div>
+                    {ev.detail ? <div className="mt-0.5 text-[11px] text-muted-foreground">{ev.detail}</div> : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type CandidateActivityDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -111,11 +191,6 @@ export function CandidateActivityDialog({
   recipientId,
   candidateName,
 }: CandidateActivityDialogProps) {
-  const activityQ = useInterviewRecipientActivity(orderId, recipientId, open);
-  const data = activityQ.data;
-  const events = (data?.events || []) as CandidateActivityEvent[];
-  const displayName = data?.name || candidateName || "Candidate";
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
@@ -124,73 +199,9 @@ export function CandidateActivityDialog({
             <Activity className="size-5 shrink-0 text-primary" />
             Candidate activity
           </DialogTitle>
-          <DialogDescription>{displayName}</DialogDescription>
+          <DialogDescription>{candidateName || "Candidate"}</DialogDescription>
         </DialogHeader>
-
-        {activityQ.isLoading ? (
-          <div className="space-y-3 py-2">
-            <Skeleton className="h-16 w-full rounded-lg" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-          </div>
-        ) : activityQ.isError ? (
-          <p className="text-sm text-destructive">Could not load activity. Try again.</p>
-        ) : data ? (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge tone={activityStatusTone(data.activity_status)}>
-                  {activityStatusLabel(data.activity_status)}
-                </StatusBadge>
-                {data.booked_start_at ? (
-                  <span className="text-xs text-muted-foreground">
-                    Appointment: {fmtWhen(data.booked_start_at)}
-                  </span>
-                ) : null}
-              </div>
-              {(data.phone || data.email) && (
-                <div className="mt-2 space-y-0.5 text-xs text-muted-foreground">
-                  {data.phone ? <div>{data.phone}</div> : null}
-                  {data.email ? <div>{data.email}</div> : null}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <h4 className="mb-3 text-sm font-medium">All activity</h4>
-              {events.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
-              ) : (
-                <ul className="space-y-0">
-                  {events.map((ev, idx) => {
-                    const Icon = eventIcon(ev.code);
-                    const isLast = idx === events.length - 1;
-                    return (
-                      <li key={`${ev.code}-${ev.at}-${idx}`} className="relative flex gap-3 pb-4">
-                        {!isLast ? (
-                          <span
-                            className="absolute left-[11px] top-7 bottom-0 w-px bg-border"
-                            aria-hidden
-                          />
-                        ) : null}
-                        <span className="relative z-[1] mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-background">
-                          <Icon className="size-3.5 text-muted-foreground" />
-                        </span>
-                        <div className="min-w-0 flex-1 pt-0.5">
-                          <div className="text-sm font-medium leading-snug">{ev.label}</div>
-                          <div className="text-xs text-muted-foreground">{fmtWhen(ev.at)}</div>
-                          {ev.detail ? (
-                            <div className="mt-1 text-xs text-muted-foreground">{ev.detail}</div>
-                          ) : null}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </div>
-        ) : null}
+        <CandidateActivityPanel orderId={orderId} recipientId={recipientId} enabled={open} />
       </DialogContent>
     </Dialog>
   );

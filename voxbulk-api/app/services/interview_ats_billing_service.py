@@ -104,7 +104,13 @@ def recipients_needing_ats(
     return out
 
 
-def quote_ats_run(db: Session, order: ServiceOrder, *, force: bool = False) -> dict[str, Any]:
+def quote_ats_run(
+    db: Session,
+    order: ServiceOrder,
+    *,
+    force: bool = False,
+    recipient_ids: list[str] | None = None,
+) -> dict[str, Any]:
     if order.service_code != "interview":
         raise InterviewAtsBillingError("Not an interview order")
     recipients = list(
@@ -115,6 +121,9 @@ def quote_ats_run(db: Session, order: ServiceOrder, *, force: bool = False) -> d
         ).scalars()
     )
     pending = recipients_needing_ats(order, recipients, force=force)
+    if recipient_ids:
+        allowed = {str(rid).strip() for rid in recipient_ids if str(rid).strip()}
+        pending = [row for row in pending if row.id in allowed]
     unit = ats_unit_price_pence(db)
     total = unit * len(pending)
     wallet = ats_wallet_pence(order)
@@ -144,6 +153,16 @@ def assert_script_ready_for_ats(order: ServiceOrder) -> None:
         raise InterviewAtsBillingError("Generate and save the AI script before running ATS")
 
 
+def assert_email_cv_ats_ready(order: ServiceOrder) -> None:
+    cfg = _order_config(order)
+    criteria = str(cfg.get("criteria") or cfg.get("screening_criteria") or "").strip()
+    role = str(cfg.get("role") or cfg.get("position") or order.title or "").strip()
+    if not role:
+        raise InterviewAtsBillingError("Enter the position / role before ATS can run on emailed CVs")
+    if not criteria:
+        raise InterviewAtsBillingError("Add screening criteria before ATS can run on emailed CVs")
+
+
 def deposit_ats_wallet(db: Session, order: ServiceOrder, *, amount_pence: int) -> ServiceOrder:
     amount = max(0, int(amount_pence or 0))
     if amount <= 0:
@@ -166,9 +185,13 @@ def charge_and_queue_ats(
     confirm_charge: bool = False,
     recipient_ids: list[str] | None = None,
     force: bool = False,
+    require_script: bool = True,
 ) -> dict[str, Any]:
-    assert_script_ready_for_ats(order)
-    quote = quote_ats_run(db, order, force=force)
+    if require_script:
+        assert_script_ready_for_ats(order)
+    else:
+        assert_email_cv_ats_ready(order)
+    quote = quote_ats_run(db, order, force=force, recipient_ids=recipient_ids)
     count = int(quote["candidate_count"] or 0)
     if count <= 0:
         return {"ok": True, "queued": 0, "message": "No CVs need ATS scoring", **quote}

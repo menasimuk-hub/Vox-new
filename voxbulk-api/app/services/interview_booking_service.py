@@ -124,6 +124,9 @@ def _first_name(name: str | None) -> str:
 
 def booking_public_origin() -> str:
     settings = get_settings()
+    booking = str(settings.booking_app_origin or "").strip().rstrip("/")
+    if booking:
+        return booking
     origin = str(settings.dashboard_app_origin or settings.public_app_origin or "http://localhost:5175").rstrip("/")
     return origin
 
@@ -931,22 +934,47 @@ class InterviewBookingService:
 
         if not recipient.email:
             return False
+        variables = {
+            "candidate_name": recipient.name or "there",
+            "role": role,
+            "company_name": company_name,
+            "interview_date": date_line,
+            "interview_time": time_line,
+            "booking_url": book_url,
+        }
         try:
-            sent_ok, _err = CareerEmailService.send_templated_optional(
+            sent_ok, err = CareerEmailService.send_templated_optional(
                 db,
                 template_key="interview_booking_cancel",
                 to_email=str(recipient.email).strip(),
-                variables={
-                    "candidate_name": recipient.name or "there",
-                    "role": role,
-                    "company_name": company_name,
-                    "interview_date": date_line,
-                    "interview_time": time_line,
-                    "booking_url": book_url,
-                },
+                variables=variables,
             )
-            return bool(sent_ok)
+            if sent_ok:
+                return True
+            if err:
+                logger.warning(
+                    "booking_cancel_email_failed",
+                    extra={"recipient_id": recipient.id, "error": err},
+                )
+                return False
+            # Template disabled or empty — send branded fallback
+            plain = (
+                f"Hi {variables['candidate_name']},\n\n"
+                f"Your {role} interview at {company_name} on {date_line} at {time_line} has been cancelled.\n\n"
+                f"Book a new time: {book_url}\n"
+            )
+            CareerEmailService.send(
+                db,
+                to_email=str(recipient.email).strip(),
+                subject=f"Interview cancelled — {role} at {company_name}",
+                body=plain,
+            )
+            return True
         except Exception:
+            logger.exception(
+                "booking_cancel_email_error",
+                extra={"recipient_id": recipient.id},
+            )
             return False
 
     @staticmethod
@@ -1026,7 +1054,7 @@ class InterviewBookingService:
         else:
             logger.warning(
                 "booking_cancel_email_failed",
-                extra={"order_id": order.id, "recipient_id": recipient.id, "source": source},
+                extra={"order_id": order.id, "recipient_id": recipient.id, "source": source, "email": recipient.email},
             )
 
         return {

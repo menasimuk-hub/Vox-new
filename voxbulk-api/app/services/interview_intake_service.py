@@ -177,6 +177,13 @@ def recipient_intake_dict(
     return base
 
 
+def _assert_interview_email_intake(order: ServiceOrder) -> None:
+    if order.service_code != "interview":
+        raise ValueError("Only interview orders support CV email intake")
+    if order.status in {"completed", "cancelled"}:
+        raise ValueError("Cannot add CVs to a finished or cancelled campaign")
+
+
 def _assert_interview_draft(order: ServiceOrder) -> None:
     if order.service_code != "interview":
         raise ValueError("Only interview orders support CV intake")
@@ -677,8 +684,8 @@ def intake_email_cv_for_order(
     parsed: ParsedCv,
     storage_key: str,
     sender_email: str | None = None,
-) -> ServiceOrder:
-    _assert_interview_draft(order)
+) -> tuple[ServiceOrder, ServiceOrderRecipient]:
+    _assert_interview_email_intake(order)
     recipients = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars())
     email_val = parsed.email or sender_email
     dup = find_duplicate_recipient(recipients, name=parsed.name, phone=parsed.phone, email=email_val)
@@ -699,7 +706,8 @@ def intake_email_cv_for_order(
         db.add(order)
         db.commit()
         db.refresh(order)
-        return order
+        db.refresh(dup)
+        return order, dup
 
     display_name = (parsed.name or name_from_filename(parsed.filename)).strip() or "Unknown"
     recipient = ServiceOrderRecipient(
@@ -728,7 +736,8 @@ def intake_email_cv_for_order(
     db.add(order)
     db.commit()
     db.refresh(order)
-    return order
+    db.refresh(recipient)
+    return order, recipient
 
 
 def _cv_bytes_by_filename(files: list[tuple[str, bytes]]) -> dict[str, bytes]:

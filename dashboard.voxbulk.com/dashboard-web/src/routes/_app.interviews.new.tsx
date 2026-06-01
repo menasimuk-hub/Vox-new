@@ -136,6 +136,8 @@ function cvCollectionPhase(
   }
 }
 
+const CAREERS_INBOX = "careers@voxbulk.com";
+
 function CreateInterview() {
   const { new: wantNew, order_id: draftOrderId } = Route.useSearch();
   const navigate = useNavigate();
@@ -320,7 +322,7 @@ function CreateInterview() {
           sync?: { synced?: number; approved?: number };
           sync_error?: string | null;
         } | null;
-      }>(`/service-orders/${encodeURIComponent(orderId)}/interview-booking/preview-template?sync=true`);
+      }>(`/service-orders/${encodeURIComponent(orderId)}/interview-booking/preview-template?sync=false`);
       const tpl = res.template;
       setWaPreviewBody(tpl?.rendered_body);
       setWaPreviewTemplateName(tpl?.name);
@@ -717,6 +719,15 @@ function CreateInterview() {
     }
   };
 
+  const copyCareersInbox = async () => {
+    try {
+      await navigator.clipboard.writeText(CAREERS_INBOX);
+      toast.success("Email address copied");
+    } catch {
+      toast.error("Could not copy email");
+    }
+  };
+
   const refreshQuote = async () => {
     if (!orderId || candidates.length === 0) return;
     setQuoteError(null);
@@ -769,11 +780,11 @@ function CreateInterview() {
 
   const onLaunchFromPackage = async () => {
     if (!orderId) return;
+    setPreview(false);
     setPayBusy(true);
     try {
       await onSaveDraft(true);
       const result = await launchM.mutateAsync();
-      setPreview(false);
       notifyInterviewLaunch(result);
       refreshDraft();
     } catch (e) {
@@ -957,28 +968,45 @@ function CreateInterview() {
           <CardDescription>Reference, CV email window, and uploads.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 md:grid-cols-2">
-          {cvEmailEnabled && (
+          {referenceId ? (
             <div className="space-y-1.5 md:col-span-2">
               <Label className="text-xs">Job reference</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Input value={referenceId || "—"} readOnly className="min-w-0 font-mono text-xs sm:text-sm" />
-                <Button variant="outline" className="w-full shrink-0 gap-1.5 sm:w-auto" onClick={() => void copyReference()} disabled={!referenceId}>
+                <Input value={referenceId} readOnly className="min-w-0 font-mono text-xs sm:text-sm" />
+                <Button variant="outline" className="w-full shrink-0 gap-1.5 sm:w-auto" onClick={() => void copyReference()}>
                   <Copy className="size-4" /> Copy reference
                 </Button>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Ask candidates to include the job code in the email subject line and send their CVs to{" "}
-                <span className="font-medium text-foreground">careers@voxbulk.com</span>. This ensures their applications are automatically matched and updated under the correct listed job.
-              </p>
+              {cvEmailAllowed && cvEmailEnabled ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Candidates must put this reference in the email subject or body when sending a CV to{" "}
+                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                    {CAREERS_INBOX}
+                    <button
+                      type="button"
+                      className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      aria-label="Copy careers email"
+                      onClick={() => void copyCareersInbox()}
+                    >
+                      <Copy className="size-3.5" />
+                    </button>
+                  </span>
+                  . Each CV is added automatically and ATS scored (charged per CV). Re-sending replaces the CV and runs ATS again.
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Use this code to identify this interview task. Enable CV email collection below to receive CVs by email.
+                </p>
+              )}
             </div>
-          )}
+          ) : null}
 
           <div className="md:col-span-2">
           <ToggleRow
             title="CV email collection"
             desc={
               cvEmailAllowed
-                ? "Auto-collect candidates from careers@voxbulk.com inbox."
+                ? `Receive CVs at ${CAREERS_INBOX} — include the job reference above. ATS runs automatically (charged per CV).`
                 : cvEmailBlockReason ||
                   (billingPlanName
                     ? `Not included on ${billingPlanName} — upgrade to Starter, Pro, or Business.`
@@ -1001,9 +1029,9 @@ function CreateInterview() {
           </div>
           {cvEmailActive && (
             <div className="md:col-span-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {cvPhase === "before" && "CV collection has not started yet. Candidates can apply once the window opens."}
-              {cvPhase === "open" && "Collection is live — CVs arrive automatically. When the window ends (or you close early), approve your script, run ATS, then launch AI screening."}
-              {cvPhase === "ready" && "CV collection finished — you can run ATS, remove weak candidates, and open Preview & approve to launch calls."}
+              {cvPhase === "before" && "CV collection has not started yet."}
+              {cvPhase === "open" && "Collection is live — CVs are added and ATS scored automatically (charged per CV). When the window ends, approve your script and launch."}
+              {cvPhase === "ready" && "CV collection finished — review ATS scores, remove weak candidates, then launch."}
             </div>
           )}
           {cvEmailActive && (

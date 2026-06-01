@@ -22,7 +22,7 @@ import type { ServiceOrder } from "@/lib/types/api";
 import { AtsScore } from "@/components/ats-score";
 import { InterviewRecordingPlayer } from "@/components/interview-recording-player";
 import { InterviewTranscriptDialog } from "@/components/interview-transcript-dialog";
-import { CandidateActivityDialog } from "@/components/candidate-activity-dialog";
+import { CandidateActivityDialog, CandidateActivityPanel } from "@/components/candidate-activity-dialog";
 
 export type CandidateRow = {
   id: string;
@@ -390,30 +390,19 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
           </CardContent>
         </Card>
 
-        {open && isLive && candidateOpen && (
+        {open && candidateOpen && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">{candidateOpen.name}</CardTitle>
               <Button size="sm" variant="ghost" onClick={() => setOpen(null)}>Close</Button>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="rounded-lg border border-border bg-muted/40 p-3">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground"><CalendarClock className="size-3.5" /> Scheduled</div>
-                <p className="mt-1 text-base font-semibold">{candidateOpen.scheduledAt}</p>
-              </div>
-              <div className="pt-1"><AtsScore score={candidateOpen.ats_score} status={candidateOpen.ats_status} label={candidateOpen.ats_label} /></div>
-            </CardContent>
-          </Card>
-        )}
-
-        {open && !isLive && candidateOpen && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">{candidateOpen.name}</CardTitle>
-              <Button size="sm" variant="ghost" onClick={() => setOpen(null)}>Close</Button>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {candidateOpen.has_interview_report ? (
+            <CardContent className="space-y-4 text-sm">
+              <CandidateActivityPanel orderId={orderId} recipientId={open} enabled={Boolean(open)} />
+              {isLive ? (
+                <div className="pt-1">
+                  <AtsScore score={candidateOpen.ats_score} status={candidateOpen.ats_status} label={candidateOpen.ats_label} />
+                </div>
+              ) : candidateOpen.has_interview_report ? (
                 <>
                   <InterviewRecordingPlayer playPath={candidateOpen.recording_play_url} durationLabel={candidateOpen.duration_label || candidateOpen.duration} />
                   <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => setTranscriptOpen(true)}>
@@ -437,7 +426,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Interview not completed yet. Results and reports appear here after the AI phone call finishes.
+                  Interview not completed yet. Results appear here after the AI call finishes.
                 </p>
               )}
             </CardContent>
