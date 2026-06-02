@@ -812,8 +812,6 @@ def main() -> int:
         action="store_true",
         help="Send invite/confirm/stop emails during test (default: WhatsApp-only invites so SMTP stays free)",
     )
-    parser.add_argument("--simulate-call", action="store_true", help="Not supported — use --no-simulate-call (HTTP-only script)")
-    parser.add_argument("--no-simulate-call", action="store_true", default=True, help="Wait for real Telnyx call (default)")
     parser.add_argument("--wait-for-slot-seconds", type=int, default=-1, help="Sleep before dial (-1 = auto from booked slot)")
     parser.add_argument("--slot-minutes-ahead", type=int, default=3, help="Book slot this many minutes from now")
     parser.add_argument("--wait-for-real-call-seconds", type=int, default=300)
