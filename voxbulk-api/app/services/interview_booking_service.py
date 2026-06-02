@@ -157,12 +157,35 @@ def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
 def campaign_invites_were_sent(order: ServiceOrder) -> bool:
     """True once booking invites were dispatched at launch (not for saved drafts)."""
     cfg = _order_config(order)
-    if not cfg.get("booking_invites_sent_at"):
-        return False
     dispatch = cfg.get("last_invite_dispatch")
-    if isinstance(dispatch, dict) and dispatch.get("ok") is False:
-        return False
-    return True
+    if isinstance(dispatch, dict):
+        if dispatch.get("ok") is False:
+            return False
+        if int(dispatch.get("email_sent") or 0) > 0 or int(dispatch.get("whatsapp_sent") or 0) > 0:
+            return True
+    if cfg.get("booking_invites_sent_at"):
+        return True
+    return False
+
+
+def order_has_booking_outreach_candidates(db: Session, order: ServiceOrder) -> bool:
+    """True when at least one candidate should receive closure email (invite/booking proof on file)."""
+    for recipient in ServiceOrderService.get_recipients(db, order.id):
+        if interview_booking_locked(recipient):
+            continue
+        if _booking_withdrawn(recipient):
+            continue
+        token_row = db.execute(
+            select(InterviewBookingToken)
+            .where(
+                InterviewBookingToken.order_id == order.id,
+                InterviewBookingToken.recipient_id == recipient.id,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if recipient_received_booking_outreach(recipient, token_row):
+            return True
+    return False
 
 
 def recipient_received_booking_outreach(
@@ -178,6 +201,10 @@ def recipient_received_booking_outreach(
     if merged.get("invite_email_sent_at") or merged.get("invite_wa_sent_at"):
         return True
     if merged.get("booking_invite_sent_at") or merged.get("scheduling_sent_at"):
+        return True
+    if merged.get("booking_token") or merged.get("booking_url"):
+        return True
+    if str(recipient.status or "").lower() in {"sent", "scheduled"}:
         return True
     return False
 
@@ -1388,12 +1415,10 @@ class InterviewBookingService:
         if order.service_code != "interview":
             return {"ok": True, "skipped": True, "reason": "not_interview"}
 
-        if not campaign_invites_were_sent(order):
+        if not campaign_invites_were_sent(order) and not order_has_booking_outreach_candidates(db, order):
             return {"ok": True, "skipped": True, "reason": "invites_never_sent"}
 
         config = _order_config(order)
-        if config.get("campaign_cancel_notified_at"):
-            return {"ok": True, "skipped": True, "reason": "already_notified"}
 
         role = str(config.get("role") or config.get("position") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
@@ -1430,6 +1455,7 @@ class InterviewBookingService:
                 continue
 
             had_booked_slot = token_row is not None and token_row.booked_start_at is not None
+            booked_slot_start = token_row.booked_start_at if had_booked_slot and token_row else None
 
             InterviewBookingService._hangup_active_call_if_any(db, order, recipient)
             if had_booked_slot and token_row is not None:
@@ -1442,28 +1468,36 @@ class InterviewBookingService:
             recipient_wa_sent = False
             if recipient.email:
                 try:
-                    sent_ok, err = CareerEmailService.send_templated_critical(
-                        db,
-                        template_key="interview_campaign_cancelled",
-                        to_email=str(recipient.email).strip(),
-                        variables={
-                            "candidate_name": recipient.name or "there",
-                            "role": role,
-                            "company_name": company_name,
-                            "closure_reason": closure_reason,
-                        },
-                    )
-                    if sent_ok:
-                        recipient_email_sent = True
-                    elif err:
-                        logger.warning(
-                            "campaign_cancel_email_failed",
-                            extra={
-                                "recipient_id": recipient.id,
-                                "order_id": order.id,
-                                "error": err,
+                    if booked_slot_start is not None:
+                        recipient_email_sent = InterviewBookingService._send_booking_cancellation(
+                            db,
+                            order,
+                            recipient,
+                            slot_start=booked_slot_start,
+                        )
+                    else:
+                        sent_ok, err = CareerEmailService.send_templated_critical(
+                            db,
+                            template_key="interview_campaign_cancelled",
+                            to_email=str(recipient.email).strip(),
+                            variables={
+                                "candidate_name": recipient.name or "there",
+                                "role": role,
+                                "company_name": company_name,
+                                "closure_reason": closure_reason,
                             },
                         )
+                        if sent_ok:
+                            recipient_email_sent = True
+                        elif err:
+                            logger.warning(
+                                "campaign_cancel_email_failed",
+                                extra={
+                                    "recipient_id": recipient.id,
+                                    "order_id": order.id,
+                                    "error": err,
+                                },
+                            )
                 except Exception:
                     logger.exception(
                         "campaign_cancel_email_error",
@@ -1785,6 +1819,16 @@ class InterviewBookingService:
             first = _first_name(recipient.name)
             recipient_email_sent = False
             recipient_wa_sent = False
+            merged_pre = _recipient_result(recipient)
+            merged_pre.update(
+                {
+                    "booking_token": token_row.token,
+                    "booking_url": url,
+                    "booking_invite_prepared_at": _now().isoformat(),
+                }
+            )
+            recipient.result_json = json.dumps(merged_pre, ensure_ascii=False)
+            db.add(recipient)
 
             if "email" in use_channels and recipient.email:
                 merged_check = _recipient_result(recipient)

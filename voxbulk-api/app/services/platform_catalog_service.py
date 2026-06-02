@@ -1207,53 +1207,51 @@ class ServiceOrderService:
         db.add(order)
         db.commit()
         db.refresh(order)
+        recipients = ServiceOrderService.get_recipients(db, order.id)
         if order.service_code == "interview":
             try:
-                from app.services.interview_booking_service import InterviewBookingService, campaign_invites_were_sent
+                from app.services.interview_booking_service import (
+                    InterviewBookingService,
+                    campaign_invites_were_sent,
+                    order_has_booking_outreach_candidates,
+                )
 
-                if campaign_invites_were_sent(order):
-                    notify_reason = note or "This interview campaign was cancelled by the employer."
-                    order_id = str(order.id)
-
-                    def _notify_closed_and_cancel_recipients() -> None:
-                        import logging
-
-                        log = logging.getLogger(__name__)
-                        try:
-                            from app.core.database import get_sessionmaker
-
-                            with get_sessionmaker()() as bg_db:
-                                bg_order = bg_db.get(ServiceOrder, order_id)
-                                if bg_order is None:
-                                    return
-                                InterviewBookingService.notify_campaign_closed(
-                                    bg_db,
-                                    bg_order,
-                                    reason=notify_reason,
-                                )
-                                for recipient in ServiceOrderService.get_recipients(bg_db, order_id):
-                                    if str(recipient.status or "pending").lower() in {
-                                        "pending",
-                                        "scheduled",
-                                        "calling",
-                                    }:
-                                        recipient.status = "cancelled"
-                                        bg_db.add(recipient)
-                                bg_db.commit()
-                        except Exception:
-                            log.exception("interview_campaign_cancel_notify_failed order_id=%s", order_id)
-
-                    import threading
-
-                    threading.Thread(target=_notify_closed_and_cancel_recipients, daemon=True).start()
-                    return order
+                notify_reason = note or "This interview campaign was cancelled by the employer."
+                if campaign_invites_were_sent(order) or order_has_booking_outreach_candidates(db, order):
+                    close_result = InterviewBookingService.notify_campaign_closed(
+                        db,
+                        order,
+                        reason=notify_reason,
+                    )
+                    cfg_stop = {}
+                    try:
+                        cfg_stop = json.loads(order.config_json or "{}")
+                        if not isinstance(cfg_stop, dict):
+                            cfg_stop = {}
+                    except Exception:
+                        cfg_stop = {}
+                    cfg_stop["last_campaign_close_dispatch"] = close_result
+                    order.config_json = json.dumps(cfg_stop, ensure_ascii=False)
+                    db.add(order)
+                    db.refresh(order)
             except Exception:
                 import logging
 
                 logging.getLogger(__name__).exception(
                     "interview_campaign_cancel_notify_failed order_id=%s", order.id
                 )
-        recipients = ServiceOrderService.get_recipients(db, order.id)
+            for recipient in recipients:
+                if str(recipient.status or "pending").lower() in {
+                    "pending",
+                    "scheduled",
+                    "sent",
+                    "calling",
+                }:
+                    recipient.status = "cancelled"
+                    db.add(recipient)
+            db.commit()
+            db.refresh(order)
+            return order
         for recipient in recipients:
             if str(recipient.status or "pending").lower() in {"pending", "calling"}:
                 recipient.status = "cancelled"

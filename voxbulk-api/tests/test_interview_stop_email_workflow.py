@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
@@ -147,10 +148,10 @@ def test_booking_cancel_email_falls_back_on_smtp_error(monkeypatch):
         send_plain.assert_called_once()
 
 
-def test_stop_skips_notify_when_recipient_already_cancelled_before_notify(monkeypatch):
-    """Document: pre-cancelled pending recipients were skipped — stop_order now notifies first."""
+def test_stop_still_emails_invited_candidate_with_cancelled_status(monkeypatch):
+    """Employer stop must email invited candidates even if status was already cancelled."""
     with get_sessionmaker()() as db:
-        order, recipient, _ = _seed_booked_candidate(db)
+        order, recipient, slot = _seed_booked_candidate(db)
         order.config_json = (
             '{"role":"Engineer","booking_invites_sent_at":"2026-01-01T00:00:00",'
             '"last_invite_dispatch":{"ok":true}}'
@@ -161,13 +162,57 @@ def test_stop_skips_notify_when_recipient_already_cancelled_before_notify(monkey
         db.add(recipient)
         db.commit()
 
-        critical = MagicMock(return_value=(True, None))
+        cancel_email = MagicMock(return_value=True)
         monkeypatch.setattr(
-            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
-            critical,
+            "app.services.interview_booking_service.InterviewBookingService._send_booking_cancellation",
+            cancel_email,
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.InterviewBookingService._send_booking_cancellation_whatsapp",
+            lambda *a, **k: False,
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.InterviewBookingService._hangup_active_call_if_any",
+            lambda *a, **k: None,
         )
 
         result = InterviewBookingService.notify_campaign_closed(db, order)
-        assert result.get("email_sent") == 0
-        assert result.get("skipped") == 1
-        critical.assert_not_called()
+        assert result.get("email_sent") == 1
+        cancel_email.assert_called_once()
+
+
+def test_stop_order_sends_closure_email_synchronously(monkeypatch):
+    with get_sessionmaker()() as db:
+        order, recipient, slot = _seed_booked_candidate(db)
+        order.config_json = (
+            '{"role":"Engineer","booking_invites_sent_at":"2026-01-01T00:00:00",'
+            '"last_invite_dispatch":{"ok":true,"whatsapp_sent":1,"email_sent":0}}'
+        )
+        recipient.result_json = json.dumps(
+            {
+                "invite_wa_sent_at": "2026-01-01T00:00:00",
+                "booking_url": "https://dashboard.voxbulk.com/book/test",
+            }
+        )
+        db.add(order)
+        db.add(recipient)
+        db.commit()
+
+        cancel_email = MagicMock(return_value=True)
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.InterviewBookingService._send_booking_cancellation",
+            cancel_email,
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.InterviewBookingService._send_booking_cancellation_whatsapp",
+            lambda *a, **k: False,
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.InterviewBookingService._hangup_active_call_if_any",
+            lambda *a, **k: None,
+        )
+
+        from app.services.platform_catalog_service import ServiceOrderService
+
+        ServiceOrderService.stop_order(db, order, reason="Stopped for testing")
+        cancel_email.assert_called_once()

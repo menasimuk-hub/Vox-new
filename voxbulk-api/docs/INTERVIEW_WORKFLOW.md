@@ -62,6 +62,20 @@ Restart API after changing env.
 - Interview agent must use a **valid** Telnyx assistant ID (e.g. `Leo- Interview` in portal).
 - Stored on agent row `telnyx_assistant_id` in Admin → Agents.
 
+## Email templates (careers@voxbulk.com)
+
+| Event | Template key | When sent |
+|-------|----------------|-----------|
+| Launch | `interview_booking_invite` | `POST …/interview/launch` or `…/interview-booking/send-invites` |
+| Book slot | `interview_booking_confirm` | Candidate confirms/reschedules |
+| Reminder | `interview_booking_reminder` | ~30 min before slot |
+| Candidate cancels slot | `interview_booking_cancel` | Cancel link / WhatsApp |
+| Employer stops campaign | `interview_campaign_cancelled` (invited only) or `interview_booking_cancel` (had booked slot) | `POST …/stop` — **synchronous** (not background) |
+
+All use `CareerEmailService.send_templated_critical` (admin template, then code default if disabled).
+
+Stop campaign requires proof of outreach: `booking_invites_sent_at`, `last_invite_dispatch`, or per-candidate `invite_email_sent_at` / `booking_url` / WA token.
+
 ## Before pushing to GitHub
 
 1. Run tests: `pytest tests/test_interview_booking_slots.py tests/test_interview_calendar_service.py -q`

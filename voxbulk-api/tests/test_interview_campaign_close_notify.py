@@ -353,12 +353,10 @@ def test_stop_order_notifies_pending_booked_candidate_before_cancelling(monkeypa
 
         ServiceOrderService.stop_order(db, order, reason="Stopped for testing")
 
-        for _ in range(100):
-            if email_calls:
-                break
-            time.sleep(0.02)
-
-        assert "interview_campaign_cancelled" in email_calls
+        assert email_calls and email_calls[0] in {
+            "interview_campaign_cancelled",
+            "interview_booking_cancel",
+        }
         assert send_wa.call_count == 1
 
         for _ in range(100):
