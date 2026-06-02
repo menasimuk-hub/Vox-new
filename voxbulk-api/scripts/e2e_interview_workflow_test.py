@@ -41,14 +41,14 @@ RUN (VPS — use python3; `python` is often not installed on Ubuntu)
   source .venv/bin/activate 2>/dev/null || source venv/bin/activate 2>/dev/null || true
   python3 scripts/e2e_interview_workflow_test.py
 
-  # Real Telnyx dial instead of simulated call (slow; needs allowlisted phone):
-  python3 scripts/e2e_interview_workflow_test.py --no-simulate-call --wait-for-slot-seconds 120
-
-  # Keep the test order on the account (default deletes draft order at end):
-  python3 scripts/e2e_interview_workflow_test.py --keep-order
-
-  # Skip stop/closure notification step:
-  python3 scripts/e2e_interview_workflow_test.py --skip-stop
+  # Full VPS run — 3 min booking slot, real call, log + report (paste log back for debugging):
+  python3 scripts/e2e_interview_workflow_test.py \\
+    --keep-order \\
+    --slot-minutes-ahead 3 \\
+    --no-simulate-call \\
+    --log-file /tmp/voxbulk-e2e-interview.log \\
+    --report-file /tmp/voxbulk-e2e-interview-report.json \\
+    2>&1 | tee -a /tmp/voxbulk-e2e-interview.log
 """
 
 from __future__ import annotations
@@ -56,15 +56,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, TextIO
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 from urllib.request import Request, urlopen
 
 # ── defaults ─────────────────────────────────────────────────────────────────
@@ -95,6 +96,109 @@ def _utc_now() -> datetime:
 
 def _iso(dt: datetime) -> str:
     return dt.replace(microsecond=0).isoformat() + "Z"
+
+
+class _Tee(TextIO):
+    """Write stdout/stderr to console and log file."""
+
+    def __init__(self, stream: TextIO, log_path: Path) -> None:
+        self._stream = stream
+        self._log_path = log_path
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = log_path.open("a", encoding="utf-8")
+        self._file.write(f"\n\n{'=' * 72}\nE2E run started {_iso(_utc_now())}\n{'=' * 72}\n")
+        self._file.flush()
+
+    def write(self, s: str) -> int:
+        self._stream.write(s)
+        self._file.write(s)
+        self._file.flush()
+        return len(s)
+
+    def flush(self) -> None:
+        self._stream.flush()
+        self._file.flush()
+
+    def close(self) -> None:
+        self._file.close()
+
+
+def _token_from_recipient(recipient: dict[str, Any]) -> str:
+    tok = str(recipient.get("booking_token") or "").strip()
+    if tok:
+        return tok
+    url = str(recipient.get("booking_url") or "")
+    match = re.search(r"/book/([^/?#]+)", url)
+    if match:
+        return unquote(match.group(1)).strip()
+    return ""
+
+
+def _token_from_activity(activity: dict[str, Any]) -> str:
+    url = str(activity.get("booking_url") or "")
+    match = re.search(r"/book/([^/?#]+)", url)
+    if match:
+        return unquote(match.group(1)).strip()
+    return ""
+
+
+def _lookup_booking_token_local(api_root: Path, *, order_id: str, recipient_id: str) -> str:
+    if str(api_root) not in sys.path:
+        sys.path.insert(0, str(api_root))
+    from sqlalchemy import select
+
+    from app.core.database import get_sessionmaker
+    from app.models.interview_booking_token import InterviewBookingToken
+
+    with get_sessionmaker()() as db:
+        row = db.execute(
+            select(InterviewBookingToken)
+            .where(
+                InterviewBookingToken.order_id == order_id,
+                InterviewBookingToken.recipient_id == recipient_id,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        return str(row.token).strip() if row is not None else ""
+
+
+def _write_report(
+    path: Path,
+    *,
+    runner: "WorkflowRunner",
+    order_id: str | None,
+    recipient_id: str | None,
+    booked_slot: str | None,
+    launch: dict[str, Any] | None,
+    detail: dict[str, Any] | None,
+) -> None:
+    failed = [r for r in runner.results if not r.ok]
+    payload = {
+        "finished_at": _iso(_utc_now()),
+        "base_url": runner.base,
+        "order_id": order_id,
+        "recipient_id": recipient_id,
+        "booked_slot": booked_slot,
+        "launch_invites": launch.get("invites") if isinstance(launch, dict) else None,
+        "final_score": (detail or {}).get("score") or ((detail or {}).get("analysis") or {}).get("score"),
+        "passed": sum(1 for r in runner.results if r.ok),
+        "total": len(runner.results),
+        "failed_steps": [{"name": r.name, "reason": r.reason} for r in failed],
+        "steps": [
+            {
+                "name": r.name,
+                "ok": r.ok,
+                "reason": r.reason,
+                "status": r.response_status,
+                "request": r.request,
+                "response": r.response_body,
+            }
+            for r in runner.results
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    print(f"\nReport written → {path}")
 
 
 @dataclass
@@ -406,39 +510,101 @@ class WorkflowRunner:
             check=lambda b: isinstance(b, dict) and b.get("ok") is not False,
         )
 
-    def step_list_recipients(self, order_id: str) -> tuple[str, dict[str, Any]]:
+    def step_send_invites(self, order_id: str, *, force: bool = True) -> dict[str, Any]:
+        return self._api(
+            "Send booking invites (explicit)",
+            "POST",
+            f"/service-orders/{order_id}/interview-booking/send-invites",
+            json_body={"force_resend": force, "channels": ["email", "whatsapp"]},
+            check=lambda b: isinstance(b, dict),
+        )
+
+    def step_fetch_recipients(self, order_id: str) -> list[dict[str, Any]]:
         body = self._api(
-            "List recipients (get booking token)",
+            "List recipients",
             "GET",
             f"/service-orders/{order_id}/recipients",
-            check=lambda b: isinstance(b, dict) and bool(b.get("recipients")),
+            check=lambda b: isinstance(b, dict) and isinstance(b.get("recipients"), list),
         )
-        recipients = body["recipients"]
+        return list(body.get("recipients") or [])
+
+    def step_resolve_booking_token(
+        self,
+        order_id: str,
+        *,
+        api_root: Path,
+    ) -> tuple[str, dict[str, Any]]:
+        recipients = self.step_fetch_recipients(order_id)
+        if not recipients:
+            raise RuntimeError("No recipients on order")
         recipient = recipients[0]
-        token = str(recipient.get("booking_token") or "").strip()
-        if not token:
-            merged = recipient.get("result") or recipient.get("result_json") or {}
-            if isinstance(merged, str):
-                try:
-                    merged = json.loads(merged)
-                except Exception:
-                    merged = {}
-            token = str(merged.get("booking_token") or "").strip()
-        if not token:
+        recipient_id = str(recipient.get("id") or "")
+
+        token = _token_from_recipient(recipient)
+        if token:
             self._record(
-                "Extract booking token",
-                ok=False,
-                reason="booking_token missing on recipient — invites may have failed",
-                response_body=recipient,
+                "Resolve booking token",
+                ok=True,
+                request={"source": "recipients.booking_token"},
+                body={"token_prefix": token[:12] + "…", "recipient_id": recipient_id},
             )
-            raise RuntimeError("No booking_token on recipient")
+            return token, recipient
+
+        invite = self.step_send_invites(order_id, force=True)
+        if isinstance(invite, dict) and invite.get("errors"):
+            self._record(
+                "Send invites errors (non-fatal for token lookup)",
+                ok=bool(invite.get("ok")),
+                reason="; ".join((invite.get("errors") or [])[:3]) or "invite dispatch had errors",
+                body=invite,
+            )
+
+        recipients = self.step_fetch_recipients(order_id)
+        recipient = recipients[0]
+        token = _token_from_recipient(recipient)
+        if token:
+            self._record(
+                "Resolve booking token",
+                ok=True,
+                request={"source": "recipients after send-invites"},
+                body={"token_prefix": token[:12] + "…"},
+            )
+            return token, recipient
+
+        if recipient_id:
+            activity = self._api(
+                "Activity timeline (booking URL fallback)",
+                "GET",
+                f"/service-orders/{order_id}/recipients/{recipient_id}/activity",
+                check=lambda b: isinstance(b, dict),
+            )
+            token = _token_from_activity(activity if isinstance(activity, dict) else {})
+            if token:
+                self._record(
+                    "Resolve booking token",
+                    ok=True,
+                    request={"source": "activity.booking_url"},
+                    body={"token_prefix": token[:12] + "…"},
+                )
+                return token, recipient
+
+        token = _lookup_booking_token_local(api_root, order_id=order_id, recipient_id=recipient_id)
+        if token:
+            self._record(
+                "Resolve booking token",
+                ok=True,
+                request={"source": "local InterviewBookingToken table"},
+                body={"token_prefix": token[:12] + "…"},
+            )
+            return token, recipient
+
         self._record(
-            "Extract booking token",
-            ok=True,
-            request={"recipient_id": recipient.get("id")},
-            response_body={"booking_token_prefix": token[:12] + "…", "email": recipient.get("email")},
+            "Resolve booking token",
+            ok=False,
+            reason="No token in recipients, activity, or DB — check launch invite errors and SMTP/Telnyx",
+            body=recipient,
         )
-        return token, recipient
+        raise RuntimeError("No booking_token on recipient")
 
     def step_public_booking_page(self, booking_token: str) -> dict[str, Any]:
         return self._api(
@@ -656,6 +822,23 @@ class WorkflowRunner:
             check=lambda b: isinstance(b, dict) and str(b.get("status") or "").lower() == "cancelled",
         )
 
+    def step_fetch_report_html(self, order_id: str, recipient_id: str) -> tuple[int, Any]:
+        status, body = self._request(
+            "GET",
+            f"/service-orders/{order_id}/recipients/{recipient_id}/interview-candidate-report.html",
+            token=self.token,
+        )
+        preview = body[:500] if isinstance(body, str) else body
+        self._record(
+            "Candidate report HTML",
+            ok=200 <= status < 300,
+            reason="" if 200 <= status < 300 else f"HTTP {status}",
+            request={"path": f"/service-orders/{order_id}/recipients/{recipient_id}/interview-candidate-report.html"},
+            status=status,
+            body={"preview": preview, "bytes": len(body) if isinstance(body, str) else None},
+        )
+        return status, body
+
     def step_delete_order(self, order_id: str) -> None:
         self._api("Delete test order (cleanup)", "DELETE", f"/service-orders/{order_id}")
 
@@ -686,20 +869,34 @@ class WorkflowRunner:
         return 0 if not failed else 1
 
 
-def _pick_booking_slot(page: dict[str, Any], *, prefer_immediate: bool) -> str:
+def _pick_booking_slot(page: dict[str, Any], *, minutes_ahead: int = 3) -> str:
     slots = [str(s) for s in (page.get("available_slots") or []) if s]
     if not slots:
         raise RuntimeError("No available booking slots — widen calling window or check booking hours")
-    if prefer_immediate:
-        now = _utc_now()
-        for slot in slots:
-            try:
-                dt = datetime.fromisoformat(slot.replace("Z", "+00:00")).replace(tzinfo=None)
-            except ValueError:
-                continue
-            if dt >= now + timedelta(minutes=1):
-                return slot
-    return slots[0]
+    target = _utc_now() + timedelta(minutes=max(1, minutes_ahead))
+    parsed: list[tuple[datetime, str]] = []
+    for slot in slots:
+        try:
+            dt = datetime.fromisoformat(slot.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            continue
+        parsed.append((dt, slot))
+    if not parsed:
+        return slots[0]
+    parsed.sort(key=lambda x: x[0])
+    for dt, slot in parsed:
+        if dt >= target:
+            return slot
+    return parsed[-1][1]
+
+
+def _seconds_until_slot(slot_iso: str, *, buffer_seconds: int = 10) -> int:
+    try:
+        dt = datetime.fromisoformat(slot_iso.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return 0
+    wait = int((dt - _utc_now()).total_seconds()) + buffer_seconds
+    return max(0, wait)
 
 
 def main() -> int:
@@ -720,11 +917,19 @@ def main() -> int:
     )
     parser.add_argument("--simulate-call", action="store_true", default=True, help="Simulate call+analysis locally (default)")
     parser.add_argument("--no-simulate-call", action="store_false", dest="simulate_call")
-    parser.add_argument("--wait-for-slot-seconds", type=int, default=0, help="Sleep before dial/simulate (booked slot lead time)")
-    parser.add_argument("--wait-for-real-call-seconds", type=int, default=180)
+    parser.add_argument("--wait-for-slot-seconds", type=int, default=-1, help="Sleep before dial (-1 = auto from booked slot)")
+    parser.add_argument("--slot-minutes-ahead", type=int, default=3, help="Book slot this many minutes from now")
+    parser.add_argument("--wait-for-real-call-seconds", type=int, default=300)
     parser.add_argument("--skip-stop", action="store_true")
-    parser.add_argument("--keep-order", action="store_true")
+    parser.add_argument("--delete-order", action="store_true", help="Delete order after run (default: keep for debugging)")
+    parser.add_argument("--log-file", default=os.environ.get("VOXBULK_E2E_LOG", ""), help="Append all output to this log file")
+    parser.add_argument("--report-file", default=os.environ.get("VOXBULK_E2E_REPORT", ""), help="Write JSON report path")
     args = parser.parse_args()
+
+    log_path = Path(args.log_file) if args.log_file else None
+    if log_path:
+        sys.stdout = _Tee(sys.stdout, log_path)  # type: ignore[assignment]
+        sys.stderr = _Tee(sys.stderr, log_path)  # type: ignore[assignment]
 
     if not args.email or not args.password:
         print("ERROR: Set VOXBULK_EMAIL and VOXBULK_PASSWORD (or pass --email / --password)", file=sys.stderr)
@@ -735,9 +940,17 @@ def main() -> int:
 
     runner = WorkflowRunner(base_url=args.base_url)
     order_id: str | None = None
+    recipient_id: str | None = None
+    booked_slot: str | None = None
+    launch: dict[str, Any] | None = None
+    detail: dict[str, Any] | None = None
+    keep_order = not args.delete_order
 
     print(f"Interview E2E test → {args.base_url}")
     print(f"Candidate: {args.candidate_name} <{args.candidate_email}> {args.candidate_phone}")
+    print(f"Mode: {'simulated call' if args.simulate_call else 'REAL Telnyx call'} | slot +{args.slot_minutes_ahead}m")
+    if log_path:
+        print(f"Log file: {log_path}")
 
     try:
         runner.login(args.email, args.password, args.org_id or None, label="dashboard")
@@ -761,22 +974,39 @@ def main() -> int:
         runner.step_quote(order_id)
         runner.step_pay_and_approve(order_id, billing if isinstance(billing, dict) else {})
         launch = runner.step_launch(order_id)
-        if isinstance(launch, dict) and launch.get("invites"):
-            inv = launch["invites"]
+        if isinstance(launch, dict):
+            runner._record(
+                "Launch response detail",
+                ok=True,
+                body={
+                    "ok": launch.get("ok"),
+                    "status": launch.get("status"),
+                    "message": launch.get("message"),
+                    "invites": launch.get("invites"),
+                },
+            )
+            inv = launch.get("invites") or {}
             if inv.get("errors"):
                 runner._record(
-                    "Launch invite warnings",
-                    ok=True,
-                    request={},
-                    response_body={"errors": inv.get("errors")[:5]},
+                    "Launch invite errors",
+                    ok=bool(inv.get("ok")),
+                    reason="; ".join((inv.get("errors") or [])[:5]),
+                    body=inv,
                 )
 
-        booking_token, recipient = runner.step_list_recipients(order_id)
+        booking_token, recipient = runner.step_resolve_booking_token(
+            order_id, api_root=Path(args.api_root)
+        )
         recipient_id = str(recipient.get("id") or "")
 
         page = runner.step_public_booking_page(booking_token)
-        slot = _pick_booking_slot(page, prefer_immediate=True)
-        confirm = runner.step_confirm_booking(booking_token, slot)
+        booked_slot = _pick_booking_slot(page, minutes_ahead=args.slot_minutes_ahead)
+        runner._record(
+            "Selected booking slot",
+            ok=True,
+            body={"slot": booked_slot, "minutes_ahead": args.slot_minutes_ahead},
+        )
+        confirm = runner.step_confirm_booking(booking_token, booked_slot)
         if isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
             runner._record(
                 "Booking confirmation email",
@@ -787,9 +1017,12 @@ def main() -> int:
 
         runner.step_poll_order_running(order_id, timeout_sec=120)
 
-        if args.wait_for_slot_seconds > 0:
-            print(f"\n… waiting {args.wait_for_slot_seconds}s for booked slot …")
-            time.sleep(args.wait_for_slot_seconds)
+        wait_sec = args.wait_for_slot_seconds
+        if wait_sec < 0 and booked_slot:
+            wait_sec = _seconds_until_slot(booked_slot)
+        if wait_sec > 0:
+            print(f"\n… waiting {wait_sec}s until booked slot (+ buffer) …")
+            time.sleep(wait_sec)
 
         if args.simulate_call:
             runner.step_simulate_call_local(
@@ -807,6 +1040,7 @@ def main() -> int:
         results = runner.step_interview_results(order_id)
         detail = runner.step_recipient_detail(order_id, recipient_id)
         runner.step_activity_timeline(order_id, recipient_id)
+        runner.step_fetch_report_html(order_id, recipient_id)
 
         score = (detail or {}).get("score") or ((detail or {}).get("analysis") or {}).get("score")
         candidates = (results or {}).get("candidates") or []
@@ -820,10 +1054,27 @@ def main() -> int:
         if not args.skip_stop:
             runner.step_stop_campaign(order_id)
 
-    except RuntimeError as exc:
+    except (RuntimeError, Exception) as exc:
         print(f"\nFATAL: {exc}", file=sys.stderr)
+        import traceback
+
+        traceback.print_exc()
     finally:
-        if order_id and not args.keep_order and runner.token:
+        report_path = Path(args.report_file) if args.report_file else Path(f"/tmp/voxbulk-e2e-report-{_utc_now().strftime('%Y%m%d-%H%M%S')}.json")
+        try:
+            _write_report(
+                report_path,
+                runner=runner,
+                order_id=order_id,
+                recipient_id=recipient_id,
+                booked_slot=booked_slot,
+                launch=launch if isinstance(launch, dict) else None,
+                detail=detail if isinstance(detail, dict) else None,
+            )
+        except Exception as exc:
+            print(f"Could not write report: {exc}", file=sys.stderr)
+
+        if order_id and not keep_order and runner.token:
             failed = any(not r.ok for r in runner.results)
             if failed:
                 runner._record(

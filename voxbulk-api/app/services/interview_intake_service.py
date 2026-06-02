@@ -174,6 +174,18 @@ def recipient_intake_dict(
     else:
         base["phone_call_allowed"] = False
         base["phone_call_block_reason"] = "Phone number is required"
+    tok_str = str(result_parsed.get("booking_token") or "").strip()
+    url_str = str(result_parsed.get("booking_url") or "").strip()
+    if booking_token is not None:
+        tok_str = str(getattr(booking_token, "token", "") or tok_str).strip()
+    if tok_str and not url_str:
+        from app.services.interview_booking_service import booking_url_for_token
+
+        url_str = booking_url_for_token(tok_str)
+    if tok_str:
+        base["booking_token"] = tok_str
+    if url_str:
+        base["booking_url"] = url_str
     return base
 
 
