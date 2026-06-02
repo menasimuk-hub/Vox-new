@@ -189,6 +189,46 @@ class CareerEmailService:
         )
 
     @staticmethod
+    def send_booking_confirmation_fallback(
+        db: Session,
+        *,
+        to_email: str,
+        variables: dict[str, str],
+    ) -> tuple[bool, str | None]:
+        """
+        Plain confirmation when the HTML admin template fails (oversized/broken calendar block).
+        Same From as other careers mail.
+        """
+        from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
+
+        to_addr = str(to_email or "").strip().lower()
+        if not to_addr or "@" not in to_addr:
+            return False, "missing_recipient"
+        name = str(variables.get("candidate_name") or "there").strip()
+        role = str(variables.get("role") or "Interview").strip()
+        company = str(variables.get("company_name") or "the company").strip()
+        date_line = str(variables.get("interview_date") or "").strip()
+        time_line = str(variables.get("interview_time") or "").strip()
+        subject = f"Interview confirmed — {role} on {date_line}" if date_line else f"Interview confirmed — {role}"
+        body = (
+            f"Hi {name},\n\n"
+            f"Your {role} interview at {company} is confirmed.\n\n"
+            f"Date: {date_line}\n"
+            f"Time: {time_line} UK time (GMT/BST)\n\n"
+            "We will call you on the number you provided.\n\n"
+            "Need to change your time? Use the reschedule link from your original booking message.\n\n"
+            "— VOXBULK Careers (careers@voxbulk.com)"
+        )
+        ics_url = str(variables.get("calendar_ics_url") or "").strip()
+        if ics_url:
+            body += f"\n\nAdd to calendar (ICS): {ics_url}"
+        try:
+            CareerEmailService.send(db, to_email=to_addr, subject=subject, body=body)
+            return True, None
+        except SmtpMailerError as exc:
+            return False, str(exc)
+
+    @staticmethod
     def send(
         db: Session,
         *,

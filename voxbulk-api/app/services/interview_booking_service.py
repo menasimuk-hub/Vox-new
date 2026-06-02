@@ -1171,8 +1171,9 @@ class InterviewBookingService:
         db.add(recipient)
         db.commit()
 
+        notify: dict[str, Any] = {}
         try:
-            InterviewBookingService._send_booking_confirmations(db, order, recipient, slot_start)
+            notify = InterviewBookingService._send_booking_confirmations(db, order, recipient, slot_start)
         except Exception:
             logger.exception(
                 "booking_confirm_notify_failed order_id=%s recipient_id=%s",
@@ -1185,6 +1186,9 @@ class InterviewBookingService:
             "booked_start_at": _iso_utc(slot_start),
             "booked_end_at": _iso_utc(slot_end),
             "candidate_name": recipient.name,
+            "confirmation_email_sent": bool(notify.get("confirmation_email_sent")),
+            "confirmation_email_error": notify.get("confirmation_email_error"),
+            "confirmation_wa_sent": bool(notify.get("confirmation_wa_sent")),
         }
 
     @staticmethod
@@ -1251,7 +1255,7 @@ class InterviewBookingService:
         order: ServiceOrder,
         recipient: ServiceOrderRecipient,
         slot_start: datetime,
-    ) -> None:
+    ) -> dict[str, Any]:
         config = _order_config(order)
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
@@ -1259,56 +1263,108 @@ class InterviewBookingService:
         time_line = _format_slot_time(slot_start)
         first = _first_name(recipient.name)
         token = InterviewBookingService._booking_token_for_recipient(db, order, recipient)
-        calendar_vars: dict[str, str] = {}
+        calendar_vars: dict[str, str] = {"calendar_links_html": ""}
         if token:
-            from app.services.interview_calendar_service import build_interview_calendar_variables
+            try:
+                from app.services.interview_calendar_service import build_interview_calendar_variables
 
-            calendar_vars = build_interview_calendar_variables(
-                token=token,
-                slot_start=slot_start,
-                slot_end=slot_start + timedelta(minutes=interview_slot_minutes()),
-                role=role,
-                company_name=company_name,
-            )
+                calendar_vars = build_interview_calendar_variables(
+                    token=token,
+                    slot_start=slot_start,
+                    slot_end=slot_start + timedelta(minutes=interview_slot_minutes()),
+                    role=role,
+                    company_name=company_name,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "booking_confirm_calendar_vars_failed",
+                    extra={"order_id": order.id, "recipient_id": recipient.id, "error": str(exc)},
+                )
 
-        if recipient.email:
-            sent_ok = False
+        base_variables = {
+            "candidate_name": recipient.name or "there",
+            "role": role,
+            "company_name": company_name,
+            "interview_date": date_line,
+            "interview_time": time_line,
+            **calendar_vars,
+        }
+
+        outreach_email = _recipient_outreach_email(recipient)
+        email_sent = False
+        email_error: str | None = None
+        if outreach_email:
+            if outreach_email != str(recipient.email or "").strip().lower():
+                recipient.email = outreach_email
+                db.add(recipient)
             try:
                 sent_ok, err = CareerEmailService.send_templated_critical(
                     db,
                     template_key="interview_booking_confirm",
-                    to_email=str(recipient.email).strip(),
-                    variables={
-                        "candidate_name": recipient.name or "there",
-                        "role": role,
-                        "company_name": company_name,
-                        "interview_date": date_line,
-                        "interview_time": time_line,
-                        **calendar_vars,
-                    },
+                    to_email=outreach_email,
+                    variables=base_variables,
                 )
                 if not sent_ok:
+                    email_error = err or "send_failed"
                     logger.warning(
                         "booking_confirm_email_failed",
-                        extra={"recipient_id": recipient.id, "error": err},
+                        extra={
+                            "order_id": order.id,
+                            "recipient_id": recipient.id,
+                            "to": outreach_email,
+                            "error": err,
+                        },
                     )
+                    sent_ok, err2 = CareerEmailService.send_booking_confirmation_fallback(
+                        db,
+                        to_email=outreach_email,
+                        variables=base_variables,
+                    )
+                    if sent_ok:
+                        email_error = None
+                    elif err2:
+                        email_error = err2
+                email_sent = sent_ok
             except Exception as exc:
+                email_error = str(exc)
                 logger.exception(
                     "booking_confirm_email_error",
-                    extra={"recipient_id": recipient.id, "error": str(exc)},
+                    extra={"order_id": order.id, "recipient_id": recipient.id},
                 )
-            if sent_ok:
+            if email_sent:
                 merged = _recipient_result(recipient)
                 merged["confirmation_email_sent_at"] = _now().isoformat()
+                merged.pop("confirmation_email_failed", None)
                 recipient.result_json = json.dumps(merged, ensure_ascii=False)
                 db.add(recipient)
                 db.commit()
+            elif email_error:
+                merged = _recipient_result(recipient)
+                merged["confirmation_email_failed"] = email_error
+                recipient.result_json = json.dumps(merged, ensure_ascii=False)
+                db.add(recipient)
+                db.commit()
+        else:
+            email_error = "no_recipient_email"
+            logger.warning(
+                "booking_confirm_no_email",
+                extra={"order_id": order.id, "recipient_id": recipient.id},
+            )
 
+        wa_sent = False
         if not recipient.phone:
-            return
+            return {
+                "confirmation_email_sent": email_sent,
+                "confirmation_email_error": email_error,
+                "confirmation_wa_sent": wa_sent,
+            }
         confirm_row = InterviewBookingService.resolve_confirmation_template(db, order)
         if confirm_row is None:
-            return
+            return {
+                "confirmation_email_sent": email_sent,
+                "confirmation_email_error": email_error,
+                "confirmation_wa_sent": wa_sent,
+            }
         components = InterviewBookingService.build_confirmation_components(
             confirm_row,
             candidate_name=recipient.name or "Candidate",
@@ -1330,6 +1386,7 @@ class InterviewBookingService:
                 org_id=order.org_id,
             )
             if result.ok:
+                wa_sent = True
                 TelnyxMessagingService.log_outbound(
                     db,
                     org_id=order.org_id,
@@ -1346,6 +1403,12 @@ class InterviewBookingService:
         except Exception:
             pass
 
+        return {
+            "confirmation_email_sent": email_sent,
+            "confirmation_email_error": email_error,
+            "confirmation_wa_sent": wa_sent,
+        }
+
     @staticmethod
     def _send_booking_cancellation(
         db: Session,
@@ -1360,7 +1423,8 @@ class InterviewBookingService:
         date_line = _format_slot_date(slot_start)
         time_line = _format_slot_time(slot_start)
 
-        if not recipient.email:
+        outreach_email = _recipient_outreach_email(recipient)
+        if not outreach_email:
             return False
         variables = {
             "candidate_name": recipient.name or "there",
@@ -1373,7 +1437,7 @@ class InterviewBookingService:
             sent_ok, err = CareerEmailService.send_templated_critical(
                 db,
                 template_key="interview_booking_cancel",
-                to_email=str(recipient.email).strip(),
+                to_email=outreach_email,
                 variables=variables,
             )
             if sent_ok:
@@ -1831,11 +1895,14 @@ class InterviewBookingService:
         db.add(recipient)
         db.commit()
 
-        InterviewBookingService._send_booking_confirmations(db, order, recipient, slot_start)
+        notify = InterviewBookingService._send_booking_confirmations(db, order, recipient, slot_start)
 
         return {
             "ok": True,
             "rescheduled": True,
+            "confirmation_email_sent": bool(notify.get("confirmation_email_sent")),
+            "confirmation_email_error": notify.get("confirmation_email_error"),
+            "confirmation_wa_sent": bool(notify.get("confirmation_wa_sent")),
             "booked_start_at": _iso_utc(slot_start),
             "booked_end_at": _iso_utc(slot_end),
             "candidate_name": recipient.name,

@@ -67,13 +67,10 @@ def cta_button(*, href: str, label: str) -> str:
 
 
 def _calendar_icon_url(name: str) -> str:
-    """PNG icons for confirmation emails — same pattern as EMAIL_LOGO_URL (our API, not SVG/CDN)."""
-    from app.services.brand_assets import asset_data_uri, public_brand_url
+    """HTTPS PNG URLs for calendar buttons (avoid large data: URIs that break SMTP/HTML)."""
+    from app.services.brand_assets import api_public_origin, public_brand_url
 
-    data = asset_data_uri(name)
-    if data:
-        return data
-    return public_brand_url("https://api.voxbulk.com", name)
+    return public_brand_url(api_public_origin(), f"{name}.png")
 
 
 def calendar_links_html(*, google_url: str, outlook_url: str, ics_url: str) -> str:
