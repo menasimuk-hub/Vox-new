@@ -174,11 +174,27 @@ export function useServiceOrder(orderId: string | null) {
   });
 }
 
+export function invalidateInterviewOrderQueries(qc: ReturnType<typeof useQueryClient>, orderId?: string | null) {
+  void qc.invalidateQueries({ queryKey: ["service-orders"] });
+  void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
+  void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
+  if (orderId) {
+    void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(orderId) });
+    void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
+    void qc.invalidateQueries({ queryKey: queryKeys.interviewResults(orderId) });
+  }
+}
+
 export function useInterviewResults(orderId: string | null) {
   return useQuery({
     queryKey: queryKeys.interviewResults(orderId || ""),
     queryFn: () => apiFetch<Record<string, unknown>>(`/service-orders/${encodeURIComponent(orderId!)}/interview-results`),
     enabled: Boolean(orderId),
+    refetchInterval: (query) => {
+      const status = String((query.state.data?.order as { status?: string } | undefined)?.status || "").toLowerCase();
+      if (["running", "scheduled", "paid"].includes(status)) return 8000;
+      return false;
+    },
   });
 }
 
@@ -271,7 +287,13 @@ export function useInterviewDraft(options?: { orderId?: string | null }) {
       ),
     enabled: Boolean(orderId),
     staleTime: 5_000,
-    refetchOnMount: false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => {
+      const status = String(query.state.data?.order?.status || "").toLowerCase();
+      if (["running", "scheduled", "paid"].includes(status)) return 8000;
+      return false;
+    },
     placeholderData: (previous) => previous,
   });
 }
@@ -365,9 +387,7 @@ export function useStopInterviewCampaign() {
         body: JSON.stringify({ reason: reason || "Stopped by user" }),
       }),
     onSuccess: (order) => {
-      void qc.invalidateQueries({ queryKey: ["service-orders"] });
-      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(order.id) });
-      void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
+      invalidateInterviewOrderQueries(qc, order.id);
     },
   });
 }
@@ -604,8 +624,7 @@ export function useLaunchInterviewCampaign(orderId: string | null) {
         },
       ),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
-      if (orderId) void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
+      invalidateInterviewOrderQueries(qc, orderId);
     },
   });
 }
@@ -631,10 +650,7 @@ export function useSendInterviewBookingInvites(orderId: string | null) {
       );
     },
     onSuccess: () => {
-      if (orderId) {
-        void qc.invalidateQueries({ queryKey: queryKeys.interviewResults(orderId) });
-        void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
-      }
+      invalidateInterviewOrderQueries(qc, orderId);
     },
   });
 }

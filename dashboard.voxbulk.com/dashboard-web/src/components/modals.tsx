@@ -725,10 +725,8 @@ export function InterviewPreviewQuoteModal({
     setLaunchActionError(null);
     setLaunching(true);
     try {
-      const ok = await onLaunch();
-      if (ok !== false) {
-        onOpenChange(false);
-      }
+      await onLaunch();
+      onOpenChange(false);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not launch campaign";
       setLaunchActionError(message);

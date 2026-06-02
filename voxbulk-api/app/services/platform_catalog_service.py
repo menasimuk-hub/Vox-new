@@ -1224,7 +1224,8 @@ class ServiceOrderService:
                     db,
                     order,
                     reason=notify_reason,
-                    include_uninvited=not had_prior_outreach,
+                    include_uninvited=True,
+                    notify_all_with_email=True,
                 )
                 cfg_stop = {}
                 try:

@@ -1491,7 +1491,7 @@ class InterviewBookingService:
         date_line = _format_slot_date(slot_start)
         time_line = _format_slot_time(slot_start)
 
-        outreach_email = _recipient_outreach_email(recipient)
+        outreach_email = _persist_recipient_outreach_email(db, recipient)
         if not outreach_email:
             return False
         variables = {
@@ -1611,6 +1611,7 @@ class InterviewBookingService:
         *,
         reason: str | None = None,
         include_uninvited: bool = False,
+        notify_all_with_email: bool = False,
     ) -> dict[str, Any]:
         """Email (and optional WhatsApp) candidates when the employer closes a campaign."""
         if order.service_code != "interview":
@@ -1653,12 +1654,18 @@ class InterviewBookingService:
                 )
                 .limit(1)
             ).scalar_one_or_none()
-            if not include_uninvited and not recipient_received_booking_outreach(recipient, token_row):
+            if (
+                not notify_all_with_email
+                and not include_uninvited
+                and not recipient_received_booking_outreach(recipient, token_row)
+            ):
                 skipped += 1
                 continue
 
-            outreach_email = _recipient_outreach_email(recipient)
-            if include_uninvited and not outreach_email and not recipient.phone:
+            outreach_email = _persist_recipient_outreach_email(db, recipient)
+            if not outreach_email:
+                if notify_all_with_email or include_uninvited:
+                    errors.append(f"{recipient.name or recipient.id}: no email for cancellation notice")
                 skipped += 1
                 continue
 

@@ -123,11 +123,10 @@ class InterviewLaunchService:
         launch_channels = [str(c).strip().lower() for c in (channels or ["email", "whatsapp"]) if str(c).strip()]
         wants_email = "email" in launch_channels
         dispatch_ok = bool((dispatch or {}).get("ok"))
-        # Do not report launch OK when email was requested but zero messages went out.
-        if wants_email and email_n == 0 and wa_n == 0:
+        if wants_email and email_n < 1:
             dispatch_ok = False
-        elif wants_email and email_n == 0 and wa_n > 0:
-            dispatch_ok = False
+        elif not wants_email:
+            dispatch_ok = wa_n > 0 or dispatch_ok
         return {
             "ok": dispatch_ok if invite_result is not None else True,
             "order_id": order.id,

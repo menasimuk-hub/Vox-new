@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
 import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
+import { notifyInterviewLaunch, type InterviewLaunchResult } from "@/lib/interviewLaunchFeedback";
 import { isInterviewCampaignReadOnly, interviewCampaignReadOnlyLabel } from "@/lib/interview-campaign";
 import { extractQuestionsBlock, mergeQuestionsIntoScript } from "@/lib/interview-script";
 
@@ -52,6 +52,7 @@ import {
   useSaveInterviewDraft,
   useSendInterviewBookingInvites,
   useCreateNewInterviewDraft,
+  invalidateInterviewOrderQueries,
 } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/interviews/new")({
@@ -529,8 +530,24 @@ function CreateInterview() {
     });
 
   const refreshDraft = () => {
-    void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
-    if (orderId) void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
+    invalidateInterviewOrderQueries(qc, orderId);
+  };
+
+  const completeLaunchSuccess = async (result: InterviewLaunchResult) => {
+    const emailN = Number(result?.invites?.email_sent ?? 0);
+    if (result?.ok === false || emailN < 1) {
+      notifyInterviewLaunch(result);
+      throw new Error(result?.message || "Launch failed — no invite email was sent.");
+    }
+    setPreview(false);
+    setPayBusy(false);
+    notifyInterviewLaunch(result);
+    invalidateInterviewOrderQueries(qc, orderId);
+    await navigate({
+      to: "/interviews/results/$orderId",
+      params: { orderId: orderId! },
+      search: { launched: "1" },
+    });
   };
 
   const onEditRecipientPhone = async (recipientId: string, currentPhone: string) => {
@@ -1091,14 +1108,7 @@ function CreateInterview() {
     try {
       await onSaveDraft(true);
       const result = await launchM.mutateAsync();
-      setPreview(false);
-      notifyInterviewLaunch(result);
-      refreshDraft();
-      void navigate({
-        to: "/interviews/results/$orderId",
-        params: { orderId },
-        search: { launched: "1" },
-      });
+      await completeLaunchSuccess(result);
       return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not launch campaign";
@@ -1821,8 +1831,7 @@ function CreateInterview() {
               void (async () => {
                 try {
                   const result = await launchM.mutateAsync();
-                  notifyInterviewLaunch(result);
-                  refreshDraft();
+                  await completeLaunchSuccess(result);
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : "Could not launch campaign");
                 }
