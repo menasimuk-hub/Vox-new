@@ -39,6 +39,7 @@ class SmtpMailerService:
         attachments: list[dict[str, Any]] | None = None,
         from_email: str | None = None,
         from_name: str | None = None,
+        reply_to: str | None = None,
     ) -> None:
         row = SmtpSettingsService.get_row(db)
         configured, missing = SmtpSettingsService.compute_status(row)
@@ -66,6 +67,9 @@ class SmtpMailerService:
         msg["Subject"] = subject
         msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
         msg["To"] = to_addr
+        reply = str(reply_to or "").strip()
+        if reply and "@" in reply:
+            msg["Reply-To"] = reply
         if html:
             plain = _html_to_plain(body)
             if not plain:
@@ -138,6 +142,7 @@ class SmtpMailerService:
         attachments: list[dict[str, Any]] | None = None,
         from_email: str | None = None,
         from_name: str | None = None,
+        reply_to: str | None = None,
     ) -> None:
         SmtpMailerService._send_message(
             db,
@@ -148,6 +153,7 @@ class SmtpMailerService:
             attachments=attachments,
             from_email=from_email,
             from_name=from_name,
+            reply_to=reply_to,
         )
 
     @staticmethod
@@ -160,6 +166,7 @@ class SmtpMailerService:
         attachments: list[dict[str, Any]] | None = None,
         from_email: str | None = None,
         from_name: str | None = None,
+        reply_to: str | None = None,
     ) -> None:
         """Send message with text/html MIME (for DB-backed templates that store HTML)."""
         SmtpMailerService._send_message(
@@ -171,4 +178,5 @@ class SmtpMailerService:
             attachments=attachments,
             from_email=from_email,
             from_name=from_name,
+            reply_to=reply_to,
         )

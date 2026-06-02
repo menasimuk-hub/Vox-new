@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder
-from app.services.interview_booking_service import InterviewBookingService
+from app.services.interview_booking_service import InterviewBookingService, ensure_full_day_booking_window
 from app.services.interview_billing_context import org_interview_billing_context, plan_allows_cv_email
 from app.services.gocardless_service import BillingService
 from app.services.platform_catalog_service import ServiceOrderService
@@ -93,22 +93,14 @@ class InterviewLaunchService:
         if delivery == "ai_call":
             if not order.scheduled_start_at or not order.scheduled_end_at:
                 raise ValueError("Set the calling window (start and end) before launch")
-            order = InterviewBookingService.ensure_full_day_booking_window(db, order)
-            dispatch = config.get("last_invite_dispatch")
-            dispatch_ok = isinstance(dispatch, dict) and bool(dispatch.get("ok"))
-            needs_invites = (
-                resend_invites
-                or not config.get("booking_invites_sent_at")
-                or not dispatch_ok
-                or InterviewBookingService.recipients_pending_invite_email(db, order)
+            order = ensure_full_day_booking_window(db, order)
+            # Always dispatch on launch so email is not skipped after a prior WA-only or failed email run.
+            invite_result = InterviewBookingService.send_invites(
+                db,
+                order,
+                channels=list(channels or ["email", "whatsapp"]),
+                force_resend=resend_invites,
             )
-            if needs_invites:
-                invite_result = InterviewBookingService.send_invites(
-                    db,
-                    order,
-                    channels=list(channels or ["email", "whatsapp"]),
-                    force_resend=resend_invites,
-                )
             config = _order_config(order)
             config["require_booking"] = config.get("require_booking", True) is not False
             config["booking_flow"] = "whatsapp_slot"
@@ -147,7 +139,7 @@ class InterviewLaunchService:
             if delivery and not delivery.get("can_send_email"):
                 missing = delivery.get("smtp_missing_fields") or []
                 hint = (
-                    " Enable SMTP in Admin → Email (or set RESEND_API_KEY / Resend integration)."
+                    " Enable SMTP in Admin → Email and use the same From address as send-test."
                     + (f" Missing SMTP: {', '.join(missing)}" if missing else "")
                 )
             return f"No booking invites were sent — check candidate email/phone and email settings.{hint}"

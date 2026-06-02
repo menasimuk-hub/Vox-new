@@ -1,4 +1,4 @@
-"""Career / interview email must send when SMTP fails if Resend is configured."""
+"""Career / interview email uses admin SMTP From (same as template send-test)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.career_email_service import CareerEmailService
+from app.services.career_email_service import CareerEmailService, smtp_from_address
 
 
 def test_send_templated_critical_uses_defaults_when_template_disabled(monkeypatch):
@@ -36,26 +36,20 @@ def test_send_templated_critical_uses_defaults_when_template_disabled(monkeypatc
     send_plain.assert_called_once()
 
 
-def test_send_falls_back_to_resend_when_smtp_fails(monkeypatch):
+def test_send_uses_smtp_from_and_reply_to(monkeypatch):
     db = MagicMock()
     monkeypatch.setattr(
-        "app.services.career_email_service._resend_api_key",
-        lambda _db: "re_test_key",
+        "app.services.career_email_service.smtp_from_address",
+        lambda _db: ("VoxBulk", "noreply@voxbulk.com"),
     )
     monkeypatch.setattr(
-        "app.services.career_email_service.careers_from_address",
-        lambda _db: ("VOXBULK Careers", "careers@voxbulk.com"),
+        "app.services.career_email_service.careers_reply_to",
+        lambda _db: "careers@voxbulk.com",
     )
+    send_html = MagicMock()
     monkeypatch.setattr(
         "app.services.career_email_service.SmtpMailerService.send_html",
-        MagicMock(side_effect=__import__(
-            "app.services.smtp_mailer_service", fromlist=["SmtpMailerError"]
-        ).SmtpMailerError("SMTP is disabled")),
-    )
-    resend_send = MagicMock(return_value={"ok": True, "email_id": "em_1"})
-    monkeypatch.setattr(
-        "app.services.resend_service.ResendService.send_email",
-        resend_send,
+        send_html,
     )
     CareerEmailService.send(
         db,
@@ -63,4 +57,7 @@ def test_send_falls_back_to_resend_when_smtp_fails(monkeypatch):
         subject="Test",
         body="<p>Hello</p>",
     )
-    resend_send.assert_called_once()
+    send_html.assert_called_once()
+    kwargs = send_html.call_args.kwargs
+    assert kwargs["from_email"] == "noreply@voxbulk.com"
+    assert kwargs["reply_to"] == "careers@voxbulk.com"

@@ -726,7 +726,7 @@ export function InterviewPreviewQuoteModal({
     setLaunching(true);
     try {
       const ok = await onLaunch();
-      if (ok) {
+      if (ok !== false) {
         onOpenChange(false);
       }
     } catch (e) {

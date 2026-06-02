@@ -1083,7 +1083,9 @@ function CreateInterview() {
       throw new Error("Save your draft before launch");
     }
     if (launchErrors.length > 0) {
-      return false;
+      const msg = launchErrors.length === 1 ? launchErrors[0] : launchErrors.join(" · ");
+      toast.error(msg);
+      throw new Error(msg);
     }
     setPayBusy(true);
     try {
@@ -1092,7 +1094,11 @@ function CreateInterview() {
       setPreview(false);
       notifyInterviewLaunch(result);
       refreshDraft();
-      scrollToLaunchStatus();
+      void navigate({
+        to: "/interviews/results/$orderId",
+        params: { orderId },
+        search: { launched: "1" },
+      });
       return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not launch campaign";

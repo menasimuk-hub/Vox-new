@@ -1886,11 +1886,17 @@ class InterviewBookingService:
 
             if "email" in use_channels and recipient.email:
                 merged_check = _recipient_result(recipient)
-                if merged_check.get("invite_email_sent_at") and not force_resend:
+                already_sent = (
+                    merged_check.get("invite_email_sent_at")
+                    and not merged_check.get("invite_email_failed")
+                    and not force_resend
+                )
+                if already_sent:
                     recipient_email_sent = True
                 else:
                     if force_resend:
                         merged_check.pop("invite_email_sent_at", None)
+                        merged_check.pop("invite_email_failed", None)
                     try:
                         sent_ok, err = CareerEmailService.send_templated_critical(
                             db,
@@ -1906,10 +1912,18 @@ class InterviewBookingService:
                         if sent_ok:
                             email_sent += 1
                             recipient_email_sent = True
-                        elif err:
-                            errors.append(f"Email {recipient.email}: {err}")
+                            merged_check.pop("invite_email_failed", None)
+                        else:
+                            merged_check["invite_email_failed"] = err or "send_failed"
+                            merged_check.pop("invite_email_sent_at", None)
+                            if err:
+                                errors.append(f"Email {recipient.email}: {err}")
                     except Exception as exc:
+                        merged_check["invite_email_failed"] = str(exc)
+                        merged_check.pop("invite_email_sent_at", None)
                         errors.append(f"Email {recipient.email}: {exc}")
+                    recipient.result_json = json.dumps(merged_check, ensure_ascii=False)
+                    db.add(recipient)
 
             if "whatsapp" in use_channels and recipient.phone:
                 if token_row.wa_sent_at and not force_resend:
