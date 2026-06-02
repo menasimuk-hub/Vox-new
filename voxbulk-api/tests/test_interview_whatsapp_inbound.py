@@ -13,6 +13,7 @@ from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.user import User
+from app.services.interview_booking_service import SLOT_MINUTES
 from app.services.interview_whatsapp_inbound_service import (
     find_active_booking_context,
     handle_inbound_reply,
@@ -60,7 +61,7 @@ def _seed_booking(db, *, booked: bool = False):
         token="wa-test-" + uuid.uuid4().hex,
         wa_sent_at=now,
         booked_start_at=slot if booked else None,
-        booked_end_at=slot + timedelta(minutes=30) if booked else None,
+        booked_end_at=slot + timedelta(minutes=SLOT_MINUTES) if booked else None,
     )
     db.add(token)
     db.commit()
@@ -111,7 +112,7 @@ def test_handle_cancel_booking(monkeypatch):
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
+        "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
         lambda db, **kwargs: fake_email(db, **kwargs),
     )
 

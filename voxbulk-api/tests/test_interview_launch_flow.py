@@ -12,6 +12,7 @@ from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.user import User
+from app.services.interview_booking_service import SLOT_MINUTES
 from app.services.interview_call_dispatch_service import _recipient_eligible_for_dial
 from app.services.interview_launch_service import InterviewLaunchService
 
@@ -83,7 +84,7 @@ def test_dial_eligible_only_when_booked_slot_due():
         _, order, recipient, token = _seed_interview(db)
         now = datetime.utcnow()
 
-        token.booked_start_at = now + timedelta(minutes=30)
+        token.booked_start_at = now + timedelta(minutes=SLOT_MINUTES)
         db.add(token)
         db.commit()
 

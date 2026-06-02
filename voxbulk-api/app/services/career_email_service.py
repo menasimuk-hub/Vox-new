@@ -66,32 +66,34 @@ class CareerEmailService:
         variables: dict[str, str],
         attachments: list[dict[str, Any]] | None = None,
     ) -> tuple[bool, str | None]:
-        """Send interview email; fall back to code default if admin disabled the template."""
+        """Send interview email; fall back to code default if admin template fails."""
         import logging
 
         from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
 
         logger = logging.getLogger(__name__)
+        to_addr = str(to_email or "").strip().lower()
+        if not to_addr:
+            return False, "missing_recipient"
+
         sent_ok, err = CareerEmailService.send_templated_optional(
             db,
             template_key=template_key,
-            to_email=to_email,
+            to_email=to_addr,
             variables=variables,
             attachments=attachments,
         )
         if sent_ok:
             return True, None
-        if err not in {"template_disabled", "empty_template"}:
-            return False, err
-        defaults = SYSTEM_EMAIL_DEFAULTS.get(str(template_key or "").strip().lower(), {})
+
+        k = str(template_key or "").strip().lower()
+        defaults = SYSTEM_EMAIL_DEFAULTS.get(k, {})
         subject_tpl = str(defaults.get("subject") or "").strip()
         body_tpl = str(defaults.get("body") or "").strip()
         if not subject_tpl and not body_tpl:
             return False, err or "empty_template"
-        to_addr = str(to_email or "").strip().lower()
-        if not to_addr:
-            return False, "missing_recipient"
-        subject = substitute_placeholders(subject_tpl, variables).strip() or template_key.replace("_", " ").title()
+
+        subject = substitute_placeholders(subject_tpl, variables).strip() or k.replace("_", " ").title()
         body = substitute_placeholders(body_tpl, variables)
         try:
             CareerEmailService.send(db, to_email=to_addr, subject=subject, body=body, attachments=attachments)

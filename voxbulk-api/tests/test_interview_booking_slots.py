@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from app.services.interview_booking_service import (
     BOOKING_HOURS_END,
+    SLOT_MINUTES,
     _filter_slots_to_calling_hours,
     _slot_starts,
 )
@@ -19,7 +20,7 @@ def test_slot_starts_respects_window_end():
     end = datetime(2026, 6, 15, 18, 0, 0)
     slots = _slot_starts(start, end)
     assert slots
-    assert slots[-1] + timedelta(minutes=30) <= end
+    assert slots[-1] + timedelta(minutes=SLOT_MINUTES) <= end
 
 
 def test_filter_slots_caps_at_1730_uk_winter(monkeypatch):
@@ -45,6 +46,5 @@ def test_filter_slots_caps_at_1730_uk_winter(monkeypatch):
     assert filtered
     last = filtered[-1]
     uk = last.replace(tzinfo=timezone.utc).astimezone(UK_TZ)
-    assert uk.time() <= time(17, 0)
-    slot_end = uk + timedelta(minutes=30)
+    slot_end = uk + timedelta(minutes=SLOT_MINUTES)
     assert slot_end.time() <= time(*BOOKING_HOURS_END)

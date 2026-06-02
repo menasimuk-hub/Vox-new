@@ -50,7 +50,7 @@ from app.services.telnyx_whatsapp_template_sync_service import (
     template_to_dict,
 )
 
-SLOT_MINUTES = 30
+SLOT_MINUTES = 10
 BOOKING_HOURS_START = (9, 0)
 BOOKING_HOURS_END = (17, 30)
 VOICE_TERMINAL = frozenset(
@@ -899,6 +899,7 @@ class InterviewBookingService:
 
         closed_message = _order_booking_closed_message(order, db)
         if closed_message:
+            has_booking = row.booked_start_at is not None
             return {
                 "token": row.token,
                 "candidate_name": recipient.name or "Candidate",
@@ -912,10 +913,10 @@ class InterviewBookingService:
                 "booked_end_at": _iso_utc(row.booked_end_at),
                 "window_start": _iso_utc(order.scheduled_start_at),
                 "window_end": _iso_utc(order.scheduled_end_at),
-                "already_booked": row.booked_start_at is not None,
+                "already_booked": has_booking,
                 "cancelled_at": None,
-                "can_reschedule": False,
-                "can_cancel": False,
+                "can_reschedule": has_booking,
+                "can_cancel": has_booking,
                 **_booking_display_meta(),
             }
 
@@ -1509,7 +1510,6 @@ class InterviewBookingService:
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
 
-        _assert_order_accepts_booking(db, order)
         _assert_booking_allowed(recipient)
 
         if row.booked_start_at is None:

@@ -15,7 +15,7 @@ from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.user import User
-from app.services.interview_booking_service import InterviewBookingService
+from app.services.interview_booking_service import InterviewBookingService, SLOT_MINUTES
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +70,7 @@ def _seed_booked_candidate(db):
         org_id=org.id,
         token=f"tok-{uuid.uuid4().hex}",
         booked_start_at=slot,
-        booked_end_at=slot + timedelta(minutes=30),
+        booked_end_at=slot + timedelta(minutes=SLOT_MINUTES),
     )
     db.add(token)
     db.commit()
@@ -84,6 +84,43 @@ def test_booking_cancel_email_uses_critical_fallback(monkeypatch):
         monkeypatch.setattr(
             "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
             lambda *a, **k: (False, "template_disabled"),
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send",
+            send_plain,
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.InterviewBookingService._send_booking_cancellation_whatsapp",
+            lambda *a, **k: False,
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.InterviewBookingService._hangup_active_call_if_any",
+            lambda *a, **k: None,
+        )
+
+        token_row = db.execute(
+            __import__("sqlalchemy").select(InterviewBookingToken).where(
+                InterviewBookingToken.recipient_id == recipient.id
+            )
+        ).scalar_one()
+
+        result = InterviewBookingService.cancel_booking(db, token=token_row.token, source="web")
+
+        assert result.get("cancellation_email_sent") is True
+        send_plain.assert_called_once()
+        assert "interview" in str(send_plain.call_args.kwargs.get("subject") or "").lower() or "cancel" in str(
+            send_plain.call_args.kwargs.get("subject") or ""
+        ).lower()
+
+
+def test_booking_cancel_email_falls_back_on_smtp_error(monkeypatch):
+    """Broken admin template SMTP error must still send code-default cancel email."""
+    with get_sessionmaker()() as db:
+        order, recipient, slot = _seed_booked_candidate(db)
+        send_plain = MagicMock()
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
+            lambda *a, **k: (False, "SMTP connection refused"),
         )
         monkeypatch.setattr(
             "app.services.interview_booking_service.CareerEmailService.send",

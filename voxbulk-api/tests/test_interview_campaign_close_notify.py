@@ -18,6 +18,7 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.user import User
 from app.services.interview_booking_service import (
     InterviewBookingService,
+    SLOT_MINUTES,
     campaign_invites_were_sent,
     recipient_received_booking_outreach,
 )
@@ -221,7 +222,7 @@ def test_notify_email_both_wa_only_booked(monkeypatch):
                 org_id=org.id,
                 token=f"tok-booked-{uuid.uuid4().hex[:8]}",
                 booked_start_at=slot,
-                booked_end_at=slot + timedelta(minutes=30),
+                booked_end_at=slot + timedelta(minutes=SLOT_MINUTES),
                 wa_sent_at=datetime.utcnow(),
             )
         )
@@ -320,7 +321,7 @@ def test_stop_order_notifies_pending_booked_candidate_before_cancelling(monkeypa
                 org_id=order.org_id,
                 token=f"tok-stop-{uuid.uuid4().hex[:8]}",
                 booked_start_at=slot,
-                booked_end_at=slot + timedelta(minutes=30),
+                booked_end_at=slot + timedelta(minutes=SLOT_MINUTES),
                 wa_sent_at=datetime.utcnow(),
             )
         )

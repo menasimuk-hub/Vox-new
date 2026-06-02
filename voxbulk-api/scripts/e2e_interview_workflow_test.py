@@ -50,6 +50,31 @@ RUN (VPS — use python3; `python` is often not installed on Ubuntu)
 
   # Also send interview emails during the test (invite + confirm + stop):
   python3 scripts/e2e_interview_workflow_test.py --send-test-emails --no-simulate-call
+
+──────────────────────────────────────────────────────────────────────────────
+MANUAL BOOKING (skip waiting — pick your own slot)
+──────────────────────────────────────────────────────────────────────────────
+
+  After launch, each recipient has a booking_token (recipients API or invite link).
+
+  1) List available 10-minute slots:
+     curl -s "https://api.voxbulk.com/public/interview-booking/TOKEN" | jq .available_slots
+
+  2) Confirm a slot (must be one of available_slots):
+     curl -s -X POST "https://api.voxbulk.com/public/interview-booking/TOKEN/confirm" \\
+       -H "Content-Type: application/json" \\
+       -d '{"slot_start_at":"2026-06-02T14:10:00Z"}'
+
+  Or use the dashboard booking page: https://dashboard.voxbulk.com/book/TOKEN
+
+  E2E script — book nearest slot (~1 min wait with 10m grid):
+     python3 scripts/e2e_interview_workflow_test.py --slot-minutes-ahead 0
+
+  E2E script — exact slot (no auto-pick):
+     python3 scripts/e2e_interview_workflow_test.py --slot-start-at "2026-06-02T14:10:00Z"
+
+  Skip auto-wait before dial (you already passed slot time):
+     python3 scripts/e2e_interview_workflow_test.py --wait-for-slot-seconds 0
 """
 
 from __future__ import annotations
@@ -766,11 +791,11 @@ class WorkflowRunner:
         return 0 if not failed else 1
 
 
-def _pick_booking_slot(page: dict[str, Any], *, minutes_ahead: int = 3) -> str:
+def _pick_booking_slot(page: dict[str, Any], *, minutes_ahead: int = 1) -> str:
     slots = [str(s) for s in (page.get("available_slots") or []) if s]
     if not slots:
         raise RuntimeError("No available booking slots — widen calling window or check booking hours")
-    target = _utc_now() + timedelta(minutes=max(1, minutes_ahead))
+    target = _utc_now() + timedelta(minutes=max(0, minutes_ahead))
     parsed: list[tuple[datetime, str]] = []
     for slot in slots:
         try:
@@ -813,7 +838,17 @@ def main() -> int:
         help="Send invite/confirm/stop emails during test (default: WhatsApp-only invites so SMTP stays free)",
     )
     parser.add_argument("--wait-for-slot-seconds", type=int, default=-1, help="Sleep before dial (-1 = auto from booked slot)")
-    parser.add_argument("--slot-minutes-ahead", type=int, default=3, help="Book slot this many minutes from now")
+    parser.add_argument(
+        "--slot-start-at",
+        default="",
+        help="Book this exact slot (ISO UTC, e.g. 2026-06-02T14:10:00Z) — skips auto-pick",
+    )
+    parser.add_argument(
+        "--slot-minutes-ahead",
+        type=int,
+        default=1,
+        help="Auto-pick first slot at least this many minutes from now (default 1; use 0 for nearest slot)",
+    )
     parser.add_argument("--wait-for-real-call-seconds", type=int, default=300)
     parser.add_argument("--skip-stop", action="store_true", help="Skip stop step (default: skip when email-safe)")
     parser.add_argument("--delete-order", action="store_true", help="Delete order after run (default: keep for debugging)")
@@ -898,12 +933,20 @@ def main() -> int:
         recipient_id = str(recipient.get("id") or "")
 
         page = runner.step_public_booking_page(booking_token)
-        booked_slot = _pick_booking_slot(page, minutes_ahead=args.slot_minutes_ahead)
-        runner._record(
-            "Selected booking slot",
-            ok=True,
-            body={"slot": booked_slot, "minutes_ahead": args.slot_minutes_ahead},
-        )
+        if args.slot_start_at.strip():
+            booked_slot = args.slot_start_at.strip()
+            runner._record(
+                "Selected booking slot (manual)",
+                ok=True,
+                body={"slot": booked_slot, "source": "--slot-start-at"},
+            )
+        else:
+            booked_slot = _pick_booking_slot(page, minutes_ahead=args.slot_minutes_ahead)
+            runner._record(
+                "Selected booking slot",
+                ok=True,
+                body={"slot": booked_slot, "minutes_ahead": args.slot_minutes_ahead},
+            )
         confirm = runner.step_confirm_booking(booking_token, booked_slot)
         if args.send_test_emails and isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
             runner._record(
