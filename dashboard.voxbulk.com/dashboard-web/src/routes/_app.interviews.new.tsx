@@ -22,6 +22,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
 import { formatQuoteDisplay } from "@/lib/billing/market";
@@ -417,21 +427,43 @@ function CreateInterview() {
 
   const candidates = React.useMemo<CandidateRow[]>(() => {
     const rows = draftQ.data?.recipients || [];
-    return rows.map((r) => ({
-      id: String(r.id || r.phone || r.name),
-      name: String(r.name || "Candidate"),
-      phone: String(r.phone || ""),
-      email: String(r.email || ""),
-      source: String(r.intake_source || r.source || "Upload"),
-      cvFilename: r.cv_filename ? String(r.cv_filename) : null,
-      ats: r.ats_score != null ? Number(r.ats_score) : null,
-      atsStatus: String(r.ats_status || ""),
-      status: String(r.status || ""),
-      activityStatus: String(r.activity_status || ""),
-      phoneCallAllowed: r.phone_call_allowed !== false,
-      phoneCallBlockReason: r.phone_call_block_reason ? String(r.phone_call_block_reason) : null,
-    }));
+    return rows
+      .filter((r) => Boolean(r.id))
+      .map((r) => ({
+        id: String(r.id),
+        name: String(r.name || "Candidate"),
+        phone: String(r.phone || ""),
+        email: String(r.email || ""),
+        source: String(r.intake_source || r.source || "Upload"),
+        cvFilename: r.cv_filename ? String(r.cv_filename) : null,
+        ats: r.ats_score != null ? Number(r.ats_score) : null,
+        atsStatus: String(r.ats_status || ""),
+        status: String(r.status || ""),
+        activityStatus: String(r.activity_status || ""),
+        phoneCallAllowed: r.phone_call_allowed !== false,
+        phoneCallBlockReason: r.phone_call_block_reason ? String(r.phone_call_block_reason) : null,
+      }));
   }, [draftQ.data?.recipients]);
+
+  const candidatesLocked =
+    String(order?.payment_status || "").toLowerCase() === "approved" ||
+    ["running", "completed", "cancelled"].includes(orderStatus);
+
+  const [deleteDialog, setDeleteDialog] = React.useState<{
+    open: boolean;
+    mode: "single" | "bulk";
+    ids: string[];
+    label?: string;
+  }>({ open: false, mode: "single", ids: [] });
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    setSelected((prev) => {
+      const valid = new Set(candidates.map((c) => c.id));
+      const next = new Set([...prev].filter((id) => valid.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [candidates]);
 
   const atsInProgress = React.useMemo(
     () =>
@@ -484,39 +516,56 @@ function CreateInterview() {
     }
   };
 
-  const onDeleteRecipient = async (recipientId: string) => {
+  const onDeleteRecipient = (recipientId: string, candidateName?: string) => {
     if (!orderId) return;
-    if (!window.confirm("Remove this candidate from the list?")) return;
+    if (candidatesLocked) {
+      toast.error("Candidates cannot be removed after payment or once the campaign is running.");
+      return;
+    }
+    setDeleteDialog({ open: true, mode: "single", ids: [recipientId], label: candidateName });
+  };
+
+  const onDeleteSelected = () => {
+    if (!orderId || selected.size === 0) return;
+    if (candidatesLocked) {
+      toast.error("Candidates cannot be removed after payment or once the campaign is running.");
+      return;
+    }
+    setDeleteDialog({ open: true, mode: "bulk", ids: [...selected] });
+  };
+
+  const executeDeleteCandidates = async () => {
+    if (!orderId || deleteDialog.ids.length === 0) return;
+    setDeleteBusy(true);
+    const ids = deleteDialog.ids;
     try {
-      await apiFetch(`/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(recipientId)}`, {
-        method: "DELETE",
-      });
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          apiFetch(`/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(id)}`, {
+            method: "DELETE",
+          }),
+        ),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      const removed = results.length - failed;
       setSelected((prev) => {
         const next = new Set(prev);
-        next.delete(recipientId);
+        ids.forEach((id) => next.delete(id));
         return next;
       });
       refreshDraft();
-      toast.success("Candidate removed");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not remove candidate");
-    }
-  };
-
-  const onDeleteSelected = async () => {
-    if (!orderId || selected.size === 0) return;
-    if (!window.confirm(`Remove ${selected.size} selected candidate(s)?`)) return;
-    try {
-      for (const id of selected) {
-        await apiFetch(`/service-orders/${encodeURIComponent(orderId)}/recipients/${encodeURIComponent(id)}`, {
-          method: "DELETE",
-        });
+      setDeleteDialog({ open: false, mode: "single", ids: [] });
+      if (removed === 0) {
+        toast.error("Could not remove candidate(s)");
+      } else if (failed > 0) {
+        toast.error(`Removed ${removed} of ${ids.length} — some could not be deleted`);
+      } else {
+        toast.success(removed === 1 ? "Candidate removed" : `${removed} candidates removed`);
       }
-      setSelected(new Set());
-      refreshDraft();
-      toast.success("Selected candidates removed");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not remove candidates");
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -1197,9 +1246,10 @@ function CreateInterview() {
                     variant="outline"
                     size="sm"
                     className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive animate-fade-in"
-                    onClick={() => void onDeleteSelected()}
+                    disabled={candidatesLocked || deleteBusy}
+                    onClick={onDeleteSelected}
                   >
-                    <Trash2 className="size-3.5" /> Delete selected
+                    <Trash2 className="size-3.5" /> Delete selected ({selected.size})
                   </Button>
                 )}
                 {atsRunAt && (
@@ -1346,7 +1396,9 @@ function CreateInterview() {
                             variant="ghost"
                             className="size-8 text-destructive hover:text-destructive"
                             aria-label="Delete"
-                            onClick={() => void onDeleteRecipient(r.id)}
+                            disabled={candidatesLocked || deleteBusy}
+                            title={candidatesLocked ? "Cannot remove after payment or launch" : "Remove candidate"}
+                            onClick={() => onDeleteRecipient(r.id, r.name)}
                           >
                             <Trash2 className="size-4" />
                           </Button>
@@ -1630,6 +1682,50 @@ function CreateInterview() {
         recipientId={activityCandidate?.id ?? null}
         candidateName={activityCandidate?.name}
       />
+
+      <AlertDialog
+        open={deleteDialog.open}
+        onOpenChange={(open) => {
+          if (!deleteBusy) setDeleteDialog((prev) => ({ ...prev, open }));
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteDialog.mode === "bulk"
+                ? `Remove ${deleteDialog.ids.length} candidate${deleteDialog.ids.length === 1 ? "" : "s"}?`
+                : "Remove this candidate?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteDialog.mode === "bulk" ? (
+                <>
+                  This will permanently remove {deleteDialog.ids.length} selected candidate
+                  {deleteDialog.ids.length === 1 ? "" : "s"} from this interview. Their CV will be deleted from the
+                  list — this cannot be undone.
+                </>
+              ) : (
+                <>
+                  <strong className="text-foreground">{deleteDialog.label || "This candidate"}</strong> will be
+                  removed from the interview list. Their CV file will be deleted — this cannot be undone.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteBusy}
+              onClick={(e) => {
+                e.preventDefault();
+                void executeDeleteCandidates();
+              }}
+            >
+              {deleteBusy ? "Removing…" : deleteDialog.mode === "bulk" ? "Remove selected" : "Remove candidate"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
