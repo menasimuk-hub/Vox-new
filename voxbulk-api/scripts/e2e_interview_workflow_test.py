@@ -143,14 +143,16 @@ class WorkflowRunner:
         request: dict[str, Any] | None = None,
         status: int | None = None,
         body: Any = None,
+        response_body: Any = None,
     ) -> StepResult:
+        payload = response_body if response_body is not None else body
         step = StepResult(
             name=name,
             ok=ok,
             reason=reason,
             request=request or {},
             response_status=status,
-            response_body=body,
+            response_body=payload,
         )
         self._print_step(step)
         return step
@@ -362,12 +364,12 @@ class WorkflowRunner:
         )
 
     def step_pay_and_approve(self, order_id: str, billing: dict[str, Any]) -> None:
-        if billing.get("has_active_subscription") or billing.get("cv_email_allowed"):
+        if billing.get("has_active_subscription"):
             self._record(
-                "Payment (skipped — active package/subscription)",
+                "Payment (skipped — active subscription/package)",
                 ok=True,
                 request={"note": "launch will auto-approve via subscription"},
-                response_body=billing,
+                body=billing,
             )
             return
 
@@ -822,19 +824,27 @@ def main() -> int:
         print(f"\nFATAL: {exc}", file=sys.stderr)
     finally:
         if order_id and not args.keep_order and runner.token:
-            try:
-                _, body = runner._request("GET", f"/service-orders/{order_id}", token=runner.token)
-                st = str((body or {}).get("status") or "").lower() if isinstance(body, dict) else ""
-                if st in {"cancelled", "completed", "draft", "quoted", "paid", "scheduled"}:
-                    runner.step_delete_order(order_id)
-                else:
-                    runner._record(
-                        "Delete test order (cleanup)",
-                        ok=True,
-                        reason=f"Skipped delete — order still {st!r} (use --keep-order to retain)",
-                    )
-            except Exception as exc:
-                runner._record("Delete test order (cleanup)", ok=False, reason=str(exc))
+            failed = any(not r.ok for r in runner.results)
+            if failed:
+                runner._record(
+                    "Delete test order (cleanup)",
+                    ok=True,
+                    reason=f"Skipped — test had failures; order {order_id} kept for debugging (or delete manually)",
+                )
+            else:
+                try:
+                    _, body = runner._request("GET", f"/service-orders/{order_id}", token=runner.token)
+                    st = str((body or {}).get("status") or "").lower() if isinstance(body, dict) else ""
+                    if st in {"cancelled", "completed", "draft", "quoted", "paid", "scheduled"}:
+                        runner.step_delete_order(order_id)
+                    else:
+                        runner._record(
+                            "Delete test order (cleanup)",
+                            ok=True,
+                            reason=f"Skipped delete — order still {st!r} (use --keep-order to retain)",
+                        )
+                except Exception as exc:
+                    runner._record("Delete test order (cleanup)", ok=False, reason=str(exc))
 
     return runner.summary()
 
