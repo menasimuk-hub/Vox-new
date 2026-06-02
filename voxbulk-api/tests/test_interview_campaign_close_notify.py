@@ -291,3 +291,110 @@ def test_send_invites_rejected_when_campaign_finished():
 
         with pytest.raises(ValueError, match="finished"):
             InterviewBookingService.send_invites(db, order, force_resend=True)
+
+
+def test_stop_order_notifies_pending_booked_candidate_before_cancelling(monkeypatch):
+    """Employer stop must email + WhatsApp booked candidates still marked pending."""
+    with get_sessionmaker()() as db:
+        order, recipient = _seed_draft_with_recipient(db)
+        order.status = "running"
+        order.payment_status = "approved"
+        order.scheduled_start_at = datetime.utcnow()
+        order.scheduled_end_at = datetime.utcnow() + timedelta(hours=4)
+        order.config_json = json.dumps(
+            {
+                "role": "Engineer",
+                "booking_invites_sent_at": datetime.utcnow().isoformat(),
+                "last_invite_dispatch": {"ok": True},
+            }
+        )
+        recipient.result_json = json.dumps({"invite_email_sent_at": datetime.utcnow().isoformat()})
+        slot = datetime.utcnow() + timedelta(hours=1)
+        db.add(order)
+        db.add(recipient)
+        db.flush()
+        db.add(
+            InterviewBookingToken(
+                order_id=order.id,
+                recipient_id=recipient.id,
+                org_id=order.org_id,
+                token=f"tok-stop-{uuid.uuid4().hex[:8]}",
+                booked_start_at=slot,
+                booked_end_at=slot + timedelta(minutes=30),
+                wa_sent_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+
+        send_wa = MagicMock()
+        send_wa.return_value = MagicMock(ok=True, message_id="msg-stop")
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.TelnyxMessagingService.send_whatsapp",
+            send_wa,
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.TelnyxMessagingService.log_outbound",
+            lambda *a, **k: None,
+        )
+        email_calls: list[str] = []
+
+        def _capture_critical(db, *, template_key, to_email, variables, attachments=None):
+            email_calls.append(template_key)
+            return True, None
+
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
+            _capture_critical,
+        )
+
+        from app.services.platform_catalog_service import ServiceOrderService
+
+        ServiceOrderService.stop_order(db, order, reason="Stopped for testing")
+        db.refresh(recipient)
+
+        assert "interview_campaign_cancelled" in email_calls
+        assert send_wa.call_count == 1
+        assert str(recipient.status or "").lower() == "cancelled"
+
+
+def test_notify_campaign_closed_email_uses_critical_fallback_when_template_disabled(monkeypatch):
+    """Disabled admin template must still send closure email via system default."""
+    with get_sessionmaker()() as db:
+        order, recipient = _seed_draft_with_recipient(db)
+        order.status = "running"
+        order.payment_status = "approved"
+        order.config_json = json.dumps(
+            {
+                "role": "Engineer",
+                "booking_invites_sent_at": datetime.utcnow().isoformat(),
+                "last_invite_dispatch": {"ok": True},
+            }
+        )
+        recipient.result_json = json.dumps({"invite_email_sent_at": datetime.utcnow().isoformat()})
+        db.add(order)
+        db.add(recipient)
+        db.flush()
+        db.add(
+            InterviewBookingToken(
+                order_id=order.id,
+                recipient_id=recipient.id,
+                org_id=order.org_id,
+                token=f"tok-email-{uuid.uuid4().hex[:8]}",
+                wa_sent_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+
+        send_plain = MagicMock()
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
+            lambda *a, **k: (False, "template_disabled"),
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send",
+            send_plain,
+        )
+
+        result = InterviewBookingService.notify_campaign_closed(db, order)
+        assert result.get("email_sent") == 1
+        send_plain.assert_called_once()

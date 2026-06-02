@@ -1181,16 +1181,6 @@ class ServiceOrderService:
         if order.status not in {"running", "paused", "scheduled", "paid"}:
             raise ValueError("Survey is not active")
         now = datetime.utcnow()
-        recipients = ServiceOrderService.get_recipients(db, order.id)
-        for recipient in recipients:
-            if str(recipient.status or "pending").lower() in {"pending", "calling"}:
-                recipient.status = "cancelled"
-                db.add(recipient)
-        order.status = "cancelled" if order.started_at else "cancelled"
-        if not order.started_at and order.payment_status == "approved":
-            order.status = "cancelled"
-        order.completed_at = now
-        order.updated_at = now
         note = (reason or "").strip()
         if note:
             order.admin_decision_note = note
@@ -1204,6 +1194,9 @@ class ServiceOrderService:
         if note:
             cfg["booking_closed_reason"] = note
         order.config_json = json.dumps(cfg, ensure_ascii=False)
+        order.status = "cancelled"
+        order.completed_at = now
+        order.updated_at = now
         db.add(order)
         db.commit()
         db.refresh(order)
@@ -1223,6 +1216,13 @@ class ServiceOrderService:
                 logging.getLogger(__name__).exception(
                     "interview_campaign_cancel_notify_failed order_id=%s", order.id
                 )
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        for recipient in recipients:
+            if str(recipient.status or "pending").lower() in {"pending", "calling"}:
+                recipient.status = "cancelled"
+                db.add(recipient)
+        db.commit()
+        db.refresh(order)
         return order
 
     @staticmethod

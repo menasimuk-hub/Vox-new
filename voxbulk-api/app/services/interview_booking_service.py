@@ -1221,7 +1221,7 @@ class InterviewBookingService:
             "interview_time": time_line,
         }
         try:
-            sent_ok, err = CareerEmailService.send_templated_optional(
+            sent_ok, err = CareerEmailService.send_templated_critical(
                 db,
                 template_key="interview_booking_cancel",
                 to_email=str(recipient.email).strip(),
@@ -1234,19 +1234,7 @@ class InterviewBookingService:
                     "booking_cancel_email_failed",
                     extra={"recipient_id": recipient.id, "error": err},
                 )
-                return False
-            plain = (
-                f"Hi {variables['candidate_name']},\n\n"
-                f"Your {role} interview at {company_name} on {date_line} at {time_line} has been cancelled.\n\n"
-                f"You will not receive an AI call, booking link, or any further emails or messages about this job.\n"
-            )
-            CareerEmailService.send(
-                db,
-                to_email=str(recipient.email).strip(),
-                subject=f"Interview cancelled — {role} at {company_name}",
-                body=plain,
-            )
-            return True
+            return False
         except Exception:
             logger.exception(
                 "booking_cancel_email_error",
@@ -1400,7 +1388,7 @@ class InterviewBookingService:
             recipient_wa_sent = False
             if recipient.email:
                 try:
-                    sent_ok, err = CareerEmailService.send_templated_optional(
+                    sent_ok, err = CareerEmailService.send_templated_critical(
                         db,
                         template_key="interview_campaign_cancelled",
                         to_email=str(recipient.email).strip(),
@@ -1413,20 +1401,15 @@ class InterviewBookingService:
                     )
                     if sent_ok:
                         recipient_email_sent = True
-                    elif not err:
-                        plain = (
-                            f"Hi {recipient.name or 'there'},\n\n"
-                            f"The {role} position at {company_name} is no longer running interviews.\n"
-                            f"{closure_reason}\n\n"
-                            f"Your booking link is closed. You will not receive any further messages about this job.\n"
+                    elif err:
+                        logger.warning(
+                            "campaign_cancel_email_failed",
+                            extra={
+                                "recipient_id": recipient.id,
+                                "order_id": order.id,
+                                "error": err,
+                            },
                         )
-                        CareerEmailService.send(
-                            db,
-                            to_email=str(recipient.email).strip(),
-                            subject=f"{role} at {company_name} — campaign closed",
-                            body=plain,
-                        )
-                        recipient_email_sent = True
                 except Exception:
                     logger.exception(
                         "campaign_cancel_email_error",
