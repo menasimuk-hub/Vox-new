@@ -74,6 +74,50 @@ def interview_relax_restrictions() -> bool:
         return False
 
 
+FULL_DAY_BOOKING_HOURS = 24
+
+
+def booking_window_bounds(
+    order: ServiceOrder,
+    *,
+    now: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    """UTC window used to generate bookable slots (may extend to 24h when relax mode is on)."""
+    start = order.scheduled_start_at
+    end = order.scheduled_end_at
+    if start is None or end is None:
+        raise ValueError("Interview schedule is not configured")
+    if not interview_relax_restrictions():
+        return start, end
+    min_end = start + timedelta(hours=FULL_DAY_BOOKING_HOURS)
+    if end < min_end:
+        end = min_end
+    return start, end
+
+
+def ensure_full_day_booking_window(db: Session, order: ServiceOrder) -> ServiceOrder:
+    """When relax mode is on, persist at least a 24-hour booking window on the order."""
+    if not interview_relax_restrictions():
+        return order
+    start = order.scheduled_start_at
+    end = order.scheduled_end_at
+    if start is None or end is None:
+        return order
+    min_end = start + timedelta(hours=FULL_DAY_BOOKING_HOURS)
+    if end >= min_end:
+        return order
+    order.scheduled_end_at = min_end
+    order.updated_at = _now()
+    config = _order_config(order)
+    config["calling_window_end_at"] = _iso_utc(min_end) or min_end.isoformat()
+    config["booking_full_day_hours"] = FULL_DAY_BOOKING_HOURS
+    order.config_json = json.dumps(config, ensure_ascii=False)
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
+
+
 BOOKING_HOURS_START = (9, 0)
 BOOKING_HOURS_END = (17, 30)
 VOICE_TERMINAL = frozenset(
@@ -993,7 +1037,8 @@ class InterviewBookingService:
         cancelled_at = merged.get("booking_cancelled_at")
 
         booked = _booked_starts(db, order.id, exclude_token_id=row.id)
-        raw_slots = _slot_starts(order.scheduled_start_at, order.scheduled_end_at, now=now)
+        win_start, win_end = booking_window_bounds(order, now=now)
+        raw_slots = _slot_starts(win_start, win_end, now=now)
         filtered = _filter_slots_to_calling_hours(db, order, raw_slots)
         available = [
             start
@@ -1012,8 +1057,8 @@ class InterviewBookingService:
             "available_slots": [_iso_utc(s) for s in available],
             "booked_start_at": _iso_utc(row.booked_start_at),
             "booked_end_at": _iso_utc(row.booked_end_at),
-            "window_start": _iso_utc(order.scheduled_start_at),
-            "window_end": _iso_utc(order.scheduled_end_at),
+            "window_start": _iso_utc(win_start),
+            "window_end": _iso_utc(win_end),
             "already_booked": row.booked_start_at is not None,
             "cancelled_at": str(cancelled_at) if cancelled_at else None,
             "can_reschedule": row.booked_start_at is not None,
@@ -1049,10 +1094,11 @@ class InterviewBookingService:
             raise ValueError("Invalid slot time") from exc
 
         slot_end = slot_start + timedelta(minutes=interview_slot_minutes())
-        if slot_start < order.scheduled_start_at or slot_end > order.scheduled_end_at:
+        now = _now()
+        win_start, win_end = booking_window_bounds(order, now=now)
+        if slot_start < win_start or slot_end > win_end:
             raise ValueError("Selected time is outside the interview window")
 
-        now = _now()
         if slot_start < now:
             raise ValueError("Selected time is in the past")
 
@@ -1060,13 +1106,13 @@ class InterviewBookingService:
             _filter_slots_to_calling_hours(
                 db,
                 order,
-                _slot_starts(order.scheduled_start_at, order.scheduled_end_at, now=now),
+                _slot_starts(win_start, win_end, now=now),
             )
         )
         if slot_start not in allowed_slots:
             in_window = (
-                slot_start >= order.scheduled_start_at
-                and slot_start + timedelta(minutes=interview_slot_minutes()) <= order.scheduled_end_at
+                slot_start >= win_start
+                and slot_start + timedelta(minutes=interview_slot_minutes()) <= win_end
             )
             if in_window:
                 raise ValueError(
@@ -1689,10 +1735,11 @@ class InterviewBookingService:
             raise ValueError("Invalid slot time") from exc
 
         slot_end = slot_start + timedelta(minutes=interview_slot_minutes())
-        if slot_start < order.scheduled_start_at or slot_end > order.scheduled_end_at:
+        now = _now()
+        win_start, win_end = booking_window_bounds(order, now=now)
+        if slot_start < win_start or slot_end > win_end:
             raise ValueError("Selected time is outside the interview window")
 
-        now = _now()
         if slot_start < now:
             raise ValueError("Selected time is in the past")
 
@@ -1700,13 +1747,13 @@ class InterviewBookingService:
             _filter_slots_to_calling_hours(
                 db,
                 order,
-                _slot_starts(order.scheduled_start_at, order.scheduled_end_at, now=now),
+                _slot_starts(win_start, win_end, now=now),
             )
         )
         if slot_start not in allowed_slots:
             in_window = (
-                slot_start >= order.scheduled_start_at
-                and slot_start + timedelta(minutes=interview_slot_minutes()) <= order.scheduled_end_at
+                slot_start >= win_start
+                and slot_start + timedelta(minutes=interview_slot_minutes()) <= win_end
             )
             if in_window:
                 raise ValueError(

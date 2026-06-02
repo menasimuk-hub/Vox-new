@@ -53,7 +53,17 @@ INTERVIEW_RELAX_HOURS=1
 BOOKING_APP_ORIGIN=https://dashboard.voxbulk.com
 ```
 
-`INTERVIEW_RELAX_HOURS=1` (temporary): 4-minute slots for the full campaign window, no 9:00–17:30 booking cap, and AI calls allowed outside org calling hours. Remove in production.
+**4-minute slots, 24 hours a day (testing):**
+
+| Setting | Effect |
+|---------|--------|
+| `INTERVIEW_SLOT_MINUTES=4` | Booking grid every 4 minutes |
+| `INTERVIEW_RELAX_HOURS=1` | No 9:00–17:30 UK cap; AI can dial anytime |
+| Launch | API extends calling end to **at least 24h** after start if the window was shorter |
+
+In the dashboard, set **Calling start** to now (or today 00:00) and **Calling end** at least 24h later — launch will auto-extend the end time when relax mode is on.
+
+Restart API after changing `.env`.
 
 Restart API after changing env.
 

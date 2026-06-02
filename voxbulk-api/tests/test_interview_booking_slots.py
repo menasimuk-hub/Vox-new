@@ -73,6 +73,23 @@ def test_filter_slots_caps_at_1730_uk_winter(monkeypatch):
     assert slot_end.time() <= time(*BOOKING_HOURS_END)
 
 
+def test_booking_window_extends_to_24h_when_relaxed(monkeypatch):
+    monkeypatch.setenv("INTERVIEW_RELAX_HOURS", "1")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    order = MagicMock()
+    start = datetime(2026, 6, 15, 8, 0, 0)
+    order.scheduled_start_at = start
+    order.scheduled_end_at = start + timedelta(hours=6)
+    win_start, win_end = __import__(
+        "app.services.interview_booking_service", fromlist=["booking_window_bounds"]
+    ).booking_window_bounds(order)
+    assert win_start == start
+    assert win_end == start + timedelta(hours=24)
+    get_settings.cache_clear()
+
+
 def test_filter_slots_skips_hour_cap_when_relaxed(monkeypatch):
     monkeypatch.setenv("INTERVIEW_RELAX_HOURS", "1")
     from app.core.config import get_settings

@@ -93,6 +93,7 @@ class InterviewLaunchService:
         if delivery == "ai_call":
             if not order.scheduled_start_at or not order.scheduled_end_at:
                 raise ValueError("Set the calling window (start and end) before launch")
+            order = InterviewBookingService.ensure_full_day_booking_window(db, order)
             dispatch = config.get("last_invite_dispatch")
             dispatch_ok = isinstance(dispatch, dict) and bool(dispatch.get("ok"))
             needs_invites = (
