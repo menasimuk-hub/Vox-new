@@ -387,15 +387,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                       {isLive ? (
                         <>
                           <TableCell className="text-xs">
-                            <div className="space-y-0.5">
-                              <StatusBadge tone={activityStatusTone(c.activity_status)}>{c.bookingStatus}</StatusBadge>
-                              {c.booked_start_at ? (
-                                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                                  <CalendarClock className="size-3.5" />
-                                  {c.bookingTime} UK
-                                </span>
-                              ) : null}
-                            </div>
+                            <StatusBadge tone={activityStatusTone(c.activity_status)}>{c.bookingStatus}</StatusBadge>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{c.phone}</TableCell>
                           <TableCell className="text-xs">

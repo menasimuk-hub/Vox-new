@@ -132,9 +132,11 @@ function fmtTime(iso: string) {
 
     return parseUtc(iso).toLocaleTimeString("en-GB", {
 
-      hour: "2-digit",
+      hour: "numeric",
 
       minute: "2-digit",
+
+      hour12: true,
 
       timeZone: BOOKING_TZ,
 
@@ -417,7 +419,7 @@ function CalendarSlotPicker({
 
             <p className="mt-1 text-xs text-muted-foreground">
 
-              {data.calling_hours_label || "09:00–17:30 UK time (GMT/BST)"}
+              {data.calling_hours_label || "9:00 am – 5:30 pm UK time"}
 
             </p>
 
@@ -463,7 +465,7 @@ function CalendarSlotPicker({
 
                     </span>
 
-                    <span className="mt-1 text-lg font-semibold tabular-nums tracking-tight">{fmtTime(slot)}</span>
+                    <span className="mt-1 text-lg font-semibold tabular-nums tracking-tight">{fmtTime(slot)} UK</span>
 
                   </button>
 

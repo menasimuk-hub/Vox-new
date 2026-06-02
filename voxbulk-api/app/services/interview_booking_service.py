@@ -250,6 +250,13 @@ def _filter_slots_to_calling_hours(
     return out
 
 
+def _assert_slot_within_booking_hours(db: Session, order: ServiceOrder, slot_start: datetime) -> None:
+    """Reject any slot outside 09:00–17:30 UK (Ofcom calling window)."""
+    allowed = _filter_slots_to_calling_hours(db, order, [slot_start])
+    if not allowed:
+        raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
+
+
 def _booked_starts(db: Session, order_id: str, *, exclude_token_id: str | None = None) -> set[datetime]:
     q = select(InterviewBookingToken.booked_start_at, InterviewBookingToken.id).where(
         InterviewBookingToken.order_id == order_id,
@@ -326,7 +333,7 @@ def _booking_display_meta() -> dict[str, str]:
     end = f"{BOOKING_HOURS_END[0]:02d}:{BOOKING_HOURS_END[1]:02d}"
     return {
         "display_timezone": "Europe/London",
-        "calling_hours_label": f"{start}–{end} UK time (GMT/BST)",
+        "calling_hours_label": f"{start}–{end} UK time (9:00 am – 5:30 pm)",
     }
 
 
@@ -973,7 +980,9 @@ class InterviewBookingService:
             )
         )
         if slot_start not in allowed_slots:
-            raise ValueError("Selected time is outside calling hours (09:00–17:30)")
+            raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
+
+        _assert_slot_within_booking_hours(db, order, slot_start)
 
         booked = _booked_starts(db, order.id)
         if slot_start in booked:
@@ -1375,8 +1384,10 @@ class InterviewBookingService:
                 skipped += 1
                 continue
 
+            had_booked_slot = token_row is not None and token_row.booked_start_at is not None
+
             InterviewBookingService._hangup_active_call_if_any(db, order, recipient)
-            if token_row is not None and token_row.booked_start_at is not None:
+            if had_booked_slot and token_row is not None:
                 token_row.booked_start_at = None
                 token_row.booked_end_at = None
                 token_row.updated_at = _now()
@@ -1419,7 +1430,8 @@ class InterviewBookingService:
                         extra={"recipient_id": recipient.id, "order_id": order.id},
                     )
 
-            if recipient.phone:
+            # WhatsApp costs per message — only notify candidates who had a booked slot.
+            if recipient.phone and had_booked_slot:
                 first = _first_name(recipient.name)
                 fallback_body = (
                     f"Hi {first}, the {role} role at {company_name} is no longer available. "
@@ -1619,7 +1631,9 @@ class InterviewBookingService:
             )
         )
         if slot_start not in allowed_slots:
-            raise ValueError("Selected time is outside calling hours (09:00–17:30)")
+            raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
+
+        _assert_slot_within_booking_hours(db, order, slot_start)
 
         if row.booked_start_at == slot_start:
             raise ValueError("You are already booked for that time")
