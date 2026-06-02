@@ -133,7 +133,7 @@ def test_handle_cancel_booking(monkeypatch):
         db.refresh(token)
         db.refresh(recipient)
         assert token.booked_start_at is None
-        assert recipient.status == "cancelled"
+        assert recipient.status == "pending"
         assert sent and "cancelled" in sent[0].lower()
         assert "will not receive" in sent[0].lower()
         assert "interview_booking_cancel" in emails
@@ -185,16 +185,35 @@ def test_handle_cancel_uses_stored_invite_booking_url(monkeypatch):
         assert "will not receive" in sent[0].lower()
 
 
-def test_confirm_booking_blocked_after_cancel():
+def test_confirm_booking_after_cancel_with_aligned_slot(monkeypatch):
+    from app.services.interview_booking_service import (
+        _filter_slots_to_calling_hours,
+        _slot_starts,
+        booking_window_bounds,
+    )
+
+    monkeypatch.setattr(
+        "app.services.interview_booking_service.interview_relax_restrictions",
+        lambda: True,
+    )
+
     with get_sessionmaker()() as db:
         org, order, recipient, token = _seed_booking(db, booked=True)
+        order.scheduled_end_at = datetime.utcnow() + timedelta(days=2)
+        db.add(order)
+        db.commit()
         InterviewBookingService.cancel_booking(db, token.token, source="whatsapp")
-        slot = (datetime.utcnow() + timedelta(hours=2)).isoformat()
-        try:
-            InterviewBookingService.confirm_booking(db, token.token, slot)
-            assert False, "expected confirm to fail after cancel"
-        except ValueError as exc:
-            assert "cancelled" in str(exc).lower()
+        db.refresh(token)
+        assert token.booked_start_at is None
+        now = datetime.utcnow()
+        win_start, win_end = booking_window_bounds(order, now=now)
+        slots = _filter_slots_to_calling_hours(db, order, _slot_starts(win_start, win_end, now=now))
+        assert slots, "expected at least one bookable slot after cancel"
+        slot_iso = slots[0].isoformat() + "Z"
+        result = InterviewBookingService.confirm_booking(db, token.token, slot_iso)
+        assert result.get("ok") is True
+        db.refresh(token)
+        assert token.booked_start_at is not None
 
 
 def test_handle_reschedule_sends_link(monkeypatch):

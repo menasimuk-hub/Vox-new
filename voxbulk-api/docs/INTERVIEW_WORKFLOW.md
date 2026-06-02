@@ -86,6 +86,24 @@ All use `CareerEmailService.send_templated_critical` (admin template, then code 
 
 Stop campaign requires proof of outreach: `booking_invites_sent_at`, `last_invite_dispatch`, or per-candidate `invite_email_sent_at` / `booking_url` / WA token.
 
+## VPS audit (after deploy)
+
+```bash
+cd /www/voxbulk/voxbulk-api
+source .venv/bin/activate
+python3 scripts/vps_interview_audit.py --check-api
+```
+
+Fix any `FAIL` lines before testing launch in the dashboard.
+
+Full HTTP E2E (set `VOXBULK_EMAIL`, `VOXBULK_PASSWORD`, candidate phone on Telnyx allowlist):
+
+```bash
+export VOXBULK_API_BASE_URL="https://api.voxbulk.com"
+bash scripts/e2e_interview_workflow_test.sh
+# optional: --send-test-emails
+```
+
 ## Before pushing to GitHub
 
 1. Run tests: `pytest tests/test_interview_booking_slots.py tests/test_interview_calendar_service.py -q`
