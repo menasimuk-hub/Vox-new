@@ -193,6 +193,33 @@ def _assert_interview_draft(order: ServiceOrder) -> None:
         raise ValueError("Cannot change candidates while campaign is active or finished")
 
 
+def _order_config(order: ServiceOrder) -> dict[str, Any]:
+    parsed = _loads_json(order.config_json)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _booking_invites_sent(order: ServiceOrder) -> bool:
+    cfg = _order_config(order)
+    if not cfg.get("booking_invites_sent_at"):
+        return False
+    dispatch = cfg.get("last_invite_dispatch")
+    if isinstance(dispatch, dict) and dispatch.get("ok") is False:
+        return False
+    return True
+
+
+def _assert_can_delete_intake_recipient(order: ServiceOrder, recipient: ServiceOrderRecipient) -> None:
+    if order.service_code != "interview":
+        raise ValueError("Only interview orders support CV intake")
+    if order.status in {"running", "completed", "cancelled"}:
+        raise ValueError("Cannot remove candidates while the campaign is active or finished")
+    if _booking_invites_sent(order):
+        raise ValueError("Cannot remove candidates after booking invites have been sent")
+    terminal = {"completed", "done", "calling", "in_progress", "ringing"}
+    if str(recipient.status or "").strip().lower() in terminal:
+        raise ValueError("Cannot remove a candidate who has started or completed their interview")
+
+
 def get_latest_interview_draft(db: Session, *, org_id: str) -> ServiceOrder | None:
     """Return the most recent in-progress draft that has saved content (do not purge here)."""
     from sqlalchemy import func
@@ -924,13 +951,16 @@ def update_intake_recipient(
 
 
 def delete_intake_recipient(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> ServiceOrder:
-    _assert_interview_draft(order)
+    _assert_can_delete_intake_recipient(order, recipient)
     if recipient.order_id != order.id:
         raise ValueError("Recipient does not belong to this order")
+    from app.models.interview_booking_token import InterviewBookingToken
     from app.services.career_cv_storage_service import delete_cv_file
 
+    db.execute(delete(InterviewBookingToken).where(InterviewBookingToken.recipient_id == recipient.id))
     delete_cv_file(recipient.cv_storage_key)
     db.delete(recipient)
+    db.flush()
     remaining = list(
         db.execute(
             select(ServiceOrderRecipient)

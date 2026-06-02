@@ -7,11 +7,13 @@ from docx import Document
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
-from app.models.service_order import ServiceOrder
+from app.models.interview_booking_token import InterviewBookingToken
+from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.user import User
 from app.services.interview_intake_service import (
     abandon_empty_interview_draft,
     create_new_interview_draft,
+    delete_intake_recipient,
     intake_cv_files,
     intake_mixed_files,
     interview_draft_visible_in_saved_list,
@@ -139,3 +141,70 @@ def test_interview_draft_visible_in_saved_list(db_session: Session, interview_or
     assert interview_draft_visible_in_saved_list(interview_order, recipient_count=0) is True
     interview_order.config_json = "{}"
     assert interview_draft_visible_in_saved_list(interview_order, recipient_count=2) is True
+
+
+def test_delete_intake_recipient_after_payment_before_invites(db_session: Session, interview_order: ServiceOrder):
+    recipient = ServiceOrderRecipient(
+        order_id=interview_order.id,
+        row_number=1,
+        name="Jane Doe",
+        phone="+447700900111",
+        status="pending",
+    )
+    db_session.add(recipient)
+    interview_order.payment_status = "approved"
+    interview_order.status = "paid"
+    interview_order.recipient_count = 1
+    db_session.add(interview_order)
+    db_session.commit()
+
+    delete_intake_recipient(db_session, interview_order, recipient)
+    db_session.refresh(interview_order)
+
+    assert interview_order.recipient_count == 0
+    assert db_session.get(ServiceOrderRecipient, recipient.id) is None
+
+
+def test_delete_intake_recipient_removes_booking_token(db_session: Session, interview_order: ServiceOrder):
+    recipient = ServiceOrderRecipient(
+        order_id=interview_order.id,
+        row_number=1,
+        name="Alex",
+        phone="+447700900123",
+        status="pending",
+    )
+    db_session.add(recipient)
+    db_session.flush()
+    token = InterviewBookingToken(
+        order_id=interview_order.id,
+        recipient_id=recipient.id,
+        org_id=interview_order.org_id,
+        token=f"tok-{uuid.uuid4().hex}",
+    )
+    db_session.add(token)
+    interview_order.recipient_count = 1
+    db_session.add(interview_order)
+    db_session.commit()
+
+    delete_intake_recipient(db_session, interview_order, recipient)
+    db_session.refresh(interview_order)
+
+    assert interview_order.recipient_count == 0
+    assert db_session.get(InterviewBookingToken, token.id) is None
+
+
+def test_delete_intake_recipient_blocked_after_invites_sent(db_session: Session, interview_order: ServiceOrder):
+    recipient = ServiceOrderRecipient(
+        order_id=interview_order.id,
+        row_number=1,
+        name="Alex",
+        phone="+447700900123",
+        status="pending",
+    )
+    db_session.add(recipient)
+    interview_order.config_json = '{"booking_invites_sent_at":"2026-06-01T09:00:00","last_invite_dispatch":{"ok":true}}'
+    db_session.add(interview_order)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="booking invites"):
+        delete_intake_recipient(db_session, interview_order, recipient)

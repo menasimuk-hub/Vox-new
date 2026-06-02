@@ -328,6 +328,11 @@ function CreateInterview() {
 
   const orderStatus = String(order?.status || "").toLowerCase();
   const shouldPollRecipients = ["running", "scheduled", "paused"].includes(orderStatus);
+  const lastInviteDispatch = config.last_invite_dispatch as
+    | { ok?: boolean; whatsapp_sent?: number; email_sent?: number; errors?: string[] }
+    | undefined;
+  const bookingInvitesSent =
+    Boolean(config.booking_invites_sent_at) && (lastInviteDispatch == null || lastInviteDispatch.ok !== false);
 
   React.useEffect(() => {
     if (!orderId || !shouldPollRecipients) return;
@@ -446,8 +451,7 @@ function CreateInterview() {
   }, [draftQ.data?.recipients]);
 
   const candidatesLocked =
-    String(order?.payment_status || "").toLowerCase() === "approved" ||
-    ["running", "completed", "cancelled"].includes(orderStatus);
+    ["running", "completed", "cancelled"].includes(orderStatus) || bookingInvitesSent;
 
   const [deleteDialog, setDeleteDialog] = React.useState<{
     open: boolean;
@@ -519,7 +523,11 @@ function CreateInterview() {
   const onDeleteRecipient = (recipientId: string, candidateName?: string) => {
     if (!orderId) return;
     if (candidatesLocked) {
-      toast.error("Candidates cannot be removed after payment or once the campaign is running.");
+      toast.error(
+        bookingInvitesSent
+          ? "Candidates cannot be removed after booking invites have been sent."
+          : "Candidates cannot be removed once the campaign is running or finished.",
+      );
       return;
     }
     setDeleteDialog({ open: true, mode: "single", ids: [recipientId], label: candidateName });
@@ -528,7 +536,11 @@ function CreateInterview() {
   const onDeleteSelected = () => {
     if (!orderId || selected.size === 0) return;
     if (candidatesLocked) {
-      toast.error("Candidates cannot be removed after payment or once the campaign is running.");
+      toast.error(
+        bookingInvitesSent
+          ? "Candidates cannot be removed after booking invites have been sent."
+          : "Candidates cannot be removed once the campaign is running or finished.",
+      );
       return;
     }
     setDeleteDialog({ open: true, mode: "bulk", ids: [...selected] });
@@ -546,8 +558,11 @@ function CreateInterview() {
           }),
         ),
       );
-      const failed = results.filter((r) => r.status === "rejected").length;
+      const failedResults = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+      const failed = failedResults.length;
       const removed = results.length - failed;
+      const firstError =
+        failedResults[0]?.reason instanceof Error ? failedResults[0].reason.message : undefined;
       setSelected((prev) => {
         const next = new Set(prev);
         ids.forEach((id) => next.delete(id));
@@ -556,9 +571,9 @@ function CreateInterview() {
       refreshDraft();
       setDeleteDialog({ open: false, mode: "single", ids: [] });
       if (removed === 0) {
-        toast.error("Could not remove candidate(s)");
+        toast.error(firstError || "Could not remove candidate(s)");
       } else if (failed > 0) {
-        toast.error(`Removed ${removed} of ${ids.length} — some could not be deleted`);
+        toast.error(firstError ? `${firstError} (${removed} of ${ids.length} removed)` : `Removed ${removed} of ${ids.length} — some could not be deleted`);
       } else {
         toast.success(removed === 1 ? "Candidate removed" : `${removed} candidates removed`);
       }
@@ -844,9 +859,6 @@ function CreateInterview() {
   const cvPhase = cvCollectionPhase(cvEmailActive, collectionStart, collectionEnd, config);
   const cvReadyForScreening = isCvCollectionComplete(cvEmailActive, collectionEnd, config);
   const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
-  const lastInviteDispatch = config.last_invite_dispatch as { ok?: boolean; whatsapp_sent?: number; email_sent?: number; errors?: string[] } | undefined;
-  const bookingInvitesSent =
-    Boolean(config.booking_invites_sent_at) && (lastInviteDispatch == null || lastInviteDispatch.ok !== false);
   const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
   const canResendBookingInvites = candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
   const unscoredCount = candidates.filter((c) => c.ats == null && !c.atsStatus).length;
@@ -1397,7 +1409,7 @@ function CreateInterview() {
                             className="size-8 text-destructive hover:text-destructive"
                             aria-label="Delete"
                             disabled={candidatesLocked || deleteBusy}
-                            title={candidatesLocked ? "Cannot remove after payment or launch" : "Remove candidate"}
+                            title={candidatesLocked ? "Cannot remove after invites are sent or once live" : "Remove candidate"}
                             onClick={() => onDeleteRecipient(r.id, r.name)}
                           >
                             <Trash2 className="size-4" />
