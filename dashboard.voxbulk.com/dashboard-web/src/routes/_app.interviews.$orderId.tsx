@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import * as React from "react";
-import { ExternalLink, Save } from "lucide-react";
+import { CheckCircle2, ExternalLink, Lock, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { orderToCampaign } from "@/lib/mappers/orders";
 import { isInterviewCampaignReadOnly, interviewCampaignReadOnlyLabel } from "@/lib/interview-campaign";
+import { extractQuestionsBlock, mergeQuestionsIntoScript, questionsMatchApproved } from "@/lib/interview-script";
 import { usePatchServiceOrder, useSaveInterviewDraft, useServiceOrder } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/interviews/$orderId")({
@@ -55,37 +56,68 @@ function InterviewManagePage() {
   const readOnly = isInterviewCampaignReadOnly(orderStatus);
   const locked = ["running", "paused", "scheduled"].includes(orderStatus);
 
+  const fullScriptRef = React.useRef("");
+  const approvedScriptRef = React.useRef("");
+
   const [title, setTitle] = React.useState("");
-  const [role, setRole] = React.useState("");
-  const [criteria, setCriteria] = React.useState("");
-  const [systemPrompt, setSystemPrompt] = React.useState("");
-  const [script, setScript] = React.useState("");
+  const [questions, setQuestions] = React.useState("");
   const [startAt, setStartAt] = React.useState("");
   const [endAt, setEndAt] = React.useState("");
+  const [questionsApproved, setQuestionsApproved] = React.useState(false);
 
   React.useEffect(() => {
     if (!order) return;
+    const full = String(config.approved_script || config.generated_script_draft || "");
+    const approved = String(config.approved_script || full);
+    fullScriptRef.current = full;
+    approvedScriptRef.current = approved;
     setTitle(String(order.title || config.position || config.role || ""));
-    setRole(String(config.role || ""));
-    setCriteria(String(config.criteria || config.screening_criteria || ""));
-    setSystemPrompt(String(config.system_prompt || ""));
-    setScript(String(config.approved_script || config.generated_script_draft || ""));
+    setQuestions(extractQuestionsBlock(full));
     setStartAt(toLocalInput(order.scheduled_start_at || (config.calling_window_start_at as string)));
     setEndAt(toLocalInput(order.scheduled_end_at || (config.calling_window_end_at as string)));
-  }, [order, config.approved_script, config.calling_window_end_at, config.calling_window_start_at, config.criteria, config.generated_script_draft, config.position, config.role, config.screening_criteria, config.system_prompt]);
+    const approvedOk =
+      Boolean(config.script_approved) &&
+      questionsMatchApproved(full, approved) &&
+      extractQuestionsBlock(full).trim() === extractQuestionsBlock(approved).trim();
+    setQuestionsApproved(approvedOk);
+  }, [order, config.approved_script, config.calling_window_end_at, config.calling_window_start_at, config.generated_script_draft, config.position, config.role, config.script_approved]);
+
+  const mergedScript = React.useMemo(
+    () => mergeQuestionsIntoScript(fullScriptRef.current, questions),
+    [questions],
+  );
+
+  const questionsDirty = React.useMemo(() => {
+    const baseline = extractQuestionsBlock(approvedScriptRef.current || fullScriptRef.current);
+    return questions.trim() !== baseline.trim();
+  }, [questions]);
+
+  const onApproveQuestions = () => {
+    if (!questions.trim()) {
+      toast.error("Add at least one interview question before approving");
+      return;
+    }
+    fullScriptRef.current = mergedScript;
+    approvedScriptRef.current = mergedScript;
+    setQuestionsApproved(true);
+    toast.success("Questions approved — save to apply to upcoming calls");
+  };
 
   const onSave = async () => {
     if (!order || readOnly) return;
+    if (questionsDirty && !questionsApproved) {
+      toast.error("Approve your question changes before saving");
+      return;
+    }
+    const nextScript = mergeQuestionsIntoScript(fullScriptRef.current, questions);
+    fullScriptRef.current = nextScript;
     const bodyConfig = {
       ...config,
-      role: role || title,
+      role: title,
       position: title,
-      criteria,
-      screening_criteria: criteria,
-      system_prompt: systemPrompt,
-      approved_script: script,
-      generated_script_draft: script,
-      script_approved: Boolean(config.script_approved) || Boolean(script.trim()),
+      approved_script: nextScript,
+      generated_script_draft: nextScript,
+      script_approved: questionsApproved && Boolean(nextScript.trim()),
       calling_window_start_at: toIsoFromLocal(startAt),
       calling_window_end_at: toIsoFromLocal(endAt),
     };
@@ -102,15 +134,16 @@ function InterviewManagePage() {
         await saveDraftM.mutateAsync({
           order_id: orderId,
           title: patchBody.title,
-          role: role || title,
-          criteria,
+          role: title,
+          criteria: String(config.criteria || config.screening_criteria || ""),
           config: bodyConfig,
           scheduled_start_at: patchBody.scheduled_start_at,
           scheduled_end_at: patchBody.scheduled_end_at,
         });
         await patchM.mutateAsync({ orderId, body: patchBody });
       }
-      toast.success("Interview updated");
+      approvedScriptRef.current = nextScript;
+      toast.success("Interview updated — changes apply to future calls only");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save interview");
     }
@@ -177,22 +210,24 @@ function InterviewManagePage() {
         </div>
       ) : locked ? (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
-          This interview is live — you can update the calling window, AI prompt, and interview questions. Candidate list and launch settings are locked.
+          Live interview — you can change the calling window and interview questions. Opening lines and disclosures are fixed by your AI agent. Updates apply to <strong>future calls only</strong>.
         </div>
       ) : null}
 
       <Card>
         <CardHeader>
           <CardTitle>Interview settings</CardTitle>
-          <CardDescription>Edit schedule, AI prompt, and interview questions. Changes apply to upcoming calls.</CardDescription>
+          <CardDescription>
+            Edit the calling schedule and numbered questions. Opening disclosure and intro are handled automatically — not shown here.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5">
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Interview name">
               <Input value={title} onChange={(e) => setTitle(e.target.value)} disabled={readOnly} />
             </Field>
-            <Field label="Role">
-              <Input value={role} onChange={(e) => setRole(e.target.value)} disabled={readOnly} placeholder="Job title for candidates" />
+            <Field label="Interview reference">
+              <Input value={String(interviewNumber)} readOnly disabled className="font-mono text-xs" />
             </Field>
             <Field label="Calling start">
               <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} disabled={readOnly} />
@@ -202,57 +237,56 @@ function InterviewManagePage() {
             </Field>
           </div>
 
-          <Field label="Screening criteria">
+          <Field label="Interview questions">
             <Textarea
-              rows={4}
-              value={criteria}
-              onChange={(e) => setCriteria(e.target.value)}
+              rows={12}
+              value={questions}
+              onChange={(e) => {
+                setQuestions(e.target.value);
+                setQuestionsApproved(false);
+              }}
               disabled={readOnly}
-              placeholder="What the AI should look for when scoring CVs and conducting interviews…"
+              placeholder={"1. Tell me about your experience with…\n2. How would you handle…\n3. …"}
+              className="font-mono text-sm leading-relaxed"
             />
-          </Field>
-
-          <Field label="AI system prompt">
-            <Textarea
-              rows={5}
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              disabled={readOnly}
-              placeholder="Instructions for how the AI agent should behave on the call…"
-            />
-          </Field>
-
-          <Field label="Interview questions (script)">
-            <Textarea
-              rows={10}
-              value={script}
-              onChange={(e) => setScript(e.target.value)}
-              disabled={readOnly}
-              placeholder="Questions the AI will ask during the phone interview…"
-            />
+            <p className="text-[11px] text-muted-foreground">
+              One question per line, numbered. Do not include opening disclosure or intro — those are set on the voice agent.
+            </p>
           </Field>
 
           {!readOnly ? (
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  if (!order) return;
-                  setTitle(String(order.title || ""));
-                  setRole(String(config.role || ""));
-                  setCriteria(String(config.criteria || config.screening_criteria || ""));
-                  setSystemPrompt(String(config.system_prompt || ""));
-                  setScript(String(config.approved_script || config.generated_script_draft || ""));
-                  setStartAt(toLocalInput(order.scheduled_start_at));
-                  setEndAt(toLocalInput(order.scheduled_end_at));
-                }}
-              >
-                Reset
-              </Button>
-              <Button className="gap-1.5" onClick={() => void onSave()} disabled={saveDraftM.isPending || patchM.isPending}>
-                <Save className="size-4" />
-                {saveDraftM.isPending || patchM.isPending ? "Saving…" : "Save changes"}
-              </Button>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+              <div className="text-xs text-muted-foreground">
+                {questionsApproved && !questionsDirty ? (
+                  <span className="inline-flex items-center gap-1 text-success">
+                    <CheckCircle2 className="size-3.5" /> Questions approved
+                  </span>
+                ) : questionsDirty ? (
+                  "Approve questions after editing so you confirm what the AI will ask."
+                ) : (
+                  "Review questions, approve, then save."
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={!questions.trim() || (questionsApproved && !questionsDirty)}
+                  onClick={onApproveQuestions}
+                >
+                  {questionsApproved && !questionsDirty ? <Lock className="size-4" /> : <CheckCircle2 className="size-4" />}
+                  {questionsApproved && !questionsDirty ? "Approved" : "Approve questions"}
+                </Button>
+                <Button
+                  className="gap-1.5"
+                  onClick={() => void onSave()}
+                  disabled={saveDraftM.isPending || patchM.isPending || (questionsDirty && !questionsApproved)}
+                >
+                  <Save className="size-4" />
+                  {saveDraftM.isPending || patchM.isPending ? "Saving…" : "Save changes"}
+                </Button>
+              </div>
             </div>
           ) : null}
         </CardContent>

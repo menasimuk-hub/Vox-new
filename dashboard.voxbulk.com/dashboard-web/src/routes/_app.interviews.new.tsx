@@ -4,6 +4,7 @@ import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2
 import { useQueryClient } from "@tanstack/react-query";
 import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
 import { isInterviewCampaignReadOnly, interviewCampaignReadOnlyLabel } from "@/lib/interview-campaign";
+import { extractQuestionsBlock, mergeQuestionsIntoScript } from "@/lib/interview-script";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
@@ -1671,24 +1672,26 @@ function CreateInterview() {
             </div>
           </div>
           <div className="md:col-span-2 space-y-1.5">
-            <Label className={`text-xs ${missingScript || missingScriptApproval ? "text-destructive" : ""}`}>Generated script</Label>
+            <Label className={`text-xs ${missingScript || missingScriptApproval ? "text-destructive" : ""}`}>Interview questions</Label>
             <Textarea
               rows={8}
-              value={script}
+              value={extractQuestionsBlock(script)}
               onChange={(e) => {
-                const next = e.target.value;
-                setScript(next);
+                const nextQuestions = e.target.value;
+                const merged = mergeQuestionsIntoScript(script, nextQuestions);
                 const approvedText = String(config.approved_script || "").trim();
-                if (!approvedText || next.trim() !== approvedText) {
+                setScript(merged);
+                if (!approvedText || extractQuestionsBlock(approvedText) !== nextQuestions.trim()) {
                   setScriptApproved(false);
                   setExpectedDurationMinutes(undefined);
                 } else {
                   setScriptApproved(Boolean(config.script_approved));
                 }
               }}
-              placeholder="Generate AI questions or paste your own script…"
+              placeholder="Numbered questions only — opening disclosure and intro are added automatically…"
               className={inputErrorClass(missingScript || missingScriptApproval)}
             />
+            <p className="text-[11px] text-muted-foreground">Opening disclosure and intro are not editable here — only interview questions.</p>
             {missingScript ? <p className="text-[11px] text-destructive">Generate or paste a script, then approve it</p> : null}
             {!missingScript && missingScriptApproval ? <p className="text-[11px] text-destructive">Click Approve script when you are happy with it</p> : null}
           </div>

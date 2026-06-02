@@ -2,7 +2,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, Briefcase, Download, Pause, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch, apiFetchBlob } from '../lib/api'
 
+const LIVE_INTERVIEW_STATUSES = new Set(['running', 'paused', 'scheduled'])
 const EMPTY_CANDIDATE = { name: '', phone: '', email: '', status: '' }
+
+function orderSortTs(o) {
+  const raw = o.updated_at || o.started_at || o.created_at
+  if (!raw) return 0
+  const t = new Date(raw).getTime()
+  return Number.isNaN(t) ? 0 : t
+}
 
 function interviewProgress(report) {
   return Number(report?.completed ?? report?.reached ?? 0)
@@ -124,6 +132,9 @@ export default function RunningInterviews() {
   const [panelTab, setPanelTab] = useState('overview')
   const [listTab, setListTab] = useState('running')
   const [searchQuery, setSearchQuery] = useState('')
+  const [sortBy, setSortBy] = useState('date_desc')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyKey, setBusyKey] = useState('')
@@ -347,7 +358,7 @@ export default function RunningInterviews() {
 
   const overviewCards = useMemo(
     () => [
-      { label: 'Live interviews', value: overview?.live ?? '—', hint: `${overview?.drafts ?? 0} drafts · ${overview?.scheduled ?? 0} scheduled` },
+      { label: 'Live interviews', value: overview?.live ?? '—', hint: `${overview?.scheduled ?? 0} scheduled · drafts hidden` },
       { label: 'Running now', value: overview?.running ?? '—', hint: `${overview?.paused ?? 0} paused` },
       { label: 'Completed', value: overview?.completed ?? '—', hint: 'All time' },
       { label: 'Pending payment', value: overview?.pending_payment_approval ?? '—', hint: `${overview?.failed_payments ?? 0} rejected` },
@@ -359,35 +370,60 @@ export default function RunningInterviews() {
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    return orders.filter((o) => {
-      if (listTab === 'running' && !o.is_live) return false
-      if (listTab === 'finished' && !o.is_finished) return false
+    const fromTs = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null
+    const toTs = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : null
+    const rows = orders.filter((o) => {
+      const status = String(o.status || '').toLowerCase()
+      if (listTab === 'running') {
+        if (!LIVE_INTERVIEW_STATUSES.has(status)) return false
+      } else if (listTab === 'finished') {
+        if (!o.is_finished) return false
+      }
+      const ts = orderSortTs(o)
+      if (fromTs != null && ts < fromTs) return false
+      if (toTs != null && ts > toTs) return false
       if (!q) return true
       return (
         String(o.title || '').toLowerCase().includes(q) ||
         String(o.org_name || '').toLowerCase().includes(q) ||
-        String(o.reference_id || '').toLowerCase().includes(q)
+        String(o.reference_id || '').toLowerCase().includes(q) ||
+        String(o.campaign_id || '').toLowerCase().includes(q)
       )
     })
-  }, [orders, listTab, searchQuery])
+    rows.sort((a, b) => {
+      if (sortBy === 'name_asc') return String(a.title || '').localeCompare(String(b.title || ''))
+      if (sortBy === 'name_desc') return String(b.title || '').localeCompare(String(a.title || ''))
+      if (sortBy === 'date_asc') return orderSortTs(a) - orderSortTs(b)
+      return orderSortTs(b) - orderSortTs(a)
+    })
+    return rows
+  }, [orders, listTab, searchQuery, sortBy, dateFrom, dateTo])
 
   return (
     <>
       <div className="pageTop">
         <div>
-          <h1>Interview operations</h1>
+          <h1>Interviews</h1>
           <p>
-            Monitor running and finished AI phone interview tasks. Approve payments, control campaign status, and support customers.
+            Live and finished AI phone interview campaigns. Drafts are hidden — customers manage drafts in their dashboard.
           </p>
         </div>
         <div className="actions">
           <input
             className="input runningSurveySearch"
             type="search"
-            placeholder="Search task, reference, or company…"
+            placeholder="Search name, reference, or company…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
+          <input className="input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="From date" />
+          <input className="input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="To date" />
+          <select className="input" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <option value="date_desc">Newest first</option>
+            <option value="date_asc">Oldest first</option>
+            <option value="name_asc">Name A–Z</option>
+            <option value="name_desc">Name Z–A</option>
+          </select>
           <button type="button" className="btn soft" onClick={load} disabled={loading}>
             <RefreshCw size={15} />
             Refresh
@@ -418,8 +454,8 @@ export default function RunningInterviews() {
         <div className="cardHead runningSurveyListHead">
           <h3><Briefcase size={16} /> Interviews</h3>
           <div className="runningSurveyTabs">
-            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Running interviews</button>
-            <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished interviews</button>
+            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Live</button>
+            <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished</button>
           </div>
         </div>
         <div className="cardBody">
@@ -432,34 +468,27 @@ export default function RunningInterviews() {
               <table className="table runningSurveyTable">
                 <thead>
                   <tr>
-                    <th>Task</th>
-                    <th>Reference</th>
-                    <th>Organisation</th>
-                    <th>Headcount</th>
-                    <th>Owner</th>
+                    <th>Interview #</th>
+                    <th>Name</th>
                     <th>Status</th>
-                    <th>Progress</th>
-                    <th>Quote</th>
+                    <th>Candidates</th>
+                    <th>Updated</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredOrders.map((o) => {
-                    const done = interviewProgress(o.report)
                     const total = o.recipient_count || 0
                     return (
                       <tr key={o.id} className={selected?.id === o.id ? 'isSelected' : ''}>
+                        <td><code>{o.reference_id || o.campaign_id || '—'}</code></td>
                         <td><strong>{o.title}</strong></td>
-                        <td><code>{o.reference_id || '—'}</code></td>
-                        <td>{o.org_name || o.org_id}</td>
-                        <td>{total || '—'}</td>
-                        <td>{o.owner_email || '—'}</td>
                         <td><span className={statusPill(o.status, o.payment_status)}>{o.status_label || o.status}</span></td>
-                        <td>{done} / {total}</td>
-                        <td>{o.quote_total_gbp || '—'}</td>
+                        <td>{total || '—'}</td>
+                        <td className="muted" style={{ fontSize: 12 }}>{fmtWhen(o.updated_at || o.started_at || o.created_at)}</td>
                         <td>
                           <button type="button" className="btn soft bsm" disabled={detailLoading} onClick={() => openRow(o)}>
-                            {detailLoading && selected?.id === o.id ? 'Loading…' : 'Manage'}
+                            {detailLoading && selected?.id === o.id ? 'Loading…' : 'Open'}
                           </button>
                         </td>
                       </tr>
