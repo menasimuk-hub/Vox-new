@@ -86,6 +86,7 @@ def close_cv_collection_early(db: Session, order: ServiceOrder, *, now: datetime
     ts = now or datetime.utcnow()
     cfg = _loads_config(order)
     cfg["cv_email_end_at"] = ts.isoformat()
+    cfg["cv_collection_end_at"] = ts.isoformat()
     cfg["cv_collection_closed_early_at"] = ts.isoformat()
     order.config_json = json.dumps(cfg, ensure_ascii=False)
     order.updated_at = ts
@@ -106,9 +107,9 @@ def close_cv_collection_early(db: Session, order: ServiceOrder, *, now: datetime
 def assert_cv_collection_complete(order: ServiceOrder, *, now: datetime | None = None) -> None:
     if order.service_code != "interview":
         return
-    state = cv_email_window_state(order, now=now)
-    if state == "disabled":
+    if cv_collection_complete(order, now=now):
         return
+    state = cv_email_window_state(order, now=now)
     if state == "incomplete":
         raise ValueError("CV collection via email is ON — set start and end times before launching AI interviews")
     if state == "before":

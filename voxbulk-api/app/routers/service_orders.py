@@ -1129,7 +1129,15 @@ def close_interview_cv_collection_early(
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
-        return close_cv_collection_early(db, order)
+        payload = close_cv_collection_early(db, order)
+        db.refresh(order)
+        from app.services.interview_intake_service import intake_summary, list_intake_recipients
+
+        recipients = list_intake_recipients(db, order)
+        payload["order"] = ServiceOrderService.order_to_dict(order)
+        payload["recipients"] = recipients
+        payload["summary"] = intake_summary(recipients)
+        return payload
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

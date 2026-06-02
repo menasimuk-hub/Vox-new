@@ -299,6 +299,7 @@ function CreateInterview() {
       cfg.cv_collection_end_at,
       cfg.cv_email_end_at,
       cfg.cv_email_enabled,
+      cfg.cv_collection_closed_early_at,
       cfg.ats_last_charge_at,
       cfg.ats_skipped,
     ].join("|");
@@ -624,11 +625,32 @@ function CreateInterview() {
     setCloseCvBusy(true);
     try {
       const res = await apiFetch<{
+        closed_early?: boolean;
+        collection_complete?: boolean;
+        end_at?: string;
+        order?: { config?: Record<string, unknown> };
+        recipients?: unknown[];
+        summary?: unknown;
         mailbox_sync?: { added_cvs?: number; processed?: number; message?: string };
       }>(`/service-orders/${encodeURIComponent(orderId)}/interview/cv-collection/close-early`, {
         method: "POST",
         body: "{}",
       });
+      const closedAt = String(
+        res?.order?.config?.cv_collection_closed_early_at ||
+          res?.end_at ||
+          new Date().toISOString(),
+      );
+      if (res?.order) {
+        qc.setQueryData([...queryKeys.interviewDraft, orderId], (prev: Record<string, unknown> | undefined) => ({
+          ...(prev || {}),
+          order: res.order,
+          recipients: res.recipients ?? prev?.recipients,
+          summary: res.summary ?? prev?.summary,
+        }));
+      }
+      setCollectionEnd(toLocalInput(closedAt));
+      lastHydrationKeyRef.current = "";
       const added = Number(res?.mailbox_sync?.added_cvs || 0);
       const processed = Number(res?.mailbox_sync?.processed || 0);
       if (added > 0) {
@@ -636,7 +658,7 @@ function CreateInterview() {
       } else if (processed > 0) {
         toast.success("CV collection closed — inbox checked, no new CVs to add");
       } else {
-        toast.success("CV collection closed");
+        toast.success("CV collection closed — you can review candidates and launch");
       }
       refreshDraft();
     } catch (e) {
@@ -646,7 +668,15 @@ function CreateInterview() {
     }
   };
 
-  const buildSaveBody = (extraConfig?: Record<string, unknown>, options?: { markSaved?: boolean }) => ({
+  const buildSaveBody = (extraConfig?: Record<string, unknown>, options?: { markSaved?: boolean }) => {
+    const closedEarlyAt = config.cv_collection_closed_early_at;
+    const collectionStartIso = closedEarlyAt
+      ? String(config.cv_collection_start_at || config.cv_email_start_at || toIsoFromLocal(collectionStart) || "")
+      : toIsoFromLocal(collectionStart);
+    const collectionEndIso = closedEarlyAt
+      ? String(config.cv_collection_end_at || config.cv_email_end_at || closedEarlyAt)
+      : toIsoFromLocal(collectionEnd);
+    return {
     order_id: orderId,
     title: position || order?.title || "Interview draft",
     role: role || position,
@@ -660,10 +690,10 @@ function CreateInterview() {
       agent_id: agentId,
       delivery,
       cv_email_enabled: cvEmailAllowed && cvEmailEnabled,
-      cv_collection_start_at: toIsoFromLocal(collectionStart),
-      cv_collection_end_at: toIsoFromLocal(collectionEnd),
-      cv_email_start_at: toIsoFromLocal(collectionStart),
-      cv_email_end_at: toIsoFromLocal(collectionEnd),
+      cv_collection_start_at: collectionStartIso || null,
+      cv_collection_end_at: collectionEndIso || null,
+      cv_email_start_at: collectionStartIso || null,
+      cv_email_end_at: collectionEndIso || null,
       calling_window_start_at: toIsoFromLocal(callingStart),
       calling_window_end_at: toIsoFromLocal(callingEnd),
       generated_script_draft: script,
@@ -675,7 +705,8 @@ function CreateInterview() {
     },
     scheduled_start_at: toIsoFromLocal(callingStart),
     scheduled_end_at: toIsoFromLocal(callingEnd),
-  });
+  };
+  };
 
   const onSaveDraft = async (silent?: boolean, extraConfig?: Record<string, unknown>) => {
     if (!orderId) return;
@@ -896,6 +927,8 @@ function CreateInterview() {
   const cvEmailActive = cvEmailAllowed && cvEmailEnabled;
   const cvPhase = cvCollectionPhase(cvEmailActive, collectionStart, collectionEnd, config);
   const cvReadyForScreening = isCvCollectionComplete(cvEmailActive, collectionEnd, config);
+  const cvCollectionClosedEarly = Boolean(config.cv_collection_closed_early_at);
+  const cvCollectionClosed = cvEmailActive && (cvPhase === "ready" || cvCollectionClosedEarly);
   const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
   const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
   const canResendBookingInvites = candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
@@ -1260,18 +1293,34 @@ function CreateInterview() {
           </div>
           {cvEmailActive && (
             <div className="md:col-span-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {cvPhase === "before" && "CV collection has not started yet — share the reference and careers email when the window opens."}
-              {cvPhase === "open" && "Collection is live — CVs arrive by email, appear in the table below, and are ATS scored automatically (charged per CV). Manual upload is optional."}
-              {cvPhase === "ready" && "CV collection finished — review ATS scores, remove weak candidates, then launch. No manual upload required."}
+              <div className="flex flex-wrap items-center gap-2">
+                {cvCollectionClosed ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-success">
+                    <Lock className="size-3.5" /> CV collection closed
+                    {cvCollectionClosedEarly ? " (closed early)" : ""}
+                  </span>
+                ) : cvPhase === "before" ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                    <LockOpen className="size-3.5" /> CV collection not started yet
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-medium text-primary">
+                    <LockOpen className="size-3.5" /> CV collection open
+                  </span>
+                )}
+              </div>
+              {cvPhase === "before" && " — share the reference and careers email when the window opens."}
+              {cvPhase === "open" && " — CVs arrive by email, appear in the table below, and are ATS scored automatically (charged per CV). Manual upload is optional."}
+              {cvCollectionClosed && " — review ATS scores, remove weak candidates, then launch. No manual upload required."}
             </div>
           )}
           {cvEmailActive && (
             <div className="grid grid-cols-1 gap-2 md:col-span-2 sm:grid-cols-2">
               <Field label="Collection start" error={missingCollectionWindow && !collectionStart ? "Required when CV email is on" : undefined}>
-                <Input type="datetime-local" value={collectionStart} onChange={(e) => setCollectionStart(e.target.value)} className={`w-full min-w-0 ${inputErrorClass(missingCollectionWindow && !collectionStart)}`} />
+                <Input type="datetime-local" value={collectionStart} onChange={(e) => setCollectionStart(e.target.value)} disabled={cvCollectionClosed} className={`w-full min-w-0 ${inputErrorClass(missingCollectionWindow && !collectionStart)}`} />
               </Field>
               <Field label="Collection end" error={missingCollectionWindow && !collectionEnd ? "Required when CV email is on" : undefined}>
-                <Input type="datetime-local" value={collectionEnd} onChange={(e) => setCollectionEnd(e.target.value)} className={`w-full min-w-0 ${inputErrorClass(missingCollectionWindow && !collectionEnd)}`} />
+                <Input type="datetime-local" value={collectionEnd} onChange={(e) => setCollectionEnd(e.target.value)} disabled={cvCollectionClosed} className={`w-full min-w-0 ${inputErrorClass(missingCollectionWindow && !collectionEnd)}`} />
               </Field>
             </div>
           )}
@@ -1485,9 +1534,15 @@ function CreateInterview() {
             </div>
           </div>
 
-          {cvEmailActive && cvPhase !== "ready" && (
-            <Button variant="outline" size="sm" className="md:col-span-2 w-fit" disabled={closeCvBusy} onClick={() => void onCloseCvCollection()}>
-              {closeCvBusy ? "Checking email & closing…" : "Close CV collection early & continue"}
+          {cvEmailActive && !cvCollectionClosed && (
+            <Button variant="outline" size="sm" className="md:col-span-2 w-fit gap-1.5" disabled={closeCvBusy} onClick={() => void onCloseCvCollection()}>
+              {closeCvBusy ? (
+                <>Checking email & closing…</>
+              ) : (
+                <>
+                  <LockOpen className="size-3.5" /> Close CV collection early & continue
+                </>
+              )}
             </Button>
           )}
         </CardContent>

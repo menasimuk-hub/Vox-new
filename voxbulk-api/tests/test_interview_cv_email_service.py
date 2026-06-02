@@ -78,3 +78,16 @@ def test_cv_collection_blocks_quote(db_session: Session):
         assert_cv_collection_complete(order, now=now)
     with pytest.raises(ValueError, match="still open"):
         ServiceOrderService.quote_order(db_session, order)
+
+
+def test_close_early_allows_launch_even_when_window_end_is_future(db_session: Session):
+    from app.services.interview_cv_email_service import assert_cv_collection_complete, close_cv_collection_early
+
+    now = datetime.utcnow()
+    order = _order_with_cv_window(db_session, enabled=True, start=now - timedelta(hours=1), end=now + timedelta(days=2))
+    result = close_cv_collection_early(db_session, order, now=now)
+    db_session.refresh(order)
+
+    assert result["closed_early"] is True
+    assert result["collection_complete"] is True
+    assert_cv_collection_complete(order, now=now)
