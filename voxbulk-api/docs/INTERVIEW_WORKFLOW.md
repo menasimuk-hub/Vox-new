@@ -25,7 +25,7 @@ flowchart TD
 | Step | Channel | What happens |
 |------|---------|----------------|
 | 1. Launch | Dashboard | Campaign `running`; invite sent |
-| 2. Invite | **Email** (SMTP careers@) | Link to `/book/{token}` — book interview |
+| 2. Invite | **Email** (From **careers@voxbulk.com** via SMTP) | Link to `/book/{token}` — book interview |
 | 2b. Invite | **WhatsApp** (optional) | Same booking link if number is WA-enabled |
 | 3. Book | Public booking page | Candidate picks **4-minute** slot (config: `INTERVIEW_SLOT_MINUTES`) |
 | 4. Confirm | **Email** | Booking time in UK; add-to-calendar: Google, Outlook, Apple (.ics) |

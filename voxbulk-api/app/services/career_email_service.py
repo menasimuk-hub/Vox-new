@@ -1,36 +1,103 @@
-"""Interview/careers outreach — same SMTP transport as Admin → Email send-test."""
+"""Interview outreach: SMTP transport with From = careers@ mailbox (not admin SMTP From)."""
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.services.career_mailbox_settings_service import CareerMailboxSettingsService
 from app.services.email_template_service import EmailTemplateService
-from app.services.smtp_mailer_service import SmtpMailerError
+from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
 from app.services.smtp_settings_service import SmtpSettingsService
-from app.services.transactional_email_service import _deliver_message, substitute_placeholders
+from app.services.transactional_email_service import substitute_placeholders
 
 logger = logging.getLogger(__name__)
 
+_HTML_TAG_RE = re.compile(r"<[a-z][\s\S]*?>", re.I)
 
-def careers_reply_to(db: Session) -> str:
+
+def careers_from_address(db: Session) -> tuple[str, str]:
+    """From line for all interview/careers candidate emails."""
     row = CareerMailboxSettingsService.get_row(db)
-    return str(row.mailbox_email or "careers@voxbulk.com").strip().lower()
+    email = str(row.mailbox_email or "careers@voxbulk.com").strip().lower()
+    return "VOXBULK Careers", email
+
+
+def _looks_like_html(text: str) -> bool:
+    return bool(_HTML_TAG_RE.search(str(text or "")))
+
+
+def _deliver_careers_message(
+    db: Session,
+    *,
+    to_addr: str,
+    subject: str,
+    body: str,
+    attachments: list[dict[str, Any]] | None = None,
+) -> None:
+    """
+    Send via platform SMTP credentials but with From = careers@ (mailbox settings).
+    Falls back to plain text if HTML is rejected by the mail server.
+    """
+    from_name, from_email = careers_from_address(db)
+    clean_body = str(body or "")
+    try:
+        if _looks_like_html(clean_body):
+            SmtpMailerService.send_html(
+                db,
+                to_addr=to_addr,
+                subject=subject,
+                body=clean_body,
+                attachments=attachments,
+                from_email=from_email,
+                from_name=from_name,
+            )
+        else:
+            SmtpMailerService.send_plain(
+                db,
+                to_addr=to_addr,
+                subject=subject,
+                body=clean_body or subject,
+                attachments=attachments,
+                from_email=from_email,
+                from_name=from_name,
+            )
+    except SmtpMailerError as exc:
+        if not _looks_like_html(clean_body):
+            raise
+        from app.services.smtp_mailer_service import _html_to_plain
+
+        plain = _html_to_plain(clean_body) or subject
+        logger.warning(
+            "career_email_html_fallback to=%s from=%s err=%s",
+            to_addr,
+            from_email,
+            exc,
+        )
+        SmtpMailerService.send_plain(
+            db,
+            to_addr=to_addr,
+            subject=subject,
+            body=plain,
+            attachments=attachments,
+            from_email=from_email,
+            from_name=from_name,
+        )
 
 
 def interview_email_delivery_status(db: Session) -> dict[str, Any]:
     row = SmtpSettingsService.get_row(db)
     configured, missing = SmtpSettingsService.compute_status(row)
+    from_name, from_email = careers_from_address(db)
     return {
         "smtp_configured": configured,
         "smtp_enabled": bool(row.is_enabled),
         "smtp_missing_fields": missing,
-        "smtp_from_email": str(row.from_email or "").strip(),
-        "smtp_from_name": str(row.from_name or "").strip(),
-        "careers_reply_to": careers_reply_to(db),
+        "interview_from_email": from_email,
+        "interview_from_name": from_name,
         "can_send_email": configured and row.is_enabled,
     }
 
@@ -87,9 +154,10 @@ class CareerEmailService:
             )
         except SmtpMailerError as exc:
             logger.warning(
-                "career_email_smtp_failed template_key=%s to=%s err=%s",
+                "career_email_failed template_key=%s to=%s from=%s err=%s",
                 template_key,
                 to_addr,
+                careers_from_address(db)[1],
                 exc,
             )
             return False, str(exc)
@@ -104,17 +172,13 @@ class CareerEmailService:
         variables: dict[str, str],
         attachments: list[dict[str, Any]] | None = None,
     ) -> tuple[bool, str | None]:
-        """Send interview email using admin SMTP settings (identical path to send-test)."""
-        sent_ok, err = CareerEmailService.send_templated_optional(
+        return CareerEmailService.send_templated_optional(
             db,
             template_key=template_key,
             to_email=to_email,
             variables=variables,
             attachments=attachments,
         )
-        if sent_ok:
-            return True, None
-        return False, err or "send_failed"
 
     @staticmethod
     def send(
@@ -124,21 +188,25 @@ class CareerEmailService:
         subject: str,
         body: str,
         attachments: list[dict[str, Any]] | None = None,
-        reply_to: str | None = None,
     ) -> None:
         to_addr = str(to_email or "").strip().lower()
         if not to_addr or "@" not in to_addr:
             raise SmtpMailerError("Invalid recipient email address.")
-        reply = str(reply_to or careers_reply_to(db)).strip()
-        _deliver_message(
+        from_name, from_email = careers_from_address(db)
+        _deliver_careers_message(
             db,
             to_addr=to_addr,
             subject=subject,
             body=body,
             attachments=attachments,
-            reply_to=reply,
         )
-        logger.info("career_email_sent to=%s subject=%s reply_to=%s", to_addr, subject[:80], reply)
+        logger.info(
+            "career_email_sent from=%s <%s> to=%s subject=%s",
+            from_name,
+            from_email,
+            to_addr,
+            subject[:80],
+        )
 
     @staticmethod
     def send_template_test(
@@ -148,7 +216,6 @@ class CareerEmailService:
         to_email: str,
         variables: dict[str, str] | None = None,
     ) -> tuple[bool, str | None]:
-        """Admin template send-test for interview_* — identical code path to launch invites."""
         from app.services.transactional_email_service import EMAIL_TEST_VARIABLES
 
         merged = dict(EMAIL_TEST_VARIABLES)

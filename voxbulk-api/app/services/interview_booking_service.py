@@ -1830,6 +1830,7 @@ class InterviewBookingService:
         recipient_ids: list[str] | None = None,
         channels: list[str] | None = None,
         force_resend: bool = False,
+        force_email: bool = False,
     ) -> dict[str, Any]:
         if order.service_code != "interview":
             raise ValueError("Booking invites are only for interview orders")
@@ -1886,19 +1887,15 @@ class InterviewBookingService:
 
             if "email" in use_channels and recipient.email:
                 merged_check = _recipient_result(recipient)
-                already_sent = (
-                    merged_check.get("invite_email_ok")
-                    and merged_check.get("invite_email_sent_at")
-                    and not merged_check.get("invite_email_failed")
-                    and not force_resend
-                )
+                if force_resend or force_email:
+                    merged_check.pop("invite_email_sent_at", None)
+                    merged_check.pop("invite_email_failed", None)
+                    merged_check.pop("invite_email_ok", None)
+
+                already_sent = bool(merged_check.get("invite_email_ok")) and not force_resend and not force_email
                 if already_sent:
                     recipient_email_sent = True
                 else:
-                    if force_resend:
-                        merged_check.pop("invite_email_sent_at", None)
-                        merged_check.pop("invite_email_failed", None)
-                        merged_check.pop("invite_email_ok", None)
                     try:
                         sent_ok, err = CareerEmailService.send_templated_critical(
                             db,

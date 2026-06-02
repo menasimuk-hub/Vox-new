@@ -100,6 +100,7 @@ class InterviewLaunchService:
                 order,
                 channels=list(channels or ["email", "whatsapp"]),
                 force_resend=resend_invites,
+                force_email=True,
             )
             config = _order_config(order)
             config["require_booking"] = config.get("require_booking", True) is not False
@@ -138,8 +139,11 @@ class InterviewLaunchService:
             hint = ""
             if delivery and not delivery.get("can_send_email"):
                 missing = delivery.get("smtp_missing_fields") or []
+                from app.services.career_email_service import careers_from_address
+
+                careers_from = careers_from_address(db)[1]
                 hint = (
-                    " Enable SMTP in Admin → Email and use the same From address as send-test."
+                    f" Enable SMTP in Admin → Email (interview From is {careers_from})."
                     + (f" Missing SMTP: {', '.join(missing)}" if missing else "")
                 )
             return f"No booking invites were sent — check candidate email/phone and email settings.{hint}"

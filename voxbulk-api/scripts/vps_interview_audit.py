@@ -124,16 +124,16 @@ def check_env() -> list[str]:
 def check_smtp_and_email(db) -> list[str]:
     errors: list[str] = []
     _section("SMTP + interview email")
-    from app.services.career_email_service import interview_email_delivery_status, smtp_from_address
+    from app.services.career_email_service import careers_from_address, interview_email_delivery_status
     from app.services.smtp_settings_service import SmtpSettingsService
 
     row = SmtpSettingsService.get_row(db)
     configured, missing = SmtpSettingsService.compute_status(row)
     delivery = interview_email_delivery_status(db)
-    from_name, from_email = smtp_from_address(db)
+    from_name, from_email = careers_from_address(db)
 
     if configured:
-        _ok("SMTP row complete")
+        _ok("SMTP row complete (transport)")
     else:
         _fail(f"SMTP incomplete: {', '.join(missing)}")
         errors.append("smtp_incomplete")
@@ -144,18 +144,17 @@ def check_smtp_and_email(db) -> list[str]:
         _fail("SMTP disabled in Admin → Email")
         errors.append("smtp_disabled")
 
-    _ok(f"Interview From (SMTP): {from_name} <{from_email}>")
-    _ok(f"Reply-To (careers): {delivery.get('careers_reply_to')}")
+    _ok(f"Interview From: {from_name} <{from_email}>")
+    smtp_from = str(row.from_email or "").strip()
+    if smtp_from and smtp_from.lower() != from_email.lower():
+        _ok(f"Admin SMTP From ({smtp_from}) used only for send-test — interview uses careers mailbox")
 
     if from_email and "@" in from_email:
-        if from_email.lower() == "careers@voxbulk.com" and (row.from_email or "").lower() != from_email.lower():
-            _warn(
-                "SMTP from_email in DB differs from careers@ — interview now uses DB from_email (good); "
-                "ensure SMTP allows that address"
-            )
+        if from_email.lower() != "careers@voxbulk.com":
+            _warn(f"Career mailbox is {from_email} — expected careers@voxbulk.com unless intentional")
     else:
-        _fail("No valid SMTP from_email for interview sends")
-        errors.append("smtp_from")
+        _fail("Career mailbox From address missing")
+        errors.append("careers_from")
 
     if delivery.get("can_send_email"):
         _ok("can_send_email=true")

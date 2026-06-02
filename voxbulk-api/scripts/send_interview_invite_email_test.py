@@ -22,7 +22,9 @@ def main() -> int:
     from app.services.career_email_service import CareerEmailService, interview_email_delivery_status
 
     with get_sessionmaker()() as db:
-        print("Delivery:", interview_email_delivery_status(db))
+        status = interview_email_delivery_status(db)
+        print("Delivery:", status)
+        print(f"Will send From: {status.get('interview_from_name')} <{status.get('interview_from_email')}>")
         ok, err = CareerEmailService.send_templated_critical(
             db,
             template_key="interview_booking_invite",

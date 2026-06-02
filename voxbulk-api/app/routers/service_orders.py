@@ -1260,6 +1260,7 @@ def send_interview_booking_invites(
             recipient_ids=body.get("recipient_ids"),
             channels=body.get("channels"),
             force_resend=bool(body.get("force_resend")),
+            force_email=bool(body.get("force_email") or body.get("force_resend")),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
