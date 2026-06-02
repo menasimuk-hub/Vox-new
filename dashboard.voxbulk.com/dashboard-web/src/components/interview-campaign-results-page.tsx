@@ -22,7 +22,9 @@ import type { ServiceOrder } from "@/lib/types/api";
 import { AtsScore } from "@/components/ats-score";
 import { InterviewRecordingPlayer } from "@/components/interview-recording-player";
 import { InterviewTranscriptDialog } from "@/components/interview-transcript-dialog";
-import { CandidateActivityDialog } from "@/components/candidate-activity-dialog";
+import { CandidateActivityDialog, activityStatusLabel, activityStatusTone } from "@/components/candidate-activity-dialog";
+import { CandidateContactDialog } from "@/components/candidate-contact-dialog";
+import { StatusBadge } from "@/components/status-badge";
 
 export type CandidateRow = {
   id: string;
@@ -36,7 +38,10 @@ export type CandidateRow = {
   sentiment?: string;
   status?: string;
   scheduledAt?: string;
+  bookingStatus?: string;
+  bookingTime?: string;
   booked_start_at?: string | null;
+  invite_email_sent_at?: string | null;
   activity_status?: string;
   has_interview_report?: boolean;
   transcript_preview?: string | null;
@@ -46,6 +51,8 @@ export type CandidateRow = {
   ats_label?: string | null;
 };
 
+const BOOKING_TZ = "Europe/London";
+
 function parseUtc(iso?: string | null) {
   const raw = String(iso || "").trim();
   if (!raw) return new Date(NaN);
@@ -54,12 +61,50 @@ function parseUtc(iso?: string | null) {
 }
 
 function fmtSchedule(iso?: string | null) {
-  if (!iso) return "Pending";
+  if (!iso) return "—";
   try {
-    return parseUtc(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    return parseUtc(iso).toLocaleString("en-GB", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: BOOKING_TZ,
+    });
   } catch {
     return iso;
   }
+}
+
+function liveBookingDisplay(candidate: {
+  booked_start_at?: string | null;
+  activity_status?: string;
+  invite_email_sent_at?: string | null;
+}) {
+  const status = String(candidate.activity_status || "").toLowerCase();
+  if (candidate.booked_start_at && !["booking_cancelled"].includes(status)) {
+    return {
+      statusLabel: status === "booked_waiting" || status === "booked" ? "Booked" : activityStatusLabel(status),
+      timeLabel: fmtSchedule(candidate.booked_start_at),
+      tone: activityStatusTone(status),
+    };
+  }
+  if (status === "booking_cancelled") {
+    return { statusLabel: "Booking cancelled", timeLabel: "—", tone: activityStatusTone(status) };
+  }
+  if (["booking_email_sent", "awaiting_booking"].includes(status) || candidate.invite_email_sent_at) {
+    return { statusLabel: "Waiting for booking", timeLabel: "—", tone: activityStatusTone("awaiting_booking") };
+  }
+  if (status === "calling") {
+    return { statusLabel: "Calling now", timeLabel: "—", tone: activityStatusTone(status) };
+  }
+  if (status === "pending") {
+    return { statusLabel: "Pending", timeLabel: "—", tone: activityStatusTone(status) };
+  }
+  return {
+    statusLabel: activityStatusLabel(status),
+    timeLabel: "—",
+    tone: activityStatusTone(status),
+  };
 }
 
 function isLiveOrder(order: ServiceOrder | undefined, tone: CampaignTone) {
@@ -72,6 +117,7 @@ function isLiveOrder(order: ServiceOrder | undefined, tone: CampaignTone) {
 export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   const [open, setOpen] = React.useState<string | null>(null);
   const [activityCandidate, setActivityCandidate] = React.useState<CandidateRow | null>(null);
+  const [contactCandidate, setContactCandidate] = React.useState<CandidateRow | null>(null);
   const [transcriptOpen, setTranscriptOpen] = React.useState(false);
   const [sendOpen, setSendOpen] = React.useState(false);
   const [selectedRows, setSelectedRows] = React.useState<Record<string, boolean>>({});
@@ -93,19 +139,28 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
 
   const rowsForSort: CandidateRow[] = React.useMemo(() => {
     if (isLive) {
-      return apiCandidates.map((c) => ({
-        id: String(c.id || c.name),
-        name: String(c.name || "Candidate"),
-        phone: String(c.phone || ""),
-        email: String(c.email || ""),
-        status: String(c.status || "Pending"),
-        scheduledAt: fmtSchedule(String(c.booked_start_at || c.scheduling_sent_at || orderMeta.scheduled_start_at || "")),
-        booked_start_at: c.booked_start_at ? String(c.booked_start_at) : null,
-        activity_status: String(c.activity_status || ""),
-        ats_score: c.ats_score != null ? Number(c.ats_score) : null,
-        ats_status: String(c.ats_status || ""),
-        ats_label: String(c.ats_label || ""),
-      }));
+      return apiCandidates.map((c) => {
+        const booked_start_at = c.booked_start_at ? String(c.booked_start_at) : null;
+        const invite_email_sent_at = c.invite_email_sent_at ? String(c.invite_email_sent_at) : null;
+        const activity_status = String(c.activity_status || "");
+        const booking = liveBookingDisplay({ booked_start_at, activity_status, invite_email_sent_at });
+        return {
+          id: String(c.id || c.name),
+          name: String(c.name || "Candidate"),
+          phone: String(c.phone || ""),
+          email: String(c.email || ""),
+          status: String(c.status || "Pending"),
+          bookingStatus: booking.statusLabel,
+          bookingTime: booking.timeLabel,
+          scheduledAt: booking.timeLabel,
+          booked_start_at,
+          invite_email_sent_at,
+          activity_status,
+          ats_score: c.ats_score != null ? Number(c.ats_score) : null,
+          ats_status: String(c.ats_status || ""),
+          ats_label: String(c.ats_label || ""),
+        };
+      });
     }
     return apiCandidates.map((c) => ({
       id: String(c.id || c.name),
@@ -124,7 +179,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
       ats_status: String(c.ats_status || ""),
       ats_label: String(c.ats_label || ""),
     }));
-  }, [apiCandidates, isLive, orderMeta.scheduled_start_at]);
+  }, [apiCandidates, isLive]);
 
   const candSort = useTableSort(rowsForSort as Record<string, unknown>[]);
   const allSelected = rowsForSort.length > 0 && rowsForSort.every((r) => selectedRows[r.id]);
@@ -294,7 +349,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                   <SortHeader label="Name" sortKey="name" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
                   {isLive ? (
                     <>
-                      <SortHeader label="Scheduled" sortKey="scheduledAt" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
+                      <SortHeader label="Booking" sortKey="bookingStatus" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
                       <SortHeader label="Contact" sortKey="phone" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
                       <SortHeader label="Status" sortKey="status" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
                       <TableHead>ATS</TableHead>
@@ -316,10 +371,32 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                       <TableCell className="pl-4">
                         <Checkbox checked={!!selectedRows[c.id]} onCheckedChange={(v) => setSelectedRows((s) => ({ ...s, [c.id]: !!v }))} onClick={(e) => e.stopPropagation()} />
                       </TableCell>
-                      <TableCell className="font-medium" title={c.id}>{c.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <button
+                          type="button"
+                          className="text-left font-medium text-primary underline-offset-2 hover:underline"
+                          title={c.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setContactCandidate(c);
+                          }}
+                        >
+                          {c.name}
+                        </button>
+                      </TableCell>
                       {isLive ? (
                         <>
-                          <TableCell className="text-xs"><span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5 text-muted-foreground" />{c.scheduledAt}</span></TableCell>
+                          <TableCell className="text-xs">
+                            <div className="space-y-0.5">
+                              <StatusBadge tone={activityStatusTone(c.activity_status)}>{c.bookingStatus}</StatusBadge>
+                              {c.booked_start_at ? (
+                                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                                  <CalendarClock className="size-3.5" />
+                                  {c.bookingTime} UK
+                                </span>
+                              ) : null}
+                            </div>
+                          </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{c.phone}</TableCell>
                           <TableCell className="text-xs">
                             {c.activity_status === "booking_cancelled" ? (
@@ -398,11 +475,36 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="rounded-lg border border-border bg-muted/40 p-3">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground"><CalendarClock className="size-3.5" /> Scheduled</div>
-                <p className="mt-1 text-base font-semibold">{candidateOpen.scheduledAt}</p>
+                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
+                  <CalendarClock className="size-3.5" /> Booking status
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <StatusBadge tone={activityStatusTone(candidateOpen.activity_status)}>
+                    {candidateOpen.bookingStatus}
+                  </StatusBadge>
+                </div>
+                {candidateOpen.booked_start_at ? (
+                  <p className="mt-2 text-base font-semibold tabular-nums">{candidateOpen.bookingTime} UK</p>
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {candidateOpen.bookingStatus === "Waiting for booking"
+                      ? "Invite sent — waiting for the candidate to pick a slot."
+                      : "No interview slot booked yet."}
+                  </p>
+                )}
+              </div>
+              <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Email</p>
+                  <p className="mt-1 font-medium break-all">{candidateOpen.email || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Phone</p>
+                  <p className="mt-1 font-medium">{candidateOpen.phone || "—"}</p>
+                </div>
               </div>
               <div className="pt-1"><AtsScore score={candidateOpen.ats_score} status={candidateOpen.ats_status} label={candidateOpen.ats_label} /></div>
-              <p className="text-xs text-muted-foreground">Use the Activity button in the table for the full timeline.</p>
+              <p className="text-xs text-muted-foreground">Click the candidate name for contact details and resend invite. Use Activity for the full timeline.</p>
             </CardContent>
           </Card>
         )}
@@ -454,6 +556,14 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         recipientIds={Object.entries(selectedRows).filter(([, v]) => v).map(([id]) => id)}
       />
       <InterviewTranscriptDialog open={transcriptOpen} onOpenChange={setTranscriptOpen} orderId={orderId} recipientId={open} candidateName={candidateOpen?.name} />
+      <CandidateContactDialog
+        open={contactCandidate != null}
+        onOpenChange={(next) => {
+          if (!next) setContactCandidate(null);
+        }}
+        orderId={orderId}
+        candidate={contactCandidate}
+      />
       <CandidateActivityDialog
         open={activityCandidate != null}
         onOpenChange={(next) => {

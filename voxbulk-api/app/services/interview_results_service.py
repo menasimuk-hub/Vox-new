@@ -7,8 +7,10 @@ import re
 from typing import Any
 from urllib.parse import quote
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.interview_booking_token import InterviewBookingToken
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import ServiceOrderService
 
@@ -73,9 +75,16 @@ def _has_interview_report(
     return False
 
 
-def _candidate_row(recipient: ServiceOrderRecipient, *, role: str, order_id: str) -> dict[str, Any]:
+def _candidate_row(
+    recipient: ServiceOrderRecipient,
+    *,
+    role: str,
+    order_id: str,
+    parsed: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     base = ServiceOrderService.recipient_to_dict(recipient)
-    parsed = _loads_json(recipient.result_json) or {}
+    if parsed is None:
+        parsed = _loads_json(recipient.result_json) or {}
     if not isinstance(parsed, dict):
         parsed = {}
     analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
@@ -178,9 +187,22 @@ class InterviewResultsService:
 
         for recipient in recipients:
             parsed = _loads_json(recipient.result_json) or {}
-            row = _candidate_row(recipient, role=role, order_id=order.id)
-            if isinstance(parsed, dict):
-                row.update(_scheduling_links(order, row, parsed=parsed))
+            if not isinstance(parsed, dict):
+                parsed = {}
+            token_row = db.execute(
+                select(InterviewBookingToken)
+                .where(
+                    InterviewBookingToken.order_id == order.id,
+                    InterviewBookingToken.recipient_id == recipient.id,
+                )
+                .order_by(InterviewBookingToken.updated_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            from app.services.interview_activity_service import _merge_token_into_parsed
+
+            parsed = _merge_token_into_parsed(parsed, token_row)
+            row = _candidate_row(recipient, role=role, order_id=order.id, parsed=parsed)
+            row.update(_scheduling_links(order, row, parsed=parsed))
             row["shortlist_selected"] = recipient.id in saved_ids
             candidates.append(row)
 
@@ -252,10 +274,23 @@ class InterviewResultsService:
             raise ValueError("Interview detail is only available for interview orders")
         config = _loads_json(order.config_json) or {}
         role = str(config.get("role") or order.title or "Interview campaign")
-        row = _candidate_row(recipient, role=role, order_id=order.id)
         parsed = _loads_json(recipient.result_json) or {}
-        if isinstance(parsed, dict):
-            row.update(_scheduling_links(order, row, parsed=parsed))
+        if not isinstance(parsed, dict):
+            parsed = {}
+        token_row = db.execute(
+            select(InterviewBookingToken)
+            .where(
+                InterviewBookingToken.order_id == order.id,
+                InterviewBookingToken.recipient_id == recipient.id,
+            )
+            .order_by(InterviewBookingToken.updated_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        from app.services.interview_activity_service import _merge_token_into_parsed
+
+        parsed = _merge_token_into_parsed(parsed, token_row)
+        row = _candidate_row(recipient, role=role, order_id=order.id, parsed=parsed)
+        row.update(_scheduling_links(order, row, parsed=parsed))
         analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
         transcript = str(parsed.get("transcript") or "").strip() if row.get("has_interview_report") else ""
         if not row.get("has_interview_report"):

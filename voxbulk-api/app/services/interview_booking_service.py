@@ -321,6 +321,15 @@ def _iso_utc(dt: datetime | None) -> str | None:
     return dt.replace(tzinfo=None).isoformat() + "Z"
 
 
+def _booking_display_meta() -> dict[str, str]:
+    start = f"{BOOKING_HOURS_START[0]:02d}:{BOOKING_HOURS_START[1]:02d}"
+    end = f"{BOOKING_HOURS_END[0]:02d}:{BOOKING_HOURS_END[1]:02d}"
+    return {
+        "display_timezone": "Europe/London",
+        "calling_hours_label": f"{start}–{end} UK time (GMT/BST)",
+    }
+
+
 def _booking_invite_buttons(components: list[Any] | None) -> list[dict[str, str]]:
     """Booking invite: Book My Interview + Reschedule + Cancel."""
     buttons = _buttons_from_components(components)
@@ -863,6 +872,7 @@ class InterviewBookingService:
                 "cancelled_at": str(cancelled_at) if cancelled_at else None,
                 "can_reschedule": False,
                 "can_cancel": False,
+                **_booking_display_meta(),
             }
 
         closed_message = _order_booking_closed_message(order, db)
@@ -884,6 +894,7 @@ class InterviewBookingService:
                 "cancelled_at": None,
                 "can_reschedule": False,
                 "can_cancel": False,
+                **_booking_display_meta(),
             }
 
         _assert_booking_allowed(recipient)
@@ -916,6 +927,7 @@ class InterviewBookingService:
             "cancelled_at": str(cancelled_at) if cancelled_at else None,
             "can_reschedule": row.booked_start_at is not None,
             "can_cancel": row.booked_start_at is not None,
+            **_booking_display_meta(),
         }
 
     @staticmethod

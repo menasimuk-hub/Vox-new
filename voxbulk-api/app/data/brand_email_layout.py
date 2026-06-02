@@ -69,17 +69,36 @@ def cta_button(*, href: str, label: str) -> str:
 def calendar_links_html(*, google_url: str, outlook_url: str, ics_url: str) -> str:
     """Inline add-to-calendar links for interview confirmation/reminder emails."""
     c = BRAND_COLORS
-    link_style = (
-        f"display:inline-block;margin:4px 6px 4px 0;padding:8px 14px;border-radius:8px;"
-        f"border:1px solid {c['border']};background:{c['surface']};color:{c['primary']};"
-        f"text-decoration:none;font-size:13px;font-weight:600;"
+    wrap = (
+        f"margin:20px 0;padding:18px 16px;background:#f5f1ea;border-radius:12px;border:1px solid #e5e0d8;"
     )
+    title = f'<p style="margin:0 0 14px;font-size:13px;font-weight:600;color:{c["ink"]};">Add to your calendar</p>'
+    cell = "padding:0 6px 0 0;vertical-align:top;"
+    link = (
+        f"display:inline-block;min-width:96px;padding:12px 10px;border-radius:10px;"
+        f"border:1px solid {c['border']};background:{c['surface']};color:{c['primary']};"
+        f"text-decoration:none;font-size:12px;font-weight:600;line-height:1.25;text-align:center;"
+    )
+    icon = "display:block;margin:0 auto 8px;width:32px;height:32px;border:0;outline:none;"
+    google_icon = "https://www.gstatic.com/images/branding/product/2x/calendar_48dp.png"
+    outlook_icon = "https://res.cdn.office.net/assets/mail/premium/favicon.ico"
+    apple_icon = "https://www.apple.com/v/apple-events/home/aw/images/apple-events/apple_logo_black.svg"
     return (
-        f'<div style="margin:20px 0;padding:16px;background:#f5f1ea;border-radius:10px;border:1px solid #e5e0d8;">'
-        f'<p style="margin:0 0 10px;font-size:13px;font-weight:600;color:{c["ink"]};">Add to your calendar</p>'
-        f'<p style="margin:0;line-height:2;">'
-        f'<a href="{google_url}" style="{link_style}">Google Calendar</a>'
-        f'<a href="{outlook_url}" style="{link_style}">Outlook</a>'
-        f'<a href="{ics_url}" style="{link_style}">Apple / .ics</a>'
-        f"</p></div>"
+        f'<div style="{wrap}">'
+        f"{title}"
+        f'<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:separate;border-spacing:0;">'
+        f"<tr>"
+        f'<td style="{cell}">'
+        f'<a href="{google_url}" style="{link}">'
+        f'<img src="{google_icon}" alt="Google Calendar" width="32" height="32" style="{icon}" />'
+        f"Google Calendar</a></td>"
+        f'<td style="{cell}">'
+        f'<a href="{outlook_url}" style="{link}">'
+        f'<img src="{outlook_icon}" alt="Outlook" width="32" height="32" style="{icon}" />'
+        f"Outlook</a></td>"
+        f'<td style="{cell}">'
+        f'<a href="{ics_url}" style="{link}">'
+        f'<img src="{apple_icon}" alt="Apple Calendar" width="32" height="32" style="{icon}" />'
+        f"Apple / .ics</a></td>"
+        f"</tr></table></div>"
     )

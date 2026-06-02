@@ -98,13 +98,15 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
         "body": wrap_interview_email(
             title="Interview confirmed",
             inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
-  <p>Your <strong>{{role}}</strong> interview is confirmed.</p>
+  <p>Your <strong>{{role}}</strong> interview at <strong>{{company_name}}</strong> is confirmed.</p>
   <div style="margin:20px 0;padding:16px;background:#f5f1ea;border-radius:10px;border:1px solid #e5e0d8;">
     <p style="margin:0 0 6px;"><strong>Date:</strong> {{interview_date}}</p>
-    <p style="margin:0;"><strong>Time:</strong> {{interview_time}}</p>
+    <p style="margin:0 0 6px;"><strong>Time:</strong> {{interview_time}} UK time (GMT/BST)</p>
+    <p style="margin:0;font-size:13px;color:#6b6560;">We will call you on the number you provided.</p>
   </div>
   {{calendar_links_html}}
-  <p style="font-size:13px;color:#6b6560;">We will call you at the booked time. Reply to this email if you need to reschedule.</p>""",
+  <p style="font-size:13px;color:#6b6560;">Need to change your time? Reply to this email or use the reschedule link from your original booking message.</p>
+  <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
         ),
     },
     "interview_booking_reminder": {

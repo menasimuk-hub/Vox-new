@@ -604,12 +604,30 @@ export function useLaunchInterviewCampaign(orderId: string | null) {
 }
 
 export function useSendInterviewBookingInvites(orderId: string | null) {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: (force = false) =>
-      apiFetch<{ whatsapp_sent?: number; email_sent?: number; skipped_locked?: number; errors?: string[] }>(
+    mutationFn: (opts?: { force?: boolean; recipient_ids?: string[]; channels?: string[] }) => {
+      const force = typeof opts === "boolean" ? opts : Boolean(opts?.force);
+      const recipient_ids = typeof opts === "object" && opts ? opts.recipient_ids : undefined;
+      const channels = typeof opts === "object" && opts ? opts.channels : undefined;
+      return apiFetch<{ whatsapp_sent?: number; email_sent?: number; skipped_locked?: number; errors?: string[] }>(
         `/service-orders/${encodeURIComponent(orderId!)}/interview-booking/send-invites`,
-        { method: "POST", body: JSON.stringify({ force_resend: force }) },
-      ),
+        {
+          method: "POST",
+          body: JSON.stringify({
+            force_resend: force,
+            ...(recipient_ids?.length ? { recipient_ids } : {}),
+            ...(channels?.length ? { channels } : {}),
+          }),
+        },
+      );
+    },
+    onSuccess: () => {
+      if (orderId) {
+        void qc.invalidateQueries({ queryKey: queryKeys.interviewResults(orderId) });
+        void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
+      }
+    },
   });
 }
 

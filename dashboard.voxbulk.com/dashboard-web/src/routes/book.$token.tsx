@@ -66,9 +66,14 @@ type BookingPage = {
 
   can_cancel?: boolean;
 
+  display_timezone?: string;
+
+  calling_hours_label?: string;
+
 };
 
-
+/** Interview slots are always scheduled and displayed in UK time (GMT/BST). */
+const BOOKING_TZ = "Europe/London";
 
 function parseUtc(iso: string) {
   const raw = String(iso || "").trim();
@@ -77,13 +82,27 @@ function parseUtc(iso: string) {
   return new Date(raw);
 }
 
+function ukDateParts(iso: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: BOOKING_TZ,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(parseUtc(iso));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return { year: get("year"), month: get("month"), day: get("day") };
+}
 
+function ukCalendarDate(iso: string): Date {
+  const { year, month, day } = ukDateParts(iso);
+  return new Date(year, month - 1, day);
+}
 
 function fmtDate(iso: string) {
 
   try {
 
-    return parseUtc(iso).toLocaleDateString(undefined, {
+    return parseUtc(iso).toLocaleDateString("en-GB", {
 
       weekday: "long",
 
@@ -92,6 +111,8 @@ function fmtDate(iso: string) {
       month: "long",
 
       year: "numeric",
+
+      timeZone: BOOKING_TZ,
 
     });
 
@@ -109,11 +130,13 @@ function fmtTime(iso: string) {
 
   try {
 
-    return parseUtc(iso).toLocaleTimeString(undefined, {
+    return parseUtc(iso).toLocaleTimeString("en-GB", {
 
       hour: "2-digit",
 
       minute: "2-digit",
+
+      timeZone: BOOKING_TZ,
 
     });
 
@@ -131,7 +154,7 @@ function fmtWindow(iso: string) {
 
   try {
 
-    return parseUtc(iso).toLocaleString(undefined, {
+    return parseUtc(iso).toLocaleString("en-GB", {
 
       weekday: "short",
 
@@ -142,6 +165,8 @@ function fmtWindow(iso: string) {
       hour: "2-digit",
 
       minute: "2-digit",
+
+      timeZone: BOOKING_TZ,
 
     });
 
@@ -157,7 +182,8 @@ function fmtWindow(iso: string) {
 
 function dayKey(iso: string) {
 
-  return parseUtc(iso).toDateString();
+  const { year, month, day } = ukDateParts(iso);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
 }
 
@@ -195,7 +221,7 @@ function groupSlotsByDay(slots: string[]) {
 
     dayKey: key,
 
-    date: startOfDay(parseUtc(daySlots[0])),
+    date: ukCalendarDate(daySlots[0]),
 
     label: fmtDate(daySlots[0]),
 
@@ -303,9 +329,9 @@ function CalendarSlotPicker({
 
 
 
-  const windowStart = parseUtc(data.window_start);
+  const windowStart = ukCalendarDate(data.window_start);
 
-  const windowEnd = parseUtc(data.window_end);
+  const windowEnd = ukCalendarDate(data.window_end);
 
 
 
@@ -386,6 +412,12 @@ function CalendarSlotPicker({
             <p className="mt-1 text-sm font-medium text-foreground">
 
               {activeGroup ? activeGroup.label : "Select a highlighted date on the calendar"}
+
+            </p>
+
+            <p className="mt-1 text-xs text-muted-foreground">
+
+              {data.calling_hours_label || "09:00–17:30 UK time (GMT/BST)"}
 
             </p>
 
@@ -929,6 +961,14 @@ function PublicBookingPage() {
             </div>
 
           </div>
+
+          <p className="text-xs text-muted-foreground">
+
+            All times are shown in UK time (GMT/BST). AI calls are made between{" "}
+
+            {data.calling_hours_label || "09:00 and 17:30 UK time"}.
+
+          </p>
 
           <p className="text-xs text-muted-foreground">No login required — this link is unique to you.</p>
 

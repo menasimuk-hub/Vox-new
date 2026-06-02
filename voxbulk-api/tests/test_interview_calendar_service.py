@@ -21,6 +21,8 @@ def test_build_interview_calendar_variables():
     assert "/public/interview-booking/abc-123/calendar.ics" in vars["calendar_ics_url"]
     assert "Google Calendar" in vars["calendar_links_html"]
     assert "Outlook" in vars["calendar_links_html"]
+    assert "Apple / .ics" in vars["calendar_links_html"]
+    assert "<img" in vars["calendar_links_html"]
 
 
 def test_build_interview_ics_contains_event():
