@@ -51,10 +51,13 @@ const groups: Group[] = [
       isActive: (path) => normalizePath(path) === "/interviews/new",
     },
     {
-      title: "Saved interviews",
+      title: "Interviews",
       url: "/interviews",
       icon: FolderOpen,
-      isActive: (path) => normalizePath(path) === "/interviews",
+      isActive: (path) => {
+        const p = normalizePath(path);
+        return p === "/interviews" || (p.startsWith("/interviews/") && p !== "/interviews/new" && !p.startsWith("/interviews/results") && !p.startsWith("/interviews/reports"));
+      },
     },
     {
       title: "Interview results",

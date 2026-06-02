@@ -38,6 +38,7 @@ import { Route as AppRecoveryEmergencyRouteImport } from './routes/_app.recovery
 import { Route as AppInterviewsResultsRouteImport } from './routes/_app.interviews.results'
 import { Route as AppInterviewsReportsRouteImport } from './routes/_app.interviews.reports'
 import { Route as AppInterviewsNewRouteImport } from './routes/_app.interviews.new'
+import { Route as AppInterviewsOrderIdRouteImport } from './routes/_app.interviews.$orderId'
 import { Route as AppAccountSupportRouteImport } from './routes/_app.account.support'
 import { Route as AppAccountPackagesRouteImport } from './routes/_app.account.packages'
 import { Route as AppAccountBillingRouteImport } from './routes/_app.account.billing'
@@ -191,6 +192,11 @@ const AppInterviewsNewRoute = AppInterviewsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => AppInterviewsRoute,
 } as any)
+const AppInterviewsOrderIdRoute = AppInterviewsOrderIdRouteImport.update({
+  id: '/$orderId',
+  path: '/$orderId',
+  getParentRoute: () => AppInterviewsRoute,
+} as any)
 const AppAccountSupportRoute = AppAccountSupportRouteImport.update({
   id: '/account/support',
   path: '/account/support',
@@ -246,6 +252,7 @@ export interface FileRoutesByFullPath {
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
   '/account/support': typeof AppAccountSupportRouteWithChildren
+  '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
   '/interviews/new': typeof AppInterviewsNewRoute
   '/interviews/reports': typeof AppInterviewsReportsRoute
   '/interviews/results': typeof AppInterviewsResultsRouteWithChildren
@@ -280,6 +287,7 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
+  '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
   '/interviews/new': typeof AppInterviewsNewRoute
   '/interviews/reports': typeof AppInterviewsReportsRoute
   '/recovery/emergency': typeof AppRecoveryEmergencyRoute
@@ -319,6 +327,7 @@ export interface FileRoutesById {
   '/_app/account/billing': typeof AppAccountBillingRoute
   '/_app/account/packages': typeof AppAccountPackagesRoute
   '/_app/account/support': typeof AppAccountSupportRouteWithChildren
+  '/_app/interviews/$orderId': typeof AppInterviewsOrderIdRoute
   '/_app/interviews/new': typeof AppInterviewsNewRoute
   '/_app/interviews/reports': typeof AppInterviewsReportsRoute
   '/_app/interviews/results': typeof AppInterviewsResultsRouteWithChildren
@@ -359,6 +368,7 @@ export interface FileRouteTypes {
     | '/account/billing'
     | '/account/packages'
     | '/account/support'
+    | '/interviews/$orderId'
     | '/interviews/new'
     | '/interviews/reports'
     | '/interviews/results'
@@ -393,6 +403,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account/billing'
     | '/account/packages'
+    | '/interviews/$orderId'
     | '/interviews/new'
     | '/interviews/reports'
     | '/recovery/emergency'
@@ -431,6 +442,7 @@ export interface FileRouteTypes {
     | '/_app/account/billing'
     | '/_app/account/packages'
     | '/_app/account/support'
+    | '/_app/interviews/$orderId'
     | '/_app/interviews/new'
     | '/_app/interviews/reports'
     | '/_app/interviews/results'
@@ -669,6 +681,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInterviewsNewRouteImport
       parentRoute: typeof AppInterviewsRoute
     }
+    '/_app/interviews/$orderId': {
+      id: '/_app/interviews/$orderId'
+      path: '/$orderId'
+      fullPath: '/interviews/$orderId'
+      preLoaderRoute: typeof AppInterviewsOrderIdRouteImport
+      parentRoute: typeof AppInterviewsRoute
+    }
     '/_app/account/support': {
       id: '/_app/account/support'
       path: '/account/support'
@@ -742,6 +761,7 @@ const AppInterviewsResultsRouteWithChildren =
   AppInterviewsResultsRoute._addFileChildren(AppInterviewsResultsRouteChildren)
 
 interface AppInterviewsRouteChildren {
+  AppInterviewsOrderIdRoute: typeof AppInterviewsOrderIdRoute
   AppInterviewsNewRoute: typeof AppInterviewsNewRoute
   AppInterviewsReportsRoute: typeof AppInterviewsReportsRoute
   AppInterviewsResultsRoute: typeof AppInterviewsResultsRouteWithChildren
@@ -749,6 +769,7 @@ interface AppInterviewsRouteChildren {
 }
 
 const AppInterviewsRouteChildren: AppInterviewsRouteChildren = {
+  AppInterviewsOrderIdRoute: AppInterviewsOrderIdRoute,
   AppInterviewsNewRoute: AppInterviewsNewRoute,
   AppInterviewsReportsRoute: AppInterviewsReportsRoute,
   AppInterviewsResultsRoute: AppInterviewsResultsRouteWithChildren,

@@ -97,8 +97,8 @@ function SavedInterviews() {
     <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Interviews"
-        title="Saved interviews"
-        description="All your AI phone screening campaigns."
+        title="Interviews"
+        description="All your AI phone screening campaigns — open any interview to edit schedule, prompt, and questions."
         actions={
           <Button asChild className="gap-1.5"><Link to="/interviews/new" search={{ new: true }}><Plus className="size-4" /> Create new</Link></Button>
         }
@@ -136,13 +136,13 @@ function SavedInterviews() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <SortHeader label="Campaign ID" sortKey="campaignId" active={s.sortKey} dir={s.sortDir} onToggle={s.toggleSort} className="pl-6" />
-                  <SortHeader label="Campaign" sortKey="name" active={s.sortKey} dir={s.sortDir} onToggle={s.toggleSort} />
+                  <SortHeader label="Interview #" sortKey="campaignId" active={s.sortKey} dir={s.sortDir} onToggle={s.toggleSort} className="pl-6" />
+                  <SortHeader label="Name" sortKey="name" active={s.sortKey} dir={s.sortDir} onToggle={s.toggleSort} />
                   <SortHeader label="Status" sortKey="status" active={s.sortKey} dir={s.sortDir} onToggle={s.toggleSort} />
+                  <SortHeader label="Candidates" sortKey="target" active={s.sortKey} dir={s.sortDir} onToggle={s.toggleSort} />
                   {tab === "live" && <TableHead>Schedule</TableHead>}
                   <SortHeader label="Progress" sortKey="completion" active={s.sortKey} dir={s.sortDir} onToggle={s.toggleSort} />
-                  <SortHeader label="Updated" sortKey="updatedAt" active={s.sortKey} dir={s.sortDir} onToggle={s.toggleSort} />
-                  <TableHead className="pr-6 text-right">Actions</TableHead>
+                  <TableHead className="pr-6 text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -155,43 +155,38 @@ function SavedInterviews() {
                         <div className="font-medium">{c.name}</div>
                       </TableCell>
                       <TableCell><StatusBadge tone={c.status} /></TableCell>
+                      <TableCell>{c.target}</TableCell>
                       {tab === "live" && (
                         <TableCell className="text-xs text-muted-foreground">
                           {fmtWhen(raw?.scheduled_start_at)}
                           {raw?.scheduled_end_at ? ` → ${fmtWhen(raw.scheduled_end_at)}` : ""}
                         </TableCell>
                       )}
-                      <TableCell className="min-w-[180px]">
+                      <TableCell className="min-w-[140px]">
                         <div className="flex items-center gap-2">
                           <Progress value={c.completion} className="h-1.5" />
                           <span className="w-9 text-right text-xs tabular-nums text-muted-foreground">{c.completion}%</span>
                         </div>
-                        <p className="mt-1 text-[11px] text-muted-foreground">{c.responses}/{c.target}</p>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{c.updatedAt}</TableCell>
                       <TableCell className="pr-6 text-right">
-                        <div className="inline-flex gap-1">
+                        <div className="inline-flex flex-wrap justify-end gap-1">
+                          <Button size="sm" variant="default" asChild>
+                            <Link to="/interviews/$orderId" params={{ orderId: c.id }}>Open</Link>
+                          </Button>
                           <Button size="sm" variant="ghost" asChild>
                             <Link to="/interviews/results/$orderId" params={{ orderId: c.id }}>Results</Link>
                           </Button>
-                          {tab === "live" && raw && (raw.status === "draft" || raw.status === "quoted" || raw.status === "scheduled") ? (
-                            <Button size="sm" variant="ghost" asChild>
-                              <Link to="/interviews/new" search={{ order_id: c.id }}>Edit</Link>
-                            </Button>
-                          ) : null}
                           {tab === "live" && raw && ["running", "paused", "scheduled"].includes(String(raw.status || "")) ? (
                             <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setStopTarget({ id: c.id, name: c.name })}>
                               Stop
                             </Button>
                           ) : null}
                           {tab === "finished" && (
-                            <>
-                              <Button size="sm" variant="ghost" onClick={() => void onArchive(c.id)}>Archive</Button>
-                            </>
+                            <Button size="sm" variant="ghost" onClick={() => void onArchive(c.id)}>Archive</Button>
                           )}
-                          {tab === "live" && (
+                          {tab === "live" && (raw?.status === "draft" || raw?.status === "quoted") ? (
                             <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => void onDelete(c.id)}>Delete</Button>
-                          )}
+                          ) : null}
                         </div>
                       </TableCell>
                     </TableRow>
