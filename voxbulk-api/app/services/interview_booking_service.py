@@ -213,7 +213,7 @@ def _recipient_outreach_email(recipient: ServiceOrderRecipient) -> str | None:
     except Exception:
         pass
     merged = _recipient_result(recipient)
-    for key in ("email", "candidate_email", "contact_email"):
+    for key in ("invite_sent_to", "outreach_email", "email", "candidate_email", "contact_email"):
         val = str(merged.get(key) or "").strip().lower()
         if val and "@" in val:
             return val
@@ -1181,14 +1181,26 @@ class InterviewBookingService:
                 recipient.id,
             )
 
+        email_ok = bool(notify.get("confirmation_email_sent"))
+        email_err = notify.get("confirmation_email_error")
+        message = (
+            "Your interview slot is confirmed. A confirmation email was sent — check inbox and spam."
+            if email_ok
+            else (
+                f"Your slot is confirmed but we could not send the confirmation email"
+                f"{f': {email_err}' if email_err else ''}. "
+                "Save this page or note your booked time."
+            )
+        )
         return {
             "ok": True,
             "booked_start_at": _iso_utc(slot_start),
             "booked_end_at": _iso_utc(slot_end),
             "candidate_name": recipient.name,
-            "confirmation_email_sent": bool(notify.get("confirmation_email_sent")),
-            "confirmation_email_error": notify.get("confirmation_email_error"),
+            "confirmation_email_sent": email_ok,
+            "confirmation_email_error": email_err,
             "confirmation_wa_sent": bool(notify.get("confirmation_wa_sent")),
+            "message": message,
         }
 
     @staticmethod
@@ -1297,17 +1309,19 @@ class InterviewBookingService:
             if outreach_email != str(recipient.email or "").strip().lower():
                 recipient.email = outreach_email
                 db.add(recipient)
+                db.commit()
+                db.refresh(recipient)
             try:
-                sent_ok, err = CareerEmailService.send_templated_critical(
+                # Plain text first (same SMTP path as cancellation — most reliable).
+                sent_ok, err = CareerEmailService.send_booking_confirmation_fallback(
                     db,
-                    template_key="interview_booking_confirm",
                     to_email=outreach_email,
                     variables=base_variables,
                 )
                 if not sent_ok:
-                    email_error = err or "send_failed"
+                    email_error = err or "plain_confirm_failed"
                     logger.warning(
-                        "booking_confirm_email_failed",
+                        "booking_confirm_plain_failed",
                         extra={
                             "order_id": order.id,
                             "recipient_id": recipient.id,
@@ -1315,8 +1329,9 @@ class InterviewBookingService:
                             "error": err,
                         },
                     )
-                    sent_ok, err2 = CareerEmailService.send_booking_confirmation_fallback(
+                    sent_ok, err2 = CareerEmailService.send_templated_critical(
                         db,
+                        template_key="interview_booking_confirm",
                         to_email=outreach_email,
                         variables=base_variables,
                     )
@@ -1324,6 +1339,15 @@ class InterviewBookingService:
                         email_error = None
                     elif err2:
                         email_error = err2
+                        logger.warning(
+                            "booking_confirm_html_failed",
+                            extra={
+                                "order_id": order.id,
+                                "recipient_id": recipient.id,
+                                "to": outreach_email,
+                                "error": err2,
+                            },
+                        )
                 email_sent = sent_ok
             except Exception as exc:
                 email_error = str(exc)
@@ -1331,6 +1355,19 @@ class InterviewBookingService:
                     "booking_confirm_email_error",
                     extra={"order_id": order.id, "recipient_id": recipient.id},
                 )
+                try:
+                    sent_ok, err3 = CareerEmailService.send_booking_confirmation_fallback(
+                        db,
+                        to_email=outreach_email,
+                        variables=base_variables,
+                    )
+                    if sent_ok:
+                        email_sent = True
+                        email_error = None
+                    elif err3:
+                        email_error = err3
+                except Exception:
+                    pass
             if email_sent:
                 merged = _recipient_result(recipient)
                 merged["confirmation_email_sent_at"] = _now().isoformat()
@@ -2020,6 +2057,7 @@ class InterviewBookingService:
                             merged_check.pop("invite_email_failed", None)
                             merged_check["invite_email_ok"] = True
                             merged_check["invite_email_sent_at"] = _now().isoformat()
+                            merged_check["invite_sent_to"] = outreach_email
                             logger.info(
                                 "interview_invite_email_sent",
                                 extra={

@@ -229,6 +229,36 @@ class CareerEmailService:
             return False, str(exc)
 
     @staticmethod
+    def send_booking_reminder_fallback(
+        db: Session,
+        *,
+        to_email: str,
+        variables: dict[str, str],
+    ) -> tuple[bool, str | None]:
+        to_addr = str(to_email or "").strip().lower()
+        if not to_addr or "@" not in to_addr:
+            return False, "missing_recipient"
+        name = str(variables.get("candidate_name") or "there").strip()
+        role = str(variables.get("role") or "Interview").strip()
+        company = str(variables.get("company_name") or "the company").strip()
+        date_line = str(variables.get("interview_date") or "").strip()
+        time_line = str(variables.get("interview_time") or "").strip()
+        subject = f"Reminder — {role} interview in 30 minutes"
+        body = (
+            f"Hi {name},\n\n"
+            f"Reminder: your {role} phone interview with {company} starts in about 30 minutes.\n\n"
+            f"Date: {date_line}\n"
+            f"Time: {time_line} UK time (GMT/BST)\n\n"
+            "Please keep your phone nearby — we will call you at the booked time.\n\n"
+            "— VOXBULK Careers (careers@voxbulk.com)"
+        )
+        try:
+            CareerEmailService.send(db, to_email=to_addr, subject=subject, body=body)
+            return True, None
+        except SmtpMailerError as exc:
+            return False, str(exc)
+
+    @staticmethod
     def send(
         db: Session,
         *,

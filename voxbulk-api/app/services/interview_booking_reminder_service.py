@@ -18,10 +18,10 @@ from app.services.interview_booking_service import (
     _first_name,
     _format_slot_date,
     _format_slot_time,
+    _recipient_outreach_email,
     _recipient_result,
     interview_slot_minutes,
 )
-from app.services.platform_catalog_service import ServiceOrderService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,10 @@ def _order_config(order: ServiceOrder) -> dict[str, Any]:
 class InterviewBookingReminderService:
     @staticmethod
     def process_due_reminders(db: Session, *, limit: int = 50) -> dict[str, int]:
+        """
+        Runs on the interview call scheduler (~every 30s). Sends email + optional WhatsApp
+        when booked_start_at is about 30 minutes from now (±2 min).
+        """
         now = datetime.utcnow()
         window_start = now + timedelta(minutes=REMINDER_MINUTES - REMINDER_WINDOW_MINUTES)
         window_end = now + timedelta(minutes=REMINDER_MINUTES + REMINDER_WINDOW_MINUTES)
@@ -118,42 +122,65 @@ class InterviewBookingReminderService:
         date_line = _format_slot_date(slot_start)
         time_line = _format_slot_time(slot_start)
 
-        calendar_vars: dict[str, str] = {}
+        calendar_vars: dict[str, str] = {"calendar_links_html": ""}
         token = str(token_row.token or "").strip()
         if token:
-            from app.services.interview_calendar_service import build_interview_calendar_variables
+            try:
+                from app.services.interview_calendar_service import build_interview_calendar_variables
 
-            calendar_vars = build_interview_calendar_variables(
-                token=token,
-                slot_start=slot_start,
-                slot_end=token_row.booked_end_at or (slot_start + timedelta(minutes=interview_slot_minutes())),
-                role=role,
-                company_name=company_name,
-            )
+                calendar_vars = build_interview_calendar_variables(
+                    token=token,
+                    slot_start=slot_start,
+                    slot_end=token_row.booked_end_at or (slot_start + timedelta(minutes=interview_slot_minutes())),
+                    role=role,
+                    company_name=company_name,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "reminder_calendar_vars_failed",
+                    extra={"order_id": order.id, "recipient_id": recipient.id, "error": str(exc)},
+                )
+
+        variables = {
+            "candidate_name": recipient.name or "there",
+            "role": role,
+            "company_name": company_name,
+            "interview_date": date_line,
+            "interview_time": time_line,
+            **calendar_vars,
+        }
 
         email_ok = False
         wa_ok = False
         err_notes: list[str] = []
 
-        if recipient.email:
+        outreach_email = _recipient_outreach_email(recipient)
+        if outreach_email:
+            if outreach_email != str(recipient.email or "").strip().lower():
+                recipient.email = outreach_email
+                db.add(recipient)
+                db.commit()
+                db.refresh(recipient)
             try:
-                email_ok, err = CareerEmailService.send_templated_optional(
+                email_ok, err = CareerEmailService.send_booking_reminder_fallback(
                     db,
-                    template_key="interview_booking_reminder",
-                    to_email=str(recipient.email).strip(),
-                    variables={
-                        "candidate_name": recipient.name or "there",
-                        "role": role,
-                        "company_name": company_name,
-                        "interview_date": date_line,
-                        "interview_time": time_line,
-                        **calendar_vars,
-                    },
+                    to_email=outreach_email,
+                    variables=variables,
                 )
-                if not email_ok and err:
-                    err_notes.append(f"email:{err}")
+                if not email_ok:
+                    err_notes.append(f"email_plain:{err}")
+                    email_ok, err = CareerEmailService.send_templated_critical(
+                        db,
+                        template_key="interview_booking_reminder",
+                        to_email=outreach_email,
+                        variables=variables,
+                    )
+                    if not email_ok and err:
+                        err_notes.append(f"email_html:{err}")
             except Exception as exc:
                 err_notes.append(f"email:{exc}")
+        else:
+            err_notes.append("email:no_recipient_email")
 
         if recipient.phone:
             body = (
@@ -192,6 +219,8 @@ class InterviewBookingReminderService:
         merged["reminder_sent_at"] = datetime.utcnow().isoformat()
         if err_notes:
             merged["reminder_errors"] = err_notes
+        if email_ok:
+            merged["reminder_email_sent_at"] = merged["reminder_sent_at"]
         recipient.result_json = json.dumps(merged, ensure_ascii=False)
         db.add(recipient)
         db.commit()

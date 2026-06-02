@@ -92,26 +92,45 @@ def test_send_booking_confirmations_uses_cv_email(monkeypatch):
         assert recipient.email == "alex@example.com"
 
 
-def test_confirmation_fallback_on_template_failure(monkeypatch):
+def test_confirmation_sends_plain_email_first(monkeypatch):
+    with get_sessionmaker()() as db:
+        order, recipient, _ = _seed(db)
+        recipient.email = "alex@example.com"
+        db.add(recipient)
+        db.commit()
+        plain = MagicMock(return_value=(True, None))
+        html = MagicMock(return_value=(True, None))
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send_booking_confirmation_fallback",
+            plain,
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
+            html,
+        )
+        slot = datetime.utcnow() + timedelta(days=1, hours=2)
+        result = InterviewBookingService._send_booking_confirmations(db, order, recipient, slot)
+        assert result["confirmation_email_sent"] is True
+        plain.assert_called_once()
+        html.assert_not_called()
+
+
+def test_confirmation_falls_back_to_html_when_plain_fails(monkeypatch):
     with get_sessionmaker()() as db:
         order, recipient, _ = _seed(db)
         recipient.email = "alex@example.com"
         db.add(recipient)
         db.commit()
         monkeypatch.setattr(
-            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
-            lambda *a, **k: (False, "html_rejected"),
-        )
-        fallback = MagicMock(return_value=(True, None))
-        monkeypatch.setattr(
             "app.services.interview_booking_service.CareerEmailService.send_booking_confirmation_fallback",
-            fallback,
+            lambda *a, **k: (False, "plain_rejected"),
         )
+        html = MagicMock(return_value=(True, None))
         monkeypatch.setattr(
-            "app.services.career_email_service.interview_email_delivery_status",
-            lambda *a, **k: {"can_send_email": True},
+            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
+            html,
         )
         slot = datetime.utcnow() + timedelta(days=1, hours=2)
         result = InterviewBookingService._send_booking_confirmations(db, order, recipient, slot)
         assert result["confirmation_email_sent"] is True
-        fallback.assert_called_once()
+        html.assert_called_once()

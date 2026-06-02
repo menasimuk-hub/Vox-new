@@ -549,11 +549,17 @@ function PublicBookingPage() {
 
 
 
+  const [confirmNotice, setConfirmNotice] = React.useState<string | null>(null);
+
   const confirmM = useMutation({
 
     mutationFn: (slot: string) =>
 
-      publicApiFetch(`/public/interview-booking/${encodeURIComponent(token)}/confirm`, {
+      publicApiFetch<{
+        message?: string;
+        confirmation_email_sent?: boolean;
+        confirmation_email_error?: string;
+      }>(`/public/interview-booking/${encodeURIComponent(token)}/confirm`, {
 
         method: "POST",
 
@@ -561,7 +567,14 @@ function PublicBookingPage() {
 
       }),
 
-    onSuccess: () => {
+    onSuccess: (res) => {
+
+      setConfirmNotice(
+        res?.message ||
+          (res?.confirmation_email_sent
+            ? "Confirmation email sent — check inbox and spam."
+            : "Slot confirmed. If you do not receive an email shortly, note your booked time on this page."),
+      );
 
       setMode("book");
 
@@ -819,6 +832,18 @@ function PublicBookingPage() {
               Hi {data.candidate_name}, your {data.role} slot is confirmed.
 
             </CardDescription>
+
+            {confirmNotice ? (
+              <p
+                className={
+                  confirmNotice.includes("could not send")
+                    ? "text-sm text-destructive"
+                    : "text-sm text-muted-foreground"
+                }
+              >
+                {confirmNotice}
+              </p>
+            ) : null}
 
           </CardHeader>
 
