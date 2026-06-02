@@ -200,12 +200,8 @@ deploy_static() {
 }
 
 restart_services() {
-  info "Restarting API + public preview …"
+  info "Restarting API + public preview (+ Celery if configured in supervisor) …"
   bash "$VOX_SH" restart
-  if command -v supervisorctl >/dev/null 2>&1; then
-    info "Restarting Celery worker (invoice webhook emails) …"
-    supervisorctl restart retover-celery 2>/dev/null || warn "supervisorctl retover-celery not found — restart Celery manually if webhooks send email"
-  fi
 }
 
 post_checks() {

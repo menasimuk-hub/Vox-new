@@ -40,11 +40,13 @@ Copy-paste bodies for cancel templates: `docs/telnyx-whatsapp-interview-cancel-t
 **Push latest HTML from code (recommended after deploy):**
 
 ```bash
-cd /path/to/voxbulk-api
-source .venv/bin/activate   # or your venv
+cd /www/voxbulk/voxbulk-api
+source .venv/bin/activate
 python scripts/sync_interview_email_templates.py
-sudo systemctl restart voxbulk-api   # or your service name
+./vox.sh restart
 ```
+
+The script adds the API root to `PYTHONPATH` automatically — run it from `voxbulk-api/` (not from `scripts/`).
 
 Or restart the API once — on first send, `ensure_system_templates` auto-upgrades confirm/reminder bodies if they are missing `{{calendar_links_html}}`.
 
