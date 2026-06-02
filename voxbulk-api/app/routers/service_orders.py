@@ -1208,11 +1208,14 @@ def launch_interview_after_payment(
     try:
         if order.payment_status != "approved":
             order = InterviewLaunchService.approve_for_subscription_package(db, order, org)
+        launch_channels = body.get("channels")
+        if not launch_channels:
+            launch_channels = ["email", "whatsapp"]
         return InterviewLaunchService.launch_after_payment(
             db,
             order,
             resend_invites=bool(body.get("resend_invites")),
-            channels=body.get("channels"),
+            channels=launch_channels,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -1254,11 +1257,14 @@ def send_interview_booking_invites(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     body = payload or {}
     try:
+        channels = body.get("channels")
+        if not channels:
+            channels = ["email", "whatsapp"]
         return InterviewBookingService.send_invites(
             db,
             order,
             recipient_ids=body.get("recipient_ids"),
-            channels=body.get("channels"),
+            channels=channels,
             force_resend=bool(body.get("force_resend")),
             force_email=bool(body.get("force_email") or body.get("force_resend")),
         )

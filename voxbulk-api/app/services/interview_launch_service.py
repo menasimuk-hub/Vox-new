@@ -90,6 +90,9 @@ class InterviewLaunchService:
         delivery = str(config.get("delivery") or "ai_call").strip().lower()
         invite_result: dict[str, Any] | None = None
 
+        if delivery not in {"ai_call", "zoom"}:
+            delivery = "ai_call"
+
         if delivery == "ai_call":
             if not order.scheduled_start_at or not order.scheduled_end_at:
                 raise ValueError("Set the calling window (start and end) before launch")

@@ -1217,23 +1217,27 @@ class ServiceOrderService:
                 )
 
                 notify_reason = note or "This interview campaign was cancelled by the employer."
-                if campaign_invites_were_sent(order) or order_has_booking_outreach_candidates(db, order):
-                    close_result = InterviewBookingService.notify_campaign_closed(
-                        db,
-                        order,
-                        reason=notify_reason,
-                    )
-                    cfg_stop = {}
-                    try:
-                        cfg_stop = json.loads(order.config_json or "{}")
-                        if not isinstance(cfg_stop, dict):
-                            cfg_stop = {}
-                    except Exception:
+                had_prior_outreach = campaign_invites_were_sent(order) or order_has_booking_outreach_candidates(
+                    db, order
+                )
+                close_result = InterviewBookingService.notify_campaign_closed(
+                    db,
+                    order,
+                    reason=notify_reason,
+                    include_uninvited=not had_prior_outreach,
+                )
+                cfg_stop = {}
+                try:
+                    cfg_stop = json.loads(order.config_json or "{}")
+                    if not isinstance(cfg_stop, dict):
                         cfg_stop = {}
-                    cfg_stop["last_campaign_close_dispatch"] = close_result
-                    order.config_json = json.dumps(cfg_stop, ensure_ascii=False)
-                    db.add(order)
-                    db.refresh(order)
+                except Exception:
+                    cfg_stop = {}
+                cfg_stop["last_campaign_close_dispatch"] = close_result
+                order.config_json = json.dumps(cfg_stop, ensure_ascii=False)
+                db.add(order)
+                db.commit()
+                db.refresh(order)
             except Exception:
                 import logging
 

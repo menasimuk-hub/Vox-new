@@ -368,8 +368,7 @@ def test_stop_order_notifies_pending_booked_candidate_before_cancelling(monkeypa
         assert str(recipient.status or "").lower() == "cancelled"
 
 
-def test_notify_campaign_closed_email_uses_critical_fallback_when_template_disabled(monkeypatch):
-    """Disabled admin template must still send closure email via system default."""
+def test_notify_campaign_closed_sends_closure_email_via_critical_template(monkeypatch):
     with get_sessionmaker()() as db:
         order, recipient = _seed_draft_with_recipient(db)
         order.status = "running"
@@ -396,16 +395,50 @@ def test_notify_campaign_closed_email_uses_critical_fallback_when_template_disab
         )
         db.commit()
 
-        send_plain = MagicMock()
+        send_critical = MagicMock(return_value=(True, None))
         monkeypatch.setattr(
-            "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
-            lambda *a, **k: (False, "template_disabled"),
-        )
-        monkeypatch.setattr(
-            "app.services.interview_booking_service.CareerEmailService.send",
-            send_plain,
+            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
+            send_critical,
         )
 
         result = InterviewBookingService.notify_campaign_closed(db, order)
         assert result.get("email_sent") == 1
-        send_plain.assert_called_once()
+        send_critical.assert_called_once()
+
+
+def test_notify_campaign_closed_emails_uninvited_when_requested(monkeypatch):
+    with get_sessionmaker()() as db:
+        order, recipient = _seed_draft_with_recipient(db)
+        send_critical = MagicMock(return_value=(True, None))
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
+            send_critical,
+        )
+        result = InterviewBookingService.notify_campaign_closed(
+            db, order, reason="Stopped before launch", include_uninvited=True
+        )
+        assert result.get("email_sent") == 1
+        send_critical.assert_called_once()
+
+
+def test_stop_order_notifies_candidates_even_when_invites_never_sent(monkeypatch):
+    with get_sessionmaker()() as db:
+        order, recipient = _seed_draft_with_recipient(db)
+        order.status = "paid"
+        order.payment_status = "approved"
+        order.scheduled_start_at = datetime.utcnow()
+        order.scheduled_end_at = datetime.utcnow() + timedelta(hours=4)
+        db.add(order)
+        db.commit()
+
+        send_critical = MagicMock(return_value=(True, None))
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
+            send_critical,
+        )
+        from app.services.platform_catalog_service import ServiceOrderService
+
+        ServiceOrderService.stop_order(db, order, reason="Stopped for testing")
+        send_critical.assert_called_once()
+        args, kwargs = send_critical.call_args
+        assert kwargs.get("to_email") == "james@example.com"

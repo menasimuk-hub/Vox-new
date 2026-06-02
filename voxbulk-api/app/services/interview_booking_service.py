@@ -198,6 +198,28 @@ def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
         return {}
 
 
+def _recipient_outreach_email(recipient: ServiceOrderRecipient) -> str | None:
+    """Best email for booking/cancel outreach (column, then CV parse, then result_json)."""
+    direct = str(recipient.email or "").strip().lower()
+    if direct and "@" in direct:
+        return direct
+    try:
+        cv = json.loads(recipient.cv_parsed_json or "{}")
+        if isinstance(cv, dict):
+            for key in ("email", "email_address", "contact_email"):
+                val = str(cv.get(key) or "").strip().lower()
+                if val and "@" in val:
+                    return val
+    except Exception:
+        pass
+    merged = _recipient_result(recipient)
+    for key in ("email", "candidate_email", "contact_email"):
+        val = str(merged.get(key) or "").strip().lower()
+        if val and "@" in val:
+            return val
+    return None
+
+
 def campaign_invites_were_sent(order: ServiceOrder) -> bool:
     """True once booking invites were dispatched at launch (not for saved drafts)."""
     cfg = _order_config(order)
@@ -1456,12 +1478,14 @@ class InterviewBookingService:
         order: ServiceOrder,
         *,
         reason: str | None = None,
+        include_uninvited: bool = False,
     ) -> dict[str, Any]:
-        """Email (and optional WhatsApp) candidates who received booking invites when the employer closes a campaign."""
+        """Email (and optional WhatsApp) candidates when the employer closes a campaign."""
         if order.service_code != "interview":
             return {"ok": True, "skipped": True, "reason": "not_interview"}
 
-        if not campaign_invites_were_sent(order) and not order_has_booking_outreach_candidates(db, order):
+        had_prior_outreach = campaign_invites_were_sent(order) or order_has_booking_outreach_candidates(db, order)
+        if not had_prior_outreach and not include_uninvited:
             return {"ok": True, "skipped": True, "reason": "invites_never_sent"}
 
         config = _order_config(order)
@@ -1497,7 +1521,12 @@ class InterviewBookingService:
                 )
                 .limit(1)
             ).scalar_one_or_none()
-            if not recipient_received_booking_outreach(recipient, token_row):
+            if not include_uninvited and not recipient_received_booking_outreach(recipient, token_row):
+                skipped += 1
+                continue
+
+            outreach_email = _recipient_outreach_email(recipient)
+            if include_uninvited and not outreach_email and not recipient.phone:
                 skipped += 1
                 continue
 
@@ -1513,7 +1542,7 @@ class InterviewBookingService:
 
             recipient_email_sent = False
             recipient_wa_sent = False
-            if recipient.email:
+            if outreach_email:
                 try:
                     if booked_slot_start is not None:
                         recipient_email_sent = InterviewBookingService._send_booking_cancellation(
@@ -1526,7 +1555,7 @@ class InterviewBookingService:
                         sent_ok, err = CareerEmailService.send_templated_critical(
                             db,
                             template_key="interview_campaign_cancelled",
-                            to_email=str(recipient.email).strip(),
+                            to_email=outreach_email,
                             variables={
                                 "candidate_name": recipient.name or "there",
                                 "role": role,
@@ -1537,7 +1566,7 @@ class InterviewBookingService:
                         if sent_ok:
                             recipient_email_sent = True
                         elif err:
-                            errors.append(f"{recipient.email}: {err}")
+                            errors.append(f"{outreach_email}: {err}")
                             logger.warning(
                                 "campaign_cancel_email_failed",
                                 extra={
@@ -1547,7 +1576,7 @@ class InterviewBookingService:
                                 },
                             )
                 except Exception as exc:
-                    errors.append(f"{recipient.email}: {exc}")
+                    errors.append(f"{outreach_email}: {exc}")
                     logger.exception(
                         "campaign_cancel_email_error",
                         extra={"recipient_id": recipient.id, "order_id": order.id},
@@ -1862,7 +1891,8 @@ class InterviewBookingService:
                 skipped_locked += 1
                 errors.append(f"{recipient.name or recipient.id}: interview already complete — invite skipped")
                 continue
-            if not recipient.email and "email" in use_channels:
+            outreach_email = _recipient_outreach_email(recipient)
+            if not outreach_email and "email" in use_channels:
                 if recipient.phone and "whatsapp" in use_channels:
                     pass
                 elif not recipient.phone:
@@ -1885,22 +1915,31 @@ class InterviewBookingService:
             recipient.result_json = json.dumps(merged_pre, ensure_ascii=False)
             db.add(recipient)
 
-            if "email" in use_channels and recipient.email:
+            if "email" in use_channels and outreach_email:
                 merged_check = _recipient_result(recipient)
                 if force_resend or force_email:
                     merged_check.pop("invite_email_sent_at", None)
                     merged_check.pop("invite_email_failed", None)
                     merged_check.pop("invite_email_ok", None)
 
-                already_sent = bool(merged_check.get("invite_email_ok")) and not force_resend and not force_email
+                already_sent = (
+                    bool(merged_check.get("invite_email_sent_at"))
+                    and bool(merged_check.get("invite_email_ok"))
+                    and not force_resend
+                    and not force_email
+                )
                 if already_sent:
                     recipient_email_sent = True
+                    email_sent += 1
                 else:
+                    if outreach_email != str(recipient.email or "").strip().lower():
+                        recipient.email = outreach_email
+                        db.add(recipient)
                     try:
                         sent_ok, err = CareerEmailService.send_templated_critical(
                             db,
                             template_key="interview_booking_invite",
-                            to_email=str(recipient.email).strip(),
+                            to_email=outreach_email,
                             variables={
                                 "candidate_name": recipient.name or "there",
                                 "role": role,
@@ -1919,7 +1958,7 @@ class InterviewBookingService:
                                 extra={
                                     "order_id": order.id,
                                     "recipient_id": recipient.id,
-                                    "to": recipient.email,
+                                    "to": outreach_email,
                                 },
                             )
                         else:
@@ -1927,13 +1966,13 @@ class InterviewBookingService:
                             merged_check.pop("invite_email_ok", None)
                             merged_check.pop("invite_email_sent_at", None)
                             if err:
-                                errors.append(f"Email {recipient.email}: {err}")
+                                errors.append(f"Email {outreach_email}: {err}")
                             logger.error(
                                 "interview_invite_email_failed",
                                 extra={
                                     "order_id": order.id,
                                     "recipient_id": recipient.id,
-                                    "to": recipient.email,
+                                    "to": outreach_email,
                                     "error": err,
                                 },
                             )
@@ -1941,7 +1980,7 @@ class InterviewBookingService:
                         merged_check["invite_email_failed"] = str(exc)
                         merged_check.pop("invite_email_ok", None)
                         merged_check.pop("invite_email_sent_at", None)
-                        errors.append(f"Email {recipient.email}: {exc}")
+                        errors.append(f"Email {outreach_email}: {exc}")
                         logger.exception(
                             "interview_invite_email_exception",
                             extra={"order_id": order.id, "recipient_id": recipient.id},

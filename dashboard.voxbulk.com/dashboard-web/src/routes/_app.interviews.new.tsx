@@ -1841,21 +1841,28 @@ function CreateInterview() {
               campaignReadOnly
                 ? "Campaign stopped or finished — resend disabled"
                 : canResendBookingInvites
-                  ? "Resend booking WhatsApp to eligible candidates"
+                  ? "Resend booking email and WhatsApp to eligible candidates"
                   : "All candidates have completed their interview — booking is locked"
             }
             onClick={() => {
               void (async () => {
                 try {
                   const result = await resendInvitesM.mutateAsync(true);
+                  const emailN = Number(result?.email_sent || 0);
                   const wa = Number(result?.whatsapp_sent || 0);
                   const skipped = Number(result?.skipped_locked || 0);
-                  if (wa > 0) {
-                    toast.success(`Resent booking WhatsApp to ${wa} candidate(s).`);
+                  const errs = Array.isArray(result?.errors) ? result.errors.filter(Boolean) : [];
+                  if (emailN > 0 || wa > 0) {
+                    const parts: string[] = [];
+                    if (emailN) parts.push(`${emailN} email`);
+                    if (wa) parts.push(`${wa} WhatsApp`);
+                    toast.success(`Resent booking invites (${parts.join(", ")}).`);
                   } else if (skipped > 0) {
                     toast.message("No invites sent — all candidates have already completed their interview.");
+                  } else if (errs.length > 0) {
+                    toast.error(errs[0]);
                   } else {
-                    toast.success("Booking invites queued.");
+                    toast.warning("No booking invites sent — add candidate email addresses and check Admin → Email SMTP.");
                   }
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : "Could not resend invites");
@@ -1863,7 +1870,7 @@ function CreateInterview() {
               })();
             }}
           >
-            <Send className="size-4" /> Resend booking WhatsApp
+            <Send className="size-4" /> Resend booking invites
           </Button>
         ) : null}
         <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending || campaignReadOnly}>

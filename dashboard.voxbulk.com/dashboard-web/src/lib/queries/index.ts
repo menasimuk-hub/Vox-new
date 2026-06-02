@@ -616,8 +616,9 @@ export function useSendInterviewBookingInvites(orderId: string | null) {
           method: "POST",
           body: JSON.stringify({
             force_resend: force,
+            force_email: force,
+            channels: channels?.length ? channels : ["email", "whatsapp"],
             ...(recipient_ids?.length ? { recipient_ids } : {}),
-            ...(channels?.length ? { channels } : {}),
           }),
         },
       );

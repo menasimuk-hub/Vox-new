@@ -140,6 +140,14 @@ class CareerEmailService:
         to_addr = str(to_email or "").strip().lower()
         if not to_addr or "@" not in to_addr:
             return False, "missing_recipient"
+        delivery = interview_email_delivery_status(db)
+        if not delivery.get("can_send_email"):
+            missing = delivery.get("smtp_missing_fields") or []
+            if not delivery.get("smtp_configured"):
+                return False, "SMTP not configured in Admin → Email" + (
+                    f" (missing: {', '.join(missing)})" if missing else ""
+                )
+            return False, "SMTP is disabled in Admin → Email — enable it before sending interview mail"
         rendered = _render_interview_template(db, template_key=template_key, variables=variables)
         if rendered is None:
             return False, "empty_template"
