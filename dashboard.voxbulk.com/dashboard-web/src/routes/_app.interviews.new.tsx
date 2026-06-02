@@ -388,8 +388,10 @@ function CreateInterview() {
       ),
     );
     setCvEmailEnabled(config.cv_email_enabled === true);
-    if (config.ats_last_charge_at) {
-      setAtsRunAt(String(config.ats_last_charge_at).slice(11, 16) || "done");
+    if (config.ats_manual_run_at) {
+      setAtsRunAt(String(config.ats_manual_run_at).slice(11, 16) || "done");
+    } else if (config.ats_last_charge_at && !config.ats_manual_run_at) {
+      setAtsRunAt(null);
     }
     if (config.ats_skipped === true) {
       setAtsSkipped(true);
@@ -857,7 +859,8 @@ function CreateInterview() {
     setAtsQuote(null);
     setAtsQuoteError(null);
     setAtsPromptOpen(true);
-    void loadAtsQuote(!!atsRunAt || Boolean(config.ats_last_charge_at));
+    const reRunAll = unscoredCount === 0 && candidates.some((c) => c.ats != null || Boolean(c.atsStatus));
+    void loadAtsQuote(reRunAll);
   };
 
   const onContinueWithoutAts = async () => {
@@ -932,7 +935,16 @@ function CreateInterview() {
   const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
   const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
   const canResendBookingInvites = candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
-  const unscoredCount = candidates.filter((c) => c.ats == null && !c.atsStatus).length;
+  const unscoredCount = React.useMemo(
+    () =>
+      candidates.filter((c) => {
+        const status = String(c.atsStatus || "").toLowerCase();
+        if (status === "complete" && c.ats != null) return false;
+        if (status === "pending" || status === "analyzing") return false;
+        return true;
+      }).length,
+    [candidates],
+  );
   const allCandidatesScored =
     candidates.length > 0 && candidates.every((c) => c.ats != null || Boolean(c.atsStatus));
   const atsGatePassed =
@@ -1088,6 +1100,9 @@ function CreateInterview() {
     waPreviewSyncLabel: waPreviewLoading ? "Syncing WhatsApp templates…" : waPreviewSyncLabel,
   };
 
+  const atsQuoteForceRescore =
+    unscoredCount === 0 && candidates.some((c) => c.ats != null || Boolean(c.atsStatus));
+
   const onAttemptPreview = () => {
     if (setupErrors.length > 0) {
       toast.error(
@@ -1101,7 +1116,7 @@ function CreateInterview() {
       setAtsQuote(null);
       setAtsQuoteError(null);
       setAtsPromptOpen(true);
-      void loadAtsQuote(!!atsRunAt);
+      void loadAtsQuote(atsQuoteForceRescore);
       return;
     }
     setPreview(true);
@@ -1791,7 +1806,7 @@ function CreateInterview() {
         quote={atsQuote as { candidate_count?: number; total_gbp?: string; unit_price_gbp?: string; wallet_gbp?: string; requires_payment?: boolean } | null}
         quoteLoading={atsQuoteLoading}
         quoteError={atsQuoteError}
-        onRetryQuote={() => void loadAtsQuote(!!atsRunAt)}
+        onRetryQuote={() => void loadAtsQuote(atsQuoteForceRescore)}
         onRunAts={() => void confirmAtsRun()}
         onContinueWithoutAts={onContinueWithoutAtsHandler}
         busy={runAtsM.isPending}

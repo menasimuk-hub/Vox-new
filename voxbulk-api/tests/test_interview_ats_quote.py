@@ -108,3 +108,55 @@ def test_interview_ats_quote_skips_already_scored(app_client):
     quoted = app_client.get(f"/service-orders/{order_id}/interview/ats/quote", headers=headers)
     assert quoted.status_code == 200, quoted.text
     assert quoted.json()["candidate_count"] == 0
+
+
+def test_interview_ats_quote_charges_only_unscored_when_one_already_complete(app_client):
+    headers, _org_id = _seed_user(app_client, email="ats_quote3@example.com")
+
+    created = app_client.post(
+        "/service-orders",
+        json={
+            "service_code": "interview",
+            "title": "Backend developer",
+            "config": {
+                "role": "Backend developer",
+                "criteria": "Python",
+                "approved_script": "Tell me about Python.",
+                "ats_last_charge_at": "2026-06-01T10:00:00",
+            },
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["id"]
+
+    with get_sessionmaker()() as db:
+        order = ServiceOrderService.get_order(db, order_id)
+        db.add(
+            ServiceOrderRecipient(
+                order_id=order.id,
+                row_number=1,
+                name="Email CV",
+                cv_text=_long_cv(),
+                ats_status="complete",
+                ats_score=91,
+                intake_source="email",
+            )
+        )
+        db.add(
+            ServiceOrderRecipient(
+                order_id=order.id,
+                row_number=2,
+                name="Upload CV",
+                cv_text=_long_cv(),
+                intake_source="cv",
+            )
+        )
+        db.commit()
+
+    quoted = app_client.get(f"/service-orders/{order_id}/interview/ats/quote", headers=headers)
+    assert quoted.status_code == 200, quoted.text
+    body = quoted.json()
+    assert body["candidate_count"] == 1
+    assert body["already_scored_count"] == 1
+    assert body["total_pence"] == body["unit_price_pence"]

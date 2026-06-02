@@ -98,7 +98,9 @@ def recipients_needing_ats(
         if len(cv_text) < 80:
             continue
         status = str(row.ats_status or "").strip().lower()
-        if not force and status in {"pending", "analyzing", "complete"}:
+        if status in {"pending", "analyzing"}:
+            continue
+        if not force and status == "complete" and row.ats_score is not None:
             continue
         out.append(row)
     return out
@@ -124,11 +126,17 @@ def quote_ats_run(
     if recipient_ids:
         allowed = {str(rid).strip() for rid in recipient_ids if str(rid).strip()}
         pending = [row for row in pending if row.id in allowed]
+    already_scored = sum(
+        1
+        for row in recipients
+        if str(row.ats_status or "").strip().lower() == "complete" and row.ats_score is not None
+    )
     unit = ats_unit_price_pence(db)
     total = unit * len(pending)
     wallet = ats_wallet_pence(order)
     return {
         "candidate_count": len(pending),
+        "already_scored_count": already_scored if not force else 0,
         "unit_price_pence": unit,
         "unit_price_gbp": f"£{unit / 100:.2f}",
         "total_pence": total,
@@ -205,6 +213,8 @@ def charge_and_queue_ats(
         )
 
     cfg = _order_config(order)
+    if require_script:
+        cfg["ats_manual_run_at"] = datetime.utcnow().isoformat()
     if total > wallet:
         cfg["ats_pending_charge_pence"] = total
         cfg["ats_last_charge_at"] = datetime.utcnow().isoformat()

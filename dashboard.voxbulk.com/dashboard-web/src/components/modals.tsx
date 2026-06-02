@@ -524,7 +524,7 @@ export function AtsPreviewGateModal({
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  quote: { candidate_count?: number; total_gbp?: string; unit_price_gbp?: string; wallet_gbp?: string; requires_payment?: boolean } | null;
+  quote: { candidate_count?: number; already_scored_count?: number; total_gbp?: string; unit_price_gbp?: string; wallet_gbp?: string; requires_payment?: boolean } | null;
   quoteLoading?: boolean;
   quoteError?: string | null;
   onRetryQuote?: () => void;
@@ -535,6 +535,7 @@ export function AtsPreviewGateModal({
   unscoredCount: number;
 }) {
   const count = Number(quote?.candidate_count || 0);
+  const alreadyScored = Number(quote?.already_scored_count || 0);
   const unitPrice = quote?.unit_price_gbp || "£0.50";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -570,6 +571,11 @@ export function AtsPreviewGateModal({
           </div>
         ) : quote ? (
           <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
+            {alreadyScored > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {alreadyScored} CV{alreadyScored === 1 ? "" : "s"} already scored — you are only charged for new ones below.
+              </p>
+            ) : null}
             <Row label="Candidates to score" value={String(count)} />
             <Row label="Unit price" value={unitPrice} />
             <Row label="Total" value={quote.total_gbp || "£0.00"} bold />

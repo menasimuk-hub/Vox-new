@@ -38,14 +38,14 @@ def _mark_ats_pending(recipient: ServiceOrderRecipient) -> None:
     recipient.result_json = json.dumps(merged, ensure_ascii=False)
 
 
-def auto_ats_after_email_cv(
+def auto_ats_for_cv_recipient(
     db: Session,
     order: ServiceOrder,
     recipient: ServiceOrderRecipient,
     *,
     is_update: bool = False,
 ) -> dict[str, object]:
-    """Queue paid ATS for a CV received by email. Re-sends update the CV and re-charge when forced."""
+    """Queue paid ATS when a CV arrives by email or manual upload."""
     org = db.get(Organisation, order.org_id)
     if org is None:
         return {"ok": False, "reason": "no_org"}
@@ -67,7 +67,7 @@ def auto_ats_after_email_cv(
             org,
             confirm_charge=True,
             recipient_ids=[recipient.id],
-            force=True,
+            force=bool(is_update),
             require_script=False,
         )
         return {"ok": True, **result}
@@ -80,3 +80,6 @@ def auto_ats_after_email_cv(
             extra={"order_id": order.id, "recipient_id": recipient.id, "error": str(exc)},
         )
         return {"ok": False, "reason": "billing", "error": str(exc)}
+
+
+auto_ats_after_email_cv = auto_ats_for_cv_recipient
