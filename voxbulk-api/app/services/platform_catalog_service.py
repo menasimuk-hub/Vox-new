@@ -1178,7 +1178,12 @@ class ServiceOrderService:
 
     @staticmethod
     def stop_order(db: Session, order: ServiceOrder, *, reason: str | None = None) -> ServiceOrder:
-        if order.status not in {"running", "paused", "scheduled", "paid"}:
+        if order.service_code == "interview":
+            if str(order.status or "") in {"cancelled", "completed", "archived"}:
+                raise ValueError("This interview campaign is already stopped")
+            if order.status not in {"running", "paused", "scheduled", "paid"}:
+                raise ValueError(f"Cannot stop interview campaign while status is '{order.status}'")
+        elif order.status not in {"running", "paused", "scheduled", "paid"}:
             raise ValueError("Survey is not active")
         now = datetime.utcnow()
         note = (reason or "").strip()
@@ -1205,11 +1210,37 @@ class ServiceOrderService:
                 from app.services.interview_booking_service import InterviewBookingService, campaign_invites_were_sent
 
                 if campaign_invites_were_sent(order):
-                    InterviewBookingService.notify_campaign_closed(
-                        db,
-                        order,
-                        reason=note or "This interview campaign was cancelled by the employer.",
-                    )
+                    notify_reason = note or "This interview campaign was cancelled by the employer."
+                    order_id = str(order.id)
+
+                    def _notify_closed_and_cancel_recipients() -> None:
+                        import logging
+
+                        log = logging.getLogger(__name__)
+                        try:
+                            from app.core.database import get_sessionmaker
+
+                            with get_sessionmaker()() as bg_db:
+                                bg_order = bg_db.get(ServiceOrder, order_id)
+                                if bg_order is None:
+                                    return
+                                InterviewBookingService.notify_campaign_closed(
+                                    bg_db,
+                                    bg_order,
+                                    reason=notify_reason,
+                                )
+                                for recipient in ServiceOrderService.get_recipients(bg_db, order_id):
+                                    if str(recipient.status or "pending").lower() in {"pending", "calling"}:
+                                        recipient.status = "cancelled"
+                                        bg_db.add(recipient)
+                                bg_db.commit()
+                        except Exception:
+                            log.exception("interview_campaign_cancel_notify_failed order_id=%s", order_id)
+
+                    import threading
+
+                    threading.Thread(target=_notify_closed_and_cancel_recipients, daemon=True).start()
+                    return order
             except Exception:
                 import logging
 

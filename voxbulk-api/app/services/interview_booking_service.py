@@ -206,18 +206,28 @@ def booking_reschedule_url_for_token(token: str, *, recipient: ServiceOrderRecip
     return f"{base}{sep}reschedule=1"
 
 
+def _ceil_to_slot_grid(dt: datetime) -> datetime:
+    """Next 10-minute boundary on the clock (…:00, :10, :20, …)."""
+    dt = dt.replace(second=0, microsecond=0)
+    total = dt.hour * 60 + dt.minute
+    if total % SLOT_MINUTES == 0:
+        return dt
+    ceiled = ((total // SLOT_MINUTES) + 1) * SLOT_MINUTES
+    return dt.replace(hour=ceiled // 60, minute=ceiled % 60)
+
+
 def _slot_starts(window_start: datetime, window_end: datetime, *, now: datetime | None = None) -> list[datetime]:
     if window_end <= window_start:
         return []
-    cursor = window_start
-    if now and cursor < now:
-        # Align to next slot boundary after now
-        delta = int((now - window_start).total_seconds() // 60)
-        skip = (delta // SLOT_MINUTES) + (1 if delta % SLOT_MINUTES else 0)
-        cursor = window_start + timedelta(minutes=skip * SLOT_MINUTES)
+    cursor = _ceil_to_slot_grid(window_start.replace(second=0, microsecond=0))
+    if now:
+        min_start = _ceil_to_slot_grid(now.replace(second=0, microsecond=0))
+        if cursor < min_start:
+            cursor = min_start
     slots: list[datetime] = []
     while cursor + timedelta(minutes=SLOT_MINUTES) <= window_end:
-        slots.append(cursor)
+        if cursor >= window_start.replace(second=0, microsecond=0):
+            slots.append(cursor)
         cursor += timedelta(minutes=SLOT_MINUTES)
     return slots
 
@@ -996,6 +1006,14 @@ class InterviewBookingService:
             )
         )
         if slot_start not in allowed_slots:
+            in_window = (
+                slot_start >= order.scheduled_start_at
+                and slot_start + timedelta(minutes=SLOT_MINUTES) <= order.scheduled_end_at
+            )
+            if in_window:
+                raise ValueError(
+                    f"Selected time is not a valid {SLOT_MINUTES}-minute slot — pick a time from the available list"
+                )
             raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
 
         _assert_slot_within_booking_hours(db, order, slot_start)
@@ -1617,6 +1635,14 @@ class InterviewBookingService:
             )
         )
         if slot_start not in allowed_slots:
+            in_window = (
+                slot_start >= order.scheduled_start_at
+                and slot_start + timedelta(minutes=SLOT_MINUTES) <= order.scheduled_end_at
+            )
+            if in_window:
+                raise ValueError(
+                    f"Selected time is not a valid {SLOT_MINUTES}-minute slot — pick a time from the available list"
+                )
             raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
 
         _assert_slot_within_booking_hours(db, order, slot_start)

@@ -20,7 +20,16 @@ def test_slot_starts_respects_window_end():
     end = datetime(2026, 6, 15, 18, 0, 0)
     slots = _slot_starts(start, end)
     assert slots
+    assert all(s.minute % SLOT_MINUTES == 0 for s in slots)
     assert slots[-1] + timedelta(minutes=SLOT_MINUTES) <= end
+
+
+def test_slot_starts_aligns_from_odd_window_start():
+    start = datetime(2026, 6, 15, 8, 7, 0)
+    end = datetime(2026, 6, 15, 18, 0, 0)
+    slots = _slot_starts(start, end)
+    assert slots
+    assert slots[0] == datetime(2026, 6, 15, 8, 10, 0)
 
 
 def test_filter_slots_caps_at_1730_uk_winter(monkeypatch):

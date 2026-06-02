@@ -41,6 +41,9 @@ function SavedInterviews() {
   const stopM = useStopInterviewCampaign();
   const [stopTarget, setStopTarget] = React.useState<{ id: string; name: string } | null>(null);
   const [stopConfirmText, setStopConfirmText] = React.useState("");
+  const [stopError, setStopError] = React.useState("");
+
+  const stopConfirmed = stopConfirmText.trim().toUpperCase() === "STOP";
 
   const filtered = React.useMemo(
     () =>
@@ -73,14 +76,17 @@ function SavedInterviews() {
   };
 
   const onStop = async () => {
-    if (!stopTarget) return;
+    if (!stopTarget || !stopConfirmed) return;
+    setStopError("");
     try {
       await stopM.mutateAsync({ orderId: stopTarget.id, reason: "Stopped by user" });
       toast.success("Interview stopped");
       setStopTarget(null);
       setStopConfirmText("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Stop failed");
+      const message = e instanceof Error ? e.message : "Stop failed";
+      setStopError(message);
+      toast.error(message);
     }
   };
 
@@ -176,7 +182,7 @@ function SavedInterviews() {
                           <Button size="sm" variant="ghost" asChild>
                             <Link to="/interviews/results/$orderId" params={{ orderId: c.id }}>Results</Link>
                           </Button>
-                          {tab === "live" && raw && ["running", "paused", "scheduled"].includes(String(raw.status || "")) ? (
+                          {tab === "live" && raw && ["running", "paused", "scheduled", "paid"].includes(String(raw.status || "")) ? (
                             <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setStopTarget({ id: c.id, name: c.name })}>
                               Stop
                             </Button>
@@ -199,7 +205,16 @@ function SavedInterviews() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!stopTarget} onOpenChange={(open) => { if (!open) { setStopTarget(null); setStopConfirmText(""); } }}>
+      <Dialog
+        open={!!stopTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setStopTarget(null);
+            setStopConfirmText("");
+            setStopError("");
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Stop interview campaign</DialogTitle>
@@ -208,10 +223,21 @@ function SavedInterviews() {
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">Type <strong>STOP</strong> to confirm.</p>
-          <Input value={stopConfirmText} onChange={(e) => setStopConfirmText(e.target.value)} placeholder="STOP" />
+          <Input
+            value={stopConfirmText}
+            onChange={(e) => {
+              setStopConfirmText(e.target.value);
+              if (stopError) setStopError("");
+            }}
+            placeholder="STOP"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && stopConfirmed && !stopM.isPending) void onStop();
+            }}
+          />
+          {stopError ? <p className="text-sm text-destructive">{stopError}</p> : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setStopTarget(null); setStopConfirmText(""); }}>Cancel</Button>
-            <Button variant="destructive" disabled={stopConfirmText !== "STOP" || stopM.isPending} onClick={() => void onStop()}>
+            <Button variant="outline" onClick={() => { setStopTarget(null); setStopConfirmText(""); setStopError(""); }}>Cancel</Button>
+            <Button variant="destructive" disabled={!stopConfirmed || stopM.isPending} onClick={() => void onStop()}>
               {stopM.isPending ? "Stopping…" : "Stop campaign"}
             </Button>
           </DialogFooter>

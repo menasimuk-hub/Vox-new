@@ -132,6 +132,8 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   const stopM = useStopInterviewCampaign();
   const [stopOpen, setStopOpen] = React.useState(false);
   const [stopConfirmText, setStopConfirmText] = React.useState("");
+  const [stopError, setStopError] = React.useState("");
+  const stopConfirmed = stopConfirmText.trim().toUpperCase() === "STOP";
   const results = resultsQ.data || {};
   const orderMeta = (results.order || {}) as Record<string, unknown>;
   const kpis = (results.kpis || {}) as Record<string, unknown>;
@@ -221,13 +223,17 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   };
 
   const onStopCampaign = async () => {
+    if (!stopConfirmed) return;
+    setStopError("");
     try {
       await stopM.mutateAsync({ orderId, reason: "Stopped by user from results" });
       toast.success("Interview stopped");
       setStopOpen(false);
       setStopConfirmText("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Stop failed");
+      const message = e instanceof Error ? e.message : "Stop failed";
+      setStopError(message);
+      toast.error(message);
     }
   };
 
@@ -573,7 +579,16 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         candidateName={activityCandidate?.name}
       />
 
-      <Dialog open={stopOpen} onOpenChange={setStopOpen}>
+      <Dialog
+        open={stopOpen}
+        onOpenChange={(open) => {
+          setStopOpen(open);
+          if (!open) {
+            setStopConfirmText("");
+            setStopError("");
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Stop interview campaign</DialogTitle>
@@ -582,10 +597,21 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">Type <strong>STOP</strong> to confirm.</p>
-          <Input value={stopConfirmText} onChange={(e) => setStopConfirmText(e.target.value)} placeholder="STOP" />
+          <Input
+            value={stopConfirmText}
+            onChange={(e) => {
+              setStopConfirmText(e.target.value);
+              if (stopError) setStopError("");
+            }}
+            placeholder="STOP"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && stopConfirmed && !stopM.isPending) void onStopCampaign();
+            }}
+          />
+          {stopError ? <p className="text-sm text-destructive">{stopError}</p> : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setStopOpen(false); setStopConfirmText(""); }}>Cancel</Button>
-            <Button variant="destructive" disabled={stopConfirmText !== "STOP" || stopM.isPending} onClick={() => void onStopCampaign()}>
+            <Button variant="outline" onClick={() => { setStopOpen(false); setStopConfirmText(""); setStopError(""); }}>Cancel</Button>
+            <Button variant="destructive" disabled={!stopConfirmed || stopM.isPending} onClick={() => void onStopCampaign()}>
               {stopM.isPending ? "Stopping…" : "Stop campaign"}
             </Button>
           </DialogFooter>

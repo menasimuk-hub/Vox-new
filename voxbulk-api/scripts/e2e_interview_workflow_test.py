@@ -791,10 +791,36 @@ class WorkflowRunner:
         return 0 if not failed else 1
 
 
-def _pick_booking_slot(page: dict[str, Any], *, minutes_ahead: int = 1) -> str:
+def _pick_booking_slot(page: dict[str, Any], *, minutes_ahead: int = 1, slot_start_at: str = "") -> str:
     slots = [str(s) for s in (page.get("available_slots") or []) if s]
     if not slots:
         raise RuntimeError("No available booking slots — widen calling window or check booking hours")
+
+    if slot_start_at.strip():
+        want = slot_start_at.strip()
+        if want in slots:
+            return want
+        try:
+            want_dt = datetime.fromisoformat(want.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            raise RuntimeError(f"--slot-start-at is invalid ISO datetime: {want!r}")
+        parsed: list[tuple[datetime, str]] = []
+        for slot in slots:
+            try:
+                dt = datetime.fromisoformat(slot.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                continue
+            parsed.append((dt, slot))
+        if parsed:
+            parsed.sort(key=lambda x: x[0])
+            for dt, slot in parsed:
+                if dt >= want_dt:
+                    return slot
+            return parsed[-1][1]
+        raise RuntimeError(
+            f"--slot-start-at {want!r} is not in available_slots — pick one of: {slots[:5]}{'…' if len(slots) > 5 else ''}"
+        )
+
     target = _utc_now() + timedelta(minutes=max(0, minutes_ahead))
     parsed: list[tuple[datetime, str]] = []
     for slot in slots:
@@ -933,20 +959,20 @@ def main() -> int:
         recipient_id = str(recipient.get("id") or "")
 
         page = runner.step_public_booking_page(booking_token)
-        if args.slot_start_at.strip():
-            booked_slot = args.slot_start_at.strip()
-            runner._record(
-                "Selected booking slot (manual)",
-                ok=True,
-                body={"slot": booked_slot, "source": "--slot-start-at"},
-            )
-        else:
-            booked_slot = _pick_booking_slot(page, minutes_ahead=args.slot_minutes_ahead)
-            runner._record(
-                "Selected booking slot",
-                ok=True,
-                body={"slot": booked_slot, "minutes_ahead": args.slot_minutes_ahead},
-            )
+        booked_slot = _pick_booking_slot(
+            page,
+            minutes_ahead=args.slot_minutes_ahead,
+            slot_start_at=args.slot_start_at.strip(),
+        )
+        runner._record(
+            "Selected booking slot",
+            ok=True,
+            body={
+                "slot": booked_slot,
+                "minutes_ahead": args.slot_minutes_ahead,
+                "source": "--slot-start-at" if args.slot_start_at.strip() else "auto",
+            },
+        )
         confirm = runner.step_confirm_booking(booking_token, booked_slot)
         if args.send_test_emails and isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
             runner._record(

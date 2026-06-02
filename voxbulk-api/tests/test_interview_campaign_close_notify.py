@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
@@ -351,10 +352,21 @@ def test_stop_order_notifies_pending_booked_candidate_before_cancelling(monkeypa
         from app.services.platform_catalog_service import ServiceOrderService
 
         ServiceOrderService.stop_order(db, order, reason="Stopped for testing")
-        db.refresh(recipient)
+
+        for _ in range(100):
+            if email_calls:
+                break
+            time.sleep(0.02)
 
         assert "interview_campaign_cancelled" in email_calls
         assert send_wa.call_count == 1
+
+        for _ in range(100):
+            db.refresh(recipient)
+            if str(recipient.status or "").lower() == "cancelled":
+                break
+            time.sleep(0.02)
+
         assert str(recipient.status or "").lower() == "cancelled"
 
 
