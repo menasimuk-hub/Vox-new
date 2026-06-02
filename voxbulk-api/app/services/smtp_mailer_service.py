@@ -86,7 +86,21 @@ class SmtpMailerService:
 
         username = (row.username or "").strip() or None
 
-        ctx = ssl.create_default_context()
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        insecure = str(settings.env).lower() in {"dev", "development", "local"} and bool(settings.smtp_ssl_insecure)
+        if insecure:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        else:
+            try:
+                import truststore
+
+                ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            except Exception:
+                ctx = ssl.create_default_context()
 
         try:
             if row.use_ssl:

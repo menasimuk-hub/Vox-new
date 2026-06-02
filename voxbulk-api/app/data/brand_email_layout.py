@@ -66,6 +66,16 @@ def cta_button(*, href: str, label: str) -> str:
     )
 
 
+def _calendar_icon_url(name: str) -> str:
+    """PNG icons for confirmation emails — same pattern as EMAIL_LOGO_URL (our API, not SVG/CDN)."""
+    from app.services.brand_assets import asset_data_uri, public_brand_url
+
+    data = asset_data_uri(name)
+    if data:
+        return data
+    return public_brand_url("https://api.voxbulk.com", name)
+
+
 def calendar_links_html(*, google_url: str, outlook_url: str, ics_url: str) -> str:
     """Inline add-to-calendar links for interview confirmation/reminder emails."""
     c = BRAND_COLORS
@@ -79,10 +89,13 @@ def calendar_links_html(*, google_url: str, outlook_url: str, ics_url: str) -> s
         f"border:1px solid {c['border']};background:{c['surface']};color:{c['primary']};"
         f"text-decoration:none;font-size:12px;font-weight:600;line-height:1.25;text-align:center;"
     )
-    icon = "display:block;margin:0 auto 8px;width:32px;height:32px;border:0;outline:none;"
-    google_icon = "https://www.gstatic.com/images/branding/product/2x/calendar_48dp.png"
-    outlook_icon = "https://res.cdn.office.net/assets/mail/premium/favicon.ico"
-    apple_icon = "https://www.apple.com/v/apple-events/home/aw/images/apple-events/apple_logo_black.svg"
+    icon = (
+        "display:block;margin:0 auto 8px;width:32px;height:32px;border:0;outline:none;"
+        "max-width:32px;max-height:32px;"
+    )
+    google_icon = _calendar_icon_url("calendar-google")
+    outlook_icon = _calendar_icon_url("calendar-outlook")
+    apple_icon = _calendar_icon_url("calendar-apple")
     return (
         f'<div style="{wrap}">'
         f"{title}"

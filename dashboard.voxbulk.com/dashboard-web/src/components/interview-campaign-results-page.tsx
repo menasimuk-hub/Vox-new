@@ -25,7 +25,6 @@ import { InterviewRecordingPlayer } from "@/components/interview-recording-playe
 import { InterviewTranscriptDialog } from "@/components/interview-transcript-dialog";
 import { CandidateActivityDialog, activityStatusLabel, activityStatusTone } from "@/components/candidate-activity-dialog";
 import { CandidateContactDialog } from "@/components/candidate-contact-dialog";
-import { StatusBadge } from "@/components/status-badge";
 
 export type CandidateRow = {
   id: string;
@@ -70,6 +69,7 @@ function fmtSchedule(iso?: string | null) {
       hour: "2-digit",
       minute: "2-digit",
       timeZone: BOOKING_TZ,
+      timeZoneName: "short",
     });
   } catch {
     return iso;

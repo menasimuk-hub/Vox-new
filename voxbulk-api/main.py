@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.core.config import get_settings
@@ -64,36 +65,33 @@ from app.services.career_mailbox_scheduler import career_mailbox_scheduler_loop
 from app.services.interview_ats_scheduler import interview_ats_scheduler_loop
 
 
+LOCAL_ADMIN_EMAIL = os.getenv("LOCAL_ADMIN_EMAIL", "zaghlolno@gmail.com").strip().lower()
+LOCAL_ADMIN_PASSWORD = os.getenv("LOCAL_ADMIN_PASSWORD", "testtest1")
+LOCAL_DASHBOARD_EMAIL = os.getenv("LOCAL_DASHBOARD_EMAIL", "user@user.com").strip().lower()
+LOCAL_DASHBOARD_PASSWORD = os.getenv("LOCAL_DASHBOARD_PASSWORD", LOCAL_ADMIN_PASSWORD)
+
+
 def _ensure_local_demo_admin() -> None:
     with get_sessionmaker()() as db:
-        email = "zaghlolno@gmail.com"
-        user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+        email = LOCAL_ADMIN_EMAIL
+        pwd_hash = hash_password(LOCAL_ADMIN_PASSWORD)
+        user = db.execute(select(User).where(func.lower(User.email) == email)).scalar_one_or_none()
 
-        # If a previous run created this user as a normal user, "upgrade" it so
-        # local dev always has a working superuser for routing/admin testing.
         if user is None:
             user = User(
                 email=email,
-                password_hash=hash_password("testtest1"),
+                password_hash=pwd_hash,
                 is_active=True,
                 is_superuser=True,
             )
             db.add(user)
             db.flush()
         else:
-            changed = False
-            if not user.is_active:
-                user.is_active = True
-                changed = True
-            if not user.is_superuser:
-                user.is_superuser = True
-                changed = True
-            if not user.password_hash:
-                user.password_hash = hash_password("testtest1")
-                changed = True
-            if changed:
-                db.add(user)
-                db.flush()
+            user.password_hash = pwd_hash
+            user.is_active = True
+            user.is_superuser = True
+            db.add(user)
+            db.flush()
 
         mem = db.execute(
             select(OrganisationMembership).where(OrganisationMembership.user_id == user.id)
@@ -103,6 +101,40 @@ def _ensure_local_demo_admin() -> None:
             db.add(org)
             db.flush()
             db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
+
+        db.commit()
+
+
+def _ensure_local_demo_user() -> None:
+    """Ensure a non-admin dashboard account exists for local sign-in testing."""
+    with get_sessionmaker()() as db:
+        email = LOCAL_DASHBOARD_EMAIL
+        user = db.execute(select(User).where(func.lower(User.email) == email)).scalar_one_or_none()
+        pwd_hash = hash_password(LOCAL_DASHBOARD_PASSWORD)
+        if user is None:
+            user = User(
+                email=email,
+                password_hash=pwd_hash,
+                is_active=True,
+                is_superuser=False,
+            )
+            db.add(user)
+            db.flush()
+        else:
+            user.password_hash = pwd_hash
+            user.is_active = True
+            user.is_superuser = False
+            db.add(user)
+            db.flush()
+
+        mem = db.execute(
+            select(OrganisationMembership).where(OrganisationMembership.user_id == user.id)
+        ).scalar_one_or_none()
+        if mem is None:
+            org = Organisation(name="Local Test Org")
+            db.add(org)
+            db.flush()
+            db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="owner"))
 
         db.commit()
 
@@ -138,8 +170,16 @@ async def lifespan(app: FastAPI):
             logger.exception("init_db failed — fix DATABASE_URL/migrations; /health still works")
         try:
             _ensure_local_demo_admin()
+            _ensure_local_demo_user()
+            logger.info(
+                "local_demo_accounts",
+                extra={
+                    "dashboard_email": LOCAL_DASHBOARD_EMAIL,
+                    "admin_email": LOCAL_ADMIN_EMAIL,
+                },
+            )
         except Exception:
-            logger.exception("local demo admin bootstrap failed — create a superuser manually")
+            logger.exception("local demo bootstrap failed — create users manually")
     logger.info("app_starting", extra={"env": settings.env, "app_name": settings.app_name})
     try:
         ensure_schema_hotfixes()

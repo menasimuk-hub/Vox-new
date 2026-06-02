@@ -435,7 +435,7 @@ class InterviewZoomService:
                     ServiceOrder.service_code == "interview",
                     ServiceOrderRecipient.status == "scheduled",
                 )
-                .order_by(ServiceOrderRecipient.updated_at.asc())
+                .order_by(ServiceOrderRecipient.created_at.asc())
                 .limit(max(limit * 3, 10))
             ).scalars()
         )

@@ -9,8 +9,11 @@ Place logo files here. The API serves them at `/public/brand/{name}`.
 | `icon-black.png` or `.svg` | `https://api.voxbulk.com/public/brand/icon-black` |
 | `icon-white.png` or `.svg` | `https://api.voxbulk.com/public/brand/icon-white` |
 | `favicon.ico` or `.png` | `https://api.voxbulk.com/public/brand/favicon` |
+| `calendar/calendar-google.png` | `https://api.voxbulk.com/public/brand/calendar-google` |
+| `calendar/calendar-outlook.png` | `https://api.voxbulk.com/public/brand/calendar-outlook` |
+| `calendar/calendar-apple.png` | `https://api.voxbulk.com/public/brand/calendar-apple` |
 
-**PNG is preferred for email** (Outlook blocks SVG). SVG is fine for web/PDF.
+**PNG is preferred for email** (Outlook blocks SVG and many external icon CDNs). SVG is fine for web/PDF.
 
 After adding files on the VPS:
 

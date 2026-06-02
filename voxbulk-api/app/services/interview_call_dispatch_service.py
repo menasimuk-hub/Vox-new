@@ -12,7 +12,7 @@ from app.core.logging import get_logger
 from app.models.interview_booking_token import InterviewBookingToken
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
-from app.services.interview_booking_service import SLOT_MINUTES
+from app.services.interview_booking_service import interview_slot_minutes
 from app.services.survey_dispatch_service import _first_name, _personalize
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
 from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id
@@ -24,6 +24,8 @@ logger = get_logger(__name__)
 LOG_PREFIX = "[interview-call]"
 
 VOICE_PENDING = {"pending", ""}
+# Booked candidates are marked scheduled (or sent after invite) — both must receive AI calls.
+VOICE_DIALABLE = VOICE_PENDING | {"scheduled", "sent"}
 VOICE_TERMINAL = {"completed", "no_answer", "failed", "busy", "skipped", "cancelled", "opted_out"}
 VOICE_ACTIVE = {"calling"}
 
@@ -113,16 +115,15 @@ def _recipient_eligible_for_dial(
             merged = {}
     except Exception:
         merged = {}
-    if merged.get("booking_cancelled_at") and not token.booked_start_at:
-        return False, "booking_cancelled"
     if merged.get("booking_withdrawn"):
         return False, "booking_withdrawn"
-    if str(recipient.status or "").lower() == "cancelled":
+    if str(recipient.status or "").lower() == "cancelled" and merged.get("booking_withdrawn"):
         return False, "booking_cancelled"
     if token.booked_start_at is None:
         return False, "not_booked"
     slot_start = token.booked_start_at
-    slot_end = slot_start + timedelta(minutes=SLOT_MINUTES)
+    slot_mins = interview_slot_minutes()
+    slot_end = slot_start + timedelta(minutes=slot_mins)
     grace_end = slot_end + timedelta(minutes=15)
     if now < slot_start:
         return False, "slot_not_due"
@@ -143,7 +144,7 @@ def _mark_missed_booking_slots(
         return
     for recipient in recipients:
         status = str(recipient.status or "pending").lower()
-        if status not in VOICE_PENDING:
+        if status not in VOICE_DIALABLE:
             continue
         token = _recipient_booking_token(db, order.id, recipient.id)
         if token is None or token.booked_start_at is None:
@@ -151,7 +152,7 @@ def _mark_missed_booking_slots(
         merged = _recipient_result(recipient)
         if merged.get("booking_cancelled_at") or merged.get("booking_withdrawn"):
             continue
-        grace_end = token.booked_start_at + timedelta(minutes=SLOT_MINUTES + 15)
+        grace_end = token.booked_start_at + timedelta(minutes=interview_slot_minutes() + 15)
         if now <= grace_end:
             continue
         recipient.status = "skipped"
@@ -456,7 +457,7 @@ class InterviewCallDispatchService:
         next_recipient = None
         for candidate in recipients:
             status = str(candidate.status or "pending").lower()
-            if status not in VOICE_PENDING:
+            if status not in VOICE_DIALABLE:
                 continue
             if should_skip_recipient_for_opt_out(candidate):
                 continue
@@ -514,6 +515,8 @@ class InterviewCallDispatchService:
         status = str(recipient.status or "pending").lower()
         if status == "calling":
             raise ValueError("This contact is already being called")
+        if status not in VOICE_DIALABLE and status != "completed":
+            raise ValueError(f"Contact cannot be called while status is '{recipient.status}'")
         if status == "completed" and not retry:
             raise ValueError("Contact already completed — use call again to retry")
         if retry and status in VOICE_TERMINAL:

@@ -85,7 +85,20 @@ def resolve_interview_telnyx_assistant_id(
 ) -> tuple[str, AgentDefinition | None]:
     agent = resolve_interview_agent_for_order(db, order, config)
     if agent and str(agent.telnyx_assistant_id or "").strip():
-        return normalize_telnyx_assistant_id(agent.telnyx_assistant_id), agent
+        assistant_id = normalize_telnyx_assistant_id(agent.telnyx_assistant_id)
+        try:
+            from app.services.telnyx_assistant_service import fetch_telnyx_assistant
+
+            fetch_telnyx_assistant(db, assistant_id)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "interview_telnyx_assistant_verify_failed agent=%s assistant_id=%s",
+                agent.id,
+                assistant_id,
+            )
+        return assistant_id, agent
 
     configured = str(get_settings().interview_telnyx_assistant_id or "").strip()
     if configured:

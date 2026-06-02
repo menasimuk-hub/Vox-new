@@ -14,10 +14,32 @@ function productionApiOrigin() {
   return "";
 }
 
+const LOCAL_LOOPBACK_FASTAPI_ORIGINS = new Set(["http://127.0.0.1:8000", "http://localhost:8000"]);
+
+function isViteDevelopment() {
+  return import.meta.env.DEV === true || import.meta.env.MODE === "development";
+}
+
+function isLocalDevHost() {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname.toLowerCase();
+  if (h === "localhost" || h === "127.0.0.1" || h === "::1") return true;
+  // Vite "Network" URLs (e.g. http://192.168.0.21:5173) must use the dev proxy too.
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  return false;
+}
+
 export function getApiBaseUrl() {
   const raw = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_RETOVER_API_BASE_URL || "")
     .trim()
     .replace(/\/+$/, "");
+
+  // Local Vite dev: same-origin /auth → proxy → FastAPI (:5173 → :8000).
+  if (isViteDevelopment() && isLocalDevHost() && (!raw || LOCAL_LOOPBACK_FASTAPI_ORIGINS.has(raw) || raw.includes("api.voxbulk.com"))) {
+    return "";
+  }
 
   if (raw) {
     try {
@@ -37,11 +59,11 @@ export function getApiBaseUrl() {
 
   if (typeof window !== "undefined") {
     const h = window.location.hostname;
-    if (h === "localhost" || h === "127.0.0.1" || h === "::1") return "http://127.0.0.1:8000";
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1") return "";
     const prod = productionApiOrigin();
     if (prod) return prod;
   }
-  return "http://127.0.0.1:8000";
+  return "";
 }
 
 function decodeJwtPayload(token: string) {

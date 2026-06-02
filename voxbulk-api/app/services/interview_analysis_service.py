@@ -27,7 +27,7 @@ from app.services.survey_analysis_service import (
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[interview-analysis]"
-INTERVIEW_INTERVIEW_ANALYSIS_VERSION = "2"
+INTERVIEW_ANALYSIS_VERSION = "2"
 
 
 def _log(event: str, **detail: Any) -> None:

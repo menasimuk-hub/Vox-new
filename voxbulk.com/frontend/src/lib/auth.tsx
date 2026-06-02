@@ -64,7 +64,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = React.useCallback(async (email: string, password: string): Promise<AuthUser> => {
     const { getApiBaseUrl } = await import("@/lib/api");
     const body = new URLSearchParams({ username: email.trim(), password });
-    const tokenRes = await fetch(`${getApiBaseUrl()}/auth/token`, {
+    const base = getApiBaseUrl().replace(/\/+$/, "");
+    // Dev: always same-origin so Vite proxy hits local FastAPI (never production API).
+    const tokenUrl = import.meta.env.DEV ? "/auth/token" : base ? `${base}/auth/token` : "/auth/token";
+    const tokenRes = await fetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,

@@ -61,8 +61,18 @@ def asset_extensions(name: str) -> tuple[str, ...]:
     return _ASSET_EXTENSIONS.get(key, (".png", ".svg", ".webp", ".jpg", ".jpeg", ".ico"))
 
 
+_CALENDAR_ICON_KEYS: tuple[str, ...] = (
+    "calendar-google",
+    "calendar-outlook",
+    "calendar-apple",
+)
+
+
 def asset_path(name: str) -> Path | None:
     key = normalize_asset_name(name)
+    if key in _CALENDAR_ICON_KEYS:
+        path = _LOGOS_DIR / "calendar" / f"{key}.png"
+        return path if path.is_file() else None
     if key not in PUBLIC_ASSETS:
         return None
     for ext in asset_extensions(key):
@@ -75,7 +85,7 @@ def asset_path(name: str) -> Path | None:
 def list_available_assets() -> dict[str, str]:
     """Return asset key -> filename on disk (for /public/brand listing)."""
     out: dict[str, str] = {}
-    for key in PUBLIC_ASSET_KEYS:
+    for key in (*PUBLIC_ASSET_KEYS, *_CALENDAR_ICON_KEYS):
         path = asset_path(key)
         if path is not None:
             out[key] = path.name

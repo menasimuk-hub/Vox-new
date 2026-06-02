@@ -1180,6 +1180,8 @@ class ServiceOrderService:
     def stop_order(db: Session, order: ServiceOrder, *, reason: str | None = None) -> ServiceOrder:
         if order.service_code == "interview":
             if str(order.status or "") in {"cancelled", "completed", "archived"}:
+                if str(order.status or "") == "cancelled":
+                    return order
                 raise ValueError("This interview campaign is already stopped")
             if order.status not in {"running", "paused", "scheduled", "paid"}:
                 raise ValueError(f"Cannot stop interview campaign while status is '{order.status}'")
@@ -1230,7 +1232,11 @@ class ServiceOrderService:
                                     reason=notify_reason,
                                 )
                                 for recipient in ServiceOrderService.get_recipients(bg_db, order_id):
-                                    if str(recipient.status or "pending").lower() in {"pending", "calling"}:
+                                    if str(recipient.status or "pending").lower() in {
+                                        "pending",
+                                        "scheduled",
+                                        "calling",
+                                    }:
                                         recipient.status = "cancelled"
                                         bg_db.add(recipient)
                                 bg_db.commit()

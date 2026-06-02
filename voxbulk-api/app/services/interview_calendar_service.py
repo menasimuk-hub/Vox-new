@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode
 
 from app.services.brand_assets import api_public_origin
-from app.services.interview_booking_service import SLOT_MINUTES
+from app.services.interview_booking_service import interview_slot_minutes
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -36,7 +36,7 @@ def build_interview_calendar_variables(
     """URLs and HTML snippet for add-to-calendar in interview emails."""
     from app.data.brand_email_layout import calendar_links_html
 
-    end = slot_end or (slot_start + timedelta(minutes=SLOT_MINUTES))
+    end = slot_end or (slot_start + timedelta(minutes=interview_slot_minutes()))
     role_line = str(role or "Interview").strip() or "Interview"
     company_line = str(company_name or "VOXBULK").strip() or "VOXBULK"
     title = f"{role_line} interview — {company_line}"

@@ -51,6 +51,17 @@ from app.services.telnyx_whatsapp_template_sync_service import (
 )
 
 SLOT_MINUTES = 10
+
+
+def interview_slot_minutes() -> int:
+    """Interview booking slot length (minutes). Override with INTERVIEW_SLOT_MINUTES env (1–60)."""
+    try:
+        from app.core.config import get_settings
+
+        raw = int(get_settings().interview_slot_minutes)
+        return max(1, min(60, raw))
+    except (TypeError, ValueError, AttributeError):
+        return SLOT_MINUTES
 BOOKING_HOURS_START = (9, 0)
 BOOKING_HOURS_END = (17, 30)
 VOICE_TERMINAL = frozenset(
@@ -73,13 +84,9 @@ def interview_booking_locked(recipient: ServiceOrderRecipient) -> str | None:
 
 
 def _booking_withdrawn(recipient: ServiceOrderRecipient) -> bool:
-    """True when the candidate cancelled and must not book or receive AI calls again."""
-    if str(recipient.status or "").lower() == "cancelled":
-        return True
+    """True when the candidate permanently opted out (not a mere slot cancel)."""
     merged = _recipient_result(recipient)
-    if merged.get("booking_withdrawn"):
-        return True
-    return bool(merged.get("booking_cancelled_at")) and not merged.get("booked_start_at")
+    return bool(merged.get("booking_withdrawn"))
 
 
 def _assert_booking_allowed(recipient: ServiceOrderRecipient) -> None:
@@ -207,12 +214,13 @@ def booking_reschedule_url_for_token(token: str, *, recipient: ServiceOrderRecip
 
 
 def _ceil_to_slot_grid(dt: datetime) -> datetime:
-    """Next 10-minute boundary on the clock (…:00, :10, :20, …)."""
+    """Next slot boundary on the clock (grid from INTERVIEW_SLOT_MINUTES)."""
+    sm = interview_slot_minutes()
     dt = dt.replace(second=0, microsecond=0)
     total = dt.hour * 60 + dt.minute
-    if total % SLOT_MINUTES == 0:
+    if total % sm == 0:
         return dt
-    ceiled = ((total // SLOT_MINUTES) + 1) * SLOT_MINUTES
+    ceiled = ((total // sm) + 1) * sm
     return dt.replace(hour=ceiled // 60, minute=ceiled % 60)
 
 
@@ -225,10 +233,10 @@ def _slot_starts(window_start: datetime, window_end: datetime, *, now: datetime 
         if cursor < min_start:
             cursor = min_start
     slots: list[datetime] = []
-    while cursor + timedelta(minutes=SLOT_MINUTES) <= window_end:
+    while cursor + timedelta(minutes=interview_slot_minutes()) <= window_end:
         if cursor >= window_start.replace(second=0, microsecond=0):
             slots.append(cursor)
-        cursor += timedelta(minutes=SLOT_MINUTES)
+        cursor += timedelta(minutes=interview_slot_minutes())
     return slots
 
 
@@ -254,7 +262,7 @@ def _filter_slots_to_calling_hours(
         window = resolve_org_call_window(db, order.org_id, now=local)
         day_start = max(window.start, time(9, 0))
         day_end = min(window.end, time(17, 30))
-        slot_end_local = local + timedelta(minutes=SLOT_MINUTES)
+        slot_end_local = local + timedelta(minutes=interview_slot_minutes())
         if day_start <= local.time() and slot_end_local.time() <= day_end:
             out.append(slot)
     return out
@@ -343,6 +351,7 @@ def _booking_display_meta() -> dict[str, str]:
     end = f"{BOOKING_HOURS_END[0]:02d}:{BOOKING_HOURS_END[1]:02d}"
     return {
         "display_timezone": "Europe/London",
+        "display_timezone_label": "UK time (GMT/BST)",
         "calling_hours_label": f"{start}–{end} UK time (9:00 am – 5:30 pm)",
     }
 
@@ -894,7 +903,7 @@ class InterviewBookingService:
                 "closed_message": (
                     "Your interview was cancelled. You will not receive an AI call or any further messages about this job."
                 ),
-                "slot_minutes": SLOT_MINUTES,
+                "slot_minutes": interview_slot_minutes(),
                 "available_slots": [],
                 "booked_start_at": None,
                 "booked_end_at": None,
@@ -917,7 +926,7 @@ class InterviewBookingService:
                 "organisation_name": org_name,
                 "booking_closed": True,
                 "closed_message": closed_message,
-                "slot_minutes": SLOT_MINUTES,
+                "slot_minutes": interview_slot_minutes(),
                 "available_slots": [],
                 "booked_start_at": _iso_utc(row.booked_start_at),
                 "booked_end_at": _iso_utc(row.booked_end_at),
@@ -950,7 +959,7 @@ class InterviewBookingService:
             "organisation_name": org_name,
             "booking_closed": False,
             "closed_message": None,
-            "slot_minutes": SLOT_MINUTES,
+            "slot_minutes": interview_slot_minutes(),
             "available_slots": [_iso_utc(s) for s in available],
             "booked_start_at": _iso_utc(row.booked_start_at),
             "booked_end_at": _iso_utc(row.booked_end_at),
@@ -990,7 +999,7 @@ class InterviewBookingService:
         except ValueError as exc:
             raise ValueError("Invalid slot time") from exc
 
-        slot_end = slot_start + timedelta(minutes=SLOT_MINUTES)
+        slot_end = slot_start + timedelta(minutes=interview_slot_minutes())
         if slot_start < order.scheduled_start_at or slot_end > order.scheduled_end_at:
             raise ValueError("Selected time is outside the interview window")
 
@@ -1008,11 +1017,11 @@ class InterviewBookingService:
         if slot_start not in allowed_slots:
             in_window = (
                 slot_start >= order.scheduled_start_at
-                and slot_start + timedelta(minutes=SLOT_MINUTES) <= order.scheduled_end_at
+                and slot_start + timedelta(minutes=interview_slot_minutes()) <= order.scheduled_end_at
             )
             if in_window:
                 raise ValueError(
-                    f"Selected time is not a valid {SLOT_MINUTES}-minute slot — pick a time from the available list"
+                    f"Selected time is not a valid {interview_slot_minutes()}-minute slot — pick a time from the available list"
                 )
             raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
 
@@ -1028,15 +1037,19 @@ class InterviewBookingService:
         db.add(row)
 
         merged = _recipient_result(recipient)
+        merged.pop("booking_cancelled_at", None)
+        merged.pop("booking_withdrawn", None)
         merged.update(
             {
                 "booking_token": row.token,
                 "booking_url": booking_url_for_token(row.token),
-                "booked_start_at": slot_start.isoformat(),
-                "booked_end_at": slot_end.isoformat(),
-                "booking_confirmed_at": now.isoformat(),
+                "booked_start_at": _iso_utc(slot_start),
+                "booked_end_at": _iso_utc(slot_end),
+                "booking_confirmed_at": _iso_utc(now),
             }
         )
+        if str(recipient.status or "").lower() not in {"completed", "done", "calling", "in_progress"}:
+            recipient.status = "scheduled"
         recipient.result_json = json.dumps(merged, ensure_ascii=False)
         db.add(recipient)
         db.commit()
@@ -1052,8 +1065,8 @@ class InterviewBookingService:
 
         return {
             "ok": True,
-            "booked_start_at": slot_start.isoformat(),
-            "booked_end_at": slot_end.isoformat(),
+            "booked_start_at": _iso_utc(slot_start),
+            "booked_end_at": _iso_utc(slot_end),
             "candidate_name": recipient.name,
         }
 
@@ -1096,7 +1109,7 @@ class InterviewBookingService:
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
         slot_start = row.booked_start_at
-        slot_end = row.booked_end_at or (slot_start + timedelta(minutes=SLOT_MINUTES))
+        slot_end = row.booked_end_at or (slot_start + timedelta(minutes=interview_slot_minutes()))
         title = f"{role} interview — {company_name}"
         description = (
             f"AI phone interview for the {role} role at {company_name}. "
@@ -1136,7 +1149,7 @@ class InterviewBookingService:
             calendar_vars = build_interview_calendar_variables(
                 token=token,
                 slot_start=slot_start,
-                slot_end=slot_start + timedelta(minutes=SLOT_MINUTES),
+                slot_end=slot_start + timedelta(minutes=interview_slot_minutes()),
                 role=role,
                 company_name=company_name,
             )
@@ -1546,13 +1559,13 @@ class InterviewBookingService:
                 "booking_cancelled_at": now.isoformat(),
                 "cancelled_booked_start_at": previous_start.isoformat() if previous_start else None,
                 "booking_cancelled_via": str(source or "web").strip().lower() or "web",
-                "booking_withdrawn": True,
             }
         )
         merged.pop("booked_start_at", None)
         merged.pop("booked_end_at", None)
         InterviewBookingService._hangup_active_call_if_any(db, order, recipient)
-        recipient.status = "cancelled"
+        if str(recipient.status or "").lower() not in {"completed", "done"}:
+            recipient.status = "pending"
         recipient.result_json = json.dumps(merged, ensure_ascii=False)
         db.add(recipient)
         db.commit()
@@ -1619,7 +1632,7 @@ class InterviewBookingService:
         except ValueError as exc:
             raise ValueError("Invalid slot time") from exc
 
-        slot_end = slot_start + timedelta(minutes=SLOT_MINUTES)
+        slot_end = slot_start + timedelta(minutes=interview_slot_minutes())
         if slot_start < order.scheduled_start_at or slot_end > order.scheduled_end_at:
             raise ValueError("Selected time is outside the interview window")
 
@@ -1637,11 +1650,11 @@ class InterviewBookingService:
         if slot_start not in allowed_slots:
             in_window = (
                 slot_start >= order.scheduled_start_at
-                and slot_start + timedelta(minutes=SLOT_MINUTES) <= order.scheduled_end_at
+                and slot_start + timedelta(minutes=interview_slot_minutes()) <= order.scheduled_end_at
             )
             if in_window:
                 raise ValueError(
-                    f"Selected time is not a valid {SLOT_MINUTES}-minute slot — pick a time from the available list"
+                    f"Selected time is not a valid {interview_slot_minutes()}-minute slot — pick a time from the available list"
                 )
             raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
 
@@ -1667,13 +1680,15 @@ class InterviewBookingService:
             {
                 "booking_token": row.token,
                 "booking_url": resolve_booking_url(recipient, row.token),
-                "booked_start_at": slot_start.isoformat(),
-                "booked_end_at": slot_end.isoformat(),
-                "booking_rescheduled_at": now.isoformat(),
-                "previous_booked_start_at": previous_start.isoformat() if previous_start else None,
+                "booked_start_at": _iso_utc(slot_start),
+                "booked_end_at": _iso_utc(slot_end),
+                "booking_rescheduled_at": _iso_utc(now),
+                "previous_booked_start_at": _iso_utc(previous_start) if previous_start else None,
             }
         )
         recipient.result_json = json.dumps(merged, ensure_ascii=False)
+        if str(recipient.status or "").lower() not in {"completed", "done", "calling", "in_progress"}:
+            recipient.status = "scheduled"
         db.add(recipient)
         db.commit()
 
@@ -1682,8 +1697,8 @@ class InterviewBookingService:
         return {
             "ok": True,
             "rescheduled": True,
-            "booked_start_at": slot_start.isoformat(),
-            "booked_end_at": slot_end.isoformat(),
+            "booked_start_at": _iso_utc(slot_start),
+            "booked_end_at": _iso_utc(slot_end),
             "candidate_name": recipient.name,
         }
 

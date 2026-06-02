@@ -22,7 +22,10 @@ def test_build_interview_calendar_variables():
     assert "Google Calendar" in vars["calendar_links_html"]
     assert "Outlook" in vars["calendar_links_html"]
     assert "Apple / .ics" in vars["calendar_links_html"]
-    assert "<img" in vars["calendar_links_html"]
+    html = vars["calendar_links_html"]
+    assert "<img" in html
+    assert "data:image/png" in html or "api.voxbulk.com/public/brand/calendar-google" in html
+    assert ".svg" not in html
 
 
 def test_build_interview_ics_contains_event():

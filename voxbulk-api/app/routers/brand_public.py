@@ -3,7 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from app.services.brand_assets import PUBLIC_ASSET_KEYS, asset_media_type, asset_path, list_available_assets, logos_dir
+from app.services.brand_assets import (
+    PUBLIC_ASSET_KEYS,
+    asset_media_type,
+    asset_path,
+    list_available_assets,
+    logos_dir,
+)
 
 router = APIRouter(prefix="/public/brand", tags=["brand"])
 

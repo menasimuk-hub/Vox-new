@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_json: bool = Field(default=True, alias="LOG_JSON")
+    smtp_ssl_insecure: bool = Field(default=False, alias="SMTP_SSL_INSECURE")
 
     # Webhook signature secrets (HMAC foundation)
     # Twilio request validation uses your Twilio Auth Token.
@@ -83,6 +84,7 @@ class Settings(BaseSettings):
     telnyx_api_key: str = Field(default="", alias="TELNYX_API_KEY")
     survey_telnyx_assistant_id: str = Field(default="", alias="SURVEY_TELNYX_ASSISTANT_ID")
     interview_telnyx_assistant_id: str = Field(default="", alias="INTERVIEW_TELNYX_ASSISTANT_ID")
+    interview_slot_minutes: int = Field(default=10, alias="INTERVIEW_SLOT_MINUTES")
 
     calendly_client_id: str = Field(default="", alias="CALENDLY_CLIENT_ID")
     calendly_client_secret: str = Field(default="", alias="CALENDLY_CLIENT_SECRET")

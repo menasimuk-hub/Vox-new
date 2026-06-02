@@ -22,10 +22,26 @@ export const Route = createFileRoute("/_app/interviews/")({
   component: SavedInterviews,
 });
 
+const BOOKING_TZ = "Europe/London";
+
+function parseUtc(iso?: string | null) {
+  const raw = String(iso || "").trim();
+  if (!raw) return new Date(NaN);
+  if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(raw)) return new Date(`${raw}Z`);
+  return new Date(raw);
+}
+
 function fmtWhen(iso?: string | null) {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    return parseUtc(iso).toLocaleString("en-GB", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: BOOKING_TZ,
+      timeZoneName: "short",
+    });
   } catch {
     return iso;
   }

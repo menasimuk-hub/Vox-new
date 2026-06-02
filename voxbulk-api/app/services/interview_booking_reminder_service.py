@@ -19,6 +19,7 @@ from app.services.interview_booking_service import (
     _format_slot_date,
     _format_slot_time,
     _recipient_result,
+    interview_slot_minutes,
 )
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
@@ -125,7 +126,7 @@ class InterviewBookingReminderService:
             calendar_vars = build_interview_calendar_variables(
                 token=token,
                 slot_start=slot_start,
-                slot_end=token_row.booked_end_at or (slot_start + timedelta(minutes=SLOT_MINUTES)),
+                slot_end=token_row.booked_end_at or (slot_start + timedelta(minutes=interview_slot_minutes())),
                 role=role,
                 company_name=company_name,
             )

@@ -644,6 +644,59 @@ class WorkflowRunner:
             check=lambda b: isinstance(b, dict) and b.get("ok") is not False,
         )
 
+    def step_reschedule_booking(self, booking_token: str, slot_iso: str) -> dict[str, Any]:
+        return self._api(
+            "Reschedule booking slot",
+            "POST",
+            f"/public/interview-booking/{booking_token}/reschedule",
+            token=None,
+            json_body={"slot_start_at": slot_iso},
+            check=lambda b: isinstance(b, dict) and b.get("rescheduled") is True,
+        )
+
+    def step_wait_for_manual_booking(
+        self,
+        booking_token: str,
+        *,
+        timeout_sec: int = 900,
+        poll_sec: int = 5,
+    ) -> tuple[str, dict[str, Any]]:
+        """Poll public booking page until candidate picks a slot."""
+        deadline = time.time() + timeout_sec
+        last: dict[str, Any] = {}
+        booking_url = f"{os.environ.get('BOOKING_APP_ORIGIN', 'http://localhost:5175')}/book/{booking_token}"
+        print(f"\n📧 Pick your slot in the email link (or open): {booking_url}\n")
+        while time.time() < deadline:
+            page = self.step_public_booking_page(booking_token)
+            last = page if isinstance(page, dict) else {}
+            if last.get("already_booked") and last.get("booked_start_at"):
+                slot = str(last["booked_start_at"])
+                self._record(
+                    "Manual booking detected",
+                    ok=True,
+                    body={"booked_start_at": slot, "booked_end_at": last.get("booked_end_at")},
+                )
+                return slot, last
+            remaining = int(deadline - time.time())
+            if remaining % 30 < poll_sec:
+                print(f"… waiting for you to book ({remaining}s left) …")
+            time.sleep(poll_sec)
+        self._record(
+            "Manual booking detected",
+            ok=False,
+            reason=f"No booking within {timeout_sec}s — open {booking_url}",
+            body=last,
+        )
+        raise RuntimeError(f"Manual booking timeout — open {booking_url}")
+
+        return self._api(
+            "Cancel booking slot",
+            "POST",
+            f"/public/interview-booking/{booking_token}/cancel",
+            token=None,
+            check=lambda b: isinstance(b, dict) and b.get("cancelled") is True,
+        )
+
     def step_poll_order_running(self, order_id: str, *, timeout_sec: int = 90) -> dict[str, Any]:
         deadline = time.time() + timeout_sec
         last: dict[str, Any] = {}
@@ -689,16 +742,19 @@ class WorkflowRunner:
                 expect_ok=True,
             )
             last = body if isinstance(body, dict) else {}
-            status = str(last.get("status") or "").lower()
-            analysis = last.get("analysis") or {}
-            if status in {"completed", "done"} and (last.get("analysis_saved_at") or analysis.get("score") is not None):
+            candidate = last.get("candidate") if isinstance(last.get("candidate"), dict) else {}
+            status = str(candidate.get("status") or last.get("status") or "").lower()
+            analysis = last.get("analysis") if isinstance(last.get("analysis"), dict) else {}
+            score = analysis.get("score") if analysis.get("score") is not None else candidate.get("score")
+            has_report = bool(candidate.get("has_interview_report")) or score is not None
+            if status in {"completed", "done"} and has_report:
                 self._record(
                     "Real call completed + analysis saved",
                     ok=True,
                     response_body={
                         "status": status,
-                        "score": analysis.get("score") or last.get("score"),
-                        "analysis_saved_at": last.get("analysis_saved_at"),
+                        "score": score,
+                        "has_interview_report": candidate.get("has_interview_report"),
                     },
                 )
                 return last
@@ -875,6 +931,22 @@ def main() -> int:
         default=1,
         help="Auto-pick first slot at least this many minutes from now (default 1; use 0 for nearest slot)",
     )
+    parser.add_argument(
+        "--with-cancel-rebook",
+        action="store_true",
+        help="After first booking: cancel slot, then book a later slot (tests cancel + confirm emails)",
+    )
+    parser.add_argument(
+        "--manual-booking",
+        action="store_true",
+        help="Send invite email then wait for you to pick a slot on the booking page (no auto-book)",
+    )
+    parser.add_argument(
+        "--manual-booking-timeout",
+        type=int,
+        default=900,
+        help="Seconds to wait for manual booking (default 900)",
+    )
     parser.add_argument("--wait-for-real-call-seconds", type=int, default=300)
     parser.add_argument("--skip-stop", action="store_true", help="Skip stop step (default: skip when email-safe)")
     parser.add_argument("--delete-order", action="store_true", help="Delete order after run (default: keep for debugging)")
@@ -959,35 +1031,74 @@ def main() -> int:
         recipient_id = str(recipient.get("id") or "")
 
         page = runner.step_public_booking_page(booking_token)
-        booked_slot = _pick_booking_slot(
-            page,
-            minutes_ahead=args.slot_minutes_ahead,
-            slot_start_at=args.slot_start_at.strip(),
-        )
-        runner._record(
-            "Selected booking slot",
-            ok=True,
-            body={
-                "slot": booked_slot,
-                "minutes_ahead": args.slot_minutes_ahead,
-                "source": "--slot-start-at" if args.slot_start_at.strip() else "auto",
-            },
-        )
-        confirm = runner.step_confirm_booking(booking_token, booked_slot)
-        if args.send_test_emails and isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
-            runner._record(
-                "Booking confirmation email",
-                ok=False,
-                reason="confirmation_email_sent=false — check SMTP + interview_booking_confirm template",
-                body=confirm,
+        booking_url = f"{os.environ.get('BOOKING_APP_ORIGIN', 'http://localhost:5175')}/book/{booking_token}"
+        print(f"\nBooking link: {booking_url}\n")
+
+        if args.manual_booking:
+            booked_slot, page = runner.step_wait_for_manual_booking(
+                booking_token,
+                timeout_sec=args.manual_booking_timeout,
             )
-        elif isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
+        else:
+            booked_slot = _pick_booking_slot(
+                page,
+                minutes_ahead=args.slot_minutes_ahead,
+                slot_start_at=args.slot_start_at.strip(),
+            )
             runner._record(
-                "Booking confirmation email",
+                "Selected booking slot",
                 ok=True,
-                reason="skipped check — email-safe mode (SMTP left free for manual sends)",
-                body={"confirmation_email_sent": False},
+                body={
+                    "slot": booked_slot,
+                    "minutes_ahead": args.slot_minutes_ahead,
+                    "source": "--slot-start-at" if args.slot_start_at.strip() else "auto",
+                },
             )
+            confirm = runner.step_confirm_booking(booking_token, booked_slot)
+            if args.send_test_emails and isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
+                runner._record(
+                    "Booking confirmation email",
+                    ok=False,
+                    reason="confirmation_email_sent=false — check SMTP + interview_booking_confirm template",
+                    body=confirm,
+                )
+            elif isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
+                runner._record(
+                    "Booking confirmation email",
+                    ok=True,
+                    reason="skipped check — email-safe mode (SMTP left free for manual sends)",
+                    body={"confirmation_email_sent": False},
+                )
+
+        if args.with_cancel_rebook and not args.manual_booking:
+            cancel = runner.step_cancel_booking(booking_token)
+            if args.send_test_emails and isinstance(cancel, dict) and cancel.get("cancellation_email_sent") is False:
+                runner._record(
+                    "Booking cancellation email",
+                    ok=False,
+                    reason="cancellation_email_sent=false — check SMTP + interview_booking_cancel template",
+                    body=cancel,
+                )
+            page2 = runner.step_public_booking_page(booking_token)
+            rebook_slot = _pick_booking_slot(
+                page2,
+                minutes_ahead=max(args.slot_minutes_ahead + 2, 3),
+                slot_start_at="",
+            )
+            runner._record(
+                "Selected rebook slot",
+                ok=True,
+                body={"slot": rebook_slot},
+            )
+            rebook = runner.step_reschedule_booking(booking_token, rebook_slot)
+            booked_slot = rebook_slot
+            if args.send_test_emails and isinstance(rebook, dict) and rebook.get("confirmation_email_sent") is False:
+                runner._record(
+                    "Rebook confirmation email",
+                    ok=False,
+                    reason="confirmation_email_sent=false after rebook",
+                    body=rebook,
+                )
 
         runner.step_poll_order_running(order_id, timeout_sec=120)
 
@@ -1009,7 +1120,8 @@ def main() -> int:
         runner.step_activity_timeline(order_id, recipient_id)
         runner.step_fetch_report_html(order_id, recipient_id)
 
-        score = (detail or {}).get("score") or ((detail or {}).get("analysis") or {}).get("score")
+        cand = (detail or {}).get("candidate") if isinstance((detail or {}).get("candidate"), dict) else {}
+        score = cand.get("score") or ((detail or {}).get("analysis") or {}).get("score")
         candidates = (results or {}).get("candidates") or []
         runner._record(
             "Verify score persisted in API",

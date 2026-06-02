@@ -58,7 +58,7 @@ from app.models.agent import AgentDefinition
 from app.services.survey_voice_agent_service import _clear_other_defaults
 
 SLUG = "interview-gb-leo"
-TELNYX_ID = "assistant-19b10379-bea4-4a0e-ad82-c220d0fd54fd"
+TELNYX_ID = "assistant-6b6dbef2-8a40-442d-9e7a-9b11eaa7d9ed"
 KB_PATH = ROOT / "kb-upload-ready" / "interview" / "interview_GB-Leo-kb.md"
 
 SYSTEM_PROMPT = """You are Leo, a professional British English AI phone interviewer for {company_name}.
