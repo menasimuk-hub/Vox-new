@@ -81,14 +81,10 @@ def _seed_booked_candidate(db):
 def test_booking_cancel_email_uses_critical_fallback(monkeypatch):
     with get_sessionmaker()() as db:
         order, recipient, slot = _seed_booked_candidate(db)
-        send_plain = MagicMock()
+        critical = MagicMock(return_value=(True, None))
         monkeypatch.setattr(
-            "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
-            lambda *a, **k: (False, "template_disabled"),
-        )
-        monkeypatch.setattr(
-            "app.services.interview_booking_service.CareerEmailService.send",
-            send_plain,
+            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
+            critical,
         )
         monkeypatch.setattr(
             "app.services.interview_booking_service.InterviewBookingService._send_booking_cancellation_whatsapp",
@@ -108,24 +104,18 @@ def test_booking_cancel_email_uses_critical_fallback(monkeypatch):
         result = InterviewBookingService.cancel_booking(db, token=token_row.token, source="web")
 
         assert result.get("cancellation_email_sent") is True
-        send_plain.assert_called_once()
-        assert "interview" in str(send_plain.call_args.kwargs.get("subject") or "").lower() or "cancel" in str(
-            send_plain.call_args.kwargs.get("subject") or ""
-        ).lower()
+        critical.assert_called_once()
+        assert critical.call_args.kwargs.get("template_key") == "interview_booking_cancel"
 
 
 def test_booking_cancel_email_falls_back_on_smtp_error(monkeypatch):
-    """Broken admin template SMTP error must still send code-default cancel email."""
+    """Cancel email uses send_templated_critical (shared SMTP path)."""
     with get_sessionmaker()() as db:
         order, recipient, slot = _seed_booked_candidate(db)
-        send_plain = MagicMock()
+        critical = MagicMock(return_value=(True, None))
         monkeypatch.setattr(
-            "app.services.interview_booking_service.CareerEmailService.send_templated_optional",
-            lambda *a, **k: (False, "SMTP connection refused"),
-        )
-        monkeypatch.setattr(
-            "app.services.interview_booking_service.CareerEmailService.send",
-            send_plain,
+            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
+            critical,
         )
         monkeypatch.setattr(
             "app.services.interview_booking_service.InterviewBookingService._send_booking_cancellation_whatsapp",
@@ -145,7 +135,7 @@ def test_booking_cancel_email_falls_back_on_smtp_error(monkeypatch):
         result = InterviewBookingService.cancel_booking(db, token=token_row.token, source="web")
 
         assert result.get("cancellation_email_sent") is True
-        send_plain.assert_called_once()
+        critical.assert_called_once()
 
 
 def test_stop_still_emails_invited_candidate_with_cancelled_status(monkeypatch):

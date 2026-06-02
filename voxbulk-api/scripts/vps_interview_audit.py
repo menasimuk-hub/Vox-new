@@ -281,6 +281,8 @@ def main() -> int:
         return 1
 
     print("All checks passed.")
+    print("Run one real invite email (same code as launch):")
+    print("  python3 scripts/send_interview_invite_email_test.py --to you@company.com")
     print("Run E2E: export VOXBULK_API_BASE_URL=https://api.voxbulk.com VOXBULK_EMAIL=... VOXBULK_PASSWORD=...")
     print("         bash scripts/e2e_interview_workflow_test.sh --send-test-emails")
     return 0

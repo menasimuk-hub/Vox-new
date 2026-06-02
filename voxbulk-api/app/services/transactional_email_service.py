@@ -49,6 +49,14 @@ EMAIL_TEST_VARIABLES: dict[str, str] = {
     "calls_included": "300",
     "whatsapp_included": "500",
     "sms_included": "300",
+    "candidate_name": "Alex Demo",
+    "role": "Software Engineer",
+    "company_name": "Demo Company Ltd",
+    "booking_url": "https://dashboard.voxbulk.com/book/test-token",
+    "interview_date": "21 May 2026",
+    "interview_time": "14:30",
+    "closure_reason": "This interview campaign has been closed.",
+    "calendar_links_html": "",
 }
 
 
@@ -81,12 +89,43 @@ def _deliver_message(
     subject: str,
     body: str,
     attachments: list[dict[str, Any]] | None = None,
+    reply_to: str | None = None,
 ) -> None:
+    """Same SMTP path as Admin → Email → Send test (row From/SSL); optional Reply-To."""
     clean_body = str(body or "")
-    if _looks_like_html(clean_body):
-        SmtpMailerService.send_html(db, to_addr=to_addr, subject=subject, body=clean_body, attachments=attachments)
-    else:
-        SmtpMailerService.send_plain(db, to_addr=to_addr, subject=subject, body=clean_body or subject, attachments=attachments)
+    try:
+        if _looks_like_html(clean_body):
+            SmtpMailerService.send_html(
+                db,
+                to_addr=to_addr,
+                subject=subject,
+                body=clean_body,
+                attachments=attachments,
+                reply_to=reply_to,
+            )
+        else:
+            SmtpMailerService.send_plain(
+                db,
+                to_addr=to_addr,
+                subject=subject,
+                body=clean_body or subject,
+                attachments=attachments,
+                reply_to=reply_to,
+            )
+    except SmtpMailerError:
+        if not _looks_like_html(clean_body):
+            raise
+        from app.services.smtp_mailer_service import _html_to_plain
+
+        plain = _html_to_plain(clean_body) or subject
+        SmtpMailerService.send_plain(
+            db,
+            to_addr=to_addr,
+            subject=subject,
+            body=plain,
+            attachments=attachments,
+            reply_to=reply_to,
+        )
 
 
 class TransactionalEmailService:

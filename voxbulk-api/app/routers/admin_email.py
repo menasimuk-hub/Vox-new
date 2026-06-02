@@ -229,14 +229,25 @@ def post_email_template_send_test(
 ):
     """Send the current template (draft subject/body optional) with dummy placeholder data."""
     vars_plain = {str(k): "" if v is None else str(v) for k, v in (payload.variables or {}).items()}
-    ok, err = TransactionalEmailService.send_template_test(
-        db,
-        template_key=template_key,
-        to_email=str(payload.to),
-        subject=payload.subject,
-        body=payload.body,
-        variables=vars_plain,
-    )
+    key_norm = EmailTemplateService.normalize_key(template_key)
+    if key_norm.startswith("interview_"):
+        from app.services.career_email_service import CareerEmailService
+
+        ok, err = CareerEmailService.send_template_test(
+            db,
+            template_key=key_norm,
+            to_email=str(payload.to),
+            variables=vars_plain,
+        )
+    else:
+        ok, err = TransactionalEmailService.send_template_test(
+            db,
+            template_key=template_key,
+            to_email=str(payload.to),
+            subject=payload.subject,
+            body=payload.body,
+            variables=vars_plain,
+        )
     if not ok:
         code = status.HTTP_404_NOT_FOUND if err == "Template not found" else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=err or "Test email was not sent.")

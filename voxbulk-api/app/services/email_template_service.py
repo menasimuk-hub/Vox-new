@@ -119,12 +119,15 @@ class EmailTemplateService:
             subject = str(row.subject or "")
             body = str(row.body or "")
             enabled = bool(row.is_enabled)
-            if k.startswith("interview_") and (
-                not enabled or (not subject.strip() and not body.strip())
-            ):
+            if k.startswith("interview_"):
+                subj = str(subject or defaults.get("subject") or "").strip()
+                bod = str(body or defaults.get("body") or "").strip()
+                if subj or bod:
+                    # Interview outreach must send when content exists — do not block on is_enabled=false.
+                    return subj, bod, True
                 return (
-                    str(defaults.get("subject") or subject),
-                    str(defaults.get("body") or body),
+                    str(defaults.get("subject") or ""),
+                    str(defaults.get("body") or ""),
                     True,
                 )
             return subject, body, enabled

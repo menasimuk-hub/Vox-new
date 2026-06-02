@@ -1887,7 +1887,8 @@ class InterviewBookingService:
             if "email" in use_channels and recipient.email:
                 merged_check = _recipient_result(recipient)
                 already_sent = (
-                    merged_check.get("invite_email_sent_at")
+                    merged_check.get("invite_email_ok")
+                    and merged_check.get("invite_email_sent_at")
                     and not merged_check.get("invite_email_failed")
                     and not force_resend
                 )
@@ -1897,6 +1898,7 @@ class InterviewBookingService:
                     if force_resend:
                         merged_check.pop("invite_email_sent_at", None)
                         merged_check.pop("invite_email_failed", None)
+                        merged_check.pop("invite_email_ok", None)
                     try:
                         sent_ok, err = CareerEmailService.send_templated_critical(
                             db,
@@ -1913,15 +1915,40 @@ class InterviewBookingService:
                             email_sent += 1
                             recipient_email_sent = True
                             merged_check.pop("invite_email_failed", None)
+                            merged_check["invite_email_ok"] = True
+                            merged_check["invite_email_sent_at"] = _now().isoformat()
+                            logger.info(
+                                "interview_invite_email_sent",
+                                extra={
+                                    "order_id": order.id,
+                                    "recipient_id": recipient.id,
+                                    "to": recipient.email,
+                                },
+                            )
                         else:
                             merged_check["invite_email_failed"] = err or "send_failed"
+                            merged_check.pop("invite_email_ok", None)
                             merged_check.pop("invite_email_sent_at", None)
                             if err:
                                 errors.append(f"Email {recipient.email}: {err}")
+                            logger.error(
+                                "interview_invite_email_failed",
+                                extra={
+                                    "order_id": order.id,
+                                    "recipient_id": recipient.id,
+                                    "to": recipient.email,
+                                    "error": err,
+                                },
+                            )
                     except Exception as exc:
                         merged_check["invite_email_failed"] = str(exc)
+                        merged_check.pop("invite_email_ok", None)
                         merged_check.pop("invite_email_sent_at", None)
                         errors.append(f"Email {recipient.email}: {exc}")
+                        logger.exception(
+                            "interview_invite_email_exception",
+                            extra={"order_id": order.id, "recipient_id": recipient.id},
+                        )
                     recipient.result_json = json.dumps(merged_check, ensure_ascii=False)
                     db.add(recipient)
 
@@ -1987,6 +2014,8 @@ class InterviewBookingService:
             merged.update({"booking_token": token_row.token, "booking_url": url, "booking_invite_sent_at": now_iso})
             if recipient_email_sent:
                 merged["invite_email_sent_at"] = merged.get("invite_email_sent_at") or now_iso
+                merged["invite_email_ok"] = True
+                merged.pop("invite_email_failed", None)
             if recipient_wa_sent:
                 merged["invite_wa_sent_at"] = (token_row.wa_sent_at or _now()).isoformat()
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
