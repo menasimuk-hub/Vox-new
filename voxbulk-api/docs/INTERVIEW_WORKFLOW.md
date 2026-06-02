@@ -49,8 +49,11 @@ In `voxbulk-api/.env` on the server:
 
 ```env
 INTERVIEW_SLOT_MINUTES=4
+INTERVIEW_RELAX_HOURS=1
 BOOKING_APP_ORIGIN=https://dashboard.voxbulk.com
 ```
+
+`INTERVIEW_RELAX_HOURS=1` (temporary): 4-minute slots for the full campaign window, no 9:00–17:30 booking cap, and AI calls allowed outside org calling hours. Remove in production.
 
 Restart API after changing env.
 

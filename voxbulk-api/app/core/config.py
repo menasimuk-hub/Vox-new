@@ -84,7 +84,8 @@ class Settings(BaseSettings):
     telnyx_api_key: str = Field(default="", alias="TELNYX_API_KEY")
     survey_telnyx_assistant_id: str = Field(default="", alias="SURVEY_TELNYX_ASSISTANT_ID")
     interview_telnyx_assistant_id: str = Field(default="", alias="INTERVIEW_TELNYX_ASSISTANT_ID")
-    interview_slot_minutes: int = Field(default=10, alias="INTERVIEW_SLOT_MINUTES")
+    interview_slot_minutes: int = Field(default=4, alias="INTERVIEW_SLOT_MINUTES")
+    interview_relax_hours: bool = Field(default=False, alias="INTERVIEW_RELAX_HOURS")
 
     calendly_client_id: str = Field(default="", alias="CALENDLY_CLIENT_ID")
     calendly_client_secret: str = Field(default="", alias="CALENDLY_CLIENT_SECRET")

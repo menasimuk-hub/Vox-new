@@ -50,7 +50,7 @@ from app.services.telnyx_whatsapp_template_sync_service import (
     template_to_dict,
 )
 
-SLOT_MINUTES = 10
+SLOT_MINUTES = 4
 
 
 def interview_slot_minutes() -> int:
@@ -62,6 +62,18 @@ def interview_slot_minutes() -> int:
         return max(1, min(60, raw))
     except (TypeError, ValueError, AttributeError):
         return SLOT_MINUTES
+
+
+def interview_relax_restrictions() -> bool:
+    """Temporary: skip Ofcom/org booking-hour filters and interview dial-hour checks."""
+    try:
+        from app.core.config import get_settings
+
+        return bool(get_settings().interview_relax_hours)
+    except Exception:
+        return False
+
+
 BOOKING_HOURS_START = (9, 0)
 BOOKING_HOURS_END = (17, 30)
 VOICE_TERMINAL = frozenset(
@@ -246,6 +258,8 @@ def _filter_slots_to_calling_hours(
     slots: list[datetime],
 ) -> list[datetime]:
     """Only expose booking slots between 09:00 and 17:30 (org timezone, UK default)."""
+    if interview_relax_restrictions():
+        return list(slots)
     from app.utils.ofcom import is_weekend_uk, resolve_org_call_window
 
     out: list[datetime] = []
@@ -270,6 +284,8 @@ def _filter_slots_to_calling_hours(
 
 def _assert_slot_within_booking_hours(db: Session, order: ServiceOrder, slot_start: datetime) -> None:
     """Reject any slot outside 09:00–17:30 UK (Ofcom calling window)."""
+    if interview_relax_restrictions():
+        return
     allowed = _filter_slots_to_calling_hours(db, order, [slot_start])
     if not allowed:
         raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
@@ -347,6 +363,12 @@ def _iso_utc(dt: datetime | None) -> str | None:
 
 
 def _booking_display_meta() -> dict[str, str]:
+    if interview_relax_restrictions():
+        return {
+            "display_timezone": "Europe/London",
+            "display_timezone_label": "UK time (GMT/BST)",
+            "calling_hours_label": "Any time UK (testing mode — no hour restrictions)",
+        }
     start = f"{BOOKING_HOURS_START[0]:02d}:{BOOKING_HOURS_START[1]:02d}"
     end = f"{BOOKING_HOURS_END[0]:02d}:{BOOKING_HOURS_END[1]:02d}"
     return {
@@ -1701,6 +1723,16 @@ class InterviewBookingService:
             "booked_end_at": _iso_utc(slot_end),
             "candidate_name": recipient.name,
         }
+
+    @staticmethod
+    def recipients_pending_invite_email(db: Session, order: ServiceOrder) -> bool:
+        """True when any candidate has email but no recorded invite email yet."""
+        for recipient in ServiceOrderService.get_recipients(db, order.id):
+            if not str(recipient.email or "").strip():
+                continue
+            if not _recipient_result(recipient).get("invite_email_sent_at"):
+                return True
+        return False
 
     @staticmethod
     def send_invites(

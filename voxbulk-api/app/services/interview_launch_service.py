@@ -93,14 +93,20 @@ class InterviewLaunchService:
         if delivery == "ai_call":
             if not order.scheduled_start_at or not order.scheduled_end_at:
                 raise ValueError("Set the calling window (start and end) before launch")
-            already_sent = bool(config.get("booking_invites_sent_at")) and bool(
-                (_order_config(order).get("last_invite_dispatch") or {}).get("ok")
+            dispatch = config.get("last_invite_dispatch")
+            dispatch_ok = isinstance(dispatch, dict) and bool(dispatch.get("ok"))
+            needs_invites = (
+                resend_invites
+                or not config.get("booking_invites_sent_at")
+                or not dispatch_ok
+                or InterviewBookingService.recipients_pending_invite_email(db, order)
             )
-            if resend_invites or not already_sent:
+            if needs_invites:
                 invite_result = InterviewBookingService.send_invites(
                     db,
                     order,
-                    channels=list(channels or ["whatsapp", "email"]),
+                    channels=list(channels or ["email", "whatsapp"]),
+                    force_resend=resend_invites,
                 )
             config = _order_config(order)
             config["require_booking"] = config.get("require_booking", True) is not False

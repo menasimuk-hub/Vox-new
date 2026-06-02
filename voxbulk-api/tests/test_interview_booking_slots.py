@@ -71,3 +71,17 @@ def test_filter_slots_caps_at_1730_uk_winter(monkeypatch):
     uk = last.replace(tzinfo=timezone.utc).astimezone(UK_TZ)
     slot_end = uk + timedelta(minutes=sm)
     assert slot_end.time() <= time(*BOOKING_HOURS_END)
+
+
+def test_filter_slots_skips_hour_cap_when_relaxed(monkeypatch):
+    monkeypatch.setenv("INTERVIEW_RELAX_HOURS", "1")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    order = MagicMock()
+    order.org_id = "org-1"
+    db = MagicMock()
+    evening = datetime(2026, 6, 15, 20, 0, 0)
+    filtered = _filter_slots_to_calling_hours(db, order, [evening])
+    assert filtered == [evening]
+    get_settings.cache_clear()

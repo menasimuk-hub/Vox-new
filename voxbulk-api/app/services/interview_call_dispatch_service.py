@@ -238,6 +238,10 @@ def build_interview_call_greeting(config: dict[str, Any], *, recipient_name: str
 
 
 def _order_window_ok(db: Session, order: ServiceOrder, *, now: datetime | None = None) -> tuple[bool, str | None]:
+    from app.services.interview_booking_service import interview_relax_restrictions
+
+    if interview_relax_restrictions():
+        return True, None
     now = now or datetime.utcnow()
     if order.scheduled_start_at and now < order.scheduled_start_at:
         return False, "Interview calling window has not started"
