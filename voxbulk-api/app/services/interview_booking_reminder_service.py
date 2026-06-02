@@ -162,21 +162,15 @@ class InterviewBookingReminderService:
                 db.commit()
                 db.refresh(recipient)
             try:
-                email_ok, err = CareerEmailService.send_booking_reminder_fallback(
+                email_ok, err, ch = CareerEmailService.send_booking_reminder_email(
                     db,
                     to_email=outreach_email,
                     variables=variables,
                 )
-                if not email_ok:
-                    err_notes.append(f"email_plain:{err}")
-                    email_ok, err = CareerEmailService.send_templated_critical(
-                        db,
-                        template_key="interview_booking_reminder",
-                        to_email=outreach_email,
-                        variables=variables,
-                    )
-                    if not email_ok and err:
-                        err_notes.append(f"email_html:{err}")
+                if not email_ok and err:
+                    err_notes.append(f"email:{err}")
+                elif ch == "plain_fallback":
+                    err_notes.append("email:plain_fallback_used")
             except Exception as exc:
                 err_notes.append(f"email:{exc}")
         else:

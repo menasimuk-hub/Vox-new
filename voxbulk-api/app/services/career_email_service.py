@@ -189,6 +189,64 @@ class CareerEmailService:
         )
 
     @staticmethod
+    def send_booking_confirm_email(
+        db: Session,
+        *,
+        to_email: str,
+        variables: dict[str, str],
+    ) -> tuple[bool, str | None, str]:
+        """
+        Send confirmation using Admin template interview_booking_confirm.
+        Plain text is only used if the template render or SMTP HTML send fails.
+        Returns (ok, error, channel) where channel is interview_booking_confirm | plain_fallback | none.
+        """
+        ok, err = CareerEmailService.send_templated_critical(
+            db,
+            template_key="interview_booking_confirm",
+            to_email=to_email,
+            variables=variables,
+        )
+        if ok:
+            return True, None, "interview_booking_confirm"
+        ok_fb, err_fb = CareerEmailService.send_booking_confirmation_fallback(
+            db,
+            to_email=to_email,
+            variables=variables,
+        )
+        if ok_fb:
+            logger.warning(
+                "booking_confirm_used_plain_fallback to=%s template_err=%s",
+                to_email,
+                err,
+            )
+            return True, None, "plain_fallback"
+        return False, err_fb or err, "none"
+
+    @staticmethod
+    def send_booking_reminder_email(
+        db: Session,
+        *,
+        to_email: str,
+        variables: dict[str, str],
+    ) -> tuple[bool, str | None, str]:
+        ok, err = CareerEmailService.send_templated_critical(
+            db,
+            template_key="interview_booking_reminder",
+            to_email=to_email,
+            variables=variables,
+        )
+        if ok:
+            return True, None, "interview_booking_reminder"
+        ok_fb, err_fb = CareerEmailService.send_booking_reminder_fallback(
+            db,
+            to_email=to_email,
+            variables=variables,
+        )
+        if ok_fb:
+            return True, None, "plain_fallback"
+        return False, err_fb or err, "none"
+
+    @staticmethod
     def send_booking_confirmation_fallback(
         db: Session,
         *,
