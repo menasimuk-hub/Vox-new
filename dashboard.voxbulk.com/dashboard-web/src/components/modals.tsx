@@ -541,7 +541,7 @@ export function AtsPreviewGateModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Run ATS before you approve?</DialogTitle>
+          <DialogTitle>Run ATS before preview?</DialogTitle>
           <DialogDescription>
             ATS reads each CV against your role and screening criteria so you only phone-screen strong matches.
           </DialogDescription>
@@ -835,9 +835,7 @@ export function InterviewPreviewQuoteModal({
                 className="gap-1.5"
                 disabled={!canLaunchPackage}
                 onClick={() => {
-                  void (async () => {
-                    await onLaunch?.();
-                  })();
+                  void onLaunch?.();
                 }}
               >
                 <PlayCircle className="size-4" />

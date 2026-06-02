@@ -1022,26 +1022,14 @@ class InterviewBookingService:
         db.add(recipient)
         db.commit()
 
-        order_id = order.id
-        recipient_id = recipient.id
-        slot_copy = slot_start
-
-        def _notify() -> None:
-            try:
-                from app.core.database import get_sessionmaker
-
-                with get_sessionmaker()() as bg_db:
-                    bg_order = bg_db.get(ServiceOrder, order_id)
-                    bg_recipient = bg_db.get(ServiceOrderRecipient, recipient_id)
-                    if bg_order is None or bg_recipient is None:
-                        return
-                    InterviewBookingService._send_booking_confirmations(bg_db, bg_order, bg_recipient, slot_copy)
-            except Exception:
-                logger.exception("booking_confirm_notify_failed order_id=%s recipient_id=%s", order_id, recipient_id)
-
-        import threading
-
-        threading.Thread(target=_notify, daemon=True).start()
+        try:
+            InterviewBookingService._send_booking_confirmations(db, order, recipient, slot_start)
+        except Exception:
+            logger.exception(
+                "booking_confirm_notify_failed order_id=%s recipient_id=%s",
+                order.id,
+                recipient.id,
+            )
 
         return {
             "ok": True,
@@ -1137,7 +1125,7 @@ class InterviewBookingService:
         if recipient.email:
             sent_ok = False
             try:
-                sent_ok, err = CareerEmailService.send_templated_optional(
+                sent_ok, err = CareerEmailService.send_templated_critical(
                     db,
                     template_key="interview_booking_confirm",
                     to_email=str(recipient.email).strip(),
@@ -1748,7 +1736,7 @@ class InterviewBookingService:
                     recipient_email_sent = True
                 else:
                     try:
-                        sent_ok, err = CareerEmailService.send_templated_optional(
+                        sent_ok, err = CareerEmailService.send_templated_critical(
                             db,
                             template_key="interview_booking_invite",
                             to_email=str(recipient.email).strip(),

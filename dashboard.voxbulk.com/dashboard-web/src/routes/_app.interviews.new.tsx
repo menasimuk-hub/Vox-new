@@ -680,6 +680,16 @@ function CreateInterview() {
     const collectionEndIso = closedEarlyAt
       ? String(config.cv_collection_end_at || config.cv_email_end_at || closedEarlyAt)
       : toIsoFromLocal(collectionEnd);
+    const scriptTrim = script.trim();
+    const approvedFromConfig = String(config.approved_script || "").trim();
+    const configSaysApproved = Boolean(config.script_approved) && approvedFromConfig === scriptTrim;
+    const persistScriptApproved =
+      extraConfig?.script_approved === true ||
+      scriptApproved ||
+      configSaysApproved;
+    const approvedScriptToSave = persistScriptApproved
+      ? String(extraConfig?.approved_script || (scriptApproved ? script : approvedFromConfig || script)).trim()
+      : String(config.approved_script || "").trim();
     return {
     order_id: orderId,
     title: position || order?.title || "Interview draft",
@@ -702,8 +712,8 @@ function CreateInterview() {
       calling_window_end_at: toIsoFromLocal(callingEnd),
       generated_script_draft: script,
       expected_duration_minutes: expectedDurationMinutes,
-      approved_script: scriptApproved ? script : config.approved_script || "",
-      script_approved: scriptApproved,
+      approved_script: approvedScriptToSave,
+      script_approved: persistScriptApproved,
       ...(options?.markSaved ? { draft_saved_by_user: true } : {}),
       ...extraConfig,
     },
@@ -961,11 +971,13 @@ function CreateInterview() {
         atsSkipped ||
         Boolean(config.ats_skipped) ||
         Boolean(atsRunAt) ||
+        Boolean(config.ats_manual_run_at) ||
         Boolean(config.ats_last_charge_at)
       : candidates.length > 0 &&
         (atsSkipped ||
           Boolean(config.ats_skipped) ||
           Boolean(atsRunAt) ||
+          Boolean(config.ats_manual_run_at) ||
           Boolean(config.ats_last_charge_at) ||
           allCandidatesScored);
   const setupErrors = collectInterviewSetupErrors({
@@ -1060,19 +1072,28 @@ function CreateInterview() {
     }
   };
 
+  const launchStatusRef = React.useRef<HTMLDivElement | null>(null);
+
+  const scrollToLaunchStatus = () => {
+    window.setTimeout(() => {
+      launchStatusRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+  };
+
   const onLaunchFromPackage = async () => {
     if (!orderId) return;
     if (launchErrors.length > 0) {
       toast.error(launchErrors.length === 1 ? launchErrors[0] : launchErrors.join(" · "));
       return;
     }
-    setPreview(false);
     setPayBusy(true);
     try {
       await onSaveDraft(true);
       const result = await launchM.mutateAsync();
+      setPreview(false);
       notifyInterviewLaunch(result);
       refreshDraft();
+      scrollToLaunchStatus();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not launch campaign");
     } finally {
@@ -1651,7 +1672,23 @@ function CreateInterview() {
           </div>
           <div className="md:col-span-2 space-y-1.5">
             <Label className={`text-xs ${missingScript || missingScriptApproval ? "text-destructive" : ""}`}>Generated script</Label>
-            <Textarea rows={8} value={script} onChange={(e) => { setScript(e.target.value); setScriptApproved(false); setExpectedDurationMinutes(undefined); }} placeholder="Generate AI questions or paste your own script…" className={inputErrorClass(missingScript || missingScriptApproval)} />
+            <Textarea
+              rows={8}
+              value={script}
+              onChange={(e) => {
+                const next = e.target.value;
+                setScript(next);
+                const approvedText = String(config.approved_script || "").trim();
+                if (!approvedText || next.trim() !== approvedText) {
+                  setScriptApproved(false);
+                  setExpectedDurationMinutes(undefined);
+                } else {
+                  setScriptApproved(Boolean(config.script_approved));
+                }
+              }}
+              placeholder="Generate AI questions or paste your own script…"
+              className={inputErrorClass(missingScript || missingScriptApproval)}
+            />
             {missingScript ? <p className="text-[11px] text-destructive">Generate or paste a script, then approve it</p> : null}
             {!missingScript && missingScriptApproval ? <p className="text-[11px] text-destructive">Click Approve script when you are happy with it</p> : null}
           </div>
@@ -1667,7 +1704,7 @@ function CreateInterview() {
       </Card>
 
       {!campaignReadOnly ? (
-      <Card>
+      <Card ref={launchStatusRef}>
         <CardHeader>
           <CardTitle>Step 3 · ATS, preview & launch</CardTitle>
           <CardDescription>

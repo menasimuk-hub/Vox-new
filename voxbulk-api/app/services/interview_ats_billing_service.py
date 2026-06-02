@@ -201,7 +201,11 @@ def charge_and_queue_ats(
         assert_email_cv_ats_ready(order)
     quote = quote_ats_run(db, order, force=force, recipient_ids=recipient_ids)
     count = int(quote["candidate_count"] or 0)
+    cfg = _order_config(order)
+    if require_script:
+        cfg["ats_manual_run_at"] = datetime.utcnow().isoformat()
     if count <= 0:
+        order = _save_order_config(db, order, cfg)
         return {"ok": True, "queued": 0, "message": "No CVs need ATS scoring", **quote}
 
     total = int(quote["total_pence"] or 0)
@@ -212,14 +216,13 @@ def charge_and_queue_ats(
             "Confirm payment to continue."
         )
 
-    cfg = _order_config(order)
-    if require_script:
-        cfg["ats_manual_run_at"] = datetime.utcnow().isoformat()
     if total > wallet:
         cfg["ats_pending_charge_pence"] = total
         cfg["ats_last_charge_at"] = datetime.utcnow().isoformat()
         cfg["ats_last_charge_count"] = count
     elif total > 0:
+        cfg["ats_last_charge_at"] = datetime.utcnow().isoformat()
+        cfg["ats_last_charge_count"] = count
         cfg["ats_wallet_pence"] = wallet - total
         ledger = cfg.get("ats_wallet_ledger")
         if not isinstance(ledger, list):

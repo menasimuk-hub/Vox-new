@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 
 
 
@@ -87,6 +88,7 @@ async function loadSession(): Promise<SessionState> {
 function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
   const ran = React.useRef(false);
+  const navigate = useNavigate();
 
   React.useEffect(() => {
 
@@ -168,6 +170,10 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
               try {
                 const launched = await startPaidInterviewOrder(resolvedOrderId);
                 notifyInterviewLaunch(launched);
+                void navigate({
+                  to: "/interviews/new",
+                  search: { order_id: resolvedOrderId },
+                });
               } catch (launchErr) {
                 toast.success("Payment approved.");
                 toast.error(
@@ -175,6 +181,10 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
                     ? launchErr.message
                     : "Payment succeeded but launch failed — open your interview and tap Launch.",
                 );
+                void navigate({
+                  to: "/interviews/new",
+                  search: { order_id: resolvedOrderId },
+                });
               }
             } else {
               toast.success("Payment approved — campaign is ready.");

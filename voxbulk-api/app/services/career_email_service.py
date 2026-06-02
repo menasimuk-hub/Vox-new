@@ -43,7 +43,7 @@ class CareerEmailService:
         EmailTemplateService.ensure_system_templates(db)
         subject_tpl, body_tpl, is_enabled = EmailTemplateService.get_send_content(db, key=k)
         if not is_enabled:
-            return False, None
+            return False, "template_disabled"
         if not str(subject_tpl).strip() and not str(body_tpl).strip():
             return False, "empty_template"
         to_addr = str(to_email or "").strip().lower()
@@ -55,6 +55,53 @@ class CareerEmailService:
             CareerEmailService.send(db, to_email=to_addr, subject=subject, body=body, attachments=attachments)
         except SmtpMailerError as exc:
             return False, str(exc)
+        return True, None
+
+    @staticmethod
+    def send_templated_critical(
+        db: Session,
+        *,
+        template_key: str,
+        to_email: str,
+        variables: dict[str, str],
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> tuple[bool, str | None]:
+        """Send interview email; fall back to code default if admin disabled the template."""
+        import logging
+
+        from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
+
+        logger = logging.getLogger(__name__)
+        sent_ok, err = CareerEmailService.send_templated_optional(
+            db,
+            template_key=template_key,
+            to_email=to_email,
+            variables=variables,
+            attachments=attachments,
+        )
+        if sent_ok:
+            return True, None
+        if err not in {"template_disabled", "empty_template"}:
+            return False, err
+        defaults = SYSTEM_EMAIL_DEFAULTS.get(str(template_key or "").strip().lower(), {})
+        subject_tpl = str(defaults.get("subject") or "").strip()
+        body_tpl = str(defaults.get("body") or "").strip()
+        if not subject_tpl and not body_tpl:
+            return False, err or "empty_template"
+        to_addr = str(to_email or "").strip().lower()
+        if not to_addr:
+            return False, "missing_recipient"
+        subject = substitute_placeholders(subject_tpl, variables).strip() or template_key.replace("_", " ").title()
+        body = substitute_placeholders(body_tpl, variables)
+        try:
+            CareerEmailService.send(db, to_email=to_addr, subject=subject, body=body, attachments=attachments)
+        except SmtpMailerError as exc:
+            return False, str(exc)
+        logger.warning(
+            "career_email_sent_via_default template_key=%s reason=%s",
+            template_key,
+            err,
+        )
         return True, None
 
     @staticmethod
