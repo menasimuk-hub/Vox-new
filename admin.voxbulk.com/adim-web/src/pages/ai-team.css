@@ -248,3 +248,67 @@
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 0; border-bottom: 1px solid var(--ait-border2);
 }
+
+.ai-team-page .ait-dropzone {
+  border: 2px dashed var(--ait-border);
+  border-radius: var(--ait-r-lg);
+  padding: 28px 20px;
+  text-align: center;
+  background: var(--ait-bg3);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ai-team-page .ait-dropzone.active,
+.ai-team-page .ait-dropzone:hover {
+  border-color: var(--ait-accent);
+  background: var(--ait-accent-dim);
+}
+.ai-team-page .ait-modal-wide {
+  width: min(720px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+.ai-team-page .ait-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.ai-team-page .ait-modal {
+  background: var(--ait-bg2);
+  border: 1px solid var(--ait-border);
+  border-radius: var(--ait-r-lg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15);
+  padding: 1.25rem;
+  width: min(640px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+.ai-team-page .ait-modal-hdr {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.ai-team-page .ait-modal-hdr h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.ai-team-page .ait-html-preview {
+  border: 1px solid var(--ait-border);
+  border-radius: var(--ait-r);
+  background: #fff;
+  min-height: 320px;
+  width: 100%;
+}
+.ai-team-page .ait-code-editor {
+  font-family: var(--ait-mono);
+  font-size: 11px;
+  min-height: 280px;
+  line-height: 1.5;
+}

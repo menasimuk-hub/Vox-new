@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import CAP_AI_TEAM, require_cap
@@ -80,6 +80,69 @@ def get_prospect(prospect_id: str, db: Session = Depends(get_db), _admin: User =
             for m in messages
         ],
     }
+
+
+@router.get("/prospects/{prospect_id}/email-preview")
+def prospect_email_preview(prospect_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.prospect_email_preview(db, prospect_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/template/preview")
+def template_preview(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.template_preview(
+            db,
+            template=str(body.get("template") or "").strip() or None,
+            use_sample=body.get("use_sample", True) is not False,
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/test/template-email")
+def test_template_email(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.send_template_test_email(
+            db,
+            to_email=str(body.get("to_email") or ""),
+            prospect_id=str(body.get("prospect_id") or "").strip() or None,
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/import/csv/preview")
+async def csv_preview(
+    file: UploadFile = File(...),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        raw = await file.read()
+        return AiTeamService.parse_csv_preview(raw)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/import/csv")
+async def csv_import(
+    file: UploadFile = File(...),
+    mapping: str = Form(...),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    import json as _json
+
+    try:
+        mapping_dict = _json.loads(mapping)
+        if not isinstance(mapping_dict, dict):
+            raise AiTeamServiceError("Invalid field mapping")
+        raw = await file.read()
+        return AiTeamService.import_csv_prospects(db, raw, mapping_dict)
+    except Exception as exc:
+        raise _err(exc) from exc
 
 
 @router.post("/prospects/{prospect_id}/approve")
@@ -207,13 +270,19 @@ def test_apollo(body: dict[str, Any], db: Session = Depends(get_db), _admin: Use
 @router.post("/test/resend")
 def test_resend(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     settings = AiTeamService.get_settings(db)
+    to_email = str(body.get("to_email") or "").strip()
+    if to_email:
+        try:
+            return AiTeamService.send_template_test_email(db, to_email=to_email, prospect_id=None)
+        except Exception as exc:
+            raise _err(exc) from exc
     key = str(body.get("api_key") or "").strip()
     if not key:
         key = AiTeamService._resend_key(db)
-    to_email = str(body.get("to_email") or settings.reply_to_email or settings.from_email or "").strip()
     from_email = AiTeamService._from_address(settings)
+    fallback_to = str(settings.reply_to_email or settings.from_email or "").strip()
     try:
-        return ResendService.test_connection(key, from_email=from_email, to_email=to_email)
+        return ResendService.test_connection(key, from_email=from_email, to_email=fallback_to)
     except Exception as exc:
         raise _err(exc) from exc
 

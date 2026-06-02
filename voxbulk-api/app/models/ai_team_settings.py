@@ -30,6 +30,7 @@ class AiTeamSettings(Base):
     from_email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
     writing_instruction: Mapped[str] = mapped_column(Text, nullable=False, default="")
     email_signature: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    email_html_template: Mapped[str | None] = mapped_column(Text, nullable=True)
     email_language: Mapped[str] = mapped_column(String(32), nullable=False, default="en-GB")
     email_max_words: Mapped[int] = mapped_column(Integer, nullable=False, default=120)
     email_tone: Mapped[str] = mapped_column(String(64), nullable=False, default="direct")

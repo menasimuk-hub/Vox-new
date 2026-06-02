@@ -1,7 +1,40 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiUpload } from '../lib/api'
 import './ai-team.css'
+
+const CSV_MAP_FIELDS = [
+  { key: 'email', label: 'Email', required: true },
+  { key: 'first_name', label: 'First name' },
+  { key: 'last_name', label: 'Last name' },
+  { key: 'job_title', label: 'Job title' },
+  { key: 'company_name', label: 'Company' },
+  { key: 'sector', label: 'Sector' },
+  { key: 'country_code', label: 'Country' },
+]
+
+function guessCsvMapping(headers) {
+  const norm = (h) => String(h || '').toLowerCase().replace(/[^a-z0-9]+/g, '_')
+  const map = {}
+  const rules = [
+    ['email', ['email', 'e_mail', 'email_address']],
+    ['first_name', ['first_name', 'firstname', 'first', 'given_name']],
+    ['last_name', ['last_name', 'lastname', 'last', 'surname', 'family_name']],
+    ['job_title', ['job_title', 'title', 'role', 'position']],
+    ['company_name', ['company', 'company_name', 'organization', 'org', 'account_name']],
+    ['sector', ['sector', 'industry', 'vertical']],
+    ['country_code', ['country', 'country_code', 'location']],
+  ]
+  for (const h of headers) {
+    const n = norm(h)
+    for (const [field, keys] of rules) {
+      if (keys.some((k) => n === k || n.includes(k))) {
+        if (!map[field]) map[field] = h
+      }
+    }
+  }
+  return map
+}
 
 const TABS = [
   { id: 'queue', label: 'Approval queue', icon: 'ti-mail' },
@@ -74,6 +107,16 @@ export default function AiTeam() {
   const [apolloKey, setApolloKey] = useState('')
   const [resendKey, setResendKey] = useState('')
   const [smtpPassword, setSmtpPassword] = useState('')
+  const [resendTestEmail, setResendTestEmail] = useState('')
+  const [searchTestEmail, setSearchTestEmail] = useState('')
+  const [csvFile, setCsvFile] = useState(null)
+  const [csvDrag, setCsvDrag] = useState(false)
+  const [csvHeaders, setCsvHeaders] = useState([])
+  const [csvPreviewRows, setCsvPreviewRows] = useState([])
+  const [csvTotal, setCsvTotal] = useState(0)
+  const [csvMapping, setCsvMapping] = useState({})
+  const [emailPreview, setEmailPreview] = useState(null)
+  const [templatePreview, setTemplatePreview] = useState(null)
 
   const showBanner = (type, text) => {
     setBanner({ type, text })
@@ -193,6 +236,75 @@ export default function AiTeam() {
     })
   }
 
+  const parseCsvFile = async (file) => {
+    if (!file) return
+    setCsvFile(file)
+    const fd = new FormData()
+    fd.append('file', file)
+    const data = await apiUpload('/admin/ai-team/import/csv/preview', fd)
+    setCsvHeaders(data.headers || [])
+    setCsvPreviewRows(data.preview_rows || [])
+    setCsvTotal(data.total_rows || 0)
+    setCsvMapping(guessCsvMapping(data.headers || []))
+  }
+
+  const importCsv = async () => {
+    if (!csvFile) {
+      showBanner('err', 'Choose a CSV file first')
+      return
+    }
+    if (!csvMapping.email) {
+      showBanner('err', 'Map the email column before importing')
+      return
+    }
+    await act('csv-import', async () => {
+      const fd = new FormData()
+      fd.append('file', csvFile)
+      fd.append('mapping', JSON.stringify(csvMapping))
+      const data = await apiUpload('/admin/ai-team/import/csv', fd)
+      showBanner('ok', `Imported ${data.created || 0} prospects (${data.skipped || 0} skipped)`)
+      setCsvFile(null)
+      setCsvHeaders([])
+      setCsvPreviewRows([])
+      await loadDashboard()
+    })
+  }
+
+  const openProspectPreview = async (prospect) => {
+    try {
+      const data = await apiFetch(`/admin/ai-team/prospects/${prospect.id}/email-preview`)
+      setEmailPreview({ prospect, ...data })
+    } catch (e) {
+      showBanner('err', e?.message || 'Could not load email preview')
+    }
+  }
+
+  const openTemplatePreview = async () => {
+    try {
+      const data = await apiFetch('/admin/ai-team/template/preview', {
+        method: 'POST',
+        body: JSON.stringify({ template: settings.email_html_template, use_sample: true }),
+      })
+      setTemplatePreview(data)
+    } catch (e) {
+      showBanner('err', e?.message || 'Could not render template preview')
+    }
+  }
+
+  const sendTestTemplate = async (toEmail, prospectId) => {
+    if (!toEmail?.trim()) {
+      showBanner('err', 'Enter your email address for the test')
+      return
+    }
+    await act('test-template', async () => {
+      await apiFetch('/admin/ai-team/test/template-email', {
+        method: 'POST',
+        body: JSON.stringify({ to_email: toEmail.trim(), prospect_id: prospectId || undefined }),
+      })
+      showBanner('ok', `Test email sent to ${toEmail.trim()}`)
+    })
+  }
+
   const ProspectCard = ({ p, showActions = true }) => (
     <div className="ait-pcard" key={p.id}>
       <div className="ait-pcard-top">
@@ -218,9 +330,11 @@ export default function AiTeam() {
       {(p.draft_subject || p.draft_body) && (
         <div className="ait-pcard-body">
           <div style={{ fontWeight: 600, marginBottom: 6 }}>{p.draft_subject}</div>
-          <div className="ait-email-preview">{p.draft_body}</div>
           {showActions && (
             <div className="ait-btn-row">
+              <button type="button" className="ait-btn sm" onClick={() => openProspectPreview(p)}>
+                Preview email
+              </button>
               <button type="button" className="ait-btn success sm" disabled={busy === p.id}
                 onClick={() => act(p.id, () => apiFetch(`/admin/ai-team/prospects/${p.id}/approve`, { method: 'POST' }))}>
                 Approve & send
@@ -398,6 +512,81 @@ export default function AiTeam() {
         {tab === 'search' && (
           <>
             <div className="ait-card">
+              <div className="ait-card-hdr"><span className="ait-card-title">Import prospects from CSV</span></div>
+              <div className="ait-card-body">
+                <div
+                  className={`ait-dropzone ${csvDrag ? 'active' : ''}`}
+                  onDragOver={(e) => { e.preventDefault(); setCsvDrag(true) }}
+                  onDragLeave={() => setCsvDrag(false)}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setCsvDrag(false)
+                    const f = e.dataTransfer.files?.[0]
+                    if (f) parseCsvFile(f).catch((err) => showBanner('err', err?.message || 'CSV parse failed'))
+                  }}
+                  onClick={() => document.getElementById('ait-csv-input')?.click()}
+                >
+                  <input
+                    id="ait-csv-input"
+                    type="file"
+                    accept=".csv,text/csv"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) parseCsvFile(f).catch((err) => showBanner('err', err?.message || 'CSV parse failed'))
+                    }}
+                  />
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{csvFile ? csvFile.name : 'Drop CSV here or click to upload'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 6 }}>
+                    Manual Apollo alternative — import leads without API credits
+                  </div>
+                </div>
+
+                {csvHeaders.length > 0 && (
+                  <>
+                    <div className="section-lbl" style={{ marginTop: 16, fontSize: 10, fontWeight: 700, color: 'var(--ait-text3)', textTransform: 'uppercase' }}>Field mapping</div>
+                    <div className="ait-fg-3">
+                      {CSV_MAP_FIELDS.map((f) => (
+                        <div className="ait-field" key={f.key}>
+                          <label>{f.label}{f.required ? ' *' : ''}</label>
+                          <select
+                            value={csvMapping[f.key] || ''}
+                            onChange={(e) => setCsvMapping({ ...csvMapping, [f.key]: e.target.value })}
+                          >
+                            <option value="">— skip —</option>
+                            {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ marginTop: 12, fontSize: 11, color: 'var(--ait-text3)' }}>
+                      Preview ({Math.min(5, csvPreviewRows.length)} of {csvTotal} rows)
+                    </div>
+                    <div style={{ overflowX: 'auto', marginTop: 8 }}>
+                      <table className="ait-tbl">
+                        <thead>
+                          <tr>{csvHeaders.map((h) => <th key={h}>{h}</th>)}</tr>
+                        </thead>
+                        <tbody>
+                          {csvPreviewRows.map((row, i) => (
+                            <tr key={i}>{csvHeaders.map((h) => <td key={h}>{row[h] || '—'}</td>)}</tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="ait-btn-row" style={{ marginTop: 12 }}>
+                      <button type="button" className="ait-btn primary" disabled={!!busy || !csvMapping.email} onClick={importCsv}>
+                        Import {csvTotal} prospects
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="ait-card">
               <div className="ait-card-hdr"><span className="ait-card-title">Apollo.io — target profile</span></div>
               <div className="ait-card-body">
                 <div className="ait-fg-3">
@@ -444,6 +633,54 @@ export default function AiTeam() {
                       const r = await apiFetch('/admin/ai-team/test/deepseek-sample', { method: 'POST' })
                       showBanner('ok', `Sample: ${r.subject}`)
                     })}>Generate sample</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="ait-card">
+              <div className="ait-card-hdr"><span className="ait-card-title">Email template</span></div>
+              <div className="ait-card-body">
+                <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginBottom: 10 }}>
+                  Placeholders: {'{{body}}'}, {'{{first_name}}'}, {'{{last_name}}'}, {'{{company}}'}, {'{{promo_code}}'}, {'{{job_title}}'}, {'{{email}}'}
+                </p>
+                <div className="ait-field">
+                  <label>HTML wrapper</label>
+                  <textarea
+                    className="ait-code-editor"
+                    value={settings.email_html_template || settings.default_email_html_template || ''}
+                    onChange={(e) => setSettings({ ...settings, email_html_template: e.target.value })}
+                  />
+                </div>
+                <div className="ait-fg-2" style={{ marginTop: 12 }}>
+                  <div className="ait-field">
+                    <label>Send test to your inbox</label>
+                    <input
+                      type="email"
+                      placeholder="you@company.com"
+                      value={searchTestEmail}
+                      onChange={(e) => setSearchTestEmail(e.target.value)}
+                    />
+                  </div>
+                  <div className="ait-field" style={{ justifyContent: 'flex-end' }}>
+                    <label>&nbsp;</label>
+                    <button type="button" className="ait-btn" disabled={!!busy} onClick={() => sendTestTemplate(searchTestEmail)}>
+                      Send test with sample data
+                    </button>
+                  </div>
+                </div>
+                <div className="ait-btn-row">
+                  <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save template</button>
+                  <button type="button" className="ait-btn" disabled={!!busy} onClick={openTemplatePreview}>Live preview</button>
+                  <button
+                    type="button"
+                    className="ait-btn"
+                    onClick={() => setSettings({
+                      ...settings,
+                      email_html_template: settings.default_email_html_template || '',
+                    })}
+                  >
+                    Reset to default
+                  </button>
                 </div>
               </div>
             </div>
@@ -560,13 +797,33 @@ export default function AiTeam() {
                   </div>
                   <button type="button" className="ait-btn sm" disabled={!!busy}
                     onClick={() => act('test-resend', () => apiFetch('/admin/ai-team/test/resend', { method: 'POST', body: JSON.stringify({ api_key: resendKey || undefined }) }))}>
-                    Send test email
+                    Test connection
                   </button>
                 </div>
                 <div className="ait-fg-2">
                   <div className="ait-field"><label>API key</label><input type="password" placeholder={settings.resend_api_key_configured ? '••••••••' : 're_…'} value={resendKey} onChange={(e) => setResendKey(e.target.value)} /></div>
                   <div className="ait-field"><label>Sending domain</label><input value={settings.resend_sending_domain || ''} onChange={(e) => setSettings({ ...settings, resend_sending_domain: e.target.value })} placeholder="outreach.voxbulk.com" /></div>
                 </div>
+                <div className="ait-fg-2" style={{ marginTop: 4 }}>
+                  <div className="ait-field">
+                    <label>Send test email to</label>
+                    <input
+                      type="email"
+                      placeholder="you@company.com"
+                      value={resendTestEmail}
+                      onChange={(e) => setResendTestEmail(e.target.value)}
+                    />
+                  </div>
+                  <div className="ait-field" style={{ justifyContent: 'flex-end' }}>
+                    <label>&nbsp;</label>
+                    <button type="button" className="ait-btn primary" disabled={!!busy} onClick={() => sendTestTemplate(resendTestEmail)}>
+                      Send rendered template
+                    </button>
+                  </div>
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 8 }}>
+                  Sends the full HTML template with sample data to your inbox before going live.
+                </p>
               </div>
             </div>
             <div className="ait-card">
@@ -668,6 +925,88 @@ export default function AiTeam() {
                 <div>{m.subject}</div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {emailPreview && (
+        <div className="ait-modal-backdrop" onClick={() => setEmailPreview(null)}>
+          <div className="ait-modal ait-modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="ait-modal-hdr">
+              <div>
+                <h3>{emailPreview.subject}</h3>
+                <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 4 }}>
+                  To {emailPreview.prospect?.email} · {emailPreview.prospect?.full_name}
+                </div>
+              </div>
+              <button type="button" className="ait-btn ghost sm" onClick={() => setEmailPreview(null)}>Close</button>
+            </div>
+            <iframe
+              title="Email preview"
+              className="ait-html-preview"
+              sandbox=""
+              srcDoc={emailPreview.html || ''}
+            />
+            <div className="ait-btn-row" style={{ marginTop: 14 }}>
+              <button
+                type="button"
+                className="ait-btn success"
+                disabled={busy === emailPreview.prospect?.id}
+                onClick={() => act(emailPreview.prospect.id, async () => {
+                  await apiFetch(`/admin/ai-team/prospects/${emailPreview.prospect.id}/approve`, { method: 'POST' })
+                  setEmailPreview(null)
+                  showBanner('ok', 'Email approved and sent')
+                })}
+              >
+                Approve & send
+              </button>
+              <button
+                type="button"
+                className="ait-btn"
+                onClick={() => {
+                  const p = emailPreview.prospect
+                  setEditDraft({ id: p.id, subject: p.draft_subject, body: p.draft_body })
+                  setEmailPreview(null)
+                }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className="ait-btn danger"
+                disabled={busy === `rej-${emailPreview.prospect?.id}`}
+                onClick={() => act(`rej-${emailPreview.prospect.id}`, async () => {
+                  await apiFetch(`/admin/ai-team/prospects/${emailPreview.prospect.id}/reject`, { method: 'POST' })
+                  setEmailPreview(null)
+                  showBanner('ok', 'Prospect rejected')
+                })}
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {templatePreview && (
+        <div className="ait-modal-backdrop" onClick={() => setTemplatePreview(null)}>
+          <div className="ait-modal ait-modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="ait-modal-hdr">
+              <div>
+                <h3>Template preview (sample data)</h3>
+                <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 4 }}>{templatePreview.subject}</div>
+              </div>
+              <button type="button" className="ait-btn ghost sm" onClick={() => setTemplatePreview(null)}>Close</button>
+            </div>
+            <iframe
+              title="Template preview"
+              className="ait-html-preview"
+              sandbox=""
+              srcDoc={templatePreview.html || ''}
+            />
+            <div className="ait-btn-row" style={{ marginTop: 14 }}>
+              <button type="button" className="ait-btn" onClick={() => setTemplatePreview(null)}>Close</button>
+            </div>
           </div>
         </div>
       )}

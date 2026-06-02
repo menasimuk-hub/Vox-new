@@ -174,9 +174,17 @@ def logo_data_uri() -> str:
 
     candidates = [
 
+        _repo_root() / "dashboard.voxbulk.com" / "dashboard-web" / "public" / "brand" / "logo-black.svg",
+
+        _repo_root() / "admin.voxbulk.com" / "adim-web" / "public" / "brand" / "logo-black.svg",
+
         _repo_root() / "dashboard.voxbulk.com" / "dashboard-web" / "public" / "logo-dark.svg",
 
         _repo_root() / "admin.voxbulk.com" / "adim-web" / "public" / "logo-dark.svg",
+
+        Path("/www/voxbulk/dashboard.voxbulk.com/dashboard-web/public/brand/logo-black.svg"),
+
+        Path("/www/voxbulk/admin.voxbulk.com/adim-web/public/brand/logo-black.svg"),
 
         Path("/www/voxbulk/dashboard.voxbulk.com/dashboard-web/public/logo-dark.svg"),
 

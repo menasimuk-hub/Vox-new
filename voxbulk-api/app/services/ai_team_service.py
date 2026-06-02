@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import re
@@ -31,6 +33,34 @@ _DEFAULT_WRITING = (
     "Offer promo code {promo_code}. Under 120 words. No fluff. End with one soft question."
 )
 _DEFAULT_SIGNATURE = "Best,\nVoxBulk team · voxbulk.com"
+
+_DEFAULT_EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:'DM Sans',Arial,sans-serif;line-height:1.65;color:#2a2620;max-width:560px;margin:0 auto;padding:28px 24px;background:#fbf8f3;">
+  <div style="background:#ffffff;border:1px solid rgba(42,38,32,0.08);border-radius:12px;padding:28px 24px;">
+    <p style="margin:0 0 16px;font-size:15px;">Hi {{first_name}},</p>
+    {{body}}
+    <p style="margin:24px 0 0;font-size:14px;color:#6b6458;">Use code <strong style="color:#854F0B;font-family:monospace;">{{promo_code}}</strong> to start your free trial at {{company}}.</p>
+    <p style="margin:28px 0 0;font-size:12px;color:#9a9288;border-top:1px solid rgba(42,38,32,0.08);padding-top:16px;">VoxBulk · voxbulk.com · outreach@voxbulk.com</p>
+  </div>
+</body>
+</html>"""
+
+_SAMPLE_PREVIEW_VARS = {
+    "first_name": "Alex",
+    "last_name": "Taylor",
+    "company": "Example Estates Ltd",
+    "promo_code": "TRIAL-EXAMPLE",
+    "job_title": "Operations Director",
+    "email": "alex.taylor@example.com",
+    "sector": "property",
+    "country_code": "GB",
+    "body": (
+        "I noticed Example Estates runs feedback across multiple branches. VoxBulk automates "
+        "customer surveys by phone and WhatsApp and pushes results into your CRM before your team arrives."
+    ),
+}
 
 _SECTOR_KEYWORDS = {
     "automotive": ["automotive", "aftersales", "dealership", "car"],
@@ -97,6 +127,8 @@ class AiTeamService:
             "from_email": row.from_email,
             "writing_instruction": row.writing_instruction,
             "email_signature": row.email_signature,
+            "email_html_template": row.email_html_template or AiTeamService.default_email_html_template(),
+            "default_email_html_template": AiTeamService.default_email_html_template(),
             "email_language": row.email_language,
             "email_max_words": row.email_max_words,
             "email_tone": row.email_tone,
@@ -152,6 +184,11 @@ class AiTeamService:
             "auto_fetch_prospects", "auto_draft_emails", "auto_followup", "track_opens",
             "notify_on_reply", "notify_on_promo_used", "auto_send_without_approval", "agent_paused",
         ]
+        text_fields = ["email_html_template"]
+        for key in text_fields:
+            if key in payload:
+                val = payload[key]
+                setattr(row, key, str(val) if val is not None else None)
         for key in scalar_fields:
             if key in payload:
                 setattr(row, key, str(payload[key] or "").strip())
@@ -190,6 +227,191 @@ class AiTeamService:
             ProviderSettingsService.upsert_platform_config(
                 db, provider="resend", is_enabled=True, config={"api_key": str(resend_api_key).strip()}
             )
+
+    @staticmethod
+    def default_email_html_template() -> str:
+        return _DEFAULT_EMAIL_HTML_TEMPLATE
+
+    @staticmethod
+    def effective_html_template(settings: AiTeamSettings) -> str:
+        raw = str(settings.email_html_template or "").strip()
+        return raw or _DEFAULT_EMAIL_HTML_TEMPLATE
+
+    @staticmethod
+    def _body_html_fragment(text: str) -> str:
+        clean = str(text or "").strip()
+        if not clean:
+            return "<p style=\"margin:0 0 12px;font-size:14px;color:#4A4958;\"></p>"
+        parts = [p.strip() for p in re.split(r"\n\s*\n", clean) if p.strip()]
+        if not parts:
+            parts = [clean]
+        return "".join(
+            f"<p style=\"margin:0 0 12px;font-size:14px;color:#4A4958;\">{p.replace(chr(10), '<br>')}</p>"
+            for p in parts
+        )
+
+    @staticmethod
+    def _prospect_template_vars(db: Session, prospect: AiTeamProspect, *, body_text: str | None = None) -> dict[str, str]:
+        promo = db.get(PromoOffer, prospect.promo_offer_id) if prospect.promo_offer_id else None
+        body = str(body_text if body_text is not None else prospect.draft_body or "").strip()
+        return {
+            "first_name": prospect.first_name or "there",
+            "last_name": prospect.last_name or "",
+            "company": prospect.company_name or "your company",
+            "promo_code": promo.code if promo else "",
+            "job_title": prospect.job_title or "",
+            "email": prospect.email or "",
+            "sector": prospect.sector or "",
+            "country_code": prospect.country_code or "GB",
+            "body": body,
+        }
+
+    @staticmethod
+    def render_email_html(
+        db: Session,
+        settings: AiTeamSettings,
+        *,
+        prospect: AiTeamProspect | None = None,
+        variables: dict[str, str] | None = None,
+        body_text: str | None = None,
+        template_override: str | None = None,
+    ) -> dict[str, str]:
+        vars_map = dict(variables or {})
+        if prospect is not None:
+            vars_map = {**AiTeamService._prospect_template_vars(db, prospect, body_text=body_text), **vars_map}
+        body_raw = str(vars_map.get("body") or "").strip()
+        vars_map["body"] = AiTeamService._body_html_fragment(body_raw)
+        template = str(template_override or AiTeamService.effective_html_template(settings))
+        html = template
+        for key, val in vars_map.items():
+            html = html.replace("{{" + key + "}}", str(val or ""))
+        text = re.sub(r"<[^>]+>", "", html)
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        subject = (prospect.draft_subject if prospect else None) or "Quick idea for your team"
+        return {"subject": subject, "html": html, "text": text, "body_text": body_raw}
+
+    @staticmethod
+    def prospect_email_preview(db: Session, prospect_id: str) -> dict[str, str]:
+        prospect = db.get(AiTeamProspect, prospect_id)
+        if prospect is None:
+            raise AiTeamServiceError("Prospect not found")
+        settings = AiTeamService.get_settings(db)
+        return AiTeamService.render_email_html(db, settings, prospect=prospect)
+
+    @staticmethod
+    def template_preview(db: Session, *, template: str | None = None, use_sample: bool = True) -> dict[str, str]:
+        settings = AiTeamService.get_settings(db)
+        vars_map = dict(_SAMPLE_PREVIEW_VARS) if use_sample else {}
+        return AiTeamService.render_email_html(
+            db,
+            settings,
+            variables=vars_map,
+            template_override=template,
+            body_text=vars_map.get("body"),
+        )
+
+    @staticmethod
+    def send_template_test_email(db: Session, *, to_email: str, prospect_id: str | None = None) -> dict[str, Any]:
+        to_addr = str(to_email or "").strip()
+        if not to_addr or "@" not in to_addr:
+            raise AiTeamServiceError("Enter a valid test email address")
+        settings = AiTeamService.get_settings(db)
+        api_key = AiTeamService._resend_key(db)
+        from_addr = AiTeamService._from_address(settings)
+        if prospect_id:
+            prospect = db.get(AiTeamProspect, prospect_id)
+            if prospect is None:
+                raise AiTeamServiceError("Prospect not found")
+            rendered = AiTeamService.render_email_html(db, settings, prospect=prospect)
+        else:
+            rendered = AiTeamService.template_preview(db, use_sample=True)
+        subject = f"[Test] {rendered['subject']}"
+        result = ResendService.send_email(
+            api_key,
+            from_email=from_addr,
+            to_email=to_addr,
+            subject=subject,
+            text=rendered["text"],
+            html=rendered["html"],
+            reply_to=(settings.reply_to_email or None),
+        )
+        return {"ok": True, "message": f"Test email sent to {to_addr}", "email_id": result.get("email_id")}
+
+    @staticmethod
+    def parse_csv_preview(raw: bytes) -> dict[str, Any]:
+        text = raw.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        if not reader.fieldnames:
+            raise AiTeamServiceError("CSV has no header row")
+        headers = [str(h or "").strip() for h in reader.fieldnames if str(h or "").strip()]
+        rows: list[dict[str, str]] = []
+        total = 0
+        for row in reader:
+            total += 1
+            if len(rows) < 5:
+                rows.append({k: str(v or "").strip() for k, v in row.items()})
+        return {"headers": headers, "preview_rows": rows, "total_rows": total}
+
+    @staticmethod
+    def import_csv_prospects(db: Session, raw: bytes, mapping: dict[str, str]) -> dict[str, Any]:
+        email_col = str(mapping.get("email") or "").strip()
+        if not email_col:
+            raise AiTeamServiceError("Map which CSV column contains email")
+        text = raw.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        settings = AiTeamService.get_settings(db)
+        keywords = [k.strip() for k in (settings.search_title_keywords or "").split(",") if k.strip()]
+        created = 0
+        skipped = 0
+
+        def col(name: str) -> str:
+            key = str(mapping.get(name) or "").strip()
+            return key
+
+        for row in reader:
+            email = str(row.get(email_col) or "").strip().lower()
+            if not email or "@" not in email:
+                skipped += 1
+                continue
+            exists = db.execute(select(AiTeamProspect).where(AiTeamProspect.email == email)).scalar_one_or_none()
+            if exists is not None:
+                skipped += 1
+                continue
+            first_name = str(row.get(col("first_name")) or "").strip()
+            last_name = str(row.get(col("last_name")) or "").strip()
+            company = str(row.get(col("company_name")) or row.get(col("company")) or "").strip()
+            job_title = str(row.get(col("job_title")) or "").strip()
+            sector = str(row.get(col("sector")) or settings.search_sector or "").strip().lower()
+            country = str(row.get(col("country_code")) or row.get(col("country")) or "GB").strip().upper()[:8]
+            score = AiTeamService._score_prospect(job_title, company, keywords) if job_title else 70
+            if score < int(settings.search_min_score or 60):
+                skipped += 1
+                continue
+            now = AiTeamService._now()
+            if not sector:
+                sector = AiTeamService._infer_sector(job_title, company, settings.search_sector)
+            prospect = AiTeamProspect(
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                job_title=job_title,
+                company_name=company,
+                sector=sector,
+                country_code=country or "GB",
+                match_score=score,
+                status="new",
+                source="csv",
+                profile_json=json.dumps(dict(row)),
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(prospect)
+            db.flush()
+            AiTeamService.ensure_promo_for_prospect(db, prospect, settings)
+            AiTeamService.draft_email_for_prospect(db, prospect, settings)
+            created += 1
+        db.commit()
+        return {"ok": True, "created": created, "skipped": skipped}
 
     @staticmethod
     def _infer_sector(job_title: str, company: str, configured: str) -> str:
@@ -358,7 +580,8 @@ class AiTeamService:
         now = AiTeamService._now()
         prospect.draft_subject = subject[:500]
         prospect.draft_body = body
-        prospect.draft_body_html = body.replace("\n", "<br>")
+        rendered = AiTeamService.render_email_html(db, settings, prospect=prospect, body_text=body)
+        prospect.draft_body_html = rendered["html"]
         prospect.drafted_at = now
         prospect.status = "pending"
         prospect.updated_at = now
@@ -446,14 +669,18 @@ class AiTeamService:
         if not subj or not text:
             raise AiTeamServiceError("Email subject and body are required")
 
+        rendered = AiTeamService.render_email_html(db, settings, prospect=prospect, body_text=text)
+        html_out = rendered["html"]
+        text_out = rendered["text"]
+
         try:
             result = ResendService.send_email(
                 api_key,
                 from_email=from_addr,
                 to_email=prospect.email,
                 subject=subj,
-                text=text,
-                html=(prospect.draft_body_html or text.replace("\n", "<br>")),
+                text=text_out,
+                html=html_out,
                 reply_to=(settings.reply_to_email or None),
             )
         except ResendServiceError as exc:
@@ -471,7 +698,7 @@ class AiTeamService:
             to_email=prospect.email,
             subject=subj,
             body_text=text,
-            body_html=prospect.draft_body_html,
+            body_html=html_out,
             resend_email_id=result.get("email_id"),
             created_at=now,
         )
@@ -525,10 +752,12 @@ class AiTeamService:
         prospect = db.get(AiTeamProspect, prospect_id)
         if prospect is None:
             raise AiTeamServiceError("Prospect not found")
+        settings = AiTeamService.get_settings(db)
         now = AiTeamService._now()
         prospect.draft_subject = subject.strip()[:500]
         prospect.draft_body = body.strip()
-        prospect.draft_body_html = body.strip().replace("\n", "<br>")
+        rendered = AiTeamService.render_email_html(db, settings, prospect=prospect, body_text=body.strip())
+        prospect.draft_body_html = rendered["html"]
         prospect.drafted_at = now
         prospect.status = "pending"
         prospect.updated_at = now
