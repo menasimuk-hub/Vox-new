@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Full VPS interview E2E — 3 min slot, real call, log + JSON report.
+# Full VPS interview E2E — HTTP-only, email-safe, 3 min slot, real call, log + JSON report.
+# Does NOT open the app database (avoids blocking SMTP/email while the test runs).
 # Usage: bash scripts/e2e_interview_workflow_test.sh
 set -euo pipefail
 
@@ -26,10 +27,10 @@ fi
 echo "Using: $PY"
 echo "Log:    $LOG"
 echo "Report: $REPORT"
+echo "Mode:   email-safe (WhatsApp invites; SMTP stays free for manual sends)"
 
 exec "$PY" "$ROOT/scripts/e2e_interview_workflow_test.py" \
   --slot-minutes-ahead 3 \
-  --no-simulate-call \
   --log-file "$LOG" \
   --report-file "$REPORT" \
   "$@" \

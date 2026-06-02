@@ -6,6 +6,10 @@ Exercises real HTTP API routes for draft → candidates → payment → launch �
 results → stop. Post-call AI scoring has no public HTTP endpoint; use
 --simulate-call (default) to complete the call via app services on this server.
 
+IMPORTANT: This script uses HTTP API only — it never opens the app database.
+Opening the DB from this script while the API runs (especially on SQLite) can
+lock the database and block ALL emails until the script exits.
+
 ──────────────────────────────────────────────────────────────────────────────
 SETUP (export before running)
 ──────────────────────────────────────────────────────────────────────────────
@@ -41,14 +45,11 @@ RUN (VPS — use python3; `python` is often not installed on Ubuntu)
   source .venv/bin/activate 2>/dev/null || source venv/bin/activate 2>/dev/null || true
   python3 scripts/e2e_interview_workflow_test.py
 
-  # Full VPS run — 3 min booking slot, real call, log + report (paste log back for debugging):
-  python3 scripts/e2e_interview_workflow_test.py \\
-    --keep-order \\
-    --slot-minutes-ahead 3 \\
-    --no-simulate-call \\
-    --log-file /tmp/voxbulk-e2e-interview.log \\
-    --report-file /tmp/voxbulk-e2e-interview-report.json \\
-    2>&1 | tee -a /tmp/voxbulk-e2e-interview.log
+  # Default: email-safe (WhatsApp invites only — does not hog SMTP while test runs)
+  bash scripts/e2e_interview_workflow_test.sh
+
+  # Also send interview emails during the test (invite + confirm + stop):
+  python3 scripts/e2e_interview_workflow_test.py --send-test-emails --no-simulate-call
 """
 
 from __future__ import annotations
@@ -142,26 +143,6 @@ def _token_from_activity(activity: dict[str, Any]) -> str:
     return ""
 
 
-def _lookup_booking_token_local(api_root: Path, *, order_id: str, recipient_id: str) -> str:
-    if str(api_root) not in sys.path:
-        sys.path.insert(0, str(api_root))
-    from sqlalchemy import select
-
-    from app.core.database import get_sessionmaker
-    from app.models.interview_booking_token import InterviewBookingToken
-
-    with get_sessionmaker()() as db:
-        row = db.execute(
-            select(InterviewBookingToken)
-            .where(
-                InterviewBookingToken.order_id == order_id,
-                InterviewBookingToken.recipient_id == recipient_id,
-            )
-            .limit(1)
-        ).scalar_one_or_none()
-        return str(row.token).strip() if row is not None else ""
-
-
 def _write_report(
     path: Path,
     *,
@@ -212,13 +193,20 @@ class StepResult:
 
 
 class WorkflowRunner:
-    def __init__(self, *, base_url: str, verbose: bool = True) -> None:
+    def __init__(self, *, base_url: str, verbose: bool = True, email_safe: bool = True) -> None:
         self.base = base_url.rstrip("/")
         self.verbose = verbose
+        self.email_safe = email_safe
         self.token: str | None = None
         self.admin_token: str | None = None
         self.org_id: str | None = None
         self.results: list[StepResult] = []
+
+    def invite_channels(self) -> list[str]:
+        """WhatsApp-only during tests so SMTP stays free for manual/admin sends."""
+        if self.email_safe:
+            return ["whatsapp"]
+        return ["email", "whatsapp"]
 
     # ── logging ────────────────────────────────────────────────────────────
 
@@ -502,20 +490,22 @@ class WorkflowRunner:
         )
 
     def step_launch(self, order_id: str) -> dict[str, Any]:
+        channels = self.invite_channels()
         return self._api(
             "Launch interview (invites + schedule)",
             "POST",
             f"/service-orders/{order_id}/interview/launch",
-            json_body={"channels": ["email"], "resend_invites": True},
+            json_body={"channels": channels, "resend_invites": True},
             check=lambda b: isinstance(b, dict) and b.get("ok") is not False,
         )
 
     def step_send_invites(self, order_id: str, *, force: bool = True) -> dict[str, Any]:
+        channels = self.invite_channels()
         return self._api(
             "Send booking invites (explicit)",
             "POST",
             f"/service-orders/{order_id}/interview-booking/send-invites",
-            json_body={"force_resend": force, "channels": ["email", "whatsapp"]},
+            json_body={"force_resend": force, "channels": channels},
             check=lambda b: isinstance(b, dict),
         )
 
@@ -532,7 +522,7 @@ class WorkflowRunner:
         self,
         order_id: str,
         *,
-        api_root: Path,
+        launch_invites: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, Any]]:
         recipients = self.step_fetch_recipients(order_id)
         if not recipients:
@@ -550,15 +540,8 @@ class WorkflowRunner:
             )
             return token, recipient
 
-        invite = self.step_send_invites(order_id, force=True)
-        if isinstance(invite, dict) and invite.get("errors"):
-            self._record(
-                "Send invites errors (non-fatal for token lookup)",
-                ok=bool(invite.get("ok")),
-                reason="; ".join((invite.get("errors") or [])[:3]) or "invite dispatch had errors",
-                body=invite,
-            )
-
+        # Token is always created server-side on invite dispatch; refresh once before resending.
+        time.sleep(2)
         recipients = self.step_fetch_recipients(order_id)
         recipient = recipients[0]
         token = _token_from_recipient(recipient)
@@ -566,7 +549,7 @@ class WorkflowRunner:
             self._record(
                 "Resolve booking token",
                 ok=True,
-                request={"source": "recipients after send-invites"},
+                request={"source": "recipients after refresh"},
                 body={"token_prefix": token[:12] + "…"},
             )
             return token, recipient
@@ -588,12 +571,23 @@ class WorkflowRunner:
                 )
                 return token, recipient
 
-        token = _lookup_booking_token_local(api_root, order_id=order_id, recipient_id=recipient_id)
+        invite = self.step_send_invites(order_id, force=True)
+        if isinstance(invite, dict) and invite.get("errors"):
+            self._record(
+                "Send invites errors (non-fatal for token lookup)",
+                ok=bool(invite.get("ok")),
+                reason="; ".join((invite.get("errors") or [])[:3]) or "invite dispatch had errors",
+                body=invite,
+            )
+        time.sleep(2)
+        recipients = self.step_fetch_recipients(order_id)
+        recipient = recipients[0]
+        token = _token_from_recipient(recipient)
         if token:
             self._record(
                 "Resolve booking token",
                 ok=True,
-                request={"source": "local InterviewBookingToken table"},
+                request={"source": "recipients after send-invites"},
                 body={"token_prefix": token[:12] + "…"},
             )
             return token, recipient
@@ -601,7 +595,7 @@ class WorkflowRunner:
         self._record(
             "Resolve booking token",
             ok=False,
-            reason="No token in recipients, activity, or DB — check launch invite errors and SMTP/Telnyx",
+            reason="No token on recipient — redeploy API (booking_token field) or check WhatsApp invite errors",
             body=recipient,
         )
         raise RuntimeError("No booking_token on recipient")
@@ -652,103 +646,6 @@ class WorkflowRunner:
 
     def step_get_order(self, order_id: str) -> dict[str, Any]:
         return self._api("Get order status", "GET", f"/service-orders/{order_id}")
-
-    def step_simulate_call_local(
-        self,
-        *,
-        api_root: Path,
-        order_id: str,
-        recipient_id: str,
-    ) -> dict[str, Any]:
-        req = {
-            "mode": "local-app-services",
-            "order_id": order_id,
-            "recipient_id": recipient_id,
-            "note": "No public HTTP endpoint for post-call analysis; uses InterviewAnalysisService on this server",
-        }
-        if str(api_root) not in sys.path:
-            sys.path.insert(0, str(api_root))
-
-        try:
-            from app.core.database import get_sessionmaker
-            from app.models.service_order import ServiceOrder, ServiceOrderRecipient
-            from app.services.interview_analysis_service import InterviewAnalysisService
-            from app.services.interview_call_dispatch_service import InterviewCallDispatchService
-        except ImportError as exc:
-            self._record(
-                "Simulate completed call + AI analysis (local)",
-                ok=False,
-                reason=f"Cannot import app from {api_root}: {exc}",
-                request=req,
-            )
-            raise
-
-        try:
-            with get_sessionmaker()() as db:
-                order = db.get(ServiceOrder, order_id)
-                recipient = db.get(ServiceOrderRecipient, recipient_id)
-                if order is None or recipient is None:
-                    raise RuntimeError("Order or recipient not found in DB")
-
-                if str(order.status or "").lower() not in {"running", "paid", "scheduled"}:
-                    order.status = "running"
-                    order.started_at = order.started_at or _utc_now()
-                    db.add(order)
-                    db.commit()
-
-                hangup_extra = {
-                    "call_control_id": f"e2e-{uuid.uuid4().hex[:10]}",
-                    "transcript": SIMULATED_TRANSCRIPT,
-                    "duration_seconds": 480,
-                }
-                recipient.status = "calling"
-                db.add(recipient)
-                db.commit()
-
-                InterviewCallDispatchService.finalize_recipient_after_call(
-                    db,
-                    order=order,
-                    recipient=recipient,
-                    status="completed",
-                    extra=hangup_extra,
-                )
-                InterviewAnalysisService.process_recipient_post_call(
-                    db,
-                    order=order,
-                    recipient=recipient,
-                    terminal_status="completed",
-                    hangup_extra=hangup_extra,
-                )
-                db.refresh(recipient)
-                parsed = json.loads(recipient.result_json or "{}")
-                out = {
-                    "recipient_status": recipient.status,
-                    "score": parsed.get("score") or (parsed.get("analysis") or {}).get("score"),
-                    "recommendation": parsed.get("recommendation") or (parsed.get("analysis") or {}).get("recommendation"),
-                    "analysis_saved_at": parsed.get("analysis_saved_at"),
-                    "analysis_error": parsed.get("analysis_error"),
-                }
-        except Exception as exc:
-            self._record(
-                "Simulate completed call + AI analysis (local)",
-                ok=False,
-                reason=str(exc),
-                request=req,
-            )
-            raise
-
-        ok = bool(out.get("analysis_saved_at")) or out.get("score") is not None
-        reason = "" if ok else out.get("analysis_error") or "No score/analysis_saved_at — check DeepSeek/OpenAI provider config"
-        self._record(
-            "Simulate completed call + AI analysis (local)",
-            ok=ok,
-            reason=reason,
-            request=req,
-            response_body=out,
-        )
-        if not ok:
-            raise RuntimeError(reason)
-        return out
 
     def step_wait_for_real_call(
         self,
@@ -911,16 +808,16 @@ def main() -> int:
     parser.add_argument("--candidate-phone", default=os.environ.get("VOXBULK_CANDIDATE_PHONE", "+447700900123"))
     parser.add_argument("--candidate-email", default=os.environ.get("VOXBULK_CANDIDATE_EMAIL", "e2e-test@example.com"))
     parser.add_argument(
-        "--api-root",
-        default=os.environ.get("VOXBULK_API_ROOT", str(Path(__file__).resolve().parents[1])),
-        help="Path to voxbulk-api for local call simulation",
+        "--send-test-emails",
+        action="store_true",
+        help="Send invite/confirm/stop emails during test (default: WhatsApp-only invites so SMTP stays free)",
     )
-    parser.add_argument("--simulate-call", action="store_true", default=True, help="Simulate call+analysis locally (default)")
-    parser.add_argument("--no-simulate-call", action="store_false", dest="simulate_call")
+    parser.add_argument("--simulate-call", action="store_true", help="Not supported — use --no-simulate-call (HTTP-only script)")
+    parser.add_argument("--no-simulate-call", action="store_true", default=True, help="Wait for real Telnyx call (default)")
     parser.add_argument("--wait-for-slot-seconds", type=int, default=-1, help="Sleep before dial (-1 = auto from booked slot)")
     parser.add_argument("--slot-minutes-ahead", type=int, default=3, help="Book slot this many minutes from now")
     parser.add_argument("--wait-for-real-call-seconds", type=int, default=300)
-    parser.add_argument("--skip-stop", action="store_true")
+    parser.add_argument("--skip-stop", action="store_true", help="Skip stop step (default: skip when email-safe)")
     parser.add_argument("--delete-order", action="store_true", help="Delete order after run (default: keep for debugging)")
     parser.add_argument("--log-file", default=os.environ.get("VOXBULK_E2E_LOG", ""), help="Append all output to this log file")
     parser.add_argument("--report-file", default=os.environ.get("VOXBULK_E2E_REPORT", ""), help="Write JSON report path")
@@ -938,17 +835,19 @@ def main() -> int:
     admin_email = args.admin_email or args.email
     admin_password = args.admin_password or args.password
 
-    runner = WorkflowRunner(base_url=args.base_url)
+    runner = WorkflowRunner(base_url=args.base_url, email_safe=not args.send_test_emails)
     order_id: str | None = None
     recipient_id: str | None = None
     booked_slot: str | None = None
     launch: dict[str, Any] | None = None
     detail: dict[str, Any] | None = None
     keep_order = not args.delete_order
+    skip_stop = args.skip_stop or (not args.send_test_emails)
 
     print(f"Interview E2E test → {args.base_url}")
     print(f"Candidate: {args.candidate_name} <{args.candidate_email}> {args.candidate_phone}")
-    print(f"Mode: {'simulated call' if args.simulate_call else 'REAL Telnyx call'} | slot +{args.slot_minutes_ahead}m")
+    print(f"Email mode: {'test sends SMTP emails' if args.send_test_emails else 'email-safe (WhatsApp invites only)'}")
+    print(f"Call mode: real Telnyx (--no-simulate-call) | slot +{args.slot_minutes_ahead}m")
     if log_path:
         print(f"Log file: {log_path}")
 
@@ -995,7 +894,8 @@ def main() -> int:
                 )
 
         booking_token, recipient = runner.step_resolve_booking_token(
-            order_id, api_root=Path(args.api_root)
+            order_id,
+            launch_invites=launch.get("invites") if isinstance(launch, dict) else None,
         )
         recipient_id = str(recipient.get("id") or "")
 
@@ -1007,12 +907,19 @@ def main() -> int:
             body={"slot": booked_slot, "minutes_ahead": args.slot_minutes_ahead},
         )
         confirm = runner.step_confirm_booking(booking_token, booked_slot)
-        if isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
+        if args.send_test_emails and isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
             runner._record(
                 "Booking confirmation email",
                 ok=False,
                 reason="confirmation_email_sent=false — check SMTP + interview_booking_confirm template",
-                response_body=confirm,
+                body=confirm,
+            )
+        elif isinstance(confirm, dict) and confirm.get("confirmation_email_sent") is False:
+            runner._record(
+                "Booking confirmation email",
+                ok=True,
+                reason="skipped check — email-safe mode (SMTP left free for manual sends)",
+                body={"confirmation_email_sent": False},
             )
 
         runner.step_poll_order_running(order_id, timeout_sec=120)
@@ -1024,18 +931,11 @@ def main() -> int:
             print(f"\n… waiting {wait_sec}s until booked slot (+ buffer) …")
             time.sleep(wait_sec)
 
-        if args.simulate_call:
-            runner.step_simulate_call_local(
-                api_root=Path(args.api_root),
-                order_id=order_id,
-                recipient_id=recipient_id,
-            )
-        else:
-            runner.step_wait_for_real_call(
-                order_id,
-                recipient_id,
-                timeout_sec=args.wait_for_real_call_seconds,
-            )
+        runner.step_wait_for_real_call(
+            order_id,
+            recipient_id,
+            timeout_sec=args.wait_for_real_call_seconds,
+        )
 
         results = runner.step_interview_results(order_id)
         detail = runner.step_recipient_detail(order_id, recipient_id)
@@ -1051,8 +951,14 @@ def main() -> int:
             response_body={"detail_score": score, "results_count": len(candidates)},
         )
 
-        if not args.skip_stop:
+        if not skip_stop:
             runner.step_stop_campaign(order_id)
+        else:
+            runner._record(
+                "Stop interview campaign",
+                ok=True,
+                reason="skipped — email-safe mode (avoid closure emails blocking manual SMTP)",
+            )
 
     except (RuntimeError, Exception) as exc:
         print(f"\nFATAL: {exc}", file=sys.stderr)
