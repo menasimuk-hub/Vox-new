@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab } from "@/lib/api";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
+import { isInterviewCampaignReadOnly, interviewCampaignReadOnlyLabel } from "@/lib/interview-campaign";
 import { useInterviewResults, useHubSpotStatus, useSaveInterviewShortlist, useSendInterviewScheduling, useServiceOrders, useSchedulingStatus, useStopInterviewCampaign } from "@/lib/queries";
 import type { CampaignTone } from "@/lib/types/campaign";
 import type { ServiceOrder } from "@/lib/types/api";
@@ -262,6 +263,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   }
 
   const selectedCount = Object.values(selectedRows).filter(Boolean).length;
+  const campaignReadOnly = isInterviewCampaignReadOnly(rawOrder?.status) || rawOrder?.is_finished === true;
   const candidateOpen = open ? rowsForSort.find((c) => c.id === open) : null;
 
   return (
@@ -496,7 +498,11 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                 </div>
               </div>
               <div className="pt-1"><AtsScore score={candidateOpen.ats_score} status={candidateOpen.ats_status} label={candidateOpen.ats_label} /></div>
-              <p className="text-xs text-muted-foreground">Click the candidate name for contact details and resend invite. Use Activity for the full timeline.</p>
+              <p className="text-xs text-muted-foreground">
+                {campaignReadOnly
+                  ? "Campaign closed — view-only. Resend invite is disabled."
+                  : "Click the candidate name for contact details and resend invite. Use Activity for the full timeline."}
+              </p>
             </CardContent>
           </Card>
         )}
@@ -554,6 +560,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
           if (!next) setContactCandidate(null);
         }}
         orderId={orderId}
+        readOnly={campaignReadOnly}
         candidate={contactCandidate}
       />
       <CandidateActivityDialog

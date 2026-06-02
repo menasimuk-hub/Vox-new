@@ -256,3 +256,38 @@ def test_notify_email_both_wa_only_booked(monkeypatch):
         assert result.get("whatsapp_sent") == 1
         assert send_wa.call_count == 1
         assert send_wa.call_args.kwargs.get("to_number") == "+447700900111"
+
+
+def test_send_invites_rejected_when_campaign_stopped():
+    with get_sessionmaker()() as db:
+        order, _ = _seed_draft_with_recipient(db)
+        order.status = "cancelled"
+        order.payment_status = "approved"
+        order.scheduled_start_at = datetime.utcnow() + timedelta(days=1)
+        order.scheduled_end_at = datetime.utcnow() + timedelta(days=2)
+        order.config_json = json.dumps(
+            {
+                "role": "Engineer",
+                "booking_invites_sent_at": datetime.utcnow().isoformat(),
+                "last_invite_dispatch": {"ok": True},
+            }
+        )
+        db.add(order)
+        db.commit()
+
+        with pytest.raises(ValueError, match="stopped"):
+            InterviewBookingService.send_invites(db, order, force_resend=True)
+
+
+def test_send_invites_rejected_when_campaign_finished():
+    with get_sessionmaker()() as db:
+        order, _ = _seed_draft_with_recipient(db)
+        order.status = "completed"
+        order.payment_status = "approved"
+        order.scheduled_start_at = datetime.utcnow() - timedelta(days=2)
+        order.scheduled_end_at = datetime.utcnow() - timedelta(days=1)
+        db.add(order)
+        db.commit()
+
+        with pytest.raises(ValueError, match="finished"):
+            InterviewBookingService.send_invites(db, order, force_resend=True)

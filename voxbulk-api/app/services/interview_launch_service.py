@@ -80,6 +80,9 @@ class InterviewLaunchService:
     ) -> dict[str, Any]:
         if order.service_code != "interview":
             raise ValueError("Launch is only for interview orders")
+        from app.services.interview_booking_service import _assert_order_accepts_invite_changes
+
+        _assert_order_accepts_invite_changes(order)
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved before launch")
 

@@ -37,6 +37,7 @@ export type CandidateContactDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   orderId: string;
+  readOnly?: boolean;
   candidate: {
     id: string;
     name: string;
@@ -47,7 +48,7 @@ export type CandidateContactDialogProps = {
   } | null;
 };
 
-export function CandidateContactDialog({ open, onOpenChange, orderId, candidate }: CandidateContactDialogProps) {
+export function CandidateContactDialog({ open, onOpenChange, orderId, readOnly = false, candidate }: CandidateContactDialogProps) {
   const resendM = useSendInterviewBookingInvites(orderId);
   const bookedLabel = fmtBooked(candidate?.booked_start_at);
 
@@ -77,7 +78,9 @@ export function CandidateContactDialog({ open, onOpenChange, orderId, candidate 
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{candidate?.name || "Candidate"}</DialogTitle>
-          <DialogDescription>Contact details and booking actions</DialogDescription>
+          <DialogDescription>
+            {readOnly ? "Contact details (read-only — campaign stopped or finished)" : "Contact details and booking actions"}
+          </DialogDescription>
         </DialogHeader>
 
         {candidate ? (
@@ -97,7 +100,7 @@ export function CandidateContactDialog({ open, onOpenChange, orderId, candidate 
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Mail className="size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 break-all font-medium">{candidate.email || "—"}</span>
-                  {candidate.email && canResendBookingInvite(candidate.activity_status) ? (
+                  {candidate.email && !readOnly && canResendBookingInvite(candidate.activity_status) ? (
                     <Button
                       type="button"
                       size="sm"

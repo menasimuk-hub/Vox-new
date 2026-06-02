@@ -337,6 +337,21 @@ def _booking_display_meta() -> dict[str, str]:
     }
 
 
+def interview_order_read_only(order: ServiceOrder) -> bool:
+    """True when the employer must not change or resend invites (stopped/finished)."""
+    return str(order.status or "").lower() in {"cancelled", "completed", "archived"}
+
+
+def _assert_order_accepts_invite_changes(order: ServiceOrder) -> None:
+    if interview_order_read_only(order):
+        status = str(order.status or "").lower()
+        if status == "cancelled":
+            raise ValueError("This campaign was stopped — booking invites cannot be sent or resent.")
+        if status == "completed":
+            raise ValueError("This campaign is finished — booking invites cannot be sent or resent.")
+        raise ValueError("This campaign is read-only — booking invites cannot be sent or resent.")
+
+
 def _booking_invite_buttons(components: list[Any] | None) -> list[dict[str, str]]:
     """Booking invite: Book My Interview + Reschedule + Cancel."""
     buttons = _buttons_from_components(components)
@@ -1686,6 +1701,7 @@ class InterviewBookingService:
     ) -> dict[str, Any]:
         if order.service_code != "interview":
             raise ValueError("Booking invites are only for interview orders")
+        _assert_order_accepts_invite_changes(order)
         if not order.scheduled_start_at or not order.scheduled_end_at:
             raise ValueError("Set the calling window (start and end) before sending booking links")
 

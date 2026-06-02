@@ -3,6 +3,7 @@ import * as React from "react";
 import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
+import { isInterviewCampaignReadOnly, interviewCampaignReadOnlyLabel } from "@/lib/interview-campaign";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
@@ -336,6 +337,7 @@ function CreateInterview() {
   }, [createDraftM, createDraftM.isPending, createDraftM.isSuccess, draftOrderId, navigate, qc, wantNew]);
 
   const orderStatus = String(order?.status || "").toLowerCase();
+  const campaignReadOnly = isInterviewCampaignReadOnly(orderStatus);
   const shouldPollRecipients = ["running", "scheduled", "paused"].includes(orderStatus);
   const lastInviteDispatch = config.last_invite_dispatch as
     | { ok?: boolean; whatsapp_sent?: number; email_sent?: number; errors?: string[] }
@@ -476,7 +478,7 @@ function CreateInterview() {
   }, [draftQ.data?.recipients]);
 
   const candidatesLocked =
-    ["running", "completed", "cancelled"].includes(orderStatus) || bookingInvitesSent;
+    campaignReadOnly || ["running", "completed", "cancelled"].includes(orderStatus) || bookingInvitesSent;
 
   const [deleteDialog, setDeleteDialog] = React.useState<{
     open: boolean;
@@ -712,6 +714,10 @@ function CreateInterview() {
 
   const onSaveDraft = async (silent?: boolean, extraConfig?: Record<string, unknown>) => {
     if (!orderId) return;
+    if (campaignReadOnly) {
+      if (!silent) toast.message(interviewCampaignReadOnlyLabel(orderStatus));
+      return;
+    }
     const body = buildSaveBody(extraConfig, { markSaved: !silent });
     const locked = ["running", "paused", "scheduled"].includes(String(order?.status || ""));
     try {
@@ -934,7 +940,8 @@ function CreateInterview() {
   const cvCollectionClosed = cvEmailActive && (cvPhase === "ready" || cvCollectionClosedEarly);
   const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
   const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
-  const canResendBookingInvites = candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
+  const canResendBookingInvites =
+    !campaignReadOnly && candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
   const unscoredCount = React.useMemo(
     () =>
       candidates.filter((c) => {
@@ -1225,7 +1232,18 @@ function CreateInterview() {
     <div className="flex w-full flex-col gap-6 pb-24">
       <PageHeader eyebrow="Interviews" title="Create new interview" description="Set up an AI phone screening campaign in three steps." />
 
-      {(setupErrors.length > 0 || launchErrors.length > 0) && (
+      {campaignReadOnly && orderId ? (
+        <Card className="border-muted bg-muted/40">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
+            <p className="text-muted-foreground">{interviewCampaignReadOnlyLabel(orderStatus)}</p>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/interviews/results/$orderId" params={{ orderId }}>View results</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {(setupErrors.length > 0 || launchErrors.length > 0) && !campaignReadOnly && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
           <p className="font-medium text-foreground">Action needed — complete the items below:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
@@ -1402,7 +1420,7 @@ function CreateInterview() {
                   variant="outline"
                   size="sm"
                   className="h-7 gap-1.5 text-xs"
-                  disabled={runAtsM.isPending || candidates.length === 0}
+                  disabled={runAtsM.isPending || candidates.length === 0 || campaignReadOnly}
                   onClick={onRunAtsClick}
                 >
                   <Sparkles className="size-3.5" />
@@ -1648,6 +1666,7 @@ function CreateInterview() {
         </CardContent>
       </Card>
 
+      {!campaignReadOnly ? (
       <Card>
         <CardHeader>
           <CardTitle>Step 3 · ATS, preview & launch</CardTitle>
@@ -1730,18 +1749,19 @@ function CreateInterview() {
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0} onClick={onRunAtsClick}>
+            <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0 || campaignReadOnly} onClick={onRunAtsClick}>
               <Sparkles className="size-4" /> {runAtsM.isPending ? "Running ATS…" : "Run ATS"}
             </Button>
-            <Button className="gap-1.5" onClick={onAttemptPreview}>
+            <Button className="gap-1.5" disabled={campaignReadOnly} onClick={onAttemptPreview}>
               <Eye className="size-4" /> Preview &amp; approve
             </Button>
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-        {paymentApproved && (!bookingInvitesSent || inviteDispatchFailed) ? (
+        {paymentApproved && (!bookingInvitesSent || inviteDispatchFailed) && !campaignReadOnly ? (
           <Button
             variant="secondary"
             className="gap-1.5"
@@ -1761,12 +1781,18 @@ function CreateInterview() {
             <Send className="size-4" /> {launchM.isPending ? "Launching…" : "Launch — send booking invites"}
           </Button>
         ) : null}
-        {paymentApproved && bookingInvitesSent ? (
+        {paymentApproved && bookingInvitesSent && !campaignReadOnly ? (
           <Button
             variant="outline"
             className="gap-1.5"
             disabled={resendInvitesM.isPending || !canResendBookingInvites}
-            title={canResendBookingInvites ? "Resend booking WhatsApp to eligible candidates" : "All candidates have completed their interview — booking is locked"}
+            title={
+              campaignReadOnly
+                ? "Campaign stopped or finished — resend disabled"
+                : canResendBookingInvites
+                  ? "Resend booking WhatsApp to eligible candidates"
+                  : "All candidates have completed their interview — booking is locked"
+            }
             onClick={() => {
               void (async () => {
                 try {
@@ -1789,7 +1815,7 @@ function CreateInterview() {
             <Send className="size-4" /> Resend booking WhatsApp
           </Button>
         ) : null}
-        <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending}>
+        <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending || campaignReadOnly}>
           <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
         </Button>
       </div>
