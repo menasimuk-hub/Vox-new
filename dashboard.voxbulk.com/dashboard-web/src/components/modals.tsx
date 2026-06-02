@@ -621,6 +621,7 @@ export function InterviewPreviewQuoteModal({
   onRefreshQuote,
   onPayLaunch,
   onLaunch,
+  launchBlockers = [],
   quoteLoading,
   quoteError,
   payBusy,
@@ -634,7 +635,10 @@ export function InterviewPreviewQuoteModal({
   onApproveScript: () => Promise<void>;
   onRefreshQuote?: () => void;
   onPayLaunch?: () => void | Promise<void>;
-  onLaunch?: () => void | Promise<void>;
+  /** Return true when launch finished successfully (modal will close). */
+  onLaunch?: () => boolean | Promise<boolean>;
+  /** Extra gates from the wizard (e.g. ATS) — must match page-level launch validation. */
+  launchBlockers?: string[];
   quoteLoading?: boolean;
   quoteError?: string | null;
   payBusy?: boolean;
@@ -644,13 +648,15 @@ export function InterviewPreviewQuoteModal({
 }) {
   const [previewApproved, setPreviewApproved] = React.useState(false);
   const [scriptApproved, setScriptApproved] = React.useState(Boolean(data.scriptApproved));
+  const [launching, setLaunching] = React.useState(false);
+  const [launchActionError, setLaunchActionError] = React.useState<string | null>(null);
   const scriptLines = (data.script || "").split(/\n+/).filter(Boolean).slice(0, 8);
   const expectedTimeLabel = data.expectedDurationMinutes
     ? `~${data.expectedDurationMinutes} min per call`
     : "—";
   const quoteTotal = data.quoteTotalDisplay || data.quoteTotalGbp;
   const packageLabel = packagePlanName ? `Included in ${packagePlanName}` : "Included in your package";
-  const launchReadinessErrors: string[] = [];
+  const launchReadinessErrors: string[] = [...launchBlockers];
   if (data.cvEmailEnabled) {
     if (!data.cvCollectionComplete) {
       launchReadinessErrors.push("CV collection must finish first (or close early in Step 1).");
@@ -663,11 +669,25 @@ export function InterviewPreviewQuoteModal({
   } else if (data.candidateCount <= 0) {
     launchReadinessErrors.push("Upload at least one candidate in Step 1.");
   }
-  const canLaunchPackage = hasPackageSubscription && scriptApproved && previewApproved && !quoteLoading && !payBusy && launchReadinessErrors.length === 0;
-  const canPay = !hasPackageSubscription && scriptApproved && previewApproved && Boolean(quoteTotal) && !quoteLoading && launchReadinessErrors.length === 0;
+  const actionBusy = Boolean(payBusy || launching);
+  const canLaunchPackage =
+    hasPackageSubscription &&
+    scriptApproved &&
+    previewApproved &&
+    !quoteLoading &&
+    !actionBusy &&
+    launchReadinessErrors.length === 0;
+  const canPay =
+    !hasPackageSubscription &&
+    scriptApproved &&
+    previewApproved &&
+    Boolean(quoteTotal) &&
+    !quoteLoading &&
+    !actionBusy &&
+    launchReadinessErrors.length === 0;
   const launchBlockedReason = quoteLoading
     ? "Loading quote…"
-    : payBusy
+    : actionBusy
       ? "Please wait…"
     : launchReadinessErrors.length > 0
       ? launchReadinessErrors[0]
@@ -694,9 +714,42 @@ export function InterviewPreviewQuoteModal({
       setScriptApproved(approved);
       // Step 2 approval already done — unlock preview + launch without repeating gates.
       setPreviewApproved(approved);
+      setLaunchActionError(null);
+      setLaunching(false);
       onRefreshQuote?.();
     }
   }, [open, data.scriptApproved, onRefreshQuote]);
+
+  const handleLaunchClick = async () => {
+    if (!onLaunch || !canLaunchPackage) return;
+    setLaunchActionError(null);
+    setLaunching(true);
+    try {
+      const ok = await onLaunch();
+      if (ok) {
+        onOpenChange(false);
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not launch campaign";
+      setLaunchActionError(message);
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const handlePayLaunchClick = async () => {
+    if (!onPayLaunch || !canPay) return;
+    setLaunchActionError(null);
+    setLaunching(true);
+    try {
+      await onPayLaunch();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not start payment";
+      setLaunchActionError(message);
+      setLaunching(false);
+    }
+    // Redirect to GoCardless leaves the page — do not clear launching on success.
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -795,6 +848,11 @@ export function InterviewPreviewQuoteModal({
                 </ul>
               </div>
             ) : null}
+            {launchActionError ? (
+              <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                {launchActionError}
+              </div>
+            ) : null}
             {quoteError && !hasPackageSubscription && onRefreshQuote ? (
               <div className="mt-4 space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
                 <p className="text-destructive">{quoteError}</p>
@@ -814,41 +872,43 @@ export function InterviewPreviewQuoteModal({
             ) : null}
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <Button
+              type="button"
               variant="outline"
               className="gap-1.5"
-              disabled={!data.script.trim() || scriptApproved || payBusy}
+              disabled={!data.script.trim() || scriptApproved || actionBusy}
               onClick={() => void onApproveScript().then(() => setScriptApproved(true))}
             >
               {scriptApproved ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
               {scriptApproved ? "Script approved" : "Approve script"}
             </Button>
             <Button
+              type="button"
               variant={previewApproved ? "outline" : "default"}
               className="gap-1.5"
-              disabled={!scriptApproved || previewApproved || payBusy}
+              disabled={!scriptApproved || previewApproved || actionBusy}
               onClick={() => setPreviewApproved(true)}
             >
               <CheckCircle2 className="size-4" /> {previewApproved ? "Preview confirmed" : "Confirm preview"}
             </Button>
             {hasPackageSubscription ? (
               <Button
+                type="button"
                 className="gap-1.5"
                 disabled={!canLaunchPackage}
-                onClick={() => {
-                  void onLaunch?.();
-                }}
+                onClick={() => void handleLaunchClick()}
               >
                 <PlayCircle className="size-4" />
-                {payBusy ? "Launching…" : "Launch"}
+                {actionBusy ? "Launching…" : "Launch"}
               </Button>
             ) : (
               <Button
+                type="button"
                 className="gap-1.5"
-                disabled={!canPay || !gcAvailable || payBusy}
-                onClick={() => void onPayLaunch?.()}
+                disabled={!canPay || !gcAvailable}
+                onClick={() => void handlePayLaunchClick()}
               >
                 <CreditCard className="size-4" />
-                {payBusy ? "Redirecting…" : `Pay ${quoteTotal || ""} & launch`}
+                {actionBusy ? "Redirecting…" : `Pay ${quoteTotal || ""} & launch`}
               </Button>
             )}
             </div>

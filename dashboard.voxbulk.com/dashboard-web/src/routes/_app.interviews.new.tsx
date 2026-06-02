@@ -1050,26 +1050,23 @@ function CreateInterview() {
     }
   };
 
-  const onPayLaunch = async () => {
+  const onPayLaunch = async (): Promise<void> => {
     if (!orderId) {
-      toast.error("Save your draft before paying");
-      return;
+      throw new Error("Save your draft before paying");
     }
     if (launchErrors.length > 0) {
-      toast.error(launchErrors.length === 1 ? launchErrors[0] : launchErrors.join(" · "));
-      return;
+      throw new Error(launchErrors.length === 1 ? launchErrors[0] : launchErrors.join(" · "));
     }
     if (!gcReady) {
-      toast.error("GoCardless checkout is not configured");
-      return;
+      throw new Error("GoCardless checkout is not configured");
     }
     setPayBusy(true);
     try {
       await onSaveDraft(true);
       await startGoCardlessOrderPayment(orderId);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not start GoCardless checkout");
       setPayBusy(false);
+      throw e instanceof Error ? e : new Error("Could not start GoCardless checkout");
     }
   };
 
@@ -1081,11 +1078,12 @@ function CreateInterview() {
     }, 120);
   };
 
-  const onLaunchFromPackage = async () => {
-    if (!orderId) return;
+  const onLaunchFromPackage = async (): Promise<boolean> => {
+    if (!orderId) {
+      throw new Error("Save your draft before launch");
+    }
     if (launchErrors.length > 0) {
-      toast.error(launchErrors.length === 1 ? launchErrors[0] : launchErrors.join(" · "));
-      return;
+      return false;
     }
     setPayBusy(true);
     try {
@@ -1095,12 +1093,19 @@ function CreateInterview() {
       notifyInterviewLaunch(result);
       refreshDraft();
       scrollToLaunchStatus();
+      return true;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not launch campaign");
+      const message = e instanceof Error ? e.message : "Could not launch campaign";
+      toast.error(message);
+      throw e instanceof Error ? e : new Error(message);
     } finally {
       setPayBusy(false);
     }
   };
+
+  React.useEffect(() => {
+    if (!preview) setPayBusy(false);
+  }, [preview]);
 
   const previewData: InterviewPreviewData = {
     position,
@@ -1883,13 +1888,14 @@ function CreateInterview() {
         open={preview}
         onOpenChange={setPreview}
         data={previewData}
+        launchBlockers={launchErrors}
         onApproveScript={onApproveScript}
         onRefreshQuote={() => void refreshQuote()}
-        onPayLaunch={() => void onPayLaunch()}
-        onLaunch={() => void onLaunchFromPackage()}
+        onPayLaunch={() => onPayLaunch()}
+        onLaunch={() => onLaunchFromPackage()}
         quoteLoading={quoteM.isPending}
         quoteError={quoteError}
-        payBusy={payBusy}
+        payBusy={payBusy || launchM.isPending}
         gcAvailable={gcReady}
         hasPackageSubscription={hasPackageSub}
         packagePlanName={billingPlanName || undefined}
