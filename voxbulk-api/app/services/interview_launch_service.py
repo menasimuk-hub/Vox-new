@@ -119,16 +119,20 @@ class InterviewLaunchService:
 
         order = ServiceOrderService.schedule_order(db, order)
         dispatch = invite_result or {}
+        from app.services.career_email_service import interview_email_delivery_status
+
+        delivery = interview_email_delivery_status(db)
         return {
             "ok": bool(dispatch.get("ok", invite_result is None or dispatch.get("email_sent", 0) > 0 or dispatch.get("whatsapp_sent", 0) > 0)),
             "order_id": order.id,
             "status": order.status,
             "invites": invite_result,
-            "message": InterviewLaunchService._launch_message(invite_result),
+            "email_delivery": delivery,
+            "message": InterviewLaunchService._launch_message(invite_result, delivery=delivery),
         }
 
     @staticmethod
-    def _launch_message(invite_result: dict[str, Any] | None) -> str:
+    def _launch_message(invite_result: dict[str, Any] | None, *, delivery: dict[str, Any] | None = None) -> str:
         if not invite_result:
             return (
                 "Campaign scheduled. Booking invites were already sent — use Resend if candidates need another notice."
@@ -138,8 +142,15 @@ class InterviewLaunchService:
         errors = invite_result.get("errors") or []
         if email_n == 0 and wa_n == 0:
             if errors:
-                return f"No invites delivered. First error: {errors[0]}"
-            return "No booking invites were sent — check candidate email/phone and SMTP/Telnyx settings."
+                return f"No invites delivered. {errors[0]}"
+            hint = ""
+            if delivery and not delivery.get("can_send_email"):
+                missing = delivery.get("smtp_missing_fields") or []
+                hint = (
+                    " Enable SMTP in Admin → Email (or set RESEND_API_KEY / Resend integration)."
+                    + (f" Missing SMTP: {', '.join(missing)}" if missing else "")
+                )
+            return f"No booking invites were sent — check candidate email/phone and email settings.{hint}"
         parts = []
         if email_n:
             parts.append(f"{email_n} email(s)")
@@ -147,5 +158,5 @@ class InterviewLaunchService:
             parts.append(f"{wa_n} WhatsApp notice(s)")
         msg = f"Booking invites sent: {', '.join(parts)}."
         if errors:
-            msg += f" {len(errors)} issue(s) — see invite details."
+            msg += f" {len(errors)} issue(s): {errors[0]}"
         return msg

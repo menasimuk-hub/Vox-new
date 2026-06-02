@@ -113,10 +113,21 @@ class EmailTemplateService:
         k = EmailTemplateService.normalize_key(key)
         EmailTemplateService.ensure_system_templates(db)
         row = EmailTemplateService.get(db, key=k)
+        defaults = SYSTEM_EMAIL_DEFAULTS.get(k, {})
         if row is not None:
             db.refresh(row)
-            return str(row.subject or ""), str(row.body or ""), bool(row.is_enabled)
-        defaults = SYSTEM_EMAIL_DEFAULTS.get(k, {})
+            subject = str(row.subject or "")
+            body = str(row.body or "")
+            enabled = bool(row.is_enabled)
+            if k.startswith("interview_") and (
+                not enabled or (not subject.strip() and not body.strip())
+            ):
+                return (
+                    str(defaults.get("subject") or subject),
+                    str(defaults.get("body") or body),
+                    True,
+                )
+            return subject, body, enabled
         return str(defaults.get("subject") or ""), str(defaults.get("body") or ""), True
 
     @staticmethod

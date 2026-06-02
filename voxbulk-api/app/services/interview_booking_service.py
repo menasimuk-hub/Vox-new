@@ -1474,6 +1474,7 @@ class InterviewBookingService:
         email_sent = 0
         wa_sent = 0
         skipped = 0
+        errors: list[str] = []
         job_closed_row = InterviewBookingService.resolve_job_closed_template(db, order)
 
         for recipient in recipients:
@@ -1536,6 +1537,7 @@ class InterviewBookingService:
                         if sent_ok:
                             recipient_email_sent = True
                         elif err:
+                            errors.append(f"{recipient.email}: {err}")
                             logger.warning(
                                 "campaign_cancel_email_failed",
                                 extra={
@@ -1544,7 +1546,8 @@ class InterviewBookingService:
                                     "error": err,
                                 },
                             )
-                except Exception:
+                except Exception as exc:
+                    errors.append(f"{recipient.email}: {exc}")
                     logger.exception(
                         "campaign_cancel_email_error",
                         extra={"recipient_id": recipient.id, "order_id": order.id},
@@ -1622,12 +1625,16 @@ class InterviewBookingService:
         db.add(order)
         db.commit()
 
+        from app.services.career_email_service import interview_email_delivery_status
+
         return {
-            "ok": True,
+            "ok": email_sent > 0 or wa_sent > 0 or (skipped > 0 and not errors),
             "email_sent": email_sent,
             "whatsapp_sent": wa_sent,
             "skipped": skipped,
+            "errors": errors[:50],
             "recipient_count": len(recipients),
+            "email_delivery": interview_email_delivery_status(db),
         }
 
     @staticmethod
@@ -1882,6 +1889,8 @@ class InterviewBookingService:
                 if merged_check.get("invite_email_sent_at") and not force_resend:
                     recipient_email_sent = True
                 else:
+                    if force_resend:
+                        merged_check.pop("invite_email_sent_at", None)
                     try:
                         sent_ok, err = CareerEmailService.send_templated_critical(
                             db,
@@ -1988,10 +1997,13 @@ class InterviewBookingService:
         db.add(order)
         db.commit()
 
+        from app.services.career_email_service import interview_email_delivery_status
+
         return {
             "ok": dispatch_ok,
             "whatsapp_sent": wa_sent,
             "email_sent": email_sent,
             "skipped_locked": skipped_locked,
             "errors": errors,
+            "email_delivery": interview_email_delivery_status(db),
         }

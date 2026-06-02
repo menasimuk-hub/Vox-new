@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_json: bool = Field(default=True, alias="LOG_JSON")
     smtp_ssl_insecure: bool = Field(default=False, alias="SMTP_SSL_INSECURE")
+    resend_api_key: str = Field(default="", alias="RESEND_API_KEY")
 
     # Webhook signature secrets (HMAC foundation)
     # Twilio request validation uses your Twilio Auth Token.
