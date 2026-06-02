@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from app.models.service_order import ServiceOrder
 
@@ -66,11 +69,22 @@ def cv_collection_complete(order: ServiceOrder, *, now: datetime | None = None) 
 def close_cv_collection_early(db: Session, order: ServiceOrder, *, now: datetime | None = None) -> dict[str, Any]:
     """End CV email intake immediately so quote/pay/AI calls can proceed."""
     if order.service_code != "interview":
-        raise ValueError("CV collection is only for interview orders")
+        raise ValueError("CV collection is only for interview tasks")
     cfg = _loads_config(order)
     if not cfg.get("cv_email_enabled"):
         raise ValueError("CV email collection is not enabled on this task")
+
+    sync_result: dict[str, Any] = {"ok": True, "skipped": True, "message": "Mailbox sync skipped"}
+    try:
+        from app.services.career_mailbox_sync_service import sync_career_mailbox
+
+        sync_result = sync_career_mailbox(db)
+        db.refresh(order)
+    except Exception:
+        logger.exception("cv_close_early_mailbox_sync_failed order_id=%s", order.id)
+
     ts = now or datetime.utcnow()
+    cfg = _loads_config(order)
     cfg["cv_email_end_at"] = ts.isoformat()
     cfg["cv_collection_closed_early_at"] = ts.isoformat()
     order.config_json = json.dumps(cfg, ensure_ascii=False)
@@ -78,7 +92,15 @@ def close_cv_collection_early(db: Session, order: ServiceOrder, *, now: datetime
     db.add(order)
     db.commit()
     db.refresh(order)
-    return interview_cv_phase_payload(order, now=ts)
+    payload = interview_cv_phase_payload(order, now=ts)
+    payload["mailbox_sync"] = {
+        "ok": bool(sync_result.get("ok")),
+        "processed": int(sync_result.get("processed") or 0),
+        "added_cvs": int(sync_result.get("added_cvs") or 0),
+        "rejected": int(sync_result.get("rejected") or 0),
+        "message": str(sync_result.get("message") or ""),
+    }
+    return payload
 
 
 def assert_cv_collection_complete(order: ServiceOrder, *, now: datetime | None = None) -> None:

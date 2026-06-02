@@ -172,6 +172,10 @@ function collectInterviewSetupErrors(opts: {
   return errors;
 }
 
+function inputErrorClass(invalid: boolean) {
+  return invalid ? "border-destructive ring-1 ring-destructive/40 focus-visible:ring-destructive/40" : "";
+}
+
 function collectInterviewLaunchErrors(opts: {
   cvEmailActive: boolean;
   cvReadyForScreening: boolean;
@@ -301,6 +305,10 @@ function CreateInterview() {
   }, [order]);
   const lastHydrationKeyRef = React.useRef("");
 
+  React.useEffect(() => {
+    lastHydrationKeyRef.current = "";
+  }, [draftOrderId]);
+
   const agents = agentsQ.data || [];
   const selectedAgent = agents.find((a) => a.id === agentId) || pickDefaultInterviewAgent(agents);
   const createStartedRef = React.useRef(false);
@@ -362,8 +370,22 @@ function CreateInterview() {
     setDelivery(savedDelivery === "zoom" && !zoomInterviewEnabled ? "ai_call" : savedDelivery);
     setCollectionStart(toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || "")));
     setCollectionEnd(toLocalInput(String(config.cv_collection_end_at || config.cv_email_end_at || "")));
-    setCallingStart(toLocalInput(order.scheduled_start_at));
-    setCallingEnd(toLocalInput(order.scheduled_end_at));
+    setCallingStart(
+      toLocalInput(
+        order.scheduled_start_at ||
+          (config.calling_window_start_at as string | undefined) ||
+          (config.scheduled_start_at as string | undefined) ||
+          (config.scheduled_start as string | undefined),
+      ),
+    );
+    setCallingEnd(
+      toLocalInput(
+        order.scheduled_end_at ||
+          (config.calling_window_end_at as string | undefined) ||
+          (config.scheduled_end_at as string | undefined) ||
+          (config.scheduled_end as string | undefined),
+      ),
+    );
     setCvEmailEnabled(config.cv_email_enabled === true);
     if (config.ats_last_charge_at) {
       setAtsRunAt(String(config.ats_last_charge_at).slice(11, 16) || "done");
@@ -460,6 +482,7 @@ function CreateInterview() {
     label?: string;
   }>({ open: false, mode: "single", ids: [] });
   const [deleteBusy, setDeleteBusy] = React.useState(false);
+  const [closeCvBusy, setCloseCvBusy] = React.useState(false);
 
   React.useEffect(() => {
     setSelected((prev) => {
@@ -598,15 +621,28 @@ function CreateInterview() {
 
   const onCloseCvCollection = async () => {
     if (!orderId) return;
+    setCloseCvBusy(true);
     try {
-      await apiFetch(`/service-orders/${encodeURIComponent(orderId)}/interview/cv-collection/close-early`, {
+      const res = await apiFetch<{
+        mailbox_sync?: { added_cvs?: number; processed?: number; message?: string };
+      }>(`/service-orders/${encodeURIComponent(orderId)}/interview/cv-collection/close-early`, {
         method: "POST",
         body: "{}",
       });
-      toast.success("CV collection closed");
+      const added = Number(res?.mailbox_sync?.added_cvs || 0);
+      const processed = Number(res?.mailbox_sync?.processed || 0);
+      if (added > 0) {
+        toast.success(`CV collection closed — ${added} new CV${added === 1 ? "" : "s"} imported from email`);
+      } else if (processed > 0) {
+        toast.success("CV collection closed — inbox checked, no new CVs to add");
+      } else {
+        toast.success("CV collection closed");
+      }
       refreshDraft();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not close CV collection");
+    } finally {
+      setCloseCvBusy(false);
     }
   };
 
@@ -628,6 +664,8 @@ function CreateInterview() {
       cv_collection_end_at: toIsoFromLocal(collectionEnd),
       cv_email_start_at: toIsoFromLocal(collectionStart),
       cv_email_end_at: toIsoFromLocal(collectionEnd),
+      calling_window_start_at: toIsoFromLocal(callingStart),
+      calling_window_end_at: toIsoFromLocal(callingEnd),
       generated_script_draft: script,
       expected_duration_minutes: expectedDurationMinutes,
       approved_script: scriptApproved ? script : config.approved_script || "",
@@ -897,6 +935,12 @@ function CreateInterview() {
     referenceId,
     atsGatePassed,
   });
+  const missingPosition = !position.trim() && !role.trim();
+  const missingCriteria = !criteria.trim();
+  const missingScript = !script.trim();
+  const missingScriptApproval = !scriptIsApproved && Boolean(script.trim());
+  const missingCallingWindow = !callingStart || !callingEnd;
+  const missingCollectionWindow = cvEmailActive && (!collectionStart || !collectionEnd);
 
   const refreshQuote = async () => {
     if (!orderId) return;
@@ -1133,6 +1177,20 @@ function CreateInterview() {
     <div className="flex w-full flex-col gap-6 pb-24">
       <PageHeader eyebrow="Interviews" title="Create new interview" description="Set up an AI phone screening campaign in three steps." />
 
+      {(setupErrors.length > 0 || launchErrors.length > 0) && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
+          <p className="font-medium text-foreground">Action needed — complete the items below:</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+            {setupErrors.map((item) => (
+              <li key={`setup-${item}`}>{item}</li>
+            ))}
+            {launchErrors.map((item) => (
+              <li key={`launch-${item}`}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Step 1 · Collect candidates</CardTitle>
@@ -1209,8 +1267,12 @@ function CreateInterview() {
           )}
           {cvEmailActive && (
             <div className="grid grid-cols-1 gap-2 md:col-span-2 sm:grid-cols-2">
-              <Field label="Collection start"><Input type="datetime-local" value={collectionStart} onChange={(e) => setCollectionStart(e.target.value)} className="w-full min-w-0" /></Field>
-              <Field label="Collection end"><Input type="datetime-local" value={collectionEnd} onChange={(e) => setCollectionEnd(e.target.value)} className="w-full min-w-0" /></Field>
+              <Field label="Collection start" error={missingCollectionWindow && !collectionStart ? "Required when CV email is on" : undefined}>
+                <Input type="datetime-local" value={collectionStart} onChange={(e) => setCollectionStart(e.target.value)} className={`w-full min-w-0 ${inputErrorClass(missingCollectionWindow && !collectionStart)}`} />
+              </Field>
+              <Field label="Collection end" error={missingCollectionWindow && !collectionEnd ? "Required when CV email is on" : undefined}>
+                <Input type="datetime-local" value={collectionEnd} onChange={(e) => setCollectionEnd(e.target.value)} className={`w-full min-w-0 ${inputErrorClass(missingCollectionWindow && !collectionEnd)}`} />
+              </Field>
             </div>
           )}
 
@@ -1424,8 +1486,8 @@ function CreateInterview() {
           </div>
 
           {cvEmailActive && cvPhase !== "ready" && (
-            <Button variant="outline" size="sm" className="md:col-span-2 w-fit" onClick={() => void onCloseCvCollection()}>
-              Close CV collection early & continue
+            <Button variant="outline" size="sm" className="md:col-span-2 w-fit" disabled={closeCvBusy} onClick={() => void onCloseCvCollection()}>
+              {closeCvBusy ? "Checking email & closing…" : "Close CV collection early & continue"}
             </Button>
           )}
         </CardContent>
@@ -1437,8 +1499,12 @@ function CreateInterview() {
           <CardDescription>Position, role, agent, screening criteria, and script approval.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 md:grid-cols-2">
-          <Field label="Position"><Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Senior dental hygienist — Manchester" /></Field>
-          <Field label="Role"><Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Registered dental hygienist (GDC)" /></Field>
+          <Field label="Position" error={missingPosition ? "Enter position or role" : undefined}>
+            <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Senior dental hygienist — Manchester" className={inputErrorClass(missingPosition)} />
+          </Field>
+          <Field label="Role" error={missingPosition ? "Enter role or position" : undefined}>
+            <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Registered dental hygienist (GDC)" className={inputErrorClass(missingPosition)} />
+          </Field>
           <Field label="AI voice agent">
             {agents.length === 0 ? (
               <p className="text-xs text-muted-foreground">No voice agents configured yet. Ask your admin to enable interview agents.</p>
@@ -1470,8 +1536,9 @@ function CreateInterview() {
             </Field>
           ) : null}
           <div className="md:col-span-2 space-y-1.5">
-            <Label className="text-xs">Screening criteria</Label>
-            <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration…" />
+            <Label className={`text-xs ${missingCriteria ? "text-destructive" : ""}`}>Screening criteria</Label>
+            <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration…" className={inputErrorClass(missingCriteria)} />
+            {missingCriteria ? <p className="text-[11px] text-destructive">Add screening criteria before generating the script</p> : null}
           </div>
           <div className="md:col-span-2 flex flex-wrap gap-2">
             <Button variant="outline" className="gap-1.5" onClick={() => void onGenerateScript()} disabled={generateM.isPending}>
@@ -1495,12 +1562,18 @@ function CreateInterview() {
             </div>
           </div>
           <div className="md:col-span-2 space-y-1.5">
-            <Label className="text-xs">Generated script</Label>
-            <Textarea rows={8} value={script} onChange={(e) => { setScript(e.target.value); setScriptApproved(false); setExpectedDurationMinutes(undefined); }} placeholder="Generate AI questions or paste your own script…" />
+            <Label className={`text-xs ${missingScript || missingScriptApproval ? "text-destructive" : ""}`}>Generated script</Label>
+            <Textarea rows={8} value={script} onChange={(e) => { setScript(e.target.value); setScriptApproved(false); setExpectedDurationMinutes(undefined); }} placeholder="Generate AI questions or paste your own script…" className={inputErrorClass(missingScript || missingScriptApproval)} />
+            {missingScript ? <p className="text-[11px] text-destructive">Generate or paste a script, then approve it</p> : null}
+            {!missingScript && missingScriptApproval ? <p className="text-[11px] text-destructive">Click Approve script when you are happy with it</p> : null}
           </div>
           <div className="grid gap-2 sm:grid-cols-2 md:col-span-2">
-            <Field label="Calling start"><Input type="datetime-local" value={callingStart} onChange={(e) => setCallingStart(e.target.value)} /></Field>
-            <Field label="Calling end"><Input type="datetime-local" value={callingEnd} onChange={(e) => setCallingEnd(e.target.value)} /></Field>
+            <Field label="Calling start" error={missingCallingWindow && !callingStart ? "Set when AI calls can start" : undefined}>
+              <Input type="datetime-local" value={callingStart} onChange={(e) => setCallingStart(e.target.value)} className={inputErrorClass(missingCallingWindow && !callingStart)} />
+            </Field>
+            <Field label="Calling end" error={missingCallingWindow && !callingEnd ? "Set when AI calls must end" : undefined}>
+              <Input type="datetime-local" value={callingEnd} onChange={(e) => setCallingEnd(e.target.value)} className={inputErrorClass(missingCallingWindow && !callingEnd)} />
+            </Field>
           </div>
         </CardContent>
       </Card>
@@ -1742,8 +1815,14 @@ function CreateInterview() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="space-y-1.5"><Label className="text-xs">{label}</Label>{children}</div>;
+function Field({ label, children, error }: { label: string; children: React.ReactNode; error?: string }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className={error ? "text-xs text-destructive" : "text-xs"}>{label}</Label>
+      {children}
+      {error ? <p className="text-[11px] text-destructive">{error}</p> : null}
+    </div>
+  );
 }
 
 function LaunchStatus({

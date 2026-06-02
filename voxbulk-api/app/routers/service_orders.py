@@ -346,7 +346,7 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
         order = ServiceOrderService.update_order(db, order, {"config": config_patch})
     sched_patch = {}
     for key in ("run_mode", "scheduled_start_at", "scheduled_end_at"):
-        if payload.get(key):
+        if key in payload and payload[key] is not None:
             sched_patch[key] = payload[key]
     if sched_patch:
         order = ServiceOrderService.update_order(db, order, sched_patch)

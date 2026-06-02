@@ -135,6 +135,34 @@ def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
         return {}
 
 
+def campaign_invites_were_sent(order: ServiceOrder) -> bool:
+    """True once booking invites were dispatched at launch (not for saved drafts)."""
+    cfg = _order_config(order)
+    if not cfg.get("booking_invites_sent_at"):
+        return False
+    dispatch = cfg.get("last_invite_dispatch")
+    if isinstance(dispatch, dict) and dispatch.get("ok") is False:
+        return False
+    return True
+
+
+def recipient_received_booking_outreach(
+    recipient: ServiceOrderRecipient,
+    token_row: InterviewBookingToken | None,
+) -> bool:
+    """True when the candidate received an invite or booked a slot — safe to notify on closure."""
+    if token_row is not None and token_row.booked_start_at is not None:
+        return True
+    if token_row is not None and token_row.wa_sent_at is not None:
+        return True
+    merged = _recipient_result(recipient)
+    if merged.get("invite_email_sent_at") or merged.get("invite_wa_sent_at"):
+        return True
+    if merged.get("booking_invite_sent_at") or merged.get("scheduling_sent_at"):
+        return True
+    return False
+
+
 def _first_name(name: str | None) -> str:
     raw = str(name or "").strip()
     if not raw:
@@ -1290,9 +1318,12 @@ class InterviewBookingService:
         *,
         reason: str | None = None,
     ) -> dict[str, Any]:
-        """Email (and optional WhatsApp) all active candidates when the employer closes a campaign."""
+        """Email (and optional WhatsApp) candidates who received booking invites when the employer closes a campaign."""
         if order.service_code != "interview":
             return {"ok": True, "skipped": True, "reason": "not_interview"}
+
+        if not campaign_invites_were_sent(order):
+            return {"ok": True, "skipped": True, "reason": "invites_never_sent"}
 
         config = _order_config(order)
         if config.get("campaign_cancel_notified_at"):
@@ -1320,7 +1351,6 @@ class InterviewBookingService:
                 skipped += 1
                 continue
 
-            InterviewBookingService._hangup_active_call_if_any(db, order, recipient)
             token_row = db.execute(
                 select(InterviewBookingToken)
                 .where(
@@ -1329,6 +1359,11 @@ class InterviewBookingService:
                 )
                 .limit(1)
             ).scalar_one_or_none()
+            if not recipient_received_booking_outreach(recipient, token_row):
+                skipped += 1
+                continue
+
+            InterviewBookingService._hangup_active_call_if_any(db, order, recipient)
             if token_row is not None and token_row.booked_start_at is not None:
                 token_row.booked_start_at = None
                 token_row.booked_end_at = None

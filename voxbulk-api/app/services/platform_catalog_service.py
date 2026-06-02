@@ -1129,13 +1129,14 @@ class ServiceOrderService:
             raise ValueError("Cannot delete a paid survey that has started")
         if order.service_code == "interview":
             try:
-                from app.services.interview_booking_service import InterviewBookingService
+                from app.services.interview_booking_service import InterviewBookingService, campaign_invites_were_sent
 
-                InterviewBookingService.notify_campaign_closed(
-                    db,
-                    order,
-                    reason="This interview campaign was removed.",
-                )
+                if campaign_invites_were_sent(order):
+                    InterviewBookingService.notify_campaign_closed(
+                        db,
+                        order,
+                        reason="This interview campaign was removed.",
+                    )
             except Exception:
                 import logging
 
@@ -1208,13 +1209,14 @@ class ServiceOrderService:
         db.refresh(order)
         if order.service_code == "interview":
             try:
-                from app.services.interview_booking_service import InterviewBookingService
+                from app.services.interview_booking_service import InterviewBookingService, campaign_invites_were_sent
 
-                InterviewBookingService.notify_campaign_closed(
-                    db,
-                    order,
-                    reason=note or "This interview campaign was cancelled by the employer.",
-                )
+                if campaign_invites_were_sent(order):
+                    InterviewBookingService.notify_campaign_closed(
+                        db,
+                        order,
+                        reason=note or "This interview campaign was cancelled by the employer.",
+                    )
             except Exception:
                 import logging
 

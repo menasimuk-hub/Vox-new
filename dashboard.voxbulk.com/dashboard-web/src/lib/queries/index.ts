@@ -328,9 +328,12 @@ export function useSaveInterviewDraft() {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: (_data, vars) => {
+    onSuccess: (data, vars) => {
+      const orderId = String(vars.order_id || data?.order?.id || "");
+      if (orderId && data) {
+        qc.setQueryData([...queryKeys.interviewDraft, orderId], data);
+      }
       void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
-      const orderId = String(vars.order_id || "");
       if (orderId) void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
     },
   });
