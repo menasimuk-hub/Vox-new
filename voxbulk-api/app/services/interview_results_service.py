@@ -108,14 +108,17 @@ def _candidate_row(
     play_path = _recording_play_path(order_id, recipient.id) if has_recording else None
 
     from app.services.interview_activity_service import InterviewActivityService
+    from app.services.interview_booking_service import _recipient_outreach_email
 
     activity_status = InterviewActivityService.activity_status(recipient, parsed=parsed)
+    outreach_email = _recipient_outreach_email(recipient)
 
     row = {
         "id": recipient.id,
         "name": recipient.name or "Candidate",
         "phone": recipient.phone,
-        "email": recipient.email,
+        "email": recipient.email or outreach_email,
+        "outreach_email": outreach_email,
         "status": recipient.status,
         "score": int(score) if score is not None else None,
         "recommendation": recommendation,

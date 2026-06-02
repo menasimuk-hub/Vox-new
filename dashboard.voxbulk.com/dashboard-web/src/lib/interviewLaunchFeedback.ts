@@ -25,14 +25,25 @@ export function describeInterviewLaunchResult(result: InterviewLaunchResult | nu
   const errors = Array.isArray(invites?.errors) ? invites!.errors!.filter(Boolean) : [];
   const title = result?.message?.trim() || "Interview campaign launched.";
 
-  if (emailN === 0 && waN === 0 && errors.length > 0) {
+  if (emailN === 0 && errors.length > 0) {
     return { tone: "error", title, detail: errors.slice(0, 3).join(" · ") };
+  }
+  if (emailN === 0 && waN === 0) {
+    return {
+      tone: "error",
+      title: title || "Launch failed",
+      detail: "No booking invite emails were sent — add candidate emails (or CVs with email) and try Resend.",
+    };
+  }
+  if (emailN === 0) {
+    return {
+      tone: "error",
+      title: title || "Invite email not sent",
+      detail: "WhatsApp may have been sent, but no invite email was delivered. Check candidate email addresses.",
+    };
   }
   if (errors.length > 0) {
     return { tone: "warning", title, detail: errors.slice(0, 3).join(" · ") };
-  }
-  if (emailN === 0 && waN === 0) {
-    return { tone: "warning", title: "Campaign scheduled but no booking invites were delivered." };
   }
   return { tone: "success", title };
 }

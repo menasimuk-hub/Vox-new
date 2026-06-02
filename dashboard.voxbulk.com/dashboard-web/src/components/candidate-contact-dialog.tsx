@@ -42,9 +42,11 @@ export type CandidateContactDialogProps = {
     id: string;
     name: string;
     email?: string;
+    outreach_email?: string;
     phone?: string;
     activity_status?: string;
     booked_start_at?: string | null;
+    invite_email_failed?: string | null;
   } | null;
 };
 
@@ -52,21 +54,33 @@ export function CandidateContactDialog({ open, onOpenChange, orderId, readOnly =
   const resendM = useSendInterviewBookingInvites(orderId);
   const bookedLabel = fmtBooked(candidate?.booked_start_at);
 
+  const deliverTo = String(candidate?.outreach_email || candidate?.email || "").trim();
+
   const onResend = async () => {
-    if (!candidate?.id || !candidate.email) return;
+    if (!candidate?.id) return;
+    if (!deliverTo) {
+      toast.error("No email on file for this candidate — add an email or re-upload a CV with contact details.");
+      return;
+    }
     try {
       const result = await resendM.mutateAsync({
         force: true,
         recipient_ids: [candidate.id],
-        channels: ["email"],
+        channels: ["email", "whatsapp"],
       });
       const sent = Number(result.email_sent || 0);
-      if (sent > 0) {
-        toast.success(`Booking invite resent to ${candidate.email}`);
+      const wa = Number(result.whatsapp_sent || 0);
+      if (sent > 0 || wa > 0) {
+        const parts: string[] = [];
+        if (sent) parts.push(`email to ${deliverTo}`);
+        if (wa) parts.push("WhatsApp");
+        toast.success(`Booking invite resent (${parts.join(", ")}).`);
       } else if (result.errors?.length) {
         toast.error(String(result.errors[0]));
+      } else if (candidate.invite_email_failed) {
+        toast.error(String(candidate.invite_email_failed));
       } else {
-        toast.message("Invite was not sent — check candidate email and SMTP settings.");
+        toast.error("Invite was not sent — check Admin → Email (SMTP enabled) and candidate contact details.");
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not resend invite");
@@ -99,8 +113,8 @@ export function CandidateContactDialog({ open, onOpenChange, orderId, readOnly =
                 <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Email</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Mail className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 break-all font-medium">{candidate.email || "—"}</span>
-                  {candidate.email && !readOnly && canResendBookingInvite(candidate.activity_status) ? (
+                  <span className="min-w-0 flex-1 break-all font-medium">{deliverTo || "—"}</span>
+                  {deliverTo && !readOnly && canResendBookingInvite(candidate.activity_status) ? (
                     <Button
                       type="button"
                       size="sm"

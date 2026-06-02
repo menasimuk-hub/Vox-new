@@ -198,8 +198,22 @@ def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
         return {}
 
 
+def _email_from_cv_text(recipient: ServiceOrderRecipient) -> str | None:
+    """Last resort: scan raw CV text when column/json have no email."""
+    from app.services.interview_cv_parse_service import EMAIL_RE
+
+    text = str(recipient.cv_text or "").strip()
+    if not text:
+        return None
+    match = EMAIL_RE.search(text)
+    if not match:
+        return None
+    addr = match.group(0).strip().lower()
+    return addr if "@" in addr else None
+
+
 def _recipient_outreach_email(recipient: ServiceOrderRecipient) -> str | None:
-    """Best email for booking/cancel outreach (column, then CV parse, then result_json)."""
+    """Best email for booking/cancel outreach (column, then CV parse, then result_json, then CV text)."""
     direct = str(recipient.email or "").strip().lower()
     if direct and "@" in direct:
         return direct
@@ -217,7 +231,29 @@ def _recipient_outreach_email(recipient: ServiceOrderRecipient) -> str | None:
         val = str(merged.get(key) or "").strip().lower()
         if val and "@" in val:
             return val
-    return None
+    return _email_from_cv_text(recipient)
+
+
+def _persist_recipient_outreach_email(db: Session, recipient: ServiceOrderRecipient) -> str | None:
+    """Resolve outreach email and persist on the recipient row before SMTP send."""
+    outreach = _recipient_outreach_email(recipient)
+    if not outreach:
+        return None
+    if outreach != str(recipient.email or "").strip().lower():
+        recipient.email = outreach
+        db.add(recipient)
+    try:
+        cv = json.loads(recipient.cv_parsed_json or "{}")
+        if not isinstance(cv, dict):
+            cv = {}
+    except Exception:
+        cv = {}
+    if not str(cv.get("email") or "").strip():
+        cv["email"] = outreach
+        recipient.cv_parsed_json = json.dumps(cv, ensure_ascii=False)
+        db.add(recipient)
+    db.flush()
+    return outreach
 
 
 def campaign_invites_were_sent(order: ServiceOrder) -> bool:
@@ -1990,13 +2026,17 @@ class InterviewBookingService:
                 skipped_locked += 1
                 errors.append(f"{recipient.name or recipient.id}: interview already complete — invite skipped")
                 continue
-            outreach_email = _recipient_outreach_email(recipient)
+            outreach_email = _persist_recipient_outreach_email(db, recipient)
             if not outreach_email and "email" in use_channels:
                 if recipient.phone and "whatsapp" in use_channels:
                     pass
-                elif not recipient.phone:
-                    errors.append(f"{recipient.name or recipient.id}: no phone or email")
-                    continue
+                else:
+                    errors.append(
+                        f"{recipient.name or recipient.id}: no email address"
+                        + (" (add email on candidate or re-upload CV with contact details)" if recipient.phone else "")
+                    )
+                    if "whatsapp" not in use_channels or not recipient.phone:
+                        continue
 
             token_row = InterviewBookingService.ensure_token(db, order, recipient)
             url = booking_url_for_token(token_row.token)
@@ -2021,9 +2061,11 @@ class InterviewBookingService:
                     merged_check.pop("invite_email_failed", None)
                     merged_check.pop("invite_email_ok", None)
 
+                prior_to = str(merged_check.get("invite_sent_to") or "").strip().lower()
                 already_sent = (
                     bool(merged_check.get("invite_email_sent_at"))
                     and bool(merged_check.get("invite_email_ok"))
+                    and prior_to == outreach_email
                     and not force_resend
                     and not force_email
                 )
@@ -2031,9 +2073,6 @@ class InterviewBookingService:
                     recipient_email_sent = True
                     email_sent += 1
                 else:
-                    if outreach_email != str(recipient.email or "").strip().lower():
-                        recipient.email = outreach_email
-                        db.add(recipient)
                     try:
                         sent_ok, err = CareerEmailService.send_templated_critical(
                             db,
@@ -2158,6 +2197,8 @@ class InterviewBookingService:
             db.add(recipient)
 
         dispatch_ok = email_sent > 0 or wa_sent > 0
+        if "email" in use_channels and email_sent == 0:
+            dispatch_ok = False
         config["last_invite_dispatch"] = {
             "at": _now().isoformat(),
             "whatsapp_sent": wa_sent,

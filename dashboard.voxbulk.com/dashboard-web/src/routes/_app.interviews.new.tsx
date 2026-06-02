@@ -466,7 +466,7 @@ function CreateInterview() {
         id: String(r.id),
         name: String(r.name || "Candidate"),
         phone: String(r.phone || ""),
-        email: String(r.email || ""),
+        email: String(r.outreach_email || r.email || ""),
         source: String(r.intake_source || r.source || "Upload"),
         cvFilename: r.cv_filename ? String(r.cv_filename) : null,
         ats: r.ats_score != null ? Number(r.ats_score) : null,

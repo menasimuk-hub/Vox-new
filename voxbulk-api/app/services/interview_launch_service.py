@@ -118,8 +118,18 @@ class InterviewLaunchService:
         from app.services.career_email_service import interview_email_delivery_status
 
         delivery = interview_email_delivery_status(db)
+        email_n = int((dispatch or {}).get("email_sent") or 0)
+        wa_n = int((dispatch or {}).get("whatsapp_sent") or 0)
+        launch_channels = [str(c).strip().lower() for c in (channels or ["email", "whatsapp"]) if str(c).strip()]
+        wants_email = "email" in launch_channels
+        dispatch_ok = bool((dispatch or {}).get("ok"))
+        # Do not report launch OK when email was requested but zero messages went out.
+        if wants_email and email_n == 0 and wa_n == 0:
+            dispatch_ok = False
+        elif wants_email and email_n == 0 and wa_n > 0:
+            dispatch_ok = False
         return {
-            "ok": bool(dispatch.get("ok", invite_result is None or dispatch.get("email_sent", 0) > 0 or dispatch.get("whatsapp_sent", 0) > 0)),
+            "ok": dispatch_ok if invite_result is not None else True,
             "order_id": order.id,
             "status": order.status,
             "invites": invite_result,
@@ -142,9 +152,7 @@ class InterviewLaunchService:
             hint = ""
             if delivery and not delivery.get("can_send_email"):
                 missing = delivery.get("smtp_missing_fields") or []
-                from app.services.career_email_service import careers_from_address
-
-                careers_from = careers_from_address(db)[1]
+                careers_from = str(delivery.get("interview_from_email") or "careers@voxbulk.com")
                 hint = (
                     f" Enable SMTP in Admin → Email (interview From is {careers_from})."
                     + (f" Missing SMTP: {', '.join(missing)}" if missing else "")

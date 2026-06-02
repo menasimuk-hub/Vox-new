@@ -42,6 +42,8 @@ export type CandidateRow = {
   bookingTime?: string;
   booked_start_at?: string | null;
   invite_email_sent_at?: string | null;
+  invite_email_failed?: string | null;
+  outreach_email?: string;
   activity_status?: string;
   has_interview_report?: boolean;
   transcript_preview?: string | null;
@@ -151,13 +153,15 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
           id: String(c.id || c.name),
           name: String(c.name || "Candidate"),
           phone: String(c.phone || ""),
-          email: String(c.email || ""),
+          email: String(c.outreach_email || c.email || ""),
+          outreach_email: c.outreach_email ? String(c.outreach_email) : undefined,
           status: String(c.status || "Pending"),
           bookingStatus: booking.statusLabel,
           bookingTime: booking.timeLabel,
           scheduledAt: booking.timeLabel,
           booked_start_at,
           invite_email_sent_at,
+          invite_email_failed: c.invite_email_failed ? String(c.invite_email_failed) : undefined,
           activity_status,
           ats_score: c.ats_score != null ? Number(c.ats_score) : null,
           ats_status: String(c.ats_status || ""),
@@ -169,7 +173,9 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
       id: String(c.id || c.name),
       name: String(c.name || "Candidate"),
       phone: String(c.phone || ""),
-      email: String(c.email || ""),
+      email: String(c.outreach_email || c.email || ""),
+      outreach_email: c.outreach_email ? String(c.outreach_email) : undefined,
+      invite_email_failed: c.invite_email_failed ? String(c.invite_email_failed) : undefined,
       duration: String(c.duration_label || c.duration || "—"),
       duration_label: String(c.duration_label || ""),
       score: c.score != null ? Number(c.score) : null,

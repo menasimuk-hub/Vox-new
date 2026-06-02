@@ -186,6 +186,13 @@ def recipient_intake_dict(
         base["booking_token"] = tok_str
     if url_str:
         base["booking_url"] = url_str
+    from app.services.interview_booking_service import _recipient_outreach_email
+
+    outreach = _recipient_outreach_email(recipient)
+    if outreach:
+        base["outreach_email"] = outreach
+    base["invite_email_failed"] = result_parsed.get("invite_email_failed")
+    base["invite_email_sent_at"] = result_parsed.get("invite_email_sent_at")
     return base
 
 

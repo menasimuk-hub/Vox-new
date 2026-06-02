@@ -95,3 +95,54 @@ def test_send_invites_uses_cv_parsed_email_when_column_empty(monkeypatch):
         )
         assert result.get("email_sent") == 1
         assert send.call_args.kwargs.get("to_email") == "alex@example.com"
+
+
+def test_send_invites_email_only_reports_missing_address(monkeypatch):
+    with get_sessionmaker()() as db:
+        order, _ = _seed_order_with_recipient(db, email_column=None, cv_email=None)
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.InterviewBookingService.resolve_invite_wa_template",
+            lambda *a, **k: None,
+        )
+        result = InterviewBookingService.send_invites(
+            db, order, channels=["email"], force_email=True
+        )
+        assert result.get("email_sent") == 0
+        assert result.get("ok") is False
+        assert any("no email" in str(e).lower() for e in (result.get("errors") or []))
+
+
+def test_send_invites_finds_email_in_cv_text(monkeypatch):
+    with get_sessionmaker()() as db:
+        order, recipient = _seed_order_with_recipient(db, email_column=None, cv_email=None)
+        recipient.cv_text = "Jane Doe\njane.candidate@example.com\n+447700900123"
+        db.add(recipient)
+        db.commit()
+        send = MagicMock(return_value=(True, None))
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.CareerEmailService.send_templated_critical",
+            send,
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.TelnyxMessagingService.send_whatsapp",
+            MagicMock(),
+        )
+        monkeypatch.setattr(
+            "app.services.telnyx_phone_allowlist_service.TelnyxPhoneAllowlistService.validate_phone_db",
+            lambda *a, **k: {"allowed": True},
+        )
+        monkeypatch.setattr(
+            "app.services.career_email_service.interview_email_delivery_status",
+            lambda *a, **k: {"can_send_email": True, "smtp_configured": True, "smtp_enabled": True},
+        )
+        monkeypatch.setattr(
+            "app.services.interview_booking_service.InterviewBookingService.resolve_invite_wa_template",
+            lambda *a, **k: None,
+        )
+        result = InterviewBookingService.send_invites(
+            db, order, channels=["email"], force_email=True
+        )
+        assert result.get("email_sent") == 1
+        assert send.call_args.kwargs.get("to_email") == "jane.candidate@example.com"
+        db.refresh(recipient)
+        assert recipient.email == "jane.candidate@example.com"

@@ -1214,7 +1214,7 @@ def launch_interview_after_payment(
         return InterviewLaunchService.launch_after_payment(
             db,
             order,
-            resend_invites=bool(body.get("resend_invites")),
+            resend_invites=bool(body.get("resend_invites") or body.get("force_resend")),
             channels=launch_channels,
         )
     except ValueError as e:

@@ -592,9 +592,16 @@ export function useLaunchInterviewCampaign(orderId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiFetch<{ ok?: boolean; message?: string; invites?: { whatsapp_sent?: number } }>(
+      apiFetch<{ ok?: boolean; message?: string; invites?: { whatsapp_sent?: number; email_sent?: number; errors?: string[] } }>(
         `/service-orders/${encodeURIComponent(orderId!)}/interview/launch`,
-        { method: "POST", body: "{}" },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            channels: ["email", "whatsapp"],
+            force_resend: true,
+            force_email: true,
+          }),
+        },
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
