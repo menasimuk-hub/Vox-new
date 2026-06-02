@@ -70,3 +70,6 @@ from app.models.pricing import OrgCustomPricing, PricingGlobalSettings, TopupTie
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient  # noqa: F401
 from app.models.interview_booking_token import InterviewBookingToken  # noqa: F401
 from app.models.career_mailbox_settings import CareerMailboxSettings  # noqa: F401
+from app.models.ai_team_settings import AiTeamSettings  # noqa: F401
+from app.models.ai_team_prospect import AiTeamProspect  # noqa: F401
+from app.models.ai_team_message import AiTeamMessage  # noqa: F401

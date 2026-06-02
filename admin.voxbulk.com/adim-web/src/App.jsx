@@ -43,6 +43,7 @@ import LeadSalesSettings from './pages/LeadSalesSettings'
 import SalesOfferTemplates from './pages/SalesOfferTemplates'
 import PromoOffers from './pages/PromoOffers'
 import PromoOfferCreate from './pages/PromoOfferCreate'
+import AiTeam from './pages/AiTeam'
 import ServicesPricing from './pages/ServicesPricing'
 import PricingShell from './pages/pricing/PricingShell'
 import PricingPlans from './pages/pricing/PricingPlans'
@@ -112,6 +113,7 @@ export default function App() {
         <Route path='/marketing/lead-sales/settings' element={<LeadSalesSettings />} />
         <Route path='/marketing/lead-sales/offer-templates' element={<SalesOfferTemplates />} />
         <Route path='/marketing/lead-sales/:taskId' element={<LeadSalesEdit />} />
+        <Route path='/marketing/ai-team' element={<AiTeam />} />
         <Route path='/marketing/promo-offers' element={<PromoOffers />} />
         <Route path='/marketing/promo-offers/new' element={<PromoOfferCreate />} />
         <Route path='/marketing/frontpage-call-leads' element={<FrontpageCallLeads />} />
@@ -119,7 +121,7 @@ export default function App() {
         <Route path='/ai-marketing/leads' element={<Navigate to='/marketing/lead-sources' replace />} />
         <Route path='/ai-marketing/lead-sources' element={<Navigate to='/marketing/lead-sources' replace />} />
         <Route path='/ai-marketing/lead-sales' element={<Navigate to='/marketing/lead-sales' replace />} />
-        <Route path='/marketing/apollo' element={G('Apollo leads')} />
+        <Route path='/marketing/apollo' element={<Navigate to='/marketing/ai-team' replace />} />
         <Route path='/marketing/clay' element={G('Clay enrichment')} />
         <Route path='/marketing/instantly' element={G('Instantly campaigns')} />
         <Route path='/marketing/vapi' element={G('Vapi sales calls')} />

@@ -53,7 +53,7 @@ export function SiteHeader() {
               width={140}
               height={32}
               fetchPriority="high"
-              className="h-7 md:h-[30px] w-auto object-contain transition-opacity duration-300"
+              className="h-9 md:h-[30px] w-auto object-contain transition-opacity duration-300"
             />
           </Link>
 

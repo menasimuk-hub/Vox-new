@@ -17,13 +17,14 @@ CAP_INTEGRATION = "integration"  # webhooks, provider secrets, social login, int
 CAP_BILLING = "billing"  # billing overview, plans, synthetic payment/invoice posts
 CAP_ORG_OPS = "org_ops"  # organisations, categories, onboarding approvals, operations overview, org users
 CAP_EMAIL = "email"  # SMTP + templates under /admin/email
+CAP_AI_TEAM = "ai_team"  # AI Team outbound sales agent
 CAP_SUPPORT = "support"  # support tickets
 
 _ROLE_CAPS: dict[str, frozenset[str]] = {
     "accountant": frozenset({CAP_BILLING, CAP_ORG_OPS}),
     "technical": frozenset({CAP_SUPPORT}),
     "support": frozenset({CAP_SUPPORT}),
-    "marketing": frozenset({CAP_EMAIL}),
+    "marketing": frozenset({CAP_EMAIL, CAP_AI_TEAM}),
 }
 
 

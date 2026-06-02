@@ -127,7 +127,7 @@ function AuthModal({ onClose }: { onClose: () => void }) {
         <div className="relative h-24 bg-gradient-to-br from-primary/10 via-primary/5 to-accent/10 border-b border-border overflow-hidden">
           <div className="absolute inset-0 bg-grid opacity-50" />
           <div className="absolute inset-0 flex items-center justify-center">
-            <BrandLogo surface="light" className="h-7 w-auto object-contain" />
+            <BrandLogo surface="light" className="h-10 w-auto object-contain" />
           </div>
         </div>
 

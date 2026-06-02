@@ -35,6 +35,8 @@ class ProviderSettingsService:
         "calendly",
         "cronofy",
         "hubspot",
+        "apollo",
+        "resend",
     }
 
     # Keys we expect for "configured" status (per provider). Secrets are stored encrypted and never returned.
@@ -58,6 +60,8 @@ class ProviderSettingsService:
         "calendly": {"client_id", "client_secret", "redirect_uri"},
         "cronofy": {"client_id", "client_secret", "redirect_uri"},
         "hubspot": set(),
+        "apollo": {"api_key"},
+        "resend": {"api_key"},
     }
 
     SECRET_KEYS: dict[str, set[str]] = {
@@ -79,6 +83,8 @@ class ProviderSettingsService:
         "calendly": {"client_secret"},
         "cronofy": {"client_secret"},
         "hubspot": {"client_secret"},
+        "apollo": {"api_key"},
+        "resend": {"api_key"},
     }
 
     @staticmethod

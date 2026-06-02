@@ -78,13 +78,13 @@ const NAV = [
   [
     'AI Marketing',
     [
+      ['AI Team', '/marketing/ai-team'],
       ['Lead sources', '/marketing/lead-sources'],
       ['Lead sales', '/marketing/lead-sales'],
       ['Promo offers', '/marketing/promo-offers'],
       ['Sales setup (AI + KB)', '/marketing/lead-sales/settings'],
       ['Offer templates', '/marketing/lead-sales/offer-templates'],
       ['Front page call leads', '/marketing/frontpage-call-leads'],
-      ['Apollo leads', '/marketing/apollo'],
       ['Clay enrichment', '/marketing/clay'],
       ['Instantly campaigns', '/marketing/instantly'],
       ['Vapi sales calls', '/marketing/vapi'],

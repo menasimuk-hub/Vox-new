@@ -55,6 +55,7 @@ from app.routers.dashboard_help import router as dashboard_help_router
 from app.routers.dashboard_scripts import router as dashboard_scripts_router
 from app.routers.service_orders import router as service_orders_router
 from app.routers.interview_booking_public import router as interview_booking_public_router
+from app.routers.admin_ai_team import router as admin_ai_team_router
 from app.routers.brand_public import router as brand_public_router
 from app.services.lead_sales_scheduler import lead_sales_scheduler_loop
 from app.services.interview_call_dispatch_service import interview_call_scheduler_loop
@@ -313,6 +314,8 @@ app.include_router(admin_messaging_router)
 app.include_router(admin_support_router)
 app.include_router(service_orders_router)
 app.include_router(interview_booking_public_router)
+app.include_router(admin_ai_team_router)
+app.include_router(admin_ai_team_router, prefix="/api")
 app.include_router(brand_public_router)
 app.include_router(admin_platform_services_router)
 app.include_router(admin_products_router)

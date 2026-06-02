@@ -35,10 +35,12 @@ export function canAccessAdminPath(role, pathname) {
       isUnder('/settings/email') ||
       isUnder('/settings/legal') ||
       isUnder('/support') ||
+      isUnder('/marketing/ai-team') ||
       isUnder('/marketing/frontpage-call-leads') ||
       isUnder('/marketing/lead-sources') ||
       isUnder('/marketing/lead-sales') ||
-      isUnder('/marketing/lead-sales/settings')
+      isUnder('/marketing/lead-sales/settings') ||
+      isUnder('/marketing/promo-offers')
     )
   }
 

@@ -13,7 +13,7 @@ const source = join(root, 'voxbulk-api', 'logos')
 const targets = [
   join(root, 'admin.voxbulk.com', 'adim-web', 'public', 'brand'),
   join(root, 'dashboard.voxbulk.com', 'dashboard-web', 'public', 'brand'),
-  join(root, 'voxbulk.com', 'voxbulk.com', 'frontend', 'public', 'brand'),
+  join(root, 'voxbulk.com', 'frontend', 'public', 'brand'),
 ]
 
 const files = [

@@ -115,6 +115,7 @@ class PromoOfferService:
             "max_redemptions": int(row.max_redemptions or 1),
             "is_active": bool(row.is_active),
             "lead_sales_task_id": row.lead_sales_task_id,
+            "ai_team_prospect_id": row.ai_team_prospect_id,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
 

@@ -94,7 +94,7 @@ function SignInPage() {
       <main className="flex-1 pt-[110px] md:pt-[130px] pb-24">
         <div className="max-w-[460px] mx-auto px-5 md:px-10">
           <div className="text-center">
-            <BrandLogo surface="light" className="h-10 mx-auto w-auto" />
+            <BrandLogo surface="light" className="h-13 mx-auto w-auto" />
             <h1 className="mt-5 text-[30px] md:text-[36px] font-bold tracking-[-0.03em] text-heading leading-[1.1]">
               {mode === "signin" ? "Welcome back" : "Create your account"}
             </h1>
