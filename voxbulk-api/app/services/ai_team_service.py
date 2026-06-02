@@ -56,6 +56,7 @@ class AiTeamService:
             now = AiTeamService._now()
             row = AiTeamSettings(
                 id="default",
+                search_title_keywords="",
                 writing_instruction=_DEFAULT_WRITING,
                 email_signature=_DEFAULT_SIGNATURE,
                 updated_at=now,
@@ -66,10 +67,21 @@ class AiTeamService:
         return row
 
     @staticmethod
+    def _provider_connection_flags(view: dict[str, Any]) -> tuple[bool, bool]:
+        """Return (configured, api_key_set) from get_platform_config_admin_view."""
+        secret_set = view.get("secret_set") if isinstance(view.get("secret_set"), dict) else {}
+        api_key_set = bool(secret_set.get("api_key"))
+        configured = bool(view.get("configured")) or api_key_set
+        return configured, api_key_set
+
+    @staticmethod
     def settings_to_dict(db: Session, row: AiTeamSettings) -> dict[str, Any]:
-        apollo_cfg, apollo_ok = ProviderSettingsService.get_platform_config_admin_view(db, provider="apollo")
-        resend_cfg, resend_ok = ProviderSettingsService.get_platform_config_admin_view(db, provider="resend")
-        deepseek_cfg, deepseek_ok = ProviderSettingsService.get_platform_config_admin_view(db, provider="deepseek")
+        apollo_view = ProviderSettingsService.get_platform_config_admin_view(db, provider="apollo")
+        resend_view = ProviderSettingsService.get_platform_config_admin_view(db, provider="resend")
+        deepseek_view = ProviderSettingsService.get_platform_config_admin_view(db, provider="deepseek")
+        apollo_ok, apollo_key = AiTeamService._provider_connection_flags(apollo_view)
+        resend_ok, resend_key = AiTeamService._provider_connection_flags(resend_view)
+        deepseek_ok, _deepseek_key = AiTeamService._provider_connection_flags(deepseek_view)
         return {
             "search_sector": row.search_sector,
             "search_country": row.search_country,
@@ -114,9 +126,9 @@ class AiTeamService:
             "agent_paused": row.agent_paused,
             "last_agent_run_at": row.last_agent_run_at.isoformat() if row.last_agent_run_at else None,
             "apollo_connected": apollo_ok,
-            "apollo_api_key_configured": bool((apollo_cfg or {}).get("api_key")),
+            "apollo_api_key_configured": apollo_key,
             "resend_connected": resend_ok,
-            "resend_api_key_configured": bool((resend_cfg or {}).get("api_key")),
+            "resend_api_key_configured": resend_key,
             "deepseek_connected": deepseek_ok,
         }
 
@@ -589,7 +601,7 @@ class AiTeamService:
             db.execute(
                 select(AiTeamProspect)
                 .where(AiTeamProspect.status.in_(["replied", "opened", "sent"]))
-                .order_by(AiTeamProspect.replied_at.desc().nullslast(), AiTeamProspect.updated_at.desc())
+                .order_by(AiTeamProspect.replied_at.desc(), AiTeamProspect.updated_at.desc())
             ).scalars().all()
         )
 

@@ -162,7 +162,10 @@ function BrandMark() {
   const fullLogo = theme === "dark" ? brandAssets.logoWhite : brandAssets.logoBlack;
   const iconLogo = theme === "dark" ? brandAssets.iconWhite : brandAssets.iconBlack;
   return (
-    <Link to="/" className="flex items-center px-2 py-2">
+    <Link
+      to="/"
+      className="flex items-center px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-3"
+    >
       <img
         src={fullLogo}
         alt="VoxBulk"
@@ -171,7 +174,7 @@ function BrandMark() {
       <img
         src={iconLogo}
         alt="VoxBulk"
-        className="hidden size-8 object-contain group-data-[collapsible=icon]:block"
+        className="hidden h-[30px] w-[30px] object-contain group-data-[collapsible=icon]:block"
       />
     </Link>
   );

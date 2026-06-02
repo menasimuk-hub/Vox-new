@@ -171,6 +171,7 @@ build_all_frontends() {
     warn "VOX_SKIP_BUILD=1 — skipping frontend builds"
     return
   fi
+  sync_brand_assets
   build_frontend "$ADMIN_DIR" "admin (adim-web)"
   build_frontend "$DASH_DIR" "dashboard"
   if [[ -d "$PUBLIC_DIR" ]]; then
@@ -178,6 +179,17 @@ build_all_frontends() {
   else
     warn "Public frontend not found at $PUBLIC_DIR — skip"
   fi
+}
+
+sync_brand_assets() {
+  local script="$ROOT/scripts/sync-brand-assets.mjs"
+  if [[ ! -f "$script" ]]; then
+    warn "Brand sync script missing: $script"
+    return
+  fi
+  check_cmd node
+  info "Syncing brand logos (voxbulk-api/logos → admin, dashboard, frontpage) …"
+  node "$script"
 }
 
 copy_dist() {
@@ -242,6 +254,7 @@ post_checks() {
     "/health"
     "/public/brand"
     "/public/brand/logo-black"
+    "/admin/ai-team/dashboard"
     "/admin/knowledge-base?scope=lead"
     "/admin/messaging/whatsapp/templates"
     "/admin/email/templates"
@@ -283,7 +296,7 @@ After deploy — manual checks
 4. Re-tag old KB files if they show under wrong agent:
    - Re-upload on correct page, or SQL: UPDATE knowledge_base_files SET scope='lead'|sales'|org'
 
-5. Telnyx / SMTP secrets live in .env — never commit them.
+5. Brand logos: replace files in voxbulk-api/logos/ — deploy runs sync-brand-assets.mjs before every frontend build.
 
 6. Invoice PDF styling requires WeasyPrint system libraries on Linux:
    sudo apt-get install -y libpango-1.0-0 libharfbuzz0b libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info libcairo2
