@@ -29,21 +29,26 @@ SETUP (export before running)
   export VOXBULK_API_ROOT="/www/voxbulk/voxbulk-api"
 
 ──────────────────────────────────────────────────────────────────────────────
-RUN
+RUN (VPS — use python3; `python` is often not installed on Ubuntu)
 ──────────────────────────────────────────────────────────────────────────────
 
   cd /www/voxbulk/voxbulk-api
-  source venv/bin/activate   # if you use a venv
-  python scripts/e2e_interview_workflow_test.py
+
+  # Easiest — wrapper picks venv or python3:
+  bash scripts/e2e_interview_workflow_test.sh
+
+  # Or directly (activate venv first if you have one):
+  source .venv/bin/activate 2>/dev/null || source venv/bin/activate 2>/dev/null || true
+  python3 scripts/e2e_interview_workflow_test.py
 
   # Real Telnyx dial instead of simulated call (slow; needs allowlisted phone):
-  python scripts/e2e_interview_workflow_test.py --no-simulate-call --wait-for-slot-seconds 120
+  python3 scripts/e2e_interview_workflow_test.py --no-simulate-call --wait-for-slot-seconds 120
 
   # Keep the test order on the account (default deletes draft order at end):
-  python scripts/e2e_interview_workflow_test.py --keep-order
+  python3 scripts/e2e_interview_workflow_test.py --keep-order
 
   # Skip stop/closure notification step:
-  python scripts/e2e_interview_workflow_test.py --skip-stop
+  python3 scripts/e2e_interview_workflow_test.py --skip-stop
 """
 
 from __future__ import annotations
