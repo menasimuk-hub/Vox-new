@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 
 from app.core.database import get_sessionmaker
 from app.models.survey_type import SurveyType
+from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.organisation import Organisation
@@ -21,6 +22,7 @@ from app.models.membership import OrganisationMembership
 from app.services.survey_generation_service import SurveyGenerationService
 from app.services.survey_results_service import SurveyResultsService
 from app.services.survey_type_service import SurveyTypeService
+from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.survey_whatsapp_template_service import (
     ANONYMOUS_BODY_SENTENCE,
     ANONYMOUS_FOOTER,
@@ -52,7 +54,34 @@ def _seed_survey_type(db) -> SurveyType:
     return row
 
 
-def _approved_template(db, survey_type: SurveyType, *, variant: str = VARIANT_STANDARD) -> TelnyxWhatsappTemplate:
+def _link_template(
+    db,
+    survey_type: SurveyType,
+    template: TelnyxWhatsappTemplate,
+    *,
+    usable_as_standard: bool = False,
+    usable_as_anonymous: bool = False,
+    is_default_standard: bool = False,
+    is_default_anonymous: bool = False,
+) -> SurveyTypeTemplate:
+    return SurveyTypeTemplateService.upsert_mapping(
+        db,
+        survey_type_id=survey_type.id,
+        template_id=template.id,
+        usable_as_standard=usable_as_standard,
+        usable_as_anonymous=usable_as_anonymous,
+        is_default_standard=is_default_standard,
+        is_default_anonymous=is_default_anonymous,
+    )
+
+
+def _approved_template(
+    db,
+    survey_type: SurveyType,
+    *,
+    variant: str = VARIANT_STANDARD,
+    name: str | None = None,
+) -> TelnyxWhatsappTemplate:
     components = [
         {
             "type": "BODY",
@@ -67,12 +96,11 @@ def _approved_template(db, survey_type: SurveyType, *, variant: str = VARIANT_ST
     row = TelnyxWhatsappTemplate(
         telnyx_record_id=record_id,
         template_id=record_id,
-        name=f"voxbulk_survey_{survey_type.slug}_{variant}",
+        name=name or f"voxbulk_survey_{survey_type.slug}_{variant}",
         display_name=f"{survey_type.name} — {variant.title()}",
         language="en_US",
         category="MARKETING",
         status="APPROVED",
-        survey_type_id=survey_type.id,
         variant_type=variant,
         body_preview="Hi {{1}}",
         components_json=json.dumps(components),
@@ -85,7 +113,23 @@ def _approved_template(db, survey_type: SurveyType, *, variant: str = VARIANT_ST
         synced_at=now,
     )
     db.add(row)
-    db.commit()
+    db.flush()
+    if variant == VARIANT_ANONYMOUS:
+        _link_template(
+            db,
+            survey_type,
+            row,
+            usable_as_anonymous=True,
+            is_default_anonymous=True,
+        )
+    else:
+        _link_template(
+            db,
+            survey_type,
+            row,
+            usable_as_standard=True,
+            is_default_standard=True,
+        )
     db.refresh(row)
     return row
 
@@ -404,3 +448,118 @@ def test_admin_wa_survey_api(app_client):
     listed = app_client.get("/admin/wa-survey/types", headers=headers)
     assert listed.status_code == 200
     assert len(listed.json()["types"]) >= 5
+
+
+def test_one_template_mapped_to_multiple_survey_types():
+    with get_sessionmaker()() as db:
+        type_a = _seed_survey_type(db)
+        type_b = SurveyTypeService.get_by_slug(db, "quick_feedback")
+        assert type_b is not None
+        shared = _approved_template(db, type_a, name="voxbulk_shared_survey_standard")
+        _link_template(db, type_b, shared, usable_as_standard=True)
+        count = SurveyTypeTemplateService.linked_survey_type_count(db, shared.id)
+        assert count == 2
+        mappings = SurveyTypeTemplateService.list_for_template(db, shared.id)
+        assert len(mappings) == 2
+
+
+def test_default_uniqueness_per_survey_type():
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        first = _approved_template(db, survey_type, name="voxbulk_survey_cs_default_a")
+        second = _approved_template(db, survey_type, name="voxbulk_survey_cs_default_b")
+        SurveyTypeTemplateService.upsert_mapping(
+            db,
+            survey_type_id=survey_type.id,
+            template_id=second.id,
+            usable_as_standard=True,
+            is_default_standard=True,
+        )
+        mappings = SurveyTypeTemplateService.list_for_survey_type(db, survey_type.id)
+        defaults = [m for m in mappings if m.is_default_standard]
+        assert len(defaults) == 1
+        assert defaults[0].template_id == second.id
+        first_mapping = next(m for m in mappings if m.template_id == first.id)
+        assert first_mapping.is_default_standard is False
+
+
+def test_shared_source_edit_affects_all_linked_types():
+    with get_sessionmaker()() as db:
+        type_a = _seed_survey_type(db)
+        type_b = SurveyTypeService.get_by_slug(db, "quick_feedback")
+        assert type_b is not None
+        shared = _approved_template(db, type_a, name="voxbulk_shared_source_standard")
+        _link_template(db, type_b, shared, usable_as_standard=True, is_default_standard=True)
+        updated_components = json.loads(shared.draft_components_json)
+        updated_components[0]["text"] = "Hi {{1}}, shared wording updated."
+        SurveyWhatsappTemplateService.save_draft(db, shared, {"components": updated_components})
+        preview = SurveyWhatsappTemplateService.build_preview(db, shared, first_name="Alex")
+        assert "shared wording updated" in preview["rendered_body"]
+        assert db.execute(select(func.count()).select_from(TelnyxWhatsappTemplate)).scalar_one() == 1
+
+
+def test_mapping_changes_do_not_duplicate_templates():
+    with get_sessionmaker()() as db:
+        type_a = _seed_survey_type(db)
+        type_b = SurveyTypeService.get_by_slug(db, "quick_feedback")
+        assert type_b is not None
+        shared = _approved_template(db, type_a, name="voxbulk_shared_no_dup")
+        before = db.execute(select(func.count()).select_from(TelnyxWhatsappTemplate)).scalar_one()
+        SurveyWhatsappTemplateService.update_template_mappings(
+            db,
+            shared.id,
+            [
+                {
+                    "survey_type_id": type_a.id,
+                    "usable_as_standard": True,
+                    "is_default_standard": True,
+                },
+                {
+                    "survey_type_id": type_b.id,
+                    "usable_as_standard": True,
+                },
+            ],
+        )
+        after = db.execute(select(func.count()).select_from(TelnyxWhatsappTemplate)).scalar_one()
+        assert before == after == 1
+        assert SurveyTypeTemplateService.linked_survey_type_count(db, shared.id) == 2
+
+
+def test_generation_uses_explicit_default_mapping(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.survey_generation_service.generate_survey_script",
+        lambda *a, **k: {"whatsapp_questions": [], "script_text": "INTRO", "system_prompt": "Be polite"},
+    )
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        name_match = _approved_template(
+            db,
+            survey_type,
+            name=f"voxbulk_survey_{survey_type.slug}_standard",
+        )
+        explicit_default = _approved_template(
+            db,
+            survey_type,
+            name="voxbulk_shared_explicit_default",
+        )
+        SurveyTypeTemplateService.upsert_mapping(
+            db,
+            survey_type_id=survey_type.id,
+            template_id=name_match.id,
+            usable_as_standard=True,
+            is_default_standard=False,
+        )
+        SurveyTypeTemplateService.upsert_mapping(
+            db,
+            survey_type_id=survey_type.id,
+            template_id=explicit_default.id,
+            usable_as_standard=True,
+            is_default_standard=True,
+        )
+        result = SurveyGenerationService.generate(
+            db,
+            survey_type_id=survey_type.id,
+            variant=VARIANT_STANDARD,
+            length="short",
+        )
+        assert result["wa_template_id"] == explicit_default.id

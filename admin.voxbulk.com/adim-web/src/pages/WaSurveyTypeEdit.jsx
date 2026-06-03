@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
+import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
 
 const LENGTH_OPTIONS = [
   { value: 'short', label: 'Short (4 questions)' },
@@ -10,49 +11,13 @@ const LENGTH_OPTIONS = [
   { value: 'detailed', label: 'Detailed (6 questions)' },
 ]
 
-function parseComponents(raw) {
-  if (Array.isArray(raw)) return raw
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw)
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
-    }
-  }
-  return []
-}
-
-function bodyTextFromComponents(components) {
-  const body = components.find((c) => String(c?.type || '').toUpperCase() === 'BODY')
-  return body?.text || ''
-}
-
-function footerTextFromComponents(components) {
-  const footer = components.find((c) => String(c?.type || '').toUpperCase() === 'FOOTER')
-  return footer?.text || ''
-}
-
-function updateBodyInComponents(components, text) {
-  let found = false
-  const out = components.map((comp) => {
-    if (String(comp?.type || '').toUpperCase() !== 'BODY') return comp
-    found = true
-    return { ...comp, text }
-  })
-  if (!found) out.unshift({ type: 'BODY', text, example: { body_text: [['Alex']] } })
-  return out
-}
-
-function updateFooterInComponents(components, text) {
-  let found = false
-  const out = components.map((comp) => {
-    if (String(comp?.type || '').toUpperCase() !== 'FOOTER') return comp
-    found = true
-    return { ...comp, text }
-  })
-  if (!found && text.trim()) out.push({ type: 'FOOTER', text })
-  return out
+function mappingLabel(tpl) {
+  const parts = []
+  if (tpl.is_default_standard) parts.push('Default standard')
+  else if (tpl.usable_as_standard) parts.push('Standard')
+  if (tpl.is_default_anonymous) parts.push('Default anonymous')
+  else if (tpl.usable_as_anonymous) parts.push('Anonymous')
+  return parts.join(' · ') || 'Linked'
 }
 
 export default function WaSurveyTypeEdit() {
@@ -65,21 +30,12 @@ export default function WaSurveyTypeEdit() {
   const [msg, setMsg] = useState('')
   const [msgDetail, setMsgDetail] = useState('')
   const [feedbackTone, setFeedbackTone] = useState('ok')
-  const [testMobile, setTestMobile] = useState('')
-  const [sendResult, setSendResult] = useState(null)
   const [surveyType, setSurveyType] = useState(null)
   const [templates, setTemplates] = useState([])
-  const [selectedId, setSelectedId] = useState(null)
-  const [draft, setDraft] = useState(null)
-  const [preview, setPreview] = useState(null)
+  const [modalTemplateId, setModalTemplateId] = useState(null)
   const [genPreview, setGenPreview] = useState(null)
   const [genVariant, setGenVariant] = useState('standard')
   const [genLength, setGenLength] = useState('standard')
-
-  const selected = useMemo(
-    () => templates.find((t) => t.id === selectedId) || null,
-    [templates, selectedId]
-  )
 
   const clearFeedback = () => {
     setError('')
@@ -129,47 +85,16 @@ export default function WaSurveyTypeEdit() {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}`)
       setSurveyType(data.type)
       setTemplates(Array.isArray(data.templates) ? data.templates : [])
-      if (!selectedId && data.templates?.[0]) setSelectedId(data.templates[0].id)
     } catch (e) {
       showError(e, 'Could not load survey type')
     } finally {
       setLoading(false)
     }
-  }, [typeId, selectedId])
+  }, [typeId])
 
   useEffect(() => {
     load()
   }, [load])
-
-  useEffect(() => {
-    if (!selected) {
-      setDraft(null)
-      setPreview(null)
-      return
-    }
-    const components = parseComponents(selected.draft_components || selected.remote_components)
-    setDraft({
-      display_name: selected.display_name || selected.name,
-      language: selected.language || 'en_US',
-      category: selected.category || 'MARKETING',
-      active_for_survey: selected.active_for_survey !== false,
-      body: bodyTextFromComponents(components),
-      footer: footerTextFromComponents(components),
-      components,
-      example_values: selected.example_values || ['Alex'],
-    })
-    refreshPreview(selected.id)
-  }, [selected?.id])
-
-  const refreshPreview = async (templateId) => {
-    if (!templateId) return
-    try {
-      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/preview`)
-      setPreview(data)
-    } catch {
-      setPreview(null)
-    }
-  }
 
   const saveTypeSettings = async () => {
     if (!surveyType) return
@@ -194,51 +119,6 @@ export default function WaSurveyTypeEdit() {
       showError(e, 'Save failed')
     } finally {
       setSaving(false)
-    }
-  }
-
-  const saveTemplateDraft = async () => {
-    if (!selected || !draft) return
-    setWorking('save')
-    clearFeedback()
-    try {
-      let components = draft.components?.length ? [...draft.components] : []
-      components = updateBodyInComponents(components, draft.body)
-      components = updateFooterInComponents(components, draft.footer)
-      const data = await apiFetch(`/admin/wa-survey/templates/${selected.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          display_name: draft.display_name,
-          language: draft.language,
-          category: draft.category,
-          active_for_survey: draft.active_for_survey,
-          components,
-          example_values: draft.example_values,
-        }),
-      })
-      setTemplates((rows) => rows.map((r) => (r.id === selected.id ? data.template : r)))
-      showOk({ message: 'Template draft saved locally.', template_name: selected.name })
-      await refreshPreview(selected.id)
-    } catch (e) {
-      showError(e, 'Could not save draft')
-    } finally {
-      setWorking('')
-    }
-  }
-
-  const pushTemplate = async () => {
-    if (!selected) return
-    setWorking('push')
-    clearFeedback()
-    try {
-      const data = await apiFetch(`/admin/wa-survey/templates/${selected.id}/push`, { method: 'POST', body: '{}' })
-      setTemplates((rows) => rows.map((r) => (r.id === selected.id ? data.template : r)))
-      showOk(data, 'Pushed to Telnyx — awaiting Meta approval if status is PENDING.')
-      await load()
-    } catch (e) {
-      showError(e, 'Push to Telnyx failed')
-    } finally {
-      setWorking('')
     }
   }
 
@@ -268,55 +148,10 @@ export default function WaSurveyTypeEdit() {
         body: '{}',
       })
       setTemplates((rows) => [...rows, data.template])
-      setSelectedId(data.template.id)
-      showOk({ message: 'Standard template draft created.', template_name: data.template?.name })
+      setModalTemplateId(data.template.id)
+      showOk({ message: 'Standard template draft created and linked.', template_name: data.template?.name })
     } catch (e) {
       showError(e, 'Could not create template')
-    } finally {
-      setWorking('')
-    }
-  }
-
-  const cloneAnonymous = async () => {
-    if (!selected) return
-    setWorking('clone')
-    clearFeedback()
-    try {
-      const data = await apiFetch(`/admin/wa-survey/templates/${selected.id}/clone-anonymous`, {
-        method: 'POST',
-        body: '{}',
-      })
-      setTemplates((rows) => [...rows, data.template])
-      setSelectedId(data.template.id)
-      showOk({
-        message: 'Anonymous variant created — review wording, Save Draft, then Push to Telnyx.',
-        template_name: data.template?.name,
-      })
-    } catch (e) {
-      showError(e, 'Clone failed')
-    } finally {
-      setWorking('')
-    }
-  }
-
-  const sendTestSurvey = async () => {
-    if (!selected) return
-    setWorking('send-test')
-    clearFeedback()
-    setSendResult(null)
-    try {
-      const data = await apiFetch(`/admin/wa-survey/templates/${selected.id}/send-test`, {
-        method: 'POST',
-        body: JSON.stringify({
-          to_number: testMobile.trim(),
-          first_name: draft?.example_values?.[0] || 'Alex',
-          business_name: 'Northgate Dental',
-        }),
-      })
-      setSendResult(data)
-      showOk(data, 'Test survey sent')
-    } catch (e) {
-      showError(e, 'Send test survey failed')
     } finally {
       setWorking('')
     }
@@ -348,7 +183,7 @@ export default function WaSurveyTypeEdit() {
     return <p className="muted">Loading…</p>
   }
 
-  const previewData = genPreview?.template_preview || preview
+  const previewData = genPreview?.template_preview
   const flowSteps = genPreview?.flow_steps || []
 
   return (
@@ -460,7 +295,8 @@ export default function WaSurveyTypeEdit() {
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Variant</th>
+                  <th>Mapping</th>
+                  <th>Shared by</th>
                   <th>Language</th>
                   <th>Approval</th>
                   <th>Sync</th>
@@ -469,14 +305,15 @@ export default function WaSurveyTypeEdit() {
               </thead>
               <tbody>
                 {templates.map((tpl) => (
-                  <tr key={tpl.id} className={tpl.id === selectedId ? 'row-active' : ''}>
+                  <tr key={tpl.id}>
                     <td>{tpl.display_name || tpl.name}</td>
-                    <td>{tpl.variant_type || 'standard'}</td>
+                    <td>{mappingLabel(tpl)}</td>
+                    <td>{tpl.linked_survey_type_count || 1} type(s)</td>
                     <td>{tpl.language}</td>
                     <td><span className="pill">{tpl.approval_status}</span></td>
                     <td><span className="pill muted">{tpl.sync_status_label || tpl.sync_status}</span></td>
                     <td>
-                      <button type="button" className="btn sm" onClick={() => setSelectedId(tpl.id)}>Edit</button>
+                      <button type="button" className="btn sm" onClick={() => setModalTemplateId(tpl.id)}>Edit</button>
                     </td>
                   </tr>
                 ))}
@@ -486,89 +323,31 @@ export default function WaSurveyTypeEdit() {
         </div>
       </section>
 
-      {selected && draft ? (
-        <div className="waSurveyEditSplit">
-          <section className="card">
-            <div className="cardHead"><h2>Template editor — {selected.display_name || selected.name}</h2></div>
-            <div className="cardBody">
-              <label className="msgFieldBlock">
-                <span className="label">Display name</span>
-                <input className="input" value={draft.display_name} onChange={(e) => setDraft((d) => ({ ...d, display_name: e.target.value }))} />
-              </label>
-              <label className="msgFieldBlock">
-                <span className="label">Body</span>
-                <textarea className="input msgFieldEditorBox" rows={8} value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
-                <span className="fieldHint">Use {'{{1}}'} for the first name variable. Approved templates cannot be edited on Meta — push creates a new submission.</span>
-              </label>
-              <label className="msgFieldBlock">
-                <span className="label">Footer</span>
-                <input className="input" value={draft.footer} onChange={(e) => setDraft((d) => ({ ...d, footer: e.target.value }))} />
-              </label>
-              <div className="btnRow">
-                <button type="button" className="btn" onClick={saveTemplateDraft} disabled={working === 'save'}>Save Draft</button>
-                <button type="button" className="btn primary" onClick={pushTemplate} disabled={working === 'push'}>Push to Telnyx</button>
-                {selected.variant_type !== 'anonymous' && surveyType?.supports_anonymous ? (
-                  <button type="button" className="btn" onClick={cloneAnonymous} disabled={working === 'clone'}>Clone as Anonymous</button>
-                ) : null}
-                <button type="button" className="btn" onClick={() => refreshPreview(selected.id)}>Preview</button>
-              </div>
-              {selected.last_push_error ? <p className="fieldHint warn">{selected.last_push_error}</p> : null}
-            </div>
-          </section>
-
-          <section className="card waSurveyPreviewCard">
-            <div className="cardHead"><h2>Phone preview</h2></div>
-            <div className="cardBody">
-              <WaSurveyPhonePreview
-                businessName="Northgate Dental"
-                renderedBody={previewData?.rendered_body || draft.body}
-                footer={previewData?.footer || draft.footer}
-                buttons={previewData?.buttons || selected.buttons || []}
-                flowSteps={flowSteps}
-                disclaimer={previewData?.disclaimer || genPreview?.template_preview?.disclaimer}
-                templateName={selected.name}
-                approvalStatus={selected.approval_status}
-                syncStatus={selected.sync_status}
-              />
-              <div className="waSurveyTestSend">
-                <label className="msgFieldBlock">
-                  <span className="label">Test mobile number</span>
-                  <input
-                    className="input"
-                    value={testMobile}
-                    onChange={(e) => setTestMobile(e.target.value)}
-                    placeholder="+447700900123"
-                    inputMode="tel"
-                  />
-                  <span className="fieldHint">
-                    E.164 format required. Sends the selected APPROVED template with example variables to your phone.
-                  </span>
-                </label>
-                <button
-                  type="button"
-                  className="btn primary"
-                  onClick={sendTestSurvey}
-                  disabled={working === 'send-test' || !testMobile.trim() || selected.approval_status !== 'APPROVED'}
-                >
-                  {working === 'send-test' ? 'Sending…' : 'Send test survey'}
-                </button>
-                {selected.approval_status !== 'APPROVED' ? (
-                  <p className="fieldHint warn">
-                    Template must be APPROVED before test send (current: {selected.approval_status}).
-                  </p>
-                ) : null}
-                {sendResult?.success ? (
-                  <div className="note ok" style={{ marginTop: 12 }}>
-                    <strong>{sendResult.message}</strong>
-                    <div className="muted">Template: {sendResult.template_name}</div>
-                    <div className="muted">Mode: {sendResult.telnyx_request_mode}</div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </section>
-        </div>
+      {genPreview ? (
+        <section className="card waSurveyPreviewCard">
+          <div className="cardHead"><h2>Generated flow preview</h2></div>
+          <div className="cardBody">
+            <WaSurveyPhonePreview
+              businessName="Northgate Dental"
+              renderedBody={previewData?.rendered_body || ''}
+              footer={previewData?.footer || ''}
+              buttons={previewData?.buttons || []}
+              flowSteps={flowSteps}
+              disclaimer={previewData?.disclaimer}
+              templateName={genPreview?.wa_template_name}
+              approvalStatus="APPROVED"
+            />
+          </div>
+        </section>
       ) : null}
+
+      <WaSurveyTemplateModal
+        templateId={modalTemplateId}
+        surveyTypeId={typeId}
+        open={Boolean(modalTemplateId)}
+        onClose={() => setModalTemplateId(null)}
+        onSaved={() => void load()}
+      />
     </>
   )
 }

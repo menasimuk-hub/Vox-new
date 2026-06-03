@@ -10,7 +10,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.survey_type import SurveyType
+from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.survey_type_template_service import SurveyTypeTemplateService
 
 DEFAULT_SURVEY_TYPES: list[dict[str, Any]] = [
     {
@@ -100,19 +102,11 @@ class SurveyTypeService:
 
     @staticmethod
     def _template_counts(db: Session, survey_type_id: str) -> dict[str, int]:
-        rows = db.execute(
-            select(TelnyxWhatsappTemplate.variant_type, func.count())
-            .where(
-                TelnyxWhatsappTemplate.survey_type_id == survey_type_id,
-                TelnyxWhatsappTemplate.active_for_survey.is_(True),
-            )
-            .group_by(TelnyxWhatsappTemplate.variant_type)
-        ).all()
-        out: dict[str, int] = {}
-        for variant, count in rows:
-            key = str(variant or "standard").lower()
-            out[key] = int(count or 0)
-        return out
+        return SurveyTypeTemplateService.template_counts_for_survey_type(db, survey_type_id)
+
+    @staticmethod
+    def _linked_template_ids(db: Session, survey_type_id: str) -> list[int]:
+        return [m.template_id for m in SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)]
 
     @staticmethod
     def list_types(db: Session) -> list[dict[str, Any]]:
@@ -122,28 +116,35 @@ class SurveyTypeService:
         for row in rows:
             counts = SurveyTypeService._template_counts(db, row.id)
             data = survey_type_to_dict(row, template_counts=counts)
-            last_sync = db.execute(
-                select(func.max(TelnyxWhatsappTemplate.synced_at)).where(
-                    TelnyxWhatsappTemplate.survey_type_id == row.id
-                )
-            ).scalar_one_or_none()
+            linked_ids = SurveyTypeService._linked_template_ids(db, row.id)
+            if linked_ids:
+                last_sync = db.execute(
+                    select(func.max(TelnyxWhatsappTemplate.synced_at)).where(
+                        TelnyxWhatsappTemplate.id.in_(linked_ids)
+                    )
+                ).scalar_one_or_none()
+            else:
+                last_sync = None
             data["last_synced_at"] = last_sync.isoformat() if last_sync else None
-            approved = db.execute(
-                select(func.count())
-                .select_from(TelnyxWhatsappTemplate)
-                .where(
-                    TelnyxWhatsappTemplate.survey_type_id == row.id,
-                    func.upper(TelnyxWhatsappTemplate.status) == "APPROVED",
-                )
-            ).scalar_one()
-            pending = db.execute(
-                select(func.count())
-                .select_from(TelnyxWhatsappTemplate)
-                .where(
-                    TelnyxWhatsappTemplate.survey_type_id == row.id,
-                    func.upper(TelnyxWhatsappTemplate.status).in_(("PENDING", "DRAFT", "UNKNOWN")),
-                )
-            ).scalar_one()
+            if linked_ids:
+                approved = db.execute(
+                    select(func.count())
+                    .select_from(TelnyxWhatsappTemplate)
+                    .where(
+                        TelnyxWhatsappTemplate.id.in_(linked_ids),
+                        func.upper(TelnyxWhatsappTemplate.status) == "APPROVED",
+                    )
+                ).scalar_one()
+                pending = db.execute(
+                    select(func.count())
+                    .select_from(TelnyxWhatsappTemplate)
+                    .where(
+                        TelnyxWhatsappTemplate.id.in_(linked_ids),
+                        func.upper(TelnyxWhatsappTemplate.status).in_(("PENDING", "DRAFT", "UNKNOWN", "LOCAL_DRAFT")),
+                    )
+                ).scalar_one()
+            else:
+                approved = pending = 0
             if int(approved or 0) > 0:
                 data["status_label"] = "Ready"
             elif int(pending or 0) > 0:

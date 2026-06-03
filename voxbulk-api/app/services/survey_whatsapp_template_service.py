@@ -16,8 +16,10 @@ from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
 from app.models.survey_type import SurveyType
+from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.survey_type_service import SurveyTypeService
+from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.telnyx_api_key import normalize_telnyx_api_key, require_telnyx_api_key
 from app.services.telnyx_whatsapp_template_sync_service import (
     TELNYX_WHATSAPP_TEMPLATES_URL,
@@ -328,7 +330,12 @@ def _refresh_local_sync_status(row: TelnyxWhatsappTemplate) -> str:
     return SYNC_IN_SYNC
 
 
-def survey_template_to_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+def survey_template_to_dict(
+    row: TelnyxWhatsappTemplate,
+    *,
+    mapping: SurveyTypeTemplate | None = None,
+    linked_survey_type_count: int | None = None,
+) -> dict[str, Any]:
     base = template_to_dict(row)
     components = _effective_components(row)
     sync_status = _refresh_local_sync_status(row)
@@ -336,11 +343,9 @@ def survey_template_to_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
     examples = _loads(row.example_values_json)
     if not isinstance(examples, list):
         examples = _extract_example_values(components)
-    return {
+    payload = {
         **base,
         "display_name": row.display_name or row.name,
-        "survey_type_id": row.survey_type_id,
-        "variant_type": row.variant_type or VARIANT_STANDARD,
         "parent_template_id": row.parent_template_id,
         "approval_status": str(row.status or "UNKNOWN").upper(),
         "sync_status": sync_status,
@@ -362,20 +367,67 @@ def survey_template_to_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
         "last_push_error": row.last_push_error,
         "is_local_only": _is_local_row(row),
         "send_template_id": send_template_id_for_row(row),
+        "linked_survey_type_count": linked_survey_type_count,
     }
+    if mapping is not None:
+        payload.update(
+            {
+                "mapping_id": mapping.id,
+                "usable_as_standard": bool(mapping.usable_as_standard),
+                "usable_as_anonymous": bool(mapping.usable_as_anonymous),
+                "is_default_standard": bool(mapping.is_default_standard),
+                "is_default_anonymous": bool(mapping.is_default_anonymous),
+            }
+        )
+    # Legacy content hint only — usage is driven by survey_type_templates mappings.
+    payload["variant_type"] = row.variant_type or VARIANT_STANDARD
+    return payload
 
 
 class SurveyWhatsappTemplateService:
     @staticmethod
     def list_for_survey_type(db: Session, survey_type_id: str) -> list[dict[str, Any]]:
+        mappings = SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)
+        payload: list[dict[str, Any]] = []
+        for mapping in mappings:
+            row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
+            if row is None:
+                continue
+            linked = SurveyTypeTemplateService.linked_survey_type_count(db, row.id)
+            payload.append(survey_template_to_dict(row, mapping=mapping, linked_survey_type_count=linked))
+        payload.sort(key=lambda item: (not item.get("is_default_standard"), not item.get("is_default_anonymous"), item.get("name") or ""))
+        return payload
+
+    @staticmethod
+    def list_library(db: Session) -> list[dict[str, Any]]:
         rows = list(
             db.execute(
                 select(TelnyxWhatsappTemplate)
-                .where(TelnyxWhatsappTemplate.survey_type_id == survey_type_id)
-                .order_by(TelnyxWhatsappTemplate.variant_type.asc(), TelnyxWhatsappTemplate.name.asc())
+                .where(TelnyxWhatsappTemplate.active_for_survey.is_(True))
+                .order_by(TelnyxWhatsappTemplate.display_name.asc(), TelnyxWhatsappTemplate.name.asc())
             ).scalars().all()
         )
-        return [survey_template_to_dict(row) for row in rows]
+        return [
+            survey_template_to_dict(
+                row,
+                linked_survey_type_count=SurveyTypeTemplateService.linked_survey_type_count(db, row.id),
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    def get_template_detail(db: Session, template_id: int) -> dict[str, Any] | None:
+        row = SurveyWhatsappTemplateService.get_template(db, template_id)
+        if row is None:
+            return None
+        return {
+            "template": survey_template_to_dict(
+                row,
+                linked_survey_type_count=SurveyTypeTemplateService.linked_survey_type_count(db, row.id),
+            ),
+            "mappings": SurveyTypeTemplateService.mappings_payload_for_template(db, template_id),
+            "survey_types": SurveyTypeTemplateService.all_survey_types_with_mapping_flags(db, template_id),
+        }
 
     @staticmethod
     def get_template(db: Session, template_id: int) -> TelnyxWhatsappTemplate | None:
@@ -404,7 +456,6 @@ class SurveyWhatsappTemplateService:
             language=str(language or "en_US"),
             category=category,
             status="LOCAL_DRAFT",
-            survey_type_id=survey_type.id,
             variant_type=VARIANT_STANDARD,
             body_preview=_body_preview(components),
             draft_components_json=_dumps(components),
@@ -416,7 +467,18 @@ class SurveyWhatsappTemplateService:
             synced_at=now,
         )
         db.add(row)
-        db.commit()
+        db.flush()
+        has_default = any(
+            m.is_default_standard
+            for m in SurveyTypeTemplateService.list_for_survey_type(db, survey_type.id)
+        )
+        SurveyTypeTemplateService.upsert_mapping(
+            db,
+            survey_type_id=survey_type.id,
+            template_id=row.id,
+            usable_as_standard=True,
+            is_default_standard=not has_default,
+        )
         db.refresh(row)
         return row
 
@@ -446,12 +508,21 @@ class SurveyWhatsappTemplateService:
         return row
 
     @staticmethod
-    def clone_as_anonymous(db: Session, parent: TelnyxWhatsappTemplate) -> TelnyxWhatsappTemplate:
-        if parent.survey_type_id is None:
-            raise SurveyWhatsappTemplateError("Parent template is not linked to a survey type")
-        survey_type = db.get(SurveyType, parent.survey_type_id)
+    def clone_as_anonymous(
+        db: Session,
+        parent: TelnyxWhatsappTemplate,
+        *,
+        survey_type_id: str | None = None,
+    ) -> TelnyxWhatsappTemplate:
+        survey_type: SurveyType | None = None
+        if survey_type_id:
+            survey_type = db.get(SurveyType, survey_type_id)
         if survey_type is None:
-            raise SurveyWhatsappTemplateError("Survey type not found")
+            mappings = SurveyTypeTemplateService.list_for_template(db, parent.id)
+            if mappings:
+                survey_type = db.get(SurveyType, mappings[0].survey_type_id)
+        if survey_type is None:
+            raise SurveyWhatsappTemplateError("Choose a survey type before cloning an anonymous variant")
         if not survey_type.supports_anonymous:
             raise SurveyWhatsappTemplateError("Anonymous variants are disabled for this survey type")
         parent_components = _effective_components(parent)
@@ -466,7 +537,6 @@ class SurveyWhatsappTemplateService:
             language=parent.language,
             category=parent.category,
             status="LOCAL_DRAFT",
-            survey_type_id=survey_type.id,
             variant_type=VARIANT_ANONYMOUS,
             parent_template_id=parent.id,
             body_preview=_body_preview(anon_components),
@@ -479,7 +549,18 @@ class SurveyWhatsappTemplateService:
             synced_at=now,
         )
         db.add(row)
-        db.commit()
+        db.flush()
+        has_default = any(
+            m.is_default_anonymous
+            for m in SurveyTypeTemplateService.list_for_survey_type(db, survey_type.id)
+        )
+        SurveyTypeTemplateService.upsert_mapping(
+            db,
+            survey_type_id=survey_type.id,
+            template_id=row.id,
+            usable_as_anonymous=True,
+            is_default_anonymous=not has_default,
+        )
         db.refresh(row)
         logger.info(
             "survey_wa_template_cloned_anonymous",
@@ -601,37 +682,65 @@ class SurveyWhatsappTemplateService:
         }
 
     @staticmethod
-    def _link_template_to_survey_type(
+    def _ensure_mapping_for_sync(
         db: Session,
-        row: TelnyxWhatsappTemplate,
+        *,
+        template: TelnyxWhatsappTemplate,
         name: str,
         survey_type_id: str | None,
     ) -> bool:
-        if row.survey_type_id is not None:
-            return False
+        linked = False
         slug_match = re.search(r"voxbulk_survey_([a-z0-9_]+)_(standard|anonymous)", name.lower())
+        target_types: list[tuple[SurveyType, str]] = []
         if slug_match:
             st = SurveyTypeService.get_by_slug(db, slug_match.group(1))
             if st is not None:
-                row.survey_type_id = st.id
-                row.variant_type = slug_match.group(2)
-                return True
+                target_types.append((st, slug_match.group(2)))
         scoped = str(survey_type_id or "").strip()
-        if not scoped:
-            return False
-        survey_type = db.get(SurveyType, scoped)
-        if survey_type is None:
-            return False
-        slug = str(survey_type.slug or "").lower()
-        lowered = name.lower()
-        if slug and slug in lowered:
-            row.survey_type_id = survey_type.id
-            if "anonymous" in lowered:
-                row.variant_type = VARIANT_ANONYMOUS
-            elif not row.variant_type:
-                row.variant_type = VARIANT_STANDARD
-            return True
-        return False
+        if scoped:
+            st = db.get(SurveyType, scoped)
+            if st is not None and all(st.id != existing[0].id for existing in target_types):
+                variant = VARIANT_ANONYMOUS if "anonymous" in name.lower() else VARIANT_STANDARD
+                target_types.append((st, variant))
+        elif not target_types:
+            slug = name.lower()
+            for st in list(db.execute(select(SurveyType)).scalars().all()):
+                token = str(st.slug or "").lower()
+                if token and token in slug:
+                    variant = VARIANT_ANONYMOUS if "anonymous" in slug else VARIANT_STANDARD
+                    target_types.append((st, variant))
+
+        for st, variant in target_types:
+            existing = db.execute(
+                select(SurveyTypeTemplate).where(
+                    SurveyTypeTemplate.survey_type_id == st.id,
+                    SurveyTypeTemplate.template_id == template.id,
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                has_std_default = any(
+                    m.is_default_standard for m in SurveyTypeTemplateService.list_for_survey_type(db, st.id)
+                )
+                has_anon_default = any(
+                    m.is_default_anonymous for m in SurveyTypeTemplateService.list_for_survey_type(db, st.id)
+                )
+                SurveyTypeTemplateService.upsert_mapping(
+                    db,
+                    survey_type_id=st.id,
+                    template_id=template.id,
+                    usable_as_standard=variant == VARIANT_STANDARD,
+                    usable_as_anonymous=variant == VARIANT_ANONYMOUS,
+                    is_default_standard=variant == VARIANT_STANDARD and not has_std_default,
+                    is_default_anonymous=variant == VARIANT_ANONYMOUS and not has_anon_default,
+                )
+                linked = True
+            else:
+                linked = True
+            if variant == VARIANT_ANONYMOUS:
+                template.variant_type = VARIANT_ANONYMOUS
+            elif not template.variant_type:
+                template.variant_type = VARIANT_STANDARD
+        return linked
 
     @staticmethod
     def sync_from_telnyx(db: Session, *, survey_type_id: str | None = None) -> dict[str, Any]:
@@ -736,10 +845,15 @@ class SurveyWhatsappTemplateService:
                 elif not existing.variant_type:
                     existing.variant_type = VARIANT_STANDARD
 
-                if SurveyWhatsappTemplateService._link_template_to_survey_type(db, existing, name, scoped_type_id):
+                db.flush()
+
+                if SurveyWhatsappTemplateService._ensure_mapping_for_sync(
+                    db,
+                    template=existing,
+                    name=name,
+                    survey_type_id=scoped_type_id,
+                ):
                     linked += 1
-                elif existing.survey_type_id is None:
-                    SurveyWhatsappTemplateService._link_template_to_survey_type(db, existing, name, None)
 
                 draft_hash = _content_hash(_loads(existing.draft_components_json))
                 if draft_hash and remote_hash and draft_hash != remote_hash:
@@ -755,12 +869,13 @@ class SurveyWhatsappTemplateService:
 
         db.commit()
 
+        mapped_ids = select(SurveyTypeTemplate.template_id)
         unlinked = db.execute(
             select(func.count())
             .select_from(TelnyxWhatsappTemplate)
             .where(
-                TelnyxWhatsappTemplate.survey_type_id.is_(None),
                 TelnyxWhatsappTemplate.name.ilike("%survey%"),
+                TelnyxWhatsappTemplate.id.not_in(mapped_ids),
             )
         ).scalar_one()
 
@@ -915,6 +1030,20 @@ class SurveyWhatsappTemplateService:
         }
 
     @staticmethod
+    def update_template_mappings(db: Session, template_id: int, mappings: list[dict[str, Any]]) -> dict[str, Any]:
+        row = SurveyWhatsappTemplateService.get_template(db, template_id)
+        if row is None:
+            raise SurveyWhatsappTemplateError("Template not found")
+        saved = SurveyTypeTemplateService.replace_template_mappings(db, template_id, mappings)
+        return {
+            "ok": True,
+            "template_id": template_id,
+            "linked_survey_type_count": len(saved),
+            "mappings": SurveyTypeTemplateService.mappings_payload_for_template(db, template_id),
+            "survey_types": SurveyTypeTemplateService.all_survey_types_with_mapping_flags(db, template_id),
+        }
+
+    @staticmethod
     def resolve_for_survey(
         db: Session,
         *,
@@ -922,25 +1051,12 @@ class SurveyWhatsappTemplateService:
         variant: str,
         language: str | None = None,
     ) -> TelnyxWhatsappTemplate | None:
-        variant_key = str(variant or VARIANT_STANDARD).strip().lower()
-        q = (
-            select(TelnyxWhatsappTemplate)
-            .where(
-                TelnyxWhatsappTemplate.survey_type_id == survey_type_id,
-                TelnyxWhatsappTemplate.variant_type == variant_key,
-                TelnyxWhatsappTemplate.active_for_survey.is_(True),
-            )
-            .order_by(TelnyxWhatsappTemplate.updated_at.desc())
+        return SurveyTypeTemplateService.resolve_default_template(
+            db,
+            survey_type_id=survey_type_id,
+            variant=variant,
+            language=language,
         )
-        rows = list(db.execute(q).scalars().all())
-        lang = str(language or "").strip()
-        approved = [r for r in rows if str(r.status or "").upper() == "APPROVED"]
-        pool = approved or rows
-        if lang:
-            for row in pool:
-                if str(row.language or "") == lang:
-                    return row
-        return pool[0] if pool else None
 
     @staticmethod
     def build_preview(
