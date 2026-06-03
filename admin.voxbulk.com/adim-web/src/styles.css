@@ -3897,6 +3897,65 @@ body.dark .emailPreviewInner {
   margin-bottom: 16px;
 }
 
+.waSurveyTemplatesHead {
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.waSurveyTemplatesMeta {
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.waSurveyTemplatesActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.waSurveyTemplateSearch {
+  min-width: 220px;
+  width: min(320px, 100%);
+}
+
+.waSurveyPackModal {
+  max-width: 1280px;
+}
+
+.waSurveyPackBody {
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+}
+
+.waSurveyPackGrid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.waSurveyPackCard {
+  border: 1px solid var(--border, #dde3ea);
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.waSurveyPackCard.is-selected {
+  border-color: var(--grn, #00a884);
+  box-shadow: 0 0 0 1px rgba(0, 168, 132, 0.15);
+}
+
+.waSurveyPackCardInvalid {
+  background: rgba(163, 45, 45, 0.05);
+}
+
+.waSurveyPackSelect {
+  margin: 0;
+}
+
 .waSurveyEditSplit {
   display: grid;
   gap: 16px;

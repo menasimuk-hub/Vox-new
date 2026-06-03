@@ -388,6 +388,112 @@ class OpenAIProviderService:
                     yield str(delta)
 
     @staticmethod
+    def _extract_responses_output_text(body: dict[str, Any]) -> str:
+        chunks: list[str] = []
+        for item in body.get("output") or []:
+            if not isinstance(item, dict):
+                continue
+            for part in item.get("content") or []:
+                if not isinstance(part, dict):
+                    continue
+                if str(part.get("type") or "") in {"output_text", "text"}:
+                    text = str(part.get("text") or "").strip()
+                    if text:
+                        chunks.append(text)
+        if chunks:
+            return "\n".join(chunks).strip()
+        return str(body.get("output_text") or "").strip()
+
+    @staticmethod
+    def responses_json(
+        db: Session,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        json_schema: dict[str, Any],
+        schema_name: str = "response",
+        model: str | None = None,
+        max_output_tokens: int = 12000,
+        temperature: float | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Structured JSON via OpenAI Responses API (/v1/responses). OpenAI provider only."""
+        config = OpenAIProviderService._config(db)
+        pack_model = str(model or os.getenv("OPENAI_WA_TEMPLATE_MODEL") or "").strip()
+        text_model = OpenAIProviderService._select_text_model(
+            config,
+            pack_model or config.get("default_model") or "gpt-4o-mini",
+        )
+        endpoint_path = "/v1/responses"
+        selected_temperature = config["temperature"] if temperature is None else max(0.0, min(float(temperature), 1.0))
+        payload: dict[str, Any] = {
+            "model": text_model,
+            "input": [
+                {"role": "system", "content": str(system_prompt or "").strip()},
+                {"role": "user", "content": str(user_prompt or "").strip()},
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "schema": json_schema,
+                    "strict": True,
+                }
+            },
+            "max_output_tokens": max(512, int(max_output_tokens)),
+            "temperature": selected_temperature,
+        }
+        diagnostics = OpenAIProviderService._request_diagnostics(
+            config, endpoint_path=endpoint_path, model=text_model, style="responses"
+        )
+        logger.info(
+            "openai_responses_request",
+            extra={
+                "model": text_model,
+                "endpoint_path": endpoint_path,
+                "schema_name": schema_name,
+                "max_output_tokens": payload["max_output_tokens"],
+            },
+        )
+        response = OpenAIProviderService._http_client().post(
+            OpenAIProviderService._endpoint_url(config, endpoint_path),
+            json=payload,
+            headers=OpenAIProviderService._headers(config),
+            timeout=120.0,
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            body: Any
+            try:
+                body = response.json()
+            except Exception:
+                body = response.text
+            logger.error(
+                "openai_responses_failed",
+                extra={"status_code": response.status_code, "model": text_model, "provider_body": body},
+            )
+            raise ValueError(
+                f"OpenAI Responses request failed ({response.status_code}) at {diagnostics['final_url']}: {body}"
+            ) from e
+        raw = response.json()
+        text = OpenAIProviderService._extract_responses_output_text(raw)
+        if not text:
+            raise ValueError("OpenAI Responses returned empty structured output")
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"OpenAI Responses returned invalid JSON: {text[:400]}") from e
+        if not isinstance(parsed, dict):
+            raise ValueError("OpenAI Responses JSON root must be an object")
+        meta = {
+            "model": text_model,
+            "api_style": "responses",
+            "endpoint_path": endpoint_path,
+            "usage": raw.get("usage") or {},
+        }
+        return parsed, meta
+
+    @staticmethod
     def diagnostics(db: Session) -> dict[str, Any]:
         config = OpenAIProviderService._config(db)
         return {

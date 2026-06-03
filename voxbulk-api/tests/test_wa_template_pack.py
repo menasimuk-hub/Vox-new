@@ -1,0 +1,238 @@
+"""WA Survey OpenAI template pack generation, validation, and save."""
+
+from __future__ import annotations
+
+import pytest
+from sqlalchemy import select
+
+from app.core.database import get_sessionmaker
+from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.survey_type_service import SurveyTypeService
+from app.services.survey_wa_template_pack_service import (
+    PACK_SIZE,
+    SurveyWaTemplatePackService,
+    build_components_from_generated,
+    validate_generated_template,
+)
+from app.services.survey_whatsapp_template_service import (
+    ANONYMOUS_BODY_SENTENCE,
+    ANONYMOUS_FOOTER,
+    SurveyWhatsappTemplateService,
+    VARIANT_ANONYMOUS,
+    VARIANT_STANDARD,
+)
+
+
+def _seed_survey_type(db):
+    SurveyTypeService.ensure_defaults(db)
+    row = SurveyTypeService.get_by_slug(db, "customer_satisfaction")
+    assert row is not None
+    return row
+
+
+@pytest.fixture(autouse=True)
+def _schema():
+    from app.core.database import Base, get_engine
+    import app.models  # noqa: F401
+
+    engine = get_engine()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    yield
+
+
+def _sample_item(**overrides):
+    base = {
+        "template_name": "std_intro",
+        "variant_type": VARIANT_STANDARD,
+        "title": "Standard intro",
+        "purpose": "intro",
+        "body": "Hi {{1}}, {{2}} would love your feedback. Ref {{3}}.",
+        "footer": "Reply STOP to opt out",
+        "header": "",
+        "button_type": "quick_reply",
+        "buttons": [{"text": "Start survey", "url": "", "phone_number": ""}],
+        "example_values": ["Alex", "Northgate Dental", "https://example.com/s/1"],
+        "language": "en_US",
+        "category": "MARKETING",
+    }
+    base.update(overrides)
+    return base
+
+
+def _mock_pack_response():
+    templates = []
+    styles = [
+        ("std_intro", VARIANT_STANDARD, "intro", "quick_reply"),
+        ("std_reminder", VARIANT_STANDARD, "reminder", "none"),
+        ("std_followup", VARIANT_STANDARD, "follow_up", "quick_reply"),
+        ("anon_intro", VARIANT_ANONYMOUS, "anonymous_intro", "quick_reply"),
+        ("short_invite", VARIANT_STANDARD, "short_invitation", "none"),
+        ("plain_text", VARIANT_STANDARD, "plain_text", "none"),
+        ("qr_start", VARIANT_STANDARD, "button_quick_reply", "quick_reply"),
+        ("url_cta", VARIANT_STANDARD, "url_cta", "url"),
+        ("phone_cta", VARIANT_STANDARD, "phone_cta", "phone"),
+        ("std_closing", VARIANT_STANDARD, "follow_up", "quick_reply"),
+    ]
+    for name, variant, purpose, btn_type in styles:
+        body = f"Hi {{{{1}}}}, {{{{2}}}} survey ref {{{{3}}}}."
+        footer = "Reply STOP to opt out"
+        buttons = [{"text": "Start", "url": "", "phone_number": ""}]
+        if btn_type == "url":
+            buttons = [{"text": "Open survey", "url": "https://example.com/s/{{3}}", "phone_number": ""}]
+        if btn_type == "phone":
+            buttons = [{"text": "Call us", "url": "", "phone_number": "+447700900123"}]
+        if variant == VARIANT_ANONYMOUS:
+            body = f"Hi {{{{1}}}}, {{{{2}}}}. {ANONYMOUS_BODY_SENTENCE}"
+            footer = ANONYMOUS_FOOTER
+        templates.append(
+            _sample_item(
+                template_name=name,
+                variant_type=variant,
+                title=name.replace("_", " ").title(),
+                purpose=purpose,
+                body=body,
+                footer=footer,
+                button_type=btn_type,
+                buttons=buttons if btn_type != "none" else [],
+            )
+        )
+    return {"templates": templates}
+
+
+def test_validate_quick_reply_and_url_templates():
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        ok, errors = validate_generated_template(_sample_item(), survey_type=st)
+        assert ok is not None
+        assert not errors
+
+        bad_qr, err_qr = validate_generated_template(
+            _sample_item(button_type="quick_reply", buttons=[{"text": "A", "url": "", "phone_number": ""}] * 4),
+            survey_type=st,
+        )
+        assert bad_qr is None
+        assert any("3 buttons" in e for e in err_qr)
+
+        bad_url, err_url = validate_generated_template(
+            _sample_item(
+                template_name="bad_url",
+                button_type="url",
+                buttons=[{"text": "Go", "url": "not-a-url", "phone_number": ""}],
+            ),
+            survey_type=st,
+        )
+        assert bad_url is None
+        assert any("https URL" in e for e in err_url)
+
+
+def test_validate_anonymous_wording():
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        ok, errors = validate_generated_template(
+            _sample_item(
+                template_name="anon_intro",
+                variant_type=VARIANT_ANONYMOUS,
+                body=f"Hi {{{{1}}}}, please share feedback. {ANONYMOUS_BODY_SENTENCE}",
+                footer=ANONYMOUS_FOOTER,
+            ),
+            survey_type=st,
+        )
+        assert ok is not None
+        assert not errors
+
+
+def test_build_components_quick_reply_and_url():
+    qr = build_components_from_generated(_sample_item(button_type="quick_reply"))
+    assert any(c.get("type") == "BUTTONS" for c in qr)
+    assert qr[-1]["buttons"][0]["type"] == "QUICK_REPLY"
+
+    url_components = build_components_from_generated(
+        _sample_item(
+            template_name="url_cta",
+            button_type="url",
+            buttons=[{"text": "Open", "url": "https://example.com/s/abc", "phone_number": ""}],
+        )
+    )
+    buttons = next(c for c in url_components if c["type"] == "BUTTONS")["buttons"]
+    assert buttons[0]["type"] == "URL"
+
+
+def test_generate_pack_uses_responses_api(monkeypatch):
+    captured = {}
+
+    def fake_responses_json(db, **kwargs):
+        captured.update(kwargs)
+        return _mock_pack_response(), {"model": "gpt-4o-mini", "api_style": "responses", "endpoint_path": "/v1/responses"}
+
+    monkeypatch.setattr(
+        "app.services.survey_wa_template_pack_service.OpenAIProviderService.responses_json",
+        fake_responses_json,
+    )
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        result = SurveyWaTemplatePackService.generate_pack(db, survey_type=st, instruction="Keep friendly tone")
+        assert captured.get("schema_name") == "wa_survey_template_pack"
+        assert result["valid_count"] == PACK_SIZE
+        assert result["openai"]["api_style"] == "responses"
+        purposes = {t["template"]["purpose"] for t in result["templates"] if t.get("template")}
+        button_types = {t["template"]["button_type"] for t in result["templates"] if t.get("template")}
+        assert len(purposes) >= 4
+        assert "quick_reply" in button_types
+        assert "url" in button_types
+        assert "none" in button_types
+
+
+def test_save_pack_creates_local_drafts(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.survey_wa_template_pack_service.OpenAIProviderService.responses_json",
+        lambda db, **kwargs: (_mock_pack_response(), {"model": "gpt-4o-mini", "api_style": "responses"}),
+    )
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        generated = SurveyWaTemplatePackService.generate_pack(db, survey_type=st)
+        selected = [t["template"] for t in generated["templates"] if t.get("template")][:3]
+        saved = SurveyWaTemplatePackService.save_selected_templates(db, survey_type=st, templates=selected)
+        assert saved["saved_count"] == 3
+        rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars())
+        assert len(rows) == 3
+        assert all(r.status == "LOCAL_DRAFT" for r in rows)
+
+
+def test_push_after_pack_save(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.survey_wa_template_pack_service.OpenAIProviderService.responses_json",
+        lambda db, **kwargs: (_mock_pack_response(), {"model": "gpt-4o-mini", "api_style": "responses"}),
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": {"id": "telnyx-new", "template_id": "999", "status": "PENDING", "components": []}}
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, headers=None, json=None):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.services.survey_whatsapp_template_service.httpx.Client", lambda *a, **k: FakeClient())
+    monkeypatch.setattr(
+        "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",
+        lambda db: {"api_key": "test-key", "whatsapp_waba_id": "waba-123"},
+    )
+
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        generated = SurveyWaTemplatePackService.generate_pack(db, survey_type=st)
+        one = generated["valid_templates"][0]
+        saved = SurveyWaTemplatePackService.save_selected_templates(db, survey_type=st, templates=[one])
+        row = db.get(TelnyxWhatsappTemplate, saved["templates"][0]["id"])
+        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+        assert result["ok"] is True

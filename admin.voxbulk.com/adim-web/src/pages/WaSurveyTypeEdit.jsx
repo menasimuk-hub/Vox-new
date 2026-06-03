@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
 import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
+import WaSurveyTemplatePackModal from '../components/WaSurveyTemplatePackModal'
 
 const LENGTH_OPTIONS = [
   { value: 'short', label: 'Short (4 questions)' },
@@ -20,6 +21,28 @@ function mappingLabel(tpl) {
   return parts.join(' · ') || 'Linked'
 }
 
+function templateSearchHaystack(tpl) {
+  return [
+    tpl.display_name,
+    tpl.name,
+    tpl.language,
+    tpl.approval_status,
+    tpl.sync_status_label,
+    tpl.sync_status,
+    mappingLabel(tpl),
+    tpl.linked_survey_type_count != null ? String(tpl.linked_survey_type_count) : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+}
+
+function matchesTemplateSearch(tpl, query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return true
+  return templateSearchHaystack(tpl).includes(q)
+}
+
 export default function WaSurveyTypeEdit() {
   const { typeId } = useParams()
   const [loading, setLoading] = useState(true)
@@ -34,9 +57,11 @@ export default function WaSurveyTypeEdit() {
   const [templates, setTemplates] = useState([])
   const [modalTemplateId, setModalTemplateId] = useState(null)
   const [modalTemplate, setModalTemplate] = useState(null)
+  const [packModalOpen, setPackModalOpen] = useState(false)
   const [genPreview, setGenPreview] = useState(null)
   const [genVariant, setGenVariant] = useState('standard')
   const [genLength, setGenLength] = useState('standard')
+  const [templateSearch, setTemplateSearch] = useState('')
 
   const clearFeedback = () => {
     setError('')
@@ -181,6 +206,12 @@ export default function WaSurveyTypeEdit() {
     }
   }
 
+  const filteredTemplates = useMemo(
+    () => templates.filter((tpl) => matchesTemplateSearch(tpl, templateSearch)),
+    [templates, templateSearch]
+  )
+  const templateSearchActive = Boolean(templateSearch.trim())
+
   if (loading && !surveyType) {
     return <p className="muted">Loading…</p>
   }
@@ -285,11 +316,30 @@ export default function WaSurveyTypeEdit() {
       </div>
 
       <section className="card">
-        <div className="cardHead">
-          <h2>Templates</h2>
-          <button type="button" className="btn sm" onClick={createStandard} disabled={working === 'create'}>
-            Add standard draft
-          </button>
+        <div className="cardHead waSurveyTemplatesHead">
+          <div>
+            <h2>Templates</h2>
+            <p className="muted waSurveyTemplatesMeta">
+              {templateSearchActive
+                ? `${filteredTemplates.length} of ${templates.length} shown`
+                : `${templates.length} linked template${templates.length === 1 ? '' : 's'}`}
+            </p>
+          </div>
+          <div className="waSurveyTemplatesActions">
+            <input
+              className="input waSurveyTemplateSearch"
+              type="search"
+              placeholder="Search name, language, status…"
+              value={templateSearch}
+              onChange={(e) => setTemplateSearch(e.target.value)}
+            />
+            <button type="button" className="btn sm" onClick={() => setPackModalOpen(true)}>
+              Generate 10 with OpenAI
+            </button>
+            <button type="button" className="btn sm" onClick={createStandard} disabled={working === 'create'}>
+              Add standard draft
+            </button>
+          </div>
         </div>
         <div className="cardBody">
           <div className="tableWrap">
@@ -306,7 +356,7 @@ export default function WaSurveyTypeEdit() {
                 </tr>
               </thead>
               <tbody>
-                {templates.map((tpl) => (
+                {filteredTemplates.length ? filteredTemplates.map((tpl) => (
                   <tr key={tpl.id}>
                     <td>{tpl.display_name || tpl.name}</td>
                     <td>{mappingLabel(tpl)}</td>
@@ -327,7 +377,15 @@ export default function WaSurveyTypeEdit() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                )) : (
+                  <tr>
+                    <td colSpan={7} className="muted">
+                      {templates.length
+                        ? 'No templates match your search.'
+                        : 'No templates linked yet — add a standard draft or sync from Telnyx.'}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -351,6 +409,14 @@ export default function WaSurveyTypeEdit() {
           </div>
         </section>
       ) : null}
+
+      <WaSurveyTemplatePackModal
+        surveyTypeId={typeId}
+        surveyTypeName={surveyType?.name}
+        open={packModalOpen}
+        onClose={() => setPackModalOpen(false)}
+        onSaved={() => void load()}
+      />
 
       <WaSurveyTemplateModal
         templateId={modalTemplateId}

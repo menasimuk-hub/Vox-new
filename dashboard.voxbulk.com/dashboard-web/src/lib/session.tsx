@@ -9,7 +9,7 @@ import { toast } from "sonner";
 
 
 
-import { apiFetch, getAccessToken, logoutDashboard, redirectToSignIn } from "@/lib/api";
+import { apiFetch, ApiError, getAccessToken, logoutDashboard, redirectToSignIn } from "@/lib/api";
 import {
   consumeAuthHandoffFromHash,
   hasAuthHandoffInHash,
@@ -86,6 +86,20 @@ async function loadSession(): Promise<SessionState> {
   ]);
 
   return { profile, org, subscription };
+
+}
+
+
+
+function isAuthSessionFailure(err: unknown) {
+
+  if (err instanceof ApiError) {
+
+    return err.status === 401 || err.status === 403;
+
+  }
+
+  return false;
 
 }
 
@@ -407,7 +421,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
 
 
-  if (value.error && !value.session) {
+  if (value.error && !value.session && isAuthSessionFailure(q.error)) {
 
     return (
 
@@ -415,9 +429,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
         <div className="max-w-sm text-center">
 
-          <h2 className="text-lg font-semibold tracking-tight">Session error</h2>
+          <h2 className="text-lg font-semibold tracking-tight">Session expired</h2>
 
-          <p className="mt-2 text-sm text-muted-foreground">{value.error}</p>
+          <p className="mt-2 text-sm text-muted-foreground">Sign in again to continue.</p>
 
           <div className="mt-6 flex flex-wrap justify-center gap-2">
 

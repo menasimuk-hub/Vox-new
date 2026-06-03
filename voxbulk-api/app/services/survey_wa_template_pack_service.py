@@ -1,0 +1,515 @@
+"""Generate reusable WhatsApp survey template packs via OpenAI Responses API."""
+
+from __future__ import annotations
+
+import json
+import re
+import uuid
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.survey_type import SurveyType
+from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.providers.openai_service import OpenAIProviderService
+from app.services.survey_type_template_service import SurveyTypeTemplateService
+from app.services.survey_whatsapp_template_service import (
+    ANONYMOUS_BODY_SENTENCE,
+    ANONYMOUS_FOOTER,
+    SYNC_DRAFT,
+    VARIANT_ANONYMOUS,
+    VARIANT_STANDARD,
+    SurveyWhatsappTemplateError,
+    SurveyWhatsappTemplateService,
+    _apply_anonymous_wording,
+    _body_preview,
+    _dumps,
+    _extract_example_values,
+    _now,
+    survey_template_to_dict,
+)
+
+PACK_SIZE = 10
+_LOCAL_ID_PREFIX = "local-"
+_NAME_RE = re.compile(r"^[a-z0-9_]{3,64}$")
+_URL_RE = re.compile(r"^https://[^\s]+$", re.I)
+
+WA_TEMPLATE_PACK_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "templates": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "template_name": {"type": "string"},
+                    "variant_type": {"type": "string", "enum": ["standard", "anonymous"]},
+                    "title": {"type": "string"},
+                    "purpose": {"type": "string"},
+                    "body": {"type": "string"},
+                    "footer": {"type": "string"},
+                    "header": {"type": "string"},
+                    "button_type": {"type": "string", "enum": ["none", "quick_reply", "url", "phone"]},
+                    "buttons": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "url": {"type": "string"},
+                                "phone_number": {"type": "string"},
+                            },
+                            "required": ["text", "url", "phone_number"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "example_values": {"type": "array", "items": {"type": "string"}},
+                    "language": {"type": "string"},
+                    "category": {"type": "string", "enum": ["MARKETING", "UTILITY", "AUTHENTICATION"]},
+                },
+                "required": [
+                    "template_name",
+                    "variant_type",
+                    "title",
+                    "purpose",
+                    "body",
+                    "footer",
+                    "header",
+                    "button_type",
+                    "buttons",
+                    "example_values",
+                    "language",
+                    "category",
+                ],
+                "additionalProperties": False,
+            },
+            "minItems": PACK_SIZE,
+            "maxItems": PACK_SIZE,
+        }
+    },
+    "required": ["templates"],
+    "additionalProperties": False,
+}
+
+
+class SurveyWaTemplatePackError(ValueError):
+    pass
+
+
+def _var_re_from_text(text: str) -> list[int]:
+    found = [int(m.group(1)) for m in re.finditer(r"\{\{(\d+)\}\}", str(text or ""))]
+    return sorted(set(found))
+
+
+def _slug_token(raw: str, *, fallback: str = "tpl") -> str:
+    token = re.sub(r"[^a-z0-9_]+", "_", str(raw or "").lower()).strip("_")
+    return (token or fallback)[:48]
+
+
+def _telnyx_pack_name(survey_slug: str, template_name: str) -> str:
+    slug = _slug_token(survey_slug, fallback="survey")
+    name = _slug_token(template_name, fallback="template")
+    return f"voxbulk_survey_{slug}_{name}"[:128]
+
+
+def _ensure_unique_telnyx_name(db: Session, base_name: str) -> str:
+    candidate = base_name[:128]
+    suffix = 2
+    while db.execute(
+        select(TelnyxWhatsappTemplate.id).where(TelnyxWhatsappTemplate.name == candidate).limit(1)
+    ).scalar_one_or_none():
+        tail = f"_{suffix}"
+        candidate = f"{base_name[: 128 - len(tail)]}{tail}"
+        suffix += 1
+    return candidate
+
+
+def _normalize_category(raw: str) -> str:
+    cat = str(raw or "MARKETING").strip().upper()
+    return cat if cat in {"MARKETING", "UTILITY", "AUTHENTICATION"} else "MARKETING"
+
+
+def _normalize_button_type(raw: str) -> str:
+    key = str(raw or "none").strip().lower()
+    return key if key in {"none", "quick_reply", "url", "phone"} else "none"
+
+
+def _build_buttons_component(button_type: str, buttons: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+    bt = _normalize_button_type(button_type)
+    if bt == "none":
+        return None
+    cleaned = [b for b in buttons if isinstance(b, dict) and str(b.get("text") or "").strip()]
+    if bt == "quick_reply":
+        out = []
+        for btn in cleaned[:3]:
+            label = str(btn.get("text") or "").strip()[:25]
+            if label:
+                out.append({"type": "QUICK_REPLY", "text": label})
+        return out or None
+    if bt == "url":
+        btn = cleaned[0] if cleaned else {}
+        label = str(btn.get("text") or "Open link").strip()[:25]
+        url = str(btn.get("url") or "").strip()
+        if not label or not _URL_RE.match(url):
+            return None
+        return [{"type": "URL", "text": label, "url": url}]
+    if bt == "phone":
+        btn = cleaned[0] if cleaned else {}
+        label = str(btn.get("text") or "Call us").strip()[:25]
+        phone = str(btn.get("phone_number") or "").strip()
+        if not label or not phone:
+            return None
+        return [{"type": "PHONE_NUMBER", "text": label, "phone_number": phone}]
+    return None
+
+
+def build_components_from_generated(item: dict[str, Any]) -> list[dict[str, Any]]:
+    components: list[dict[str, Any]] = []
+    header = str(item.get("header") or "").strip()
+    body = str(item.get("body") or "").strip()
+    footer = str(item.get("footer") or "").strip()
+    examples = [str(v) for v in (item.get("example_values") or []) if str(v).strip()]
+    if not examples:
+        examples = ["Alex", "Northgate Dental", "https://example.com/s/abc", "Monday 9am"]
+
+    if header:
+        components.append({"type": "HEADER", "format": "TEXT", "text": header[:60]})
+
+    body_example = examples[: max(1, len(_var_re_from_text(body + " " + header)))]
+    if not body_example:
+        body_example = [examples[0]]
+    components.append(
+        {
+            "type": "BODY",
+            "text": body,
+            "example": {"body_text": [body_example]},
+        }
+    )
+    if footer:
+        components.append({"type": "FOOTER", "text": footer[:60]})
+
+    button_type = _normalize_button_type(item.get("button_type"))
+    btn_list = item.get("buttons") if isinstance(item.get("buttons"), list) else []
+    built_buttons = _build_buttons_component(button_type, btn_list)
+    if built_buttons:
+        components.append({"type": "BUTTONS", "buttons": built_buttons})
+
+    variant = str(item.get("variant_type") or VARIANT_STANDARD).strip().lower()
+    if variant == VARIANT_ANONYMOUS:
+        components = _apply_anonymous_wording(components)
+
+    return components
+
+
+def validate_generated_template(item: dict[str, Any], *, survey_type: SurveyType | None = None) -> tuple[dict[str, Any] | None, list[str]]:
+    errors: list[str] = []
+    if not isinstance(item, dict):
+        return None, ["Template must be an object"]
+
+    template_name = _slug_token(item.get("template_name"), fallback="")
+    if not template_name or not _NAME_RE.match(template_name):
+        errors.append("template_name must be 3–64 lowercase letters, numbers, or underscores")
+
+    variant = str(item.get("variant_type") or VARIANT_STANDARD).strip().lower()
+    if variant not in {VARIANT_STANDARD, VARIANT_ANONYMOUS}:
+        errors.append("variant_type must be standard or anonymous")
+
+    body = str(item.get("body") or "").strip()
+    if not body:
+        errors.append("body is required")
+    if len(body) > 1024:
+        errors.append("body exceeds WhatsApp length guidance (1024 chars)")
+
+    footer = str(item.get("footer") or "").strip()
+    if not footer:
+        errors.append("footer is required")
+    elif len(footer) > 60:
+        errors.append("footer exceeds 60 characters")
+
+    header = str(item.get("header") or "").strip()
+    if header and len(header) > 60:
+        errors.append("header exceeds 60 characters")
+
+    combined = f"{header} {body}"
+    var_ids = _var_re_from_text(combined)
+    if var_ids:
+        expected = list(range(1, max(var_ids) + 1))
+        if var_ids != expected:
+            errors.append(f"variables must be sequential from {{{{1}}}} — found {var_ids}")
+
+    examples = [str(v) for v in (item.get("example_values") or []) if str(v).strip()]
+    if not examples:
+        errors.append("example_values must include at least one sample value")
+    elif var_ids and len(examples) < max(var_ids):
+        errors.append(f"example_values must include at least {max(var_ids)} value(s) for used variables")
+
+    button_type = _normalize_button_type(item.get("button_type"))
+    buttons = item.get("buttons") if isinstance(item.get("buttons"), list) else []
+    if button_type == "quick_reply":
+        labels = [str(b.get("text") or "").strip() for b in buttons if isinstance(b, dict)]
+        labels = [l for l in labels if l]
+        if not labels:
+            errors.append("quick_reply templates need at least one button label")
+        elif len(labels) > 3:
+            errors.append("quick_reply supports at most 3 buttons")
+    elif button_type == "url":
+        btn = buttons[0] if buttons else {}
+        url = str(btn.get("url") or "").strip() if isinstance(btn, dict) else ""
+        if not _URL_RE.match(url):
+            errors.append("url button templates need a valid https URL")
+    elif button_type == "phone":
+        btn = buttons[0] if buttons else {}
+        phone = str(btn.get("phone_number") or "").strip() if isinstance(btn, dict) else ""
+        if not phone:
+            errors.append("phone button templates need phone_number")
+
+    if variant == VARIANT_ANONYMOUS:
+        if ANONYMOUS_BODY_SENTENCE.lower() not in body.lower():
+            errors.append("anonymous templates must mention the survey is anonymous in the body")
+        if footer != ANONYMOUS_FOOTER:
+            errors.append(f"anonymous templates must use footer “{ANONYMOUS_FOOTER}”")
+
+    if survey_type is not None:
+        telnyx_name = _telnyx_pack_name(survey_type.slug, template_name or "template")
+        if len(telnyx_name) < 8:
+            errors.append("resolved Telnyx template name is too short")
+
+    if errors:
+        return None, errors
+
+    normalized = {
+        "template_name": template_name,
+        "variant_type": variant,
+        "title": str(item.get("title") or template_name).strip()[:128],
+        "purpose": str(item.get("purpose") or "").strip()[:128],
+        "body": body,
+        "footer": footer,
+        "header": header,
+        "button_type": button_type,
+        "buttons": buttons,
+        "example_values": examples,
+        "language": str(item.get("language") or "en_US").strip() or "en_US",
+        "category": _normalize_category(item.get("category")),
+        "service_type": survey_type.slug if survey_type else str(item.get("service_type") or ""),
+        "components": build_components_from_generated(item),
+    }
+    return normalized, []
+
+
+def _pack_system_prompt() -> str:
+    return (
+        "You are a WhatsApp Business template author for VoxBulk survey campaigns. "
+        "Generate exactly 10 reusable Meta/Telnyx-compatible templates. "
+        "Use British English. Do not use OpenAI Realtime features. "
+        "Variables must use Meta format {{1}}, {{2}}, {{3}}, {{4}} where: "
+        "{{1}}=customer first name, {{2}}=business/service name, {{3}}=survey link or reference, "
+        "{{4}}=appointment or service date when relevant. "
+        "Include a diverse mix: standard intro, reminder, follow-up, anonymous intro, short invitation, "
+        "plain text (button_type none), quick_reply (1-3 buttons), URL CTA, and phone CTA templates. "
+        "Quick reply: max 3 buttons. URL buttons must use https URLs. "
+        "Anonymous variant_type templates must state the survey is anonymous in the body and use footer "
+        f"“{ANONYMOUS_FOOTER}”. "
+        "template_name must be unique lowercase snake_case without the voxbulk_survey prefix. "
+        "Keep body concise and WhatsApp-friendly."
+    )
+
+
+def _pack_user_prompt(*, survey_type: SurveyType, purpose: str, instruction: str) -> str:
+    parts = [
+        f"Survey type: {survey_type.name}",
+        f"Slug: {survey_type.slug}",
+        f"Description: {survey_type.description or survey_type.name}",
+        f"Supports anonymous: {bool(survey_type.supports_anonymous)}",
+    ]
+    if purpose.strip():
+        parts.append(f"Template purpose focus: {purpose.strip()}")
+    if instruction.strip():
+        parts.append(f"Admin instruction: {instruction.strip()}")
+    parts.append(f"Generate exactly {PACK_SIZE} templates as JSON.")
+    return "\n".join(parts)
+
+
+class SurveyWaTemplatePackService:
+    @staticmethod
+    def generate_pack(
+        db: Session,
+        *,
+        survey_type: SurveyType,
+        purpose: str = "",
+        instruction: str = "",
+    ) -> dict[str, Any]:
+        try:
+            raw, meta = OpenAIProviderService.responses_json(
+                db,
+                system_prompt=_pack_system_prompt(),
+                user_prompt=_pack_user_prompt(survey_type=survey_type, purpose=purpose, instruction=instruction),
+                json_schema=WA_TEMPLATE_PACK_JSON_SCHEMA,
+                schema_name="wa_survey_template_pack",
+                max_output_tokens=16000,
+                temperature=0.55,
+            )
+        except ValueError as e:
+            raise SurveyWaTemplatePackError(str(e)) from e
+
+        items = raw.get("templates")
+        if not isinstance(items, list):
+            raise SurveyWaTemplatePackError("OpenAI response missing templates array")
+
+        validated: list[dict[str, Any]] = []
+        invalid: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+        for idx, item in enumerate(items):
+            normalized, errors = validate_generated_template(item, survey_type=survey_type)
+            row = {
+                "index": idx,
+                "raw": item,
+                "valid": not errors,
+                "errors": errors,
+            }
+            if normalized:
+                name_key = normalized["template_name"]
+                if name_key in seen_names:
+                    errors = errors + [f"duplicate template_name {name_key}"]
+                    row["valid"] = False
+                    row["errors"] = errors
+                    invalid.append(row)
+                    continue
+                seen_names.add(name_key)
+                telnyx_name = _ensure_unique_telnyx_name(
+                    db, _telnyx_pack_name(survey_type.slug, normalized["template_name"])
+                )
+                preview = SurveyWhatsappTemplateService.build_preview(
+                    db,
+                    _preview_row(normalized, telnyx_name),
+                    first_name=normalized["example_values"][0] if normalized["example_values"] else "Alex",
+                    business_name=normalized["example_values"][1] if len(normalized["example_values"]) > 1 else "Northgate Dental",
+                )
+                row["template"] = {
+                    **normalized,
+                    "telnyx_name": telnyx_name,
+                    "display_name": normalized["title"],
+                    "preview": preview,
+                    "buttons_preview": preview.get("buttons") or [],
+                }
+                validated.append(row)
+            else:
+                invalid.append(row)
+
+        return {
+            "ok": True,
+            "survey_type_id": survey_type.id,
+            "survey_type_name": survey_type.name,
+            "generated_count": len(items),
+            "valid_count": len(validated),
+            "invalid_count": len(invalid),
+            "templates": validated + invalid,
+            "valid_templates": [r["template"] for r in validated if r.get("template")],
+            "openai": meta,
+        }
+
+    @staticmethod
+    def save_selected_templates(
+        db: Session,
+        *,
+        survey_type: SurveyType,
+        templates: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if not templates:
+            raise SurveyWaTemplatePackError("Select at least one template to save")
+
+        saved: list[dict[str, Any]] = []
+        errors: list[str] = []
+        for item in templates:
+            normalized, val_errors = validate_generated_template(item, survey_type=survey_type)
+            if not normalized:
+                errors.append(f"{item.get('template_name') or 'template'}: {'; '.join(val_errors)}")
+                continue
+            try:
+                row = SurveyWaTemplatePackService._create_draft_row(db, survey_type=survey_type, item=normalized)
+                saved.append(survey_template_to_dict(row, linked_survey_type_count=1))
+            except SurveyWhatsappTemplateError as e:
+                errors.append(str(e))
+
+        if not saved and errors:
+            raise SurveyWaTemplatePackError("; ".join(errors[:5]))
+
+        return {
+            "ok": True,
+            "saved_count": len(saved),
+            "templates": saved,
+            "errors": errors[:20],
+        }
+
+    @staticmethod
+    def _create_draft_row(db: Session, *, survey_type: SurveyType, item: dict[str, Any]) -> TelnyxWhatsappTemplate:
+        components = item.get("components")
+        if not isinstance(components, list) or not components:
+            components = build_components_from_generated(item)
+        examples = item.get("example_values")
+        if not isinstance(examples, list) or not examples:
+            examples = _extract_example_values(components)
+
+        telnyx_name = _ensure_unique_telnyx_name(
+            db, _telnyx_pack_name(survey_type.slug, item["template_name"])
+        )
+        now = _now()
+        local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"
+        variant = str(item.get("variant_type") or VARIANT_STANDARD).strip().lower()
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id=local_id,
+            template_id=local_id,
+            name=telnyx_name,
+            display_name=str(item.get("title") or item.get("template_name"))[:128],
+            language=str(item.get("language") or "en_US"),
+            category=_normalize_category(item.get("category")),
+            status="LOCAL_DRAFT",
+            variant_type=variant,
+            body_preview=_body_preview(components),
+            draft_components_json=_dumps(components),
+            example_values_json=_dumps([str(v) for v in examples]),
+            local_sync_status=SYNC_DRAFT,
+            active_for_survey=True,
+            created_at=now,
+            updated_at=now,
+            synced_at=now,
+        )
+        db.add(row)
+        db.flush()
+
+        if variant == VARIANT_ANONYMOUS:
+            SurveyTypeTemplateService.upsert_mapping(
+                db,
+                survey_type_id=survey_type.id,
+                template_id=row.id,
+                usable_as_anonymous=True,
+            )
+        else:
+            SurveyTypeTemplateService.upsert_mapping(
+                db,
+                survey_type_id=survey_type.id,
+                template_id=row.id,
+                usable_as_standard=True,
+            )
+        db.refresh(row)
+        return row
+
+
+def _preview_row(item: dict[str, Any], telnyx_name: str) -> TelnyxWhatsappTemplate:
+    """Ephemeral row for preview rendering only (not persisted)."""
+    components = item.get("components") or build_components_from_generated(item)
+    examples = item.get("example_values") or _extract_example_values(components)
+    return TelnyxWhatsappTemplate(
+        telnyx_record_id="preview",
+        template_id="preview",
+        name=telnyx_name,
+        display_name=str(item.get("title") or item.get("template_name"))[:128],
+        language=str(item.get("language") or "en_US"),
+        category=_normalize_category(item.get("category")),
+        status="LOCAL_DRAFT",
+        variant_type=str(item.get("variant_type") or VARIANT_STANDARD),
+        draft_components_json=_dumps(components),
+        example_values_json=_dumps(examples),
+        local_sync_status=SYNC_DRAFT,
+        active_for_survey=True,
+    )

@@ -11,8 +11,6 @@ export default function Layout() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('vb-admin-sb-collapsed') === '1')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [session, setSession] = useState({ status: 'loading', message: '' })
-  const [sessionAttempt, setSessionAttempt] = useState(0)
-  const [loadingSlow, setLoadingSlow] = useState(false)
 
   useEffect(() => {
     document.body.classList.toggle('dark', dark)
@@ -48,33 +46,29 @@ export default function Layout() {
 
   useEffect(() => {
     let cancelled = false
-    setLoadingSlow(false)
     setSession({ status: 'loading', message: '' })
-    const slowTimer = window.setTimeout(() => {
-      if (!cancelled) setLoadingSlow(true)
-    }, 6000)
     ;(async () => {
       const s = await ensureAdminSession()
       if (cancelled) return
       setSession(s)
-      setLoadingSlow(false)
     })()
     return () => {
       cancelled = true
-      window.clearTimeout(slowTimer)
     }
-  }, [sessionAttempt])
+  }, [])
 
-  const retrySession = () => setSessionAttempt((n) => n + 1)
+  if (session.status === 'loading') {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <p className="muted">Loading admin session…</p>
+        </div>
+      </div>
+    )
+  }
 
-  if (session.status !== 'ready') {
-    const msg =
-      session.status === 'loading'
-        ? loadingSlow
-          ? 'Still checking your admin session — the API may be starting or unreachable.\n\nUse the buttons below to sign in or retry.'
-          : 'Loading admin session…'
-        : session.message || 'Admin session required.'
-
+  if (session.status === 'none' || session.status === 'blocked') {
+    const msg = session.message || (session.status === 'blocked' ? 'Admin access required.' : 'Sign in to continue.')
     const publicOrigin = getPublicAppOrigin()
     const goSignIn = () => window.location.assign(`${publicOrigin}/signin`)
 
@@ -82,22 +76,15 @@ export default function Layout() {
       <div className='auth-shell'>
         <div className='auth-card'>
           <h2>Admin access</h2>
-          <p className='muted' style={{ whiteSpace: 'pre-wrap' }}>{msg}</p>
-          {(session.status !== 'loading' || loadingSlow) && (
-            <div className='auth-actions'>
-              {session.status === 'loading' && loadingSlow ? (
-                <button type='button' className='btn btng' onClick={retrySession}>
-                  Retry
-                </button>
-              ) : null}
-              <button type='button' className='btn btng' onClick={goSignIn}>
-                Go to sign in
-              </button>
-              <button type='button' className='btn' onClick={() => adminLogoutRedirect()}>
-                Clear session
-              </button>
-            </div>
-          )}
+          <p className='muted'>{msg}</p>
+          <div className='auth-actions'>
+            <button type='button' className='btn btng' onClick={goSignIn}>
+              Go to sign in
+            </button>
+            <button type='button' className='btn' onClick={() => adminLogoutRedirect()}>
+              Clear session
+            </button>
+          </div>
         </div>
       </div>
     )

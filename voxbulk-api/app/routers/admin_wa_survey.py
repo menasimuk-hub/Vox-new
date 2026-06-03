@@ -9,6 +9,7 @@ from app.core.admin_rbac import CAP_INTEGRATION, require_cap
 from app.core.database import get_db
 from app.services.survey_generation_service import SurveyGenerationService
 from app.services.survey_type_service import SurveyTypeService, survey_type_to_dict
+from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackError, SurveyWaTemplatePackService
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
@@ -70,6 +71,47 @@ def update_survey_type(
     updated = SurveyTypeService.update_type(db, row, payload)
     counts = SurveyTypeService._template_counts(db, updated.id)
     return {"ok": True, "type": survey_type_to_dict(updated, template_counts=counts)}
+
+
+@router.post("/types/{type_id}/templates/generate-pack")
+def generate_template_pack(
+    type_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = SurveyTypeService.get_type(db, type_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    body = payload or {}
+    try:
+        return SurveyWaTemplatePackService.generate_pack(
+            db,
+            survey_type=row,
+            purpose=str(body.get("purpose") or body.get("template_purpose") or "").strip(),
+            instruction=str(body.get("instruction") or body.get("admin_instruction") or "").strip(),
+        )
+    except SurveyWaTemplatePackError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
+@router.post("/types/{type_id}/templates/save-pack")
+def save_template_pack(
+    type_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = SurveyTypeService.get_type(db, type_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    templates = payload.get("templates") or payload.get("selected") or []
+    if not isinstance(templates, list):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="templates must be an array")
+    try:
+        return SurveyWaTemplatePackService.save_selected_templates(db, survey_type=row, templates=templates)
+    except SurveyWaTemplatePackError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post("/types/{type_id}/templates/standard")

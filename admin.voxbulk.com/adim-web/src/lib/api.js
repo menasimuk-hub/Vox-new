@@ -465,97 +465,44 @@ export function getPublicLogoutLandingUrl() {
 
 /**
  * Resolve whether we have an admin session.
- * - ready: API reachable AND token valid for console
+ * - ready: token present (validated when API is reachable)
  * - blocked: authenticated but lacks platform admin access (clinic-only user)
  * - none: no token present / session invalid HTTP
- * - error: base URL not configured OR API unreachable
  */
-export async function ensureAdminSession() {
-  const mis = getApiMisconfigurationMessage()
-  if (mis) {
-    return {
-      status: 'error',
-      message: `${mis}\n\n${networkFailureHelp()}`,
-    }
-  }
+function isTransientNetworkError(err) {
+  const msg = err?.message || String(err)
+  const name = err?.name || ''
+  return (
+    name === 'AbortError' ||
+    /failed to fetch|networkerror|network request failed|load failed|aborted/i.test(msg) ||
+    name === 'TypeError'
+  )
+}
 
-  const health = await probeApiConnectivity()
-  if (!health.ok) {
-    return {
-      status: 'error',
-      message: [
-        'Cannot verify API connectivity.',
-        `- Browser requested: ${health.url || '(unknown)'}`,
-        health.proxyTarget ? `- Vite proxy target (Node → FastAPI): ${health.proxyTarget}` : '',
-        health.status != null ? `- HTTP status: ${health.status}` : '',
-        health.error ? `- Detail: ${health.error}` : '',
-        health.bodySnippet ? `- Body preview: ${health.bodySnippet}` : '',
-        health.upstreamHint ? `- Note: ${health.upstreamHint}` : '',
-        `- Mode: ${isViteDevelopment() && !getApiBaseUrl() ? 'Vite dev proxy (same-origin /health → upstream via Node)' : 'Direct browser → API (no proxy)'}`,
-        '',
-        networkFailureHelp(),
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    }
-  }
-
-  const direct = getAdminAccessTokenRaw()
-  if (direct) {
-    try {
-      const baseUrl = getApiBaseUrl()
-      const url = joinOriginAndPath(baseUrl, '/auth/me')
-      const r = await fetchWithTimeout(url, {
-        headers: { Authorization: `Bearer ${direct}`, Accept: 'application/json' },
-      })
-      const text = await r.text()
-      const data = text ? safeJson(text) : null
-      if (!r.ok) {
-        return {
-          status: 'none',
-          message:
-            'Session expired or invalid. Sign-in links only work for about an hour — go to the public sign-in page and log in again with a platform admin account.',
-        }
-      }
-      if (data?.admin_access || data?.is_superuser) {
-        return { status: 'ready', token: direct }
-      }
-      return {
-        status: 'blocked',
-        message:
-          'This account is signed in as a clinic user only. Platform admin users (Operations / Billing / Templates roles) use the same sign-in URL but must be explicitly provisioned.',
-      }
-    } catch (e) {
-      return {
-        status: 'error',
-        message: [
-          `${e?.message || 'network error'} when calling GET ${describeApiOrigin()}/auth/me`,
-          '',
-          networkFailureHelp(),
-        ].join('\n'),
-      }
-    }
-  }
-
-  const shared = getSharedJwtFromStorage()
-  if (!shared) {
-    return { status: 'none', message: 'No session found. Sign in as an admin first.' }
-  }
-
+async function resolveSessionFromToken(token) {
+  if (!token) return null
   try {
-    const baseUrl = getApiBaseUrl()
-    const url = joinOriginAndPath(baseUrl, '/auth/me')
-    const r = await fetchWithTimeout(url, {
-      headers: { Authorization: `Bearer ${shared}`, Accept: 'application/json' },
-    })
+    const url = joinOriginAndPath(getApiBaseUrl(), '/auth/me')
+    const r = await fetchWithTimeout(
+      url,
+      {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      },
+      10000
+    )
     const text = await r.text()
     const data = text ? safeJson(text) : null
     if (!r.ok) {
-      return { status: 'none', message: 'Session invalid. Please sign in again.' }
+      return {
+        status: 'none',
+        message:
+          r.status === 401 || r.status === 403
+            ? 'Session expired or invalid. Sign in again with a platform admin account.'
+            : 'Session invalid. Please sign in again.',
+      }
     }
     if (data?.admin_access || data?.is_superuser) {
-      persistPromotedAdminSession(shared)
-      return { status: 'ready', token: shared }
+      return { status: 'ready', token }
     }
     return {
       status: 'blocked',
@@ -563,15 +510,38 @@ export async function ensureAdminSession() {
         'This account is signed in as a clinic user only. Platform admin users (Operations / Billing / Templates roles) use the same sign-in URL but must be explicitly provisioned.',
     }
   } catch (e) {
-    return {
-      status: 'error',
-      message: [
-        `${e?.message || 'network error'} when validating session (${describeApiOrigin()} GET /auth/me)`,
-        '',
-        networkFailureHelp(),
-      ].join('\n'),
+    if (isTransientNetworkError(e)) {
+      return { status: 'ready', token, offline: true }
     }
+    return { status: 'ready', token, offline: true }
   }
+}
+
+export async function ensureAdminSession() {
+  const mis = getApiMisconfigurationMessage()
+  const storedToken = getAdminAccessTokenRaw() || getSharedJwtFromStorage()
+  if (mis) {
+    if (storedToken) return { status: 'ready', token: storedToken, offline: true }
+    return { status: 'none', message: mis }
+  }
+
+  const direct = getAdminAccessTokenRaw()
+  if (direct) {
+    const session = await resolveSessionFromToken(direct)
+    if (session) return session
+  }
+
+  const shared = getSharedJwtFromStorage()
+  if (!shared) {
+    return { status: 'none', message: 'No session found. Sign in as an admin first.' }
+  }
+
+  const session = await resolveSessionFromToken(shared)
+  if (session?.status === 'ready') {
+    persistPromotedAdminSession(shared)
+    return session
+  }
+  return session || { status: 'none', message: 'No session found. Sign in as an admin first.' }
 }
 
 function formatApiError(data, status, statusText) {
