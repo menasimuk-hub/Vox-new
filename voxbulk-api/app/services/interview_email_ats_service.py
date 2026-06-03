@@ -47,6 +47,81 @@ def _mark_ats_pending(recipient: ServiceOrderRecipient) -> None:
     recipient.result_json = json.dumps(merged, ensure_ascii=False)
 
 
+def _clear_deferred_email_ats(recipient: ServiceOrderRecipient) -> None:
+    try:
+        merged = json.loads(recipient.result_json or "{}")
+        if not isinstance(merged, dict):
+            return
+    except Exception:
+        return
+    if "email_ats_pending_at" not in merged:
+        return
+    merged.pop("email_ats_pending_at", None)
+    recipient.result_json = json.dumps(merged, ensure_ascii=False)
+
+
+def _has_deferred_email_ats(recipient: ServiceOrderRecipient) -> bool:
+    try:
+        merged = json.loads(recipient.result_json or "{}")
+        if not isinstance(merged, dict) or not merged.get("email_ats_pending_at"):
+            return False
+    except Exception:
+        return False
+    status = str(recipient.ats_status or "").lower()
+    if status in {"pending", "analyzing"}:
+        return True
+    if status == "complete" and recipient.ats_score is not None:
+        return False
+    if status == "failed":
+        return False
+    return True
+
+
+def retry_deferred_email_ats(
+    db: Session,
+    *,
+    order_id: str | None = None,
+    limit: int = 10,
+) -> int:
+    """Re-run ATS for emailed CVs that were deferred until role/criteria were saved."""
+    from sqlalchemy import select
+
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+
+    query = (
+        select(ServiceOrderRecipient, ServiceOrder)
+        .join(ServiceOrder, ServiceOrder.id == ServiceOrderRecipient.order_id)
+        .where(ServiceOrder.service_code == "interview")
+        .order_by(ServiceOrderRecipient.created_at.asc())
+    )
+    if order_id:
+        query = query.where(ServiceOrder.id == order_id)
+    rows = list(db.execute(query.limit(max(1, limit * 4))).all())
+    processed = 0
+    for recipient, order in rows:
+        if processed >= limit:
+            break
+        if not _has_deferred_email_ats(recipient):
+            continue
+        if not _order_ready_for_email_ats(order):
+            continue
+        result = auto_ats_for_cv_recipient(db, order, recipient)
+        if result.get("ok"):
+            _clear_deferred_email_ats(recipient)
+            db.add(recipient)
+            db.commit()
+            processed += 1
+            continue
+        if result.get("reason") == "criteria_not_ready":
+            continue
+        if str(recipient.ats_status or "").lower() in {"pending", "analyzing", "complete"}:
+            _clear_deferred_email_ats(recipient)
+            db.add(recipient)
+            db.commit()
+            processed += 1
+    return processed
+
+
 def auto_ats_for_cv_recipient(
     db: Session,
     order: ServiceOrder,
@@ -99,6 +174,8 @@ def auto_ats_for_cv_recipient(
     if str(recipient.ats_status or "").lower() != "complete" or recipient.ats_score is None:
         return {"ok": False, "reason": "ats_failed", "ats_status": recipient.ats_status}
 
+    _clear_deferred_email_ats(recipient)
+    db.add(recipient)
     actual_score = int(recipient.ats_score)
     if maybe_reject_recipient_by_ats_threshold(db, order, recipient):
         return {

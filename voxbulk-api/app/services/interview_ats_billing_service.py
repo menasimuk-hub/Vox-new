@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,8 @@ from app.models.platform_service import PlatformService
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.interview_ats_service import process_pending_ats_scans, queue_ats_for_order, sanitize_cv_text
 from app.services.platform_catalog_service import PlatformCatalogService
+
+logger = logging.getLogger(__name__)
 
 ATS_SERVICE_CODE = "interview_ats"
 DEFAULT_ATS_UNIT_PENCE = 50
@@ -194,6 +197,7 @@ def charge_and_queue_ats(
     recipient_ids: list[str] | None = None,
     force: bool = False,
     require_script: bool = True,
+    process_inline: bool = False,
 ) -> dict[str, Any]:
     if require_script:
         assert_script_ready_for_ats(order)
@@ -234,11 +238,11 @@ def charge_and_queue_ats(
     ids = [str(rid).strip() for rid in (recipient_ids or quote.get("recipient_ids") or []) if str(rid).strip()]
     queued = queue_ats_for_order(db, order, recipient_ids=ids or None, force=force)
     processed = 0
-    if queued > 0:
+    if queued > 0 and process_inline:
         processed = process_pending_ats_scans(db, limit=max(1, min(int(queued), 8)))
 
     accepted = 0
-    if ids and org is not None:
+    if process_inline and ids and org is not None:
         from app.services.interview_cv_exclusion_service import maybe_reject_recipient_by_ats_threshold
 
         recipients = list(
@@ -270,3 +274,16 @@ def charge_and_queue_ats(
             pass
 
     return {"ok": True, "queued": queued, "processed": processed, "accepted": accepted, "charged_pence": total, **quote}
+
+
+def background_process_ats_scans(*, limit: int = 8) -> None:
+    """Process queued ATS rows after HTTP response so UI can show Analyzing."""
+    from app.core.database import get_sessionmaker
+
+    db = get_sessionmaker()()
+    try:
+        process_pending_ats_scans(db, limit=max(1, min(int(limit), 8)))
+    except Exception:
+        logger.exception("background_process_ats_scans_failed")
+    finally:
+        db.close()

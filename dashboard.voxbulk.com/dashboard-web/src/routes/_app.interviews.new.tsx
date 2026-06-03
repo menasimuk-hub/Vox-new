@@ -4,14 +4,18 @@ import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2
 import { useQueryClient } from "@tanstack/react-query";
 import { notifyInterviewLaunch, type InterviewLaunchResult } from "@/lib/interviewLaunchFeedback";
 import {
+  ATS_ANALYZING_LABEL,
   ATS_CUTOFF_PENDING_COLOR,
   DEFAULT_MIN_ATS_SCORE,
+  candidateNeedsAtsScore,
   countScreeningEligibleCandidates,
   interviewCampaignReadOnlyLabel,
+  isAtsAnalyzingStatus,
   isInterviewCampaignLaunched,
   isInterviewCampaignReadOnly,
   bookingInvitesWereSent,
   campaignAllowsResendBookingInvites,
+  resolveCandidateAtsDisplay,
 } from "@/lib/interview-campaign";
 import { estimateInterviewDurationMinutes, extractQuestionsBlock, mergeQuestionsIntoScript, resolveScriptFromConfig } from "@/lib/interview-script";
 
@@ -583,10 +587,7 @@ function CreateInterview() {
   const atsInProgress = React.useMemo(
     () =>
       runAtsM.isPending ||
-      candidates.some((c) => {
-        const status = String(c.atsStatus || "").toLowerCase();
-        return status === "pending" || status === "analyzing";
-      }),
+      candidates.some((c) => isAtsAnalyzingStatus(c.atsStatus)),
     [candidates, runAtsM.isPending],
   );
 
@@ -1013,13 +1014,13 @@ function CreateInterview() {
   const confirmAtsRun = async () => {
     if (!orderId) return;
     setAtsPromptOpen(false);
-    toast.message("ATS scoring in background — scores update automatically.");
+    toast.message(ATS_ANALYZING_LABEL);
     try {
       await runAtsM.mutateAsync({ confirm_charge: true, force: atsForce });
       setAtsSkipped(false);
       setAtsRunAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       refreshDraft();
-      toast.success("ATS scoring started");
+      toast.success("ATS run queued");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "ATS run failed");
     }
@@ -1159,40 +1160,48 @@ function CreateInterview() {
   const canResendBookingInvites =
     !campaignReadOnly && candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
   const unscoredCount = React.useMemo(
-    () =>
-      candidates.filter((c) => {
-        const status = String(c.atsStatus || "").toLowerCase();
-        if (status === "complete" && c.ats != null) return false;
-        if (status === "pending" || status === "analyzing") return false;
-        return true;
-      }).length,
+    () => candidates.filter((c) => candidateNeedsAtsScore(c) && !isAtsAnalyzingStatus(c.atsStatus)).length,
     [candidates],
   );
+  const analyzingCount = React.useMemo(
+    () =>
+      candidates.filter(
+        (c) => isAtsAnalyzingStatus(c.atsStatus) || (runAtsM.isPending && candidateNeedsAtsScore(c)),
+      ).length,
+    [candidates, runAtsM.isPending],
+  );
   const allCandidatesScored =
-    candidates.length > 0 && candidates.every((c) => c.ats != null || Boolean(c.atsStatus));
+    candidates.length > 0 &&
+    candidates.every((c) => {
+      const st = String(c.atsStatus || "").toLowerCase();
+      return (st === "complete" && c.ats != null) || st === "failed";
+    });
   const atsRunRecorded =
     Boolean(config.ats_manual_run_at) ||
     Boolean(config.ats_last_charge_at) ||
     Boolean(atsRunAt);
   const atsScoringComplete = React.useMemo(() => {
     if (atsSkipped || config.ats_skipped) return true;
-    if (atsRunRecorded) return true;
-    if (cvEmailActive) {
-      return candidates.length === 0 || allCandidatesScored;
-    }
-    if (candidates.length === 0) return false;
+    if (runAtsM.isPending || atsInProgress) return false;
+    if (candidates.length === 0) return cvEmailActive;
     return allCandidatesScored;
   }, [
     atsSkipped,
     config.ats_skipped,
-    atsRunRecorded,
+    runAtsM.isPending,
+    atsInProgress,
     cvEmailActive,
     candidates.length,
     allCandidatesScored,
   ]);
   const atsStatusDetail = React.useMemo(() => {
     if (atsSkipped || config.ats_skipped) return "Skipped";
-    if (runAtsM.isPending || atsInProgress) return "Scoring in progress…";
+    if (runAtsM.isPending || atsInProgress) {
+      if (analyzingCount > 0) {
+        return `${ATS_ANALYZING_LABEL} (${analyzingCount} CV${analyzingCount === 1 ? "" : "s"})`;
+      }
+      return ATS_ANALYZING_LABEL;
+    }
     if (candidates.length > 0 && allCandidatesScored) {
       return cvEmailActive ? "Scored from email" : `${candidates.length} candidate${candidates.length === 1 ? "" : "s"} scored`;
     }
@@ -1220,6 +1229,7 @@ function CreateInterview() {
     atsRunRecorded,
     atsRunAt,
     unscoredCount,
+    analyzingCount,
   ]);
   const atsGatePassed = atsScoringComplete;
   const setupErrors = collectInterviewSetupErrors({
@@ -1938,14 +1948,16 @@ function CreateInterview() {
                   onClick={onRunAtsClick}
                 >
                   <Sparkles className="size-3.5" />
-                  {runAtsM.isPending ? "Running ATS…" : atsRunAt ? "Re-run ATS" : "Run ATS"}
+                  {runAtsM.isPending ? ATS_ANALYZING_LABEL : atsRunAt ? "Re-run ATS" : "Run ATS"}
                 </Button>
               </div>
             </div>
             {atsInProgress ? (
               <div className="mb-2 flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
                 <Sparkles className="size-3.5 shrink-0 animate-pulse text-primary" />
-                ATS scoring in background — scores refresh automatically.
+                {analyzingCount > 0
+                  ? `${ATS_ANALYZING_LABEL} ${analyzingCount} CV${analyzingCount === 1 ? "" : "s"} — scores refresh automatically.`
+                  : `${ATS_ANALYZING_LABEL} scores refresh automatically.`}
               </div>
             ) : null}
             <div className="table-scroll rounded-lg border border-border">
@@ -1994,11 +2006,18 @@ function CreateInterview() {
                           {r.email ? <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{r.email}</div> : null}
                         </TableCell>
                         <TableCell>
-                          <AtsScore
-                            score={r.ats}
-                            status={r.atsStatus}
-                            minThreshold={appliedMinAtsScore}
-                          />
+                          {(() => {
+                            const atsDisplay = resolveCandidateAtsDisplay(r, {
+                              optimisticAnalyzing: runAtsM.isPending && candidateNeedsAtsScore(r),
+                            });
+                            return (
+                              <AtsScore
+                                score={atsDisplay.score}
+                                status={atsDisplay.status}
+                                minThreshold={appliedMinAtsScore}
+                              />
+                            );
+                          })()}
                         </TableCell>
                         <TableCell className="text-xs">
                           <StatusBadge tone={activityStatusTone(r.activityStatus)}>
@@ -2198,7 +2217,7 @@ function CreateInterview() {
           )}
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0 || campaignReadOnly} onClick={onRunAtsClick}>
-              <Sparkles className="size-4" /> {runAtsM.isPending ? "Running ATS…" : "Run ATS"}
+              <Sparkles className="size-4" /> {runAtsM.isPending ? ATS_ANALYZING_LABEL : "Run ATS"}
             </Button>
             <Button className="gap-1.5" disabled={campaignReadOnly} onClick={onAttemptPreview}>
               <Eye className="size-4" /> Preview &amp; approve

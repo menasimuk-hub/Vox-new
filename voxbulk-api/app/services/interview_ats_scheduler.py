@@ -21,6 +21,11 @@ async def interview_ats_scheduler_loop(stop_event: asyncio.Event) -> None:
                 count = process_pending_ats_scans(db)
                 if count:
                     logger.info("interview_ats_processed count=%s", count)
+                from app.services.interview_email_ats_service import retry_deferred_email_ats
+
+                deferred = retry_deferred_email_ats(db, limit=8)
+                if deferred:
+                    logger.info("interview_email_ats_deferred_retried count=%s", deferred)
         except Exception:
             logger.exception("interview_ats_scheduler_tick_failed")
         try:

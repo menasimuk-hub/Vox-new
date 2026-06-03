@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -372,6 +372,10 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
             except CvCollectionConfigError as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         order = ServiceOrderService.update_order(db, order, {"config": config_patch})
+        if order.service_code == "interview":
+            from app.services.interview_email_ats_service import retry_deferred_email_ats
+
+            retry_deferred_email_ats(db, order_id=order.id, limit=20)
     sched_patch = {}
     for key in ("run_mode", "scheduled_start_at", "scheduled_end_at"):
         if key in payload and payload[key] is not None:
@@ -1136,11 +1140,16 @@ def quote_interview_ats(
 @router.post("/{order_id}/interview/ats/run")
 def run_interview_ats(
     order_id: str,
+    background_tasks: BackgroundTasks,
     payload: dict | None = None,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    from app.services.interview_ats_billing_service import InterviewAtsBillingError, charge_and_queue_ats
+    from app.services.interview_ats_billing_service import (
+        InterviewAtsBillingError,
+        background_process_ats_scans,
+        charge_and_queue_ats,
+    )
     from app.services.recovery_service import OrganisationService
 
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
@@ -1151,13 +1160,18 @@ def run_interview_ats(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     body = payload or {}
     try:
-        return charge_and_queue_ats(
+        result = charge_and_queue_ats(
             db,
             order,
             org,
             confirm_charge=bool(body.get("confirm_charge")),
             force=bool(body.get("force")),
+            process_inline=False,
         )
+        queued = int(result.get("queued") or 0)
+        if queued > 0:
+            background_tasks.add_task(background_process_ats_scans, limit=max(1, min(queued, 8)))
+        return result
     except InterviewAtsBillingError as e:
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)) from e
 

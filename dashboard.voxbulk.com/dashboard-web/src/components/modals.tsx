@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
 import { WaBookingPhonePreview } from "@/components/wa-booking-phone-preview";
 import { parseScriptQuestions } from "@/lib/interview-script";
+import { ATS_ANALYZING_LABEL } from "@/lib/interview-campaign";
 import {
   AlertCircle,
   CheckCircle2,
@@ -602,7 +603,7 @@ export function AtsPreviewGateModal({
             onClick={onRunAts}
             disabled={busy || quoteLoading || Boolean(quoteError) || count <= 0}
           >
-            {busy ? "Starting ATS…" : count > 0 ? `Run ATS — ${quote?.total_gbp || ""}` : "Run ATS"}
+            {busy ? ATS_ANALYZING_LABEL : count > 0 ? `Run ATS — ${quote?.total_gbp || ""}` : "Run ATS"}
           </Button>
           <Button
             variant="outline"

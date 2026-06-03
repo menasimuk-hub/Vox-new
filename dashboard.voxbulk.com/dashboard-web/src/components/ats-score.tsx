@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import { ATS_ANALYZING_LABEL, isAtsAnalyzingStatus } from "@/lib/interview-campaign";
 
 export function AtsScore({
   score,
@@ -14,11 +15,11 @@ export function AtsScore({
   excluded?: boolean;
 }) {
   const st = String(status || "").toLowerCase();
-  if (st === "pending" || st === "analyzing") {
+  if (isAtsAnalyzingStatus(st)) {
     return (
       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
         <Loader2 className="size-3 animate-spin" />
-        Analyzing…
+        {ATS_ANALYZING_LABEL}
       </span>
     );
   }

@@ -4,6 +4,42 @@ export const DEFAULT_MIN_ATS_SCORE = 40;
 /** Unsaved ATS cutoff hint colour (amber). */
 export const ATS_CUTOFF_PENDING_COLOR = "#b45309";
 
+/** Single label whenever ATS is running — do not substitute other wording. */
+export const ATS_ANALYZING_LABEL = "Analyzing…";
+
+export type InterviewCandidateAtsFields = {
+  ats: number | null;
+  atsStatus?: string;
+  activityStatus?: string;
+  /** e.g. "Auto-excluded · matched: …" for keyword exclusions */
+  activityStatusLabel?: string;
+};
+
+export function isAtsAnalyzingStatus(status?: string | null): boolean {
+  const st = String(status || "").toLowerCase();
+  return st === "pending" || st === "analyzing";
+}
+
+/** True when this row still needs an ATS score (not complete/failed). */
+export function candidateNeedsAtsScore(candidate: InterviewCandidateAtsFields): boolean {
+  const st = String(candidate.atsStatus || "").toLowerCase();
+  if (isAtsAnalyzingStatus(st)) return true;
+  if (st === "complete" && candidate.ats != null) return false;
+  if (st === "failed") return false;
+  return candidate.ats == null;
+}
+
+/** Table/cell display — always show Analyzing while queued or during optimistic run. */
+export function resolveCandidateAtsDisplay(
+  candidate: InterviewCandidateAtsFields,
+  opts?: { optimisticAnalyzing?: boolean },
+): { score: number | null; status: string } {
+  if (opts?.optimisticAnalyzing || isAtsAnalyzingStatus(candidate.atsStatus)) {
+    return { score: null, status: "analyzing" };
+  }
+  return { score: candidate.ats ?? null, status: String(candidate.atsStatus || "") };
+}
+
 /** Interview campaigns are read-only once stopped or finished. */
 export function isInterviewCampaignReadOnly(status?: string | null): boolean {
   return ["cancelled", "completed", "archived"].includes(String(status || "").toLowerCase());
@@ -58,14 +94,6 @@ export function canShowResendBookingInvite(opts: {
 }): boolean {
   return campaignAllowsResendBookingInvites(opts) && candidateAllowsResendBookingInvite(opts.activityStatus);
 }
-
-export type InterviewCandidateAtsFields = {
-  ats: number | null;
-  atsStatus?: string;
-  activityStatus?: string;
-  /** e.g. "Auto-excluded · matched: …" for keyword exclusions */
-  activityStatusLabel?: string;
-};
 
 /** True when candidate has a completed ATS score at or above the campaign cutoff and is not excluded. */
 export function isScreeningEligibleCandidate(

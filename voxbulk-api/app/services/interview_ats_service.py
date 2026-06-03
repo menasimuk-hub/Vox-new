@@ -267,7 +267,7 @@ def ats_display_for_recipient(recipient: ServiceOrderRecipient, *, position: str
     score = recipient.ats_score
     label = "—"
     if status in {"pending", "analyzing"}:
-        label = "Analyzing..."
+        label = "Analyzing…"
     elif status == "complete" and score is not None:
         label = f"{int(score)}%"
     elif status == "failed":
