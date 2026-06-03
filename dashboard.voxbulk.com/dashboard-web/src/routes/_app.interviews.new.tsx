@@ -1136,6 +1136,8 @@ function CreateInterview() {
   const availableForOrder = cvLimits?.unlimited
     ? null
     : (cvLimits?.available_for_order ?? cvLimits?.remaining ?? 0);
+  const planRemainingDisplay =
+    cvLimits?.remaining ?? cvLimits?.plan_balance_remaining ?? availableForOrder;
   const maxCvNum = maxCvCount === "" ? null : Number(maxCvCount);
   const isOverPlanLimit =
     Boolean(cvEmailActive) &&
@@ -1143,6 +1145,11 @@ function CreateInterview() {
     maxCvNum != null &&
     availableForOrder != null &&
     maxCvNum > availableForOrder;
+  const overageExtraCount =
+    isOverPlanLimit && maxCvNum != null && availableForOrder != null
+      ? Math.max(0, maxCvNum - availableForOrder)
+      : 0;
+  const overageUnitGbp = cvLimits?.combined_gbp ?? cvLimits?.overage_unit_price_gbp ?? "£5.20";
   const advancedSummary = formatCvAdvancedSummary({
     maxCvCount,
     autoCloseOnLimit,
@@ -1766,6 +1773,34 @@ function CreateInterview() {
                             disabled={cvCollectionClosed || cvLimits?.unlimited}
                             className="w-full min-w-0"
                           />
+                          {!cvLimits?.unlimited && planRemainingDisplay != null ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              You have {planRemainingDisplay} screening
+                              {planRemainingDisplay === 1 ? "" : "s"} remaining on your plan
+                            </p>
+                          ) : null}
+                          {isOverPlanLimit ? (
+                            <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
+                              {overageExtraCount > 0 ? (
+                                <p className="text-[11px] text-muted-foreground">
+                                  {overageExtraCount} extra screening{overageExtraCount === 1 ? "" : "s"} ×{" "}
+                                  {overageUnitGbp}
+                                  {cvLimits?.cost_per_cv_label ? ` (${cvLimits.cost_per_cv_label})` : ""}
+                                </p>
+                              ) : null}
+                              <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                                <Checkbox
+                                  checked={overageAcknowledged}
+                                  onCheckedChange={(checked) => setOverageAcknowledged(checked === true)}
+                                  className="mt-0.5"
+                                />
+                                <span>
+                                  I understand additional screenings beyond my plan will be invoiced at the standard
+                                  rate
+                                </span>
+                              </label>
+                            </div>
+                          ) : null}
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-xs">Auto-close when limit is reached</Label>
@@ -1814,21 +1849,6 @@ function CreateInterview() {
                     </p>
                   )}
                 </div>
-
-                {cvEmailActive && isOverPlanLimit ? (
-                  <div className="border-t border-border pt-4">
-                    <label className="flex items-start gap-2 text-xs text-muted-foreground">
-                      <Checkbox
-                        checked={overageAcknowledged}
-                        onCheckedChange={(checked) => setOverageAcknowledged(checked === true)}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        I understand additional screenings beyond my plan will be invoiced at the standard rate
-                      </span>
-                    </label>
-                  </div>
-                ) : null}
 
                 <div className="flex justify-end border-t border-border pt-4">
                   <Button
