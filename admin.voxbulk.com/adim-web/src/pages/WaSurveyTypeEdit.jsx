@@ -33,6 +33,7 @@ export default function WaSurveyTypeEdit() {
   const [surveyType, setSurveyType] = useState(null)
   const [templates, setTemplates] = useState([])
   const [modalTemplateId, setModalTemplateId] = useState(null)
+  const [modalTemplate, setModalTemplate] = useState(null)
   const [genPreview, setGenPreview] = useState(null)
   const [genVariant, setGenVariant] = useState('standard')
   const [genLength, setGenLength] = useState('standard')
@@ -148,6 +149,7 @@ export default function WaSurveyTypeEdit() {
         body: '{}',
       })
       setTemplates((rows) => [...rows, data.template])
+      setModalTemplate(data.template)
       setModalTemplateId(data.template.id)
       showOk({ message: 'Standard template draft created and linked.', template_name: data.template?.name })
     } catch (e) {
@@ -313,7 +315,16 @@ export default function WaSurveyTypeEdit() {
                     <td><span className="pill">{tpl.approval_status}</span></td>
                     <td><span className="pill muted">{tpl.sync_status_label || tpl.sync_status}</span></td>
                     <td>
-                      <button type="button" className="btn sm" onClick={() => setModalTemplateId(tpl.id)}>Edit</button>
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={() => {
+                          setModalTemplate(tpl)
+                          setModalTemplateId(tpl.id)
+                        }}
+                      >
+                        Edit
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -343,9 +354,13 @@ export default function WaSurveyTypeEdit() {
 
       <WaSurveyTemplateModal
         templateId={modalTemplateId}
+        initialTemplate={modalTemplate}
         surveyTypeId={typeId}
         open={Boolean(modalTemplateId)}
-        onClose={() => setModalTemplateId(null)}
+        onClose={() => {
+          setModalTemplateId(null)
+          setModalTemplate(null)
+        }}
         onSaved={() => void load()}
       />
     </>

@@ -449,6 +449,17 @@ def test_admin_wa_survey_api(app_client):
     assert listed.status_code == 200
     assert len(listed.json()["types"]) >= 5
 
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = _approved_template(db, survey_type)
+
+    detail = app_client.get(f"/admin/wa-survey/templates/{row.id}", headers=headers)
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["template"]["id"] == row.id
+    assert isinstance(body.get("survey_types"), list)
+    assert len(body["survey_types"]) >= 1
+
 
 def test_one_template_mapped_to_multiple_survey_types():
     with get_sessionmaker()() as db:

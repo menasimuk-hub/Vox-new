@@ -48,7 +48,37 @@ function updateFooterInComponents(components, text) {
   return out
 }
 
-export default function WaSurveyTemplateModal({ templateId, surveyTypeId, open, onClose, onSaved }) {
+function buildSurveyTypesFallback(allTypes, tpl, currentTypeId) {
+  return (allTypes || []).map((t) => {
+    const isCurrent = String(t.id) === String(currentTypeId)
+    return {
+      survey_type_id: t.id,
+      name: t.name,
+      slug: t.slug,
+      supports_anonymous: t.supports_anonymous !== false,
+      linked: isCurrent && Boolean(
+        tpl?.usable_as_standard || tpl?.usable_as_anonymous || tpl?.is_default_standard || tpl?.is_default_anonymous
+      ),
+      usable_as_standard: isCurrent ? Boolean(tpl?.usable_as_standard) : false,
+      usable_as_anonymous: isCurrent ? Boolean(tpl?.usable_as_anonymous) : false,
+      is_default_standard: isCurrent ? Boolean(tpl?.is_default_standard) : false,
+      is_default_anonymous: isCurrent ? Boolean(tpl?.is_default_anonymous) : false,
+    }
+  })
+}
+
+function applyTemplateDraft(setDraft, tpl) {
+  const components = parseComponents(tpl?.draft_components || tpl?.remote_components)
+  setDraft({
+    display_name: tpl?.display_name || tpl?.name,
+    body: bodyTextFromComponents(components),
+    footer: footerTextFromComponents(components) || tpl?.footer || '',
+    components,
+    example_values: tpl?.example_values || ['Alex'],
+  })
+}
+
+export default function WaSurveyTemplateModal({ templateId, initialTemplate, surveyTypeId, open, onClose, onSaved }) {
   const [loading, setLoading] = useState(false)
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
@@ -93,6 +123,27 @@ export default function WaSurveyTemplateModal({ templateId, surveyTypeId, open, 
     setMsgDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
   }
 
+  const loadPreview = async (id) => {
+    const previewData = await apiFetch(`/admin/wa-survey/templates/${id}/preview`)
+    setPreview(previewData)
+  }
+
+  const loadFromFallback = async () => {
+    if (!initialTemplate) throw new Error('Could not load template')
+    setTemplate(initialTemplate)
+    applyTemplateDraft(setDraft, initialTemplate)
+    const typesRes = await apiFetch('/admin/wa-survey/types')
+    setSurveyTypes(buildSurveyTypesFallback(typesRes.types, initialTemplate, surveyTypeId))
+    await loadPreview(templateId)
+    setFeedbackTone('warn')
+    setError('')
+    setErrorDetail('')
+    setMsg('FastAPI on port 8000 is outdated — restart it so shared-template mappings load.')
+    setMsgDetail(
+      'Run: cd voxbulk-api && python -m alembic upgrade head && python -m uvicorn main:app --host 127.0.0.1 --port 8000'
+    )
+  }
+
   const load = useCallback(async () => {
     if (!templateId) return
     setLoading(true)
@@ -101,22 +152,27 @@ export default function WaSurveyTemplateModal({ templateId, surveyTypeId, open, 
       const data = await apiFetch(`/admin/wa-survey/templates/${templateId}`)
       setTemplate(data.template)
       setSurveyTypes(Array.isArray(data.survey_types) ? data.survey_types : [])
-      const components = parseComponents(data.template?.draft_components || data.template?.remote_components)
-      setDraft({
-        display_name: data.template?.display_name || data.template?.name,
-        body: bodyTextFromComponents(components),
-        footer: footerTextFromComponents(components),
-        components,
-        example_values: data.template?.example_values || ['Alex'],
-      })
-      const previewData = await apiFetch(`/admin/wa-survey/templates/${templateId}/preview`)
-      setPreview(previewData)
+      applyTemplateDraft(setDraft, data.template)
+      await loadPreview(templateId)
     } catch (e) {
-      showError(e, 'Could not load template')
+      if (e?.status === 405 && initialTemplate) {
+        try {
+          await loadFromFallback()
+        } catch (fallbackErr) {
+          showError(fallbackErr, 'Could not load template')
+        }
+      } else if (e?.status === 405) {
+        showError(
+          { ...e, message: 'Template detail API is unavailable (HTTP 405). Restart FastAPI on port 8000 with the latest code.' },
+          'Could not load template'
+        )
+      } else {
+        showError(e, 'Could not load template')
+      }
     } finally {
       setLoading(false)
     }
-  }, [templateId])
+  }, [templateId, initialTemplate, surveyTypeId])
 
   useEffect(() => {
     if (open && templateId) load()
