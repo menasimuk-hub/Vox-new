@@ -135,6 +135,41 @@ def _ensure_local_demo_user() -> None:
             db.add(org)
             db.flush()
             db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="owner"))
+            db.flush()
+            mem = db.execute(
+                select(OrganisationMembership).where(OrganisationMembership.user_id == user.id)
+            ).scalar_one()
+
+        from app.models.plan import Plan
+        from app.models.subscription import Subscription
+        from app.services.gocardless_service import BillingService
+        from app.services.usage_wallet_service import UsageWalletService
+        from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+        VoxbulkPricingService.ensure_seeded(db)
+        pro = db.execute(select(Plan).where(Plan.code == "pro")).scalar_one_or_none()
+        if pro is not None and mem is not None:
+            VoxbulkPricingService.apply_plan_allowances(db, pro)
+            db.refresh(pro)
+            sub = db.execute(select(Subscription).where(Subscription.org_id == mem.org_id)).scalar_one_or_none()
+            if sub is None:
+                sub = Subscription(
+                    org_id=mem.org_id,
+                    plan_id=pro.id,
+                    status="active",
+                    payment_provider="local",
+                )
+                db.add(sub)
+                db.flush()
+            else:
+                sub.plan_id = pro.id
+                sub.status = "active"
+                db.add(sub)
+                db.flush()
+            if UsageWalletService.get_current(db, mem.org_id) is None:
+                UsageWalletService.bootstrap_from_plan(db, org_id=mem.org_id, subscription=sub)
+            else:
+                UsageWalletService.sync_plan_limits(db, org_id=mem.org_id, plan=pro, subscription=sub)
 
         db.commit()
 

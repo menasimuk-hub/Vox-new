@@ -113,6 +113,7 @@ def recipient_intake_dict(
     *,
     position: str = "",
     booking_token: Any | None = None,
+    order: ServiceOrder | None = None,
 ) -> dict[str, Any]:
     base = ServiceOrderService.recipient_to_dict(recipient)
     result_parsed = _loads_json(recipient.result_json) or {}
@@ -150,7 +151,11 @@ def recipient_intake_dict(
     base.update(ats_display_for_recipient(recipient, position=position))
     from app.services.interview_activity_service import InterviewActivityService
 
-    base["activity_status"] = InterviewActivityService.activity_status(recipient, parsed=result_parsed)
+    base["activity_status"] = InterviewActivityService.activity_status(
+        recipient, parsed=result_parsed, order=order
+    )
+    if result_parsed.get("exclusion_label") and base["activity_status"] == "auto_excluded":
+        base["activity_status_label"] = str(result_parsed.get("exclusion_label"))
     base["booked_start_at"] = result_parsed.get("booked_start_at")
     base["booked_end_at"] = result_parsed.get("booked_end_at")
     phone_raw = str(recipient.phone or "").strip()
@@ -954,7 +959,7 @@ def list_intake_recipients(db: Session, order: ServiceOrder) -> list[dict[str, A
             token_by_recipient[token.recipient_id] = token
 
     role, _ = _order_job_context(order)
-    return [recipient_intake_dict(r, position=role, booking_token=token_by_recipient.get(r.id)) for r in rows]
+    return [recipient_intake_dict(r, position=role, booking_token=token_by_recipient.get(r.id), order=order) for r in rows]
 
 
 def update_intake_recipient(

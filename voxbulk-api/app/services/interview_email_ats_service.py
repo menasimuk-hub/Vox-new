@@ -10,18 +10,27 @@ from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
-from app.services.interview_ats_billing_service import InterviewAtsBillingError, charge_and_queue_ats
+from app.services.interview_ats_billing_service import InterviewAtsBillingError, assert_email_cv_ats_ready
+from app.services.interview_ats_service import process_one_ats_recipient, queue_ats_for_recipient
+from app.services.interview_cv_exclusion_service import (
+    cv_min_ats_score_from_config,
+    is_auto_excluded_recipient,
+    maybe_reject_recipient_by_ats_threshold,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _order_ready_for_email_ats(order: ServiceOrder) -> bool:
+def _loads_config(order: ServiceOrder) -> dict:
     try:
         cfg = json.loads(order.config_json or "{}")
-        if not isinstance(cfg, dict):
-            cfg = {}
+        return cfg if isinstance(cfg, dict) else {}
     except Exception:
-        cfg = {}
+        return {}
+
+
+def _order_ready_for_email_ats(order: ServiceOrder) -> bool:
+    cfg = _loads_config(order)
     role = str(cfg.get("role") or cfg.get("position") or order.title or "").strip()
     criteria = str(cfg.get("criteria") or cfg.get("screening_criteria") or "").strip()
     return bool(role and criteria)
@@ -45,7 +54,10 @@ def auto_ats_for_cv_recipient(
     *,
     is_update: bool = False,
 ) -> dict[str, object]:
-    """Queue paid ATS when a CV arrives by email or manual upload."""
+    """Run ATS on an accepted CV; reject below threshold before AI screening usage is recorded."""
+    if is_auto_excluded_recipient(recipient):
+        return {"ok": False, "reason": "auto_excluded"}
+
     org = db.get(Organisation, order.org_id)
     if org is None:
         return {"ok": False, "reason": "no_org"}
@@ -61,25 +73,52 @@ def auto_ats_for_cv_recipient(
         return {"ok": False, "reason": "criteria_not_ready", "deferred": True}
 
     try:
-        result = charge_and_queue_ats(
-            db,
-            order,
-            org,
-            confirm_charge=True,
-            recipient_ids=[recipient.id],
-            force=bool(is_update),
-            require_script=False,
-        )
-        return {"ok": True, **result}
+        assert_email_cv_ats_ready(order)
     except InterviewAtsBillingError as exc:
         _mark_ats_pending(recipient)
         db.add(recipient)
         db.commit()
-        logger.warning(
-            "email_cv_ats_billing_blocked",
-            extra={"order_id": order.id, "recipient_id": recipient.id, "error": str(exc)},
+        return {"ok": False, "reason": "criteria_not_ready", "error": str(exc)}
+
+    min_score = cv_min_ats_score_from_config(_loads_config(order))
+
+    try:
+        queue_ats_for_recipient(db, recipient, order=order, force=bool(is_update))
+        db.commit()
+        db.refresh(recipient)
+        if str(recipient.ats_status or "").lower() in {"pending", "analyzing"}:
+            process_one_ats_recipient(db, recipient)
+            db.refresh(recipient)
+    except Exception:
+        logger.exception(
+            "email_cv_ats_failed",
+            extra={"order_id": order.id, "recipient_id": recipient.id},
         )
-        return {"ok": False, "reason": "billing", "error": str(exc)}
+        return {"ok": False, "reason": "ats_failed"}
+
+    if str(recipient.ats_status or "").lower() != "complete" or recipient.ats_score is None:
+        return {"ok": False, "reason": "ats_failed", "ats_status": recipient.ats_status}
+
+    actual_score = int(recipient.ats_score)
+    if maybe_reject_recipient_by_ats_threshold(db, order, recipient):
+        return {
+            "ok": False,
+            "reason": "ats_below_threshold",
+            "min_score": min_score,
+            "actual_score": actual_score,
+        }
+
+    try:
+        from app.services.usage_wallet_service import UsageWalletService
+
+        UsageWalletService.record_cv_scan_usage(db, org_id=org.id, units=1)
+    except Exception:
+        logger.exception(
+            "email_cv_usage_record_failed",
+            extra={"order_id": order.id, "recipient_id": recipient.id},
+        )
+
+    return {"ok": True, "min_score": min_score, "actual_score": actual_score}
 
 
 auto_ats_after_email_cv = auto_ats_for_cv_recipient

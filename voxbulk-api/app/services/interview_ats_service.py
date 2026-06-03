@@ -253,6 +253,11 @@ def process_pending_ats_scans(db: Session, *, limit: int = _BATCH_SIZE) -> int:
     processed = 0
     for row in rows:
         if process_one_ats_recipient(db, row):
+            order = db.get(ServiceOrder, row.order_id)
+            if order is not None and order.service_code == "interview":
+                from app.services.interview_cv_exclusion_service import maybe_reject_recipient_by_ats_threshold
+
+                maybe_reject_recipient_by_ats_threshold(db, order, row)
             processed += 1
     return processed
 

@@ -276,6 +276,44 @@ export type InterviewDraftPayload = {
   interview_delivery_options?: string[];
 };
 
+export type CvCollectionLimits = {
+  plan_included?: number;
+  period_used?: number;
+  plan_balance_remaining?: number | null;
+  reserved_across_active?: number;
+  remaining?: number | null;
+  unlimited?: boolean;
+  default_max_cvs?: number | null;
+  available_for_order?: number | null;
+  ats_parsing_pence?: number;
+  ai_screening_pence?: number;
+  combined_pence?: number;
+  combined_gbp?: string;
+  combined_label?: string;
+  cost_per_cv_label?: string;
+  overage_breakdown?: string;
+  overage_unit_detail?: string;
+  connection_fee_pence?: number;
+  interview_per_min_pence?: number;
+  duration_minutes?: number;
+  call_cost_pence?: number;
+  overage_unit_price_pence?: number;
+  overage_unit_price_gbp?: string;
+};
+
+export function useInterviewCvCollectionLimits(orderId: string | null, enabled = true) {
+  const id = String(orderId || "").trim();
+  return useQuery({
+    queryKey: [...queryKeys.interviewDraft, id || "none", "cv-limits"],
+    queryFn: () =>
+      apiFetch<CvCollectionLimits>(
+        `/service-orders/interview/cv-collection-limits?order_id=${encodeURIComponent(id)}`,
+      ),
+    enabled: Boolean(id) && enabled,
+    staleTime: 10_000,
+  });
+}
+
 export function useInterviewDraft(options?: { orderId?: string | null }) {
   const orderId = String(options?.orderId || "").trim();
 
@@ -604,6 +642,28 @@ export function useRunInterviewAts(orderId: string | null) {
       void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
       if (orderId) void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
       void qc.invalidateQueries({ queryKey: queryKeys.billingUsage });
+    },
+  });
+}
+
+export function useApplyInterviewAtsThreshold(orderId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { min_ats_score: number }) =>
+      apiFetch<{
+        ok?: boolean;
+        min_ats_score?: number;
+        eligible_count?: number;
+        rejected_count?: number;
+        restored_count?: number;
+        total_scored?: number;
+      }>(`/service-orders/${encodeURIComponent(orderId!)}/interview/ats/apply-threshold`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
+      if (orderId) void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
     },
   });
 }

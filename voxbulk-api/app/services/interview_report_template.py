@@ -159,6 +159,7 @@ body{font-family:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;backgro
 .footer-logo img{height:24px;width:auto;max-width:140px;display:block}
 .cv-appendix{margin-top:40px;padding-top:24px;border-top:.5px solid var(--border)}
 .cv-appendix h2{font-family:'DM Serif Display',Georgia,serif;font-size:20px;margin-bottom:12px}
+.brief-label{font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
 .cv-pre{white-space:pre-wrap;font-size:12px;line-height:1.55;background:#fff;padding:16px;border:.5px solid var(--border);border-radius:var(--radius)}
 @media (max-width:720px){
   .page{padding:24px 20px 48px}
@@ -458,6 +459,7 @@ def _build_pdf_html(payload: dict[str, Any], *, cv_text: str | None = None) -> s
     </div>
   </div>
   {_pdf_score_table(scores)}
+  {_campaign_brief_section(payload.get("campaign_brief"), pdf=True)}
   <div class="section"><div class="section-title">ATS score breakdown</div>
     {_pdf_criteria_rows(ats.get('criteria') or [])}
   </div>
@@ -479,6 +481,35 @@ def _build_pdf_html(payload: dict[str, Any], *, cv_text: str | None = None) -> s
 
 
 # --- Screen builders (original design) ---
+
+
+def _campaign_brief_section(brief: dict[str, Any] | None, *, pdf: bool = False) -> str:
+    data = brief or {}
+    criteria = str(data.get("screening_criteria") or "").strip()
+    questions = str(data.get("interview_questions") or "").strip()
+    report_notes = str(data.get("report_notes") or "").strip()
+    if not criteria and not questions and not report_notes:
+        return ""
+    blocks: list[str] = []
+    if criteria:
+        blocks.append(
+            f'<div style="margin-bottom:12px"><div class="brief-label">Screening criteria</div>'
+            f'<pre class="cv-pre">{_e(criteria)}</pre></div>'
+        )
+    if report_notes:
+        blocks.append(
+            f'<div style="margin-bottom:12px"><div class="brief-label">Additional notes</div>'
+            f'<pre class="cv-pre">{_e(report_notes)}</pre></div>'
+        )
+    if questions:
+        blocks.append(
+            f'<div><div class="brief-label">Interview questions</div>'
+            f'<pre class="cv-pre">{_e(questions)}</pre></div>'
+        )
+    body = "".join(blocks)
+    if pdf:
+        return f'<div class="section"><div class="section-title">Campaign brief</div>{body}</div>'
+    return f'<div class="section">{_section_header("Campaign Brief", ICON_ATS, "blue")}{body}</div><div class="divider"></div>'
 
 
 def _screen_score_strip(scores: dict[str, Any]) -> str:
@@ -666,6 +697,8 @@ def _build_screen_html(payload: dict[str, Any], *, cv_text: str | None = None) -
   </div>
 
   {_screen_score_strip(scores)}
+
+  {_campaign_brief_section(payload.get("campaign_brief"))}
 
   <div class="section">
     {_section_header("ATS Score Breakdown", ICON_ATS, "blue")}

@@ -1,12 +1,22 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
-import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity } from "lucide-react";
+import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity, ChevronDown, Settings2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { notifyInterviewLaunch, type InterviewLaunchResult } from "@/lib/interviewLaunchFeedback";
-import { isInterviewCampaignReadOnly, interviewCampaignReadOnlyLabel } from "@/lib/interview-campaign";
-import { extractQuestionsBlock, mergeQuestionsIntoScript } from "@/lib/interview-script";
+import {
+  ATS_CUTOFF_PENDING_COLOR,
+  DEFAULT_MIN_ATS_SCORE,
+  countScreeningEligibleCandidates,
+  interviewCampaignReadOnlyLabel,
+  isInterviewCampaignLaunched,
+  isInterviewCampaignReadOnly,
+  bookingInvitesWereSent,
+  campaignAllowsResendBookingInvites,
+} from "@/lib/interview-campaign";
+import { estimateInterviewDurationMinutes, extractQuestionsBlock, mergeQuestionsIntoScript, resolveScriptFromConfig } from "@/lib/interview-script";
 
 import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 
@@ -49,10 +59,12 @@ import {
   usePatchServiceOrder,
   useLaunchInterviewCampaign,
   useRunInterviewAts,
+  useApplyInterviewAtsThreshold,
   useSaveInterviewDraft,
   useSendInterviewBookingInvites,
   useCreateNewInterviewDraft,
   invalidateInterviewOrderQueries,
+  useInterviewCvCollectionLimits,
 } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/interviews/new")({
@@ -75,6 +87,7 @@ type CandidateRow = {
   atsStatus?: string | null;
   status?: string;
   activityStatus?: string;
+  activityStatusLabel?: string;
   phoneCallAllowed?: boolean;
   phoneCallBlockReason?: string | null;
 };
@@ -113,43 +126,72 @@ function scriptFromGenerate(res: Record<string, unknown>) {
   return { script_text: text || system, system_prompt: system || text, expected_duration_minutes };
 }
 
-function isCvCollectionComplete(
-  enabled: boolean,
-  collectionEndLocal: string,
-  cfg: Record<string, unknown>,
-) {
+function isCvCollectionComplete(enabled: boolean, cfg: Record<string, unknown>) {
   if (!enabled) return true;
-  if (cfg.cv_collection_closed_early_at) return true;
-  const endIso = collectionEndLocal ? toIsoFromLocal(collectionEndLocal) : cfg.cv_collection_end_at || cfg.cv_email_end_at;
-  if (!endIso) return false;
-  try {
-    return new Date(String(endIso)) <= new Date();
-  } catch {
-    return false;
+  if (cfg.cv_collection_closed_early_at || cfg.cv_collection_closed_on_limit_at) return true;
+  const endIso = cfg.cv_collection_end_at || cfg.cv_email_end_at;
+  if (endIso) {
+    try {
+      if (new Date(String(endIso)) <= new Date()) return true;
+    } catch {
+      /* ignore */
+    }
   }
+  return false;
 }
 
 function cvCollectionPhase(
   enabled: boolean,
-  collectionStartLocal: string,
-  collectionEndLocal: string,
   cfg: Record<string, unknown>,
 ): "off" | "before" | "open" | "ready" {
   if (!enabled) return "off";
-  if (cfg.cv_collection_closed_early_at) return "ready";
-  const startIso = collectionStartLocal ? toIsoFromLocal(collectionStartLocal) : cfg.cv_collection_start_at;
-  const endIso = collectionEndLocal ? toIsoFromLocal(collectionEndLocal) : cfg.cv_collection_end_at;
+  if (cfg.cv_collection_closed_early_at || cfg.cv_collection_closed_on_limit_at) return "ready";
+  const startIso = cfg.cv_collection_start_at || cfg.cv_email_start_at;
+  const endIso = cfg.cv_collection_end_at || cfg.cv_email_end_at;
   const now = Date.now();
   try {
     if (startIso && new Date(String(startIso)).getTime() > now) return "before";
     if (endIso && new Date(String(endIso)).getTime() <= now) return "ready";
-    return "open";
   } catch {
     return "open";
   }
+  return "open";
+}
+
+function formatCvAdvancedSummary(opts: {
+  maxCvCount: number | "";
+  autoCloseOnLimit: boolean;
+  collectionCloseAt: string;
+  minAtsScore: number;
+}): string | null {
+  const parts: string[] = [];
+  if (opts.maxCvCount !== "") parts.push(`Max ${opts.maxCvCount} CVs`);
+  if (opts.autoCloseOnLimit) parts.push("Auto-close on");
+  if (opts.collectionCloseAt) {
+    try {
+      const d = new Date(opts.collectionCloseAt);
+      parts.push(`Closes ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`);
+    } catch {
+      parts.push("Close date set");
+    }
+  }
+  parts.push(`Reject below ${opts.minAtsScore}% ATS`);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 const CAREERS_INBOX = "careers@voxbulk.com";
+
+function formatAtsRunTime(iso: unknown): string | null {
+  if (iso == null || iso === "") return null;
+  try {
+    const raw = String(iso).trim();
+    const d = /[zZ]|[+-]\d{2}:\d{2}$/.test(raw) ? new Date(raw) : new Date(`${raw}Z`);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return null;
+  }
+}
 
 function collectInterviewSetupErrors(opts: {
   position: string;
@@ -159,19 +201,13 @@ function collectInterviewSetupErrors(opts: {
   scriptIsApproved: boolean;
   callingStart: string;
   callingEnd: string;
-  cvEmailActive: boolean;
-  collectionStart: string;
-  collectionEnd: string;
 }): string[] {
   const errors: string[] = [];
-  if (!opts.position.trim() && !opts.role.trim()) errors.push("Add position and role in Step 2");
-  if (!opts.criteria.trim()) errors.push("Add screening criteria in Step 2");
-  if (!opts.script.trim()) errors.push("Generate the AI script in Step 2");
-  if (!opts.scriptIsApproved) errors.push("Approve your script in Step 2");
-  if (!opts.callingStart || !opts.callingEnd) errors.push("Set calling start and end in Step 2");
-  if (opts.cvEmailActive && (!opts.collectionStart || !opts.collectionEnd)) {
-    errors.push("Set CV collection start and end in Step 1");
-  }
+  if (!opts.position.trim() && !opts.role.trim()) errors.push("Add position and role in Step 1");
+  if (!opts.criteria.trim()) errors.push("Add screening criteria in Step 1");
+  if (!opts.script.trim()) errors.push("Generate or write interview questions in Step 1");
+  if (!opts.scriptIsApproved) errors.push("Approve your script in Step 1");
+  if (!opts.callingStart || !opts.callingEnd) errors.push("Set calling start and end in Step 1");
   return errors;
 }
 
@@ -183,8 +219,11 @@ function collectInterviewLaunchErrors(opts: {
   cvEmailActive: boolean;
   cvReadyForScreening: boolean;
   candidateCount: number;
+  screeningEligibleCount: number;
   referenceId: string;
   atsGatePassed: boolean;
+  minAtsScore: number;
+  atsSkipped?: boolean;
 }): string[] {
   const errors: string[] = [];
   if (opts.cvEmailActive) {
@@ -197,10 +236,13 @@ function collectInterviewLaunchErrors(opts: {
       );
     }
   } else if (opts.candidateCount <= 0) {
-    errors.push("Upload at least one candidate in Step 1");
+    errors.push("Upload at least one candidate in Step 2");
   }
   if (opts.candidateCount > 0 && !opts.atsGatePassed && !opts.cvEmailActive) {
     errors.push("Run ATS scoring or continue without ATS");
+  }
+  if (opts.candidateCount > 0 && opts.atsGatePassed && opts.screeningEligibleCount <= 0 && !opts.atsSkipped) {
+    errors.push(`No candidates meet the ${opts.minAtsScore}% ATS cutoff — lower the cutoff or remove weak profiles`);
   }
   return errors;
 }
@@ -221,6 +263,7 @@ function CreateInterview() {
   const order = draftQ.data?.order ?? createDraftM.data?.order ?? null;
   const orderId = order?.id ?? "";
   const runAtsM = useRunInterviewAts(orderId || null);
+  const applyAtsThresholdM = useApplyInterviewAtsThreshold(orderId || null);
   const launchM = useLaunchInterviewCampaign(orderId || null);
   const resendInvitesM = useSendInterviewBookingInvites(orderId || null);
   const quoteM = useOrderQuote(orderId || null);
@@ -252,13 +295,23 @@ function CreateInterview() {
   const [position, setPosition] = React.useState("");
   const [role, setRole] = React.useState("");
   const [criteria, setCriteria] = React.useState("");
+  const [reportNotes, setReportNotes] = React.useState("");
   const [script, setScript] = React.useState("");
+  const [questionsText, setQuestionsText] = React.useState("");
   const [expectedDurationMinutes, setExpectedDurationMinutes] = React.useState<number | undefined>();
   const [scriptApproved, setScriptApproved] = React.useState(false);
   const [agentId, setAgentId] = React.useState("");
   const [delivery, setDelivery] = React.useState("ai_call");
-  const [collectionStart, setCollectionStart] = React.useState("");
-  const [collectionEnd, setCollectionEnd] = React.useState("");
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const [maxCvCount, setMaxCvCount] = React.useState<number | "">("");
+  const [autoCloseOnLimit, setAutoCloseOnLimit] = React.useState(true);
+  const [minAtsScoreDraft, setMinAtsScoreDraft] = React.useState(DEFAULT_MIN_ATS_SCORE);
+  const [collectionStartAt, setCollectionStartAt] = React.useState("");
+  const [collectionCloseAt, setCollectionCloseAt] = React.useState("");
+  const [overageAcknowledged, setOverageAcknowledged] = React.useState(false);
+  const [advancedSaveBusy, setAdvancedSaveBusy] = React.useState(false);
+  const [applyAtsBusy, setApplyAtsBusy] = React.useState(false);
+  const atsCutoffEditRef = React.useRef(false);
   const [callingStart, setCallingStart] = React.useState("");
   const [callingEnd, setCallingEnd] = React.useState("");
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -266,6 +319,15 @@ function CreateInterview() {
   const [activityCandidate, setActivityCandidate] = React.useState<CandidateRow | null>(null);
 
   const config = (order?.config || {}) as Record<string, unknown>;
+  const configAppliedMinAts = React.useMemo(() => {
+    const raw = config.cv_min_ats_score;
+    if (raw != null && raw !== "" && !Number.isNaN(Number(raw))) {
+      return Math.max(0, Math.min(100, Number(raw)));
+    }
+    return DEFAULT_MIN_ATS_SCORE;
+  }, [config.cv_min_ats_score]);
+  const [appliedMinAtsScore, setAppliedMinAtsScore] = React.useState(DEFAULT_MIN_ATS_SCORE);
+  const atsCutoffDirty = minAtsScoreDraft !== appliedMinAtsScore;
   const referenceId = order?.reference_id || "";
   const billingContext = (draftQ.data as { billing_context?: Record<string, unknown> })?.billing_context;
   const sessionPlan = (session?.subscription as { plan?: Record<string, unknown> } | null)?.plan;
@@ -274,6 +336,8 @@ function CreateInterview() {
   const cvEmailBlockReason = billing.blockReason;
   const billingPlanName = billing.planName;
   const hasPackageSub = billing.hasPackageSub;
+  const cvLimitsQ = useInterviewCvCollectionLimits(orderId || null, Boolean(orderId));
+  const cvLimits = cvLimitsQ.data;
   const interviewDeliveryOptions = draftQ.data?.interview_delivery_options?.length
     ? draftQ.data.interview_delivery_options
     : ["ai_call"];
@@ -291,6 +355,7 @@ function CreateInterview() {
       cfg.role,
       cfg.criteria,
       cfg.screening_criteria,
+      cfg.report_notes,
       cfg.approved_script,
       cfg.generated_script_draft,
       cfg.expected_duration_minutes,
@@ -303,6 +368,11 @@ function CreateInterview() {
       cfg.cv_email_end_at,
       cfg.cv_email_enabled,
       cfg.cv_collection_closed_early_at,
+      cfg.cv_collection_closed_on_limit_at,
+      cfg.cv_max_count,
+      cfg.cv_auto_close_on_limit,
+      cfg.cv_min_ats_score,
+      cfg.cv_collection_close_at,
       cfg.ats_last_charge_at,
       cfg.ats_skipped,
     ].join("|");
@@ -344,8 +414,8 @@ function CreateInterview() {
   const lastInviteDispatch = config.last_invite_dispatch as
     | { ok?: boolean; whatsapp_sent?: number; email_sent?: number; errors?: string[] }
     | undefined;
-  const bookingInvitesSent =
-    Boolean(config.booking_invites_sent_at) && (lastInviteDispatch == null || lastInviteDispatch.ok !== false);
+  const campaignLaunched = isInterviewCampaignLaunched(orderStatus);
+  const bookingInvitesSent = bookingInvitesWereSent(config);
 
   React.useEffect(() => {
     if (!orderId || !shouldPollRecipients) return;
@@ -362,7 +432,10 @@ function CreateInterview() {
     setPosition(String(config.position || order.title || config.role || ""));
     setRole(String(config.role || ""));
     setCriteria(String(config.criteria || config.screening_criteria || ""));
-    setScript(String(config.approved_script || config.generated_script_draft || ""));
+    setReportNotes(String(config.report_notes || ""));
+    const scriptSource = resolveScriptFromConfig(config);
+    setScript(scriptSource);
+    setQuestionsText(extractQuestionsBlock(scriptSource));
     const savedDuration = config.expected_duration_minutes;
     setExpectedDurationMinutes(
       savedDuration != null && !Number.isNaN(Number(savedDuration))
@@ -373,8 +446,11 @@ function CreateInterview() {
     setAgentId(String(config.agent_id || ""));
     const savedDelivery = String(config.delivery || "ai_call");
     setDelivery(savedDelivery === "zoom" && !zoomInterviewEnabled ? "ai_call" : savedDelivery);
-    setCollectionStart(toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || "")));
-    setCollectionEnd(toLocalInput(String(config.cv_collection_end_at || config.cv_email_end_at || "")));
+    setCollectionStartAt(toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || "")));
+    setCollectionCloseAt(toLocalInput(String(config.cv_collection_close_at || config.cv_collection_end_at || config.cv_email_end_at || "")));
+    setMaxCvCount(config.cv_max_count != null && config.cv_max_count !== "" ? Number(config.cv_max_count) : "");
+    setAutoCloseOnLimit(config.cv_auto_close_on_limit !== false);
+    setOverageAcknowledged(config.cv_overage_acknowledged === true);
     setCallingStart(
       toLocalInput(
         order.scheduled_start_at ||
@@ -392,15 +468,19 @@ function CreateInterview() {
       ),
     );
     setCvEmailEnabled(config.cv_email_enabled === true);
-    if (config.ats_manual_run_at) {
-      setAtsRunAt(String(config.ats_manual_run_at).slice(11, 16) || "done");
-    } else if (config.ats_last_charge_at && !config.ats_manual_run_at) {
-      setAtsRunAt(null);
-    }
+    const runLabel = formatAtsRunTime(config.ats_manual_run_at || config.ats_last_charge_at);
+    if (runLabel) setAtsRunAt(runLabel);
     if (config.ats_skipped === true) {
       setAtsSkipped(true);
     }
   }, [order, orderHydrationKey, config, zoomInterviewEnabled]);
+
+  React.useEffect(() => {
+    setAppliedMinAtsScore(configAppliedMinAts);
+    if (!atsCutoffEditRef.current) {
+      setMinAtsScoreDraft(configAppliedMinAts);
+    }
+  }, [configAppliedMinAts]);
 
   const loadWaPreview = React.useCallback(async () => {
     if (!orderId) return;
@@ -474,6 +554,7 @@ function CreateInterview() {
         atsStatus: String(r.ats_status || ""),
         status: String(r.status || ""),
         activityStatus: String(r.activity_status || ""),
+        activityStatusLabel: r.activity_status_label ? String(r.activity_status_label) : undefined,
         phoneCallAllowed: r.phone_call_allowed !== false,
         phoneCallBlockReason: r.phone_call_block_reason ? String(r.phone_call_block_reason) : null,
       }));
@@ -516,6 +597,17 @@ function CreateInterview() {
     }, 2500);
     return () => window.clearInterval(timer);
   }, [orderId, atsInProgress, qc]);
+
+  React.useEffect(() => {
+    if (atsInProgress) setAtsPromptOpen(false);
+  }, [atsInProgress]);
+
+  const screeningEligibleCount = React.useMemo(() => {
+    if (atsSkipped || Boolean(config.ats_skipped)) {
+      return candidates.filter((c) => c.activityStatus !== "auto_excluded").length;
+    }
+    return countScreeningEligibleCandidates(candidates, appliedMinAtsScore);
+  }, [candidates, appliedMinAtsScore, atsSkipped, config.ats_skipped]);
 
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const allSelected = selected.size > 0 && selected.size === candidates.length;
@@ -671,7 +763,7 @@ function CreateInterview() {
           summary: res.summary ?? prev?.summary,
         }));
       }
-      setCollectionEnd(toLocalInput(closedAt));
+      setCollectionCloseAt(toLocalInput(closedAt));
       lastHydrationKeyRef.current = "";
       const added = Number(res?.mailbox_sync?.added_cvs || 0);
       const processed = Number(res?.mailbox_sync?.processed || 0);
@@ -693,11 +785,11 @@ function CreateInterview() {
   const buildSaveBody = (extraConfig?: Record<string, unknown>, options?: { markSaved?: boolean }) => {
     const closedEarlyAt = config.cv_collection_closed_early_at;
     const collectionStartIso = closedEarlyAt
-      ? String(config.cv_collection_start_at || config.cv_email_start_at || toIsoFromLocal(collectionStart) || "")
-      : toIsoFromLocal(collectionStart);
-    const collectionEndIso = closedEarlyAt
-      ? String(config.cv_collection_end_at || config.cv_email_end_at || closedEarlyAt)
-      : toIsoFromLocal(collectionEnd);
+      ? String(config.cv_collection_start_at || config.cv_email_start_at || toIsoFromLocal(collectionStartAt) || "")
+      : toIsoFromLocal(collectionStartAt);
+    const collectionCloseIso = closedEarlyAt
+      ? String(config.cv_collection_close_at || config.cv_collection_end_at || config.cv_email_end_at || closedEarlyAt)
+      : toIsoFromLocal(collectionCloseAt);
     const scriptTrim = script.trim();
     const approvedFromConfig = String(config.approved_script || "").trim();
     const configSaysApproved = Boolean(config.script_approved) && approvedFromConfig === scriptTrim;
@@ -707,7 +799,9 @@ function CreateInterview() {
       configSaysApproved;
     const approvedScriptToSave = persistScriptApproved
       ? String(extraConfig?.approved_script || (scriptApproved ? script : approvedFromConfig || script)).trim()
-      : String(config.approved_script || "").trim();
+      : "";
+    const draftScript = String(extraConfig?.generated_script_draft ?? script).trim();
+    const cvEmailOn = cvEmailAllowed && cvEmailEnabled;
     return {
     order_id: orderId,
     title: position || order?.title || "Interview draft",
@@ -719,16 +813,21 @@ function CreateInterview() {
       role: role || position,
       criteria,
       screening_criteria: criteria,
+      report_notes: reportNotes.trim() || undefined,
       agent_id: agentId,
       delivery,
-      cv_email_enabled: cvEmailAllowed && cvEmailEnabled,
-      cv_collection_start_at: collectionStartIso || null,
-      cv_collection_end_at: collectionEndIso || null,
-      cv_email_start_at: collectionStartIso || null,
-      cv_email_end_at: collectionEndIso || null,
+      cv_email_enabled: cvEmailOn,
+      cv_collection_start_at: cvEmailOn ? collectionStartIso || null : null,
+      cv_email_start_at: cvEmailOn ? collectionStartIso || null : null,
+      cv_collection_close_at: cvEmailOn ? collectionCloseIso || null : null,
+      cv_collection_end_at: cvEmailOn ? collectionCloseIso || null : null,
+      cv_email_end_at: cvEmailOn ? collectionCloseIso || null : null,
+      cv_max_count: cvEmailOn && maxCvCount !== "" ? Number(maxCvCount) : cvEmailOn ? null : undefined,
+      cv_auto_close_on_limit: cvEmailOn ? autoCloseOnLimit : undefined,
+      cv_overage_acknowledged: cvEmailOn ? overageAcknowledged : undefined,
       calling_window_start_at: toIsoFromLocal(callingStart),
       calling_window_end_at: toIsoFromLocal(callingEnd),
-      generated_script_draft: script,
+      generated_script_draft: draftScript,
       expected_duration_minutes: expectedDurationMinutes,
       approved_script: approvedScriptToSave,
       script_approved: persistScriptApproved,
@@ -740,11 +839,28 @@ function CreateInterview() {
   };
   };
 
+  const assertCvCollectionSaveAllowed = () => {
+    if (!cvEmailAllowed || !cvEmailEnabled || cvLimits?.unlimited) return;
+    const available = cvLimits?.available_for_order ?? cvLimits?.remaining ?? 0;
+    const maxNum = maxCvCount === "" ? null : Number(maxCvCount);
+    if (maxNum != null && maxNum > available && !overageAcknowledged) {
+      throw new Error(
+        `Max CVs (${maxNum}) is above your remaining allowance (${available}). Open Advanced settings and confirm the additional cost to continue.`,
+      );
+    }
+  };
+
   const onSaveDraft = async (silent?: boolean, extraConfig?: Record<string, unknown>) => {
     if (!orderId) return;
     if (campaignReadOnly) {
       if (!silent) toast.message(interviewCampaignReadOnlyLabel(orderStatus));
       return;
+    }
+    try {
+      assertCvCollectionSaveAllowed();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save");
+      throw e;
     }
     const body = buildSaveBody(extraConfig, { markSaved: !silent });
     const locked = ["running", "paused", "scheduled"].includes(String(order?.status || ""));
@@ -767,6 +883,24 @@ function CreateInterview() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save");
       throw e;
+    }
+  };
+
+  const onSaveAdvancedSettings = async () => {
+    if (!orderId || campaignReadOnly) return;
+    if (cvEmailActive && isOverPlanLimit && !overageAcknowledged) {
+      toast.error(
+        "Confirm additional screenings beyond your plan will be invoiced at the standard rate before saving.",
+      );
+      return;
+    }
+    setAdvancedSaveBusy(true);
+    try {
+      await onSaveDraft(false);
+    } catch {
+      /* toast handled in onSaveDraft */
+    } finally {
+      setAdvancedSaveBusy(false);
     }
   };
 
@@ -798,17 +932,22 @@ function CreateInterview() {
         return;
       }
       setScript(materialised.script_text);
-      setExpectedDurationMinutes(materialised.expected_duration_minutes);
+      setQuestionsText(extractQuestionsBlock(materialised.script_text));
+      const draftDuration =
+        materialised.expected_duration_minutes ?? estimateInterviewDurationMinutes(materialised.script_text);
+      setExpectedDurationMinutes(draftDuration);
       setScriptApproved(false);
       await saveDraftM.mutateAsync(
         buildSaveBody({
           generated_script_draft: materialised.script_text,
+          approved_script: "",
           system_prompt: materialised.system_prompt,
-          expected_duration_minutes: materialised.expected_duration_minutes,
+          expected_duration_minutes: draftDuration,
           script_approved: false,
         }),
       );
-      const mins = materialised.expected_duration_minutes;
+      lastHydrationKeyRef.current = "";
+      const mins = draftDuration;
       toast.success(mins ? `AI script ready — est. ~${mins} min per call` : "AI script ready — review and approve when happy");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not generate script");
@@ -821,13 +960,17 @@ function CreateInterview() {
       return;
     }
     if (!orderId) return;
+    const duration = estimateInterviewDurationMinutes(script);
     try {
       setScriptApproved(true);
+      setExpectedDurationMinutes(duration);
       await onSaveDraft(true, {
         approved_script: script,
+        generated_script_draft: script,
         script_approved: true,
+        expected_duration_minutes: duration,
       });
-      toast.success("Script approved");
+      toast.success(`Script approved — est. ~${duration} min per call`);
     } catch {
       setScriptApproved(false);
     }
@@ -869,21 +1012,43 @@ function CreateInterview() {
 
   const confirmAtsRun = async () => {
     if (!orderId) return;
+    setAtsPromptOpen(false);
+    toast.message("ATS scoring in background — scores update automatically.");
     try {
       await runAtsM.mutateAsync({ confirm_charge: true, force: atsForce });
-      setAtsPromptOpen(false);
       setAtsSkipped(false);
       setAtsRunAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       refreshDraft();
-      toast.success("ATS scoring in progress — scores will update automatically");
+      toast.success("ATS scoring started");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "ATS run failed");
     }
   };
 
+  const onApplyAtsThreshold = async () => {
+    if (!orderId || campaignReadOnly || !atsCutoffDirty) return;
+    const score = Math.max(0, Math.min(100, minAtsScoreDraft));
+    setApplyAtsBusy(true);
+    try {
+      const result = await applyAtsThresholdM.mutateAsync({ min_ats_score: score });
+      const applied = Math.max(0, Math.min(100, Number(result.min_ats_score ?? score)));
+      atsCutoffEditRef.current = false;
+      setAppliedMinAtsScore(applied);
+      setMinAtsScoreDraft(applied);
+      await qc.refetchQueries({ queryKey: [...queryKeys.interviewDraft, orderId] });
+      refreshDraft();
+      const eligible = Number(result.eligible_count ?? screeningEligibleCount);
+      toast.success(`${eligible} candidate${eligible === 1 ? "" : "s"} ready at ${applied}% ATS cutoff`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not apply ATS cutoff");
+    } finally {
+      setApplyAtsBusy(false);
+    }
+  };
+
   const onRunAtsClick = () => {
     if (!script.trim()) {
-      toast.error("Generate the AI script in Step 2 before running ATS");
+      toast.error("Complete and approve the interview in Step 1 before running ATS");
       return;
     }
     if (!criteria.trim() || !(role.trim() || position.trim())) {
@@ -962,12 +1127,35 @@ function CreateInterview() {
   };
 
   const cvEmailActive = cvEmailAllowed && cvEmailEnabled;
-  const cvPhase = cvCollectionPhase(cvEmailActive, collectionStart, collectionEnd, config);
-  const cvReadyForScreening = isCvCollectionComplete(cvEmailActive, collectionEnd, config);
+  const cvPhase = cvCollectionPhase(cvEmailActive, config);
+  const cvReadyForScreening = isCvCollectionComplete(cvEmailActive, config);
   const cvCollectionClosedEarly = Boolean(config.cv_collection_closed_early_at);
-  const cvCollectionClosed = cvEmailActive && (cvPhase === "ready" || cvCollectionClosedEarly);
+  const cvCollectionClosedOnLimit = Boolean(config.cv_collection_closed_on_limit_at);
+  const cvCollectionClosed = cvEmailActive && (cvPhase === "ready" || cvCollectionClosedEarly || cvCollectionClosedOnLimit);
+  const availableForOrder = cvLimits?.unlimited
+    ? null
+    : (cvLimits?.available_for_order ?? cvLimits?.remaining ?? 0);
+  const maxCvNum = maxCvCount === "" ? null : Number(maxCvCount);
+  const isOverPlanLimit =
+    Boolean(cvEmailActive) &&
+    !cvLimits?.unlimited &&
+    maxCvNum != null &&
+    availableForOrder != null &&
+    maxCvNum > availableForOrder;
+  const advancedSummary = formatCvAdvancedSummary({
+    maxCvCount,
+    autoCloseOnLimit,
+    collectionCloseAt,
+    minAtsScore: appliedMinAtsScore,
+  });
   const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
   const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
+  const showResendBookingInvites =
+    campaignAllowsResendBookingInvites({
+      orderStatus,
+      config,
+      readOnly: campaignReadOnly,
+    }) && paymentApproved;
   const canResendBookingInvites =
     !campaignReadOnly && candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
   const unscoredCount = React.useMemo(
@@ -982,22 +1170,58 @@ function CreateInterview() {
   );
   const allCandidatesScored =
     candidates.length > 0 && candidates.every((c) => c.ats != null || Boolean(c.atsStatus));
-  const atsGatePassed =
-    cvEmailActive
-      ? candidates.length === 0 ||
-        allCandidatesScored ||
-        atsSkipped ||
-        Boolean(config.ats_skipped) ||
-        Boolean(atsRunAt) ||
-        Boolean(config.ats_manual_run_at) ||
-        Boolean(config.ats_last_charge_at)
-      : candidates.length > 0 &&
-        (atsSkipped ||
-          Boolean(config.ats_skipped) ||
-          Boolean(atsRunAt) ||
-          Boolean(config.ats_manual_run_at) ||
-          Boolean(config.ats_last_charge_at) ||
-          allCandidatesScored);
+  const atsRunRecorded =
+    Boolean(config.ats_manual_run_at) ||
+    Boolean(config.ats_last_charge_at) ||
+    Boolean(atsRunAt);
+  const atsScoringComplete = React.useMemo(() => {
+    if (atsSkipped || config.ats_skipped) return true;
+    if (atsRunRecorded) return true;
+    if (cvEmailActive) {
+      return candidates.length === 0 || allCandidatesScored;
+    }
+    if (candidates.length === 0) return false;
+    return allCandidatesScored;
+  }, [
+    atsSkipped,
+    config.ats_skipped,
+    atsRunRecorded,
+    cvEmailActive,
+    candidates.length,
+    allCandidatesScored,
+  ]);
+  const atsStatusDetail = React.useMemo(() => {
+    if (atsSkipped || config.ats_skipped) return "Skipped";
+    if (runAtsM.isPending || atsInProgress) return "Scoring in progress…";
+    if (candidates.length > 0 && allCandidatesScored) {
+      return cvEmailActive ? "Scored from email" : `${candidates.length} candidate${candidates.length === 1 ? "" : "s"} scored`;
+    }
+    if (atsRunRecorded) {
+      const when =
+        atsRunAt || formatAtsRunTime(config.ats_manual_run_at || config.ats_last_charge_at) || null;
+      if (unscoredCount > 0) {
+        return when ? `Run ${when} · ${unscoredCount} unscored` : `${unscoredCount} unscored`;
+      }
+      return when ? `Complete · run ${when}` : "Complete";
+    }
+    if (unscoredCount > 0) return `${unscoredCount} unscored`;
+    if (cvEmailActive && candidates.length === 0) return "Waiting for CVs";
+    return "Not run";
+  }, [
+    atsSkipped,
+    config.ats_skipped,
+    config.ats_manual_run_at,
+    config.ats_last_charge_at,
+    runAtsM.isPending,
+    atsInProgress,
+    candidates.length,
+    allCandidatesScored,
+    cvEmailActive,
+    atsRunRecorded,
+    atsRunAt,
+    unscoredCount,
+  ]);
+  const atsGatePassed = atsScoringComplete;
   const setupErrors = collectInterviewSetupErrors({
     position,
     role,
@@ -1006,23 +1230,30 @@ function CreateInterview() {
     scriptIsApproved,
     callingStart,
     callingEnd,
-    cvEmailActive,
-    collectionStart,
-    collectionEnd,
   });
   const launchErrors = collectInterviewLaunchErrors({
     cvEmailActive,
     cvReadyForScreening,
     candidateCount: candidates.length,
+    screeningEligibleCount,
     referenceId,
     atsGatePassed,
+    minAtsScore: appliedMinAtsScore,
+    atsSkipped: atsSkipped || Boolean(config.ats_skipped),
   });
   const missingPosition = !position.trim() && !role.trim();
   const missingCriteria = !criteria.trim();
   const missingScript = !script.trim();
   const missingScriptApproval = !scriptIsApproved && Boolean(script.trim());
   const missingCallingWindow = !callingStart || !callingEnd;
-  const missingCollectionWindow = cvEmailActive && (!collectionStart || !collectionEnd);
+
+  React.useEffect(() => {
+    if (!cvEmailEnabled || cvLimits?.unlimited) return;
+    const available = cvLimits?.available_for_order ?? cvLimits?.remaining;
+    if (available == null) return;
+    if (maxCvCount !== "" || (config.cv_max_count != null && config.cv_max_count !== "")) return;
+    setMaxCvCount(available);
+  }, [cvEmailEnabled, cvLimits, maxCvCount, config.cv_max_count]);
 
   const refreshQuote = async () => {
     if (!orderId) return;
@@ -1127,15 +1358,19 @@ function CreateInterview() {
     position,
     role,
     criteria,
+    reportNotes: reportNotes.trim(),
     agentName: selectedAgent?.voice_label || selectedAgent?.name || "—",
     script,
     candidateCount: candidates.length,
+    screeningEligibleCount,
+    minAtsScore: appliedMinAtsScore,
+    atsSkipped: atsSkipped || Boolean(config.ats_skipped),
     referenceId,
     cvEmailEnabled: cvEmailAllowed && cvEmailEnabled,
     cvCollectionComplete: cvReadyForScreening,
     careersInbox: CAREERS_INBOX,
-    collectionStart: collectionStart || "—",
-    collectionEnd: collectionEnd || "—",
+    collectionStart: collectionStartAt || "Now (default)",
+    collectionEnd: collectionCloseAt || "None (open until limit or manual close)",
     callingStart: callingStart || "—",
     callingEnd: callingEnd || "—",
     expectedDurationMinutes,
@@ -1186,7 +1421,7 @@ function CreateInterview() {
   if (!order && ((wantNew && !draftOrderId && createDraftM.isPending) || (draftOrderId && draftQ.isLoading && !createDraftM.data?.order))) {
     return (
       <div className="flex w-full flex-col gap-6">
-        <PageHeader eyebrow="Interviews" title="Create new interview" description="Set up an AI phone screening campaign in three steps." />
+        <PageHeader eyebrow="Interviews" title="Create new interview" description="Define your interview, collect CVs, then launch — three steps." />
         <Skeleton className="h-64 w-full" />
       </div>
     );
@@ -1273,7 +1508,7 @@ function CreateInterview() {
 
   return (
     <div className="flex w-full flex-col gap-6 pb-24">
-      <PageHeader eyebrow="Interviews" title="Create new interview" description="Set up an AI phone screening campaign in three steps." />
+      <PageHeader eyebrow="Interviews" title="Create new interview" description="Define your interview, collect CVs, then launch — three steps." />
 
       {campaignReadOnly && orderId ? (
         <Card className="border-muted bg-muted/40">
@@ -1302,332 +1537,10 @@ function CreateInterview() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Step 1 · Collect candidates</CardTitle>
-          <CardDescription>Reference, CV email window, and uploads.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-5 md:grid-cols-2">
-          {referenceId ? (
-            <div className="space-y-1.5 md:col-span-2">
-              <Label className="text-xs">Job reference</Label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input value={referenceId} readOnly className="min-w-0 font-mono text-xs sm:text-sm" />
-                <Button variant="outline" className="w-full shrink-0 gap-1.5 sm:w-auto" onClick={() => void copyReference()}>
-                  {copiedReference ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
-                  {copiedReference ? "Copied!" : "Copy reference"}
-                </Button>
-              </div>
-              {cvEmailAllowed && cvEmailEnabled ? (
-                <p className="text-[11px] text-muted-foreground">
-                  Candidates must put this reference in the email subject or body when sending a CV to{" "}
-                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                    {CAREERS_INBOX}
-                    <button
-                      type="button"
-                      className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
-                      aria-label={copiedCareersEmail ? "Email copied" : "Copy careers email"}
-                      title={copiedCareersEmail ? "Copied!" : "Copy email"}
-                      onClick={() => void copyCareersInbox()}
-                    >
-                      {copiedCareersEmail ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
-                    </button>
-                  </span>
-                  . Each CV is added automatically and ATS scored (charged per CV). Re-sending replaces the CV and runs ATS again.
-                </p>
-              ) : (
-                <p className="text-[11px] text-muted-foreground">
-                  Use this code to identify this interview task. Enable CV email collection below to receive CVs by email.
-                </p>
-              )}
-            </div>
-          ) : null}
-
-          <div className="md:col-span-2">
-          <ToggleRow
-            title="CV email collection"
-            desc={
-              cvEmailAllowed
-                ? `Receive CVs at ${CAREERS_INBOX} — include the job reference above. ATS runs automatically (charged per CV).`
-                : cvEmailBlockReason ||
-                  (billingPlanName
-                    ? `Not included on ${billingPlanName} — upgrade to Starter, Pro, or Business.`
-                    : "Included on Starter, Pro, and Business packages — not Pay as you go or top-up only.")
-            }
-            checked={cvEmailEnabled}
-            onCheckedChange={(v) => {
-              if (v && !cvEmailAllowed) {
-                setUpgradeOpen(true);
-                return;
-              }
-              setCvEmailEnabled(v);
-              if (orderId) {
-                void onSaveDraft(true, { cv_email_enabled: v }).catch(() => {
-                  /* toast handled in onSaveDraft */
-                });
-              }
-            }}
-          />
-          </div>
-          {cvEmailActive && (
-            <div className="md:col-span-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              <div className="flex flex-wrap items-center gap-2">
-                {cvCollectionClosed ? (
-                  <span className="inline-flex items-center gap-1 font-medium text-success">
-                    <Lock className="size-3.5" /> CV collection closed
-                    {cvCollectionClosedEarly ? " (closed early)" : ""}
-                  </span>
-                ) : cvPhase === "before" ? (
-                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                    <LockOpen className="size-3.5" /> CV collection not started yet
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 font-medium text-primary">
-                    <LockOpen className="size-3.5" /> CV collection open
-                  </span>
-                )}
-              </div>
-              {cvPhase === "before" && " — share the reference and careers email when the window opens."}
-              {cvPhase === "open" && " — CVs arrive by email, appear in the table below, and are ATS scored automatically (charged per CV). Manual upload is optional."}
-              {cvCollectionClosed && " — review ATS scores, remove weak candidates, then launch. No manual upload required."}
-            </div>
-          )}
-          {cvEmailActive && (
-            <div className="grid grid-cols-1 gap-2 md:col-span-2 sm:grid-cols-2">
-              <Field label="Collection start" error={missingCollectionWindow && !collectionStart ? "Required when CV email is on" : undefined}>
-                <Input type="datetime-local" value={collectionStart} onChange={(e) => setCollectionStart(e.target.value)} disabled={cvCollectionClosed} className={`w-full min-w-0 ${inputErrorClass(missingCollectionWindow && !collectionStart)}`} />
-              </Field>
-              <Field label="Collection end" error={missingCollectionWindow && !collectionEnd ? "Required when CV email is on" : undefined}>
-                <Input type="datetime-local" value={collectionEnd} onChange={(e) => setCollectionEnd(e.target.value)} disabled={cvCollectionClosed} className={`w-full min-w-0 ${inputErrorClass(missingCollectionWindow && !collectionEnd)}`} />
-              </Field>
-            </div>
-          )}
-
-          <div className="md:col-span-2 group relative overflow-hidden rounded-xl border-2 border-dashed border-border bg-gradient-to-br from-background/60 via-background/40 to-accent/20 px-4 py-8 transition-colors hover:border-primary/40 sm:px-6 sm:py-10">
-            <BackdropIllustration />
-            <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => void onUpload(e.target.files)} />
-            <div className="relative flex flex-col items-center gap-2 text-center">
-              <div className="rounded-full bg-primary/10 p-3 ring-1 ring-primary/20 transition-transform group-hover:scale-110">
-                <Upload className="size-6 text-primary" />
-              </div>
-              <p className="text-sm font-medium">
-                {cvEmailActive ? "Optional — upload CVs manually" : "Drop CSV, Excel, PDF, DOCX, or ZIP"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {cvEmailActive
-                  ? "CVs also arrive by email during your collection window — you do not need to upload files here."
-                  : "Or click to upload"}
-              </p>
-              <div className="mt-2 flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
-                <Button size="sm" className="w-full sm:w-auto" onClick={() => fileRef.current?.click()} disabled={uploading || !orderId}>
-                  {uploading ? "Uploading…" : "Choose files"}
-                </Button>
-                <Button size="sm" variant="outline" className="w-full gap-1.5 sm:w-auto" onClick={() => void onDownloadTemplate()}>
-                  <Download className="size-3.5" /> Download template
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <div className="md:col-span-2 min-w-0">
-            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <p className="text-xs text-muted-foreground">
-                  {cvEmailActive ? `Candidates · ${candidates.length}` : `Candidates uploaded · ${candidates.length}`}
-                </p>
-                {selected.size > 0 && (
-                  <span className="animate-fade-in inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                    {selected.size} selected
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {selected.size > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive animate-fade-in"
-                    disabled={candidatesLocked || deleteBusy}
-                    onClick={onDeleteSelected}
-                  >
-                    <Trash2 className="size-3.5" /> Delete selected ({selected.size})
-                  </Button>
-                )}
-                {atsRunAt && (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <CheckCircle2 className="size-3 text-success" /> ATS run {atsRunAt}
-                  </span>
-                )}
-                {unscoredCount > 0 && candidates.length > 0 && (
-                  <span className="text-[11px] text-amber-700 dark:text-amber-400">{unscoredCount} unscored</span>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1.5 text-xs"
-                  disabled={runAtsM.isPending || candidates.length === 0 || campaignReadOnly}
-                  onClick={onRunAtsClick}
-                >
-                  <Sparkles className="size-3.5" />
-                  {runAtsM.isPending ? "Running ATS…" : atsRunAt ? "Re-run ATS" : "Run ATS"}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
-                      <ArrowUpDown className="size-3.5" /> Sort
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuLabel className="text-xs">Sort by</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem><ArrowDown className="size-3.5" /> ATS score (high → low)</DropdownMenuItem>
-                    <DropdownMenuItem><ArrowUp className="size-3.5" /> ATS score (low → high)</DropdownMenuItem>
-                    <DropdownMenuItem><ArrowDown className="size-3.5" /> Name (A → Z)</DropdownMenuItem>
-                    <DropdownMenuItem><ArrowUp className="size-3.5" /> Name (Z → A)</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem>Source: CV email first</DropdownMenuItem>
-                    <DropdownMenuItem>Source: Upload first</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
-            <div className="table-scroll rounded-lg border border-border">
-              <Table className="min-w-[720px]">
-                <TableHeader><TableRow>
-                  <TableHead className="w-10 pl-4">
-                    <Checkbox
-                      checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                      onCheckedChange={toggleAll}
-                      aria-label="Select all"
-                    />
-                  </TableHead>
-                  <SortHeader label="Name" sortKey="name" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
-                  <SortHeader label="Phone" sortKey="phone" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} className="hidden sm:table-cell" />
-                  <SortHeader label="Email" sortKey="email" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} className="hidden sm:table-cell" />
-                  <TableHead className="sm:hidden">Contact</TableHead>
-                  <SortHeader label="ATS score" sortKey="ats" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
-                  <TableHead>Status</TableHead>
-                  <SortHeader label="Source" sortKey="source" active={candSort.sortKey} dir={candSort.sortDir} onToggle={candSort.toggleSort} />
-                  <TableHead className="pr-4 text-right">Actions</TableHead>
-                </TableRow></TableHeader>
-                <TableBody>
-                  {candSort.sorted.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
-                        {cvEmailActive
-                          ? `No CVs yet — applicants email ${CAREERS_INBOX} with your job reference. They appear here automatically.`
-                          : "Upload candidates to get started."}
-                      </TableCell>
-                    </TableRow>
-                  ) : candSort.sorted.map((r) => (
-                    <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
-                      <TableCell className="pl-4">
-                        <Checkbox
-                          checked={selected.has(r.id)}
-                          onCheckedChange={() => toggleOne(r.id)}
-                          aria-label={`Select ${r.name}`}
-                        />
-                      </TableCell>
-                      <TableCell className="font-medium max-w-[120px] truncate sm:max-w-none">{r.name}</TableCell>
-                      <TableCell className="hidden sm:table-cell">
-                        <div className="space-y-1">
-                          <div className={`text-xs tabular-nums ${r.phone && r.phoneCallAllowed === false ? "font-medium text-destructive" : ""}`}>
-                            {r.phone || "—"}
-                          </div>
-                          {r.phone && r.phoneCallAllowed === false ? (
-                            <div className="text-[11px] leading-snug text-destructive">
-                              Can&apos;t call this number{r.phoneCallBlockReason ? `: ${r.phoneCallBlockReason}` : ""}.{" "}
-                              <button type="button" className="underline" onClick={() => void onEditRecipientPhone(r.id, r.phone)}>
-                                Change number
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden text-xs sm:table-cell">{r.email || "—"}</TableCell>
-                      <TableCell className="text-xs sm:hidden">
-                        <div className="space-y-1 text-muted-foreground">
-                          {r.phone ? (
-                            <div className={r.phoneCallAllowed === false ? "truncate font-medium text-destructive" : "truncate"}>{r.phone}</div>
-                          ) : null}
-                          {r.phone && r.phoneCallAllowed === false ? (
-                            <div className="text-[11px] leading-snug text-destructive">
-                              Can&apos;t call this number.{" "}
-                              <button type="button" className="underline" onClick={() => void onEditRecipientPhone(r.id, r.phone)}>
-                                Change
-                              </button>
-                            </div>
-                          ) : null}
-                          {r.email ? <div className="truncate">{r.email}</div> : null}
-                          <StatusBadge tone={activityStatusTone(r.activityStatus)} className="mt-1">
-                            {activityStatusLabel(r.activityStatus)}
-                          </StatusBadge>
-                        </div>
-                      </TableCell>
-                      <TableCell><AtsScore score={r.ats} status={r.atsStatus} /></TableCell>
-                      <TableCell className="text-xs">
-                        <StatusBadge tone={activityStatusTone(r.activityStatus)}>
-                          {activityStatusLabel(r.activityStatus)}
-                        </StatusBadge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{r.source}</TableCell>
-                      <TableCell className="pr-4">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-8"
-                            aria-label="View activity"
-                            title="View activity"
-                            onClick={() => setActivityCandidate(r)}
-                          >
-                            <Activity className="size-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-8"
-                            aria-label="Download CV"
-                            onClick={() => void onDownloadCv(r.id, r.cvFilename)}
-                          >
-                            <FileDown className="size-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-8 text-destructive hover:text-destructive"
-                            aria-label="Delete"
-                            disabled={candidatesLocked || deleteBusy}
-                            title={candidatesLocked ? "Cannot remove after invites are sent or once live" : "Remove candidate"}
-                            onClick={() => onDeleteRecipient(r.id, r.name)}
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-
-          {cvEmailActive && !cvCollectionClosed && (
-            <Button variant="outline" size="sm" className="md:col-span-2 w-fit gap-1.5" disabled={closeCvBusy} onClick={() => void onCloseCvCollection()}>
-              {closeCvBusy ? (
-                <>Checking email & closing…</>
-              ) : (
-                <>
-                  <LockOpen className="size-3.5" /> Close CV collection early & continue
-                </>
-              )}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Step 2 · AI script</CardTitle>
-          <CardDescription>Position, role, agent, screening criteria, and script approval.</CardDescription>
+          <CardTitle>Step 1 · Define interview</CardTitle>
+          <CardDescription>
+            Approve the job screening script here. Questions 3+ are the same for every candidate; questions 1–2 are CV templates — the AI personalises those on each call.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 md:grid-cols-2">
           <Field label="Position" error={missingPosition ? "Enter position or role" : undefined}>
@@ -1668,37 +1581,32 @@ function CreateInterview() {
           ) : null}
           <div className="md:col-span-2 space-y-1.5">
             <Label className={`text-xs ${missingCriteria ? "text-destructive" : ""}`}>Screening criteria</Label>
-            <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration…" className={inputErrorClass(missingCriteria)} />
-            {missingCriteria ? <p className="text-[11px] text-destructive">Add screening criteria before generating the script</p> : null}
+            <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration, 3+ years experience, willing to travel…" className={inputErrorClass(missingCriteria)} />
+            <p className="text-[11px] text-muted-foreground">
+              Write anything relevant — must-haves, deal-breakers, or extra context. The AI uses this on the call and in your report.
+            </p>
+            {missingCriteria ? <p className="text-[11px] text-destructive">Add screening criteria before generating questions</p> : null}
           </div>
-          <div className="md:col-span-2 flex flex-wrap gap-2">
-            <Button variant="outline" className="gap-1.5" onClick={() => void onGenerateScript()} disabled={generateM.isPending}>
-              <Wand2 className="size-4" /> {generateM.isPending ? "Generating…" : "Generate AI questions"}
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-1.5"
-              onClick={() => void onApproveScript()}
-              disabled={scriptIsApproved || saveDraftM.isPending || patchOrderM.isPending}
-            >
-              {scriptIsApproved ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
-              {scriptIsApproved ? "Script approved" : "Approve script"}
-            </Button>
-            <Button variant="ghost" className="gap-1.5" onClick={() => void onGenerateScript()} disabled={generateM.isPending}><RotateCcw className="size-4" /> Regenerate</Button>
-            <div className="ml-auto flex items-center gap-2">
-              {expectedDurationMinutes ? (
-                <span className="text-xs text-muted-foreground">Expected call time: ~{expectedDurationMinutes} min</span>
-              ) : null}
-              <StatusBadge tone={scriptIsApproved ? "approved-script" : "draft-script"} />
-            </div>
+          <div className="md:col-span-2 space-y-1.5">
+            <Label className="text-xs">Additional report notes (optional)</Label>
+            <Textarea
+              rows={3}
+              value={reportNotes}
+              onChange={(e) => setReportNotes(e.target.value)}
+              placeholder="Anything else for the hiring report — priorities, culture fit, red flags, follow-up notes…"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Optional. Shown in each candidate report alongside criteria and interview questions.
+            </p>
           </div>
           <div className="md:col-span-2 space-y-1.5">
             <Label className={`text-xs ${missingScript || missingScriptApproval ? "text-destructive" : ""}`}>Interview questions</Label>
             <Textarea
               rows={8}
-              value={extractQuestionsBlock(script)}
+              value={questionsText}
               onChange={(e) => {
                 const nextQuestions = e.target.value;
+                setQuestionsText(nextQuestions);
                 const merged = mergeQuestionsIntoScript(script, nextQuestions);
                 const approvedText = String(config.approved_script || "").trim();
                 setScript(merged);
@@ -1709,12 +1617,35 @@ function CreateInterview() {
                   setScriptApproved(Boolean(config.script_approved));
                 }
               }}
-              placeholder="Numbered questions only — opening disclosure and intro are added automatically…"
+              placeholder="Write your own numbered questions, or click Generate AI questions for a draft…"
               className={inputErrorClass(missingScript || missingScriptApproval)}
             />
-            <p className="text-[11px] text-muted-foreground">Opening disclosure and intro are not editable here — only interview questions.</p>
+            <p className="text-[11px] text-muted-foreground">
+              Same job questions for every candidate (from your criteria). Questions 1–2 are templates — the AI asks each person different CV questions on the call. Approve when the job script is right.
+            </p>
             {missingScript ? <p className="text-[11px] text-destructive">Generate or paste a script, then approve it</p> : null}
             {!missingScript && missingScriptApproval ? <p className="text-[11px] text-destructive">Click Approve script when you are happy with it</p> : null}
+          </div>
+          <div className="md:col-span-2 flex flex-wrap gap-2">
+            <Button variant="outline" className="gap-1.5" onClick={() => void onGenerateScript()} disabled={generateM.isPending}>
+              <Wand2 className="size-4" /> {generateM.isPending ? "Generating…" : "Generate AI questions"}
+            </Button>
+            <Button variant="ghost" className="gap-1.5" onClick={() => void onGenerateScript()} disabled={generateM.isPending}><RotateCcw className="size-4" /> Regenerate</Button>
+            <Button
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => void onApproveScript()}
+              disabled={scriptIsApproved || saveDraftM.isPending || patchOrderM.isPending}
+            >
+              {scriptIsApproved ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
+              {scriptIsApproved ? "Script approved" : "Approve script"}
+            </Button>
+            <div className="ml-auto flex items-center gap-2">
+              {expectedDurationMinutes ? (
+                <span className="text-xs text-muted-foreground">Expected call time: ~{expectedDurationMinutes} min</span>
+              ) : null}
+              <StatusBadge tone={scriptIsApproved ? "approved-script" : "draft-script"} />
+            </div>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 md:col-span-2">
             <Field label="Calling start" error={missingCallingWindow && !callingStart ? "Set when AI calls can start" : undefined}>
@@ -1723,6 +1654,471 @@ function CreateInterview() {
             <Field label="Calling end" error={missingCallingWindow && !callingEnd ? "Set when AI calls must end" : undefined}>
               <Input type="datetime-local" value={callingEnd} onChange={(e) => setCallingEnd(e.target.value)} className={inputErrorClass(missingCallingWindow && !callingEnd)} />
             </Field>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Step 2 · Collect candidates</CardTitle>
+          <CardDescription>Upload CVs or enable email collection, then run ATS and apply your cutoff.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 md:grid-cols-2">
+          {referenceId ? (
+            <div className="space-y-1.5 md:col-span-2">
+              <Label className="text-xs">Job reference</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input value={referenceId} readOnly className="min-w-0 font-mono text-xs sm:text-sm" />
+                <Button variant="outline" className="w-full shrink-0 gap-1.5 sm:w-auto" onClick={() => void copyReference()}>
+                  {copiedReference ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
+                  {copiedReference ? "Copied!" : "Copy reference"}
+                </Button>
+              </div>
+              {cvEmailAllowed && cvEmailEnabled ? (
+                <p className="text-[11px] text-muted-foreground">
+                  CVs sent to{" "}
+                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                    {CAREERS_INBOX}
+                    <button
+                      type="button"
+                      className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      aria-label={copiedCareersEmail ? "Email copied" : "Copy careers email"}
+                      title={copiedCareersEmail ? "Copied!" : "Copy email"}
+                      onClick={() => void copyCareersInbox()}
+                    >
+                      {copiedCareersEmail ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                    </button>
+                  </span>{" "}
+                  with your <strong className="font-semibold text-foreground">job reference</strong> will be collected here.
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  CVs sent to {CAREERS_INBOX} with your <strong className="font-semibold text-foreground">job reference</strong> will be collected here once email collection is enabled.
+                </p>
+              )}
+            </div>
+          ) : null}
+
+          <div className="md:col-span-2">
+          <ToggleRow
+            title="CV email collection"
+            desc={
+              cvEmailAllowed
+                ? "Turn on to collect CVs by email using your job reference."
+                : cvEmailBlockReason ||
+                  (billingPlanName
+                    ? `Not included on ${billingPlanName} — upgrade to Starter, Pro, or Business.`
+                    : "Included on Starter, Pro, and Business packages — not Pay as you go or top-up only.")
+            }
+            checked={cvEmailEnabled}
+            onCheckedChange={(v) => {
+              if (v && !cvEmailAllowed) {
+                setUpgradeOpen(true);
+                return;
+              }
+              setCvEmailEnabled(v);
+              if (v) {
+                setAutoCloseOnLimit(true);
+                if (cvLimits?.default_max_cvs != null) setMaxCvCount(cvLimits.default_max_cvs);
+              }
+              if (orderId) {
+                void onSaveDraft(true, { cv_email_enabled: v }).catch(() => {
+                  /* toast handled in onSaveDraft */
+                });
+              }
+            }}
+          />
+          </div>
+
+          <div className="md:col-span-2 space-y-2">
+            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+              <CollapsibleTrigger className="group flex w-full items-center gap-2.5 rounded-lg border border-border bg-muted/25 px-3 py-2.5 text-left text-sm transition hover:bg-muted/40">
+                <Settings2 className="size-4 shrink-0 text-muted-foreground transition group-hover:text-foreground" aria-hidden />
+                <span className="flex-1 font-medium text-foreground">Advanced options</span>
+                <ChevronDown className="size-4 shrink-0 text-muted-foreground transition group-data-[state=open]:rotate-180" />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2 space-y-4 rounded-lg border border-border bg-background/50 p-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {cvEmailActive ? (
+                    <>
+                      <div className="grid gap-4 sm:col-span-2 lg:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Max CVs to receive</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={maxCvCount}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setMaxCvCount(raw === "" ? "" : Math.max(0, Number(raw)));
+                              setOverageAcknowledged(false);
+                            }}
+                            disabled={cvCollectionClosed || cvLimits?.unlimited}
+                            className="w-full min-w-0"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Auto-close when limit is reached</Label>
+                          <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-3">
+                            <p className="text-[11px] leading-tight text-muted-foreground">
+                              Stop collection at max
+                            </p>
+                            <Switch
+                              checked={autoCloseOnLimit}
+                              onCheckedChange={setAutoCloseOnLimit}
+                              disabled={cvCollectionClosed}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground sm:col-span-2">
+                        Set the ATS cutoff next to the candidates table. When auto-close is on, new CVs after the max
+                        get a polite auto-reply.
+                      </p>
+                      <Field label="Start collecting">
+                        <Input
+                          type="datetime-local"
+                          value={collectionStartAt}
+                          onChange={(e) => setCollectionStartAt(e.target.value)}
+                          disabled={cvCollectionClosed}
+                          className="w-full min-w-0"
+                        />
+                        <p className="text-[11px] text-muted-foreground">Leave blank to start immediately.</p>
+                      </Field>
+                      <Field label="Stop accepting CVs">
+                        <Input
+                          type="datetime-local"
+                          value={collectionCloseAt}
+                          onChange={(e) => setCollectionCloseAt(e.target.value)}
+                          disabled={cvCollectionClosed}
+                          className="w-full min-w-0"
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          Leave blank for no end date. Whichever comes first — max or date — closes collection.
+                        </p>
+                      </Field>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground sm:col-span-2">
+                      CV email is off — upload candidates below and set the ATS cutoff next to the candidates table.
+                    </p>
+                  )}
+                </div>
+
+                {cvEmailActive && isOverPlanLimit ? (
+                  <div className="border-t border-border pt-4">
+                    <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={overageAcknowledged}
+                        onCheckedChange={(checked) => setOverageAcknowledged(checked === true)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        I understand additional screenings beyond my plan will be invoiced at the standard rate
+                      </span>
+                    </label>
+                  </div>
+                ) : null}
+
+                <div className="flex justify-end border-t border-border pt-4">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={advancedSaveBusy || campaignReadOnly || !orderId}
+                    onClick={() => void onSaveAdvancedSettings()}
+                  >
+                    {advancedSaveBusy ? "Saving…" : "Save advanced settings"}
+                  </Button>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
+            {!advancedOpen && advancedSummary ? (
+              <p className="text-[11px] text-muted-foreground">{advancedSummary}</p>
+            ) : null}
+          </div>
+
+          {cvEmailActive ? (
+            <div className="md:col-span-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2">
+                {cvCollectionClosed ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-success">
+                    <Lock className="size-3.5" /> CV collection closed
+                    {cvCollectionClosedEarly ? " (closed early)" : cvCollectionClosedOnLimit ? " (limit reached)" : ""}
+                  </span>
+                ) : cvPhase === "before" ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                    <LockOpen className="size-3.5" /> CV collection not started yet
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-medium text-primary">
+                    <LockOpen className="size-3.5" /> CV collection open
+                  </span>
+                )}
+              </div>
+              {cvPhase === "before" ? (
+                <>
+                  {" — share your "}
+                  <strong className="font-semibold text-foreground">job reference</strong>
+                  {" and careers email when collection opens."}
+                </>
+              ) : null}
+              {cvPhase === "open" && " — CVs arrive by email and appear in the table below."}
+              {cvCollectionClosed && " — review candidates, remove weak profiles, then launch."}
+            </div>
+          ) : null}
+
+          <div className="md:col-span-2 group relative overflow-hidden rounded-xl border-2 border-dashed border-border bg-gradient-to-br from-background/60 via-background/40 to-accent/20 px-4 py-8 transition-colors hover:border-primary/40 sm:px-6 sm:py-10">
+            <BackdropIllustration />
+            <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => void onUpload(e.target.files)} />
+            <div className="relative flex flex-col items-center gap-2 text-center">
+              <div className="rounded-full bg-primary/10 p-3 ring-1 ring-primary/20 transition-transform group-hover:scale-110">
+                <Upload className="size-6 text-primary" />
+              </div>
+              <p className="text-sm font-medium">
+                {cvEmailActive ? "Optional — upload CVs manually" : "Drop CSV, Excel, PDF, DOCX, or ZIP"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {cvEmailActive
+                  ? "CVs also arrive by email during your collection window — you do not need to upload files here."
+                  : "Or click to upload"}
+              </p>
+              <div className="mt-2 flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+                <Button size="sm" className="w-full sm:w-auto" onClick={() => fileRef.current?.click()} disabled={uploading || !orderId}>
+                  {uploading ? "Uploading…" : "Choose files"}
+                </Button>
+                <Button size="sm" variant="outline" className="w-full gap-1.5 sm:w-auto" onClick={() => void onDownloadTemplate()}>
+                  <Download className="size-3.5" /> Download template
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="md:col-span-2 min-w-0">
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {cvEmailActive ? `Candidates · ${candidates.length}` : `Candidates uploaded · ${candidates.length}`}
+                  {screeningEligibleCount > 0 ? (
+                    <span className="text-foreground"> · {screeningEligibleCount} ready for screening</span>
+                  ) : null}
+                </p>
+                {selected.size > 0 && (
+                  <span className="animate-fade-in inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                    {selected.size} selected
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {selected.size > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive animate-fade-in"
+                    disabled={candidatesLocked || deleteBusy}
+                    onClick={onDeleteSelected}
+                  >
+                    <Trash2 className="size-3.5" /> Delete selected ({selected.size})
+                  </Button>
+                )}
+                {atsRunAt && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <CheckCircle2 className="size-3 text-success" /> ATS run {atsRunAt}
+                  </span>
+                )}
+                {unscoredCount > 0 && candidates.length > 0 && (
+                  <span className="text-[11px] text-amber-700 dark:text-amber-400">{unscoredCount} unscored</span>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  disabled={runAtsM.isPending || candidates.length === 0 || campaignReadOnly}
+                  onClick={onRunAtsClick}
+                >
+                  <Sparkles className="size-3.5" />
+                  {runAtsM.isPending ? "Running ATS…" : atsRunAt ? "Re-run ATS" : "Run ATS"}
+                </Button>
+              </div>
+            </div>
+            {atsInProgress ? (
+              <div className="mb-2 flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                <Sparkles className="size-3.5 shrink-0 animate-pulse text-primary" />
+                ATS scoring in background — scores refresh automatically.
+              </div>
+            ) : null}
+            <div className="table-scroll rounded-lg border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10 pl-4">
+                      <Checkbox
+                        checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                        onCheckedChange={toggleAll}
+                        aria-label="Select all"
+                      />
+                    </TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead className="w-20">ATS</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="w-20 pr-4 text-right" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {candSort.sorted.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                        {cvEmailActive
+                          ? (
+                              <>
+                                No CVs yet — applicants email {CAREERS_INBOX} with your{" "}
+                                <strong className="font-semibold text-foreground">job reference</strong>. They appear here automatically.
+                              </>
+                            )
+                          : "Upload candidates to get started."}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    candSort.sorted.map((r) => (
+                      <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
+                        <TableCell className="pl-4">
+                          <Checkbox
+                            checked={selected.has(r.id)}
+                            onCheckedChange={() => toggleOne(r.id)}
+                            aria-label={`Select ${r.name}`}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{r.name}</div>
+                          {r.email ? <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{r.email}</div> : null}
+                        </TableCell>
+                        <TableCell>
+                          <AtsScore
+                            score={r.ats}
+                            status={r.atsStatus}
+                            minThreshold={appliedMinAtsScore}
+                          />
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <StatusBadge tone={activityStatusTone(r.activityStatus)}>
+                            {r.activityStatusLabel || activityStatusLabel(r.activityStatus)}
+                          </StatusBadge>
+                        </TableCell>
+                        <TableCell className="pr-4">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-8"
+                              aria-label="View activity"
+                              title="View activity"
+                              onClick={() => setActivityCandidate(r)}
+                            >
+                              <Activity className="size-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-8 text-destructive hover:text-destructive"
+                              aria-label="Remove candidate"
+                              disabled={candidatesLocked || deleteBusy}
+                              title={candidatesLocked ? "Cannot remove after invites are sent or once live" : "Remove candidate"}
+                              onClick={() => onDeleteRecipient(r.id, r.name)}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+
+          <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            {cvEmailActive && !cvCollectionClosed ? (
+              <Button variant="outline" size="sm" className="w-fit gap-1.5" disabled={closeCvBusy} onClick={() => void onCloseCvCollection()}>
+                {closeCvBusy ? (
+                  <>Checking email & closing…</>
+                ) : (
+                  <>
+                    <LockOpen className="size-3.5" /> Close CV collection early & continue
+                  </>
+                )}
+              </Button>
+            ) : null}
+            <div className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-lg">
+              <Label
+                htmlFor="min-ats-score"
+                className="text-xs"
+                style={atsCutoffDirty ? { color: ATS_CUTOFF_PENDING_COLOR } : undefined}
+              >
+                Auto-reject if ATS score below (%)
+              </Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  id="min-ats-score"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={minAtsScoreDraft}
+                  onChange={(e) => {
+                    atsCutoffEditRef.current = true;
+                    const raw = e.target.value;
+                    if (raw === "") {
+                      setMinAtsScoreDraft(0);
+                      return;
+                    }
+                    const next = Number(raw);
+                    if (Number.isNaN(next)) return;
+                    setMinAtsScoreDraft(Math.max(0, Math.min(100, next)));
+                  }}
+                  disabled={campaignReadOnly || (cvEmailActive && cvCollectionClosed)}
+                  className="h-9 w-20 min-w-0"
+                  style={
+                    atsCutoffDirty
+                      ? {
+                          color: ATS_CUTOFF_PENDING_COLOR,
+                          borderColor: ATS_CUTOFF_PENDING_COLOR,
+                          boxShadow: `0 0 0 1px ${ATS_CUTOFF_PENDING_COLOR}66`,
+                        }
+                      : undefined
+                  }
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-9 gap-1.5 shadow-sm"
+                  disabled={
+                    !atsCutoffDirty ||
+                    applyAtsBusy ||
+                    applyAtsThresholdM.isPending ||
+                    campaignReadOnly ||
+                    !orderId
+                  }
+                  onClick={() => void onApplyAtsThreshold()}
+                >
+                  <Check className="size-3.5" />
+                  {applyAtsBusy || applyAtsThresholdM.isPending ? "Applying…" : "Apply cutoff"}
+                </Button>
+                <p
+                  className="text-[11px] text-muted-foreground"
+                  style={atsCutoffDirty ? { color: ATS_CUTOFF_PENDING_COLOR } : undefined}
+                >
+                  {atsCutoffDirty
+                    ? `Active cutoff is ${appliedMinAtsScore}% — click Apply cutoff to save ${minAtsScoreDraft}%.`
+                    : screeningEligibleCount > 0
+                      ? `${screeningEligibleCount} of ${candidates.length} pass the ${appliedMinAtsScore}% cutoff.`
+                      : candidates.length > 0
+                        ? `Cutoff ${appliedMinAtsScore}% applied — run ATS first if scores are missing.`
+                        : "Default cutoff 40%. Run ATS, then adjust and Apply cutoff."}
+                </p>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1741,23 +2137,11 @@ function CreateInterview() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <LaunchStatus
               label="ATS scoring"
-              done={atsGatePassed}
-              pending={runAtsM.isPending}
-              detail={
-                atsSkipped || config.ats_skipped
-                  ? "Skipped"
-                  : allCandidatesScored && cvEmailActive
-                    ? "Scored from email"
-                    : atsRunAt
-                      ? `Run ${atsRunAt}`
-                      : unscoredCount > 0
-                        ? `${unscoredCount} unscored`
-                        : cvEmailActive && candidates.length === 0
-                          ? "Waiting for CVs"
-                          : "Not run"
-              }
+              done={atsScoringComplete}
+              pending={runAtsM.isPending || atsInProgress}
+              detail={atsStatusDetail}
             />
-            <LaunchStatus label="Script approved" done={scriptIsApproved} detail={scriptIsApproved ? "Ready" : "Approve in Step 2"} />
+            <LaunchStatus label="Script approved" done={scriptIsApproved} detail={scriptIsApproved ? "Ready" : "Approve in Step 1"} />
             <LaunchStatus label="Payment" done={paymentApproved || hasPackageSub} detail={paymentApproved ? "Approved" : hasPackageSub ? `Included in ${billingPlanName || "package"}` : "After preview"} />
             <LaunchStatus
               label="WhatsApp invites"
@@ -1775,13 +2159,16 @@ function CreateInterview() {
           </div>
           <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
             <li>
+              <strong className="text-foreground">Define interview</strong> — complete Step 1 (criteria, questions, calling window).
+            </li>
+            <li>
               <strong className="text-foreground">Run ATS</strong> —{" "}
               {cvEmailActive
                 ? "email CVs are scored automatically; run ATS only if you uploaded files manually."
-                : "scores each CV in the table above (or skip when prompted)."}
+                : "score uploaded CVs in Step 2, apply your cutoff, then review the table."}
             </li>
             <li><strong className="text-foreground">Preview &amp; approve</strong> — confirm script and preview, then <strong className="text-foreground">{hasPackageSub ? "Launch" : "Pay & launch"}</strong>.</li>
-            <li><strong className="text-foreground">Send booking invites</strong> — {hasPackageSub ? "sent when you launch" : "appears after payment"}; WhatsApp links go to each candidate.</li>
+            <li><strong className="text-foreground">Send booking invites</strong> — {hasPackageSub ? "sent when you launch" : "appears after payment"}; WhatsApp links go to each eligible candidate.</li>
           </ol>
           {(setupErrors.length > 0 || launchErrors.length > 0) && (
             <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
@@ -1841,7 +2228,7 @@ function CreateInterview() {
             <Send className="size-4" /> {launchM.isPending ? "Launching…" : "Launch — send booking invites"}
           </Button>
         ) : null}
-        {paymentApproved && bookingInvitesSent && !campaignReadOnly ? (
+        {showResendBookingInvites ? (
           <Button
             variant="outline"
             className="gap-1.5"

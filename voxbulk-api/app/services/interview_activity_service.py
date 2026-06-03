@@ -81,8 +81,29 @@ def _call_completed_at(parsed: dict[str, Any]) -> str | None:
 
 class InterviewActivityService:
     @staticmethod
-    def activity_status(recipient: ServiceOrderRecipient, *, parsed: dict[str, Any] | None = None) -> str:
+    def activity_status(
+        recipient: ServiceOrderRecipient,
+        *,
+        parsed: dict[str, Any] | None = None,
+        order: ServiceOrder | None = None,
+    ) -> str:
         data = parsed if parsed is not None else _loads(recipient.result_json)
+        if data.get("cv_exclusion_keyword") and not data.get("cv_ats_reject"):
+            return "auto_excluded"
+        if data.get("cv_ats_reject"):
+            if order is not None and str(recipient.ats_status or "").lower() == "complete" and recipient.ats_score is not None:
+                from app.services.interview_cv_exclusion_service import cv_min_ats_score_from_config
+                from app.services.interview_cv_email_service import _loads_config
+
+                min_score = cv_min_ats_score_from_config(_loads_config(order))
+                if int(recipient.ats_score) >= min_score:
+                    pass
+                else:
+                    return "auto_excluded"
+            else:
+                return "auto_excluded"
+        elif data.get("auto_excluded_at"):
+            return "auto_excluded"
         status = str(recipient.status or "pending").lower()
 
         if data.get("scheduling_url_sent_at") or data.get("scheduling_sent_at"):

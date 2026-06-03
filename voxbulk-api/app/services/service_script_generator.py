@@ -41,7 +41,7 @@ Never mention Voxbulk, VOXBULK, or any platform provider — the survey is from 
 _INTERVIEW_META = """You are an expert interview screener for outbound AI phone or Zoom job interviews.
 Return ONLY valid JSON with these fields:
 - "intro": short opening after disclosure (confirm role, ask if they have time; mention call is recorded)
-- "questions": array of 6-10 screening questions as strings — the FIRST TWO must reference the candidate CV (experience, achievement, or gap); remaining questions from the role and screening criteria
+- "questions": array of 6-10 screening questions as strings — the FIRST TWO must be CV question TEMPLATES (no employer names or facts); the AI personalises them per candidate on the call; remaining questions are the same for every candidate from the role and screening criteria
 - "closing": next steps and goodbye (no job offer promises)
 - "script_text": full readable script for the customer to review with sections OPENING DISCLOSURE (placeholder), INTRO, QUESTIONS (numbered), CLOSING
 - "system_prompt": instructions for the AI interviewer (follow-ups, professionalism, never say survey)
@@ -91,6 +91,74 @@ def _format_script(intro: str, questions: list[str], closing: str, *, opening_di
         lines.append(f"{i}. {str(q).strip()}")
     lines.extend(["", "CLOSING", closing.strip()])
     return "\n".join(lines)
+
+
+_CV_QUESTION_MARKERS = (
+    "cv",
+    "resume",
+    "résumé",
+    "curriculum vitae",
+    "your experience",
+    "your role at",
+    "you worked",
+    "you mentioned",
+    "your background",
+    "your previous",
+    "tell me about your",
+    "on your cv",
+    "in your cv",
+    "from your cv",
+    "achievement",
+    "career gap",
+    "employment gap",
+    "previous employer",
+    "last role",
+    "most recent role",
+)
+
+
+def _looks_cv_personalized(question: str) -> bool:
+    q = str(question or "").lower()
+    return any(marker in q for marker in _CV_QUESTION_MARKERS)
+
+
+def _order_cv_questions_first(questions: list[str]) -> list[str]:
+    cleaned = [str(q).strip() for q in questions if str(q).strip()]
+    if len(cleaned) <= 2:
+        return cleaned
+    cv_take: list[str] = []
+    rest: list[str] = []
+    for q in cleaned:
+        if len(cv_take) < 2 and _looks_cv_personalized(q):
+            cv_take.append(q)
+        else:
+            rest.append(q)
+    if len(cv_take) < 2:
+        return cleaned
+    return cv_take + rest
+
+
+def _sync_script_questions(
+    script_text: str,
+    intro: str,
+    questions: list[str],
+    closing: str,
+    *,
+    opening_disclosure: str = "",
+) -> str:
+    ordered = _order_cv_questions_first(questions)
+    formatted_questions = "\n".join(f"{i}. {q}" for i, q in enumerate(ordered, 1))
+    text = str(script_text or "").strip()
+    match = re.match(
+        r"^([\s\S]*?\bQUESTIONS\s*\r?\n)([\s\S]*?)(\r?\n\s*CLOSING[\s\S]*)$",
+        text,
+        re.I,
+    )
+    if match:
+        return f"{match.group(1)}{formatted_questions}{match.group(3)}".strip()
+    if opening_disclosure.strip():
+        return _format_script(intro, ordered, closing, opening_disclosure=opening_disclosure)
+    return _format_script(intro, ordered, closing)
 
 
 def _guess_reply_type(question: str) -> str:
@@ -267,6 +335,15 @@ def _apply_agent_layers_to_script(
         out["script_text"] = _format_script(out["intro"], questions, closing, opening_disclosure=disclosure)
     elif mandatory and disclosure and "OPENING DISCLOSURE" not in str(out["script_text"]).upper():
         out["script_text"] = _format_script(out["intro"], questions, closing, opening_disclosure=disclosure)
+    ordered = _order_cv_questions_first(out.get("questions") or [])
+    out["questions"] = ordered
+    out["script_text"] = _sync_script_questions(
+        str(out.get("script_text") or ""),
+        out["intro"],
+        ordered,
+        closing,
+        opening_disclosure=disclosure,
+    )
     return out
 
 
@@ -345,16 +422,18 @@ def _materialise_script_result(
             for q in questions
         ]
 
+    ordered = _order_cv_questions_first(out.get("questions") or [])
+    out["questions"] = ordered
     script_text = str(out.get("script_text") or "").strip()
     if script_text:
         script_text = _scrub_recipient_script(script_text, organisation_name=platform, organiser_name=organiser, client_name=client)
         script_text = _apply_org_placeholders(script_text, organisation_name=client, assistant_name=organiser)
         intro_block = re.search(r"INTRO\s*\r?\n([\s\S]*?)(?=\r?\n\s*QUESTIONS|\r?\n\s*CLOSING|$)", script_text, re.I)
         if not intro_block or _intro_is_invalid(intro_block.group(1)):
-            script_text = _format_script(out["intro"], out["questions"], str(out.get("closing") or ""))
-        out["script_text"] = script_text
+            script_text = _format_script(out["intro"], ordered, str(out.get("closing") or ""))
+        out["script_text"] = _sync_script_questions(script_text, out["intro"], ordered, str(out.get("closing") or ""))
     else:
-        out["script_text"] = _format_script(out["intro"], out.get("questions") or [], str(out.get("closing") or ""))
+        out["script_text"] = _format_script(out["intro"], ordered, str(out.get("closing") or ""))
 
     wa = out.get("whatsapp_flow")
     if isinstance(wa, dict):
@@ -476,6 +555,7 @@ def _parse_script_payload(
     if not isinstance(questions_raw, list):
         raise ValueError("questions must be an array")
     questions = [str(q).strip() for q in questions_raw if str(q).strip()]
+    questions = _order_cv_questions_first(questions)
     if include_whatsapp:
         wa_flow = _build_whatsapp_flow(intro, questions, closing, data, organisation_name=client_name or organisation_name)
         if not wa_flow["questions"]:
@@ -484,7 +564,7 @@ def _parse_script_payload(
         closing = closing or wa_flow["closing"]
     if not intro or not questions or not closing:
         raise ValueError("Generated script must include intro, questions, and closing")
-    script_text = str(data.get("script_text") or "").strip() or _format_script(intro, questions, closing)
+    script_text = _format_script(intro, questions, closing)
     system_prompt = str(data.get("system_prompt") or "").strip()
     if not system_prompt:
         system_prompt = f"Follow this approved script closely.\n\n{script_text}"
@@ -644,7 +724,7 @@ def generate_interview_script(
             f"Screening criteria:\n{criteria_text}",
             f"Delivery: {channel}",
             "Write screening questions the customer can read and approve before launch.",
-            "The first TWO questions must reference the candidate CV. Remaining questions from the criteria above.",
+            "The first TWO questions must be CV templates (e.g. ask about a specific role, achievement, or gap from THEIR cv — do not name employers or invent CV facts). Remaining questions are standard job screening from the criteria above.",
         ]
     )
     cv_hint = str(gen_config.get("cv_sample_summary") or gen_config.get("sample_cv") or "").strip()

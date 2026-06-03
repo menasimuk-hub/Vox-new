@@ -39,6 +39,7 @@ export function activityStatusLabel(status?: string | null) {
     report_ready: "Report ready",
     call_failed: "Call failed",
     scheduling_sent: "Scheduling sent",
+    auto_excluded: "Auto-excluded",
   };
   return labels[key] || (key ? key.replace(/_/g, " ") : "Pending");
 }
@@ -47,7 +48,7 @@ export function activityStatusTone(
   status?: string | null,
 ): "live" | "scheduled" | "finished" | "paused" | "quoted" | "awaiting-payment" {
   const key = String(status || "").toLowerCase();
-  if (key === "booking_cancelled" || key === "call_failed") return "paused";
+  if (key === "booking_cancelled" || key === "call_failed" || key === "auto_excluded") return "paused";
   if (key === "booked" || key === "booked_waiting" || key === "calling") return "live";
   if (key === "report_ready" || key === "interview_completed") return "finished";
   if (key === "booking_email_sent" || key === "awaiting_booking") return "scheduled";

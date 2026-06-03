@@ -10,6 +10,12 @@ import { toast } from "sonner";
 
 
 import { apiFetch, getAccessToken, logoutDashboard, redirectToSignIn } from "@/lib/api";
+import {
+  consumeAuthHandoffFromHash,
+  hasAuthHandoffInHash,
+  storeAuthHandoffFromHash,
+  stripAuthHashFromUrl,
+} from "@/lib/auth-handoff";
 import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
 
 import {
@@ -250,9 +256,29 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
 
-  const token = typeof window !== "undefined" ? getAccessToken() : "";
+  const [token, setToken] = React.useState(() => {
+    if (typeof window === "undefined") return "";
+    const handoffToken = storeAuthHandoffFromHash();
+    if (handoffToken) return handoffToken;
+    return getAccessToken();
+  });
 
   const qc = useQueryClient();
+
+  React.useLayoutEffect(() => {
+    if (hasAuthHandoffInHash()) {
+      consumeAuthHandoffFromHash();
+    } else if (window.location.hash.includes("access_token")) {
+      stripAuthHashFromUrl();
+    }
+    setToken(getAccessToken());
+  }, []);
+
+  React.useEffect(() => {
+    const sync = () => setToken(getAccessToken());
+    window.addEventListener("storage", sync);
+    return () => window.removeEventListener("storage", sync);
+  }, []);
 
 
 
@@ -273,9 +299,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
 
   React.useEffect(() => {
-
-    if (!token) redirectToSignIn();
-
+    if (token || hasAuthHandoffInHash()) return;
+    redirectToSignIn();
   }, [token]);
 
 
@@ -324,7 +349,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
 
 
-  if (!token) return null;
+  if (!token && !hasAuthHandoffInHash()) return null;
+
+  if (!token) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="max-w-sm text-center">
+          <h2 className="text-lg font-semibold tracking-tight">Signing you in…</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Finishing login handoff.</p>
+        </div>
+      </div>
+    );
+  }
 
 
 

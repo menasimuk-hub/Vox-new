@@ -36,6 +36,7 @@ AUTO_REPLY_INVALID_BODY = (
     "Your CV was not stored."
 )
 AUTO_REPLY_CLOSED_SUBJECT = "Collection is closed"
+AUTO_REPLY_EXCLUDED_SUBJECT = "Your CV could not be processed"
 
 
 def _decode_mime(value: str | None) -> str:
@@ -111,6 +112,12 @@ def _reply_collection_closed(db: Session, *, to_addr: str, order: ServiceOrder) 
     _send_auto_reply(db, to_addr=to_addr, subject=AUTO_REPLY_CLOSED_SUBJECT, body=body)
 
 
+def _reply_auto_excluded(db: Session, *, to_addr: str) -> None:
+    from app.services.interview_cv_exclusion_service import AUTO_REPLY_EXCLUDED_BODY
+
+    _send_auto_reply(db, to_addr=to_addr, subject=AUTO_REPLY_EXCLUDED_SUBJECT, body=AUTO_REPLY_EXCLUDED_BODY)
+
+
 def _process_message(db: Session, msg: Message) -> tuple[str, int]:
     subject = _decode_mime(msg.get("Subject"))
     from_hdr = _decode_mime(msg.get("From"))
@@ -135,6 +142,12 @@ def _process_message(db: Session, msg: Message) -> tuple[str, int]:
         _reply_collection_closed(db, to_addr=reply_to, order=order)
         return "rejected_window_closed", 0
 
+    from app.services.interview_cv_collection_service import cv_collection_at_capacity
+
+    if cv_collection_at_capacity(db, order):
+        _reply_collection_closed(db, to_addr=reply_to, order=order)
+        return "rejected_at_capacity", 0
+
     attachments = _extract_attachments(msg)
     if not attachments:
         return "skipped_no_attachments", 0
@@ -145,6 +158,7 @@ def _process_message(db: Session, msg: Message) -> tuple[str, int]:
         if not parsed_list:
             continue
         parsed: ParsedCv = parsed_list[0]
+
         key = storage_key_for(org_id=order.org_id, order_id=order.id, filename=filename)
         save_cv_bytes(storage_key=key, content=content)
         _order, recipient = intake_email_cv_for_order(
@@ -153,7 +167,13 @@ def _process_message(db: Session, msg: Message) -> tuple[str, int]:
         order = _order
         from app.services.interview_email_ats_service import auto_ats_after_email_cv
 
-        auto_ats_after_email_cv(db, order, recipient, is_update=True)
+        ats_result = auto_ats_after_email_cv(db, order, recipient, is_update=True)
+        if ats_result.get("reason") == "ats_below_threshold":
+            _reply_auto_excluded(db, to_addr=reply_to)
+            return "rejected_ats_score", 0
+        from app.services.interview_cv_collection_service import maybe_close_cv_collection_on_limit
+
+        maybe_close_cv_collection_on_limit(db, order)
         added += 1
     return "accepted", added
 

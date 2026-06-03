@@ -1,3 +1,9 @@
+/** Default ATS cutoff when none saved on the order (0–100). */
+export const DEFAULT_MIN_ATS_SCORE = 40;
+
+/** Unsaved ATS cutoff hint colour (amber). */
+export const ATS_CUTOFF_PENDING_COLOR = "#b45309";
+
 /** Interview campaigns are read-only once stopped or finished. */
 export function isInterviewCampaignReadOnly(status?: string | null): boolean {
   return ["cancelled", "completed", "archived"].includes(String(status || "").toLowerCase());
@@ -9,4 +15,76 @@ export function interviewCampaignReadOnlyLabel(status?: string | null): string {
   if (key === "completed") return "This campaign is finished — all actions are read-only.";
   if (key === "archived") return "This campaign is archived — all actions are read-only.";
   return "This campaign is read-only.";
+}
+
+/** True after Launch — booking invites may be sent or resent. */
+export function isInterviewCampaignLaunched(status?: string | null): boolean {
+  return ["running", "scheduled", "paused", "completed"].includes(String(status || "").toLowerCase());
+}
+
+type InviteDispatch = { ok?: boolean; email_sent?: number; whatsapp_sent?: number; errors?: string[] };
+
+/** True when a launch successfully dispatched booking invites (not draft-only config). */
+export function bookingInvitesWereSent(config: Record<string, unknown>): boolean {
+  if (!config.booking_invites_sent_at) return false;
+  const dispatch = config.last_invite_dispatch as InviteDispatch | undefined;
+  if (dispatch?.ok === false) return false;
+  return dispatch?.ok === true;
+}
+
+const RESEND_BLOCKED_ACTIVITY = new Set(["report_ready", "interview_completed", "scheduling_sent", "calling"]);
+
+/** Campaign-level gate: launched + invites sent + not read-only. */
+export function campaignAllowsResendBookingInvites(opts: {
+  orderStatus?: string | null;
+  config?: Record<string, unknown>;
+  readOnly?: boolean;
+}): boolean {
+  if (opts.readOnly) return false;
+  if (!isInterviewCampaignLaunched(opts.orderStatus)) return false;
+  return bookingInvitesWereSent(opts.config || {});
+}
+
+/** Per-candidate resend allowed after campaign gate passes. */
+export function candidateAllowsResendBookingInvite(activityStatus?: string | null): boolean {
+  return !RESEND_BLOCKED_ACTIVITY.has(String(activityStatus || "").toLowerCase());
+}
+
+export function canShowResendBookingInvite(opts: {
+  orderStatus?: string | null;
+  config?: Record<string, unknown>;
+  readOnly?: boolean;
+  activityStatus?: string | null;
+}): boolean {
+  return campaignAllowsResendBookingInvites(opts) && candidateAllowsResendBookingInvite(opts.activityStatus);
+}
+
+export type InterviewCandidateAtsFields = {
+  ats: number | null;
+  atsStatus?: string;
+  activityStatus?: string;
+  /** e.g. "Auto-excluded · matched: …" for keyword exclusions */
+  activityStatusLabel?: string;
+};
+
+/** True when candidate has a completed ATS score at or above the campaign cutoff and is not excluded. */
+export function isScreeningEligibleCandidate(
+  candidate: InterviewCandidateAtsFields,
+  minAtsScore: number,
+): boolean {
+  const atsStatus = String(candidate.atsStatus || "").toLowerCase();
+  if (atsStatus !== "complete" || candidate.ats == null) return false;
+
+  const label = String(candidate.activityStatusLabel || "").toLowerCase();
+  if (label.includes("matched:")) return false;
+
+  // Score vs applied cutoff is authoritative (stale auto_excluded flags must not block launch).
+  return candidate.ats >= minAtsScore;
+}
+
+export function countScreeningEligibleCandidates(
+  candidates: InterviewCandidateAtsFields[],
+  minAtsScore: number,
+): number {
+  return candidates.filter((c) => isScreeningEligibleCandidate(c, minAtsScore)).length;
 }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -248,6 +248,19 @@ def get_interview_billing_context(db: Session = Depends(get_db), principal=Depen
     return org_interview_billing_context(db, org)
 
 
+@router.get("/interview/cv-collection-limits")
+def get_interview_cv_collection_limits(
+    order_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_cv_collection_service import compute_cv_collection_limits
+
+    _require_org_service(db, principal.org_id, "interview")
+    exclude = str(order_id or "").strip() or None
+    return compute_cv_collection_limits(db, principal.org_id, exclude_order_id=exclude)
+
+
 @router.get("/interview/draft")
 def get_interview_draft(
     order_id: str | None = None,
@@ -342,6 +355,21 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
                     db, str(config_patch.get("delivery") or "ai_call")
                 )
             except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        if order.service_code == "interview":
+            from app.services.interview_cv_collection_service import CvCollectionConfigError, validate_and_apply_cv_config
+            from app.services.interview_cv_email_service import _loads_config
+
+            try:
+                previous = _loads_config(order)
+                config_patch = validate_and_apply_cv_config(
+                    db,
+                    principal.org_id,
+                    order,
+                    config_patch,
+                    previous_cfg=previous,
+                )
+            except CvCollectionConfigError as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         order = ServiceOrderService.update_order(db, order, {"config": config_patch})
     sched_patch = {}
@@ -705,6 +733,23 @@ def patch_order(order_id: str, payload: dict, db: Session = Depends(get_db), pri
                 config_patch = dict(config_patch)
                 config_patch["cv_email_enabled"] = False
                 payload["config"] = config_patch
+        if config_patch and order.service_code == "interview":
+            from app.services.interview_cv_collection_service import CvCollectionConfigError, validate_and_apply_cv_config
+            from app.services.interview_cv_email_service import _loads_config
+
+            payload = dict(payload)
+            config_patch = dict(payload.get("config") or {})
+            try:
+                config_patch = validate_and_apply_cv_config(
+                    db,
+                    principal.org_id,
+                    order,
+                    config_patch,
+                    previous_cfg=_loads_config(order),
+                )
+                payload["config"] = config_patch
+            except CvCollectionConfigError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         order = ServiceOrderService.update_order(db, order, payload)
         return ServiceOrderService.order_to_dict(order)
     except ValueError as e:
@@ -1115,6 +1160,55 @@ def run_interview_ats(
         )
     except InterviewAtsBillingError as e:
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)) from e
+
+
+@router.post("/{order_id}/interview/ats/apply-threshold")
+def apply_interview_ats_threshold(
+    order_id: str,
+    payload: dict = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.interview_cv_exclusion_service import apply_ats_threshold_to_order
+    from app.services.interview_cv_collection_service import CvCollectionConfigError, validate_and_apply_cv_config
+    from app.services.interview_cv_email_service import _loads_config
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    body = payload if isinstance(payload, dict) else {}
+    raw_min = body.get("min_ats_score")
+    if raw_min is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="min_ats_score is required")
+    try:
+        min_score = max(0, min(100, int(raw_min)))
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid min_ats_score") from e
+    previous = _loads_config(order)
+    if previous.get("cv_email_enabled"):
+        try:
+            validate_and_apply_cv_config(
+                db,
+                principal.org_id,
+                order,
+                {"cv_min_ats_score": min_score},
+                previous_cfg=previous,
+            )
+        except CvCollectionConfigError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    try:
+        result = apply_ats_threshold_to_order(db, order, min_score=min_score)
+        db.refresh(order)
+        result["order"] = ServiceOrderService.order_to_dict(order)
+        return result
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).exception("apply_interview_ats_threshold_failed order_id=%s", order_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not apply ATS cutoff to candidates.",
+        ) from e
 
 
 @router.post("/{order_id}/interview/cv-collection/close-early")

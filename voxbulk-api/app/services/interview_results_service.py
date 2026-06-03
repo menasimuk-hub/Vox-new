@@ -80,6 +80,7 @@ def _candidate_row(
     *,
     role: str,
     order_id: str,
+    order: ServiceOrder | None = None,
     parsed: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     base = ServiceOrderService.recipient_to_dict(recipient)
@@ -110,7 +111,7 @@ def _candidate_row(
     from app.services.interview_activity_service import InterviewActivityService
     from app.services.interview_booking_service import _recipient_outreach_email
 
-    activity_status = InterviewActivityService.activity_status(recipient, parsed=parsed)
+    activity_status = InterviewActivityService.activity_status(recipient, parsed=parsed, order=order)
     outreach_email = _recipient_outreach_email(recipient)
 
     row = {
@@ -204,7 +205,7 @@ class InterviewResultsService:
             from app.services.interview_activity_service import _merge_token_into_parsed
 
             parsed = _merge_token_into_parsed(parsed, token_row)
-            row = _candidate_row(recipient, role=role, order_id=order.id, parsed=parsed)
+            row = _candidate_row(recipient, role=role, order_id=order.id, order=order, parsed=parsed)
             row.update(_scheduling_links(order, row, parsed=parsed))
             row["shortlist_selected"] = recipient.id in saved_ids
             candidates.append(row)
@@ -292,7 +293,7 @@ class InterviewResultsService:
         from app.services.interview_activity_service import _merge_token_into_parsed
 
         parsed = _merge_token_into_parsed(parsed, token_row)
-        row = _candidate_row(recipient, role=role, order_id=order.id, parsed=parsed)
+        row = _candidate_row(recipient, role=role, order_id=order.id, order=order, parsed=parsed)
         row.update(_scheduling_links(order, row, parsed=parsed))
         analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
         transcript = str(parsed.get("transcript") or "").strip() if row.get("has_interview_report") else ""

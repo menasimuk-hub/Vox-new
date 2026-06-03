@@ -27,6 +27,14 @@ def _seed(recipient_id: str) -> int:
     return int(hashlib.md5(recipient_id.encode()).hexdigest()[:8], 16)
 
 
+def _extract_questions_block(script: str) -> str:
+    text = str(script or "")
+    match = re.search(r"\bQUESTIONS\s*\r?\n([\s\S]*?)(?=\r?\n\s*CLOSING\b|$)", text, re.I)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
+
+
 def _initials(name: str) -> str:
     parts = [p for p in re.split(r"\s+", str(name or "").strip()) if p]
     if not parts:
@@ -192,6 +200,9 @@ class InterviewCandidateReportService:
 
         activity = InterviewActivityService.timeline(db, order, recipient)
 
+        approved_script = str(config.get("approved_script") or config.get("generated_script_draft") or "").strip()
+        screening_criteria = str(config.get("screening_criteria") or config.get("criteria") or "").strip()
+
         return {
             "candidate": {
                 "id": recipient.id,
@@ -206,6 +217,11 @@ class InterviewCandidateReportService:
             },
             "role": role,
             "company_name": company,
+            "campaign_brief": {
+                "screening_criteria": screening_criteria,
+                "interview_questions": _extract_questions_block(approved_script),
+                "report_notes": str(config.get("report_notes") or "").strip(),
+            },
             "order": {
                 "id": order.id,
                 "reference_id": order.reference_id,

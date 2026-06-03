@@ -45,22 +45,27 @@ def cv_email_window_state(order: ServiceOrder, *, now: datetime | None = None) -
     settings = cv_email_settings(order)
     if not settings["enabled"]:
         return "disabled"
+    cfg = _loads_config(order)
+    if cfg.get("cv_collection_closed_early_at") or cfg.get("cv_collection_closed_on_limit_at"):
+        return "after"
     start = _parse_iso(settings.get("start_at"))
     end = _parse_iso(settings.get("end_at"))
-    if start is None or end is None:
-        return "incomplete"
     ts = now or datetime.utcnow()
+    if start is None:
+        return "incomplete"
     if ts < start:
         return "before"
-    if ts > end:
+    if end is not None and ts > end:
         return "after"
     return "open"
 
 
 def cv_collection_complete(order: ServiceOrder, *, now: datetime | None = None) -> bool:
-    """True when email CV intake is off, the collection window has ended, or closed early."""
+    """True when email CV intake is off, closed early, hit max, or past optional end date."""
     cfg = _loads_config(order)
-    if cfg.get("cv_collection_closed_early_at"):
+    if not cfg.get("cv_email_enabled"):
+        return True
+    if cfg.get("cv_collection_closed_early_at") or cfg.get("cv_collection_closed_on_limit_at"):
         return True
     state = cv_email_window_state(order, now=now)
     return state in {"disabled", "after"}
@@ -111,7 +116,7 @@ def assert_cv_collection_complete(order: ServiceOrder, *, now: datetime | None =
         return
     state = cv_email_window_state(order, now=now)
     if state == "incomplete":
-        raise ValueError("CV collection via email is ON — set start and end times before launching AI interviews")
+        raise ValueError("CV collection via email is ON — save the campaign to initialise the collection window")
     if state == "before":
         raise ValueError("CV collection has not started yet — AI interviews unlock after the email collection window ends")
     if state == "open":
@@ -145,16 +150,26 @@ def interview_cv_phase_payload(order: ServiceOrder, *, now: datetime | None = No
     complete = cv_collection_complete(order, now=now)
     cfg = _loads_config(order)
     closed_early = bool(cfg.get("cv_collection_closed_early_at"))
+    closed_on_limit = bool(cfg.get("cv_collection_closed_on_limit_at"))
+    from app.services.interview_cv_collection_service import cv_max_count_from_config
+    from app.services.interview_cv_exclusion_service import cv_min_ats_score_from_config
+
+    max_c = cv_max_count_from_config(cfg)
     return {
         "enabled": settings["enabled"],
         "window_state": state,
         "collection_complete": complete,
         "closed_early": closed_early,
+        "closed_on_limit": closed_on_limit,
         "can_quote": complete,
         "can_launch_ai": complete,
         "start_at": settings.get("start_at"),
         "end_at": settings.get("end_at"),
         "end_label": format_cv_email_end_label(order) if settings.get("end_at") else None,
+        "cv_max_count": max_c,
+        "cv_auto_close_on_limit": bool(cfg.get("cv_auto_close_on_limit", True)),
+        "cv_min_ats_score": cv_min_ats_score_from_config(cfg),
+        "recipient_count": int(order.recipient_count or 0),
     }
 
 

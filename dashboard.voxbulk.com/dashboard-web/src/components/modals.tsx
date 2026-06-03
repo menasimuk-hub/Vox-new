@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
 import { WaBookingPhonePreview } from "@/components/wa-booking-phone-preview";
+import { parseScriptQuestions } from "@/lib/interview-script";
 import {
   AlertCircle,
   CheckCircle2,
@@ -439,9 +440,13 @@ export type InterviewPreviewData = {
   position: string;
   role: string;
   criteria: string;
+  reportNotes?: string;
   agentName: string;
   script: string;
   candidateCount: number;
+  screeningEligibleCount?: number;
+  minAtsScore?: number;
+  atsSkipped?: boolean;
   referenceId: string;
   cvEmailEnabled: boolean;
   cvCollectionComplete?: boolean;
@@ -650,24 +655,43 @@ export function InterviewPreviewQuoteModal({
   const [scriptApproved, setScriptApproved] = React.useState(Boolean(data.scriptApproved));
   const [launching, setLaunching] = React.useState(false);
   const [launchActionError, setLaunchActionError] = React.useState<string | null>(null);
-  const scriptLines = (data.script || "").split(/\n+/).filter(Boolean).slice(0, 8);
+  const scriptQuestions = parseScriptQuestions(data.script || "");
   const expectedTimeLabel = data.expectedDurationMinutes
     ? `~${data.expectedDurationMinutes} min per call`
     : "—";
   const quoteTotal = data.quoteTotalDisplay || data.quoteTotalGbp;
   const packageLabel = packagePlanName ? `Included in ${packagePlanName}` : "Included in your package";
+  const readyCount = data.screeningEligibleCount ?? data.candidateCount;
+  const candidateMetricValue =
+    readyCount !== data.candidateCount
+      ? `${readyCount} ready`
+      : data.cvEmailEnabled
+        ? `${data.candidateCount} via email`
+        : `${data.candidateCount} ready`;
+  const candidateMetricHint =
+    readyCount !== data.candidateCount && data.minAtsScore != null
+      ? `${data.candidateCount} uploaded · ${readyCount} meet ${data.minAtsScore}% ATS cutoff`
+      : undefined;
   const launchReadinessErrors: string[] = [...launchBlockers];
   if (data.cvEmailEnabled) {
     if (!data.cvCollectionComplete) {
-      launchReadinessErrors.push("CV collection must finish first (or close early in Step 1).");
+      launchReadinessErrors.push("CV collection must finish first (or close early in Step 2).");
     }
     if (data.candidateCount <= 0) {
       launchReadinessErrors.push(
         `No CVs received — share reference ${data.referenceId || "—"} and ${data.careersInbox || "careers@voxbulk.com"} with applicants.`,
       );
+    } else if ((data.screeningEligibleCount ?? data.candidateCount) <= 0 && !data.atsSkipped) {
+      launchReadinessErrors.push(
+        `No candidates meet the ${data.minAtsScore ?? 40}% ATS cutoff — lower the cutoff or remove weak profiles.`,
+      );
     }
   } else if (data.candidateCount <= 0) {
-    launchReadinessErrors.push("Upload at least one candidate in Step 1.");
+    launchReadinessErrors.push("Upload at least one candidate in Step 2.");
+  } else if ((data.screeningEligibleCount ?? data.candidateCount) <= 0 && !data.atsSkipped) {
+    launchReadinessErrors.push(
+      `No candidates meet the ${data.minAtsScore ?? 40}% ATS cutoff — lower the cutoff or remove weak profiles.`,
+    );
   }
   const actionBusy = Boolean(payBusy || launching);
   const canLaunchPackage =
@@ -767,7 +791,12 @@ export function InterviewPreviewQuoteModal({
         <div className="grid gap-0 lg:grid-cols-[1.35fr_0.85fr]">
           <div className="space-y-5 p-6">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <PreviewMetric icon={<Users className="size-4" />} label="Candidates" value={data.cvEmailEnabled ? `${data.candidateCount} via email` : `${data.candidateCount} ready`} />
+              <div className="space-y-1">
+                <PreviewMetric icon={<Users className="size-4" />} label="Candidates" value={candidateMetricValue} />
+                {candidateMetricHint ? (
+                  <p className="text-[11px] text-muted-foreground">{candidateMetricHint}</p>
+                ) : null}
+              </div>
               <PreviewMetric icon={<PhoneCall className="size-4" />} label="Agent" value={data.agentName || "—"} />
               <PreviewMetric icon={<Clock className="size-4" />} label="Expected call time" value={expectedTimeLabel} />
               <PreviewMetric icon={<ReceiptText className="size-4" />} label="Est. cost" value={quoteLoading ? "…" : hasPackageSubscription ? packageLabel : quoteTotal || "—"} />
@@ -784,8 +813,25 @@ export function InterviewPreviewQuoteModal({
               <p className="whitespace-pre-wrap text-sm text-muted-foreground">{data.criteria || "—"}</p>
             </Panel>
 
+            {data.reportNotes?.trim() ? (
+              <Panel title="Additional report notes" icon={<FileText className="size-4" />}>
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">{data.reportNotes.trim()}</p>
+              </Panel>
+            ) : null}
+
             <Panel title="Approved script preview" icon={<PlayCircle className="size-4" />}>
-              {scriptLines.length ? scriptLines.map((line, i) => <NumberedLine key={i} index={i + 1} text={line} />) : (
+              {scriptQuestions.length ? (
+                <>
+                  <p className="mb-3 text-[11px] text-muted-foreground">
+                    You approved the job script. Questions 1–2 are templates — each candidate gets different CV questions on the call. Questions 3+ are the same for everyone.
+                  </p>
+                  {scriptQuestions.map((q) => (
+                    <div key={q.index} className="mb-2 last:mb-0">
+                      <NumberedLine index={q.index} text={q.text} />
+                    </div>
+                  ))}
+                </>
+              ) : (
                 <p className="text-sm text-destructive">Generate the AI script before approving.</p>
               )}
             </Panel>

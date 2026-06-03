@@ -2028,7 +2028,12 @@ class InterviewBookingService:
         skipped_locked = 0
         errors: list[str] = []
 
+        from app.services.interview_cv_exclusion_service import is_auto_excluded_recipient
+
         for recipient in recipients:
+            if is_auto_excluded_recipient(recipient):
+                skipped_locked += 1
+                continue
             if interview_booking_locked(recipient):
                 skipped_locked += 1
                 errors.append(f"{recipient.name or recipient.id}: interview already complete — invite skipped")

@@ -100,6 +100,11 @@ function RootShell({ children }: { children: React.ReactNode }) {
     <html lang="en">
       <head>
         <HeadContent />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var h=location.hash;if(!h||h.indexOf("access_token=")===-1)return;try{var p=new URLSearchParams(h.charAt(0)==="#"?h.slice(1):h),t=p.get("access_token");if(!t)return;localStorage.setItem("voxbulk_access_token",t);localStorage.setItem("access_token",t);var o=p.get("org_id");if(o){localStorage.setItem("voxbulk_org_id",o);localStorage.removeItem("retover_org_id");}var u=p.get("user_id");if(u){localStorage.setItem("voxbulk_user_id",u);localStorage.removeItem("retover_user_id");}history.replaceState(history.state,"",location.pathname+location.search||"/");}catch(e){}})();`,
+          }}
+        />
       </head>
       <body>
         {children}
