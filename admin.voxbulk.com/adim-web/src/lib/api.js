@@ -577,10 +577,19 @@ export async function ensureAdminSession() {
 function formatApiError(data, status, statusText) {
   const d = data?.detail
   if (typeof d === 'string') return d
+  if (d && typeof d === 'object' && !Array.isArray(d)) {
+    if (typeof d.message === 'string') {
+      const parts = [d.message]
+      if (d.provider_error) parts.push(String(d.provider_error))
+      if (d.template_name) parts.push(`Template: ${d.template_name}`)
+      if (d.status_code) parts.push(`HTTP ${d.status_code}`)
+      return parts.join(' — ')
+    }
+    return JSON.stringify(d)
+  }
   if (Array.isArray(d)) {
     return d.map((x) => (x && typeof x === 'object' && x.msg ? x.msg : JSON.stringify(x))).join('; ')
   }
-  if (d && typeof d === 'object') return JSON.stringify(d)
   if (typeof data?.message === 'string') return data.message
   return `${status} ${statusText}`.trim()
 }

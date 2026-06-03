@@ -3907,6 +3907,45 @@ body.dark .emailPreviewInner {
   padding-top: 8px;
 }
 
+.alert {
+  border-radius: 10px;
+  border: 1px solid var(--border, #dde3ea);
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+
+.alert.ok {
+  background: rgba(34, 139, 87, 0.08);
+  border-color: rgba(34, 139, 87, 0.35);
+}
+
+.alert.warn {
+  background: rgba(180, 120, 0, 0.08);
+  border-color: rgba(180, 120, 0, 0.35);
+}
+
+.alert.error {
+  background: rgba(163, 45, 45, 0.08);
+  border-color: rgba(163, 45, 45, 0.35);
+  color: var(--red, #a32d2d);
+}
+
+.waSurveyFeedbackDetail {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 12px;
+  opacity: 0.92;
+}
+
+.waSurveyTestSend {
+  border-top: 1px solid var(--border, #dde3ea);
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
 .waBubbleText {
   margin: 0;
   white-space: pre-wrap;

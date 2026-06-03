@@ -18,6 +18,12 @@ from app.services.survey_whatsapp_template_service import (
 router = APIRouter(prefix="/admin/wa-survey", tags=["admin-wa-survey"])
 
 
+def _raise_wa_survey_error(exc: SurveyWhatsappTemplateError, *, status_code: int = status.HTTP_400_BAD_REQUEST) -> None:
+    payload = exc.payload or {"message": str(exc)}
+    code = status.HTTP_502_BAD_GATEWAY if payload.get("provider_error") and status_code == status.HTTP_400_BAD_REQUEST else status_code
+    raise HTTPException(status_code=code, detail=payload) from exc
+
+
 @router.get("/types")
 def list_survey_types(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     return {"ok": True, "types": SurveyTypeService.list_types(db)}
@@ -112,8 +118,31 @@ def clone_anonymous_template(
     try:
         cloned = SurveyWhatsappTemplateService.clone_as_anonymous(db, parent)
     except SurveyWhatsappTemplateError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+        _raise_wa_survey_error(e)
     return {"ok": True, "template": survey_template_to_dict(cloned)}
+
+
+@router.post("/templates/{template_id}/send-test")
+def send_template_test(
+    template_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = SurveyWhatsappTemplateService.get_template(db, template_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"message": "Template not found"})
+    body = payload or {}
+    try:
+        return SurveyWhatsappTemplateService.send_test_template(
+            db,
+            row,
+            to_number=str(body.get("to_number") or body.get("mobile") or ""),
+            first_name=str(body.get("first_name") or "Alex"),
+            business_name=str(body.get("business_name") or "Northgate Dental"),
+        )
+    except SurveyWhatsappTemplateError as e:
+        _raise_wa_survey_error(e)
 
 
 @router.post("/templates/{template_id}/push")
@@ -128,7 +157,7 @@ def push_template_to_telnyx(
     try:
         result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
     except SurveyWhatsappTemplateError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+        _raise_wa_survey_error(e)
     return result
 
 
@@ -139,13 +168,10 @@ def sync_survey_templates(
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
     body = payload or {}
-    try:
-        summary = SurveyWhatsappTemplateService.sync_from_telnyx(
-            db,
-            survey_type_id=str(body.get("survey_type_id") or "").strip() or None,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+    summary = SurveyWhatsappTemplateService.sync_from_telnyx(
+        db,
+        survey_type_id=str(body.get("survey_type_id") or "").strip() or None,
+    )
     return summary
 
 

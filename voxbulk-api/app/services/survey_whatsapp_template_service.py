@@ -49,7 +49,125 @@ SYNC_DRAFT = "draft"
 
 
 class SurveyWhatsappTemplateError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, payload: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.payload = payload
+
+
+def _provider_error_payload(
+    *,
+    message: str,
+    template_name: str | None = None,
+    provider_error: str | None = None,
+    status_code: int | None = None,
+    telnyx_request_mode: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "message": message,
+        "template_name": template_name,
+        "provider_error": provider_error,
+        "status_code": status_code,
+        "telnyx_request_mode": telnyx_request_mode,
+    }
+
+
+def _validate_mobile_number(raw: str) -> tuple[str | None, str | None]:
+    from app.services.telnyx_api_key import normalize_telnyx_e164
+
+    text = str(raw or "").strip()
+    if not text:
+        return None, "Mobile number is required."
+    try:
+        normalized = normalize_telnyx_e164(text)
+    except ValueError:
+        return None, "Enter a valid mobile number in E.164 format (e.g. +447700900123)."
+    if not normalized:
+        return None, "Enter a valid mobile number in E.164 format (e.g. +447700900123)."
+    digits = normalized.lstrip("+")
+    if len(digits) < 10 or len(digits) > 15:
+        return None, "Mobile number must be 10–15 digits including country code (e.g. +447700900123)."
+    return normalized, None
+
+
+def format_sync_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Turn raw sync counters into an admin-friendly structured result."""
+    imported = int(summary.get("imported") or 0)
+    updated = int(summary.get("updated") or 0)
+    skipped = int(summary.get("skipped") or 0)
+    failed = int(summary.get("failed") or 0)
+    remote_count = int(summary.get("remote_count") or 0)
+    survey_matched = int(summary.get("survey_matched") or 0)
+    linked = int(summary.get("linked_to_survey_type") or 0)
+    unlinked = int(summary.get("unlinked_survey_templates") or 0)
+    filter_desc = str(
+        summary.get("filter_description")
+        or "Template names must contain “survey” (case-insensitive) to import into WA Survey."
+    )
+    errors = summary.get("errors") or []
+    provider_error = summary.get("provider_error")
+    status_code = summary.get("status_code")
+
+    success = bool(summary.get("ok", failed == 0 and not provider_error))
+    severity = "ok"
+    message = ""
+
+    if provider_error:
+        success = False
+        severity = "error"
+        code = f" ({status_code})" if status_code else ""
+        message = f"Telnyx sync failed{code}: {provider_error}"
+    elif remote_count == 0:
+        severity = "warn"
+        message = (
+            "Sync completed, but Telnyx returned 0 WhatsApp templates for the configured WABA/account. "
+            "Check Integrations → Telnyx → WhatsApp Business Account ID."
+        )
+    elif survey_matched == 0:
+        severity = "warn"
+        message = (
+            f"Sync completed, but no survey templates were found in Telnyx for the current filter. "
+            f"Telnyx returned {remote_count} template(s); {filter_desc}"
+        )
+    elif imported == 0 and updated == 0 and skipped == 0 and failed == 0:
+        severity = "warn"
+        message = (
+            "Sync completed with no changes. "
+            f"Matched {survey_matched} survey template(s) from {remote_count} remote template(s)."
+        )
+    elif failed > 0:
+        severity = "warn" if imported + updated > 0 else "error"
+        message = (
+            f"Sync completed: {imported} imported, {updated} updated, {skipped} skipped, {failed} failed."
+        )
+        if errors:
+            message += f" First error: {errors[0]}"
+    else:
+        message = f"Sync completed: {imported} imported, {updated} updated, {skipped} skipped, {failed} failed."
+        if unlinked > 0:
+            message += (
+                f" {unlinked} survey template(s) are stored but not linked to a survey type "
+                "(name must match voxbulk_survey_{{slug}}_standard|anonymous or open sync from a survey type edit page)."
+            )
+        elif linked > 0:
+            message += f" Linked {linked} template(s) to the current survey type."
+
+    return {
+        **summary,
+        "success": success,
+        "severity": severity,
+        "message": message,
+        "filter_description": filter_desc,
+        "counts": {
+            "imported": imported,
+            "updated": updated,
+            "skipped": skipped,
+            "failed": failed,
+            "remote_count": remote_count,
+            "survey_matched": survey_matched,
+            "linked_to_survey_type": linked,
+            "unlinked_survey_templates": unlinked,
+        },
+    }
 
 
 def _now() -> datetime:
@@ -428,7 +546,16 @@ class SurveyWhatsappTemplateService:
             db.add(row)
             db.commit()
             logger.warning("survey_wa_template_push_failed", extra={"template_id": row.id, "error": detail})
-            raise SurveyWhatsappTemplateError(detail) from e
+            raise SurveyWhatsappTemplateError(
+                f"Push to Telnyx failed for “{row.display_name or row.name}”.",
+                payload=_provider_error_payload(
+                    message=f"Push to Telnyx failed for “{row.display_name or row.name}”.",
+                    template_name=row.name,
+                    provider_error=detail,
+                    status_code=e.response.status_code if e.response is not None else None,
+                    telnyx_request_mode="create_or_update_template",
+                ),
+            ) from e
         except Exception as e:
             row.last_push_error = str(e)
             row.local_sync_status = SYNC_ERROR
@@ -462,21 +589,95 @@ class SurveyWhatsappTemplateService:
             "survey_wa_template_push_ok",
             extra={"template_id": row.id, "telnyx_record_id": row.telnyx_record_id, "status": row.status},
         )
-        return {"ok": True, "template": survey_template_to_dict(row)}
+        tpl = survey_template_to_dict(row)
+        return {
+            "ok": True,
+            "success": True,
+            "message": f"Pushed “{tpl.get('display_name') or row.name}” to Telnyx — status {row.status}.",
+            "template": tpl,
+            "template_name": row.name,
+            "approval_status": str(row.status or "").upper(),
+            "telnyx_request_mode": "create_or_update_template",
+        }
+
+    @staticmethod
+    def _link_template_to_survey_type(
+        db: Session,
+        row: TelnyxWhatsappTemplate,
+        name: str,
+        survey_type_id: str | None,
+    ) -> bool:
+        if row.survey_type_id is not None:
+            return False
+        slug_match = re.search(r"voxbulk_survey_([a-z0-9_]+)_(standard|anonymous)", name.lower())
+        if slug_match:
+            st = SurveyTypeService.get_by_slug(db, slug_match.group(1))
+            if st is not None:
+                row.survey_type_id = st.id
+                row.variant_type = slug_match.group(2)
+                return True
+        scoped = str(survey_type_id or "").strip()
+        if not scoped:
+            return False
+        survey_type = db.get(SurveyType, scoped)
+        if survey_type is None:
+            return False
+        slug = str(survey_type.slug or "").lower()
+        lowered = name.lower()
+        if slug and slug in lowered:
+            row.survey_type_id = survey_type.id
+            if "anonymous" in lowered:
+                row.variant_type = VARIANT_ANONYMOUS
+            elif not row.variant_type:
+                row.variant_type = VARIANT_STANDARD
+            return True
+        return False
 
     @staticmethod
     def sync_from_telnyx(db: Session, *, survey_type_id: str | None = None) -> dict[str, Any]:
         logger.info("survey_wa_template_sync_start", extra={"survey_type_id": survey_type_id})
-        remote = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+        filter_description = (
+            "Only Telnyx templates whose names contain “survey” are imported into the WA Survey library."
+        )
+        try:
+            remote = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+        except Exception as exc:
+            from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncError
+
+            provider_error = str(exc)
+            status_code = None
+            if isinstance(exc, TelnyxWhatsappTemplateSyncError) and "401" in provider_error:
+                status_code = 401
+            summary = format_sync_summary(
+                {
+                    "ok": False,
+                    "imported": 0,
+                    "updated": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "remote_count": 0,
+                    "survey_matched": 0,
+                    "linked_to_survey_type": 0,
+                    "unlinked_survey_templates": 0,
+                    "provider_error": provider_error,
+                    "status_code": status_code,
+                    "filter_description": filter_description,
+                    "errors": [provider_error],
+                }
+            )
+            logger.warning("survey_wa_template_sync_failed", extra={"error": provider_error})
+            return summary
+
         matched = [item for item in remote if _SURVEY_NAME_RE.search(str(item.get("name") or ""))]
         logger.info(
             "survey_wa_template_sync_fetched",
             extra={"remote_count": len(remote), "survey_matched": len(matched)},
         )
 
-        imported = updated = skipped = failed = 0
+        imported = updated = skipped = failed = linked = 0
         errors: list[str] = []
         now = _now()
+        scoped_type_id = str(survey_type_id or "").strip() or None
 
         for item in matched:
             try:
@@ -535,15 +736,10 @@ class SurveyWhatsappTemplateService:
                 elif not existing.variant_type:
                     existing.variant_type = VARIANT_STANDARD
 
-                if existing.survey_type_id is None:
-                    slug_match = re.search(r"voxbulk_survey_([a-z0-9_]+)_(standard|anonymous)", name.lower())
-                    if slug_match:
-                        st = SurveyTypeService.get_by_slug(db, slug_match.group(1))
-                        if st is not None:
-                            existing.survey_type_id = st.id
-
-                if survey_type_id and existing.survey_type_id is None:
-                    existing.survey_type_id = survey_type_id
+                if SurveyWhatsappTemplateService._link_template_to_survey_type(db, existing, name, scoped_type_id):
+                    linked += 1
+                elif existing.survey_type_id is None:
+                    SurveyWhatsappTemplateService._link_template_to_survey_type(db, existing, name, None)
 
                 draft_hash = _content_hash(_loads(existing.draft_components_json))
                 if draft_hash and remote_hash and draft_hash != remote_hash:
@@ -553,11 +749,22 @@ class SurveyWhatsappTemplateService:
                     existing.local_sync_status = SYNC_IN_SYNC
             except Exception as exc:
                 failed += 1
-                errors.append(str(exc))
+                err = f"template parsing error for {item.get('name') or 'unknown'}: {exc}"
+                errors.append(err)
                 logger.exception("survey_wa_template_sync_item_failed", extra={"template_name": item.get("name")})
 
         db.commit()
-        summary = {
+
+        unlinked = db.execute(
+            select(func.count())
+            .select_from(TelnyxWhatsappTemplate)
+            .where(
+                TelnyxWhatsappTemplate.survey_type_id.is_(None),
+                TelnyxWhatsappTemplate.name.ilike("%survey%"),
+            )
+        ).scalar_one()
+
+        raw_summary = {
             "ok": failed == 0,
             "imported": imported,
             "updated": updated,
@@ -565,10 +772,147 @@ class SurveyWhatsappTemplateService:
             "failed": failed,
             "remote_count": len(remote),
             "survey_matched": len(matched),
+            "linked_to_survey_type": linked,
+            "unlinked_survey_templates": int(unlinked or 0),
+            "filter_description": filter_description,
             "errors": errors[:20],
         }
-        logger.info("survey_wa_template_sync_end", extra=summary)
+        summary = format_sync_summary(raw_summary)
+        logger.info("survey_wa_template_sync_end", extra=summary.get("counts", raw_summary))
         return summary
+
+    @staticmethod
+    def _messaging_org_id(db: Session) -> str:
+        from sqlalchemy import select as sa_select
+
+        from app.models.organisation import Organisation
+        from app.services.provider_settings import ProviderSettingsService
+
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        config = cfg if isinstance(cfg, dict) else {}
+        org_id = str(config.get("messaging_org_id") or config.get("default_messaging_org_id") or "").strip()
+        if org_id:
+            return org_id
+        fallback = db.execute(sa_select(Organisation.id).order_by(Organisation.created_at.asc()).limit(1)).scalar_one_or_none()
+        return str(fallback or "")
+
+    @staticmethod
+    def send_test_template(
+        db: Session,
+        row: TelnyxWhatsappTemplate,
+        *,
+        to_number: str,
+        first_name: str = "Alex",
+        business_name: str = "Northgate Dental",
+    ) -> dict[str, Any]:
+        from app.services.telnyx_messaging_service import TelnyxMessagingService
+
+        template_label = str(row.display_name or row.name or "template")
+        approval = str(row.status or "").upper()
+        if _is_local_row(row):
+            raise SurveyWhatsappTemplateError(
+                f"Template “{template_label}” is a local draft only. Save Draft, Push to Telnyx, and wait for Meta approval before sending a test."
+            )
+        if approval != "APPROVED":
+            raise SurveyWhatsappTemplateError(
+                f"Template “{template_label}” is not APPROVED (status: {approval or 'UNKNOWN'}). "
+                "Push to Telnyx and wait for Meta approval before sending a test."
+            )
+
+        recipient, phone_error = _validate_mobile_number(to_number)
+        if phone_error:
+            raise SurveyWhatsappTemplateError(phone_error)
+
+        preview = SurveyWhatsappTemplateService.build_preview(
+            db,
+            row,
+            business_name=business_name,
+            first_name=first_name,
+        )
+        examples = preview.get("example_values") or [first_name]
+        first = str(examples[0] if examples else first_name)
+        template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
+            row,
+            variables={
+                "first_name": first,
+                "clinic_name": business_name,
+                "organisation_name": business_name,
+            },
+        )
+        send_id = send_template_id_for_row(row)
+        org_id = SurveyWhatsappTemplateService._messaging_org_id(db)
+
+        langs: list[str] = []
+        for candidate in (row.language, "en_US", "en_GB", "en"):
+            code = str(candidate or "").strip()
+            if code and code not in langs:
+                langs.append(code)
+        if not langs:
+            langs = ["en_US"]
+
+        result = None
+        telnyx_request_mode = "template_name"
+        for lang in langs:
+            attempt = TelnyxMessagingService.send_whatsapp(
+                db,
+                to_number=recipient,
+                body=str(preview.get("rendered_body") or row.body_preview or "Survey test"),
+                template_name=row.name,
+                template_language=lang,
+                template_components=template_components,
+                org_id=org_id or None,
+                meter_usage=False,
+            )
+            result = attempt
+            if attempt.ok:
+                telnyx_request_mode = f"template_name:{lang}"
+                break
+
+        if (result is None or not result.ok) and send_id:
+            telnyx_request_mode = "template_id"
+            for lang in langs:
+                attempt = TelnyxMessagingService.send_whatsapp(
+                    db,
+                    to_number=recipient,
+                    body=str(preview.get("rendered_body") or row.body_preview or "Survey test"),
+                    template_id=send_id,
+                    template_language=lang,
+                    template_components=template_components,
+                    org_id=org_id or None,
+                    meter_usage=False,
+                )
+                result = attempt
+                if attempt.ok:
+                    telnyx_request_mode = f"template_id:{lang}"
+                    break
+
+        if result is None or not result.ok:
+            provider_error = (result.detail if result else None) or (result.status if result else "send_failed")
+            raise SurveyWhatsappTemplateError(
+                f"Telnyx test send failed for “{template_label}”.",
+                payload=_provider_error_payload(
+                    message=f"Telnyx test send failed for “{template_label}”.",
+                    template_name=row.name,
+                    provider_error=str(provider_error),
+                    telnyx_request_mode=telnyx_request_mode,
+                ),
+            )
+
+        return {
+            "ok": True,
+            "success": True,
+            "message": f"Test survey sent to {recipient} using template “{row.name}”.",
+            "to_number": recipient,
+            "template_name": row.name,
+            "template_id": send_id,
+            "display_name": template_label,
+            "approval_status": approval,
+            "telnyx_request_mode": telnyx_request_mode,
+            "external_id": result.external_id,
+            "provider_status": result.status,
+            "example_values": examples,
+            "rendered_body_preview": str(preview.get("rendered_body") or "")[:240],
+        }
 
     @staticmethod
     def resolve_for_survey(

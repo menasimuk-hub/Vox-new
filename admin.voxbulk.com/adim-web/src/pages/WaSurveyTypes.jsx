@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
 
 function statusTone(label) {
   if (label === 'Ready') return 'ok'
@@ -17,16 +18,52 @@ export default function WaSurveyTypes() {
   const [newName, setNewName] = useState('')
   const [newDescription, setNewDescription] = useState('')
   const [msg, setMsg] = useState('')
+  const [msgDetail, setMsgDetail] = useState('')
+  const [feedbackTone, setFeedbackTone] = useState('ok')
   const [error, setError] = useState('')
+  const [errorDetail, setErrorDetail] = useState('')
+
+  const clearFeedback = () => {
+    setMsg('')
+    setMsgDetail('')
+    setError('')
+    setErrorDetail('')
+    setFeedbackTone('ok')
+  }
+
+  const showSuccess = (summary) => {
+    const formatted = formatSyncSummary(summary)
+    setError('')
+    setErrorDetail('')
+    setFeedbackTone(formatted.severity === 'error' ? 'error' : formatted.severity === 'warn' ? 'warn' : 'ok')
+    if (formatted.severity === 'error') {
+      setError(formatted.message)
+      setErrorDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
+      setMsg('')
+      setMsgDetail('')
+      return
+    }
+    setMsg(formatted.message)
+    setMsgDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
+  }
+
+  const showError = (err, fallback = 'Request failed') => {
+    const formatted = formatWaSurveyError(err, fallback)
+    setMsg('')
+    setMsgDetail('')
+    setFeedbackTone('error')
+    setError(formatted.message)
+    setErrorDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    clearFeedback()
     try {
       const data = await apiFetch('/admin/wa-survey/types')
       setTypes(Array.isArray(data?.types) ? data.types : [])
     } catch (e) {
-      setError(e?.message || 'Could not load survey types')
+      showError(e, 'Could not load survey types')
     } finally {
       setLoading(false)
     }
@@ -38,16 +75,13 @@ export default function WaSurveyTypes() {
 
   const syncAll = async () => {
     setSyncing(true)
-    setMsg('')
-    setError('')
+    clearFeedback()
     try {
       const summary = await apiFetch('/admin/wa-survey/sync', { method: 'POST', body: '{}' })
-      setMsg(
-        `Sync complete — imported ${summary.imported || 0}, updated ${summary.updated || 0}, skipped ${summary.skipped || 0}, failed ${summary.failed || 0}. Only Telnyx templates whose names contain “survey” are imported and linked when possible.`
-      )
+      showSuccess(summary)
       await load()
     } catch (e) {
-      setError(e?.message || 'Sync failed')
+      showError(e, 'Sync from Telnyx failed')
     } finally {
       setSyncing(false)
     }
@@ -57,8 +91,7 @@ export default function WaSurveyTypes() {
     e.preventDefault()
     if (!newName.trim()) return
     setCreating(true)
-    setError('')
-    setMsg('')
+    clearFeedback()
     try {
       await apiFetch('/admin/wa-survey/types', {
         method: 'POST',
@@ -67,10 +100,12 @@ export default function WaSurveyTypes() {
       setShowCreate(false)
       setNewName('')
       setNewDescription('')
+      setFeedbackTone('ok')
       setMsg('Survey type created. Add a standard template draft on the edit page, then push to Telnyx.')
+      setMsgDetail('')
       await load()
     } catch (err) {
-      setError(err?.message || 'Could not create survey type')
+      showError(err, 'Could not create survey type')
     } finally {
       setCreating(false)
     }
@@ -122,8 +157,18 @@ export default function WaSurveyTypes() {
         </form>
       ) : null}
 
-      {error ? <div className="alert error">{error}</div> : null}
-      {msg ? <div className="alert ok">{msg}</div> : null}
+      {error ? (
+        <div className="alert error">
+          <strong>{error}</strong>
+          {errorDetail ? <pre className="waSurveyFeedbackDetail">{errorDetail}</pre> : null}
+        </div>
+      ) : null}
+      {msg ? (
+        <div className={`alert ${feedbackTone === 'warn' ? 'warn' : 'ok'}`}>
+          <strong>{msg}</strong>
+          {msgDetail ? <pre className="waSurveyFeedbackDetail">{msgDetail}</pre> : null}
+        </div>
+      ) : null}
 
       <div className="card">
         <div className="cardHead">

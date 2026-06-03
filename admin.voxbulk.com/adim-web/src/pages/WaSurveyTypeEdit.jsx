@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
 
 const LENGTH_OPTIONS = [
@@ -60,7 +61,12 @@ export default function WaSurveyTypeEdit() {
   const [saving, setSaving] = useState(false)
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
+  const [errorDetail, setErrorDetail] = useState('')
   const [msg, setMsg] = useState('')
+  const [msgDetail, setMsgDetail] = useState('')
+  const [feedbackTone, setFeedbackTone] = useState('ok')
+  const [testMobile, setTestMobile] = useState('')
+  const [sendResult, setSendResult] = useState(null)
   const [surveyType, setSurveyType] = useState(null)
   const [templates, setTemplates] = useState([])
   const [selectedId, setSelectedId] = useState(null)
@@ -75,16 +81,57 @@ export default function WaSurveyTypeEdit() {
     [templates, selectedId]
   )
 
+  const clearFeedback = () => {
+    setError('')
+    setErrorDetail('')
+    setMsg('')
+    setMsgDetail('')
+    setFeedbackTone('ok')
+  }
+
+  const showError = (err, fallback = 'Request failed') => {
+    const formatted = formatWaSurveyError(err, fallback)
+    setFeedbackTone('error')
+    setError(formatted.message)
+    setErrorDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
+    setMsg('')
+    setMsgDetail('')
+  }
+
+  const showOk = (result, fallback = 'Done') => {
+    const formatted = formatActionSuccess(result, fallback)
+    setFeedbackTone('ok')
+    setError('')
+    setErrorDetail('')
+    setMsg(formatted.message)
+    setMsgDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
+  }
+
+  const showSyncResult = (summary) => {
+    const formatted = formatSyncSummary(summary)
+    setFeedbackTone(formatted.severity === 'error' ? 'error' : formatted.severity === 'warn' ? 'warn' : 'ok')
+    if (formatted.severity === 'error') {
+      setError(formatted.message)
+      setErrorDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
+      setMsg('')
+      setMsgDetail('')
+      return
+    }
+    setError('')
+    setErrorDetail('')
+    setMsg(formatted.message)
+    setMsgDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}`)
       setSurveyType(data.type)
       setTemplates(Array.isArray(data.templates) ? data.templates : [])
       if (!selectedId && data.templates?.[0]) setSelectedId(data.templates[0].id)
     } catch (e) {
-      setError(e?.message || 'Could not load survey type')
+      showError(e, 'Could not load survey type')
     } finally {
       setLoading(false)
     }
@@ -127,8 +174,7 @@ export default function WaSurveyTypeEdit() {
   const saveTypeSettings = async () => {
     if (!surveyType) return
     setSaving(true)
-    setMsg('')
-    setError('')
+    clearFeedback()
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}`, {
         method: 'PUT',
@@ -143,9 +189,9 @@ export default function WaSurveyTypeEdit() {
         }),
       })
       setSurveyType(data.type)
-      setMsg('Survey settings saved.')
+      showOk({ message: 'Survey settings saved.' })
     } catch (e) {
-      setError(e?.message || 'Save failed')
+      showError(e, 'Save failed')
     } finally {
       setSaving(false)
     }
@@ -154,8 +200,7 @@ export default function WaSurveyTypeEdit() {
   const saveTemplateDraft = async () => {
     if (!selected || !draft) return
     setWorking('save')
-    setMsg('')
-    setError('')
+    clearFeedback()
     try {
       let components = draft.components?.length ? [...draft.components] : []
       components = updateBodyInComponents(components, draft.body)
@@ -172,10 +217,10 @@ export default function WaSurveyTypeEdit() {
         }),
       })
       setTemplates((rows) => rows.map((r) => (r.id === selected.id ? data.template : r)))
-      setMsg('Template draft saved locally.')
+      showOk({ message: 'Template draft saved locally.', template_name: selected.name })
       await refreshPreview(selected.id)
     } catch (e) {
-      setError(e?.message || 'Could not save draft')
+      showError(e, 'Could not save draft')
     } finally {
       setWorking('')
     }
@@ -184,15 +229,14 @@ export default function WaSurveyTypeEdit() {
   const pushTemplate = async () => {
     if (!selected) return
     setWorking('push')
-    setMsg('')
-    setError('')
+    clearFeedback()
     try {
       const data = await apiFetch(`/admin/wa-survey/templates/${selected.id}/push`, { method: 'POST', body: '{}' })
       setTemplates((rows) => rows.map((r) => (r.id === selected.id ? data.template : r)))
-      setMsg('Pushed to Telnyx — awaiting Meta approval if status is PENDING.')
+      showOk(data, 'Pushed to Telnyx — awaiting Meta approval if status is PENDING.')
       await load()
     } catch (e) {
-      setError(e?.message || 'Push failed')
+      showError(e, 'Push to Telnyx failed')
     } finally {
       setWorking('')
     }
@@ -200,19 +244,16 @@ export default function WaSurveyTypeEdit() {
 
   const syncTemplates = async () => {
     setWorking('sync')
-    setMsg('')
-    setError('')
+    clearFeedback()
     try {
       const summary = await apiFetch('/admin/wa-survey/sync', {
         method: 'POST',
         body: JSON.stringify({ survey_type_id: typeId }),
       })
-      setMsg(
-        `Synced — imported ${summary.imported || 0}, updated ${summary.updated || 0}, skipped ${summary.skipped || 0}.`
-      )
+      showSyncResult(summary)
       await load()
     } catch (e) {
-      setError(e?.message || 'Sync failed')
+      showError(e, 'Sync from Telnyx failed')
     } finally {
       setWorking('')
     }
@@ -220,7 +261,7 @@ export default function WaSurveyTypeEdit() {
 
   const createStandard = async () => {
     setWorking('create')
-    setError('')
+    clearFeedback()
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/standard`, {
         method: 'POST',
@@ -228,9 +269,9 @@ export default function WaSurveyTypeEdit() {
       })
       setTemplates((rows) => [...rows, data.template])
       setSelectedId(data.template.id)
-      setMsg('Standard template draft created.')
+      showOk({ message: 'Standard template draft created.', template_name: data.template?.name })
     } catch (e) {
-      setError(e?.message || 'Could not create template')
+      showError(e, 'Could not create template')
     } finally {
       setWorking('')
     }
@@ -239,7 +280,7 @@ export default function WaSurveyTypeEdit() {
   const cloneAnonymous = async () => {
     if (!selected) return
     setWorking('clone')
-    setError('')
+    clearFeedback()
     try {
       const data = await apiFetch(`/admin/wa-survey/templates/${selected.id}/clone-anonymous`, {
         method: 'POST',
@@ -247,9 +288,35 @@ export default function WaSurveyTypeEdit() {
       })
       setTemplates((rows) => [...rows, data.template])
       setSelectedId(data.template.id)
-      setMsg('Anonymous variant created — review wording, Save Draft, then Push to Telnyx.')
+      showOk({
+        message: 'Anonymous variant created — review wording, Save Draft, then Push to Telnyx.',
+        template_name: data.template?.name,
+      })
     } catch (e) {
-      setError(e?.message || 'Clone failed')
+      showError(e, 'Clone failed')
+    } finally {
+      setWorking('')
+    }
+  }
+
+  const sendTestSurvey = async () => {
+    if (!selected) return
+    setWorking('send-test')
+    clearFeedback()
+    setSendResult(null)
+    try {
+      const data = await apiFetch(`/admin/wa-survey/templates/${selected.id}/send-test`, {
+        method: 'POST',
+        body: JSON.stringify({
+          to_number: testMobile.trim(),
+          first_name: draft?.example_values?.[0] || 'Alex',
+          business_name: 'Northgate Dental',
+        }),
+      })
+      setSendResult(data)
+      showOk(data, 'Test survey sent')
+    } catch (e) {
+      showError(e, 'Send test survey failed')
     } finally {
       setWorking('')
     }
@@ -257,7 +324,7 @@ export default function WaSurveyTypeEdit() {
 
   const runGeneratePreview = async () => {
     setWorking('generate')
-    setError('')
+    clearFeedback()
     try {
       const data = await apiFetch('/admin/wa-survey/generate-preview', {
         method: 'POST',
@@ -269,9 +336,9 @@ export default function WaSurveyTypeEdit() {
         }),
       })
       setGenPreview(data)
-      setMsg('Generate preview ready.')
+      showOk({ message: 'Generate preview ready.', template_name: data.wa_template_name })
     } catch (e) {
-      setError(e?.message || 'Generate preview failed — ensure an APPROVED template exists.')
+      showError(e, 'Generate preview failed — ensure an APPROVED template exists for this variant.')
     } finally {
       setWorking('')
     }
@@ -307,8 +374,18 @@ export default function WaSurveyTypeEdit() {
         </div>
       </div>
 
-      {error ? <div className="alert error">{error}</div> : null}
-      {msg ? <div className="alert ok">{msg}</div> : null}
+      {error ? (
+        <div className="alert error">
+          <strong>{error}</strong>
+          {errorDetail ? <pre className="waSurveyFeedbackDetail">{errorDetail}</pre> : null}
+        </div>
+      ) : null}
+      {msg ? (
+        <div className={`alert ${feedbackTone === 'warn' ? 'warn' : 'ok'}`}>
+          <strong>{msg}</strong>
+          {msgDetail ? <pre className="waSurveyFeedbackDetail">{msgDetail}</pre> : null}
+        </div>
+      ) : null}
 
       <div className="waSurveyEditGrid">
         <section className="card">
@@ -453,6 +530,41 @@ export default function WaSurveyTypeEdit() {
                 approvalStatus={selected.approval_status}
                 syncStatus={selected.sync_status}
               />
+              <div className="waSurveyTestSend">
+                <label className="msgFieldBlock">
+                  <span className="label">Test mobile number</span>
+                  <input
+                    className="input"
+                    value={testMobile}
+                    onChange={(e) => setTestMobile(e.target.value)}
+                    placeholder="+447700900123"
+                    inputMode="tel"
+                  />
+                  <span className="fieldHint">
+                    E.164 format required. Sends the selected APPROVED template with example variables to your phone.
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={sendTestSurvey}
+                  disabled={working === 'send-test' || !testMobile.trim() || selected.approval_status !== 'APPROVED'}
+                >
+                  {working === 'send-test' ? 'Sending…' : 'Send test survey'}
+                </button>
+                {selected.approval_status !== 'APPROVED' ? (
+                  <p className="fieldHint warn">
+                    Template must be APPROVED before test send (current: {selected.approval_status}).
+                  </p>
+                ) : null}
+                {sendResult?.success ? (
+                  <div className="note ok" style={{ marginTop: 12 }}>
+                    <strong>{sendResult.message}</strong>
+                    <div className="muted">Template: {sendResult.template_name}</div>
+                    <div className="muted">Mode: {sendResult.telnyx_request_mode}</div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </section>
         </div>

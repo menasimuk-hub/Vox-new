@@ -24,10 +24,13 @@ from app.services.survey_type_service import SurveyTypeService
 from app.services.survey_whatsapp_template_service import (
     ANONYMOUS_BODY_SENTENCE,
     ANONYMOUS_FOOTER,
+    SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
     VARIANT_ANONYMOUS,
     VARIANT_STANDARD,
     _apply_anonymous_wording,
+    _validate_mobile_number,
+    format_sync_summary,
 )
 
 
@@ -60,10 +63,10 @@ def _approved_template(db, survey_type: SurveyType, *, variant: str = VARIANT_ST
         {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Start survey"}]},
     ]
     now = datetime.utcnow()
-    local_id = f"local-{uuid.uuid4().hex}"
+    record_id = str(uuid.uuid4())
     row = TelnyxWhatsappTemplate(
-        telnyx_record_id=local_id,
-        template_id=local_id,
+        telnyx_record_id=record_id,
+        template_id=record_id,
         name=f"voxbulk_survey_{survey_type.slug}_{variant}",
         display_name=f"{survey_type.name} — {variant.title()}",
         language="en_US",
@@ -331,6 +334,67 @@ def test_results_hide_names_for_anonymous_order():
         named_payload = SurveyResultsService.get_results(db, order, anonymous=False)
         assert anon_payload["respondents"] == []
         assert len(named_payload["respondents"]) == 1
+
+
+def test_format_sync_summary_no_matches():
+    summary = format_sync_summary(
+        {
+            "ok": True,
+            "imported": 0,
+            "updated": 0,
+            "skipped": 0,
+            "failed": 0,
+            "remote_count": 12,
+            "survey_matched": 0,
+            "filter_description": "Only names containing survey",
+        }
+    )
+    assert summary["severity"] == "warn"
+    assert "no survey templates were found" in summary["message"].lower()
+
+
+def test_validate_mobile_number():
+    ok, err = _validate_mobile_number("+447700900123")
+    assert ok == "+447700900123"
+    assert err is None
+    bad, err = _validate_mobile_number("not-a-phone")
+    assert bad is None
+    assert "valid mobile" in err.lower()
+
+
+def test_send_test_blocks_unapproved_local_draft():
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = _approved_template(db, survey_type)
+        row.status = "LOCAL_DRAFT"
+        row.telnyx_record_id = f"local-{uuid.uuid4().hex}"
+        db.add(row)
+        db.commit()
+        with pytest.raises(SurveyWhatsappTemplateError, match="local draft"):
+            SurveyWhatsappTemplateService.send_test_template(db, row, to_number="+447700900123")
+
+
+def test_send_test_success(monkeypatch):
+    from app.services.telnyx_messaging_service import TelnyxMessageResult
+
+    def fake_send(*args, **kwargs):
+        return TelnyxMessageResult(ok=True, status="queued", external_id="msg-123", detail=None, channel="whatsapp")
+
+    monkeypatch.setattr(
+        "app.services.telnyx_messaging_service.TelnyxMessagingService.send_whatsapp",
+        fake_send,
+    )
+    monkeypatch.setattr(
+        "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._messaging_org_id",
+        lambda db: "org-1",
+    )
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = _approved_template(db, survey_type)
+        result = SurveyWhatsappTemplateService.send_test_template(db, row, to_number="+447700900123")
+        assert result["success"] is True
+        assert result["template_name"] == row.name
+        assert result["to_number"] == "+447700900123"
 
 
 def test_admin_wa_survey_api(app_client):
