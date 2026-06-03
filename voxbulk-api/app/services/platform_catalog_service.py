@@ -911,28 +911,9 @@ class ServiceOrderService:
 
     @staticmethod
     def interview_operations_overview(db: Session) -> dict[str, Any]:
-        rows = list(
-            db.execute(select(ServiceOrder).where(ServiceOrder.service_code == "interview")).scalars()
-        )
-        running = sum(1 for r in rows if r.status == "running")
-        paused = sum(1 for r in rows if r.status == "paused")
-        completed = sum(1 for r in rows if r.status == "completed")
-        failed_pay = sum(1 for r in rows if r.payment_status == "rejected")
-        live = sum(1 for r in rows if ServiceOrderService.is_live_interview(r))
-        scheduled = sum(1 for r in rows if r.status == "scheduled")
-        pending = sum(1 for r in rows if r.payment_status == "pending_approval")
-        drafts = sum(1 for r in rows if r.status == "draft")
-        return {
-            "total": len(rows),
-            "live": live,
-            "running": running,
-            "paused": paused,
-            "scheduled": scheduled,
-            "completed": completed,
-            "failed_payments": failed_pay,
-            "pending_payment_approval": pending,
-            "drafts": drafts,
-        }
+        from app.services.interview_operations_service import InterviewOperationsService
+
+        return InterviewOperationsService.enhanced_overview(db)
 
     @staticmethod
     def is_archived_order(order: ServiceOrder) -> bool:

@@ -6796,6 +6796,201 @@ body.dark .matrix th {
 .runningSurveyAuditLabel { font-weight: 600; margin-bottom: 2px; }
 .runningSurveyAuditDetail { font-size: 12px; margin-top: 4px; color: var(--t2); }
 
+/* Interview operations console */
+.opsInterviewPageTop { margin-bottom: 16px; }
+.opsInterviewTopActions { flex-wrap: wrap; gap: 8px; }
+.opsInterviewKpiGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.opsInterviewKpi {
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  border: 1px solid var(--b2);
+}
+.opsInterviewKpi.isActive {
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+.opsInterviewFilterCard { margin-bottom: 16px; }
+.opsInterviewFilterBody { display: flex; flex-direction: column; gap: 10px; }
+.opsInterviewFilterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.opsInterviewSearchWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 280px;
+  min-width: 220px;
+  color: var(--t2);
+}
+.opsInterviewSearch { flex: 1; min-width: 0; }
+.opsInterviewLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+}
+.opsInterviewLegend span { display: inline-flex; align-items: center; gap: 6px; }
+.opsInterviewTableCard { margin-bottom: 24px; }
+.opsInterviewTabs .runningSurveyTab { display: inline-flex; align-items: center; gap: 6px; }
+.opsInterviewTabCount {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--s2);
+  color: var(--t2);
+}
+.runningSurveyTab.on .opsInterviewTabCount {
+  background: rgba(37, 99, 235, 0.15);
+  color: var(--t1);
+}
+.opsInterviewTableWrap { max-height: calc(100vh - 420px); overflow: auto; }
+.opsInterviewTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--s1);
+  box-shadow: 0 1px 0 var(--b2);
+}
+.opsInterviewTable td,
+.opsInterviewTable th {
+  padding: 12px 10px;
+  vertical-align: middle;
+}
+.opsInterviewRow {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.opsInterviewRow:hover { background: var(--s2); }
+.opsInterviewRow.isSelected { background: rgba(37, 99, 235, 0.08); }
+.opsInterviewRow.needsAttention { box-shadow: inset 3px 0 0 rgba(220, 38, 38, 0.55); }
+.opsInterviewSubCell { font-size: 11px; margin-top: 2px; }
+.opsInterviewWhen { font-size: 12px; white-space: nowrap; }
+.opsInterviewAlertIcon { margin-left: 6px; color: #dc2626; vertical-align: middle; }
+.opsInterviewChevron { color: var(--t3); }
+.opsInterviewEmptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 36px 16px;
+  text-align: center;
+}
+.opsInterviewSpin { animation: opsInterviewSpin 1s linear infinite; }
+@keyframes opsInterviewSpin { to { transform: rotate(360deg); } }
+.opsInterviewDrawerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  justify-content: flex-end;
+}
+.opsInterviewDrawer {
+  width: min(760px, 100vw);
+  height: 100%;
+  background: var(--s1);
+  border-left: 1px solid var(--b2);
+  box-shadow: -8px 0 32px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.opsInterviewDrawerHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--b2);
+}
+.opsInterviewDrawerEyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin-bottom: 4px;
+}
+.opsInterviewDrawerLoading { padding: 24px 20px; }
+.opsInterviewAttentionBanner {
+  display: flex;
+  gap: 10px;
+  margin: 0 20px;
+  padding: 12px 14px;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  border-radius: 10px;
+  background: rgba(220, 38, 38, 0.06);
+  color: var(--t1);
+}
+.opsInterviewAttentionBanner ul {
+  margin: 6px 0 0 16px;
+  padding: 0;
+  font-size: 12px;
+}
+.opsInterviewDrawerActions {
+  padding: 12px 20px 0;
+  margin-bottom: 0;
+}
+.opsInterviewDrawerTabs {
+  padding: 12px 20px 0;
+  margin-bottom: 0;
+}
+.opsInterviewDrawerBody {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px 24px;
+}
+.opsInterviewRecipientActions { max-width: 420px; }
+.opsInterviewRecipientsTable td { vertical-align: top; }
+.opsInterviewTimelinePane h4 { margin: 0 0 10px; font-size: 14px; }
+.opsInterviewRecipientTimeline {
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--b2);
+}
+.opsInterviewHint { margin-top: 12px; font-size: 12px; }
+.opsInterviewFailuresPane { display: flex; flex-direction: column; gap: 8px; }
+.opsInterviewFailureList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.opsInterviewFailureList li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.04);
+  font-size: 13px;
+}
+.opsInterviewErrorText { color: #dc2626; font-size: 13px; word-break: break-word; }
+.opsInterviewRawLog {
+  margin: 8px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--s2);
+  border: 1px solid var(--b2);
+  font-size: 11px;
+  overflow: auto;
+  max-height: 220px;
+}
+
 .activityStatusRail {
   display: flex;
   flex-wrap: wrap;
@@ -6853,6 +7048,8 @@ body.dark .matrix th {
 @media (max-width: 960px) {
   .runningSurveyMetaGrid,
   .runningSurveyEditGrid { grid-template-columns: 1fr; }
+  .opsInterviewKpiGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .opsInterviewDrawer { width: 100vw; }
 }
 
 /* VoxBulk pricing admin */

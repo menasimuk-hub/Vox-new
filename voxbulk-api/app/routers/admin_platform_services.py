@@ -155,6 +155,13 @@ def admin_interviews_overview(db: Session = Depends(get_db), _admin=Depends(requ
     return ServiceOrderService.interview_operations_overview(db)
 
 
+@router.get("/interviews/operations")
+def admin_interviews_operations(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.interview_operations_service import InterviewOperationsService
+
+    return InterviewOperationsService.operations_payload(db)
+
+
 @router.get("/orders/{order_id}/audit")
 def admin_order_audit(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     order = ServiceOrderService.get_order(db, order_id)
