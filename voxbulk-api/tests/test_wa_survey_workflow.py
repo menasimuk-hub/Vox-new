@@ -108,6 +108,19 @@ def test_survey_type_update_persists():
         assert updated.default_length == "short"
 
 
+def test_survey_type_create_persists():
+    with get_sessionmaker()() as db:
+        created = SurveyTypeService.create_type(
+            db,
+            {"name": "Post visit feedback", "description": "Custom local type"},
+        )
+        assert created.name == "Post visit feedback"
+        assert created.slug == "post_visit_feedback"
+        again = SurveyTypeService.get_by_slug(db, "post_visit_feedback")
+        assert again is not None
+        assert again.id == created.id
+
+
 def test_clone_as_anonymous_applies_wording():
     with get_sessionmaker()() as db:
         survey_type = _seed_survey_type(db)

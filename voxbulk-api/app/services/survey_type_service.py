@@ -168,6 +168,41 @@ class SurveyTypeService:
         return db.execute(select(SurveyType).where(SurveyType.slug == key)).scalar_one_or_none()
 
     @staticmethod
+    def create_type(db: Session, payload: dict[str, Any]) -> SurveyType:
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise ValueError("Survey type name is required")
+        slug_raw = str(payload.get("slug") or name).strip().lower()
+        slug = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in slug_raw.replace(" ", "_").replace("/", "_"))
+        slug = "_".join(part for part in slug.split("_") if part)
+        if not slug:
+            raise ValueError("Survey type slug is required")
+        existing = db.execute(select(SurveyType).where(SurveyType.slug == slug)).scalar_one_or_none()
+        if existing is not None:
+            raise ValueError(f"A survey type with slug “{slug}” already exists")
+        now = datetime.utcnow()
+        row = SurveyType(
+            id=str(uuid.uuid4()),
+            slug=slug,
+            name=name,
+            description=str(payload.get("description") or "").strip() or None,
+            is_active=bool(payload.get("is_active", True)),
+            default_length=str(payload.get("default_length") or "standard").strip().lower()
+            if str(payload.get("default_length") or "standard").strip().lower() in LENGTH_OPTIONS
+            else "standard",
+            min_length=max(1, min(10, int(payload.get("min_length") or 4))),
+            max_length=max(4, min(12, int(payload.get("max_length") or 6))),
+            supports_anonymous=bool(payload.get("supports_anonymous", True)),
+            sort_order=int(payload.get("sort_order") or 100),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+
+    @staticmethod
     def update_type(db: Session, row: SurveyType, payload: dict[str, Any]) -> SurveyType:
         if "name" in payload and str(payload.get("name") or "").strip():
             row.name = str(payload["name"]).strip()

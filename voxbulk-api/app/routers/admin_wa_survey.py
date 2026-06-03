@@ -23,6 +23,20 @@ def list_survey_types(db: Session = Depends(get_db), _admin=Depends(require_cap(
     return {"ok": True, "types": SurveyTypeService.list_types(db)}
 
 
+@router.post("/types")
+def create_survey_type(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        row = SurveyTypeService.create_type(db, payload or {})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    counts = SurveyTypeService._template_counts(db, row.id)
+    return {"ok": True, "type": survey_type_to_dict(row, template_counts=counts)}
+
+
 @router.get("/types/{type_id}")
 def get_survey_type(type_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     row = SurveyTypeService.get_type(db, type_id)
