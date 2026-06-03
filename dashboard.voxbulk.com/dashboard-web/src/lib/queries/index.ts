@@ -740,6 +740,23 @@ export function useWhatsappTemplates() {
   });
 }
 
+export function useWaSurveyTypes() {
+  return useQuery({
+    queryKey: ["dashboard", "wa-survey-types"],
+    queryFn: () => apiFetch<{ ok?: boolean; types?: Array<Record<string, unknown>> }>("/dashboard/service-scripts/wa-survey/types"),
+  });
+}
+
+export function useGenerateWaSurvey() {
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch<Record<string, unknown>>("/dashboard/service-scripts/wa-survey/generate", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}
+
 export function useSendInterviewScheduling(orderId: string | null) {
   const qc = useQueryClient();
   return useMutation({

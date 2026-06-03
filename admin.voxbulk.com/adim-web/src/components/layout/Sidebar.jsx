@@ -201,6 +201,7 @@ const NAV = [
       ['Global config', '/settings/global'],
       ['Feature flags', '/settings/flags'],
       ['Email / notification settings', '/settings/email'],
+      ['WA Survey', '/settings/wa-survey'],
       ['Legal pages', '/settings/legal'],
       ['API keys / secrets', '/settings/api-keys'],
     ],

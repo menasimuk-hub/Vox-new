@@ -25,6 +25,7 @@ from app.routers.admin import router as admin_router
 from app.routers.admin_email import router as admin_email_router
 from app.routers.admin_email_legal import router as admin_email_legal_router
 from app.routers.admin_messaging import router as admin_messaging_router
+from app.routers.admin_wa_survey import router as admin_wa_survey_router
 from app.routers.admin_support import router as admin_support_router
 from app.routers.agents import router as agents_router
 from app.routers.knowledge_base import router as knowledge_base_router
@@ -386,6 +387,7 @@ app.include_router(knowledge_base_router, prefix="/api")
 app.include_router(admin_email_router)
 app.include_router(admin_email_legal_router)
 app.include_router(admin_messaging_router)
+app.include_router(admin_wa_survey_router)
 app.include_router(admin_support_router)
 app.include_router(service_orders_router)
 app.include_router(interview_booking_public_router)

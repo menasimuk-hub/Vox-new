@@ -84,6 +84,7 @@ class SurveyDispatchService:
                 db,
                 order=order,
                 recipient=recipient,
+                config=config,
                 intro_template=intro_template,
                 org_name=org_name,
                 organiser=organiser,
@@ -128,6 +129,7 @@ class SurveyDispatchService:
         *,
         order: ServiceOrder,
         recipient: ServiceOrderRecipient,
+        config: dict[str, Any],
         intro_template: str,
         org_name: str,
         organiser: str,
@@ -136,6 +138,28 @@ class SurveyDispatchService:
     ) -> dict[str, Any]:
         first = _first_name(recipient.name)
         body = _personalize(intro_template, first_name=first, org_name=org_name, organiser=organiser)
+
+        wa_template_id = config.get("wa_template_id") if isinstance(config, dict) else None
+        template_row = None
+        template_components = None
+        if prefer_whatsapp and wa_template_id:
+            try:
+                from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+                from app.services.telnyx_whatsapp_template_sync_service import (
+                    TelnyxWhatsappTemplateSyncService,
+                    send_template_id_for_row,
+                )
+
+                template_row = SurveyWhatsappTemplateService.get_template(db, int(wa_template_id))
+                if template_row is not None and str(template_row.status or "").upper() == "APPROVED":
+                    template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
+                        template_row,
+                        variables={"first_name": first, "clinic_name": org_name, "organisation_name": org_name},
+                    )
+            except Exception:
+                template_row = None
+                template_components = None
+
         if not recipient.phone:
             recipient.status = "skipped"
             recipient.result_json = json.dumps({"error": "missing_phone"}, ensure_ascii=False)
@@ -184,6 +208,24 @@ class SurveyDispatchService:
             body=body,
             prefer_whatsapp=prefer_whatsapp,
         )
+        if (
+            prefer_whatsapp
+            and template_row is not None
+            and template_components is not None
+            and telnyx_ready.get("whatsapp")
+        ):
+            from app.services.telnyx_whatsapp_template_sync_service import send_template_id_for_row
+
+            result = TelnyxMessagingService.send_whatsapp(
+                db,
+                org_id=order.org_id,
+                to_number=recipient.phone,
+                body=body,
+                template_id=send_template_id_for_row(template_row),
+                template_name=template_row.name,
+                template_language=template_row.language,
+                template_components=template_components,
+            )
 
         log_payload = {
             "channel": result.channel,
@@ -206,14 +248,13 @@ class SurveyDispatchService:
         if result.ok:
             recipient.status = "sent"
             log_payload["status"] = result.status
+            if template_row is not None:
+                log_payload["wa_template_id"] = template_row.id
+                log_payload["wa_template_name"] = template_row.name
             recipient.result_json = json.dumps(log_payload, ensure_ascii=False)
             db.add(recipient)
             db.commit()
             if prefer_whatsapp:
-                try:
-                    config = json.loads(order.config_json or "{}")
-                except Exception:
-                    config = {}
                 from app.services.survey_whatsapp_conversation_service import bootstrap_after_intro
 
                 bootstrap_after_intro(db, order=order, recipient=recipient, config=config)

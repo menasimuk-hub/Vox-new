@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
-import { useCreateServiceOrder, usePatchServiceOrder, useSurveyPackages } from "@/lib/queries";
+import { useCreateServiceOrder, usePatchServiceOrder, useSurveyPackages, useWaSurveyTypes, useGenerateWaSurvey } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/surveys/new")({
   head: () => ({ meta: [{ title: "Create survey — VoxBulk" }] }),
@@ -29,7 +29,14 @@ function CreateSurvey() {
   const patchM = usePatchServiceOrder();
 
   const [method, setMethod] = React.useState<"phone" | "whatsapp">("phone");
+  const [waPreview, setWaPreview] = React.useState<Record<string, unknown> | null>(null);
+  const [surveyTypeId, setSurveyTypeId] = React.useState("");
+  const [surveyVariant, setSurveyVariant] = React.useState<"standard" | "anonymous">("standard");
+  const [surveyLength, setSurveyLength] = React.useState<"short" | "standard" | "detailed">("standard");
+  const [generating, setGenerating] = React.useState(false);
   const [waOpen, setWaOpen] = React.useState(false);
+  const waTypesQ = useWaSurveyTypes();
+  const generateWaM = useGenerateWaSurvey();
   const [quote, setQuote] = React.useState(false);
   const [approved, setApproved] = React.useState(false);
   const [anonymous, setAnonymous] = React.useState(false);
@@ -68,6 +75,54 @@ function CreateSurvey() {
     });
     setOrderId(created.id);
     return created.id;
+  };
+
+  React.useEffect(() => {
+    const types = (waTypesQ.data?.types || []) as Array<Record<string, unknown>>;
+    if (types[0] && !surveyTypeId) setSurveyTypeId(String(types[0].id));
+  }, [waTypesQ.data, surveyTypeId]);
+
+  React.useEffect(() => {
+    if (surveyVariant === "anonymous") setAnonymous(true);
+  }, [surveyVariant]);
+
+  const onGenerateWaSurvey = async () => {
+    setGenerating(true);
+    try {
+      const generated = await generateWaM.mutateAsync({
+        survey_type_id: surveyTypeId,
+        variant: surveyVariant,
+        length: surveyLength,
+        goal,
+      });
+      setWaPreview(generated);
+      setScript(String(generated.approved_script || script));
+      setAnonymous(Boolean(generated.anonymous_responses));
+      const id = await ensureOrder();
+      await patchM.mutateAsync({
+        orderId: id,
+        body: {
+          config: {
+            goal,
+            delivery: "whatsapp",
+            anonymous_responses: Boolean(generated.anonymous_responses),
+            allow_follow_up: generated.allow_follow_up !== false,
+            script: String(generated.approved_script || script),
+            survey_type_id: surveyTypeId,
+            survey_length: surveyLength,
+            survey_variant: surveyVariant,
+            wa_template_id: generated.wa_template_id,
+            whatsapp_flow: generated.whatsapp_flow,
+          },
+        },
+      });
+      setApproved(true);
+      toast.success("Survey generated from approved WhatsApp template library");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not generate survey");
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const onSaveDraft = async () => {
@@ -151,6 +206,44 @@ function CreateSurvey() {
             <Label className="text-xs">Survey goal</Label>
             <Textarea rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} />
           </div>
+          {method === "whatsapp" && (
+            <>
+              <Field label="Survey type">
+                <Select value={surveyTypeId} onValueChange={setSurveyTypeId}>
+                  <SelectTrigger><SelectValue placeholder="Select survey type" /></SelectTrigger>
+                  <SelectContent>
+                    {((waTypesQ.data?.types || []) as Array<Record<string, unknown>>).map((t) => (
+                      <SelectItem key={String(t.id)} value={String(t.id)}>{String(t.name)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Variant">
+                <Select value={surveyVariant} onValueChange={(v) => setSurveyVariant(v as "standard" | "anonymous")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="standard">Standard</SelectItem>
+                    <SelectItem value="anonymous">Anonymous</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Length">
+                <Select value={surveyLength} onValueChange={(v) => setSurveyLength(v as "short" | "standard" | "detailed")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="short">Short — 4 questions</SelectItem>
+                    <SelectItem value="standard">Standard — 5 questions</SelectItem>
+                    <SelectItem value="detailed">Detailed — 6 questions</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <div className="md:col-span-2">
+                <Button className="gap-1.5" onClick={() => void onGenerateWaSurvey()} disabled={generating || !surveyTypeId}>
+                  <Wand2 className="size-4" /> {generating ? "Generating…" : "Generate"}
+                </Button>
+              </div>
+            </>
+          )}
           {method === "phone" && (
             <>
               <Field label="Max call length">
@@ -241,7 +334,7 @@ function CreateSurvey() {
         <Button className="gap-1.5" onClick={() => setQuote(true)}><Eye className="size-4" /> Preview & approve</Button>
       </div>
 
-      <WhatsAppPreviewModal open={waOpen} onOpenChange={setWaOpen} />
+      <WhatsAppPreviewModal open={waOpen} onOpenChange={setWaOpen} preview={waPreview} />
       <PreviewQuoteModal open={quote} onOpenChange={setQuote} kind="survey" />
     </div>
   );

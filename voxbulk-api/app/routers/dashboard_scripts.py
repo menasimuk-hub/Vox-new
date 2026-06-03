@@ -126,3 +126,32 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"AI script generation failed: {e}") from e
     return {"ok": True, "service_code": service_code, **result}
+
+
+@router.get("/wa-survey/types")
+def list_wa_survey_types(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.survey_type_service import SurveyTypeService
+
+    types = [t for t in SurveyTypeService.list_types(db) if t.get("is_active")]
+    return {"ok": True, "types": types}
+
+
+@router.post("/wa-survey/generate")
+def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.survey_generation_service import SurveyGenerationService
+
+    branding = _client_branding(db, principal.org_id, payload)
+    try:
+        return SurveyGenerationService.generate(
+            db,
+            survey_type_id=str(payload.get("survey_type_id") or ""),
+            variant=str(payload.get("variant") or "standard"),
+            length=str(payload.get("length") or "standard"),
+            goal=str(payload.get("goal") or ""),
+            organisation_name=branding["organisation_name"],
+            client_name=branding.get("client_name") or branding["organisation_name"],
+            assistant_name=branding.get("assistant_name") or "",
+            organiser_name=branding.get("organiser_name") or "",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

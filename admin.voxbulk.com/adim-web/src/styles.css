@@ -3817,8 +3817,147 @@ body.dark .emailPreviewInner {
   color: #667781;
   display: block;
   font-size: 10px;
-  margin-top: 4px;
+}
+
+.waPhonePortraitPro {
+  max-width: 320px;
+  margin: 0 auto;
+}
+
+.waPhonePortraitPro .waPhoneBezel {
+  border-radius: 34px;
+  padding: 10px;
+}
+
+.waSurveyPreviewWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.waSurveyPreviewMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.waSurveyPreviewLabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.waSurveyFlowNav {
+  display: grid;
+  gap: 8px;
+}
+
+.waSurveyFlowTitle {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.waSurveyFlowStep {
+  align-items: flex-start;
+  background: var(--surface, #faf9f6);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.waSurveyFlowStep.is-active {
+  border-color: var(--grn, #00a884);
+  box-shadow: 0 0 0 1px rgba(0, 168, 132, 0.15);
+}
+
+.waSurveyFlowStepNum {
+  background: var(--grn, #00a884);
+  border-radius: 999px;
+  color: #fff;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  width: 22px;
+}
+
+.waSurveyEditGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin-bottom: 16px;
+}
+
+.waSurveyEditSplit {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+}
+
+.waSurveyPreviewCard .cardBody {
+  padding-top: 8px;
+}
+
+.waBubbleText {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.waBubbleFooter {
+  color: #667781;
+  font-size: 11px;
+  margin: 8px 0 0;
+}
+
+.waBubbleButtons {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.waBubbleButton {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  color: #027eb5;
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 8px;
+  text-align: center;
+}
+
+.waBubbleTime {
+  color: #667781;
+  font-size: 10px;
+  margin: 6px 0 0;
   text-align: right;
+}
+
+.waBubbleInbound {
+  background: #fff;
+  border-radius: 8px 8px 8px 2px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+  display: inline-block;
+  margin-top: 10px;
+  max-width: 88%;
+  padding: 8px 10px;
+}
+
+.table tr.row-active td {
+  background: rgba(0, 168, 132, 0.06);
+}
+
+@media (max-width: 960px) {
+  .waSurveyEditSplit {
+    grid-template-columns: 1fr;
+  }
 }
 
 .waMobileFrameSplit {

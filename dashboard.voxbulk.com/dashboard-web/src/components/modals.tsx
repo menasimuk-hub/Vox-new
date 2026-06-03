@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
 import { WaBookingPhonePreview } from "@/components/wa-booking-phone-preview";
+import { WaSurveyPhonePreview } from "@/components/wa-survey-phone-preview";
 import { parseScriptQuestions } from "@/lib/interview-script";
 import { ATS_ANALYZING_LABEL } from "@/lib/interview-campaign";
 import {
@@ -363,28 +364,59 @@ function QuestionPreview({ type, title, detail }: { type: string; title: string;
   );
 }
 
-export function WhatsAppPreviewModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export function WhatsAppPreviewModal({
+  open,
+  onOpenChange,
+  preview,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  preview?: Record<string, unknown> | null;
+}) {
+  const templatePreview = (preview?.template_preview || {}) as Record<string, unknown>;
+  const flowSteps = (preview?.flow_steps || []) as Array<Record<string, unknown>>;
+  const hasGenerated = Boolean(preview?.ok);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>WhatsApp preview</DialogTitle>
-          <DialogDescription>How patients will see your survey.</DialogDescription>
+          <DialogDescription>
+            {hasGenerated
+              ? "Approved template message plus simulated survey steps."
+              : "Generate a survey first to see the approved template and flow."}
+          </DialogDescription>
         </DialogHeader>
-        <div className="mx-auto w-full max-w-[280px] overflow-hidden rounded-[2rem] border-[10px] border-foreground/90 bg-[#e5ddd5] shadow-xl">
-          <div className="bg-[#075e54] px-3 py-2 text-xs text-white">
-            <p className="font-semibold">Northwell Dental</p>
-            <p className="opacity-80">online</p>
+        {hasGenerated ? (
+          <WaSurveyPhonePreview
+            businessName={String(templatePreview.business_name || "Your business")}
+            renderedBody={String(templatePreview.rendered_body || "")}
+            footer={String(templatePreview.footer || "")}
+            buttons={(templatePreview.buttons as Array<{ label: string; type?: string }>) || []}
+            flowSteps={flowSteps.map((s) => ({
+              step: Number(s.step),
+              title: String(s.title || ""),
+              body: s.body ? String(s.body) : undefined,
+              kind: s.kind ? String(s.kind) : undefined,
+              description: s.description ? String(s.description) : undefined,
+            }))}
+            disclaimer={String(preview?.anonymous_responses ? "Anonymous survey — names hidden in results." : "")}
+            templateName={String(preview?.wa_template_name || "")}
+            approvalStatus="APPROVED"
+          />
+        ) : (
+          <div className="mx-auto w-full max-w-[280px] overflow-hidden rounded-[2rem] border-[10px] border-foreground/90 bg-[#e5ddd5] shadow-xl">
+            <div className="bg-[#075e54] px-3 py-2 text-xs text-white">
+              <p className="font-semibold">Your business</p>
+              <p className="opacity-80">online</p>
+            </div>
+            <div className="flex flex-col gap-2 px-3 py-4 text-[12px]">
+              <Bubble>Select survey type, variant, and length, then click Generate.</Bubble>
+            </div>
           </div>
-          <div className="flex flex-col gap-2 px-3 py-4 text-[12px]">
-            <Bubble>Hi Sarah 👋 We'd love your feedback on your recent hygienist visit. 2 quick questions?</Bubble>
-            <Bubble>On a scale of 0-10, how likely are you to recommend us?</Bubble>
-            <Bubble self>9</Bubble>
-            <Bubble>Thanks! Anything we could have done better?</Bubble>
-          </div>
-        </div>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Restart preview</Button>
           <Button onClick={() => onOpenChange(false)}>Done</Button>
         </DialogFooter>
       </DialogContent>
