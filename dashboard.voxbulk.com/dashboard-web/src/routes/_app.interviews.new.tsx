@@ -1145,11 +1145,37 @@ function CreateInterview() {
     maxCvNum != null &&
     availableForOrder != null &&
     maxCvNum > availableForOrder;
-  const overageExtraCount =
-    isOverPlanLimit && maxCvNum != null && availableForOrder != null
-      ? Math.max(0, maxCvNum - availableForOrder)
-      : 0;
-  const overageUnitGbp = cvLimits?.combined_gbp ?? cvLimits?.overage_unit_price_gbp ?? "£5.20";
+  const savedMaxCv =
+    config.cv_max_count != null && config.cv_max_count !== "" ? Number(config.cv_max_count) : ("" as const);
+  const savedCollectionStart = toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || ""));
+  const savedCollectionClose = toLocalInput(
+    String(config.cv_collection_close_at || config.cv_collection_end_at || config.cv_email_end_at || ""),
+  );
+  const savedAutoCloseOnLimit = config.cv_auto_close_on_limit !== false;
+  const savedOverageAcknowledged = config.cv_overage_acknowledged === true;
+  const advancedSettingsDirty = React.useMemo(() => {
+    if (!cvEmailActive) return false;
+    if (maxCvCount !== savedMaxCv) return true;
+    if (autoCloseOnLimit !== savedAutoCloseOnLimit) return true;
+    if (collectionStartAt !== savedCollectionStart) return true;
+    if (collectionCloseAt !== savedCollectionClose) return true;
+    if (isOverPlanLimit && overageAcknowledged !== savedOverageAcknowledged) return true;
+    return false;
+  }, [
+    cvEmailActive,
+    maxCvCount,
+    savedMaxCv,
+    autoCloseOnLimit,
+    savedAutoCloseOnLimit,
+    collectionStartAt,
+    savedCollectionStart,
+    collectionCloseAt,
+    savedCollectionClose,
+    isOverPlanLimit,
+    overageAcknowledged,
+    savedOverageAcknowledged,
+  ]);
+  const advancedSettingsSaved = cvEmailActive && !advancedSettingsDirty;
   const advancedSummary = formatCvAdvancedSummary({
     maxCvCount,
     autoCloseOnLimit,
@@ -1780,30 +1806,11 @@ function CreateInterview() {
                               {planRemainingDisplay === 1 ? "" : "s"} remaining on your plan
                             </p>
                           ) : null}
-                          {cvEmailActive && !cvLimits?.unlimited ? (
-                            <div
-                              className={`space-y-2 rounded-md border p-2.5 ${
-                                isOverPlanLimit
-                                  ? "border-amber-500/30 bg-amber-500/5"
-                                  : "border-border bg-muted/20"
-                              }`}
-                            >
-                              {isOverPlanLimit && overageExtraCount > 0 ? (
-                                <p className="text-[11px] text-muted-foreground">
-                                  {overageExtraCount} extra screening{overageExtraCount === 1 ? "" : "s"} ×{" "}
-                                  {overageUnitGbp}
-                                  {cvLimits?.cost_per_cv_label ? ` (${cvLimits.cost_per_cv_label})` : ""}
-                                </p>
-                              ) : (
-                                <p className="text-[11px] text-muted-foreground">
-                                  Tick below only if max CVs exceeds your remaining plan allowance (
-                                  {planRemainingDisplay ?? "—"}).
-                                </p>
-                              )}
+                          {isOverPlanLimit ? (
+                            <div className="space-y-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
                               <label className="flex items-start gap-2 text-xs text-muted-foreground">
                                 <Checkbox
                                   checked={overageAcknowledged}
-                                  disabled={!isOverPlanLimit}
                                   onCheckedChange={(checked) => setOverageAcknowledged(checked === true)}
                                   className="mt-0.5"
                                 />
@@ -1812,6 +1819,13 @@ function CreateInterview() {
                                   rate
                                 </span>
                               </label>
+                              {!overageAcknowledged || advancedSettingsDirty ? (
+                                <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                                  {!overageAcknowledged
+                                    ? "Tick this box, then click Save advanced settings below."
+                                    : "Click Save advanced settings below to keep this change."}
+                                </p>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>
@@ -1863,12 +1877,24 @@ function CreateInterview() {
                   )}
                 </div>
 
-                <div className="flex justify-end border-t border-border pt-4">
+                <div className="flex flex-col items-stretch gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-h-5 text-[11px]">
+                    {advancedSettingsDirty ? (
+                      <p className="text-amber-800 dark:text-amber-300">
+                        Unsaved changes — click Save advanced settings to apply.
+                      </p>
+                    ) : advancedSettingsSaved ? (
+                      <p className="inline-flex items-center gap-1.5 text-muted-foreground">
+                        <CheckCircle2 className="size-3.5 shrink-0 text-success" aria-hidden />
+                        Advanced settings saved
+                      </p>
+                    ) : null}
+                  </div>
                   <Button
                     type="button"
                     size="sm"
-                    variant="outline"
-                    disabled={advancedSaveBusy || campaignReadOnly || !orderId}
+                    variant={advancedSettingsDirty ? "default" : "outline"}
+                    disabled={advancedSaveBusy || campaignReadOnly || !orderId || !advancedSettingsDirty}
                     onClick={() => void onSaveAdvancedSettings()}
                   >
                     {advancedSaveBusy ? "Saving…" : "Save advanced settings"}
