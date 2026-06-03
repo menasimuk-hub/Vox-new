@@ -164,7 +164,7 @@ def test_interview_launch_with_duplicate_subscriptions(app_client, monkeypatch):
 
     monkeypatch.setattr(
         "app.services.interview_launch_service.InterviewBookingService.send_invites",
-        lambda *a, **k: {"ok": True, "whatsapp_sent": 1, "email_sent": 0, "errors": []},
+        lambda *a, **k: {"ok": True, "whatsapp_sent": 1, "email_sent": 1, "errors": []},
     )
 
     launched = app_client.post(f"/service-orders/{order_id}/interview/launch", headers=headers)
@@ -206,7 +206,7 @@ def test_interview_launch_without_checkout_for_pro_package(app_client, monkeypat
 
     monkeypatch.setattr(
         "app.services.interview_launch_service.InterviewBookingService.send_invites",
-        lambda *a, **k: {"ok": True, "whatsapp_sent": 1, "email_sent": 0, "errors": []},
+        lambda *a, **k: {"ok": True, "whatsapp_sent": 1, "email_sent": 1, "errors": []},
     )
 
     launched = app_client.post(f"/service-orders/{order_id}/interview/launch", headers=headers)

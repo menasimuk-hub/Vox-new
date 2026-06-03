@@ -175,6 +175,27 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
             if (order.service_code === "interview") {
               try {
                 const launched = await startPaidInterviewOrder(resolvedOrderId);
+                const emailN = Number(launched?.invites?.email_sent ?? 0);
+                const waN = Number(launched?.invites?.whatsapp_sent ?? 0);
+                if (launched?.ok === false || emailN < 1) {
+                  notifyInterviewLaunch(launched);
+                  toast.success("Payment approved.");
+                  const errs = Array.isArray(launched?.invites?.errors)
+                    ? launched!.invites!.errors!.filter(Boolean)
+                    : [];
+                  const detail =
+                    errs[0] ||
+                    launched?.message ||
+                    (waN > 0
+                      ? "WhatsApp was sent but invite email was not — open the interview and tap Launch or Resend."
+                      : "Launch failed — open the interview and tap Launch.");
+                  toast.error(detail);
+                  void navigate({
+                    to: "/interviews/new",
+                    search: { order_id: resolvedOrderId },
+                  });
+                  return;
+                }
                 notifyInterviewLaunch(launched);
                 void navigate({
                   to: "/interviews/new",

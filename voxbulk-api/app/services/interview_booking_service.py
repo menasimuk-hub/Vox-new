@@ -1994,6 +1994,102 @@ class InterviewBookingService:
         return False
 
     @staticmethod
+    def send_interview_invitation_email(
+        db: Session,
+        *,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+        outreach_email: str,
+        role: str,
+        company_name: str,
+        booking_url: str,
+        force_resend: bool = False,
+        force_email: bool = False,
+        smtp_ready: bool = True,
+    ) -> tuple[bool, dict[str, Any], str | None]:
+        """
+        Send one interview booking invite email — shared by launch and resend paths.
+
+        Returns (count_as_sent, merged_result_json, error_message).
+        count_as_sent is True only when SMTP succeeded or idempotent skip (already sent).
+        """
+        merged_check = _recipient_result(recipient)
+        if force_resend or force_email:
+            merged_check.pop("invite_email_sent_at", None)
+            merged_check.pop("invite_email_failed", None)
+            merged_check.pop("invite_email_ok", None)
+
+        prior_to = str(merged_check.get("invite_sent_to") or "").strip().lower()
+        already_sent = (
+            bool(merged_check.get("invite_email_sent_at"))
+            and bool(merged_check.get("invite_email_ok"))
+            and prior_to == outreach_email.strip().lower()
+            and not force_resend
+            and not force_email
+        )
+        if already_sent:
+            return True, merged_check, None
+
+        if not smtp_ready:
+            err = "SMTP not configured or disabled"
+            merged_check["invite_email_failed"] = err
+            merged_check.pop("invite_email_ok", None)
+            merged_check.pop("invite_email_sent_at", None)
+            return False, merged_check, err
+
+        attempted_at = _now().isoformat()
+        merged_check["invitation_email_attempted_at"] = attempted_at
+        try:
+            sent_ok, err = CareerEmailService.send_templated_critical(
+                db,
+                template_key="interview_booking_invite",
+                to_email=outreach_email,
+                variables={
+                    "candidate_name": recipient.name or "there",
+                    "role": role,
+                    "company_name": company_name,
+                    "booking_url": booking_url,
+                },
+            )
+            if sent_ok:
+                merged_check.pop("invite_email_failed", None)
+                merged_check["invite_email_ok"] = True
+                merged_check["invite_email_sent_at"] = _now().isoformat()
+                merged_check["invite_sent_to"] = outreach_email.strip().lower()
+                logger.info(
+                    "interview_invite_email_sent",
+                    extra={
+                        "order_id": order.id,
+                        "recipient_id": recipient.id,
+                        "to": outreach_email,
+                    },
+                )
+                return True, merged_check, None
+
+            merged_check["invite_email_failed"] = err or "send_failed"
+            merged_check.pop("invite_email_ok", None)
+            merged_check.pop("invite_email_sent_at", None)
+            logger.error(
+                "interview_invite_email_failed",
+                extra={
+                    "order_id": order.id,
+                    "recipient_id": recipient.id,
+                    "to": outreach_email,
+                    "error": err,
+                },
+            )
+            return False, merged_check, err or "send_failed"
+        except Exception as exc:
+            merged_check["invite_email_failed"] = str(exc)
+            merged_check.pop("invite_email_ok", None)
+            merged_check.pop("invite_email_sent_at", None)
+            logger.exception(
+                "interview_invite_email_exception",
+                extra={"order_id": order.id, "recipient_id": recipient.id, "to": outreach_email},
+            )
+            return False, merged_check, str(exc)
+
+    @staticmethod
     def send_invites(
         db: Session,
         order: ServiceOrder,
@@ -2027,6 +2123,18 @@ class InterviewBookingService:
         id_filter = {str(x).strip() for x in (recipient_ids or []) if str(x).strip()}
         if id_filter:
             recipients = [r for r in recipients if r.id in id_filter]
+
+        logger.info(
+            "interview_send_invites_start",
+            extra={
+                "order_id": order.id,
+                "recipient_count": len(recipients),
+                "channels": use_channels,
+                "force_resend": force_resend,
+                "force_email": force_email,
+                "smtp_ready": smtp_ready,
+            },
+        )
 
         wa_sent = 0
         email_sent = 0
@@ -2086,77 +2194,26 @@ class InterviewBookingService:
                         f"{recipient.name or recipient.id}: invite email skipped — SMTP not configured or disabled"
                     )
                 else:
-                    merged_check = _recipient_result(recipient)
-                    if force_resend or force_email:
-                        merged_check.pop("invite_email_sent_at", None)
-                        merged_check.pop("invite_email_failed", None)
-                        merged_check.pop("invite_email_ok", None)
-
-                    prior_to = str(merged_check.get("invite_sent_to") or "").strip().lower()
-                    already_sent = (
-                        bool(merged_check.get("invite_email_sent_at"))
-                        and bool(merged_check.get("invite_email_ok"))
-                        and prior_to == outreach_email
-                        and not force_resend
-                        and not force_email
+                    counted, merged_check, email_err = InterviewBookingService.send_interview_invitation_email(
+                        db,
+                        order=order,
+                        recipient=recipient,
+                        outreach_email=outreach_email,
+                        role=role,
+                        company_name=company_name,
+                        booking_url=url,
+                        force_resend=force_resend,
+                        force_email=force_email,
+                        smtp_ready=smtp_ready,
                     )
-                    if already_sent:
+                    if counted:
                         recipient_email_sent = True
                         email_sent += 1
-                    else:
-                        try:
-                            sent_ok, err = CareerEmailService.send_templated_critical(
-                                db,
-                                template_key="interview_booking_invite",
-                                to_email=outreach_email,
-                                variables={
-                                    "candidate_name": recipient.name or "there",
-                                    "role": role,
-                                    "company_name": company_name,
-                                    "booking_url": url,
-                                },
-                            )
-                            if sent_ok:
-                                email_sent += 1
-                                recipient_email_sent = True
-                                merged_check.pop("invite_email_failed", None)
-                                merged_check["invite_email_ok"] = True
-                                merged_check["invite_email_sent_at"] = _now().isoformat()
-                                merged_check["invite_sent_to"] = outreach_email
-                                logger.info(
-                                    "interview_invite_email_sent",
-                                    extra={
-                                        "order_id": order.id,
-                                        "recipient_id": recipient.id,
-                                        "to": outreach_email,
-                                    },
-                                )
-                            else:
-                                merged_check["invite_email_failed"] = err or "send_failed"
-                                merged_check.pop("invite_email_ok", None)
-                                merged_check.pop("invite_email_sent_at", None)
-                                if err:
-                                    errors.append(f"Email {outreach_email}: {err}")
-                                logger.error(
-                                    "interview_invite_email_failed",
-                                    extra={
-                                        "order_id": order.id,
-                                        "recipient_id": recipient.id,
-                                        "to": outreach_email,
-                                        "error": err,
-                                    },
-                                )
-                        except Exception as exc:
-                            merged_check["invite_email_failed"] = str(exc)
-                            merged_check.pop("invite_email_ok", None)
-                            merged_check.pop("invite_email_sent_at", None)
-                            errors.append(f"Email {outreach_email}: {exc}")
-                            logger.exception(
-                                "interview_invite_email_exception",
-                                extra={"order_id": order.id, "recipient_id": recipient.id},
-                            )
-                        recipient.result_json = json.dumps(merged_check, ensure_ascii=False)
-                        db.add(recipient)
+                    elif email_err:
+                        label = recipient.name or recipient.id
+                        errors.append(f"{label}: Email {outreach_email}: {email_err}")
+                    recipient.result_json = json.dumps(merged_check, ensure_ascii=False)
+                    db.add(recipient)
 
             if "whatsapp" in use_channels and recipient.phone:
                 if token_row.wa_sent_at and not force_resend:
@@ -2247,6 +2304,18 @@ class InterviewBookingService:
         order.updated_at = _now()
         db.add(order)
         db.commit()
+
+        logger.info(
+            "interview_send_invites_complete",
+            extra={
+                "order_id": order.id,
+                "email_sent": email_sent,
+                "whatsapp_sent": wa_sent,
+                "skipped_locked": skipped_locked,
+                "error_count": len(errors),
+                "ok": dispatch_ok,
+            },
+        )
 
         from app.services.career_email_service import interview_email_delivery_status
 

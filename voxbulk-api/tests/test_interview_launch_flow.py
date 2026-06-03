@@ -62,7 +62,7 @@ def _seed_interview(db):
 def test_launch_after_payment_schedules_without_immediate_dial(monkeypatch):
     with get_sessionmaker()() as db:
         _, order, _, _ = _seed_interview(db)
-        sent = {"ok": True, "whatsapp_sent": 1, "email_sent": 0, "errors": []}
+        sent = {"ok": True, "whatsapp_sent": 1, "email_sent": 1, "errors": []}
 
         monkeypatch.setattr(
             "app.services.interview_launch_service.InterviewBookingService.send_invites",
@@ -77,6 +77,22 @@ def test_launch_after_payment_schedules_without_immediate_dial(monkeypatch):
         assert result.get("invites") is not None
         cfg = __import__("json").loads(order.config_json or "{}")
         assert cfg.get("require_booking") is True
+
+
+def test_launch_after_payment_fails_when_email_not_sent(monkeypatch):
+    with get_sessionmaker()() as db:
+        _, order, _, _ = _seed_interview(db)
+        sent = {"ok": True, "whatsapp_sent": 1, "email_sent": 0, "errors": ["SMTP disabled"]}
+
+        monkeypatch.setattr(
+            "app.services.interview_launch_service.InterviewBookingService.send_invites",
+            lambda *a, **k: sent,
+        )
+
+        result = InterviewLaunchService.launch_after_payment(db, order)
+        assert result["ok"] is False
+        assert int((result.get("invites") or {}).get("whatsapp_sent") or 0) == 1
+        assert int((result.get("invites") or {}).get("email_sent") or 0) == 0
 
 
 def test_dial_eligible_only_when_booked_slot_due():

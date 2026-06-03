@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,8 @@ from app.services.interview_booking_service import InterviewBookingService, ensu
 from app.services.interview_billing_context import org_interview_billing_context, plan_allows_cv_email
 from app.services.gocardless_service import BillingService
 from app.services.platform_catalog_service import ServiceOrderService
+
+logger = logging.getLogger(__name__)
 
 
 def _order_config(order: ServiceOrder) -> dict[str, Any]:
@@ -97,13 +100,37 @@ class InterviewLaunchService:
             if not order.scheduled_start_at or not order.scheduled_end_at:
                 raise ValueError("Set the calling window (start and end) before launch")
             order = ensure_full_day_booking_window(db, order)
+            recipient_count = len(ServiceOrderService.get_recipients(db, order.id))
+            launch_channels = list(channels or ["email", "whatsapp"])
+            config["launch_requested_at"] = datetime.utcnow().isoformat()
+            order.config_json = json.dumps(config, ensure_ascii=False)
+            db.add(order)
+            db.flush()
+            logger.info(
+                "interview_launch_start",
+                extra={
+                    "order_id": order.id,
+                    "recipient_count": recipient_count,
+                    "channels": launch_channels,
+                },
+            )
             # Always force fresh email + WA on launch (ignore stale invite_* flags).
             invite_result = InterviewBookingService.send_invites(
                 db,
                 order,
-                channels=list(channels or ["email", "whatsapp"]),
+                channels=launch_channels,
                 force_resend=True,
                 force_email=True,
+            )
+            logger.info(
+                "interview_launch_invites_complete",
+                extra={
+                    "order_id": order.id,
+                    "email_sent": int((invite_result or {}).get("email_sent") or 0),
+                    "whatsapp_sent": int((invite_result or {}).get("whatsapp_sent") or 0),
+                    "ok": bool((invite_result or {}).get("ok")),
+                    "error_count": len((invite_result or {}).get("errors") or []),
+                },
             )
             config = _order_config(order)
             config["require_booking"] = config.get("require_booking", True) is not False
