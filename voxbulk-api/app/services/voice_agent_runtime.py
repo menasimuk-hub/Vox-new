@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,33 @@ from app.models.agent import AgentDefinition
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.voice_agent_platform_settings import DEFAULT_OPENING_DISCLOSURE, VoiceAgentPlatformSettings
 from app.services.survey_dispatch_service import _first_name, _personalize
+
+logger = logging.getLogger(__name__)
+
+_INVALID_SPOKEN_ORG_NAMES = frozenset(
+    {
+        "",
+        "company",
+        "the company",
+        "your company",
+        "organisation",
+        "the organisation",
+        "organization",
+        "the organization",
+        "business",
+        "your business",
+        "client",
+        "the client",
+        "employer",
+        "the employer",
+    }
+)
+
+DEFAULT_INTERVIEW_OPENING_FALLBACK = (
+    "Hello {first_name}, this is {agent_name} calling on behalf of {company_name} about the {role} role. "
+    "This call is recorded for quality and assessment purposes. "
+    "Can you hear me clearly, and is now still a good time to continue?"
+)
 
 
 def _platform_settings(db: Session) -> VoiceAgentPlatformSettings:
@@ -73,6 +101,97 @@ def disclosure_enabled(
     return True
 
 
+def is_invalid_spoken_company_name(name: str | None) -> bool:
+    return str(name or "").strip().lower() in _INVALID_SPOKEN_ORG_NAMES
+
+
+def resolve_voice_call_company_name(
+    db: Session,
+    *,
+    config: dict[str, Any],
+    org_id: str | None = None,
+    order: ServiceOrder | None = None,
+) -> str:
+    """Resolve the spoken hiring organisation name — never return the literal word 'company'."""
+    resolved_org_id = org_id or (order.org_id if order else None)
+    candidates: list[str] = []
+    if resolved_org_id:
+        try:
+            from app.services.recovery_service import OrganisationService
+
+            org = OrganisationService.get_org(db, resolved_org_id)
+            if org and str(org.name or "").strip():
+                candidates.append(str(org.name).strip())
+        except Exception:
+            pass
+    for key in ("company_name", "client_name", "organisation_name", "clinic_name"):
+        val = str(config.get(key) or "").strip()
+        if val:
+            candidates.append(val)
+    for name in candidates:
+        cleaned = name.strip()
+        low = cleaned.lower()
+        if not cleaned or low in _INVALID_SPOKEN_ORG_NAMES:
+            continue
+        if "voxbulk" in low or "retover" in low:
+            continue
+        return cleaned
+    return "the hiring team"
+
+
+def enrich_voice_call_config(
+    db: Session,
+    *,
+    config: dict[str, Any],
+    org_id: str | None = None,
+    order: ServiceOrder | None = None,
+) -> dict[str, Any]:
+    """Ensure live-call config carries a real company name and role before prompt assembly."""
+    out = dict(config)
+    company = resolve_voice_call_company_name(db, config=out, org_id=org_id, order=order)
+    out["company_name"] = company
+    out["organisation_name"] = company
+    role = str(out.get("role") or out.get("goal") or out.get("position") or "").strip()
+    if not role and order is not None:
+        role = str(order.title or "").strip()
+    out["role"] = role or "this role"
+    return out
+
+
+def substitute_voice_placeholders(
+    text: str,
+    *,
+    company_name: str,
+    organiser_name: str = "",
+    agent_name: str = "",
+    role: str = "",
+    first_name: str = "",
+) -> str:
+    """Replace all runtime voice placeholders used in agent templates, KB, and scripts."""
+    organiser = str(organiser_name or agent_name or company_name).strip()
+    agent = str(agent_name or organiser or "your AI assistant").strip()
+    role_line = str(role or "this role").strip()
+    first = str(first_name or "there").strip() or "there"
+    out = _personalize(
+        str(text or ""),
+        first_name=first,
+        org_name=company_name,
+        organiser=organiser,
+    )
+    mapping = {
+        "company_name": company_name,
+        "agent_name": agent,
+        "role": role_line,
+        "organiser_name": organiser,
+        "position": role_line,
+        "goal": role_line,
+    }
+    for key, value in mapping.items():
+        if value:
+            out = out.replace(f"{{{key}}}", value)
+    return out.strip()
+
+
 def resolve_opening_disclosure_template(
     db: Session,
     *,
@@ -86,8 +205,15 @@ def resolve_opening_disclosure_template(
         return ""
 
     mandatory = disclosure_mandatory(platform, agent)
-    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "the organisation").strip()
+    company_name = resolve_voice_call_company_name(db, config=config, org_id=org_id)
+    organiser_name = str(
+        config.get("organiser_name")
+        or config.get("survey_organiser_name")
+        or config.get("client_name")
+        or company_name
+    ).strip()
     agent_name = str((agent.voice_label if agent else None) or (agent.name if agent else None) or "your AI assistant").strip()
+    role = str(config.get("role") or config.get("goal") or config.get("position") or "this role").strip()
 
     org_template = ""
     if org_id:
@@ -112,15 +238,30 @@ def resolve_opening_disclosure_template(
     if mandatory and not template.strip():
         template = DEFAULT_OPENING_DISCLOSURE
 
-    rendered = _personalize(template, first_name="", org_name=org_name, organiser=agent_name)
-    rendered = rendered.replace("{agent_name}", agent_name).replace("{company_name}", org_name)
+    rendered = substitute_voice_placeholders(
+        template,
+        company_name=company_name,
+        organiser_name=organiser_name,
+        agent_name=agent_name,
+        role=role,
+        first_name="",
+    )
     if mandatory and not rendered.strip():
-        rendered = _personalize(
+        rendered = substitute_voice_placeholders(
             DEFAULT_OPENING_DISCLOSURE,
+            company_name=company_name,
+            organiser_name=organiser_name,
+            agent_name=agent_name,
+            role=role,
             first_name="",
-            org_name=org_name,
-            organiser=agent_name,
-        ).replace("{agent_name}", agent_name).replace("{company_name}", org_name)
+        )
+    if service_key == SERVICE_INTERVIEW and "record" not in rendered.lower():
+        rendered = (
+            f"{rendered} This call is recorded for quality and assessment purposes. "
+            "Can you hear me clearly, and is now still a good time to continue?"
+        ).strip()
+    elif service_key == SERVICE_INTERVIEW and "good time" not in rendered.lower() and "hear me" not in rendered.lower():
+        rendered = f"{rendered} Can you hear me clearly, and is now still a good time to continue?".strip()
     return rendered
 
 
@@ -244,20 +385,30 @@ def build_service_runtime_instructions(
     service_key: str = SERVICE_SURVEY,
 ) -> str:
     org_id = order.org_id if order else None
+    config = enrich_voice_call_config(db, config=config, org_id=org_id, order=order)
     layers = build_voice_runtime_layers(db, agent=agent, config=config, service_key=service_key, org_id=org_id)
 
-    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "the organisation").strip()
+    company_name = resolve_voice_call_company_name(db, config=config, org_id=org_id, order=order)
     organiser = str(
         config.get("organiser_name")
         or config.get("survey_organiser_name")
         or config.get("client_name")
-        or org_name
+        or company_name
     ).strip()
+    agent_name = _agent_name(agent)
     first = _first_name(recipient.name if recipient else "")
     goal = str(config.get("goal") or config.get("role") or "").strip()
+    role = str(config.get("role") or goal or "this role").strip()
     criteria = str(config.get("screening_criteria") or config.get("criteria") or "").strip()
     script = str(config.get("approved_script") or config.get("generated_script_draft") or "").strip()
     survey_prompt = str(config.get("survey_runtime_prompt") or script).strip()
+    placeholder_kwargs = {
+        "company_name": company_name,
+        "organiser_name": organiser,
+        "agent_name": agent_name,
+        "role": role,
+        "first_name": first,
+    }
     cv_snippet = ""
     if recipient is not None:
         cv_snippet = str(recipient.cv_text or "").strip()[:2500]
@@ -273,17 +424,22 @@ def build_service_runtime_instructions(
 
     parts: list[str] = []
     if layers.compliance:
-        parts.append(layers.compliance)
+        parts.append(substitute_voice_placeholders(layers.compliance, **placeholder_kwargs))
     if layers.base_role:
-        parts.append(layers.base_role)
+        parts.append(substitute_voice_placeholders(layers.base_role, **placeholder_kwargs))
     if layers.service_role:
-        parts.append(layers.service_role)
+        parts.append(substitute_voice_placeholders(layers.service_role, **placeholder_kwargs))
     if layers.call_workflow:
-        parts.append("Call workflow (follow exactly after opening):\n" + layers.call_workflow)
+        parts.append(
+            "Call workflow (follow exactly after opening):\n"
+            + substitute_voice_placeholders(layers.call_workflow, **placeholder_kwargs)
+        )
     if layers.kb_context:
-        parts.append("Reference knowledge:\n" + layers.kb_context)
+        parts.append(
+            "Reference knowledge:\n" + substitute_voice_placeholders(layers.kb_context, **placeholder_kwargs)
+        )
 
-    parts.append(f"Organisation name: {org_name}")
+    parts.append(f"Organisation name (always use this exact name on the call): {company_name}")
     if service_key == SERVICE_SURVEY:
         parts.append(f"Survey organiser: {organiser}")
         parts.append(f"Contact first name: {first}")
@@ -296,23 +452,28 @@ def build_service_runtime_instructions(
         parts.append(f"Calling on behalf of: {organiser}")
         parts.append(f"Candidate first name: {first}")
         if goal:
-            parts.append(f"Role / position: {goal}")
+            parts.append(f"Role / position: {role}")
         if criteria:
             parts.append(f"Screening criteria:\n{criteria}")
         if cv_snippet:
             parts.append(f"Candidate CV summary (use for the first two questions):\n{cv_snippet}")
         parts.append(
-            "This is a job interview screening call — NOT a survey. Ask the approved interview questions in order."
+            "This is a job interview screening call — NOT a survey. Ask the approved interview questions in order. "
+            f"When introducing yourself, say you are calling on behalf of {company_name}. "
+            "Never say the generic word 'company' without the actual organisation name."
         )
 
     if layers.campaign_system_prompt:
-        parts.append("Campaign notes:\n" + layers.campaign_system_prompt)
+        parts.append(
+            "Campaign notes:\n"
+            + substitute_voice_placeholders(layers.campaign_system_prompt, **placeholder_kwargs)
+        )
 
     if survey_prompt:
         label = "Approved survey script" if service_key == SERVICE_SURVEY else "Approved interview script"
         parts.append(
             f"{label} (follow this structure):\n"
-            + _personalize(survey_prompt, first_name=first, org_name=org_name, organiser=organiser)
+            + substitute_voice_placeholders(survey_prompt, **placeholder_kwargs)
         )
 
     platform = _platform_settings(db)
@@ -340,6 +501,11 @@ def build_service_runtime_instructions(
     behavior.append(
         "If the recipient interrupts before you finish the opening, pause and repeat the current step clearly from the start."
     )
+    if service_key == SERVICE_INTERVIEW:
+        behavior.append(
+            "Do not continue to interview questions until the callee confirms they heard the introduction "
+            "and that now is still a good time."
+        )
     if layers.opt_out_notes:
         behavior.append(layers.opt_out_notes)
     else:
@@ -364,29 +530,74 @@ def build_service_opening_greeting(
     recipient_name: str,
     service_key: str = SERVICE_SURVEY,
     org_id: str | None = None,
+    order: ServiceOrder | None = None,
 ) -> str:
+    config = enrich_voice_call_config(db, config=config, org_id=org_id, order=order)
+    company_name = resolve_voice_call_company_name(db, config=config, org_id=org_id, order=order)
+    organiser_name = str(
+        config.get("organiser_name")
+        or config.get("survey_organiser_name")
+        or config.get("client_name")
+        or company_name
+    ).strip()
+    agent_name = _agent_name(agent)
+    first = _first_name(recipient_name)
+    role = str(config.get("role") or config.get("goal") or "this role").strip()
+    placeholder_kwargs = {
+        "company_name": company_name,
+        "organiser_name": organiser_name,
+        "agent_name": agent_name,
+        "role": role,
+        "first_name": first,
+    }
+
     disclosure = resolve_opening_disclosure_template(
         db, agent=agent, config=config, service_key=service_key, org_id=org_id
     )
     if disclosure:
-        first = _first_name(recipient_name)
-        if first and "{first_name}" in disclosure.lower():
-            return _personalize(disclosure, first_name=first, org_name=_org_name(config), organiser=_agent_name(agent))
-        return disclosure
+        greeting = substitute_voice_placeholders(disclosure, **placeholder_kwargs)
+        if "{first_name}" in greeting:
+            greeting = substitute_voice_placeholders(greeting, **placeholder_kwargs)
+        return greeting
 
-    org_name = _org_name(config)
-    first = _first_name(recipient_name)
-    agent_name = _agent_name(agent)
     if service_key == SERVICE_SURVEY:
         return (
-            f"Hi {first}, this is {agent_name}, an AI assistant calling from {org_name} "
-            f"for a short anonymous survey. Your answers are confidential. This call may be recorded for quality."
+            f"Hi {first}, this is {agent_name}, an AI assistant calling from {company_name} "
+            f"for a short anonymous survey. Your answers are confidential. This call is recorded for quality."
         )
-    return f"Hi {first}, this is {agent_name} calling from {org_name}."
+    return substitute_voice_placeholders(DEFAULT_INTERVIEW_OPENING_FALLBACK, **placeholder_kwargs)
+
+
+def log_voice_call_prompt(
+    *,
+    service_key: str,
+    order_id: str | None,
+    recipient_id: str | None,
+    company_name: str,
+    greeting: str,
+    instructions: str,
+) -> None:
+    logger.info(
+        "voice_call_prompt_built",
+        extra={
+            "service_key": service_key,
+            "order_id": order_id,
+            "recipient_id": recipient_id,
+            "company_name": company_name,
+            "greeting": greeting[:800],
+            "instructions_preview": instructions[:1200],
+        },
+    )
 
 
 def _org_name(config: dict[str, Any]) -> str:
-    return str(config.get("organisation_name") or config.get("clinic_name") or "the organisation").strip()
+    company = str(config.get("company_name") or "").strip()
+    if company and not is_invalid_spoken_company_name(company):
+        return company
+    org = str(config.get("organisation_name") or config.get("clinic_name") or config.get("client_name") or "").strip()
+    if org and not is_invalid_spoken_company_name(org):
+        return org
+    return "the hiring team"
 
 
 def _agent_name(agent: AgentDefinition | None) -> str:

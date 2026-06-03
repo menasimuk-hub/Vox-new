@@ -354,7 +354,7 @@ def _apply_org_placeholders(text: str, *, organisation_name: str, assistant_name
         return text
     out = str(text)
     if org:
-        for key in ("clinic_name", "organisation_name", "business_name"):
+        for key in ("clinic_name", "organisation_name", "business_name", "company_name"):
             out = out.replace(f"{{{key}}}", org)
     if assistant:
         out = out.replace("{assistant_name}", assistant)

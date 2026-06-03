@@ -133,6 +133,7 @@ def build_interview_opening_greeting(
     config: dict[str, Any],
     recipient_name: str,
     org_id: str | None = None,
+    order: ServiceOrder | None = None,
 ) -> str:
     from app.services.voice_agent_runtime import build_service_opening_greeting
 
@@ -143,6 +144,7 @@ def build_interview_opening_greeting(
         recipient_name=recipient_name,
         service_key=SERVICE_INTERVIEW,
         org_id=org_id,
+        order=order,
     )
 
 

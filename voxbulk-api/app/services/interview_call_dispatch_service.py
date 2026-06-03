@@ -548,6 +548,9 @@ class InterviewCallDispatchService:
             build_interview_opening_greeting,
             build_interview_runtime_instructions,
         )
+        from app.services.voice_agent_runtime import enrich_voice_call_config, log_voice_call_prompt, resolve_voice_call_company_name
+
+        config = enrich_voice_call_config(db, config=config, org_id=order.org_id, order=order)
 
         telnyx_config = _telnyx_config(db)
         from_number = telnyx_outbound_caller_id(telnyx_config)
@@ -559,7 +562,21 @@ class InterviewCallDispatchService:
             db, order=order, config=config, recipient=recipient, agent=agent
         )
         greeting = build_interview_opening_greeting(
-            db, agent=agent, config=config, recipient_name=recipient.name, org_id=order.org_id
+            db,
+            agent=agent,
+            config=config,
+            recipient_name=recipient.name,
+            org_id=order.org_id,
+            order=order,
+        )
+        company_name = resolve_voice_call_company_name(db, config=config, org_id=order.org_id, order=order)
+        log_voice_call_prompt(
+            service_key="interview",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            company_name=company_name,
+            greeting=greeting,
+            instructions=instructions,
         )
         voicemail_behavior = _resolve_voicemail_behavior({}, agent)
         from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
@@ -818,13 +835,16 @@ def handle_interview_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
 
     assistant_id = str(parsed.get("telnyx_assistant_id") or get_interview_telnyx_assistant_id(db, order) or "").strip()
     telnyx_config = _telnyx_config(db)
-    config_order = _order_config(order)
-    from app.services.interview_voice_agent_service import resolve_interview_agent_for_order
+        config_order = _order_config(order)
+        from app.services.interview_voice_agent_service import resolve_interview_agent_for_order
 
-    agent = resolve_interview_agent_for_order(db, order, config_order)
-    voicemail_behavior = _resolve_voicemail_behavior(parsed, agent)
+        agent = resolve_interview_agent_for_order(db, order, config_order)
+        from app.services.voice_agent_runtime import enrich_voice_call_config, log_voice_call_prompt, resolve_voice_call_company_name
 
-    if _is_voicemail_telnyx_event(event_type, record):
+        config_order = enrich_voice_call_config(db, config=config_order, org_id=order.org_id, order=order)
+        voicemail_behavior = _resolve_voicemail_behavior(parsed, agent)
+
+        if _is_voicemail_telnyx_event(event_type, record):
         return _handle_interview_voicemail(
             db,
             order=order,
@@ -857,7 +877,17 @@ def handle_interview_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
             config=config_order,
             recipient_name=recipient.name,
             org_id=order.org_id,
+            order=order,
         )
+        if not str(parsed.get("interview_greeting") or parsed.get("survey_greeting") or "").strip():
+            log_voice_call_prompt(
+                service_key="interview",
+                order_id=order.id,
+                recipient_id=recipient.id,
+                company_name=resolve_voice_call_company_name(db, config=config_order, org_id=order.org_id, order=order),
+                greeting=greeting,
+                instructions=instructions,
+            )
         if not assistant_id:
             InterviewCallDispatchService.finalize_recipient_after_call(
                 db,
