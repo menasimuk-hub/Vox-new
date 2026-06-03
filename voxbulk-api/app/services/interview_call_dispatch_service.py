@@ -694,6 +694,32 @@ class InterviewCallDispatchService:
                 InterviewCallDispatchService.dial_next_recipient(db, order)
 
 
+def _maybe_send_interview_missed_call_email(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    agent,
+    terminal_status: str,
+    voicemail_detected: bool = False,
+    voicemail_behavior: str | None = None,
+) -> None:
+    try:
+        from app.services.interview_missed_call_email_service import maybe_send_interview_missed_call_email
+
+        maybe_send_interview_missed_call_email(
+            db,
+            order=order,
+            recipient=recipient,
+            agent=agent,
+            terminal_status=terminal_status,
+            voicemail_detected=voicemail_detected,
+            voicemail_behavior=voicemail_behavior,
+        )
+    except Exception:
+        logger.exception("interview_missed_call_email_failed")
+
+
 _VOICEMAIL_BEHAVIORS = frozenset({"hang_up", "leave_message", "retry_later"})
 
 
@@ -792,6 +818,15 @@ def _handle_interview_voicemail(
         recipient=recipient,
         status="no_answer",
         extra=extra,
+    )
+    _maybe_send_interview_missed_call_email(
+        db,
+        order=order,
+        recipient=recipient,
+        agent=agent,
+        terminal_status="no_answer",
+        voicemail_detected=True,
+        voicemail_behavior=behavior,
     )
     if behavior == "retry_later":
         try:
@@ -1044,6 +1079,15 @@ def handle_interview_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
             logger.exception("survey_post_call_analysis_failed")
 
         if terminal in {"no_answer", "busy"} and str(recipient.status or "").lower() != "opted_out":
+            _maybe_send_interview_missed_call_email(
+                db,
+                order=order,
+                recipient=recipient,
+                agent=agent,
+                terminal_status=terminal,
+                voicemail_detected=bool(prior.get("voicemail_detected")),
+                voicemail_behavior=voicemail_behavior,
+            )
             try:
                 from app.services.interview_voice_agent_service import resolve_interview_retry_settings
 

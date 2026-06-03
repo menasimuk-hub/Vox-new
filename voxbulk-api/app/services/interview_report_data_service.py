@@ -200,6 +200,10 @@ class InterviewCandidateReportService:
 
         activity = InterviewActivityService.timeline(db, order, recipient)
 
+        from app.services.interview_missed_call_email_service import missed_call_email_report_payload
+
+        call_outcome = missed_call_email_report_payload(db, order=order, recipient=recipient, parsed=parsed)
+
         approved_script = str(config.get("approved_script") or config.get("generated_script_draft") or "").strip()
         screening_criteria = str(config.get("screening_criteria") or config.get("criteria") or "").strip()
 
@@ -251,6 +255,7 @@ class InterviewCandidateReportService:
             },
             "transcript": str(parsed.get("transcript") or "").strip(),
             "activity": activity,
+            "call_outcome": call_outcome,
             "generated_at": datetime.utcnow().strftime("%d %b %Y"),
             "has_cv_file": bool(recipient.cv_storage_key or (recipient.cv_text or "").strip()),
             "cv_filename": recipient.cv_filename,

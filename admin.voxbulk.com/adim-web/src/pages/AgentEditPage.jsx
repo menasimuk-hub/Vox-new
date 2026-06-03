@@ -29,6 +29,8 @@ const emptyAgent = {
   retry_policy_notes: 'Retry once after 1 hour for busy/no answer.',
   interruption_behavior_notes: 'If interrupted before disclosure, restart it clearly.',
   voicemail_behavior: 'hang_up',
+  missed_call_email_template_interview: '',
+  missed_call_followup_notes_interview: '',
   opt_out_policy_notes: 'If remove me is said, stop and never retry.',
   is_active: true,
 }
@@ -243,6 +245,8 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
     retry_policy_notes: agent.retry_policy_notes,
     interruption_behavior_notes: agent.interruption_behavior_notes,
     voicemail_behavior: agent.voicemail_behavior,
+    missed_call_email_template_interview: agent.missed_call_email_template_interview,
+    missed_call_followup_notes_interview: agent.missed_call_followup_notes_interview,
     opt_out_policy_notes: agent.opt_out_policy_notes,
     supports_survey: agent.supports_survey,
     supports_interview: agent.supports_interview,
@@ -422,11 +426,45 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
             <div className="agentsEditField">
               <label>Voicemail behavior</label>
               <select className="input" value={agent.voicemail_behavior || 'hang_up'} onChange={(e) => setField('voicemail_behavior', e.target.value)}>
-                <option value="hang_up">Hang up</option>
+                <option value="hang_up">Hang up for now</option>
                 <option value="leave_message">Leave message</option>
                 <option value="retry_later">Mark for retry</option>
               </select>
             </div>
+            {agent.supports_interview ? (
+              <>
+                <div className="agentsEditField">
+                  <label>Missed-call follow-up email (interview)</label>
+                  <p className="agentsEditNote">
+                    Sent when a call is not answered and voicemail policy is <strong>Hang up for now</strong>.
+                    Manage copy under Email settings → Interview missed call follow-up.
+                  </p>
+                  <select
+                    className="input"
+                    value={agent.missed_call_email_template_interview || ''}
+                    onChange={(e) => setField('missed_call_email_template_interview', e.target.value)}
+                  >
+                    <option value="">Default — Interview missed call follow-up</option>
+                    <option value="none">Disabled — do not send</option>
+                    <option value="interview_missed_call_followup">Interview missed call follow-up</option>
+                    <option value="interview_booking_invite">Interview booking invite</option>
+                  </select>
+                </div>
+                <div className="agentsEditField span2">
+                  <label>Missed-call experience notes (interview)</label>
+                  <p className="agentsEditNote">
+                    Optional paragraph inserted into the follow-up email as <code>{'{{followup_message}}'}</code>. Shown on the candidate report.
+                  </p>
+                  <textarea
+                    className="input agentPromptAreaSm"
+                    rows={3}
+                    value={agent.missed_call_followup_notes_interview || ''}
+                    onChange={(e) => setField('missed_call_followup_notes_interview', e.target.value)}
+                    placeholder="Please use the link below to choose a call-back time for your short AI phone interview."
+                  />
+                </div>
+              </>
+            ) : null}
             <div className="agentsEditField span2">
               <label>Opening disclosure template</label>
               <p className="agentsEditNote">

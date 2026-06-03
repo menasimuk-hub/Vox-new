@@ -160,4 +160,18 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="word-break:break-all;font-size:13px;color:#6b6560;"><a href="{{join_url}}" style="color:#1a2d5c;">{{join_url}}</a></p>""",
         ),
     },
+    "interview_missed_call_followup": {
+        "title": "Interview missed call follow-up",
+        "subject": "We tried to reach you — {{role}} at {{company_name}}",
+        "body": wrap_interview_email(
+            title="We tried to call you",
+            inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>We tried to reach you for a brief phone screening for the <strong>{{role}}</strong> role at <strong>{{company_name}}</strong>, but we could not connect.</p>
+  <p>{{followup_message}}</p>
+  """ + cta_button(href="{{booking_url}}", label="Book a call-back slot") + """
+  <p style="font-size:13px;color:#6b6560;">If the button does not work, copy this link:<br />
+  <a href="{{booking_url}}" style="color:#1a2d5c;word-break:break-all;">{{booking_url}}</a></p>
+  <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
+        ),
+    },
 }

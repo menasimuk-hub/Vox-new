@@ -12,6 +12,7 @@ export const SYSTEM_EMAIL_META = {
   interview_booking_confirm: { title: 'Interview booking confirmation', description: 'Sent when candidate books their AI interview slot' },
   interview_booking_cancel: { title: 'Interview booking cancellation', description: 'Sent when a candidate cancels their booked interview slot' },
   interview_zoom_invite: { title: 'Interview Zoom invite', description: 'Sent when interview delivery is Zoom with join URL' },
+  interview_missed_call_followup: { title: 'Interview missed call follow-up', description: 'Sent after no-answer when agent policy is Hang up for now' },
 }
 
 export const SYSTEM_WHATSAPP_META = {
@@ -99,6 +100,7 @@ export const DEFAULT_SUBJECT_BY_KEY = {
   usage_warning: 'VOXBULK usage alert',
   interview_scheduling_invite: 'Next step — {{role}}',
   interview_zoom_invite: 'Your Zoom interview — {{role}}',
+  interview_missed_call_followup: 'We tried to reach you — {{role}} at {{company_name}}',
 }
 
 export const DEMO_HTML_BY_KEY = {
@@ -189,6 +191,15 @@ export const TEST_VARS_BY_KEY = {
     candidate_name: 'Alex Demo',
     role: 'Senior Software Engineer',
     join_url: 'https://zoom.us/j/123456789',
+  },
+  interview_missed_call_followup: {
+    candidate_name: 'Alex Demo',
+    first_name: 'Alex',
+    role: 'Senior Software Engineer',
+    company_name: 'Northgate Dental',
+    booking_url: 'https://dashboard.voxbulk.com/book/demo-token',
+    followup_message: 'Please use the link below to choose a time when we can call you back for your short AI phone interview.',
+    org_name: 'Northgate Dental',
   },
   invoice_document: {
     invoice_number: 'INV-2026-0042',
