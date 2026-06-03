@@ -116,7 +116,15 @@ export async function startPaidInterviewOrder(orderId: string) {
     ok?: boolean;
     message?: string;
     invites?: { whatsapp_sent?: number; email_sent?: number; errors?: string[] };
-  }>(`/service-orders/${encodeURIComponent(orderId)}/interview/launch`, { method: "POST", body: "{}" });
+    email_delivery?: { can_send_email?: boolean; smtp_missing_fields?: string[]; interview_from_email?: string };
+  }>(`/service-orders/${encodeURIComponent(orderId)}/interview/launch`, {
+    method: "POST",
+    body: JSON.stringify({
+      channels: ["email", "whatsapp"],
+      force_resend: true,
+      force_email: true,
+    }),
+  });
 }
 
 export async function sendInterviewBookingInvites(orderId: string, force = false) {

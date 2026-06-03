@@ -68,31 +68,17 @@ export function bookingInvitesWereSent(config: Record<string, unknown>): boolean
   return dispatch?.ok === true;
 }
 
-const RESEND_BLOCKED_ACTIVITY = new Set(["report_ready", "interview_completed", "scheduling_sent", "calling"]);
-
-/** Campaign-level gate: launched + invites sent + not read-only. */
+/** Resend booking invites: hidden before launch, shown once launched. */
 export function campaignAllowsResendBookingInvites(opts: {
   orderStatus?: string | null;
-  config?: Record<string, unknown>;
-  readOnly?: boolean;
 }): boolean {
-  if (opts.readOnly) return false;
-  if (!isInterviewCampaignLaunched(opts.orderStatus)) return false;
-  return bookingInvitesWereSent(opts.config || {});
-}
-
-/** Per-candidate resend allowed after campaign gate passes. */
-export function candidateAllowsResendBookingInvite(activityStatus?: string | null): boolean {
-  return !RESEND_BLOCKED_ACTIVITY.has(String(activityStatus || "").toLowerCase());
+  return isInterviewCampaignLaunched(opts.orderStatus);
 }
 
 export function canShowResendBookingInvite(opts: {
   orderStatus?: string | null;
-  config?: Record<string, unknown>;
-  readOnly?: boolean;
-  activityStatus?: string | null;
 }): boolean {
-  return campaignAllowsResendBookingInvites(opts) && candidateAllowsResendBookingInvite(opts.activityStatus);
+  return campaignAllowsResendBookingInvites(opts);
 }
 
 /** True when candidate has a completed ATS score at or above the campaign cutoff and is not excluded. */

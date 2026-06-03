@@ -1296,7 +1296,7 @@ def send_interview_scheduling(
 @router.post("/{order_id}/interview/launch")
 def launch_interview_after_payment(
     order_id: str,
-    payload: dict | None = None,
+    payload: dict = Body(default_factory=dict),
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
@@ -1312,7 +1312,7 @@ def launch_interview_after_payment(
     org = db.get(Organisation, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    body = payload or {}
+    body = payload if isinstance(payload, dict) else {}
     try:
         if order.payment_status != "approved":
             order = InterviewLaunchService.approve_for_subscription_package(db, order, org)
@@ -1354,7 +1354,7 @@ def preview_interview_booking_template(
 @router.post("/{order_id}/interview-booking/send-invites")
 def send_interview_booking_invites(
     order_id: str,
-    payload: dict | None = None,
+    payload: dict = Body(default_factory=dict),
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
@@ -1363,18 +1363,20 @@ def send_interview_booking_invites(
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    body = payload or {}
+    body = payload if isinstance(payload, dict) else {}
     try:
         channels = body.get("channels")
         if not channels:
             channels = ["email", "whatsapp"]
+        force_resend = bool(body.get("force_resend"))
+        force_email = bool(body.get("force_email") or force_resend)
         return InterviewBookingService.send_invites(
             db,
             order,
             recipient_ids=body.get("recipient_ids"),
             channels=channels,
-            force_resend=bool(body.get("force_resend")),
-            force_email=bool(body.get("force_email") or body.get("force_resend")),
+            force_resend=force_resend,
+            force_email=force_email,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

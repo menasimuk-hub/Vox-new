@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { activityStatusLabel, activityStatusTone } from "@/components/candidate-activity-dialog";
-import { candidateAllowsResendBookingInvite } from "@/lib/interview-campaign";
 import { useSendInterviewBookingInvites } from "@/lib/queries";
 
 const BOOKING_TZ = "Europe/London";
@@ -29,16 +28,12 @@ function fmtBooked(iso?: string | null) {
   }
 }
 
-function canResendBookingInvite(activityStatus?: string | null) {
-  return candidateAllowsResendBookingInvite(activityStatus);
-}
-
 export type CandidateContactDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   orderId: string;
   readOnly?: boolean;
-  /** Hide resend until campaign is launched and first invites were sent. */
+  /** Show resend once the campaign has launched. */
   allowResendBookingInvite?: boolean;
   candidate: {
     id: string;
@@ -123,7 +118,7 @@ export function CandidateContactDialog({
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Mail className="size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 break-all font-medium">{deliverTo || "—"}</span>
-                  {deliverTo && !readOnly && allowResendBookingInvite && canResendBookingInvite(candidate.activity_status) ? (
+                  {deliverTo && allowResendBookingInvite ? (
                     <Button
                       type="button"
                       size="sm"

@@ -276,11 +276,8 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
 
   const selectedCount = Object.values(selectedRows).filter(Boolean).length;
   const campaignReadOnly = isInterviewCampaignReadOnly(rawOrder?.status) || rawOrder?.is_finished === true;
-  const orderConfig = (rawOrder?.config || {}) as Record<string, unknown>;
   const allowResendBookingInvite = campaignAllowsResendBookingInvites({
     orderStatus: rawOrder?.status,
-    config: orderConfig,
-    readOnly: campaignReadOnly,
   });
   const candidateOpen = open ? rowsForSort.find((c) => c.id === open) : null;
 
@@ -517,11 +514,9 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
               </div>
               <div className="pt-1"><AtsScore score={candidateOpen.ats_score} status={candidateOpen.ats_status} label={candidateOpen.ats_label} /></div>
               <p className="text-xs text-muted-foreground">
-                {campaignReadOnly
-                  ? "Campaign closed — view-only. Resend invite is disabled."
-                  : allowResendBookingInvite
-                    ? "Click the candidate name for contact details and resend invite. Use Activity for the full timeline."
-                    : "Click the candidate name for contact details. Resend invite is available after you launch the campaign."}
+                {allowResendBookingInvite
+                  ? "Click the candidate name for contact details and resend invite. Use Activity for the full timeline."
+                  : "Click the candidate name for contact details. Resend invite is available after you launch the campaign."}
               </p>
             </CardContent>
           </Card>

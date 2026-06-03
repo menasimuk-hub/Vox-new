@@ -97,12 +97,12 @@ class InterviewLaunchService:
             if not order.scheduled_start_at or not order.scheduled_end_at:
                 raise ValueError("Set the calling window (start and end) before launch")
             order = ensure_full_day_booking_window(db, order)
-            # Always dispatch on launch so email is not skipped after a prior WA-only or failed email run.
+            # Always force fresh email + WA on launch (ignore stale invite_* flags).
             invite_result = InterviewBookingService.send_invites(
                 db,
                 order,
                 channels=list(channels or ["email", "whatsapp"]),
-                force_resend=resend_invites,
+                force_resend=True,
                 force_email=True,
             )
             config = _order_config(order)

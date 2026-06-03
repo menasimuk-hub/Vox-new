@@ -96,11 +96,6 @@ type CandidateRow = {
   phoneCallBlockReason?: string | null;
 };
 
-function isBookingResendBlocked(status?: string | null, activityStatus?: string | null) {
-  if (String(status || "").toLowerCase() === "completed") return true;
-  return ["report_ready", "interview_completed", "scheduling_sent"].includes(String(activityStatus || ""));
-}
-
 function toLocalInput(iso?: string | null) {
   if (!iso) return "";
   try {
@@ -628,9 +623,17 @@ function CreateInterview() {
 
   const completeLaunchSuccess = async (result: InterviewLaunchResult) => {
     const emailN = Number(result?.invites?.email_sent ?? 0);
+    const waN = Number(result?.invites?.whatsapp_sent ?? 0);
+    const errs = Array.isArray(result?.invites?.errors) ? result!.invites!.errors!.filter(Boolean) : [];
     if (result?.ok === false || emailN < 1) {
       notifyInterviewLaunch(result);
-      throw new Error(result?.message || "Launch failed — no invite email was sent.");
+      const smtpHint = errs.find((e) => /smtp/i.test(String(e)));
+      const detail = smtpHint || errs[0] || result?.message;
+      const suffix =
+        emailN < 1 && waN > 0
+          ? " WhatsApp was sent but invite email was not — check Admin → Email (SMTP) and candidate email addresses."
+          : "";
+      throw new Error((detail || "Launch failed — no invite email was sent.") + suffix);
     }
     setPreview(false);
     setPayBusy(false);
@@ -1184,14 +1187,7 @@ function CreateInterview() {
   });
   const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
   const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
-  const showResendBookingInvites =
-    campaignAllowsResendBookingInvites({
-      orderStatus,
-      config,
-      readOnly: campaignReadOnly,
-    }) && paymentApproved;
-  const canResendBookingInvites =
-    !campaignReadOnly && candidates.some((c) => !isBookingResendBlocked(c.status, c.activityStatus));
+  const showResendBookingInvites = campaignAllowsResendBookingInvites({ orderStatus });
   const unscoredCount = React.useMemo(
     () => candidates.filter((c) => candidateNeedsAtsScore(c) && !isAtsAnalyzingStatus(c.atsStatus)).length,
     [candidates],
@@ -2310,14 +2306,8 @@ function CreateInterview() {
           <Button
             variant="outline"
             className="gap-1.5"
-            disabled={resendInvitesM.isPending || !canResendBookingInvites}
-            title={
-              campaignReadOnly
-                ? "Campaign stopped or finished — resend disabled"
-                : canResendBookingInvites
-                  ? "Resend booking email and WhatsApp to eligible candidates"
-                  : "All candidates have completed their interview — booking is locked"
-            }
+            disabled={resendInvitesM.isPending}
+            title="Resend booking email and WhatsApp to eligible candidates"
             onClick={() => {
               void (async () => {
                 try {
