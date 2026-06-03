@@ -65,6 +65,8 @@ Verify dashboard: view source — must **not** contain `tabler-icons` (old theme
 
 | Problem | Fix |
 |---------|-----|
+| **API 502 / dashboard login broken after deploy** | Baota terminal: `cd /www/voxbulk && bash scripts/vps-recover-api.sh` — usually a Python import/syntax error in latest pull (see `/tmp/voxbulk-api.log`) |
+| **Deploy must not restart a broken API** | Latest `deploy-vps.sh` runs `python -c "import main"` before restart and requires `/health` after |
 | `alembic` not found | Script uses `python -m alembic` inside `.venv` |
 | API 404 on `/admin/messaging/*` | `./vox.sh restart` after pull |
 | Port 8000 in use | `./vox.sh stop` then redeploy |
@@ -84,4 +86,33 @@ Verify dashboard: view source — must **not** contain `tabler-icons` (old theme
 VOX_SKIP_GIT=1 ./deploy-vps.sh      # deploy current files only
 VOX_SKIP_BUILD=1 ./deploy-vps.sh    # API + migrate only
 VOX_SKIP_MIGRATE=1 ./deploy-vps.sh  # no DB changes
+```
+
+## Production incident recovery (provider console)
+
+If SSH login fails but the provider console (Baota / aaPanel) still works:
+
+1. **SSH port 22 is usually still open** — login failures are often wrong password, key-only auth, or fail2ban after repeated attempts. Check Baota → Security → SSH / fail2ban.
+2. **API down (502 on api.voxbulk.com)** — open Baota **Terminal** and run:
+
+```bash
+cd /www/voxbulk
+git pull origin main
+bash scripts/vps-recover-api.sh
+```
+
+3. **Static sites show blank/404 but API OK** — restore wwwroot backup created by deploy:
+
+```bash
+# Example — path is printed during deploy
+sudo cp -a /www/wwwroot/dashboard.voxbulk.com.backup-YYYYMMDD-HHMMSS/* /www/wwwroot/dashboard.voxbulk.com/
+```
+
+4. **Rollback code** (destroys VPS-local edits):
+
+```bash
+cd /www/voxbulk
+git fetch origin main
+git reset --hard origin/main
+./deploy-vps.sh
 ```

@@ -200,9 +200,60 @@ copy_dist() {
     return
   fi
   [[ -d "$src" ]] || fail "$label dist missing: $src (build failed?)"
+  [[ -f "$src/index.html" ]] || fail "$label build invalid: missing $src/index.html"
+  local asset_count
+  asset_count=$(find "$src" -maxdepth 2 -type f \( -name '*.js' -o -name '*.css' \) 2>/dev/null | wc -l | tr -d ' ')
+  [[ "${asset_count:-0}" -gt 0 ]] || fail "$label build invalid: no JS/CSS assets under $src"
+
+  if [[ -d "$dest" && -f "$dest/index.html" ]]; then
+    local backup="${dest}.backup-$(date +%Y%m%d-%H%M%S)"
+    info "Backing up $label wwwroot → $backup"
+    sudo cp -a "$dest" "$backup" || warn "Could not backup $dest"
+    echo "$backup" > "/tmp/voxbulk-backup-${label// /-}.path"
+  fi
+
   info "Copying $label → $dest"
   sudo mkdir -p "$dest"
   sudo rsync -a --delete --exclude='.user.ini' "$src/" "$dest/"
+}
+
+verify_api_import() {
+  info "Preflight: verifying API imports …"
+  cd "$API_DIR"
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+  if ! python -c "import main" 2>&1 | tee -a "$DEPLOY_LOG"; then
+    fail "API import failed — uvicorn will not start. Fix Python errors before restarting services."
+  fi
+  info "API import OK"
+}
+
+require_api_health() {
+  local attempts="${1:-30}"
+  local i=0
+  info "Waiting for API /health (up to ${attempts}s) …"
+  while (( i < attempts )); do
+    if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health >/dev/null 2>&1; then
+      info "API health OK on 127.0.0.1:8000"
+      return 0
+    fi
+    if curl -sf -H "Host: 127.0.0.1" http://127.0.0.1:8000/health >/dev/null 2>&1; then
+      info "API health OK on 127.0.0.1:8000"
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  warn "API health check failed — tail of $API_LOG:"
+  tail -n 30 /tmp/voxbulk-api.log 2>/dev/null || true
+  fail "API did not respond on /health after restart. Run: bash scripts/vps-recover-api.sh"
+}
+
+nginx_test_if_present() {
+  if command -v nginx >/dev/null 2>&1; then
+    info "Running nginx -t …"
+    sudo nginx -t || fail "nginx -t failed — fix nginx config before reloading"
+  fi
 }
 
 deploy_static() {
@@ -212,8 +263,11 @@ deploy_static() {
 }
 
 restart_services() {
+  nginx_test_if_present
+  verify_api_import
   info "Restarting API + public preview (+ Celery if configured in supervisor) …"
   bash "$VOX_SH" restart
+  require_api_health 30
 }
 
 post_checks() {
@@ -316,6 +370,7 @@ main() {
   preflight
   git_pull
   api_deps_and_migrate
+  verify_api_import
   build_all_frontends
   deploy_static
   restart_services

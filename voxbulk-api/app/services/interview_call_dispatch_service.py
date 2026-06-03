@@ -835,16 +835,16 @@ def handle_interview_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
 
     assistant_id = str(parsed.get("telnyx_assistant_id") or get_interview_telnyx_assistant_id(db, order) or "").strip()
     telnyx_config = _telnyx_config(db)
-        config_order = _order_config(order)
-        from app.services.interview_voice_agent_service import resolve_interview_agent_for_order
+    config_order = _order_config(order)
+    from app.services.interview_voice_agent_service import resolve_interview_agent_for_order
 
-        agent = resolve_interview_agent_for_order(db, order, config_order)
-        from app.services.voice_agent_runtime import enrich_voice_call_config, log_voice_call_prompt, resolve_voice_call_company_name
+    agent = resolve_interview_agent_for_order(db, order, config_order)
+    from app.services.voice_agent_runtime import enrich_voice_call_config, log_voice_call_prompt, resolve_voice_call_company_name
 
-        config_order = enrich_voice_call_config(db, config=config_order, org_id=order.org_id, order=order)
-        voicemail_behavior = _resolve_voicemail_behavior(parsed, agent)
+    config_order = enrich_voice_call_config(db, config=config_order, org_id=order.org_id, order=order)
+    voicemail_behavior = _resolve_voicemail_behavior(parsed, agent)
 
-        if _is_voicemail_telnyx_event(event_type, record):
+    if _is_voicemail_telnyx_event(event_type, record):
         return _handle_interview_voicemail(
             db,
             order=order,
