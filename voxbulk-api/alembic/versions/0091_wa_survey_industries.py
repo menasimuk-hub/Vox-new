@@ -56,6 +56,16 @@ def _column_exists(conn, table: str, column: str) -> bool:
     )
 
 
+def _sqlite_index_exists(conn, table: str, index_name: str) -> bool:
+    row = conn.execute(
+        sa.text(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=:t AND name=:n"
+        ),
+        {"t": table, "n": index_name},
+    ).fetchone()
+    return row is not None
+
+
 def _seed_industries(conn) -> str | None:
     import uuid
 
@@ -136,6 +146,9 @@ def upgrade() -> None:
         )
 
     if is_sqlite:
+        if _sqlite_index_exists(conn, "survey_types", "ix_survey_types_slug"):
+            with op.batch_alter_table("survey_types") as batch_op:
+                batch_op.drop_index("ix_survey_types_slug")
         with op.batch_alter_table("survey_types") as batch_op:
             batch_op.alter_column("industry_id", existing_type=sa.String(36), nullable=False)
             try:

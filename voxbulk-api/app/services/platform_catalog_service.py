@@ -1471,6 +1471,10 @@ class ServiceOrderService:
     def start_order(db: Session, order: ServiceOrder) -> ServiceOrder:
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved by admin before starting")
+        from app.services.uk_compliance_service import UkComplianceService
+        from app.services.uk_compliance_audit_service import UkComplianceAuditService
+
+        UkComplianceService.assert_order_launch_allowed(db, order)
         if order.status == "paused":
             raise ValueError("Survey is paused — use resume instead")
         if order.status in {"running", "completed"}:
@@ -1565,6 +1569,13 @@ class ServiceOrderService:
         db.add(order)
         db.commit()
         db.refresh(order)
+        UkComplianceAuditService.record(
+            db,
+            event_type="workflow.launch",
+            org_id=order.org_id,
+            order_id=order.id,
+            detail={"service_code": order.service_code, "status": order.status},
+        )
         return order
 
     @staticmethod

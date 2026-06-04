@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import CAP_INTEGRATION, require_cap
@@ -148,6 +149,17 @@ def create_survey_type(
         row = SurveyTypeService.create_type(db, payload or {})
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except IntegrityError as e:
+        if "survey_types" in str(e).lower() and "slug" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Survey type slug conflicts with an existing row. "
+                    "Run database migrations (alembic upgrade head) so slugs are unique per industry, "
+                    "or choose a different name."
+                ),
+            ) from e
+        raise
     counts = SurveyTypeService._template_counts(db, row.id)
     industry = db.get(Industry, row.industry_id) if row.industry_id else None
     return {"ok": True, "type": survey_type_to_dict(row, template_counts=counts, industry=industry)}
@@ -398,11 +410,21 @@ def delete_survey_type_template(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
     try:
-        return SurveyTypeTemplateService.unlink_template_from_survey_type(
+        result = SurveyTypeTemplateService.unlink_template_from_survey_type(
             db,
             survey_type_id=type_id,
             template_id=template_id,
         )
+        from app.services.uk_compliance_audit_service import UkComplianceAuditService
+
+        UkComplianceAuditService.record(
+            db,
+            event_type="template.deleted",
+            resource_type="wa_survey_template",
+            resource_id=str(template_id),
+            detail={"survey_type_id": type_id},
+        )
+        return result
     except SurveyTypeTemplateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

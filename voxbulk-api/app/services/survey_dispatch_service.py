@@ -138,6 +138,11 @@ class SurveyDispatchService:
     ) -> dict[str, Any]:
         first = _first_name(recipient.name)
         body = _personalize(intro_template, first_name=first, org_name=org_name, organiser=organiser)
+        from app.services.uk_compliance_service import UkComplianceService
+
+        footer = UkComplianceService.privacy_footer_text(UkComplianceService.merged_compliance(db, order))
+        if footer and footer not in body:
+            body = f"{body}\n\n{footer}"
 
         wa_template_id = config.get("wa_template_id") if isinstance(config, dict) else None
         template_row = None
@@ -166,6 +171,46 @@ class SurveyDispatchService:
             db.add(recipient)
             db.commit()
             return {"recipient_id": recipient.id, "name": recipient.name, "status": "skipped", "error": "missing_phone"}
+
+        from app.services.uk_compliance_opt_out import should_block_outbound_phone
+        from app.services.uk_compliance_service import UkComplianceService
+        from app.services.uk_compliance_audit_service import UkComplianceAuditService
+
+        compliance_errors = UkComplianceService.validate_order_for_send(db, order)
+        if compliance_errors:
+            recipient.status = "skipped"
+            recipient.result_json = json.dumps(
+                {"error": "compliance_blocked", "detail": compliance_errors},
+                ensure_ascii=False,
+            )
+            db.add(recipient)
+            db.commit()
+            return {
+                "recipient_id": recipient.id,
+                "name": recipient.name,
+                "status": "skipped",
+                "error": "compliance_blocked",
+            }
+
+        skip_reason = should_block_outbound_phone(db, org_id=order.org_id, phone_e164=recipient.phone)
+        if skip_reason:
+            recipient.status = "skipped"
+            recipient.result_json = json.dumps({"error": skip_reason}, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
+            UkComplianceAuditService.record(
+                db,
+                event_type="send.blocked",
+                org_id=order.org_id,
+                order_id=order.id,
+                detail={"reason": skip_reason, "recipient_id": recipient.id, "workflow": "survey"},
+            )
+            return {
+                "recipient_id": recipient.id,
+                "name": recipient.name,
+                "status": "skipped",
+                "error": skip_reason,
+            }
 
         if not telnyx_ready.get("enabled"):
             recipient.status = "pending_telnyx"

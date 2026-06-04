@@ -530,6 +530,15 @@ class OrganisationOnboardingService:
                 opt_out_wording="Reply STOP or ask us not to contact you again.",
                 escalation_destination="reception team",
                 contact_preference_rules_json=_json_dumps({"respect_do_not_contact": True, "prefer_existing_customer_channel": True}),
+                privacy_notice_url="https://www.voxbulk.com/privacy",
+                contact_email="Data.Pro@voxbulk.com",
+                opt_out_enabled=True,
+                lawful_basis_default="legitimate_interests",
+                collect_minimal_data_default=True,
+                retention_days_messages=365,
+                retention_days_responses=730,
+                retention_days_recordings=90,
+                retention_days_transcripts=365,
             )
             db.add(row)
             db.flush()

@@ -190,17 +190,23 @@ export default function WaSurveyIndustries() {
 
       {modal ? (
         <div
-          className="modalOverlay open"
-          onClick={(e) => { if (e.target === e.currentTarget) setModal(null) }}
-          role="dialog"
-          aria-modal="true"
+          className="modalOverlay"
+          role="presentation"
+          onClick={() => setModal(null)}
         >
-          <form className="modal" onSubmit={saveModal}>
-            <div className="modalHead">
-              <h2>{modal.mode === 'create' ? 'Add industry' : 'Edit industry'}</h2>
-              <button type="button" className="btn ghost" onClick={() => setModal(null)} aria-label="Close">×</button>
+          <form
+            className="leadModal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="waIndustryModalTitle"
+            onSubmit={saveModal}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="leadModalHead">
+              <h3 id="waIndustryModalTitle">{modal.mode === 'create' ? 'Add industry' : 'Edit industry'}</h3>
+              <button type="button" className="btn soft" onClick={() => setModal(null)} aria-label="Close">×</button>
             </div>
-            <div className="modalBody grid2">
+            <div className="leadModalBody grid2">
               <label className="field">
                 <span>Name</span>
                 <input className="input" value={modal.name} onChange={(e) => setModal({ ...modal, name: e.target.value })} required />
@@ -211,8 +217,7 @@ export default function WaSurveyIndustries() {
                   className="input"
                   value={modal.slug}
                   onChange={(e) => setModal({ ...modal, slug: e.target.value })}
-                  placeholder="e.g. healthcare"
-                  required={modal.mode === 'create'}
+                  placeholder="e.g. healthcare (auto-generated from name if empty)"
                 />
               </label>
               <label className="field">
@@ -252,7 +257,7 @@ export default function WaSurveyIndustries() {
                 </p>
               ) : null}
             </div>
-            <div className="modalFoot">
+            <div className="leadModalFoot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button type="button" className="btn ghost" onClick={() => setModal(null)}>Cancel</button>
               <button type="submit" className="btn primary" disabled={saving}>
                 {saving ? 'Saving…' : 'Save'}

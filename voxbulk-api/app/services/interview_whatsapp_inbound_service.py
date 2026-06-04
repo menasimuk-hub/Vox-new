@@ -297,6 +297,16 @@ def handle_inbound_reply(
     org_id: str | None = None,
     log_id: str | int | None = None,
 ) -> dict[str, Any]:
+    scoped_org = str(org_id or "").strip()
+    from app.services.uk_compliance_opt_out import handle_interview_wa_pecr_opt_out, is_pecr_stop_message
+
+    if scoped_org and is_pecr_stop_message(body):
+        result = handle_interview_wa_pecr_opt_out(
+            db, org_id=scoped_org, phone_e164=from_phone, source="interview_wa_keyword"
+        )
+        if result:
+            return result
+
     ctx = find_active_booking_context(db, from_phone=from_phone, org_id=org_id)
     order = ctx[1] if ctx else None
     intent = resolve_interview_booking_intent(

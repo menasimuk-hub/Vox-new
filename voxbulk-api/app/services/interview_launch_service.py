@@ -89,6 +89,11 @@ class InterviewLaunchService:
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved before launch")
 
+        from app.services.uk_compliance_service import UkComplianceService
+        from app.services.uk_compliance_audit_service import UkComplianceAuditService
+
+        UkComplianceService.assert_order_launch_allowed(db, order)
+
         config = _order_config(order)
         delivery = str(config.get("delivery") or "ai_call").strip().lower()
         invite_result: dict[str, Any] | None = None

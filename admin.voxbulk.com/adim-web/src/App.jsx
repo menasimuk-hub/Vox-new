@@ -20,6 +20,8 @@ import SupportTickets from './pages/SupportTickets'
 import SupportTicketDetail from './pages/SupportTicketDetail'
 import Permissions from './pages/Permissions'
 import GenericPage from './pages/GenericPage'
+import ComplianceSettings from './pages/ComplianceSettings'
+import ComplianceAudit from './pages/ComplianceAudit'
 import EmailSettings from './pages/EmailSettings'
 import WaSurveyTypes from './pages/WaSurveyTypes'
 import WaSurveyTypeEdit from './pages/WaSurveyTypeEdit'
@@ -207,8 +209,8 @@ export default function App() {
         <Route path='/ai/voicemail' element={G('Voicemail logic')} />
         <Route path='/ai/cost' element={G('Cost controls')} />
 
-        <Route path='/compliance/audit' element={G('Audit logs')} />
-        <Route path='/compliance/consent' element={G('Consent / opt-out')} />
+        <Route path='/compliance/audit' element={<ComplianceAudit />} />
+        <Route path='/compliance/consent' element={<ComplianceSettings />} />
         <Route path='/compliance/recording' element={G('Recording disclosure')} />
         <Route path='/compliance/ofcom' element={G('OFCOM rules')} />
         <Route path='/compliance/gdpr' element={G('GDPR logs')} />

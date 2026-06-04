@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -39,6 +39,19 @@ class OrganisationComplianceConfig(Base):
     opt_out_wording: Mapped[str | None] = mapped_column(Text, nullable=True)
     escalation_destination: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_preference_rules_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    privacy_notice_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    dpo_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    opt_out_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    lawful_basis_default: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    special_category_data_present_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    article9_condition_default: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    privacy_intro_text_default: Mapped[str | None] = mapped_column(Text, nullable=True)
+    collect_minimal_data_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    retention_days_messages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retention_days_responses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retention_days_recordings: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retention_days_transcripts: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 

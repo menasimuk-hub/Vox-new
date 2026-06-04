@@ -25,11 +25,7 @@ from app.services.telnyx_messaging_service import TelnyxMessagingService
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[survey-wa]"
 
-# WhatsApp keyword opt-out (Meta standard) — never stored as survey answers.
-SURVEY_WA_OPT_OUT_RE = re.compile(
-    r"^\s*(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT)\s*\.?\s*$",
-    re.IGNORECASE,
-)
+from app.services.uk_compliance_opt_out import PECR_STOP_RE as SURVEY_WA_OPT_OUT_RE
 
 
 def is_whatsapp_survey_order(order: ServiceOrder) -> bool:
@@ -289,6 +285,15 @@ def handle_survey_wa_opt_out(
         _save_recipient_result(db, recipient, payload)
         confirm = "You have been unsubscribed from survey messages. Reply START if this was a mistake."
         _send_message(db, order=order, recipient=recipient, body=confirm)
+        from app.services.uk_compliance_audit_service import UkComplianceAuditService
+
+        UkComplianceAuditService.record(
+            db,
+            event_type="opt_out.received",
+            org_id=scoped_org,
+            order_id=order.id,
+            detail={"channel": "whatsapp", "workflow": "survey", "recipient_id": recipient.id},
+        )
         logger.info(
             "%s opt_out order=%s recipient=%s org=%s",
             LOG_PREFIX,

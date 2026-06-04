@@ -482,6 +482,21 @@ class SurveySimulatorService:
         config["simulator_templates_manifest"] = _templates_manifest_from_composed(generated)
         if resolved_flow_id:
             config["flow_definition_id"] = resolved_flow_id
+        from app.services.uk_compliance_service import UkComplianceService
+
+        config = UkComplianceService.attach_compliance_to_order_config(
+            config,
+            {
+                "lawful_basis": "legitimate_interests",
+                "message_purpose": "survey",
+                "privacy_notice_url": "https://www.voxbulk.com/privacy",
+                "contact_email": "Data.Pro@voxbulk.com",
+                "opt_out_enabled": True,
+                "collect_minimal_data": True,
+                "privacy_intro_text": "Simulator only — synthetic data, not real respondents.",
+            },
+        )
+        config["simulator_synthetic_only"] = True
 
         org, user = _ensure_simulator_org(db)
         phone = f"{SIMULATOR_PHONE_PREFIX}{uuid.uuid4().int % 10000:04d}"
@@ -507,7 +522,7 @@ class SurveySimulatorService:
             id=str(uuid.uuid4()),
             order_id=order.id,
             row_number=1,
-            name="Test Recipient",
+            name="Sim Respondent",
             phone=phone,
             status="sent",
             created_at=now,

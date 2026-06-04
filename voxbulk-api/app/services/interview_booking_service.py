@@ -2105,6 +2105,10 @@ class InterviewBookingService:
         if not order.scheduled_start_at or not order.scheduled_end_at:
             raise ValueError("Set the calling window (start and end) before sending booking links")
 
+        from app.services.uk_compliance_service import UkComplianceService
+
+        UkComplianceService.assert_order_launch_allowed(db, order)
+
         config = _order_config(order)
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
@@ -2216,6 +2220,12 @@ class InterviewBookingService:
                     db.add(recipient)
 
             if "whatsapp" in use_channels and recipient.phone:
+                from app.services.uk_compliance_opt_out import should_block_outbound_phone
+
+                skip_reason = should_block_outbound_phone(db, org_id=order.org_id, phone_e164=recipient.phone)
+                if skip_reason:
+                    errors.append(f"{recipient.name} WA: blocked ({skip_reason})")
+                    continue
                 if token_row.wa_sent_at and not force_resend:
                     recipient_wa_sent = True
                 elif template_row is None:

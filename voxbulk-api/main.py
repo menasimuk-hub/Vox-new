@@ -26,6 +26,7 @@ from app.routers.admin_email import router as admin_email_router
 from app.routers.admin_email_legal import router as admin_email_legal_router
 from app.routers.admin_messaging import router as admin_messaging_router
 from app.routers.admin_wa_survey import router as admin_wa_survey_router
+from app.routers.admin_compliance import router as admin_compliance_router
 from app.routers.admin_support import router as admin_support_router
 from app.routers.agents import router as agents_router
 from app.routers.knowledge_base import router as knowledge_base_router
@@ -64,6 +65,7 @@ from app.services.interview_call_dispatch_service import interview_call_schedule
 from app.services.survey_call_dispatch_service import survey_call_scheduler_loop
 from app.services.career_mailbox_scheduler import career_mailbox_scheduler_loop
 from app.services.interview_ats_scheduler import interview_ats_scheduler_loop
+from app.services.uk_compliance_retention_service import uk_compliance_retention_scheduler_loop
 
 
 LOCAL_ADMIN_EMAIL = os.getenv("LOCAL_ADMIN_EMAIL", "zaghlolno@gmail.com").strip().lower()
@@ -236,6 +238,7 @@ async def lifespan(app: FastAPI):
     interview_scheduler_task = asyncio.create_task(interview_call_scheduler_loop(stop_event))
     career_mailbox_task = asyncio.create_task(career_mailbox_scheduler_loop(stop_event))
     ats_scheduler_task = asyncio.create_task(interview_ats_scheduler_loop(stop_event))
+    uk_retention_task = asyncio.create_task(uk_compliance_retention_scheduler_loop())
     yield
     stop_event.set()
     scheduler_task.cancel()
@@ -243,6 +246,7 @@ async def lifespan(app: FastAPI):
     interview_scheduler_task.cancel()
     career_mailbox_task.cancel()
     ats_scheduler_task.cancel()
+    uk_retention_task.cancel()
     try:
         await scheduler_task
     except asyncio.CancelledError:
@@ -261,6 +265,10 @@ async def lifespan(app: FastAPI):
         pass
     try:
         await ats_scheduler_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await uk_retention_task
     except asyncio.CancelledError:
         pass
     logger.info("app_stopped", extra={"env": settings.env, "app_name": settings.app_name})
@@ -388,6 +396,7 @@ app.include_router(admin_email_router)
 app.include_router(admin_email_legal_router)
 app.include_router(admin_messaging_router)
 app.include_router(admin_wa_survey_router)
+app.include_router(admin_compliance_router)
 app.include_router(admin_support_router)
 app.include_router(service_orders_router)
 app.include_router(interview_booking_public_router)
