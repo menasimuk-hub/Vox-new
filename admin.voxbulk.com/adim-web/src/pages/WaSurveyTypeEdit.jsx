@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
-import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
+import { resolveTelnyxSyncLabel, telnyxSyncPillClass } from '../lib/waSurveyTelnyxSync'
 import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
 import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
 import WaSurveyTemplatePackModal from '../components/WaSurveyTemplatePackModal'
@@ -347,11 +347,11 @@ export default function WaSurveyTypeEdit() {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Category</th>
                   <th>Mapping</th>
                   <th>Shared by</th>
                   <th>Language</th>
-                  <th>Approval</th>
-                  <th>Sync</th>
+                  <th>Telnyx</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -359,11 +359,15 @@ export default function WaSurveyTypeEdit() {
                 {filteredTemplates.length ? filteredTemplates.map((tpl) => (
                   <tr key={tpl.id}>
                     <td>{tpl.display_name || tpl.name}</td>
+                    <td>{tpl.category || '—'}</td>
                     <td>{mappingLabel(tpl)}</td>
                     <td>{tpl.linked_survey_type_count || 1} type(s)</td>
                     <td>{tpl.language}</td>
-                    <td><span className="pill">{tpl.approval_status}</span></td>
-                    <td><span className="pill muted">{tpl.sync_status_label || tpl.sync_status}</span></td>
+                    <td>
+                      <span className={`pill ${telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}`}>
+                        {resolveTelnyxSyncLabel(tpl)}
+                      </span>
+                    </td>
                     <td>
                       <button
                         type="button"
@@ -379,7 +383,7 @@ export default function WaSurveyTypeEdit() {
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={7} className="muted">
+                    <td colSpan={8} className="muted">
                       {templates.length
                         ? 'No templates match your search.'
                         : 'No templates linked yet — add a standard draft or sync from Telnyx.'}

@@ -266,6 +266,9 @@ def test_push_after_pack_save(monkeypatch):
         def post(self, url, headers=None, json=None):
             return FakeResponse()
 
+        def get(self, url, headers=None):
+            return FakeResponse()
+
     monkeypatch.setattr("app.services.survey_whatsapp_template_service.httpx.Client", lambda *a, **k: FakeClient())
     monkeypatch.setattr(
         "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",

@@ -328,6 +328,9 @@ def test_push_to_telnyx_builds_payload(monkeypatch):
                 captured["payload"] = json
                 return FakeResponse()
 
+            def get(self, url, headers=None):
+                return FakeResponse()
+
         monkeypatch.setattr(
             "app.services.survey_whatsapp_template_service.httpx.Client",
             lambda *a, **k: FakeClient(),
@@ -339,6 +342,7 @@ def test_push_to_telnyx_builds_payload(monkeypatch):
         result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
         assert result["ok"] is True
         assert captured["payload"]["waba_id"] == "waba-123"
+        assert captured["payload"]["category"] == "MARKETING"
         assert captured["payload"]["components"]
 
 

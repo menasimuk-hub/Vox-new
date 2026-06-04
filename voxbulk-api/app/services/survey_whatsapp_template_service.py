@@ -49,6 +49,16 @@ SYNC_REMOTE_CHANGED = "remote_changed"
 SYNC_ERROR = "error"
 SYNC_DRAFT = "draft"
 
+WA_TEMPLATE_CATEGORIES = frozenset({"MARKETING", "UTILITY", "AUTHENTICATION"})
+
+TELNYX_SYNC_NOT_SYNCED = "Not synced"
+TELNYX_SYNC_SYNCING = "Syncing"
+TELNYX_SYNC_SYNCED = "Synced to Telnyx"
+TELNYX_SYNC_PENDING = "Pending approval"
+TELNYX_SYNC_APPROVED = "Approved"
+TELNYX_SYNC_REJECTED = "Rejected"
+TELNYX_SYNC_FAILED = "Sync failed"
+
 
 class SurveyWhatsappTemplateError(RuntimeError):
     def __init__(self, message: str, *, payload: dict[str, Any] | None = None):
@@ -314,6 +324,79 @@ def _is_local_row(row: TelnyxWhatsappTemplate) -> bool:
     return rid.startswith(_LOCAL_ID_PREFIX) or str(row.status or "").upper() == "LOCAL_DRAFT"
 
 
+def normalize_wa_template_category(raw: Any, *, required: bool = False) -> str | None:
+    if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+        if required:
+            raise SurveyWhatsappTemplateError(
+                "Template Category is required before syncing to Telnyx.",
+                payload={"message": "Template Category is required before syncing to Telnyx."},
+            )
+        return None
+    cat = str(raw).strip().upper()
+    if cat not in WA_TEMPLATE_CATEGORIES:
+        raise SurveyWhatsappTemplateError(
+            f"Invalid Template Category “{cat}”. Must be MARKETING, UTILITY, or AUTHENTICATION.",
+            payload={
+                "message": f"Invalid Template Category “{cat}”. Must be MARKETING, UTILITY, or AUTHENTICATION.",
+            },
+        )
+    return cat
+
+
+def telnyx_sync_ui_label(row: TelnyxWhatsappTemplate, *, syncing: bool = False) -> str:
+    if syncing:
+        return TELNYX_SYNC_SYNCING
+    if row.last_push_error and (_is_local_row(row) or str(row.local_sync_status or "") == SYNC_ERROR):
+        return TELNYX_SYNC_FAILED
+    if _is_local_row(row):
+        return TELNYX_SYNC_NOT_SYNCED
+    status = str(row.status or "").upper()
+    if status == "PENDING":
+        return TELNYX_SYNC_PENDING
+    if status == "APPROVED":
+        return TELNYX_SYNC_APPROVED
+    if status == "REJECTED":
+        return TELNYX_SYNC_REJECTED
+    if status in {"PAUSED", "DISABLED"}:
+        return status.title()
+    return TELNYX_SYNC_SYNCED
+
+
+def telnyx_sync_action_message(row: TelnyxWhatsappTemplate, *, ok: bool) -> str:
+    if not ok:
+        return TELNYX_SYNC_FAILED
+    status = str(row.status or "").upper()
+    if status == "PENDING":
+        return TELNYX_SYNC_PENDING
+    return TELNYX_SYNC_SYNCED
+
+
+def _apply_remote_telnyx_item(row: TelnyxWhatsappTemplate, item: dict[str, Any]) -> None:
+    record_id = str(item.get("id") or "").strip()
+    send_id = _send_template_id_from_api_item(item)
+    if record_id:
+        row.telnyx_record_id = record_id
+    if send_id:
+        row.template_id = send_id
+    row.status = str(item.get("status") or row.status or "PENDING").upper()
+    remote_category = normalize_wa_template_category(item.get("category"), required=False)
+    if remote_category:
+        row.category = remote_category
+    components = item.get("components")
+    if isinstance(components, list):
+        row.components_json = _dumps(components)
+        row.draft_components_json = row.components_json
+        row.remote_content_hash = _content_hash(components)
+        row.body_preview = _body_preview(components)
+        row.example_values_json = _dumps(_extract_example_values(components))
+    row.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
+    waba = item.get("whatsapp_business_account")
+    if isinstance(waba, dict):
+        waba_id = str(waba.get("id") or "").strip()
+        if waba_id:
+            row.waba_id = waba_id
+
+
 def _refresh_local_sync_status(row: TelnyxWhatsappTemplate) -> str:
     draft = _loads(row.draft_components_json)
     remote = _loads(row.components_json)
@@ -369,6 +452,9 @@ def survey_template_to_dict(
         "send_template_id": send_template_id_for_row(row),
         "linked_survey_type_count": linked_survey_type_count,
         "step_role": str(row.step_role or "").strip().lower() or None,
+        "telnyx_sync_label": telnyx_sync_ui_label(row),
+        "telnyx_template_id": row.telnyx_record_id if not _is_local_row(row) else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
     }
     if mapping is not None:
         payload.update(
@@ -490,7 +576,7 @@ class SurveyWhatsappTemplateService:
         if "language" in payload and str(payload.get("language") or "").strip():
             row.language = str(payload["language"]).strip()
         if "category" in payload:
-            row.category = str(payload.get("category") or row.category or "MARKETING").strip() or "MARKETING"
+            row.category = normalize_wa_template_category(payload.get("category"), required=False)
         if "active_for_survey" in payload:
             row.active_for_survey = bool(payload["active_for_survey"])
         components = payload.get("components")
@@ -582,6 +668,8 @@ class SurveyWhatsappTemplateService:
         if not components:
             raise SurveyWhatsappTemplateError("Template has no components to push")
 
+        category = normalize_wa_template_category(row.category, required=True)
+
         config = SurveyWhatsappTemplateService._telnyx_config(db)
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
@@ -602,7 +690,7 @@ class SurveyWhatsappTemplateService:
 
         payload = {
             "name": str(row.name or "").strip(),
-            "category": str(row.category or "MARKETING").upper(),
+            "category": category,
             "language": str(row.language or "en_US"),
             "waba_id": waba_id,
             "components": components,
@@ -650,15 +738,18 @@ class SurveyWhatsappTemplateService:
         if not isinstance(item, dict):
             raise SurveyWhatsappTemplateError("Telnyx returned an unexpected response")
 
-        record_id = str(item.get("id") or "").strip()
-        send_id = _send_template_id_from_api_item(item)
-        row.telnyx_record_id = record_id or send_id
-        row.template_id = send_id
-        row.status = str(item.get("status") or "PENDING").upper()
-        row.components_json = _dumps(item.get("components") or components)
-        row.draft_components_json = row.components_json
-        row.remote_content_hash = _content_hash(_loads(row.components_json))
-        row.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
+        _apply_remote_telnyx_item(row, item)
+        record_id = str(row.telnyx_record_id or "").strip()
+        if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
+            try:
+                remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)
+                _apply_remote_telnyx_item(row, remote_item)
+            except Exception as exc:
+                logger.warning(
+                    "survey_wa_template_refresh_after_push_failed",
+                    extra={"template_id": row.id, "telnyx_record_id": record_id, "error": str(exc)},
+                )
+
         row.last_pushed_at = _now()
         row.last_push_error = None
         row.local_sync_status = SYNC_IN_SYNC
@@ -672,14 +763,69 @@ class SurveyWhatsappTemplateService:
             extra={"template_id": row.id, "telnyx_record_id": row.telnyx_record_id, "status": row.status},
         )
         tpl = survey_template_to_dict(row)
+        sync_message = telnyx_sync_action_message(row, ok=True)
         return {
             "ok": True,
             "success": True,
-            "message": f"Pushed “{tpl.get('display_name') or row.name}” to Telnyx — status {row.status}.",
+            "message": sync_message,
+            "sync_message": sync_message,
+            "telnyx_sync_label": telnyx_sync_ui_label(row),
             "template": tpl,
             "template_name": row.name,
             "approval_status": str(row.status or "").upper(),
             "telnyx_request_mode": "create_or_update_template",
+            "telnyx_template_id": row.telnyx_record_id,
+            "category": row.category,
+            "rejection_reason": row.rejection_reason,
+        }
+
+    @staticmethod
+    def refresh_telnyx_status(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+        record_id = str(row.telnyx_record_id or "").strip()
+        if not record_id or record_id.startswith(_LOCAL_ID_PREFIX):
+            raise SurveyWhatsappTemplateError(
+                "Template has not been synced to Telnyx yet. Use Sync to Telnyx first.",
+                payload={"message": "Template has not been synced to Telnyx yet. Use Sync to Telnyx first."},
+            )
+        try:
+            remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)
+        except Exception as exc:
+            detail = str(exc)
+            row.last_push_error = detail
+            row.local_sync_status = SYNC_ERROR
+            row.updated_at = _now()
+            db.add(row)
+            db.commit()
+            raise SurveyWhatsappTemplateError(
+                TELNYX_SYNC_FAILED,
+                payload=_provider_error_payload(
+                    message=TELNYX_SYNC_FAILED,
+                    template_name=row.name,
+                    provider_error=detail,
+                    telnyx_request_mode="fetch_template_status",
+                ),
+            ) from exc
+
+        _apply_remote_telnyx_item(row, remote_item)
+        row.last_push_error = None
+        row.local_sync_status = _refresh_local_sync_status(row)
+        row.synced_at = _now()
+        row.updated_at = _now()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        label = telnyx_sync_ui_label(row)
+        tpl = survey_template_to_dict(row)
+        return {
+            "ok": True,
+            "success": True,
+            "message": label,
+            "telnyx_sync_label": label,
+            "template": tpl,
+            "approval_status": str(row.status or "").upper(),
+            "category": row.category,
+            "rejection_reason": row.rejection_reason,
+            "telnyx_template_id": row.telnyx_record_id,
         }
 
     @staticmethod

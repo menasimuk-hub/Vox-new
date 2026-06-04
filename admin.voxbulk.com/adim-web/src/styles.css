@@ -3951,7 +3951,13 @@ body.dark .emailPreviewInner {
 }
 
 .waSurveyPackToolbarCompact {
-  padding: 10px 24px;
+  flex-shrink: 0;
+  padding: 8px 24px;
+}
+
+.waSurveyPackToolbarCompact .input {
+  font-size: 13px;
+  padding: 6px 10px;
 }
 
 .waSurveyPackScrollFit {
@@ -3966,6 +3972,213 @@ body.dark .emailPreviewInner {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+}
+
+/* Two compact templates per screen — full width, no page scroll */
+.waSurveyPackGalleryDual {
+  align-content: stretch;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
+.waSurveyPackGalleryCardCompact {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.waSurveyPackGalleryHeadCompact {
+  flex-shrink: 0;
+  padding: 8px 12px;
+}
+
+.waSurveyPackGalleryHeadCompact h4 {
+  font-size: 0.92rem;
+  margin: 2px 0 4px;
+}
+
+.waSurveyPackGalleryHeadCompact .waSurveyPackSavedBadge {
+  font-size: 10px;
+  padding: 4px 8px;
+}
+
+.waSurveyPackGalleryPhoneCompact {
+  align-items: center;
+  background: linear-gradient(180deg, #eef2f6 0%, #f8fafc 100%);
+  border-right: 1px solid var(--border, #dde3ea);
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+  padding: 6px 4px;
+}
+
+.waSurveyPackGalleryPhoneCompact .waSurveyPreviewWrap {
+  gap: 0;
+  width: 100%;
+}
+
+.waSurveyPackGalleryPhoneCompact .waSurveyPreviewMeta {
+  display: none;
+}
+
+.waSurveyPackGalleryPhoneCompact .waPhonePortraitPro {
+  margin: 0 auto;
+  max-width: 152px;
+  width: 100%;
+}
+
+.waSurveyPackGalleryPhoneCompact .waPhonePortraitPro .waPhoneBezel {
+  border-radius: 22px;
+  padding: 6px;
+}
+
+.waSurveyPackGalleryPhoneCompact .waPhoneNotch {
+  height: 14px;
+  width: 48px;
+}
+
+.waSurveyPackGalleryPhoneCompact .waPhoneStatusBar,
+.waSurveyPackGalleryPhoneCompact .waPhoneChatHeader {
+  font-size: 9px;
+  padding: 4px 6px;
+}
+
+.waSurveyPackGalleryPhoneCompact .waPhoneAvatar {
+  height: 22px;
+  width: 22px;
+}
+
+.waSurveyPackGalleryPhoneCompact .waPhoneChatBody {
+  max-height: 210px;
+  overflow: hidden;
+  padding: 6px;
+}
+
+.waSurveyPackGalleryPhoneCompact .waBubbleText {
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.waSurveyPackGalleryPhoneCompact .waBubbleFooter {
+  font-size: 9px;
+}
+
+.waSurveyPackGalleryPhoneCompact .waBubbleButton {
+  font-size: 10px;
+  padding: 5px 6px;
+}
+
+.waSurveyPackGalleryPhoneCompact .waBubbleTime {
+  font-size: 8px;
+}
+
+.waSurveyPackGalleryMetaCompact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px 10px;
+}
+
+.waSurveyPackGalleryMetaCompact.is-editing {
+  overflow-y: auto;
+}
+
+.waSurveyPackMetaGridCompact {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr;
+}
+
+.waSurveyPackMetaGridCompact .label {
+  font-size: 10px;
+  margin-bottom: 2px;
+}
+
+.waSurveyPackCopyCompact {
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  margin: 0;
+  max-height: 3.8em;
+  overflow: hidden;
+  padding: 6px 8px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.waSurveyPackCopyCompact.waSurveyPackCopyFooter {
+  font-size: 10px;
+  max-height: 2.6em;
+  -webkit-line-clamp: 2;
+}
+
+.waSurveyPackChipRowCompact {
+  gap: 4px;
+}
+
+.waSurveyPackChipRowCompact .waSurveyPackVarChip {
+  font-size: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waSurveyPackVarChip.is-btn {
+  background: rgba(2, 126, 181, 0.1);
+  color: #027eb5;
+}
+
+.waSurveyPackMutedTiny {
+  font-size: 11px;
+  margin: 0;
+}
+
+.waSurveyPackVarEditGridCompact {
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.waSurveyPackEditField {
+  font-size: 12px;
+}
+
+.waSurveyPackGalleryActionsCompact {
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.waSurveyPackGalleryActionsCompact .btn {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+.waSurveyPackShellNoScroll .waSurveyPackGlobalAlert {
+  flex-shrink: 0;
+  margin: 0 24px 6px;
+  padding: 8px 12px;
+}
+
+.waSurveyPackShellNoScroll .alert {
+  font-size: 13px;
+}
+
+@media (max-width: 1100px) {
+  .waSurveyPackGalleryDual {
+    grid-template-columns: 1fr;
+  }
 }
 
 .waSurveyPackGalleryCardFull {
@@ -4073,6 +4286,26 @@ body.dark .emailPreviewInner {
 .waSurveyTemplateEditMappings {
   min-height: 0;
   overflow-y: auto;
+}
+
+.waSurveyTelnyxStatusRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.waSurveySaveNotice,
+.waSurveySyncNotice {
+  color: var(--grn, #0d7a4a);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.waSurveyRejectionReason {
+  color: var(--red, #c0392b);
+  margin-top: 8px;
 }
 
 @media (max-width: 1100px) {
@@ -4282,6 +4515,95 @@ body.dark .emailPreviewInner {
   gap: 0;
   grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
   min-height: 420px;
+}
+
+.waSurveyPackGalleryBody.waSurveyPackGalleryBodyCompact {
+  flex: 1;
+  grid-template-columns: minmax(118px, 34%) minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.waSurveyPackGalleryBody.waSurveyPackGalleryBodyStacked {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+}
+
+.waSurveyPackGalleryPhoneMini {
+  border-bottom: 1px solid var(--border, #dde3ea);
+  border-right: none;
+  flex-shrink: 0;
+  max-height: 168px;
+  padding: 4px 8px 6px;
+}
+
+.waSurveyPackGalleryPhoneMini .waPhonePortraitPro {
+  max-width: 108px;
+  transform: scale(0.92);
+  transform-origin: top center;
+}
+
+.waSurveyPackGalleryPhoneMini .waPhoneChatBody {
+  max-height: 118px;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.waSurveyPackGalleryPhoneMini .waBubbleText {
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+.waSurveyPackGalleryPhoneMini .waBubbleFooter {
+  font-size: 8px;
+}
+
+.waSurveyPackGalleryPhoneMini .waBubbleButton {
+  font-size: 9px;
+  padding: 4px 5px;
+}
+
+.waSurveyPackGalleryPhoneMini .waBubbleTime {
+  font-size: 7px;
+}
+
+.waSurveyPackGalleryPhoneMini .waPhoneStatusBar,
+.waSurveyPackGalleryPhoneMini .waPhoneChatHeader {
+  font-size: 8px;
+  padding: 3px 5px;
+}
+
+.waSurveyPackGalleryPhoneMini .waPhoneAvatar {
+  height: 18px;
+  width: 18px;
+}
+
+.waSurveyPackGalleryPhoneMini .waPhonePortraitPro .waPhoneBezel {
+  border-radius: 18px;
+  padding: 5px;
+}
+
+.waSurveyPackGalleryBodyStacked .waSurveyPackGalleryMetaCompact {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.waSurveyPackButtonEditList {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.waSurveyPackButtonEditRow {
+  display: grid;
+  gap: 4px;
+}
+
+.waSurveyPackAddBtn {
+  justify-self: start;
+  margin-top: 2px;
 }
 
 @media (max-width: 900px) {

@@ -130,6 +130,7 @@ def template_to_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
         "body_preview": row.body_preview,
         "waba_id": row.waba_id,
         "rejection_reason": row.rejection_reason,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
         "synced_at": row.synced_at.isoformat() if row.synced_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -184,6 +185,34 @@ class TelnyxWhatsappTemplateSyncService:
             raise TelnyxWhatsappTemplateSyncError(str(e)) from e
 
         return rows
+
+    @staticmethod
+    def fetch_template_by_record_id(db: Session, record_id: str) -> dict[str, Any]:
+        """Fetch a single WhatsApp template from Telnyx by Telnyx record id (UUID)."""
+        rid = str(record_id or "").strip()
+        if not rid:
+            raise TelnyxWhatsappTemplateSyncError("Telnyx template id is required")
+
+        config = TelnyxWhatsappTemplateSyncService._config(db)
+        api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
+        if not api_key:
+            api_key, _ = require_telnyx_api_key(db)
+
+        url = f"{TELNYX_WHATSAPP_TEMPLATES_URL}/{rid}"
+        try:
+            with httpx.Client(timeout=30.0, verify=httpx_ssl_verify()) as client:
+                response = client.get(url, headers=_telnyx_headers(api_key))
+                response.raise_for_status()
+                body = response.json()
+        except httpx.HTTPStatusError as e:
+            raise TelnyxWhatsappTemplateSyncError(_telnyx_http_error_detail(e)) from e
+        except Exception as e:
+            raise TelnyxWhatsappTemplateSyncError(str(e)) from e
+
+        item = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(item, dict):
+            raise TelnyxWhatsappTemplateSyncError("Telnyx returned an unexpected template response")
+        return item
 
     @staticmethod
     def sync(db: Session) -> dict[str, Any]:

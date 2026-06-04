@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
+import {
+  TELNYX_SYNC_LABELS,
+  WA_TEMPLATE_CATEGORY_OPTIONS,
+  resolveTelnyxSyncLabel,
+  telnyxSyncPillClass,
+  validateCategoryBeforeSync,
+} from '../lib/waSurveyTelnyxSync'
 import { VAR_LABELS, ensureExampleValues, substituteTemplateVars } from '../lib/waSurveyTemplateVars'
 import WaSurveyPhonePreview from './WaSurveyPhonePreview'
 
@@ -72,6 +79,7 @@ function applyTemplateDraft(setDraft, tpl) {
   const components = parseComponents(tpl?.draft_components || tpl?.remote_components)
   setDraft({
     display_name: tpl?.display_name || tpl?.name,
+    category: tpl?.category || 'MARKETING',
     body: bodyTextFromComponents(components),
     footer: footerTextFromComponents(components) || tpl?.footer || '',
     components,
@@ -92,6 +100,14 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
   const [surveyTypes, setSurveyTypes] = useState([])
   const [preview, setPreview] = useState(null)
   const [testMobile, setTestMobile] = useState('')
+  const [saveNotice, setSaveNotice] = useState('')
+  const [syncNotice, setSyncNotice] = useState('')
+  const [syncing, setSyncing] = useState(false)
+
+  const telnyxLabel = useMemo(() => {
+    if (syncing) return TELNYX_SYNC_LABELS.SYNCING
+    return resolveTelnyxSyncLabel(template)
+  }, [template, syncing])
 
   const linkedCount = useMemo(
     () => surveyTypes.filter((st) => st.linked || st.usable_as_standard || st.usable_as_anonymous || st.is_default_standard || st.is_default_anonymous).length,
@@ -104,6 +120,8 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
     setMsg('')
     setMsgDetail('')
     setFeedbackTone('ok')
+    setSaveNotice('')
+    setSyncNotice('')
   }
 
   const showError = (err, fallback = 'Request failed') => {
@@ -228,12 +246,14 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
         method: 'PUT',
         body: JSON.stringify({
           display_name: draft.display_name,
+          category: draft.category,
           components,
           example_values: ensureExampleValues(draft.body, '', draft.example_values),
         }),
       })
       setTemplate(data.template)
-      showOk({ message: 'Template content saved. Linked survey types use this shared source.', template_name: data.template?.name })
+      setSaveNotice('Template saved')
+      showOk({ message: 'Template saved', template_name: data.template?.name })
       await load()
       onSaved?.()
     } catch (e) {
@@ -271,19 +291,59 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
   }
 
   const pushTemplate = async () => {
+    const categoryError = validateCategoryBeforeSync(draft?.category || template?.category)
+    if (categoryError) {
+      showError({ message: categoryError }, categoryError)
+      return
+    }
     setWorking('push')
+    setSyncing(true)
     clearFeedback()
     try {
       const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/push`, { method: 'POST', body: '{}' })
-      showOk(data, 'Pushed to Telnyx')
+      setTemplate(data.template)
+      const syncMessage = data.sync_message || data.message || TELNYX_SYNC_LABELS.SYNCED
+      setSyncNotice(syncMessage)
+      if (syncMessage === TELNYX_SYNC_LABELS.FAILED) {
+        showError({ message: syncMessage, data: { detail: data } }, syncMessage)
+      } else {
+        showOk({ message: syncMessage, template_name: data.template?.name, approval_status: data.approval_status })
+      }
       await load()
       onSaved?.()
     } catch (e) {
-      showError(e, 'Push to Telnyx failed')
+      setSyncNotice(TELNYX_SYNC_LABELS.FAILED)
+      showError(e, TELNYX_SYNC_LABELS.FAILED)
+    } finally {
+      setSyncing(false)
+      setWorking('')
+    }
+  }
+
+  const refreshTelnyxStatus = async () => {
+    setWorking('refresh')
+    clearFeedback()
+    try {
+      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/refresh-telnyx-status`, {
+        method: 'POST',
+        body: '{}',
+      })
+      setTemplate(data.template)
+      setSyncNotice(data.telnyx_sync_label || data.message)
+      showOk({ message: data.message || data.telnyx_sync_label, approval_status: data.approval_status })
+      await load()
+      onSaved?.()
+    } catch (e) {
+      showError(e, TELNYX_SYNC_LABELS.FAILED)
     } finally {
       setWorking('')
     }
   }
+
+  const needsResync = template?.is_local_only || template?.telnyx_sync_label === TELNYX_SYNC_LABELS.FAILED
+    || template?.telnyx_sync_label === TELNYX_SYNC_LABELS.REJECTED
+    || template?.sync_status === 'local_changes'
+  const canRefreshStatus = template && !template.is_local_only
 
   const syncTemplates = async () => {
     setWorking('sync')
@@ -369,6 +429,20 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
                   <input className="input" value={draft.display_name} onChange={(e) => setDraft((d) => ({ ...d, display_name: e.target.value }))} />
                 </label>
                 <label className="msgFieldBlock">
+                  <span className="label">Template Category</span>
+                  <select
+                    className="input"
+                    value={draft.category || ''}
+                    onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}
+                  >
+                    <option value="">Select category…</option>
+                    {WA_TEMPLATE_CATEGORY_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <p className="fieldHint">Required before syncing to Telnyx — MARKETING, UTILITY, or AUTHENTICATION.</p>
+                </label>
+                <label className="msgFieldBlock">
                   <span className="label">Body</span>
                   <textarea
                     className="input msgFieldEditorBox"
@@ -405,12 +479,40 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
                   </div>
                 </div>
                 <div className="btnRow">
-                  <button type="button" className="btn primary" onClick={saveDraft} disabled={working === 'save'}>Save draft</button>
-                  <button type="button" className="btn" onClick={pushTemplate} disabled={working === 'push'}>Push to Telnyx</button>
-                  <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>Sync</button>
+                  <button type="button" className="btn primary" onClick={saveDraft} disabled={working === 'save'}>
+                    {working === 'save' ? 'Saving…' : 'Save template'}
+                  </button>
+                  <button type="button" className="btn" onClick={pushTemplate} disabled={working === 'push' || syncing}>
+                    {syncing ? 'Syncing…' : needsResync ? 'Re-sync to Telnyx' : 'Sync to Telnyx'}
+                  </button>
+                  {canRefreshStatus ? (
+                    <button type="button" className="btn" onClick={refreshTelnyxStatus} disabled={working === 'refresh'}>
+                      Refresh status
+                    </button>
+                  ) : null}
+                  <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>Sync from Telnyx</button>
                   <button type="button" className="btn" onClick={cloneAnonymous} disabled={working === 'clone'}>Clone anonymous</button>
                 </div>
-                <p className="fieldHint">Approval: <strong>{template?.approval_status}</strong> · Sync: <strong>{template?.sync_status_label || template?.sync_status}</strong></p>
+                <div className="waSurveyTelnyxStatusRow">
+                  {saveNotice ? <span className="waSurveySaveNotice">{saveNotice}</span> : null}
+                  {syncNotice ? <span className="waSurveySyncNotice">{syncNotice}</span> : null}
+                  <span className={`pill ${telnyxSyncPillClass(telnyxLabel)}`}>{telnyxLabel}</span>
+                  {template?.category ? <span className="pill muted">{template.category}</span> : null}
+                </div>
+                {template?.rejection_reason && telnyxLabel === TELNYX_SYNC_LABELS.REJECTED ? (
+                  <p className="fieldHint waSurveyRejectionReason">
+                    Rejection reason: <strong>{template.rejection_reason}</strong>
+                  </p>
+                ) : null}
+                {template?.last_push_error && telnyxLabel === TELNYX_SYNC_LABELS.FAILED ? (
+                  <p className="fieldHint waSurveyRejectionReason">
+                    Sync error: <strong>{template.last_push_error}</strong>
+                  </p>
+                ) : null}
+                <p className="fieldHint">
+                  Local content sync: <strong>{template?.sync_status_label || template?.sync_status}</strong>
+                  {template?.telnyx_template_id ? <> · Telnyx id: <code>{template.telnyx_template_id}</code></> : null}
+                </p>
               </div>
             </section>
 
