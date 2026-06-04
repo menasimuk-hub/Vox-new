@@ -3983,6 +3983,13 @@ body.dark .emailPreviewInner {
   min-width: 0;
 }
 
+.waSurveySimulatorLiveTestBlock {
+  background: rgba(34, 197, 94, 0.06);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
 /* WA Survey — full-screen OpenAI template pack gallery */
 .waSurveyPackBackdrop {
   background: rgba(15, 23, 42, 0.55);

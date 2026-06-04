@@ -69,3 +69,15 @@ def test_simulator_graph_low_rating_unhappy(mock_send, db):
     assert done["completed"] is True
     assert done["outcome_key"] == "unhappy"
     assert done["outcome_delivery"].get("ok") is True
+
+
+def test_simulator_live_test_rejects_invalid_phone(db):
+    pack = SurveyWaTestPackSeedService.ensure_test_pack(db)
+    st_id = pack["survey_type"]["id"]
+    with pytest.raises(ValueError, match="E.164"):
+        SurveySimulatorService.start(
+            db,
+            survey_type_id=st_id,
+            test_phone="not-a-phone",
+            skip_test_pack_seed=True,
+        )

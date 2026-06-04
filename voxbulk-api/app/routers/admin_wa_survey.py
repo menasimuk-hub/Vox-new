@@ -897,6 +897,7 @@ def simulator_start(
             simulator_mock_picker=bool(body.get("simulator_mock_picker", True)),
             flow_definition_id=str(body.get("flow_definition_id") or "").strip() or None,
             skip_test_pack_seed=bool(body.get("skip_test_pack_seed", True)),
+            test_phone=str(body.get("test_phone") or body.get("mobile_number") or "").strip() or None,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

@@ -15,7 +15,7 @@ from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.survey_session import SurveySession
 from app.models.user import User
-from app.services.survey_flow_config_service import attach_flow_to_config, is_graph_flow, is_simulator_dry_run
+from app.services.survey_flow_config_service import attach_flow_to_config, is_graph_flow, is_simulator_dry_run, is_simulator_live_test
 from app.services.survey_flow_constants import (
     DECISION_BRANCH_PICKER_RESULT,
     DECISION_BRANCH_TAKE,
@@ -206,6 +206,43 @@ def _ensure_simulator_org(db: Session) -> tuple[Organisation, User]:
     return org, user
 
 
+def _resolve_messaging_org(db: Session) -> Organisation:
+    from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+
+    org_id = str(SurveyWhatsappTemplateService._messaging_org_id(db) or "").strip()
+    if not org_id:
+        raise ValueError(
+            "Telnyx messaging org is not configured. Set it in Admin → Integrations → Telnyx before live WhatsApp tests."
+        )
+    org = db.get(Organisation, org_id)
+    if org is None:
+        raise ValueError("Telnyx messaging org not found in database.")
+    return org
+
+
+def _prepare_live_test_phone(db: Session, raw_phone: str) -> str:
+    from app.services.survey_whatsapp_template_service import _validate_mobile_number
+    from app.services.telnyx_messaging_service import TelnyxMessagingService
+    from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+    normalized, phone_error = _validate_mobile_number(raw_phone)
+    if phone_error or not normalized:
+        raise ValueError(phone_error or "Enter a valid mobile number in E.164 format (e.g. +447700900123).")
+
+    telnyx = TelnyxMessagingService.is_configured(db)
+    if not telnyx.get("enabled"):
+        raise ValueError("Telnyx is not configured. Add your API key in Admin → Integrations → Telnyx.")
+    if not telnyx.get("whatsapp"):
+        raise ValueError("Telnyx WhatsApp sender is not configured or not approved yet.")
+
+    allow = TelnyxPhoneAllowlistService.validate_phone_db(db, normalized)
+    if not allow.get("allowed"):
+        reason = str(allow.get("reason") or "number not allowed")
+        raise ValueError(f"Mobile number cannot receive test messages: {reason}")
+
+    return normalized
+
+
 def _build_order_config(
     generated: dict[str, Any],
     *,
@@ -214,6 +251,7 @@ def _build_order_config(
     force_outcome_text_fallback: bool,
     ai_picker_enabled: bool = False,
     simulator_mock_picker: bool = True,
+    live_test: bool = False,
 ) -> dict[str, Any]:
     wa = generated.get("whatsapp_flow") or {}
     config: dict[str, Any] = {
@@ -230,7 +268,8 @@ def _build_order_config(
         "survey_organiser_name": "Test Team",
         "client_name": "Acme Services",
         "flow_engine": flow_engine,
-        "simulator_dry_run": True,
+        "simulator_dry_run": not live_test,
+        "simulator_live_test": bool(live_test),
         "simulator_force_template_fail": bool(force_outcome_text_fallback),
         "ai_picker_enabled": bool(ai_picker_enabled),
         "simulator_mock_picker": bool(simulator_mock_picker),
@@ -321,6 +360,8 @@ def _session_state(
         "outcome_body_preview": delivery.get("body_preview"),
         "answers": conv.get("answers") or [],
         "simulator_phone": recipient.phone,
+        "live_test": is_simulator_live_test(config),
+        "reply_on_whatsapp": is_simulator_live_test(config),
         "ai_picker_enabled": bool(config.get("ai_picker_enabled")),
         "picker_invocation_count": int(session.picker_invocation_count or 0) if session else 0,
         "templates_in_use": config.get("simulator_templates_manifest") or [],
@@ -348,11 +389,15 @@ class SurveySimulatorService:
         pack = SurveyWaTestPackSeedService.ensure_test_pack(db)
         industries = IndustryService.list_industries(db, active_only=True)
         types = SurveyTypeService.list_types(db)
+        from app.services.telnyx_messaging_service import TelnyxMessagingService
+
+        telnyx = TelnyxMessagingService.is_configured(db)
         return {
             "ok": True,
             "test_pack": pack,
             "industries": industries,
             "survey_types": types,
+            "telnyx_ready": telnyx,
             "default_industry_id": pack["industry"]["id"],
             "default_survey_type_id": pack["survey_type"]["id"],
             "default_privacy_mode": "off",
@@ -446,9 +491,14 @@ class SurveySimulatorService:
         simulator_mock_picker: bool = True,
         flow_definition_id: str | None = None,
         skip_test_pack_seed: bool = False,
+        test_phone: str | None = None,
     ) -> dict[str, Any]:
         if not skip_test_pack_seed:
             SurveyWaTestPackSeedService.ensure_test_pack(db)
+        live_test = bool(str(test_phone or "").strip())
+        normalized_phone: str | None = None
+        if live_test:
+            normalized_phone = _prepare_live_test_phone(db, str(test_phone or ""))
         pm = normalize_privacy_mode(privacy_mode)
         engine = str(flow_engine or FLOW_ENGINE_LINEAR).strip().lower()
         roles = selected_step_roles
@@ -490,6 +540,7 @@ class SurveySimulatorService:
             force_outcome_text_fallback=force_outcome_text_fallback,
             ai_picker_enabled=ai_picker_enabled,
             simulator_mock_picker=simulator_mock_picker,
+            live_test=live_test,
         )
         config["simulator_templates_manifest"] = _templates_manifest_from_composed(generated)
         if resolved_flow_id:
@@ -505,13 +556,20 @@ class SurveySimulatorService:
                 "contact_email": "Data.Pro@voxbulk.com",
                 "opt_out_enabled": True,
                 "collect_minimal_data": True,
-                "privacy_intro_text": "Simulator only — synthetic data, not real respondents.",
+                "privacy_intro_text": (
+                    "Live simulator test — real WhatsApp to your phone."
+                    if live_test
+                    else "Simulator only — synthetic data, not real respondents."
+                ),
             },
         )
-        config["simulator_synthetic_only"] = True
+        config["simulator_synthetic_only"] = not live_test
 
         org, user = _ensure_simulator_org(db)
-        phone = f"{SIMULATOR_PHONE_PREFIX}{uuid.uuid4().int % 10000:04d}"
+        if live_test:
+            org = _resolve_messaging_org(db)
+        phone = normalized_phone if live_test and normalized_phone else f"{SIMULATOR_PHONE_PREFIX}{uuid.uuid4().int % 10000:04d}"
+        recipient_name = "Live test" if live_test else "Sim Respondent"
         now = datetime.utcnow()
         order = ServiceOrder(
             id=str(uuid.uuid4()),
@@ -534,7 +592,7 @@ class SurveySimulatorService:
             id=str(uuid.uuid4()),
             order_id=order.id,
             row_number=1,
-            name="Sim Respondent",
+            name=recipient_name,
             phone=phone,
             status="sent",
             created_at=now,
@@ -547,9 +605,21 @@ class SurveySimulatorService:
         db.refresh(recipient)
         session = SurveySessionService.get_by_recipient(db, recipient.id)
         state = _session_state(db, order=order, recipient=recipient, session=session)
+        if live_test and str(recipient.status or "").lower() not in {"sent", "in_progress", "completed"}:
+            detail = ""
+            try:
+                payload = json.loads(recipient.result_json or "{}")
+                detail = str(payload.get("detail") or payload.get("error") or "")
+            except Exception:
+                pass
+            raise ValueError(
+                detail or "WhatsApp send failed. Check Telnyx configuration and template approval."
+            )
         return {
             "ok": True,
             "state": state,
+            "live_test": live_test,
+            "test_phone": phone if live_test else None,
             "templates_in_use": state.get("templates_in_use") or [],
             "flow_definition_id": resolved_flow_id,
         }
@@ -563,8 +633,12 @@ class SurveySimulatorService:
         if order is None:
             raise ValueError("order not found")
         config = _order_config(order)
-        if not is_simulator_dry_run(config):
+        if not is_simulator_dry_run(config) and not is_simulator_live_test(config):
             raise ValueError("Not a simulator order")
+        if is_simulator_live_test(config):
+            raise ValueError(
+                "Live WhatsApp test — reply on your phone. Tap Refresh status below to update this screen."
+            )
 
         result = handle_inbound_reply(
             db,
@@ -591,6 +665,9 @@ class SurveySimulatorService:
         order = db.get(ServiceOrder, recipient.order_id)
         if order is None:
             raise ValueError("order not found")
+        config = _order_config(order)
+        if not is_simulator_dry_run(config) and not is_simulator_live_test(config):
+            raise ValueError("Not a simulator order")
         session = SurveySessionService.get_by_recipient(db, recipient.id)
         return {
             "ok": True,

@@ -24,6 +24,8 @@ export default function WaSurveyFlowSimulator() {
   const [forceTextFallback, setForceTextFallback] = useState(false)
   const [aiPickerEnabled, setAiPickerEnabled] = useState(false)
   const [mockPicker, setMockPicker] = useState(true)
+  const [testPhone, setTestPhone] = useState('')
+  const [sendLive, setSendLive] = useState(false)
   const [state, setState] = useState(null)
   const [answer, setAnswer] = useState('')
   const [loading, setLoading] = useState(true)
@@ -99,21 +101,25 @@ export default function WaSurveyFlowSimulator() {
     setError('')
     setState(null)
     try {
+      const payload = {
+        survey_type_id: surveyTypeId,
+        privacy_mode: privacyMode,
+        flow_engine: flowEngine,
+        flow_definition_id: flowDefinitionId || undefined,
+        page_count: 6,
+        selected_step_roles: ['start', 'rating', 'yes_no', 'helpfulness', 'reason', 'completion'],
+        force_outcome_text_fallback: forceTextFallback,
+        ai_picker_enabled: aiPickerEnabled,
+        simulator_mock_picker: mockPicker,
+        skip_test_pack_seed: true,
+      }
+      if (sendLive && testPhone.trim()) {
+        payload.test_phone = testPhone.trim()
+      }
       const data = await apiFetch('/admin/wa-survey/simulator/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          survey_type_id: surveyTypeId,
-          privacy_mode: privacyMode,
-          flow_engine: flowEngine,
-          flow_definition_id: flowDefinitionId || undefined,
-          page_count: 6,
-          selected_step_roles: ['start', 'rating', 'yes_no', 'helpfulness', 'reason', 'completion'],
-          force_outcome_text_fallback: forceTextFallback,
-          ai_picker_enabled: aiPickerEnabled,
-          simulator_mock_picker: mockPicker,
-          skip_test_pack_seed: true,
-        }),
+        body: JSON.stringify(payload),
       })
       setState(data.state)
       setAnswer('')
@@ -130,15 +136,44 @@ export default function WaSurveyFlowSimulator() {
     forceTextFallback,
     aiPickerEnabled,
     mockPicker,
+    sendLive,
+    testPhone,
   ])
+
+  const refreshState = useCallback(async (silent = false) => {
+    if (!state?.recipient_id) return
+    if (!silent) {
+      setBusy(true)
+      setError('')
+    }
+    try {
+      const data = await apiFetch(
+        `/admin/wa-survey/simulator/state/${encodeURIComponent(state.recipient_id)}`
+      )
+      setState(data.state)
+    } catch (e) {
+      if (!silent) setError(e?.message || 'Refresh failed')
+    } finally {
+      if (!silent) setBusy(false)
+    }
+  }, [state?.recipient_id])
+
+  useEffect(() => {
+    if (!state?.live_test || state?.completed) return undefined
+    const timer = window.setInterval(() => {
+      void refreshState(true)
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [state?.live_test, state?.completed, state?.recipient_id, refreshState])
 
   useEffect(() => {
     if (!autoStartRequested || autoStartDone.current || loading || busy) return
     if (!surveyTypeId || !prefill) return
     if (!prefill.can_start_simulation) return
+    if (sendLive) return
     autoStartDone.current = true
     void startSession()
-  }, [autoStartRequested, loading, busy, surveyTypeId, prefill, startSession])
+  }, [autoStartRequested, loading, busy, surveyTypeId, prefill, startSession, sendLive])
 
   const onSurveyTypeChange = async (nextTypeId, nextIndustryId) => {
     setSurveyTypeId(nextTypeId)
@@ -406,6 +441,42 @@ export default function WaSurveyFlowSimulator() {
             />{' '}
             Force outcome text fallback (simulated template failure)
           </label>
+          <div className="waSurveySimulatorLiveTestBlock" style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', marginBottom: 8 }}>
+              <input
+                type="checkbox"
+                checked={sendLive}
+                onChange={(e) => setSendLive(e.target.checked)}
+              />{' '}
+              Send real WhatsApp to my mobile (Telnyx)
+            </label>
+            {sendLive ? (
+              <>
+                <label style={{ display: 'block', marginBottom: 6 }}>
+                  Mobile number (E.164)
+                  <input
+                    className="input"
+                    style={{ display: 'block', marginTop: 4, maxWidth: 320 }}
+                    placeholder="+447700900123"
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                    autoComplete="tel"
+                  />
+                </label>
+                <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>
+                  Sends the first survey question to your phone via Telnyx. Reply on WhatsApp — this screen
+                  refreshes every few seconds.
+                  {options?.telnyx_ready && !options.telnyx_ready.whatsapp ? (
+                    <span style={{ color: 'crimson' }}> Telnyx WhatsApp is not ready yet.</span>
+                  ) : null}
+                </p>
+              </>
+            ) : (
+              <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>
+                Leave unchecked for dry-run only (no Telnyx, reply in the browser).
+              </p>
+            )}
+          </div>
           {options?.platform_picker ? (
             <p className="muted" style={{ fontSize: '0.85rem' }}>
               Platform picker: {options.platform_picker.ai_picker_enabled ? 'enabled' : 'disabled'} (kill switch)
@@ -418,10 +489,15 @@ export default function WaSurveyFlowSimulator() {
             <button
               type="button"
               className="btn btnPrimary"
-              disabled={busy || !surveyTypeId || (prefill && !prefill.can_start_simulation)}
+              disabled={
+                busy ||
+                !surveyTypeId ||
+                (prefill && !prefill.can_start_simulation) ||
+                (sendLive && !testPhone.trim())
+              }
               onClick={startSession}
             >
-              Start test session
+              {sendLive ? 'Send live test to mobile' : 'Start test session'}
             </button>
           </div>
         </div>
@@ -469,19 +545,34 @@ export default function WaSurveyFlowSimulator() {
           <div className="cardBody">
             <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Live test chat</h2>
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 12 }}>
-              Dry-run only — same runtime as production, no Telnyx or OpenAI. Synthetic phone:{' '}
-              <code>{state.simulator_phone || '—'}</code>
+              {state.live_test ? (
+                <>
+                  Live WhatsApp test to <code>{state.simulator_phone}</code> — reply on your phone.
+                </>
+              ) : (
+                <>
+                  Dry-run only — same runtime as production, no Telnyx or OpenAI. Synthetic phone:{' '}
+                  <code>{state.simulator_phone || '—'}</code>
+                </>
+              )}
             </p>
+            {state.live_test ? (
+              <div style={{ marginBottom: 12 }}>
+                <button type="button" className="btn btnSecondary btnSm" disabled={busy} onClick={() => void refreshState()}>
+                  Refresh status
+                </button>
+              </div>
+            ) : null}
 
             <div className="waSurveySimulatorChatColumn">
               <WaSurveyPhonePreview
                 businessName={prefill?.survey_type_name || 'Survey'}
                 conversationMessages={chatMessages}
                 hideFlowNav
-                approvalStatus="Simulator (dry-run)"
+                approvalStatus={state.live_test ? 'Live WhatsApp test' : 'Simulator (dry-run)'}
                 disclaimer=""
               />
-              {!state.completed ? (
+              {!state.completed && !state.live_test ? (
                 <div className="waSurveySimulatorComposer">
                   {quickReplies.length ? (
                     <div className="waSurveySimulatorQuickReplies">
@@ -517,6 +608,11 @@ export default function WaSurveyFlowSimulator() {
                     </button>
                   </div>
                 </div>
+              ) : null}
+              {!state.completed && state.live_test ? (
+                <p className="muted" style={{ fontSize: '0.9rem', marginTop: 8 }}>
+                  Waiting for your reply on WhatsApp… The preview updates when you answer on your phone.
+                </p>
               ) : null}
             </div>
 

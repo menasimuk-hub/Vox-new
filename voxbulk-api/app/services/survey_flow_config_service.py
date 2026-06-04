@@ -63,6 +63,14 @@ def is_simulator_dry_run(config: dict[str, Any]) -> bool:
     return bool(config.get("simulator_dry_run"))
 
 
+def is_simulator_live_test(config: dict[str, Any]) -> bool:
+    return bool(config.get("simulator_live_test"))
+
+
+def is_simulator_order(config: dict[str, Any]) -> bool:
+    return is_simulator_dry_run(config) or is_simulator_live_test(config)
+
+
 def max_question_visits(config: dict[str, Any], *, survey_type_max_length: int = 6) -> int:
     snap = get_flow_snapshot(config)
     if snap and snap.get("max_question_visits"):
