@@ -67,6 +67,7 @@ const NAV = [
     'Operations',
     [
       ['Running surveys', '/operations/running-surveys'],
+      ['WA Survey insights', '/operations/wa-survey-insights'],
       ['Interviews', '/operations/running-interviews'],
       ['Call queue', '/operations/call-queue'],
       ['WhatsApp queue', '/operations/whatsapp-queue'],

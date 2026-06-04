@@ -150,6 +150,62 @@ def admin_surveys_overview(db: Session = Depends(get_db), _admin=Depends(require
     return ServiceOrderService.survey_operations_overview(db)
 
 
+@router.get("/surveys/wa-observability/overview")
+def admin_wa_survey_observability_overview(
+    order_id: str | None = None,
+    org_id: str | None = None,
+    survey_type_id: str | None = None,
+    since_days: int = 7,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.survey_wa_observability_service import SurveyWaObservabilityService
+
+    return SurveyWaObservabilityService.overview(
+        db,
+        order_id=order_id,
+        org_id=org_id,
+        survey_type_id=survey_type_id,
+        since_days=since_days,
+    )
+
+
+@router.get("/surveys/wa-sessions")
+def admin_wa_survey_sessions(
+    order_id: str | None = None,
+    org_id: str | None = None,
+    survey_type_id: str | None = None,
+    status: str | None = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.survey_wa_observability_service import SurveyWaObservabilityService
+
+    return SurveyWaObservabilityService.list_sessions(
+        db,
+        order_id=order_id,
+        org_id=org_id,
+        survey_type_id=survey_type_id,
+        status=status,
+        limit=limit,
+    )
+
+
+@router.get("/surveys/wa-sessions/{session_id}")
+def admin_wa_survey_session_detail(
+    session_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.survey_wa_observability_service import SurveyWaObservabilityService
+
+    detail = SurveyWaObservabilityService.get_session_detail(db, session_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return detail
+
+
 @router.get("/interviews/overview")
 def admin_interviews_overview(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     return ServiceOrderService.interview_operations_overview(db)
@@ -322,6 +378,19 @@ def admin_get_recipient_detail(
     try:
         detail = SurveyResultsService.get_recipient_detail(db, order, recipient)
         detail["contact"] = ServiceOrderService.recipient_to_dict(recipient)
+        from app.models.survey_session import SurveySession
+        from app.services.survey_wa_observability_service import SurveyWaObservabilityService
+
+        wa_session = db.execute(
+            select(SurveySession).where(SurveySession.recipient_id == recipient_id).limit(1)
+        ).scalar_one_or_none()
+        if wa_session is not None:
+            try:
+                detail["wa_survey_session"] = SurveyWaObservabilityService.get_session_detail(
+                    db, wa_session.id
+                )
+            except ValueError:
+                detail["wa_survey_session"] = None
         return detail
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

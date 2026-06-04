@@ -356,3 +356,7 @@ None required. Sessions are written internally during WhatsApp inbound/outbound 
 | API | `GET /admin/wa-survey/simulator/options`, `POST .../simulator/start`, `POST .../simulator/answer` |
 
 Runtime uses `simulator_dry_run` on order config — same `handle_inbound_reply` / graph engine / outcome delivery, without Telnyx sends.
+
+## Operations
+
+See [wa-survey-operations-runbook.md](./wa-survey-operations-runbook.md) for admin URLs, observability endpoints, picker controls, and staging→prod checklist.

@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, ClipboardList, Pause, Phone, PhoneCall, Play, RefreshCw, Square, Users } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Activity, ClipboardList, MessageCircle, Pause, Phone, PhoneCall, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch } from '../lib/api'
+import { isWaSurveyOrder, waSessionStatusPill, deliveryOkBadge } from '../lib/waSurveyOps'
+import WaSurveySessionPanel from '../components/WaSurveySessionPanel'
 
 function surveyResponded(report) {
   return Number(report?.completed ?? report?.sent ?? 0)
@@ -56,6 +59,10 @@ export default function RunningSurveys() {
   const [editForm, setEditForm] = useState(EMPTY_CONTACT)
   const [contactDetail, setContactDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [waSessions, setWaSessions] = useState([])
+  const [waSessionsLoading, setWaSessionsLoading] = useState(false)
+  const [selectedWaSessionId, setSelectedWaSessionId] = useState(null)
+  const [waSessionDetail, setWaSessionDetail] = useState(null)
 
   const load = useCallback(async () => {
     setError('')
@@ -75,7 +82,40 @@ export default function RunningSurveys() {
     ])
     setSelected(row)
     setAudit(auditRes?.timeline || [])
+    const cfg = row?.config || {}
+    if (isWaSurveyOrder(cfg)) {
+      setWaSessionsLoading(true)
+      try {
+        const sess = await apiFetch(
+          `/admin/platform-services/surveys/wa-sessions?order_id=${encodeURIComponent(orderId)}&limit=200`,
+        )
+        setWaSessions(sess?.sessions || [])
+      } catch {
+        setWaSessions([])
+      } finally {
+        setWaSessionsLoading(false)
+      }
+    } else {
+      setWaSessions([])
+    }
+    setSelectedWaSessionId(null)
+    setWaSessionDetail(null)
   }, [])
+
+  const openWaSession = async (sessionId) => {
+    setSelectedWaSessionId(sessionId)
+    setWaSessionDetail(null)
+    setError('')
+    try {
+      const detail = await apiFetch(
+        `/admin/platform-services/surveys/wa-sessions/${encodeURIComponent(sessionId)}`,
+      )
+      setWaSessionDetail(detail)
+      setPanelTab('wa-sessions')
+    } catch (e) {
+      setError(e?.message || 'Could not load WA session')
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -249,6 +289,7 @@ export default function RunningSurveys() {
   const report = selected?.report || {}
   const analysis = report?.analysis || {}
   const isRunning = selected?.status === 'running'
+  const isWaOrder = isWaSurveyOrder(config)
 
   const overviewCards = useMemo(
     () => [
@@ -281,7 +322,8 @@ export default function RunningSurveys() {
         <div>
           <h1>Survey operations</h1>
           <p>
-            Monitor running and finished AI phone surveys. Start, pause, stop, dial contacts, and review full call data.
+            Monitor running and finished surveys. Phone orders use AI dial; WhatsApp orders use adaptive WA sessions — see{' '}
+            <Link to="/operations/wa-survey-insights" style={{ color: 'var(--grn)' }}>WA Survey insights</Link>.
           </p>
         </div>
         <div className="actions">
@@ -395,9 +437,11 @@ export default function RunningSurveys() {
               <button type="button" className="btn primary bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'start')}>
                 <Play size={14} /> Start survey
               </button>
-              <button type="button" className="btn soft bsm" disabled={!isRunning || busyKey === 'dial-next'} onClick={dialNext}>
-                <PhoneCall size={14} /> Dial next contact
-              </button>
+              {!isWaOrder ? (
+                <button type="button" className="btn soft bsm" disabled={!isRunning || busyKey === 'dial-next'} onClick={dialNext}>
+                  <PhoneCall size={14} /> Dial next contact
+                </button>
+              ) : null}
               <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'pause')}>
                 <Pause size={14} /> Pause
               </button>
@@ -426,6 +470,11 @@ export default function RunningSurveys() {
               <button type="button" className={`runningSurveyTab${panelTab === 'audit' ? ' on' : ''}`} onClick={() => setPanelTab('audit')}>
                 <Activity size={14} /> Audit
               </button>
+              {isWaOrder ? (
+                <button type="button" className={`runningSurveyTab${panelTab === 'wa-sessions' ? ' on' : ''}`} onClick={() => setPanelTab('wa-sessions')}>
+                  <MessageCircle size={14} /> WA sessions ({waSessions.length})
+                </button>
+              ) : null}
             </div>
 
             {panelTab === 'overview' ? (
@@ -446,6 +495,12 @@ export default function RunningSurveys() {
                   <div className="runningSurveyMetaLabel">Goal</div>
                   <div>{config.goal || '—'}</div>
                 </div>
+                {isWaOrder ? (
+                  <div className="runningSurveyMetaBlock">
+                    <div className="runningSurveyMetaLabel">WhatsApp flow</div>
+                    <div>{config.flow_engine || 'linear'} · channel whatsapp</div>
+                  </div>
+                ) : null}
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Call progress</div>
                   <div>{surveyResponded(report)} responded · {report.failed || 0} failed · {Math.max(0, (selected.recipient_count || 0) - surveyResponded(report) - (report.failed || 0))} pending</div>
@@ -492,6 +547,13 @@ export default function RunningSurveys() {
                     {contactDetail.recipient?.transcript ? (
                       <pre className="runningSurveyTranscript">{contactDetail.recipient.transcript}</pre>
                     ) : null}
+                    {contactDetail.wa_survey_session ? (
+                      <div style={{ marginTop: 14 }}>
+                        <WaSurveySessionPanel data={contactDetail.wa_survey_session} compact />
+                      </div>
+                    ) : isWaOrder ? (
+                      <div className="muted" style={{ marginTop: 10 }}>No WA session started for this contact yet.</div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -525,27 +587,39 @@ export default function RunningSurveys() {
                     </thead>
                     <tbody>
                       {recipients.map((r) => {
-                        const canAiCall = isRunning && r.status !== 'calling'
+                        const canAiCall = !isWaOrder && isRunning && r.status !== 'calling'
                         const canRetry = ['failed', 'no_answer', 'busy', 'completed'].includes(String(r.status || '').toLowerCase())
+                        const waSess = isWaOrder ? waSessions.find((s) => s.recipient_id === r.id) : null
                         return (
                           <tr key={r.id}>
                             <td>{r.row_number}</td>
                             <td>{r.name}</td>
                             <td>{r.phone}</td>
                             <td>{r.email || '—'}</td>
-                            <td><span className={contactPill(r.status)}>{r.status || 'pending'}</span></td>
+                            <td>
+                              {waSess ? (
+                                <span className={waSessionStatusPill(waSess.status)} title="WA session">{waSess.status}</span>
+                              ) : (
+                                <span className={contactPill(r.status)}>{r.status || 'pending'}</span>
+                              )}
+                            </td>
                             <td>
                               <div className="runningSurveyRowActions">
-                                <button
-                                  type="button"
-                                  className="btn primary bsm"
-                                  disabled={!canAiCall || busyKey === `call-${r.id}`}
-                                  title={isRunning ? 'Place AI survey call via Telnyx' : 'Start the survey first'}
-                                  onClick={() => runAiCall(r, canRetry)}
-                                >
-                                  {busyKey === `call-${r.id}` ? 'Calling…' : canRetry ? 'Call again' : 'Run AI call'}
-                                </button>
-                                {r.phone ? <a className="btn soft bsm" href={`tel:${r.phone}`}>Phone</a> : null}
+                                {canAiCall ? (
+                                  <button
+                                    type="button"
+                                    className="btn primary bsm"
+                                    disabled={busyKey === `call-${r.id}`}
+                                    title={isRunning ? 'Place AI survey call via Telnyx' : 'Start the survey first'}
+                                    onClick={() => runAiCall(r, canRetry)}
+                                  >
+                                    {busyKey === `call-${r.id}` ? 'Calling…' : canRetry ? 'Call again' : 'Run AI call'}
+                                  </button>
+                                ) : null}
+                                {!isWaOrder && r.phone ? <a className="btn soft bsm" href={`tel:${r.phone}`}>Phone</a> : null}
+                                {waSess ? (
+                                  <button type="button" className="btn soft bsm" onClick={() => openWaSession(waSess.id)}>WA session</button>
+                                ) : null}
                                 <button type="button" className="btn soft bsm" onClick={() => startEditContact(r)}>Edit</button>
                                 <button type="button" className="btn soft bsm" onClick={() => openContactDetail(r.id)}>Details</button>
                               </div>
@@ -556,6 +630,60 @@ export default function RunningSurveys() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            ) : null}
+
+            {panelTab === 'wa-sessions' && isWaOrder ? (
+              <div className="runningSurveyContactsPane">
+                {waSessionsLoading ? <div className="muted">Loading WA sessions…</div> : null}
+                {!waSessionsLoading && !waSessions.length ? (
+                  <div className="muted">No adaptive sessions for this order yet. Sessions appear after WhatsApp launch.</div>
+                ) : null}
+                {waSessionDetail ? (
+                  <div style={{ marginBottom: 14 }}>
+                    <div className="runningSurveyContactDetailHead">
+                      <strong>Session {selectedWaSessionId?.slice(0, 8)}…</strong>
+                      <button type="button" className="btn soft bsm" onClick={() => { setWaSessionDetail(null); setSelectedWaSessionId(null) }}>Close</button>
+                    </div>
+                    <WaSurveySessionPanel data={waSessionDetail} />
+                  </div>
+                ) : null}
+                {!waSessionsLoading && waSessions.length ? (
+                  <div className="tableWrap">
+                    <table className="table runningSurveyContactsTable">
+                      <thead>
+                        <tr>
+                          <th>Status</th>
+                          <th>Flow</th>
+                          <th>Outcome</th>
+                          <th>Delivery</th>
+                          <th>Picker</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {waSessions.map((s) => {
+                          const del = deliveryOkBadge(s.outcome_delivery)
+                          const recip = recipients.find((r) => r.id === s.recipient_id)
+                          return (
+                            <tr key={s.id} className={selectedWaSessionId === s.id ? 'isSelected' : ''}>
+                              <td><span className={waSessionStatusPill(s.status)}>{s.status}</span></td>
+                              <td>{s.flow_mode}</td>
+                              <td>{s.outcome_key || '—'}</td>
+                              <td><span className={del.className}>{del.label}</span></td>
+                              <td>{s.picker_invocation_count ?? 0}</td>
+                              <td>
+                                <button type="button" className="btn soft bsm" onClick={() => openWaSession(s.id)}>
+                                  {recip?.name || 'Detail'}
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

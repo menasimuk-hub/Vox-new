@@ -7905,6 +7905,71 @@ body.dark .matrix th {
 .runningSurveyAuditLabel { font-weight: 600; margin-bottom: 2px; }
 .runningSurveyAuditDetail { font-size: 12px; margin-top: 4px; color: var(--t2); }
 
+.waSurveySessionPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--b1);
+  border-radius: 10px;
+  background: var(--s1);
+}
+.waSurveySessionPanel.is-compact { padding: 10px; }
+.waSurveySessionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+.waSurveySessionMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  font-size: 12px;
+}
+.waSurveySessionLabel {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--t3);
+  margin-bottom: 2px;
+}
+.waSurveySessionSectionTitle { font-weight: 600; margin-bottom: 6px; font-size: 13px; }
+.waSurveySessionDeliveryGrid { display: flex; flex-direction: column; gap: 4px; font-size: 12px; margin-top: 8px; }
+.waSurveySessionList { list-style: none; padding: 0; margin: 0; font-size: 12px; }
+.waSurveySessionList li { padding: 4px 0; border-bottom: 1px solid var(--b1); }
+.waSurveySessionTable { font-size: 12px; }
+.waSurveyInsightStats { margin-bottom: 16px; }
+.waSurveyInsightStat { min-height: 100px; }
+.waSurveyInsightStatHint { font-size: 11px; margin-top: 6px; }
+.waSurveyInsightFilter { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+.waSurveyInsightOrderFilter { min-width: 200px; }
+.waSurveyInsightPickerNote { margin-bottom: 16px; }
+.waSurveyInsightSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .waSurveyInsightSplit { grid-template-columns: 1fr; }
+}
+.waSurveyInsightOutcomes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.waSurveyInsightOutcomeChip {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--b1);
+  background: var(--s2);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .activityStatusRail {
   display: flex;
   flex-wrap: wrap;

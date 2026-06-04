@@ -26,6 +26,7 @@ import WaSurveyTypeEdit from './pages/WaSurveyTypeEdit'
 import WaSurveyIndustries from './pages/WaSurveyIndustries'
 import WaSurveyFlowSimulator from './pages/WaSurveyFlowSimulator'
 import WaSurveyFlows from './pages/WaSurveyFlows'
+import WaSurveyInsights from './pages/WaSurveyInsights'
 import EmailTemplateEdit from './pages/EmailTemplateEdit'
 import WhatsAppTemplateEdit from './pages/WhatsAppTemplateEdit'
 import SmsTemplateEdit from './pages/SmsTemplateEdit'
@@ -106,6 +107,7 @@ export default function App() {
         <Route path='/onboarding/checklist' element={G('Go-live checklist')} />
 
         <Route path='/operations/running-surveys' element={<RunningSurveys />} />
+        <Route path='/operations/wa-survey-insights' element={<WaSurveyInsights />} />
         <Route path='/operations/running-interviews' element={<RunningInterviews />} />
         <Route path='/operations/call-queue' element={<OperationsQueue title='Call queue' />} />
         <Route path='/operations/whatsapp-queue' element={<OperationsQueue title='WhatsApp queue' />} />

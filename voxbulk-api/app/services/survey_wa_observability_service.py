@@ -13,6 +13,7 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.survey_session import SurveySession, SurveySessionAnswer, SurveySessionDecision
 from app.services.survey_flow_constants import RULE_AI_PICKER_FALLBACK
 from app.services.survey_outcome_delivery_schema import loads_outcome_delivery
+from app.services.survey_picker_settings_service import SurveyPickerSettingsService
 from app.services.survey_session_service import SurveySessionService
 
 
@@ -81,6 +82,7 @@ class SurveyWaObservabilityService:
         *,
         order_id: str | None = None,
         org_id: str | None = None,
+        survey_type_id: str | None = None,
         status: str | None = None,
         limit: int = 50,
     ) -> dict[str, Any]:
@@ -89,6 +91,8 @@ class SurveyWaObservabilityService:
             q = q.where(SurveySession.order_id == order_id)
         if org_id:
             q = q.where(SurveySession.org_id == org_id)
+        if survey_type_id:
+            q = q.where(SurveySession.survey_type_id == survey_type_id)
         if status:
             q = q.where(SurveySession.status == status)
         rows = list(db.execute(q.limit(max(1, min(limit, 200)))).scalars())
@@ -195,6 +199,8 @@ class SurveyWaObservabilityService:
 
         top_branches = sorted(branch_rule_counts.items(), key=lambda x: -x[1])[:15]
 
+        picker_settings = SurveyPickerSettingsService.get_settings(db)
+
         return {
             "since": since.isoformat(),
             "filters": {
@@ -213,4 +219,9 @@ class SurveyWaObservabilityService:
             "picker_invocation_count": picker_invocations,
             "ai_picker_fallback_count": ai_picker_fallback_count,
             "top_branch_rule_keys": [{"rule_key": k, "count": v} for k, v in top_branches],
+            "picker": {
+                "platform_enabled": SurveyPickerSettingsService.is_platform_picker_enabled(db),
+                "kill_switch": bool(picker_settings.get("kill_switch")),
+                "max_calls_per_session": picker_settings.get("max_calls_per_session"),
+            },
         }
