@@ -5,6 +5,16 @@ import WaSurveyPhonePreview from './WaSurveyPhonePreview'
 
 const PAGE_SIZE = 2
 
+function buttonTypeLabel(type) {
+  const map = {
+    quick_reply: 'Quick reply',
+    url: 'URL button',
+    phone: 'Phone CTA',
+    none: 'Plain text',
+  }
+  return map[type] || type || 'Plain text'
+}
+
 function formatButtons(tpl) {
   const preview = tpl?.preview || {}
   const raw = preview.buttons || tpl?.buttons_preview || []
@@ -14,6 +24,7 @@ function formatButtons(tpl) {
       label: b.label || b.text || 'Button',
       url: b.url || '',
       phone: b.phone_number || '',
+      type: b.type || tpl?.button_type,
     }))
   }
   const bt = tpl?.button_type
@@ -24,14 +35,16 @@ function formatButtons(tpl) {
     label: b.text || 'Button',
     url: b.url || '',
     phone: b.phone_number || '',
+    type: bt,
   }))
 }
 
-function PackTemplateReviewCard({
+function PackTemplateGalleryCard({
   item,
   editing,
   saved,
   workingKey,
+  cardError,
   onToggleEdit,
   onEdit,
   onSave,
@@ -40,40 +53,58 @@ function PackTemplateReviewCard({
   const tpl = item.template
   const preview = tpl?.preview || {}
   const buttons = formatButtons(tpl)
-  const cardWorking = workingKey === `save-${item.index}` || workingKey === `regen-${item.index}`
+  const isSaving = workingKey === `save-${item.index}`
+  const isRegenerating = workingKey === `regen-${item.index}`
+  const cardBusy = isSaving || isRegenerating
 
   if (!tpl) {
     return (
-      <article className="waSurveyPackReviewCard waSurveyPackReviewCardInvalid">
-        <header className="waSurveyPackReviewHead">
-          <strong>Template #{item.index + 1} — invalid</strong>
+      <article className="waSurveyPackGalleryCard waSurveyPackGalleryCardInvalid">
+        <header className="waSurveyPackGalleryHead">
+          <div>
+            <span className="waSurveyPackSlotLabel">Template {item.index + 1}</span>
+            <h4>Invalid draft</h4>
+          </div>
         </header>
+        {cardError ? <div className="alert error waSurveyPackCardAlert">{cardError}</div> : null}
         <ul className="waSurveyPackErrorList">
           {(item.errors || []).map((e) => <li key={e}>{e}</li>)}
         </ul>
-        <div className="waSurveyPackReviewActions">
-          <button type="button" className="btn sm" disabled={cardWorking} onClick={() => onRegenerate(item)}>
-            {workingKey === `regen-${item.index}` ? 'Regenerating…' : 'Regenerate'}
+        <footer className="waSurveyPackGalleryActions">
+          <button type="button" className="btn" disabled={cardBusy} onClick={() => onRegenerate(item)}>
+            {isRegenerating ? 'Regenerating this template…' : 'Regenerate this template'}
           </button>
-        </div>
+        </footer>
       </article>
     )
   }
 
   return (
-    <article className={`waSurveyPackReviewCard${saved ? ' is-saved' : ''}`}>
-      <header className="waSurveyPackReviewHead">
+    <article className={`waSurveyPackGalleryCard${saved ? ' is-saved' : ''}${cardBusy ? ' is-busy' : ''}`}>
+      {cardBusy ? <div className="waSurveyPackGalleryBusy">{isRegenerating ? 'Regenerating…' : 'Saving…'}</div> : null}
+
+      <header className="waSurveyPackGalleryHead">
         <div>
-          <strong>{tpl.title || tpl.template_name}</strong>
-          <p className="muted waSurveyPackReviewMetaLine">
-            {tpl.purpose} · {tpl.variant_type} · {tpl.button_type}
-          </p>
+          <span className="waSurveyPackSlotLabel">Template {item.index + 1}</span>
+          <h4>{tpl.title || tpl.template_name}</h4>
+          <div className="waSurveyPackBadgeRow">
+            <span className="waSurveyPackBadge">{tpl.variant_type}</span>
+            <span className="waSurveyPackBadge">{tpl.purpose}</span>
+            <span className="waSurveyPackBadge is-accent">{buttonTypeLabel(tpl.button_type)}</span>
+          </div>
         </div>
-        {saved ? <span className="waSurveyPackSavedBadge">Saved</span> : null}
+        {saved ? <span className="waSurveyPackSavedBadge">Saved as draft</span> : null}
       </header>
 
-      <div className="waSurveyPackReviewLayout">
-        <div className="waSurveyPackReviewPreview">
+      {cardError ? <div className="alert error waSurveyPackCardAlert">{cardError}</div> : null}
+      {item.errors?.length ? (
+        <ul className="waSurveyPackErrorList">
+          {item.errors.map((e) => <li key={e}>{e}</li>)}
+        </ul>
+      ) : null}
+
+      <div className="waSurveyPackGalleryBody">
+        <div className="waSurveyPackGalleryPhone">
           <WaSurveyPhonePreview
             businessName={tpl.example_values?.[1] || 'Northgate Dental'}
             renderedBody={preview.rendered_body || tpl.body}
@@ -84,73 +115,66 @@ function PackTemplateReviewCard({
           />
         </div>
 
-        <div className="waSurveyPackReviewDetails">
-          {item.errors?.length ? (
-            <ul className="waSurveyPackErrorList">
-              {item.errors.map((e) => <li key={e}>{e}</li>)}
-            </ul>
-          ) : null}
+        <div className="waSurveyPackGalleryMeta">
+          <div className="waSurveyPackMetaBlock">
+            <span className="label">Body</span>
+            {editing ? (
+              <textarea className="input msgFieldEditorBox" rows={6} value={tpl.body} onChange={(e) => onEdit(item.index, { body: e.target.value })} />
+            ) : (
+              <p className="waSurveyPackCopy">{tpl.body}</p>
+            )}
+          </div>
 
-          <dl className="waSurveyPackDetailList">
-            <div>
-              <dt>Variables</dt>
-              <dd>
-                {(tpl.example_values || []).map((val, i) => (
-                  <span key={i} className="waSurveyPackVarChip">{`{{${i + 1}}} = ${val}`}</span>
+          <div className="waSurveyPackMetaBlock">
+            <span className="label">Footer</span>
+            {editing ? (
+              <input className="input" value={tpl.footer} onChange={(e) => onEdit(item.index, { footer: e.target.value })} />
+            ) : (
+              <p className="waSurveyPackCopy waSurveyPackCopyFooter">{tpl.footer}</p>
+            )}
+          </div>
+
+          <div className="waSurveyPackMetaBlock">
+            <span className="label">Variables</span>
+            <div className="waSurveyPackChipRow">
+              {(tpl.example_values || []).map((val, i) => (
+                <span key={i} className="waSurveyPackVarChip">{`{{${i + 1}}} → ${val}`}</span>
+              ))}
+            </div>
+          </div>
+
+          <div className="waSurveyPackMetaBlock">
+            <span className="label">Buttons / CTA</span>
+            {buttons.length ? (
+              <ul className="waSurveyPackButtonList">
+                {buttons.map((b) => (
+                  <li key={b.key}>
+                    <strong>{b.label}</strong>
+                    {b.url ? <span className="fieldHint">{b.url}</span> : null}
+                    {b.phone ? <span className="fieldHint">{b.phone}</span> : null}
+                  </li>
                 ))}
-              </dd>
-            </div>
-            <div>
-              <dt>Buttons</dt>
-              <dd>
-                {buttons.length ? buttons.map((b) => (
-                  <span key={b.key} className="waSurveyPackBtnChip">{b.label}</span>
-                )) : <span className="muted">None (plain text)</span>}
-              </dd>
-            </div>
-            <div>
-              <dt>Telnyx name</dt>
-              <dd className="fieldHint">{tpl.telnyx_name}</dd>
-            </div>
-          </dl>
+              </ul>
+            ) : (
+              <p className="muted">No buttons — plain text message</p>
+            )}
+          </div>
 
-          {editing ? (
-            <>
-              <label className="msgFieldBlock">
-                <span className="label">Body</span>
-                <textarea className="input msgFieldEditorBox" rows={5} value={tpl.body} onChange={(e) => onEdit(item.index, { body: e.target.value })} />
-              </label>
-              <label className="msgFieldBlock">
-                <span className="label">Footer</span>
-                <input className="input" value={tpl.footer} onChange={(e) => onEdit(item.index, { footer: e.target.value })} />
-              </label>
-            </>
-          ) : (
-            <>
-              <div className="waSurveyPackTextBlock">
-                <span className="label">Body</span>
-                <p>{tpl.body}</p>
-              </div>
-              <div className="waSurveyPackTextBlock">
-                <span className="label">Footer</span>
-                <p>{tpl.footer}</p>
-              </div>
-            </>
-          )}
+          <p className="fieldHint waSurveyPackTelnyxName">Telnyx: {tpl.telnyx_name}</p>
         </div>
       </div>
 
-      <div className="waSurveyPackReviewActions">
-        <button type="button" className="btn primary sm" disabled={cardWorking || !item.valid} onClick={() => onSave(item)}>
-          {workingKey === `save-${item.index}` ? 'Saving…' : 'Save'}
+      <footer className="waSurveyPackGalleryActions">
+        <button type="button" className="btn primary" disabled={cardBusy || !item.valid} onClick={() => onSave(item)}>
+          {isSaving ? 'Saving draft…' : 'Save this template'}
         </button>
-        <button type="button" className="btn sm" disabled={cardWorking} onClick={() => onRegenerate(item)}>
-          {workingKey === `regen-${item.index}` ? 'Regenerating…' : 'Regenerate'}
+        <button type="button" className="btn" disabled={cardBusy} onClick={() => onRegenerate(item)}>
+          {isRegenerating ? 'Regenerating…' : 'Regenerate this template'}
         </button>
-        <button type="button" className="btn ghost sm" onClick={() => onToggleEdit(item.index)}>
-          {editing ? 'Done editing' : 'Edit'}
+        <button type="button" className="btn ghost" disabled={cardBusy} onClick={() => onToggleEdit(item.index)}>
+          {editing ? 'Done editing' : 'Edit body/footer'}
         </button>
-      </div>
+      </footer>
     </article>
   )
 }
@@ -165,6 +189,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   const [page, setPage] = useState(0)
   const [editing, setEditing] = useState(() => new Set())
   const [savedIndices, setSavedIndices] = useState(() => new Set())
+  const [cardErrors, setCardErrors] = useState(() => ({}))
 
   const reset = () => {
     setInstruction('')
@@ -175,6 +200,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     setPage(0)
     setEditing(new Set())
     setSavedIndices(new Set())
+    setCardErrors({})
   }
 
   useEffect(() => {
@@ -206,6 +232,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     setWorking('generate')
     setError('')
     setMsg('')
+    setCardErrors({})
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/generate-pack`, {
         method: 'POST',
@@ -257,6 +284,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   const saveOne = async (item) => {
     if (!item?.template) return
     setWorking(`save-${item.index}`)
+    setCardErrors((prev) => ({ ...prev, [item.index]: '' }))
     setError('')
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/save-pack`, {
@@ -264,10 +292,11 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
         body: JSON.stringify({ templates: [item.template] }),
       })
       setSavedIndices((prev) => new Set(prev).add(item.index))
-      setMsg(formatActionSuccess(data, `Saved “${item.template.title || item.template.template_name}” as draft`).message)
+      setMsg(formatActionSuccess(data, `Saved “${item.template.title || item.template.template_name}” as local draft`).message)
       onSaved?.()
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Could not save template').message)
+      const err = formatWaSurveyError(e, 'Could not save template').message
+      setCardErrors((prev) => ({ ...prev, [item.index]: err }))
     } finally {
       setWorking('')
     }
@@ -275,6 +304,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
 
   const regenerateOne = async (item) => {
     setWorking(`regen-${item.index}`)
+    setCardErrors((prev) => ({ ...prev, [item.index]: '' }))
     setError('')
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/regenerate-pack-item`, {
@@ -295,9 +325,15 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
         next.delete(item.index)
         return next
       })
-      setMsg(formatActionSuccess(data, `Regenerated template #${item.index + 1}`).message)
+      setSavedIndices((prev) => {
+        const next = new Set(prev)
+        next.delete(item.index)
+        return next
+      })
+      setMsg(formatActionSuccess(data, `Regenerated template ${item.index + 1} only — other templates unchanged`).message)
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Regenerate failed').message)
+      const err = formatWaSurveyError(e, 'Regenerate failed').message
+      setCardErrors((prev) => ({ ...prev, [item.index]: err }))
     } finally {
       setWorking('')
     }
@@ -325,69 +361,72 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   if (!open) return null
 
   return (
-    <div className="waSurveyModalBackdrop" role="dialog" aria-modal="true">
-      <div className="waSurveyModal waSurveyPackModal">
-        <div className="waSurveyModalHead">
-          <div>
+    <div className="waSurveyPackBackdrop" role="dialog" aria-modal="true">
+      <div className="waSurveyPackShell">
+        <header className="waSurveyPackTopBar">
+          <div className="waSurveyPackTopBarMain">
             <h2>Generate 10 Templates with OpenAI</h2>
-            <p className="muted">{surveyTypeName} — review 2 at a time, save or regenerate individually</p>
+            <p className="muted">{surveyTypeName} — full-width template gallery · 2 per page · save or regenerate individually</p>
           </div>
-          <button type="button" className="btn ghost" onClick={onClose}>Close</button>
+          <div className="waSurveyPackTopBarActions">
+            {items.length ? (
+              <div className="waSurveyPackPager">
+                <button type="button" className="btn sm ghost" disabled={page <= 0} onClick={() => setPage((p) => p - 1)}>
+                  Previous
+                </button>
+                <span className="waSurveyPackPagerLabel">{page + 1} / {totalPages}</span>
+                <button type="button" className="btn sm ghost" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>
+                  Next
+                </button>
+              </div>
+            ) : null}
+            <button type="button" className="btn ghost" onClick={onClose}>Close</button>
+          </div>
+        </header>
+
+        {error ? <div className="alert error waSurveyPackGlobalAlert"><strong>{error}</strong></div> : null}
+        {msg ? <div className="alert ok waSurveyPackGlobalAlert"><strong>{msg}</strong></div> : null}
+
+        <div className="waSurveyPackToolbar">
+          <label className="waSurveyPackToolbarField">
+            <span className="label">Purpose</span>
+            <input className="input" value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Post-visit feedback, reminders…" />
+          </label>
+          <label className="waSurveyPackToolbarField waSurveyPackToolbarFieldGrow">
+            <span className="label">Admin instruction</span>
+            <input className="input" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Tone, emoji level, CTA style…" />
+          </label>
+          <div className="waSurveyPackToolbarButtons">
+            <button type="button" className="btn primary" onClick={generatePack} disabled={working === 'generate'}>
+              {working === 'generate' ? 'Generating pack…' : 'Generate 10 templates'}
+            </button>
+            {pack ? (
+              <button type="button" className="btn" onClick={saveAllValid} disabled={working === 'save-all'}>
+                {working === 'save-all' ? 'Saving all…' : 'Save all valid'}
+              </button>
+            ) : null}
+          </div>
+          {pack?.openai ? (
+            <span className="fieldHint waSurveyPackModelHint">Model: {pack.openai.model}</span>
+          ) : null}
         </div>
 
-        {error ? <div className="alert error"><strong>{error}</strong></div> : null}
-        {msg ? <div className="alert ok"><strong>{msg}</strong></div> : null}
-
-        <div className="waSurveyModalBody waSurveyPackBody">
-          <section className="card waSurveyPackSettings">
-            <div className="cardHead"><h3>Generation settings</h3></div>
-            <div className="cardBody grid2">
-              <label className="msgFieldBlock span2">
-                <span className="label">Template purpose (optional)</span>
-                <input className="input" value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="e.g. post-visit feedback, reminders" />
-              </label>
-              <label className="msgFieldBlock span2">
-                <span className="label">Admin instruction (optional)</span>
-                <textarea className="input" rows={3} value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Tone, emoji level, industry, CTA style…" />
-              </label>
-              <div className="span2 btnRow">
-                <button type="button" className="btn primary" onClick={generatePack} disabled={working === 'generate'}>
-                  {working === 'generate' ? 'Generating…' : 'Generate 10 Templates with OpenAI'}
-                </button>
-                {pack ? (
-                  <button type="button" className="btn" onClick={saveAllValid} disabled={working === 'save-all'}>
-                    {working === 'save-all' ? 'Saving all…' : 'Save all valid drafts'}
-                  </button>
-                ) : null}
-              </div>
-              {pack?.openai ? (
-                <p className="fieldHint span2">Model: {pack.openai.model} · API: {pack.openai.api_style}</p>
-              ) : null}
-            </div>
-          </section>
-
+        <div className="waSurveyPackScroll">
           {items.length ? (
-            <section className="card waSurveyPackReviewSection">
-              <div className="cardHead waSurveyPackReviewToolbar">
-                <h3>Preview pack ({pack.valid_count}/{pack.generated_count} valid)</h3>
-                <div className="waSurveyPackPager">
-                  <button type="button" className="btn sm ghost" disabled={page <= 0} onClick={() => setPage((p) => p - 1)}>
-                    Previous
-                  </button>
-                  <span className="waSurveyPackPagerLabel">Page {page + 1} of {totalPages}</span>
-                  <button type="button" className="btn sm ghost" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>
-                    Next
-                  </button>
-                </div>
+            <>
+              <div className="waSurveyPackGalleryHeader">
+                <h3>Template gallery</h3>
+                <span className="muted">{pack.valid_count} valid · {pack.generated_count} generated</span>
               </div>
-              <div className="cardBody waSurveyPackReviewGrid">
+              <div className="waSurveyPackGallery">
                 {pageItems.map((item) => (
-                  <PackTemplateReviewCard
+                  <PackTemplateGalleryCard
                     key={item.index}
                     item={item}
                     editing={editing.has(item.index)}
                     saved={savedIndices.has(item.index)}
                     workingKey={working}
+                    cardError={cardErrors[item.index]}
                     onToggleEdit={toggleEdit}
                     onEdit={editTemplate}
                     onSave={saveOne}
@@ -395,8 +434,12 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
                   />
                 ))}
               </div>
-            </section>
-          ) : null}
+            </>
+          ) : (
+            <div className="waSurveyPackEmpty">
+              <p>Generate a 10-template pack to open the gallery. Each template gets its own WhatsApp preview, Save, and Regenerate controls.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
