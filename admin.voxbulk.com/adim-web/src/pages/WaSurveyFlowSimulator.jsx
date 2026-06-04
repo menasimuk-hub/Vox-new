@@ -45,9 +45,11 @@ export default function WaSurveyFlowSimulator() {
         setSurveyTypeId(deepLinkTypeId)
         setPrivacyMode(deepLinkPrivacy || 'off')
       } else {
-        setIndustryId(data.default_industry_id || '')
-        setSurveyTypeId(data.default_survey_type_id || '')
-        setPrivacyMode(data.default_privacy_mode || 'off')
+        // No deep link — show all industries/types; admin selects before starting.
+        setIndustryId('')
+        setSurveyTypeId('')
+        setPrivacyMode('off')
+        setPrefill(null)
       }
     } catch (e) {
       setError(e?.message || 'Failed to load simulator options')
@@ -176,9 +178,14 @@ export default function WaSurveyFlowSimulator() {
   }, [autoStartRequested, loading, busy, surveyTypeId, prefill, startSession, sendLive])
 
   const onSurveyTypeChange = async (nextTypeId, nextIndustryId) => {
+    if (!nextTypeId) {
+      setSurveyTypeId('')
+      setPrefill(null)
+      return
+    }
     setSurveyTypeId(nextTypeId)
-    if (nextIndustryId) setIndustryId(nextIndustryId)
-    await loadPrefill(nextTypeId, privacyMode, nextIndustryId || industryId)
+    const industryForPrefill = nextIndustryId || industryId || undefined
+    await loadPrefill(nextTypeId, privacyMode, industryForPrefill)
   }
 
   const onPrivacyChange = async (pm) => {
@@ -353,15 +360,11 @@ export default function WaSurveyFlowSimulator() {
                 onChange={(e) => {
                   const nextIndustry = e.target.value
                   setIndustryId(nextIndustry)
-                  const typesForInd = (options?.survey_types || []).filter((t) => t.industry_id === nextIndustry)
-                  const first = typesForInd[0]
-                  if (first) void onSurveyTypeChange(first.id, nextIndustry)
-                  else {
-                    setSurveyTypeId('')
-                    setPrefill(null)
-                  }
+                  setSurveyTypeId('')
+                  setPrefill(null)
                 }}
               >
+                <option value="">All industries</option>
                 {(options?.industries || []).map((i) => (
                   <option key={i.id} value={i.id}>
                     {i.name}

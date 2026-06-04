@@ -67,7 +67,7 @@ export default function WaSurveyTypes() {
       const data = await apiFetch('/admin/wa-survey/industries')
       const list = Array.isArray(data?.industries) ? data.industries : []
       setIndustries(list)
-      setIndustryFilter((prev) => prev || String(list[0]?.id || ''))
+      // Default to all industries — admin picks the filter explicitly.
       setNewIndustryId((prev) => prev || String(list[0]?.id || ''))
     } catch (e) {
       showError(e, 'Could not load industries')
@@ -119,9 +119,13 @@ export default function WaSurveyTypes() {
   }
 
   useEffect(() => {
-    loadIndustries().then(() => load())
+    loadIndustries()
     loadPickerSettings()
-  }, [loadIndustries, load, loadPickerSettings])
+  }, [loadIndustries, loadPickerSettings])
+
+  useEffect(() => {
+    load()
+  }, [load])
 
   const syncAll = async () => {
     setSyncing(true)
