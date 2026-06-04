@@ -11,10 +11,18 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.survey_template_pack import SurveyTemplatePack
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_step_bank_service import ALL_STEP_ROLES, PACK_STEP_ROLES, normalize_step_role
+from app.services.wa_template_privacy import (
+    PRIVACY_MODE_OFF,
+    PRIVACY_MODE_ON,
+    normalize_privacy_mode,
+    privacy_mode_to_variant,
+    validate_privacy_mode_content,
+)
 from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.survey_whatsapp_template_service import (
     ANONYMOUS_BODY_SENTENCE,
@@ -216,18 +224,33 @@ def build_components_from_generated(item: dict[str, Any]) -> list[dict[str, Any]
     return components
 
 
-def validate_generated_template(item: dict[str, Any], *, survey_type: SurveyType | None = None) -> tuple[dict[str, Any] | None, list[str]]:
+def validate_generated_template(
+    item: dict[str, Any],
+    *,
+    survey_type: SurveyType | None = None,
+    privacy_mode: str = PRIVACY_MODE_OFF,
+) -> tuple[dict[str, Any] | None, list[str]]:
     errors: list[str] = []
     if not isinstance(item, dict):
         return None, ["Template must be an object"]
+
+    privacy_mode = normalize_privacy_mode(privacy_mode)
+    if not item.get("privacy_mode") and str(item.get("variant_type") or "").strip().lower() == VARIANT_ANONYMOUS:
+        privacy_mode = PRIVACY_MODE_ON
+    forced_variant = privacy_mode_to_variant(privacy_mode)
 
     template_name = _slug_token(item.get("template_name"), fallback="")
     if not template_name or not _NAME_RE.match(template_name):
         errors.append("template_name must be 3–64 lowercase letters, numbers, or underscores")
 
-    variant = str(item.get("variant_type") or VARIANT_STANDARD).strip().lower()
+    variant = str(item.get("variant_type") or forced_variant).strip().lower()
     if variant not in {VARIANT_STANDARD, VARIANT_ANONYMOUS}:
         errors.append("variant_type must be standard or anonymous")
+    if variant != forced_variant:
+        errors.append(
+            f"variant_type must be {forced_variant} for Privacy Mode "
+            f"{'On' if privacy_mode == PRIVACY_MODE_ON else 'Off'}"
+        )
 
     body = str(item.get("body") or "").strip()
     if not body:
@@ -284,6 +307,16 @@ def validate_generated_template(item: dict[str, Any], *, survey_type: SurveyType
         if footer != ANONYMOUS_FOOTER:
             errors.append(f"anonymous templates must use footer “{ANONYMOUS_FOOTER}”")
 
+    errors.extend(
+        validate_privacy_mode_content(
+            privacy_mode=privacy_mode,
+            header=header,
+            body=body,
+            footer=footer,
+            example_values=examples,
+        )
+    )
+
     if survey_type is not None:
         telnyx_name = _telnyx_pack_name(survey_type.slug, template_name or "template")
         if len(telnyx_name) < 8:
@@ -298,7 +331,8 @@ def validate_generated_template(item: dict[str, Any], *, survey_type: SurveyType
 
     normalized = {
         "template_name": template_name,
-        "variant_type": variant,
+        "variant_type": forced_variant,
+        "privacy_mode": privacy_mode,
         "title": str(item.get("title") or template_name).strip()[:128],
         "step_role": step_role,
         "purpose": str(item.get("purpose") or step_role).strip()[:128],
@@ -316,23 +350,60 @@ def validate_generated_template(item: dict[str, Any], *, survey_type: SurveyType
     return normalized, []
 
 
-def _pack_system_prompt() -> str:
-    return (
-        "You are an expert WhatsApp Business template copywriter for VoxBulk customer satisfaction surveys. "
-        "Write exactly 10 reusable Meta/Telnyx-compatible templates that feel native on WhatsApp — warm, mobile-first, "
-        "and visually appealing while staying Meta approval-friendly (no spam, no ALL CAPS shouting, no false urgency). "
-        "Use British English. Do not use OpenAI Realtime.\n\n"
-        "VARIABLES (Meta format, sequential, must appear in body/header):\n"
-        "{{1}} = customer first name\n"
-        "{{2}} = business/service name\n"
-        "{{3}} = survey link or reference code\n"
-        "{{4}} = appointment or service date when relevant\n\n"
+def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
+    privacy_mode = normalize_privacy_mode(privacy_mode)
+    anonymous_block = ""
+    style_mix = (
         "STYLE MIX — make all 10 feel distinct, not repetitive:\n"
         "• 2 warm/friendly (emoji-friendly, conversational)\n"
         "• 2 premium/professional (polished, trust-building, minimal emoji)\n"
         "• 2 short/direct (under ~280 chars, punchy hook)\n"
         "• 2 follow-up/reminder (gentle nudge, ‘still time to…’)\n"
-        "• 2 anonymous feedback (variant_type anonymous)\n\n"
+        "• 2 standard identified feedback (variant_type standard)\n\n"
+    )
+    variable_block = (
+        "VARIABLES (Meta format, sequential, must appear in body/header):\n"
+        "{{1}} = customer first name\n"
+        "{{2}} = business/service name\n"
+        "{{3}} = survey link or reference code\n"
+        "{{4}} = appointment or service date when relevant\n\n"
+    )
+    if privacy_mode == PRIVACY_MODE_ON:
+        style_mix = (
+            "PRIVACY MODE ON — all 10 templates must use variant_type anonymous.\n"
+            "Every template must clearly state responses are anonymous and must not identify the recipient.\n"
+            "STYLE MIX — make all 10 feel distinct while staying anonymous:\n"
+            "• 2 warm/friendly\n"
+            "• 2 premium/professional\n"
+            "• 2 short/direct\n"
+            "• 2 follow-up/reminder\n"
+            "• 2 completion/thank-you focused\n\n"
+        )
+        variable_block = (
+            "VARIABLES (Meta format — anonymous mode):\n"
+            "Do NOT use {{1}} or any customer-name variable.\n"
+            "Use only {{2}} = business/service name and {{3}} = survey link when needed.\n"
+            "Never include reference numbers, case IDs, ticket IDs, order IDs, CSAT codes, or tracking codes.\n\n"
+        )
+        anonymous_block = (
+            f"All templates: variant_type anonymous; body must include that the survey is anonymous; "
+            f"footer must be exactly “{ANONYMOUS_FOOTER}”. "
+            "Start/invite copy must say feedback is anonymous — never use the customer's name.\n\n"
+        )
+    else:
+        anonymous_block = (
+            "PRIVACY MODE OFF — all templates must use variant_type standard (identified/normal wording).\n"
+            "Do not generate anonymous variant_type templates in this pack.\n\n"
+        )
+
+    return (
+        "You are an expert WhatsApp Business template copywriter for VoxBulk customer satisfaction surveys. "
+        "Write exactly 10 reusable Meta/Telnyx-compatible templates that feel native on WhatsApp — warm, mobile-first, "
+        "and visually appealing while staying Meta approval-friendly (no spam, no ALL CAPS shouting, no false urgency). "
+        "Use British English. Do not use OpenAI Realtime.\n\n"
+        f"{anonymous_block}"
+        f"{variable_block}"
+        f"{style_mix}"
         "EMOJIS: use tasteful emojis in at least 6 of 10 templates (e.g. 👋 ✨ 📋 ⭐ 🙏 — never more than 3 per message). "
         "Skip emojis on premium/professional variants.\n\n"
         "CTA COPY — weave in natural action phrases such as: ‘Tap below’, ‘Rate your experience’, ‘Share feedback’, "
@@ -364,11 +435,14 @@ def _pack_system_prompt() -> str:
     )
 
 
-def _pack_user_prompt(*, survey_type: SurveyType, purpose: str, instruction: str) -> str:
+def _pack_user_prompt(*, survey_type: SurveyType, purpose: str, instruction: str, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
+    privacy_mode = normalize_privacy_mode(privacy_mode)
     is_csat = survey_type.slug in {"customer_satisfaction", "csat", "nps"} or "satisfaction" in survey_type.slug
     parts = [
         f"Survey type: {survey_type.name}",
         f"Slug: {survey_type.slug}",
+        f"Service type: {survey_type.slug}",
+        f"Privacy Mode: {'On (anonymous)' if privacy_mode == PRIVACY_MODE_ON else 'Off (identified)'}",
         f"Description: {survey_type.description or survey_type.name}",
         f"Supports anonymous: {bool(survey_type.supports_anonymous)}",
     ]
@@ -390,9 +464,9 @@ def _pack_user_prompt(*, survey_type: SurveyType, purpose: str, instruction: str
     return "\n".join(parts)
 
 
-def _single_template_system_prompt() -> str:
+def _single_template_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
     return (
-        _pack_system_prompt()
+        _pack_system_prompt(privacy_mode=privacy_mode)
         + "\n\nYou are regenerating ONE template slot. Return JSON with a single `template` object. "
         "Make it noticeably better, more WhatsApp-native, and more button-aware than a generic draft."
     )
@@ -406,8 +480,9 @@ def _single_template_user_prompt(
     slot_hint: str,
     current_template: dict[str, Any] | None,
     sibling_summaries: list[dict[str, Any]] | None,
+    privacy_mode: str = PRIVACY_MODE_OFF,
 ) -> str:
-    parts = [_pack_user_prompt(survey_type=survey_type, purpose=purpose, instruction=instruction)]
+    parts = [_pack_user_prompt(survey_type=survey_type, purpose=purpose, instruction=instruction, privacy_mode=privacy_mode)]
     if slot_hint.strip():
         parts.append(f"Slot/style to preserve: {slot_hint.strip()}")
     if current_template:
@@ -435,8 +510,9 @@ def _build_pack_item_row(
     idx: int,
     item: dict[str, Any],
     seen_names: set[str],
+    privacy_mode: str = PRIVACY_MODE_OFF,
 ) -> dict[str, Any]:
-    normalized, errors = validate_generated_template(item, survey_type=survey_type)
+    normalized, errors = validate_generated_template(item, survey_type=survey_type, privacy_mode=privacy_mode)
     row: dict[str, Any] = {
         "index": idx,
         "raw": item,
@@ -477,12 +553,21 @@ class SurveyWaTemplatePackService:
         survey_type: SurveyType,
         purpose: str = "",
         instruction: str = "",
+        privacy_mode: str = PRIVACY_MODE_OFF,
+        theme_variant: str = "",
+        template_count: int = PACK_SIZE,
     ) -> dict[str, Any]:
+        privacy_mode = normalize_privacy_mode(privacy_mode)
         try:
             raw, meta = OpenAIProviderService.responses_json(
                 db,
-                system_prompt=_pack_system_prompt(),
-                user_prompt=_pack_user_prompt(survey_type=survey_type, purpose=purpose, instruction=instruction),
+                system_prompt=_pack_system_prompt(privacy_mode=privacy_mode),
+                user_prompt=_pack_user_prompt(
+                    survey_type=survey_type,
+                    purpose=purpose,
+                    instruction=instruction,
+                    privacy_mode=privacy_mode,
+                ),
                 json_schema=WA_TEMPLATE_PACK_JSON_SCHEMA,
                 schema_name="wa_survey_template_pack",
                 max_output_tokens=16000,
@@ -504,7 +589,14 @@ class SurveyWaTemplatePackService:
         invalid: list[dict[str, Any]] = []
         seen_names: set[str] = set()
         for idx, item in enumerate(items):
-            row = _build_pack_item_row(db, survey_type=survey_type, idx=idx, item=item, seen_names=seen_names)
+            row = _build_pack_item_row(
+                db,
+                survey_type=survey_type,
+                idx=idx,
+                item=item,
+                seen_names=seen_names,
+                privacy_mode=privacy_mode,
+            )
             if row.get("valid") and row.get("template"):
                 validated.append(row)
             else:
@@ -514,6 +606,10 @@ class SurveyWaTemplatePackService:
             "ok": True,
             "survey_type_id": survey_type.id,
             "survey_type_name": survey_type.name,
+            "service_type": survey_type.slug,
+            "privacy_mode": privacy_mode,
+            "theme_variant": str(theme_variant or "").strip() or None,
+            "template_count": int(template_count or PACK_SIZE),
             "generated_count": len(items),
             "valid_count": len(validated),
             "invalid_count": len(invalid),
@@ -534,11 +630,15 @@ class SurveyWaTemplatePackService:
         current_template: dict[str, Any] | None = None,
         sibling_summaries: list[dict[str, Any]] | None = None,
         seen_names: list[str] | None = None,
+        privacy_mode: str = PRIVACY_MODE_OFF,
     ) -> dict[str, Any]:
+        privacy_mode = normalize_privacy_mode(
+            privacy_mode or (current_template or {}).get("privacy_mode") or PRIVACY_MODE_OFF
+        )
         try:
             raw, meta = OpenAIProviderService.responses_json(
                 db,
-                system_prompt=_single_template_system_prompt(),
+                system_prompt=_single_template_system_prompt(privacy_mode=privacy_mode),
                 user_prompt=_single_template_user_prompt(
                     survey_type=survey_type,
                     purpose=purpose,
@@ -546,6 +646,7 @@ class SurveyWaTemplatePackService:
                     slot_hint=slot_hint,
                     current_template=current_template,
                     sibling_summaries=sibling_summaries,
+                    privacy_mode=privacy_mode,
                 ),
                 json_schema=WA_SINGLE_TEMPLATE_JSON_SCHEMA,
                 schema_name="wa_survey_template_single",
@@ -568,8 +669,9 @@ class SurveyWaTemplatePackService:
             idx=int(index),
             item=item,
             seen_names=names,
+            privacy_mode=privacy_mode,
         )
-        return {"ok": True, "item": row, "openai": meta}
+        return {"ok": True, "item": row, "openai": meta, "privacy_mode": privacy_mode}
 
     @staticmethod
     def save_selected_templates(
@@ -577,24 +679,57 @@ class SurveyWaTemplatePackService:
         *,
         survey_type: SurveyType,
         templates: list[dict[str, Any]],
+        privacy_mode: str = PRIVACY_MODE_OFF,
+        theme_variant: str = "",
+        purpose: str = "",
+        instruction: str = "",
     ) -> dict[str, Any]:
         if not templates:
             raise SurveyWaTemplatePackError("Select at least one template to save")
 
+        privacy_mode = normalize_privacy_mode(
+            privacy_mode or (templates[0] or {}).get("privacy_mode") or PRIVACY_MODE_OFF
+        )
+        pack = SurveyTemplatePack(
+            id=str(uuid.uuid4()),
+            survey_type_id=survey_type.id,
+            privacy_mode=privacy_mode,
+            template_count=len(templates),
+            service_type=str(survey_type.slug or ""),
+            theme_variant=str(theme_variant or "").strip() or None,
+            purpose=str(purpose or "").strip() or None,
+            instruction=str(instruction or "").strip() or None,
+            created_at=_now(),
+        )
+        db.add(pack)
+        db.flush()
+
         saved: list[dict[str, Any]] = []
         errors: list[str] = []
         for item in templates:
-            normalized, val_errors = validate_generated_template(item, survey_type=survey_type)
+            item = {**item, "privacy_mode": privacy_mode}
+            normalized, val_errors = validate_generated_template(
+                item,
+                survey_type=survey_type,
+                privacy_mode=privacy_mode,
+            )
             if not normalized:
                 errors.append(f"{item.get('template_name') or 'template'}: {'; '.join(val_errors)}")
                 continue
             try:
-                row = SurveyWaTemplatePackService._create_draft_row(db, survey_type=survey_type, item=normalized)
+                row = SurveyWaTemplatePackService._create_draft_row(
+                    db,
+                    survey_type=survey_type,
+                    item=normalized,
+                    pack_id=pack.id,
+                    privacy_mode=privacy_mode,
+                )
                 saved.append(survey_template_to_dict(row, linked_survey_type_count=1))
             except SurveyWhatsappTemplateError as e:
                 errors.append(str(e))
 
         if not saved and errors:
+            db.rollback()
             raise SurveyWaTemplatePackError("; ".join(errors[:5]))
 
         saved_ids = [int(t["id"]) for t in saved if t.get("id")]
@@ -603,17 +738,29 @@ class SurveyWaTemplatePackService:
                 db,
                 survey_type_id=survey_type.id,
                 keep_template_ids=saved_ids,
+                privacy_mode=privacy_mode,
             )
+
+        db.commit()
 
         return {
             "ok": True,
+            "pack_id": pack.id,
+            "privacy_mode": privacy_mode,
             "saved_count": len(saved),
             "templates": saved,
             "errors": errors[:20],
         }
 
     @staticmethod
-    def _create_draft_row(db: Session, *, survey_type: SurveyType, item: dict[str, Any]) -> TelnyxWhatsappTemplate:
+    def _create_draft_row(
+        db: Session,
+        *,
+        survey_type: SurveyType,
+        item: dict[str, Any],
+        pack_id: str | None = None,
+        privacy_mode: str = PRIVACY_MODE_OFF,
+    ) -> TelnyxWhatsappTemplate:
         components = item.get("components")
         if not isinstance(components, list) or not components:
             components = build_components_from_generated(item)
@@ -626,7 +773,8 @@ class SurveyWaTemplatePackService:
         )
         now = _now()
         local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"
-        variant = str(item.get("variant_type") or VARIANT_STANDARD).strip().lower()
+        privacy_mode = normalize_privacy_mode(item.get("privacy_mode") or privacy_mode)
+        variant = privacy_mode_to_variant(privacy_mode)
         row = TelnyxWhatsappTemplate(
             telnyx_record_id=local_id,
             template_id=local_id,
@@ -637,6 +785,8 @@ class SurveyWaTemplatePackService:
             category=_normalize_category(item.get("category")),
             status="LOCAL_DRAFT",
             variant_type=variant,
+            privacy_mode=privacy_mode,
+            pack_id=pack_id,
             survey_type_id=survey_type.id,
             body_preview=_body_preview(components),
             draft_components_json=_dumps(components),
@@ -656,6 +806,7 @@ class SurveyWaTemplatePackService:
                 survey_type_id=survey_type.id,
                 template_id=row.id,
                 usable_as_anonymous=True,
+                privacy_mode=PRIVACY_MODE_ON,
             )
         else:
             SurveyTypeTemplateService.upsert_mapping(
@@ -663,6 +814,7 @@ class SurveyWaTemplatePackService:
                 survey_type_id=survey_type.id,
                 template_id=row.id,
                 usable_as_standard=True,
+                privacy_mode=PRIVACY_MODE_OFF,
             )
         db.refresh(row)
         return row

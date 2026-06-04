@@ -140,6 +140,7 @@ def list_wa_survey_types(db: Session = Depends(get_db), principal=Depends(get_cu
 def get_wa_survey_step_bank(
     survey_type_id: str,
     variant: str = "standard",
+    privacy_mode: str | None = None,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
@@ -149,7 +150,12 @@ def get_wa_survey_step_bank(
     survey_type = SurveyTypeService.get_type(db, survey_type_id)
     if survey_type is None or not survey_type.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
-    return SurveyStepBankService.get_bank(db, survey_type=survey_type, variant=variant)
+    return SurveyStepBankService.get_bank(
+        db,
+        survey_type=survey_type,
+        variant=variant,
+        privacy_mode=privacy_mode,
+    )
 
 
 @router.post("/wa-survey/generate")
@@ -164,6 +170,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
             db,
             survey_type_id=str(payload.get("survey_type_id") or ""),
             variant=str(payload.get("variant") or "standard"),
+            privacy_mode=str(payload.get("privacy_mode") or "").strip() or None,
             length=str(payload.get("length") or "standard"),
             page_count=int(page_count) if page_count is not None else None,
             auto_select_steps=bool(payload.get("auto_select_steps", True)),

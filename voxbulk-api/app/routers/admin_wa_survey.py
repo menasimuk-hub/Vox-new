@@ -45,12 +45,17 @@ def create_survey_type(
 
 
 @router.get("/types/{type_id}")
-def get_survey_type(type_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+def get_survey_type(
+    type_id: str,
+    privacy_mode: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
     row = SurveyTypeService.get_type(db, type_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
     counts = SurveyTypeService._template_counts(db, row.id)
-    templates = SurveyWhatsappTemplateService.list_for_survey_type(db, row.id)
+    templates = SurveyWhatsappTemplateService.list_for_survey_type(db, row.id, privacy_mode=privacy_mode)
     return {
         "ok": True,
         "type": survey_type_to_dict(row, template_counts=counts),
@@ -115,6 +120,9 @@ def generate_template_pack(
             survey_type=row,
             purpose=str(body.get("purpose") or body.get("template_purpose") or "").strip(),
             instruction=str(body.get("instruction") or body.get("admin_instruction") or "").strip(),
+            privacy_mode=str(body.get("privacy_mode") or "off"),
+            theme_variant=str(body.get("theme_variant") or body.get("category") or "").strip(),
+            template_count=int(body.get("template_count") or 10),
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
@@ -134,7 +142,15 @@ def save_template_pack(
     if not isinstance(templates, list):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="templates must be an array")
     try:
-        return SurveyWaTemplatePackService.save_selected_templates(db, survey_type=row, templates=templates)
+        return SurveyWaTemplatePackService.save_selected_templates(
+            db,
+            survey_type=row,
+            templates=templates,
+            privacy_mode=str(payload.get("privacy_mode") or "off"),
+            theme_variant=str(payload.get("theme_variant") or "").strip(),
+            purpose=str(payload.get("purpose") or "").strip(),
+            instruction=str(payload.get("instruction") or "").strip(),
+        )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -161,6 +177,7 @@ def regenerate_template_pack_item(
             current_template=body.get("current_template") if isinstance(body.get("current_template"), dict) else None,
             sibling_summaries=body.get("sibling_summaries") if isinstance(body.get("sibling_summaries"), list) else None,
             seen_names=body.get("seen_names") if isinstance(body.get("seen_names"), list) else None,
+            privacy_mode=str(body.get("privacy_mode") or "off"),
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e

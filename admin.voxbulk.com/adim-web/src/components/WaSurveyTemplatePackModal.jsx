@@ -257,6 +257,8 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   const [purpose, setPurpose] = useState('')
   const [categoryHint, setCategoryHint] = useState('MARKETING')
   const [industryHint, setIndustryHint] = useState('healthcare')
+  const [privacyMode, setPrivacyMode] = useState('off')
+  const [templateCount] = useState(10)
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
@@ -273,6 +275,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     setPurpose('')
     setCategoryHint('MARKETING')
     setIndustryHint('healthcare')
+    setPrivacyMode('off')
     setError('')
     setToast('')
     setPack(null)
@@ -328,6 +331,13 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
       .filter((i) => i.index !== excludeIndex && i.template?.template_name)
       .map((i) => i.template.template_name)
 
+  const packPayloadMeta = () => ({
+    privacy_mode: privacyMode,
+    theme_variant: [categoryHint, industryHint].filter(Boolean).join(' · '),
+    purpose,
+    instruction: buildInstruction(),
+  })
+
   const generatePack = async () => {
     setWorking('generate')
     setError('')
@@ -335,7 +345,13 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/generate-pack`, {
         method: 'POST',
-        body: JSON.stringify({ instruction: buildInstruction(), purpose }),
+        body: JSON.stringify({
+          instruction: buildInstruction(),
+          purpose,
+          privacy_mode: privacyMode,
+          template_count: templateCount,
+          theme_variant: [categoryHint, industryHint].filter(Boolean).join(' · '),
+        }),
       })
       const stamped = {
         ...data,
@@ -467,6 +483,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     if (!item?.template) return
     const payload = {
       ...item.template,
+      privacy_mode: privacyMode,
       example_values: ensureExampleValues(item.template.body, item.template.header, item.template.example_values),
     }
     setWorking(`save-${item.index}`)
@@ -475,7 +492,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/save-pack`, {
         method: 'POST',
-        body: JSON.stringify({ templates: [payload] }),
+        body: JSON.stringify({ templates: [payload], ...packPayloadMeta() }),
       })
       const savedRow = data.templates?.[0]
       setSavedIndices((prev) => new Set(prev).add(item.index))
@@ -537,6 +554,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
           index: item.index,
           instruction: buildInstruction(),
           purpose: item.template?.purpose || purpose,
+          privacy_mode: privacyMode,
           slot_hint: item.template?.step_role || item.template?.purpose || '',
           current_template: item.template || null,
           sibling_summaries: siblingContext(item.index),
@@ -569,11 +587,12 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     try {
       const templates = items.filter((i) => i.template && i.valid).map((i) => ({
         ...i.template,
+        privacy_mode: privacyMode,
         example_values: ensureExampleValues(i.template.body, i.template.header, i.template.example_values),
       }))
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/save-pack`, {
         method: 'POST',
-        body: JSON.stringify({ templates }),
+        body: JSON.stringify({ templates, ...packPayloadMeta() }),
       })
       setSavedIndices(new Set(items.filter((i) => i.template && i.valid).map((i) => i.index)))
       const nextRecords = {}
@@ -673,8 +692,23 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                 />
               </div>
               <div className="waTplGen-field">
-                <label>Survey type</label>
+                <label>Survey type (service type)</label>
                 <input type="text" value={surveyTypeName} readOnly />
+              </div>
+              <div className="waTplGen-field">
+                <label>Template count</label>
+                <input type="text" value={String(templateCount)} readOnly />
+              </div>
+              <div className="waTplGen-field">
+                <label>Privacy Mode</label>
+                <select value={privacyMode} onChange={(e) => setPrivacyMode(e.target.value)} disabled={Boolean(pack)}>
+                  <option value="off">Off — identified / normal</option>
+                  <option value="on">On — anonymous survey</option>
+                </select>
+              </div>
+              <div className="waTplGen-field">
+                <label>Theme / variant</label>
+                <input type="text" value={[categoryHint, industryHint].filter(Boolean).join(' · ')} readOnly />
               </div>
               <div className="waTplGen-field">
                 <label>Template Category</label>

@@ -23,5 +23,6 @@ class SurveyTypeTemplate(Base):
     usable_as_anonymous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_default_standard: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_default_anonymous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    privacy_mode: Mapped[str] = mapped_column(String(8), nullable=False, default="off", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

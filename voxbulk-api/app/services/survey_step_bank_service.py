@@ -20,6 +20,12 @@ from app.services.survey_whatsapp_template_service import (
     _buttons_from_components,
     _effective_components,
 )
+from app.services.wa_template_privacy import (
+    normalize_privacy_mode,
+    resolve_mapping_privacy_mode,
+    resolve_row_privacy_mode,
+    variant_to_privacy_mode,
+)
 
 REQUIRED_STEP_ROLES = frozenset({"start", "completion"})
 MIDDLE_STEP_ROLES: tuple[str, ...] = (
@@ -162,8 +168,10 @@ def load_step_bank(
     *,
     survey_type_id: str,
     variant: str = VARIANT_STANDARD,
+    privacy_mode: str | None = None,
 ) -> dict[str, Any]:
     variant_key = str(variant or VARIANT_STANDARD).strip().lower()
+    target_privacy = normalize_privacy_mode(privacy_mode) if privacy_mode else variant_to_privacy_mode(variant_key)
     survey_type = db.get(SurveyType, survey_type_id)
     mappings = SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)
     by_role: dict[str, dict[str, Any]] = {}
@@ -176,17 +184,19 @@ def load_step_bank(
         if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
             if not (mapping.is_default_standard or mapping.is_default_anonymous):
                 continue
+        row_pm = resolve_row_privacy_mode(row)
+        map_pm = resolve_mapping_privacy_mode(mapping, template_row=row)
+        if row_pm != target_privacy or map_pm != target_privacy:
+            continue
         row_variant = str(row.variant_type or VARIANT_STANDARD).strip().lower()
-        if variant_key == VARIANT_ANONYMOUS and row_variant != VARIANT_ANONYMOUS:
-            if not mapping.usable_as_anonymous:
-                continue
-        elif variant_key == VARIANT_STANDARD and mapping.usable_as_anonymous and not mapping.usable_as_standard:
-            if row_variant == VARIANT_ANONYMOUS:
-                continue
+        expected_variant = VARIANT_ANONYMOUS if target_privacy == "on" else VARIANT_STANDARD
+        if row_variant != expected_variant:
+            continue
         role = normalize_step_role(row.step_role or "")
         if not role or role not in ALL_STEP_ROLES:
             continue
         item = step_bank_item_from_template(row)
+        item["privacy_mode"] = row_pm
         item["mapping"] = {
             "usable_as_standard": bool(mapping.usable_as_standard),
             "usable_as_anonymous": bool(mapping.usable_as_anonymous),
@@ -225,6 +235,8 @@ def load_step_bank(
         "missing_roles": [r for r in PACK_STEP_ROLES if r not in by_role],
         "middle_roles": [r for r in MIDDLE_STEP_ROLES if r in by_role],
         "suggested_page_roles": suggestions,
+        "privacy_mode": target_privacy,
+        "variant": variant_key,
     }
 
 
@@ -379,12 +391,24 @@ def resolve_start_template(db: Session, bank_by_role: dict[str, dict[str, Any]])
 
 class SurveyStepBankService:
     @staticmethod
-    def get_bank(db: Session, *, survey_type: SurveyType, variant: str = VARIANT_STANDARD) -> dict[str, Any]:
-        bank = load_step_bank(db, survey_type_id=survey_type.id, variant=variant)
+    def get_bank(
+        db: Session,
+        *,
+        survey_type: SurveyType,
+        variant: str = VARIANT_STANDARD,
+        privacy_mode: str | None = None,
+    ) -> dict[str, Any]:
+        bank = load_step_bank(
+            db,
+            survey_type_id=survey_type.id,
+            variant=variant,
+            privacy_mode=privacy_mode,
+        )
         return {
             "ok": True,
             "survey_type_id": survey_type.id,
             "variant": variant,
+            "privacy_mode": bank.get("privacy_mode") or variant_to_privacy_mode(variant),
             "pack_size": len(PACK_STEP_ROLES),
             **bank,
         }
@@ -395,11 +419,17 @@ class SurveyStepBankService:
         *,
         survey_type: SurveyType,
         variant: str = VARIANT_STANDARD,
+        privacy_mode: str | None = None,
         page_count: int = 5,
         auto_select: bool = True,
         selected_step_roles: list[str] | None = None,
     ) -> dict[str, Any]:
-        bank = load_step_bank(db, survey_type_id=survey_type.id, variant=variant)
+        bank = load_step_bank(
+            db,
+            survey_type_id=survey_type.id,
+            variant=variant,
+            privacy_mode=privacy_mode,
+        )
         by_role = bank["by_role"]
         if selected_step_roles:
             roles = [normalize_step_role(r) for r in selected_step_roles]

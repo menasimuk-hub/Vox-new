@@ -50,14 +50,15 @@ function CreateSurvey() {
   const [method, setMethod] = React.useState<"phone" | "whatsapp">("phone");
   const [waPreview, setWaPreview] = React.useState<Record<string, unknown> | null>(null);
   const [surveyTypeId, setSurveyTypeId] = React.useState("");
-  const [surveyVariant, setSurveyVariant] = React.useState<"standard" | "anonymous">("standard");
+  const [privacyMode, setPrivacyMode] = React.useState<"off" | "on">("off");
+  const surveyVariant = privacyMode === "on" ? "anonymous" : "standard";
   const [pageCount, setPageCount] = React.useState<4 | 5 | 6>(5);
   const [autoSelectSteps, setAutoSelectSteps] = React.useState(true);
   const [manualMiddleRoles, setManualMiddleRoles] = React.useState<string[]>([]);
   const [generating, setGenerating] = React.useState(false);
   const [waOpen, setWaOpen] = React.useState(false);
   const waTypesQ = useWaSurveyTypes();
-  const stepBankQ = useWaSurveyStepBank(method === "whatsapp" ? surveyTypeId : null, surveyVariant);
+  const stepBankQ = useWaSurveyStepBank(method === "whatsapp" ? surveyTypeId : null, privacyMode);
   const generateWaM = useGenerateWaSurvey();
   const [quote, setQuote] = React.useState(false);
   const [approved, setApproved] = React.useState(false);
@@ -105,8 +106,9 @@ function CreateSurvey() {
   }, [waTypesQ.data, surveyTypeId]);
 
   React.useEffect(() => {
-    if (surveyVariant === "anonymous") setAnonymous(true);
-  }, [surveyVariant]);
+    if (privacyMode === "on") setAnonymous(true);
+    else setAnonymous(false);
+  }, [privacyMode]);
 
   const stepBankByRole = React.useMemo(
     () => (stepBankQ.data?.by_role || {}) as Record<string, { title?: string; body?: string; display_name?: string }>,
@@ -174,6 +176,7 @@ function CreateSurvey() {
       const generated = await generateWaM.mutateAsync({
         survey_type_id: surveyTypeId,
         variant: surveyVariant,
+        privacy_mode: privacyMode,
         length: PAGE_COUNT_TO_LENGTH[pageCount],
         page_count: pageCount,
         auto_select_steps: autoSelectSteps,
@@ -198,6 +201,7 @@ function CreateSurvey() {
             page_count: pageCount,
             page_roles: generated.page_roles,
             survey_variant: surveyVariant,
+            privacy_mode: privacyMode,
             wa_template_id: generated.wa_template_id,
             whatsapp_flow: generated.whatsapp_flow,
           },
@@ -305,12 +309,12 @@ function CreateSurvey() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Variant">
-                <Select value={surveyVariant} onValueChange={(v) => setSurveyVariant(v as "standard" | "anonymous")}>
+              <Field label="Privacy Mode">
+                <Select value={privacyMode} onValueChange={(v) => setPrivacyMode(v as "off" | "on")}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="standard">Standard</SelectItem>
-                    <SelectItem value="anonymous">Anonymous</SelectItem>
+                    <SelectItem value="off">Off — identified / normal templates</SelectItem>
+                    <SelectItem value="on">On — anonymous templates only</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>

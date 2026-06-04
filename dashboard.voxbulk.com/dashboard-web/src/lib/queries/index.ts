@@ -747,13 +747,14 @@ export function useWaSurveyTypes() {
   });
 }
 
-export function useWaSurveyStepBank(surveyTypeId: string | null, variant: string) {
+export function useWaSurveyStepBank(surveyTypeId: string | null, privacyMode: "off" | "on") {
+  const variant = privacyMode === "on" ? "anonymous" : "standard";
   return useQuery({
-    queryKey: ["dashboard", "wa-survey-step-bank", surveyTypeId, variant],
+    queryKey: ["dashboard", "wa-survey-step-bank", surveyTypeId, privacyMode],
     enabled: Boolean(surveyTypeId),
     queryFn: () =>
       apiFetch<Record<string, unknown>>(
-        `/dashboard/service-scripts/wa-survey/types/${encodeURIComponent(surveyTypeId!)}/step-bank?variant=${encodeURIComponent(variant)}`,
+        `/dashboard/service-scripts/wa-survey/types/${encodeURIComponent(surveyTypeId!)}/step-bank?variant=${encodeURIComponent(variant)}&privacy_mode=${encodeURIComponent(privacyMode)}`,
       ),
   });
 }

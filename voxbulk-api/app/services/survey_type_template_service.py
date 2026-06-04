@@ -13,8 +13,13 @@ from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 
-VARIANT_STANDARD = "standard"
-VARIANT_ANONYMOUS = "anonymous"
+from app.services.wa_template_privacy import (
+    PRIVACY_MODE_OFF,
+    PRIVACY_MODE_ON,
+    normalize_privacy_mode,
+    resolve_mapping_privacy_mode,
+    resolve_row_privacy_mode,
+)
 
 _PACK_PREFIX_RE = re.compile(r"^voxbulk_survey_", re.I)
 _LEGACY_VARIANT_RE = re.compile(r"^voxbulk_survey_([a-z0-9_]+)_(standard|anonymous)$", re.I)
@@ -66,6 +71,7 @@ def mapping_to_dict(row: SurveyTypeTemplate, *, survey_type: SurveyType | None =
         "usable_as_anonymous": bool(row.usable_as_anonymous),
         "is_default_standard": bool(row.is_default_standard),
         "is_default_anonymous": bool(row.is_default_anonymous),
+        "privacy_mode": resolve_mapping_privacy_mode(row),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -127,9 +133,11 @@ class SurveyTypeTemplateService:
         *,
         survey_type_id: str,
         keep_template_ids: list[int],
+        privacy_mode: str | None = None,
     ) -> int:
         """Drop step-bank mappings for this survey type that are not in the latest saved pack."""
         keep = {int(tid) for tid in keep_template_ids}
+        target_privacy = normalize_privacy_mode(privacy_mode) if privacy_mode else None
         survey_type = db.get(SurveyType, survey_type_id)
         if survey_type is None:
             return 0
@@ -142,6 +150,11 @@ class SurveyTypeTemplateService:
                 continue
             if not template_belongs_to_survey_type(row, survey_type):
                 continue
+            if target_privacy is not None:
+                row_pm = resolve_row_privacy_mode(row)
+                map_pm = resolve_mapping_privacy_mode(mapping, template_row=row)
+                if row_pm != target_privacy or map_pm != target_privacy:
+                    continue
             db.delete(mapping)
             removed += 1
         if removed:
@@ -194,7 +207,14 @@ class SurveyTypeTemplateService:
         usable_as_anonymous: bool = False,
         is_default_standard: bool = False,
         is_default_anonymous: bool = False,
+        privacy_mode: str | None = None,
     ) -> SurveyTypeTemplate:
+        if usable_as_anonymous and not usable_as_standard:
+            resolved_privacy = normalize_privacy_mode(PRIVACY_MODE_ON if privacy_mode is None else privacy_mode)
+        elif usable_as_standard and not usable_as_anonymous:
+            resolved_privacy = normalize_privacy_mode(PRIVACY_MODE_OFF if privacy_mode is None else privacy_mode)
+        else:
+            resolved_privacy = normalize_privacy_mode(privacy_mode)
         if not usable_as_standard and not usable_as_anonymous and not is_default_standard and not is_default_anonymous:
             existing = db.execute(
                 select(SurveyTypeTemplate).where(
@@ -232,6 +252,7 @@ class SurveyTypeTemplateService:
         row.usable_as_anonymous = bool(usable_as_anonymous)
         row.is_default_standard = bool(is_default_standard)
         row.is_default_anonymous = bool(is_default_anonymous)
+        row.privacy_mode = resolved_privacy
         row.updated_at = now
 
         if row.is_default_standard:

@@ -151,10 +151,11 @@ def test_validate_anonymous_wording():
             _sample_item(
                 template_name="anon_intro",
                 variant_type=VARIANT_ANONYMOUS,
-                body=f"Hi {{{{1}}}}, please share feedback. {ANONYMOUS_BODY_SENTENCE}",
+                body=f"Please share feedback. {ANONYMOUS_BODY_SENTENCE}",
                 footer=ANONYMOUS_FOOTER,
             ),
             survey_type=st,
+            privacy_mode="on",
         )
         assert ok is not None
         assert not errors

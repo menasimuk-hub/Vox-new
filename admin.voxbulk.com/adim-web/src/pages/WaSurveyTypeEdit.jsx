@@ -29,6 +29,7 @@ function templateSearchHaystack(tpl) {
     tpl.approval_status,
     tpl.sync_status_label,
     tpl.sync_status,
+    tpl.privacy_mode,
     mappingLabel(tpl),
     tpl.linked_survey_type_count != null ? String(tpl.linked_survey_type_count) : '',
   ]
@@ -62,6 +63,7 @@ export default function WaSurveyTypeEdit() {
   const [genVariant, setGenVariant] = useState('standard')
   const [genLength, setGenLength] = useState('standard')
   const [templateSearch, setTemplateSearch] = useState('')
+  const [templatePrivacyFilter, setTemplatePrivacyFilter] = useState('off')
 
   const clearFeedback = () => {
     setError('')
@@ -108,7 +110,8 @@ export default function WaSurveyTypeEdit() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}`)
+      const qs = templatePrivacyFilter ? `?privacy_mode=${encodeURIComponent(templatePrivacyFilter)}` : ''
+      const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}${qs}`)
       setSurveyType(data.type)
       setTemplates(Array.isArray(data.templates) ? data.templates : [])
     } catch (e) {
@@ -116,7 +119,7 @@ export default function WaSurveyTypeEdit() {
     } finally {
       setLoading(false)
     }
-  }, [typeId])
+  }, [typeId, templatePrivacyFilter])
 
   useEffect(() => {
     load()
@@ -358,6 +361,15 @@ export default function WaSurveyTypeEdit() {
             </p>
           </div>
           <div className="waSurveyTemplatesActions">
+            <select
+              className="input"
+              value={templatePrivacyFilter}
+              onChange={(e) => setTemplatePrivacyFilter(e.target.value)}
+              aria-label="Privacy mode filter"
+            >
+              <option value="off">Privacy Off templates</option>
+              <option value="on">Privacy On templates</option>
+            </select>
             <input
               className="input waSurveyTemplateSearch"
               type="search"
@@ -383,6 +395,7 @@ export default function WaSurveyTypeEdit() {
                   <th>Mapping</th>
                   <th>Shared by</th>
                   <th>Language</th>
+                  <th>Privacy</th>
                   <th>Telnyx</th>
                   <th>Actions</th>
                 </tr>
@@ -395,6 +408,7 @@ export default function WaSurveyTypeEdit() {
                     <td>{mappingLabel(tpl)}</td>
                     <td>{tpl.linked_survey_type_count || 1} type(s)</td>
                     <td>{tpl.language}</td>
+                    <td>{tpl.privacy_mode === 'on' ? 'On' : 'Off'}</td>
                     <td>
                       <span className={`pill ${telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}`}>
                         {resolveTelnyxSyncLabel(tpl)}

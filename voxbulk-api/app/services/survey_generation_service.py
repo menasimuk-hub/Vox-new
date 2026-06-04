@@ -13,10 +13,12 @@ from app.services.survey_step_bank_service import (
     page_count_from_length,
 )
 from app.services.survey_type_service import SurveyTypeService
-from app.services.survey_whatsapp_template_service import (
+from app.services.wa_template_privacy import (
     VARIANT_ANONYMOUS,
     VARIANT_STANDARD,
-    SurveyWhatsappTemplateService,
+    normalize_privacy_mode,
+    privacy_mode_to_variant,
+    variant_to_privacy_mode,
 )
 
 
@@ -27,6 +29,7 @@ class SurveyGenerationService:
         *,
         survey_type_id: str,
         variant: str = VARIANT_STANDARD,
+        privacy_mode: str | None = None,
         length: str = "standard",
         page_count: int | None = None,
         auto_select_steps: bool = True,
@@ -42,6 +45,8 @@ class SurveyGenerationService:
             raise ValueError("Survey type not found or inactive")
 
         variant_key = str(variant or VARIANT_STANDARD).strip().lower()
+        resolved_privacy = normalize_privacy_mode(privacy_mode) if privacy_mode else variant_to_privacy_mode(variant_key)
+        variant_key = privacy_mode_to_variant(resolved_privacy)
         if variant_key == VARIANT_ANONYMOUS and not survey_type.supports_anonymous:
             raise ValueError("Anonymous surveys are not enabled for this survey type")
 
@@ -53,6 +58,7 @@ class SurveyGenerationService:
                 db,
                 survey_type=survey_type,
                 variant=variant_key,
+                privacy_mode=resolved_privacy,
                 page_count=count,
                 auto_select=auto_select_steps,
                 selected_step_roles=selected_step_roles,
@@ -139,6 +145,7 @@ class SurveyGenerationService:
                 "name": survey_type.name,
             },
             "variant": variant_key,
+            "privacy_mode": resolved_privacy,
             "length": length_key,
             "page_count": count,
             "question_count": len(question_texts),

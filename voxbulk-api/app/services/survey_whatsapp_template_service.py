@@ -35,6 +35,13 @@ from app.services.telnyx_whatsapp_template_sync_service import (
     template_to_dict,
 )
 from app.services.telnyx_voice_service import _telnyx_config, _telnyx_headers, _telnyx_http_error_detail, TelnyxConfigError
+from app.services.wa_template_privacy import (
+    PRIVACY_MODE_OFF,
+    PRIVACY_MODE_ON,
+    normalize_privacy_mode,
+    resolve_mapping_privacy_mode,
+    resolve_row_privacy_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -495,6 +502,8 @@ def survey_template_to_dict(
         "send_template_id": send_template_id_for_row(row),
         "linked_survey_type_count": linked_survey_type_count,
         "step_role": str(row.step_role or "").strip().lower() or None,
+        "privacy_mode": resolve_row_privacy_mode(row),
+        "pack_id": row.pack_id,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         **workflow,
     }
@@ -515,15 +524,26 @@ def survey_template_to_dict(
 
 class SurveyWhatsappTemplateService:
     @staticmethod
-    def list_for_survey_type(db: Session, survey_type_id: str) -> list[dict[str, Any]]:
+    def list_for_survey_type(
+        db: Session,
+        survey_type_id: str,
+        *,
+        privacy_mode: str | None = None,
+    ) -> list[dict[str, Any]]:
         payload: list[dict[str, Any]] = []
         survey_type = db.get(SurveyType, survey_type_id)
+        target_privacy = normalize_privacy_mode(privacy_mode) if privacy_mode else None
         for mapping in SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id):
             row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
             if row is None:
                 continue
             if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
                 continue
+            if target_privacy is not None:
+                row_pm = resolve_row_privacy_mode(row)
+                map_pm = resolve_mapping_privacy_mode(mapping, template_row=row)
+                if row_pm != target_privacy or map_pm != target_privacy:
+                    continue
             linked = SurveyTypeTemplateService.linked_survey_type_count(db, row.id)
             payload.append(survey_template_to_dict(row, mapping=mapping, linked_survey_type_count=linked))
         payload.sort(key=lambda item: (not item.get("is_default_standard"), not item.get("is_default_anonymous"), item.get("name") or ""))
@@ -588,6 +608,7 @@ class SurveyWhatsappTemplateService:
             category=category,
             status="LOCAL_DRAFT",
             variant_type=VARIANT_STANDARD,
+            privacy_mode=PRIVACY_MODE_OFF,
             survey_type_id=survey_type.id,
             body_preview=_body_preview(components),
             draft_components_json=_dumps(components),
@@ -610,6 +631,7 @@ class SurveyWhatsappTemplateService:
             template_id=row.id,
             usable_as_standard=True,
             is_default_standard=not has_default,
+            privacy_mode=PRIVACY_MODE_OFF,
         )
         db.refresh(row)
         return row
@@ -670,6 +692,7 @@ class SurveyWhatsappTemplateService:
             category=parent.category,
             status="LOCAL_DRAFT",
             variant_type=VARIANT_ANONYMOUS,
+            privacy_mode=PRIVACY_MODE_ON,
             survey_type_id=survey_type.id,
             parent_template_id=parent.id,
             body_preview=_body_preview(anon_components),
@@ -693,6 +716,7 @@ class SurveyWhatsappTemplateService:
             template_id=row.id,
             usable_as_anonymous=True,
             is_default_anonymous=not has_default,
+            privacy_mode=PRIVACY_MODE_ON,
         )
         db.refresh(row)
         logger.info(
