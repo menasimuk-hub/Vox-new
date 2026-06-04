@@ -25,6 +25,9 @@ export default function WaSurveyTypes() {
   const [feedbackTone, setFeedbackTone] = useState('ok')
   const [error, setError] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
+  const [pickerEnabled, setPickerEnabled] = useState(true)
+  const [pickerLoading, setPickerLoading] = useState(true)
+  const [pickerSaving, setPickerSaving] = useState(false)
 
   const clearFeedback = () => {
     setMsg('')
@@ -85,9 +88,40 @@ export default function WaSurveyTypes() {
     }
   }, [industryFilter])
 
+  const loadPickerSettings = useCallback(async () => {
+    setPickerLoading(true)
+    try {
+      const data = await apiFetch('/admin/wa-survey/picker-settings')
+      setPickerEnabled(Boolean(data?.ai_picker_enabled))
+    } catch {
+      setPickerEnabled(true)
+    } finally {
+      setPickerLoading(false)
+    }
+  }, [])
+
+  const savePickerSettings = async () => {
+    setPickerSaving(true)
+    clearFeedback()
+    try {
+      await apiFetch('/admin/wa-survey/picker-settings', {
+        method: 'PUT',
+        body: JSON.stringify({ ai_picker_enabled: pickerEnabled }),
+      })
+      setFeedbackTone('ok')
+      setMsg('AI picker platform setting saved.')
+      setMsgDetail('Orders still need flow_engine=graph and per-order ai_picker_enabled. Env WA_SURVEY_AI_PICKER_ENABLED can override off.')
+    } catch (e) {
+      showError(e, 'Could not save picker setting')
+    } finally {
+      setPickerSaving(false)
+    }
+  }
+
   useEffect(() => {
     loadIndustries().then(() => load())
-  }, [loadIndustries, load])
+    loadPickerSettings()
+  }, [loadIndustries, load, loadPickerSettings])
 
   const syncAll = async () => {
     setSyncing(true)
@@ -163,6 +197,32 @@ export default function WaSurveyTypes() {
           </button>
         </div>
       </div>
+
+      <section className="card" style={{ marginBottom: 16 }}>
+        <div className="cardHead"><h2>Launch &amp; safety</h2></div>
+        <div className="cardBody">
+          <p className="muted" style={{ marginBottom: 12 }}>
+            Linear flow remains the safe default. Graph + AI picker only run when explicitly enabled on an order.
+          </p>
+          <label className="checkRow" style={{ marginBottom: 12 }}>
+            <input
+              type="checkbox"
+              checked={pickerEnabled}
+              disabled={pickerLoading || pickerSaving}
+              onChange={(e) => setPickerEnabled(e.target.checked)}
+            />
+            Platform AI picker enabled (kill switch)
+          </label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="btn sm primary" onClick={savePickerSettings} disabled={pickerSaving || pickerLoading}>
+              {pickerSaving ? 'Saving…' : 'Save picker setting'}
+            </button>
+            <Link className="btn sm" to="/settings/wa-survey/simulator">
+              Open flow simulator (port 5174)
+            </Link>
+          </div>
+        </div>
+      </section>
 
       <div className="note" style={{ marginBottom: 16 }}>
         <strong>Sync from Telnyx</strong> fetches remote WhatsApp templates from Telnyx/Meta, updates approval status locally, and imports templates whose names contain “survey”. It does not push your drafts — use <em>Push to Telnyx</em> on each template after editing.

@@ -16,6 +16,7 @@ from app.services.survey_type_service import SurveyTypeService, survey_type_to_d
 from app.services.survey_picker_settings_service import SurveyPickerSettingsService
 from app.services.survey_simulator_service import SurveySimulatorService
 from app.services.survey_wa_observability_service import SurveyWaObservabilityService
+from app.services.survey_wa_readiness_service import SurveyWaReadinessService
 from app.services.survey_wa_test_pack_seed_service import SurveyWaTestPackSeedService
 from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackError, SurveyWaTemplatePackService
 from app.services.survey_whatsapp_template_service import (
@@ -682,6 +683,48 @@ def update_picker_settings(
         **SurveyPickerSettingsService.update_settings(
             db,
             ai_picker_enabled=bool(body.get("ai_picker_enabled", True)),
+        ),
+    }
+
+
+@router.get("/types/{type_id}/readiness")
+def get_survey_type_readiness(
+    type_id: str,
+    privacy_mode: str = "off",
+    variant: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    st = SurveyTypeService.get_type(db, type_id)
+    if st is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    return {
+        "ok": True,
+        **SurveyWaReadinessService.readiness(
+            db,
+            survey_type_id=type_id,
+            privacy_mode=privacy_mode,
+            variant=variant,
+        ),
+    }
+
+
+@router.get("/types/{type_id}/outcome-matrix")
+def get_survey_outcome_matrix(
+    type_id: str,
+    privacy_mode: str = "off",
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    st = SurveyTypeService.get_type(db, type_id)
+    if st is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    return {
+        "ok": True,
+        "survey_type_id": type_id,
+        "privacy_mode": privacy_mode,
+        "matrix": SurveyWaReadinessService.build_outcome_matrix(
+            db, survey_type=st, privacy_mode=privacy_mode
         ),
     }
 

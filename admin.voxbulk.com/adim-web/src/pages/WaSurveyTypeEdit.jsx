@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import { resolveTelnyxSyncLabel, telnyxSyncPillClass } from '../lib/waSurveyTelnyxSync'
 import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
 import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
@@ -46,6 +47,7 @@ function matchesTemplateSearch(tpl, query) {
 
 export default function WaSurveyTypeEdit() {
   const { typeId } = useParams()
+  const isSimulatorAlias = typeId === 'simulator'
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [working, setWorking] = useState('')
@@ -64,6 +66,8 @@ export default function WaSurveyTypeEdit() {
   const [genLength, setGenLength] = useState('standard')
   const [templateSearch, setTemplateSearch] = useState('')
   const [templatePrivacyFilter, setTemplatePrivacyFilter] = useState('off')
+  const [readiness, setReadiness] = useState(null)
+  const [readinessLoading, setReadinessLoading] = useState(false)
 
   const clearFeedback = () => {
     setError('')
@@ -124,6 +128,25 @@ export default function WaSurveyTypeEdit() {
   useEffect(() => {
     load()
   }, [load])
+
+  const loadReadiness = useCallback(async () => {
+    setReadinessLoading(true)
+    try {
+      const qs = `?privacy_mode=${encodeURIComponent(templatePrivacyFilter)}`
+      const data = await apiFetch(
+        `/admin/wa-survey/types/${encodeURIComponent(typeId)}/readiness${qs}`
+      )
+      setReadiness(data)
+    } catch (e) {
+      setReadiness(null)
+    } finally {
+      setReadinessLoading(false)
+    }
+  }, [typeId, templatePrivacyFilter])
+
+  useEffect(() => {
+    if (typeId && !isSimulatorAlias) loadReadiness()
+  }, [loadReadiness, typeId, isSimulatorAlias])
 
   const saveTypeSettings = async () => {
     if (!surveyType) return
@@ -244,6 +267,10 @@ export default function WaSurveyTypeEdit() {
   )
   const templateSearchActive = Boolean(templateSearch.trim())
 
+  if (isSimulatorAlias) {
+    return <Navigate to="/settings/wa-survey/simulator" replace />
+  }
+
   if (loading && !surveyType) {
     return <p className="muted">Loading…</p>
   }
@@ -270,6 +297,12 @@ export default function WaSurveyTypeEdit() {
           </p>
         </div>
         <div className="pageTopActions">
+          <Link className="btn" to={`/settings/wa-survey/${typeId}/flows`}>
+            Flows
+          </Link>
+          <Link className="btn" to="/settings/wa-survey/simulator">
+            Simulator
+          </Link>
           <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>
             Sync from Telnyx
           </button>
@@ -354,6 +387,113 @@ export default function WaSurveyTypeEdit() {
           </div>
         </section>
       </div>
+
+      <section className="card">
+        <div className="cardHead waSurveyTemplatesHead">
+          <div>
+            <h2>Publish readiness</h2>
+            <p className="muted waSurveyTemplatesMeta">
+              Privacy {templatePrivacyFilter === 'on' ? 'on' : 'off'} — refresh when filter changes
+            </p>
+          </div>
+          <button type="button" className="btn sm" onClick={() => void loadReadiness()} disabled={readinessLoading}>
+            {readinessLoading ? 'Checking…' : 'Refresh'}
+          </button>
+        </div>
+        <div className="cardBody">
+          {readinessLoading && !readiness ? (
+            <p className="muted">Loading readiness…</p>
+          ) : readiness ? (
+            <>
+              <p style={{ marginBottom: 12 }}>
+                <span className={`pill ${readiness.ok ? 'ok' : 'error'}`}>
+                  {readiness.ok ? 'Ready' : 'Not ready'}
+                </span>
+                {readiness.published_flow ? (
+                  <span className="muted" style={{ marginLeft: 8 }}>
+                    Published flow: {readiness.published_flow.name} v{readiness.published_flow.version}
+                  </span>
+                ) : null}
+                {readiness.ai_assisted_node_count ? (
+                  <span className="muted" style={{ marginLeft: 8 }}>
+                    AI-assisted nodes: {readiness.ai_assisted_node_count}
+                  </span>
+                ) : null}
+              </p>
+              {(readiness.errors || []).length ? (
+                <div className="alert error" style={{ marginBottom: 12 }}>
+                  <strong>Errors</strong>
+                  <ul className="waSurveyReadinessList">
+                    {(readiness.errors || []).map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {(readiness.warnings || []).length ? (
+                <div className="alert warn">
+                  <strong>Warnings</strong>
+                  <ul className="waSurveyReadinessList">
+                    {(readiness.warnings || []).map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {(readiness.step_bank?.missing_roles || []).length ? (
+                <p className="muted">Missing step roles: {(readiness.step_bank.missing_roles || []).join(', ')}</p>
+              ) : null}
+            </>
+          ) : (
+            <p className="muted">Could not load readiness.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="cardHead">
+          <h2>Outcome templates (happy / neutral / unhappy)</h2>
+          <p className="muted waSurveyTemplatesMeta">
+            Graph completions use these bank templates; non-APPROVED rows use text fallback at runtime.
+          </p>
+        </div>
+        <div className="cardBody">
+          <div className="tableWrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Outcome</th>
+                  <th>Template</th>
+                  <th>Status</th>
+                  <th>Runtime action</th>
+                  <th>Fallback?</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(readiness?.outcome_matrix || []).length ? (readiness.outcome_matrix || []).map((row) => (
+                  <tr key={row.outcome_key}>
+                    <td><strong>{row.outcome_key}</strong></td>
+                    <td>{row.template_name || <span className="muted">—</span>}</td>
+                    <td>
+                      {row.status ? (
+                        <span className={`pill ${row.approved ? 'ok' : 'warn'}`}>{row.status}</span>
+                      ) : (
+                        <span className="muted">Missing</span>
+                      )}
+                    </td>
+                    <td>{row.action_type || '—'}</td>
+                    <td>{row.will_text_fallback ? <span className="pill warn">Yes</span> : <span className="pill ok">No</span>}</td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan={5} className="muted">Load readiness to see outcome assignment.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
       <section className="card">
         <div className="cardHead waSurveyTemplatesHead">

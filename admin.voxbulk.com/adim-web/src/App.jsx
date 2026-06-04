@@ -25,6 +25,7 @@ import WaSurveyTypes from './pages/WaSurveyTypes'
 import WaSurveyTypeEdit from './pages/WaSurveyTypeEdit'
 import WaSurveyIndustries from './pages/WaSurveyIndustries'
 import WaSurveyFlowSimulator from './pages/WaSurveyFlowSimulator'
+import WaSurveyFlows from './pages/WaSurveyFlows'
 import EmailTemplateEdit from './pages/EmailTemplateEdit'
 import WhatsAppTemplateEdit from './pages/WhatsAppTemplateEdit'
 import SmsTemplateEdit from './pages/SmsTemplateEdit'
@@ -238,6 +239,7 @@ export default function App() {
         <Route path='/settings/wa-survey' element={<WaSurveyTypes />} />
         <Route path='/settings/wa-survey/simulator' element={<WaSurveyFlowSimulator />} />
         <Route path='/settings/wa-survey/industries' element={<WaSurveyIndustries />} />
+        <Route path='/settings/wa-survey/:typeId/flows' element={<WaSurveyFlows />} />
         <Route path='/settings/wa-survey/:typeId' element={<WaSurveyTypeEdit />} />
         <Route path='/settings/legal' element={<LegalPages />} />
         <Route path='/settings/legal/:slug/edit' element={<LegalPageEdit />} />
