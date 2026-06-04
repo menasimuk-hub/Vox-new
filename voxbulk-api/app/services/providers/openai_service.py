@@ -74,6 +74,28 @@ class OpenAIProviderService:
         return "realtime" in str(model or "").lower()
 
     @staticmethod
+    def _chat_uses_max_completion_tokens(model: str) -> bool:
+        """OpenAI chat models increasingly reject legacy max_tokens."""
+        if str(model or "").strip():
+            return True
+        return False
+
+    @staticmethod
+    def _chat_token_limit_payload(*, provider: str, model: str, tokens: int) -> dict[str, int]:
+        cap = max(1, int(tokens))
+        if str(provider or "").strip().lower() == "openai" and OpenAIProviderService._chat_uses_max_completion_tokens(model):
+            return {"max_completion_tokens": cap}
+        return {"max_tokens": cap}
+
+    @staticmethod
+    def _reasoning_model(model: str) -> bool:
+        m = str(model or "").strip().lower()
+        if not m:
+            return False
+        prefixes = ("o1", "o3", "o4", "gpt-5", "chatgpt-5", "gpt-4.1", "gpt-4.5")
+        return any(m == p or m.startswith(f"{p}") for p in prefixes)
+
+    @staticmethod
     def _select_text_model(config: dict[str, Any], override: str | None = None) -> str:
         candidate = str(override or "").strip() or str(config.get("default_model") or "").strip()
         if OpenAIProviderService._is_realtime_model(candidate):
@@ -245,9 +267,17 @@ class OpenAIProviderService:
         payload: dict[str, Any] = {
             "model": text_model,
             "messages": request_messages,
-            "temperature": selected_temperature,
-            "max_tokens": selected_max_tokens,
+            **OpenAIProviderService._chat_token_limit_payload(
+                provider=str(config.get("provider") or "openai"),
+                model=text_model,
+                tokens=selected_max_tokens,
+            ),
         }
+        if not (
+            str(config.get("provider") or "openai").strip().lower() == "openai"
+            and OpenAIProviderService._reasoning_model(text_model)
+        ):
+            payload["temperature"] = selected_temperature
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
@@ -260,8 +290,8 @@ class OpenAIProviderService:
                 "model": text_model,
                 "request_style": "chat",
                 "api_key_length": diagnostics["api_key_length"],
-                "max_tokens": selected_max_tokens,
-                "temperature": selected_temperature,
+                "output_token_limit": selected_max_tokens,
+                "temperature": payload.get("temperature"),
             },
         )
         http_start = time.perf_counter()
@@ -339,10 +369,18 @@ class OpenAIProviderService:
         payload: dict[str, Any] = {
             "model": text_model,
             "messages": request_messages,
-            "temperature": selected_temperature,
-            "max_tokens": selected_max_tokens,
+            **OpenAIProviderService._chat_token_limit_payload(
+                provider=str(config.get("provider") or "openai"),
+                model=text_model,
+                tokens=selected_max_tokens,
+            ),
             "stream": True,
         }
+        if not (
+            str(config.get("provider") or "openai").strip().lower() == "openai"
+            and OpenAIProviderService._reasoning_model(text_model)
+        ):
+            payload["temperature"] = selected_temperature
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
@@ -355,8 +393,8 @@ class OpenAIProviderService:
                 "model": text_model,
                 "request_style": "chat_stream",
                 "api_key_length": len(config["api_key"]),
-                "max_tokens": selected_max_tokens,
-                "temperature": selected_temperature,
+                "output_token_limit": selected_max_tokens,
+                "temperature": payload.get("temperature"),
             },
         )
         with OpenAIProviderService._http_client().stream(
@@ -425,6 +463,7 @@ class OpenAIProviderService:
         )
         endpoint_path = "/v1/responses"
         selected_temperature = config["temperature"] if temperature is None else max(0.0, min(float(temperature), 1.0))
+        output_limit = max(512, int(max_output_tokens))
         payload: dict[str, Any] = {
             "model": text_model,
             "input": [
@@ -439,9 +478,10 @@ class OpenAIProviderService:
                     "strict": True,
                 }
             },
-            "max_output_tokens": max(512, int(max_output_tokens)),
-            "temperature": selected_temperature,
+            "max_output_tokens": output_limit,
         }
+        if not OpenAIProviderService._reasoning_model(text_model):
+            payload["temperature"] = selected_temperature
         diagnostics = OpenAIProviderService._request_diagnostics(
             config, endpoint_path=endpoint_path, model=text_model, style="responses"
         )
@@ -514,15 +554,24 @@ class OpenAIProviderService:
         model = OpenAIProviderService._select_text_model(config)
         endpoint_path = "/v1/chat/completions"
         diagnostics = OpenAIProviderService._request_diagnostics(config, endpoint_path=endpoint_path, model=model, style="chat")
-        payload = {
+        token_limit = min(config["max_output_tokens"], 120)
+        payload: dict[str, Any] = {
             "model": model,
             "messages": [
                 {"role": "system", "content": "You are a concise British clinic voice assistant. Answer in one short sentence."},
                 {"role": "user", "content": text},
             ],
-            "temperature": config["temperature"],
-            "max_tokens": min(config["max_output_tokens"], 120),
+            **OpenAIProviderService._chat_token_limit_payload(
+                provider=str(config.get("provider") or "openai"),
+                model=model,
+                tokens=token_limit,
+            ),
         }
+        if not (
+            str(config.get("provider") or "openai").strip().lower() == "openai"
+            and OpenAIProviderService._reasoning_model(model)
+        ):
+            payload["temperature"] = config["temperature"]
         logger.info(f"{config['provider']}_smoke_request", extra={"base_url": config["base_url"], "endpoint_path": endpoint_path, "model": model, "request_style": "chat", "api_key_length": diagnostics["api_key_length"]})
         response = OpenAIProviderService._http_client().post(diagnostics["final_url"], json=payload, headers=OpenAIProviderService._headers(config))
         try:

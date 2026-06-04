@@ -114,6 +114,33 @@ def save_template_pack(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/types/{type_id}/templates/regenerate-pack-item")
+def regenerate_template_pack_item(
+    type_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = SurveyTypeService.get_type(db, type_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    body = payload or {}
+    try:
+        return SurveyWaTemplatePackService.regenerate_pack_item(
+            db,
+            survey_type=row,
+            index=int(body.get("index", 0)),
+            purpose=str(body.get("purpose") or body.get("template_purpose") or "").strip(),
+            instruction=str(body.get("instruction") or body.get("admin_instruction") or "").strip(),
+            slot_hint=str(body.get("slot_hint") or body.get("style") or "").strip(),
+            current_template=body.get("current_template") if isinstance(body.get("current_template"), dict) else None,
+            sibling_summaries=body.get("sibling_summaries") if isinstance(body.get("sibling_summaries"), list) else None,
+            seen_names=body.get("seen_names") if isinstance(body.get("seen_names"), list) else None,
+        )
+    except SurveyWaTemplatePackError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
 @router.post("/types/{type_id}/templates/standard")
 def create_standard_template(
     type_id: str,

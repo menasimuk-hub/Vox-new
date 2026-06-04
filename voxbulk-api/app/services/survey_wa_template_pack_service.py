@@ -93,6 +93,16 @@ WA_TEMPLATE_PACK_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
+WA_SINGLE_TEMPLATE_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "template": WA_TEMPLATE_PACK_JSON_SCHEMA["properties"]["templates"]["items"],
+    },
+    "required": ["template"],
+    "additionalProperties": False,
+}
+
+
 class SurveyWaTemplatePackError(ValueError):
     pass
 
@@ -299,35 +309,143 @@ def validate_generated_template(item: dict[str, Any], *, survey_type: SurveyType
 
 def _pack_system_prompt() -> str:
     return (
-        "You are a WhatsApp Business template author for VoxBulk survey campaigns. "
-        "Generate exactly 10 reusable Meta/Telnyx-compatible templates. "
-        "Use British English. Do not use OpenAI Realtime features. "
-        "Variables must use Meta format {{1}}, {{2}}, {{3}}, {{4}} where: "
-        "{{1}}=customer first name, {{2}}=business/service name, {{3}}=survey link or reference, "
-        "{{4}}=appointment or service date when relevant. "
-        "Include a diverse mix: standard intro, reminder, follow-up, anonymous intro, short invitation, "
-        "plain text (button_type none), quick_reply (1-3 buttons), URL CTA, and phone CTA templates. "
-        "Quick reply: max 3 buttons. URL buttons must use https URLs. "
-        "Anonymous variant_type templates must state the survey is anonymous in the body and use footer "
-        f"“{ANONYMOUS_FOOTER}”. "
-        "template_name must be unique lowercase snake_case without the voxbulk_survey prefix. "
-        "Keep body concise and WhatsApp-friendly."
+        "You are an expert WhatsApp Business template copywriter for VoxBulk customer satisfaction surveys. "
+        "Write exactly 10 reusable Meta/Telnyx-compatible templates that feel native on WhatsApp — warm, mobile-first, "
+        "and visually appealing while staying Meta approval-friendly (no spam, no ALL CAPS shouting, no false urgency). "
+        "Use British English. Do not use OpenAI Realtime.\n\n"
+        "VARIABLES (Meta format, sequential, must appear in body/header):\n"
+        "{{1}} = customer first name\n"
+        "{{2}} = business/service name\n"
+        "{{3}} = survey link or reference code\n"
+        "{{4}} = appointment or service date when relevant\n\n"
+        "STYLE MIX — make all 10 feel distinct, not repetitive:\n"
+        "• 2 warm/friendly (emoji-friendly, conversational)\n"
+        "• 2 premium/professional (polished, trust-building, minimal emoji)\n"
+        "• 2 short/direct (under ~280 chars, punchy hook)\n"
+        "• 2 follow-up/reminder (gentle nudge, ‘still time to…’)\n"
+        "• 2 anonymous feedback (variant_type anonymous)\n\n"
+        "EMOJIS: use tasteful emojis in at least 6 of 10 templates (e.g. 👋 ✨ 📋 ⭐ 🙏 — never more than 3 per message). "
+        "Skip emojis on premium/professional variants.\n\n"
+        "CTA COPY — weave in natural action phrases such as: ‘Tap below’, ‘Rate your experience’, ‘Share feedback’, "
+        "‘Call us’, ‘It only takes a minute’, ‘We’d love your thoughts’.\n\n"
+        "BUTTON-AWARE COPY:\n"
+        "• quick_reply: body must invite a tap (‘Tap below to start’, ‘Choose an option below’). "
+        "Button labels: short, tap-friendly (≤20 chars), e.g. ‘Start survey’, ‘Share feedback’, ‘Yes, happy to’.\n"
+        "• url: body must clearly direct to the button link (‘Tap the button below to open your survey’, "
+        "‘Use the link below — it only takes a minute’). Button text: ‘Open survey’, ‘Rate experience’, ‘Give feedback’. "
+        "URL must be https.\n"
+        "• phone: body invites a call (‘Need help? Tap below to call us’). Button: ‘Call us’, ‘Speak to team’.\n"
+        "• none: still include a soft CTA in body referencing {{3}} where natural.\n\n"
+        "STRUCTURE: strong opening hook in first line; short paragraphs; WhatsApp-friendly length (body ≤600 chars ideal). "
+        "Include: standard intro, reminder, follow-up, anonymous intro, short invitation, plain text, quick_reply, URL CTA, phone CTA. "
+        "Quick reply: max 3 buttons. "
+        f"Anonymous templates: body must include that the survey is anonymous; footer must be exactly “{ANONYMOUS_FOOTER}”. "
+        "template_name: unique lowercase snake_case, no voxbulk_survey prefix."
     )
 
 
 def _pack_user_prompt(*, survey_type: SurveyType, purpose: str, instruction: str) -> str:
+    is_csat = survey_type.slug in {"customer_satisfaction", "csat", "nps"} or "satisfaction" in survey_type.slug
     parts = [
         f"Survey type: {survey_type.name}",
         f"Slug: {survey_type.slug}",
         f"Description: {survey_type.description or survey_type.name}",
         f"Supports anonymous: {bool(survey_type.supports_anonymous)}",
     ]
+    if is_csat:
+        parts.append(
+            "Pack focus: customer satisfaction / post-service feedback for UK businesses. "
+            "Templates should help collect honest ratings after a visit, call, or delivery. "
+            "Sound human — like a friendly team member, not a corporate mail merge."
+        )
     if purpose.strip():
         parts.append(f"Template purpose focus: {purpose.strip()}")
     if instruction.strip():
         parts.append(f"Admin instruction: {instruction.strip()}")
-    parts.append(f"Generate exactly {PACK_SIZE} templates as JSON.")
+    parts.append(
+        f"Generate exactly {PACK_SIZE} visually attractive, conversational, persuasive WhatsApp templates as JSON. "
+        "Each must have a distinct tone and purpose. Avoid generic filler like ‘We value your feedback’ without a hook."
+    )
     return "\n".join(parts)
+
+
+def _single_template_system_prompt() -> str:
+    return (
+        _pack_system_prompt()
+        + "\n\nYou are regenerating ONE template slot. Return JSON with a single `template` object. "
+        "Make it noticeably better, more WhatsApp-native, and more button-aware than a generic draft."
+    )
+
+
+def _single_template_user_prompt(
+    *,
+    survey_type: SurveyType,
+    purpose: str,
+    instruction: str,
+    slot_hint: str,
+    current_template: dict[str, Any] | None,
+    sibling_summaries: list[dict[str, Any]] | None,
+) -> str:
+    parts = [_pack_user_prompt(survey_type=survey_type, purpose=purpose, instruction=instruction)]
+    if slot_hint.strip():
+        parts.append(f"Slot/style to preserve: {slot_hint.strip()}")
+    if current_template:
+        parts.append(
+            "Replace this draft with a stronger version (same variant_type and button_type unless instruction says otherwise):\n"
+            f"- template_name: {current_template.get('template_name')}\n"
+            f"- purpose: {current_template.get('purpose')}\n"
+            f"- variant_type: {current_template.get('variant_type')}\n"
+            f"- button_type: {current_template.get('button_type')}\n"
+            f"- body: {current_template.get('body')}\n"
+            f"- footer: {current_template.get('footer')}"
+        )
+    siblings = sibling_summaries or []
+    if siblings:
+        lines = [f"  • {s.get('template_name')}: {s.get('purpose')} — {(s.get('body') or '')[:100]}" for s in siblings[:8]]
+        parts.append("Do not duplicate these sibling templates:\n" + "\n".join(lines))
+    parts.append("Return one improved template as JSON.")
+    return "\n\n".join(parts)
+
+
+def _build_pack_item_row(
+    db: Session,
+    *,
+    survey_type: SurveyType,
+    idx: int,
+    item: dict[str, Any],
+    seen_names: set[str],
+) -> dict[str, Any]:
+    normalized, errors = validate_generated_template(item, survey_type=survey_type)
+    row: dict[str, Any] = {
+        "index": idx,
+        "raw": item,
+        "valid": not errors,
+        "errors": errors,
+    }
+    if not normalized:
+        return row
+    name_key = normalized["template_name"]
+    if name_key in seen_names:
+        dup = errors + [f"duplicate template_name {name_key}"]
+        row["valid"] = False
+        row["errors"] = dup
+        return row
+    seen_names.add(name_key)
+    telnyx_name = _ensure_unique_telnyx_name(db, _telnyx_pack_name(survey_type.slug, normalized["template_name"]))
+    preview = SurveyWhatsappTemplateService.build_preview(
+        db,
+        _preview_row(normalized, telnyx_name),
+        first_name=normalized["example_values"][0] if normalized["example_values"] else "Alex",
+        business_name=normalized["example_values"][1] if len(normalized["example_values"]) > 1 else "Northgate Dental",
+    )
+    row["template"] = {
+        **normalized,
+        "telnyx_name": telnyx_name,
+        "display_name": normalized["title"],
+        "preview": preview,
+        "buttons_preview": preview.get("buttons") or [],
+    }
+    return row
 
 
 class SurveyWaTemplatePackService:
@@ -347,7 +465,7 @@ class SurveyWaTemplatePackService:
                 json_schema=WA_TEMPLATE_PACK_JSON_SCHEMA,
                 schema_name="wa_survey_template_pack",
                 max_output_tokens=16000,
-                temperature=0.55,
+                temperature=0.68,
             )
         except ValueError as e:
             raise SurveyWaTemplatePackError(str(e)) from e
@@ -360,38 +478,8 @@ class SurveyWaTemplatePackService:
         invalid: list[dict[str, Any]] = []
         seen_names: set[str] = set()
         for idx, item in enumerate(items):
-            normalized, errors = validate_generated_template(item, survey_type=survey_type)
-            row = {
-                "index": idx,
-                "raw": item,
-                "valid": not errors,
-                "errors": errors,
-            }
-            if normalized:
-                name_key = normalized["template_name"]
-                if name_key in seen_names:
-                    errors = errors + [f"duplicate template_name {name_key}"]
-                    row["valid"] = False
-                    row["errors"] = errors
-                    invalid.append(row)
-                    continue
-                seen_names.add(name_key)
-                telnyx_name = _ensure_unique_telnyx_name(
-                    db, _telnyx_pack_name(survey_type.slug, normalized["template_name"])
-                )
-                preview = SurveyWhatsappTemplateService.build_preview(
-                    db,
-                    _preview_row(normalized, telnyx_name),
-                    first_name=normalized["example_values"][0] if normalized["example_values"] else "Alex",
-                    business_name=normalized["example_values"][1] if len(normalized["example_values"]) > 1 else "Northgate Dental",
-                )
-                row["template"] = {
-                    **normalized,
-                    "telnyx_name": telnyx_name,
-                    "display_name": normalized["title"],
-                    "preview": preview,
-                    "buttons_preview": preview.get("buttons") or [],
-                }
+            row = _build_pack_item_row(db, survey_type=survey_type, idx=idx, item=item, seen_names=seen_names)
+            if row.get("valid") and row.get("template"):
                 validated.append(row)
             else:
                 invalid.append(row)
@@ -407,6 +495,55 @@ class SurveyWaTemplatePackService:
             "valid_templates": [r["template"] for r in validated if r.get("template")],
             "openai": meta,
         }
+
+    @staticmethod
+    def regenerate_pack_item(
+        db: Session,
+        *,
+        survey_type: SurveyType,
+        index: int,
+        purpose: str = "",
+        instruction: str = "",
+        slot_hint: str = "",
+        current_template: dict[str, Any] | None = None,
+        sibling_summaries: list[dict[str, Any]] | None = None,
+        seen_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        try:
+            raw, meta = OpenAIProviderService.responses_json(
+                db,
+                system_prompt=_single_template_system_prompt(),
+                user_prompt=_single_template_user_prompt(
+                    survey_type=survey_type,
+                    purpose=purpose,
+                    instruction=instruction,
+                    slot_hint=slot_hint,
+                    current_template=current_template,
+                    sibling_summaries=sibling_summaries,
+                ),
+                json_schema=WA_SINGLE_TEMPLATE_JSON_SCHEMA,
+                schema_name="wa_survey_template_single",
+                max_output_tokens=4000,
+                temperature=0.72,
+            )
+        except ValueError as e:
+            raise SurveyWaTemplatePackError(str(e)) from e
+
+        item = raw.get("template")
+        if not isinstance(item, dict):
+            raise SurveyWaTemplatePackError("OpenAI response missing template object")
+
+        names = {str(n) for n in (seen_names or []) if str(n).strip()}
+        if current_template and current_template.get("template_name"):
+            names.discard(str(current_template["template_name"]))
+        row = _build_pack_item_row(
+            db,
+            survey_type=survey_type,
+            idx=int(index),
+            item=item,
+            seen_names=names,
+        )
+        return {"ok": True, "item": row, "openai": meta}
 
     @staticmethod
     def save_selected_templates(

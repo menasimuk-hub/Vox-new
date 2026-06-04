@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.core.database import get_sessionmaker
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_type_service import SurveyTypeService
 from app.services.survey_wa_template_pack_service import (
     PACK_SIZE,
@@ -98,6 +99,17 @@ def _mock_pack_response():
             )
         )
     return {"templates": templates}
+
+
+def test_openai_chat_token_limit_for_reasoning_models():
+    o3 = OpenAIProviderService._chat_token_limit_payload(provider="openai", model="o3-mini", tokens=900)
+    assert o3 == {"max_completion_tokens": 900}
+    gpt52 = OpenAIProviderService._chat_token_limit_payload(provider="openai", model="gpt-5.2", tokens=900)
+    assert gpt52 == {"max_completion_tokens": 900}
+    legacy = OpenAIProviderService._chat_token_limit_payload(provider="openai", model="gpt-4o-mini", tokens=900)
+    assert legacy == {"max_completion_tokens": 900}
+    deepseek = OpenAIProviderService._chat_token_limit_payload(provider="deepseek", model="deepseek-chat", tokens=900)
+    assert deepseek == {"max_tokens": 900}
 
 
 def test_validate_quick_reply_and_url_templates():
@@ -197,6 +209,33 @@ def test_save_pack_creates_local_drafts(monkeypatch):
         rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars())
         assert len(rows) == 3
         assert all(r.status == "LOCAL_DRAFT" for r in rows)
+
+
+def test_regenerate_pack_item(monkeypatch):
+    calls = []
+
+    def fake_responses_json(db, **kwargs):
+        calls.append(kwargs.get("schema_name"))
+        one = _mock_pack_response()["templates"][0]
+        return {"template": one}, {"model": "gpt-4o-mini", "api_style": "responses"}
+
+    monkeypatch.setattr(
+        "app.services.survey_wa_template_pack_service.OpenAIProviderService.responses_json",
+        fake_responses_json,
+    )
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        result = SurveyWaTemplatePackService.regenerate_pack_item(
+            db,
+            survey_type=st,
+            index=2,
+            instruction="More emoji, stronger CTA",
+            current_template={"template_name": "std_intro", "purpose": "intro", "variant_type": "standard", "button_type": "quick_reply", "body": "Hi", "footer": "Reply STOP to opt out"},
+            sibling_summaries=[{"template_name": "other", "purpose": "reminder", "body": "Reminder text"}],
+        )
+        assert calls[-1] == "wa_survey_template_single"
+        assert result["item"]["index"] == 2
+        assert result["item"].get("template")
 
 
 def test_push_after_pack_save(monkeypatch):

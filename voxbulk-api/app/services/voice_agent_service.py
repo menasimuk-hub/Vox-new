@@ -463,15 +463,20 @@ class OpenAICallReasoningService:
             "Keep replies concise, helpful, and suitable for a phone call."
         )
         model = OpenAIProviderService._select_text_model(config, config["model"])
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": transcript},
             ],
-            "temperature": float(config["temperature"]),
-            "max_tokens": int(config["max_output_tokens"]),
+            **OpenAIProviderService._chat_token_limit_payload(
+                provider="openai",
+                model=model,
+                tokens=int(config["max_output_tokens"]),
+            ),
         }
+        if not OpenAIProviderService._reasoning_model(model):
+            payload["temperature"] = float(config["temperature"])
         url = f"{config['base_url']}/v1/chat/completions"
         headers = {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
         with httpx.Client(timeout=30.0, verify=OpenAICallReasoningService._ssl_context()) as client:

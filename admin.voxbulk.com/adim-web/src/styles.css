@@ -3922,11 +3922,179 @@ body.dark .emailPreviewInner {
 }
 
 .waSurveyPackModal {
-  max-width: 1280px;
+  max-width: min(1480px, 96vw);
+  width: min(1480px, 96vw);
 }
 
 .waSurveyPackBody {
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
+.waSurveyPackSettings {
+  max-width: 720px;
+}
+
+.waSurveyPackReviewSection .cardBody {
+  padding: 20px;
+}
+
+.waSurveyPackReviewToolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.waSurveyPackPager {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.waSurveyPackPagerLabel {
+  font-size: 13px;
+  min-width: 96px;
+  text-align: center;
+}
+
+.waSurveyPackReviewGrid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .waSurveyPackReviewGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.waSurveyPackReviewCard {
+  background: var(--card, #fff);
+  border: 1px solid var(--border, #dde3ea);
+  border-radius: 14px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.waSurveyPackReviewCard.is-saved {
+  border-color: var(--grn, #00a884);
+  box-shadow: 0 0 0 1px rgba(0, 168, 132, 0.12);
+}
+
+.waSurveyPackReviewCardInvalid {
+  background: rgba(163, 45, 45, 0.04);
+}
+
+.waSurveyPackReviewHead {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.waSurveyPackReviewMetaLine {
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.waSurveyPackSavedBadge {
+  background: rgba(0, 168, 132, 0.12);
+  border-radius: 999px;
+  color: var(--grn, #00a884);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.waSurveyPackReviewLayout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+}
+
+@media (max-width: 720px) {
+  .waSurveyPackReviewLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.waSurveyPackReviewPreview {
+  display: flex;
+  justify-content: center;
+}
+
+.waSurveyPackReviewPreview .waSurveyPreviewWrap {
+  width: 100%;
+}
+
+.waSurveyPackReviewPreview .waPhonePortraitPro {
+  margin: 0 auto;
+  max-width: 260px;
+}
+
+.waSurveyPackReviewDetails {
+  display: grid;
+  gap: 12px;
+}
+
+.waSurveyPackDetailList {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.waSurveyPackDetailList dt {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.waSurveyPackDetailList dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+
+.waSurveyPackVarChip,
+.waSurveyPackBtnChip {
+  background: var(--bg-soft, #f4f6f8);
+  border-radius: 8px;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.waSurveyPackTextBlock p {
+  background: var(--bg-soft, #f4f6f8);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+}
+
+.waSurveyPackErrorList {
+  color: var(--err, #a32d2d);
+  font-size: 12px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.waSurveyPackReviewActions {
+  border-top: 1px solid var(--border, #dde3ea);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
 }
 
 .waSurveyPackGrid {
