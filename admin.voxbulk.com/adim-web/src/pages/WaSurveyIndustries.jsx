@@ -1,0 +1,266 @@
+import React, { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { apiFetch } from '../lib/api'
+import { formatWaSurveyError } from '../lib/waSurveyFeedback'
+
+function formatWhen(iso) {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleString()
+  } catch {
+    return iso
+  }
+}
+
+export default function WaSurveyIndustries() {
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [msg, setMsg] = useState('')
+  const [modal, setModal] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await apiFetch('/admin/wa-survey/industries?include_inactive=true')
+      setRows(Array.isArray(data?.industries) ? data.industries : [])
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not load industries').message)
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const openCreate = () => {
+    setModal({
+      mode: 'create',
+      name: '',
+      slug: '',
+      description: '',
+      sort_order: 100,
+      is_active: true,
+    })
+  }
+
+  const openEdit = (row) => {
+    setModal({
+      mode: 'edit',
+      id: row.id,
+      name: row.name || '',
+      slug: row.slug || '',
+      description: row.description || '',
+      sort_order: row.sort_order ?? 100,
+      is_active: Boolean(row.is_active),
+      survey_type_count: row.survey_type_count || 0,
+    })
+  }
+
+  const saveModal = async (e) => {
+    e.preventDefault()
+    if (!modal) return
+    setSaving(true)
+    setError('')
+    setMsg('')
+    const body = {
+      name: modal.name.trim(),
+      slug: modal.slug.trim() || undefined,
+      description: modal.description.trim() || undefined,
+      sort_order: Number(modal.sort_order) || 100,
+      is_active: Boolean(modal.is_active),
+    }
+    try {
+      if (modal.mode === 'create') {
+        await apiFetch('/admin/wa-survey/industries', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
+        setMsg('Industry created.')
+      } else {
+        await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(modal.id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        })
+        setMsg('Industry updated.')
+      }
+      setModal(null)
+      await load()
+    } catch (err) {
+      setError(formatWaSurveyError(err, 'Could not save industry').message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleActive = async (row) => {
+    setError('')
+    setMsg('')
+    try {
+      await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(row.id)}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ is_active: !row.is_active }),
+      })
+      setMsg(row.is_active ? 'Industry disabled.' : 'Industry enabled.')
+      await load()
+    } catch (err) {
+      setError(formatWaSurveyError(err, 'Could not update industry status').message)
+    }
+  }
+
+  return (
+    <>
+      <div className="pageTop">
+        <div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+            <Link to="/settings/wa-survey" style={{ color: 'var(--grn)' }}>WA Survey</Link>
+            {' '}/ Industries
+          </div>
+          <h1>Industries</h1>
+          <p className="pageLead">
+            Manage industry dimensions for survey types, template banks, and Create Survey dropdowns.
+            Inactive industries are hidden from customer Create Survey flows.
+          </p>
+        </div>
+        <div className="pageTopActions">
+          <button type="button" className="btn primary" onClick={openCreate}>
+            <i className="ti ti-plus" /> Add industry
+          </button>
+        </div>
+      </div>
+
+      {error ? <div className="alert error"><strong>{error}</strong></div> : null}
+      {msg ? <div className="alert ok"><strong>{msg}</strong></div> : null}
+
+      <div className="card">
+        <div className="cardHead">
+          <h2>All industries</h2>
+          <span className="muted">{rows.length} total</span>
+        </div>
+        <div className="cardBody">
+          {loading ? (
+            <p className="muted">Loading…</p>
+          ) : (
+            <div className="tableWrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Slug</th>
+                    <th>Status</th>
+                    <th>Sort</th>
+                    <th>Survey types</th>
+                    <th>Updated</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.id}>
+                      <td><strong>{row.name}</strong></td>
+                      <td><code>{row.slug}</code></td>
+                      <td>
+                        <span className={`pill ${row.is_active ? 'ok' : 'muted'}`}>
+                          {row.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td>{row.sort_order}</td>
+                      <td>{row.survey_type_count ?? 0}</td>
+                      <td>{formatWhen(row.updated_at)}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <button type="button" className="btn sm" onClick={() => openEdit(row)}>Edit</button>
+                        {' '}
+                        <button type="button" className="btn sm" onClick={() => toggleActive(row)}>
+                          {row.is_active ? 'Disable' : 'Enable'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {modal ? (
+        <div
+          className="modalOverlay open"
+          onClick={(e) => { if (e.target === e.currentTarget) setModal(null) }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <form className="modal" onSubmit={saveModal}>
+            <div className="modalHead">
+              <h2>{modal.mode === 'create' ? 'Add industry' : 'Edit industry'}</h2>
+              <button type="button" className="btn ghost" onClick={() => setModal(null)} aria-label="Close">×</button>
+            </div>
+            <div className="modalBody grid2">
+              <label className="field">
+                <span>Name</span>
+                <input className="input" value={modal.name} onChange={(e) => setModal({ ...modal, name: e.target.value })} required />
+              </label>
+              <label className="field">
+                <span>Slug</span>
+                <input
+                  className="input"
+                  value={modal.slug}
+                  onChange={(e) => setModal({ ...modal, slug: e.target.value })}
+                  placeholder="e.g. healthcare"
+                  required={modal.mode === 'create'}
+                />
+              </label>
+              <label className="field">
+                <span>Sort order</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={9999}
+                  value={modal.sort_order}
+                  onChange={(e) => setModal({ ...modal, sort_order: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>Status</span>
+                <select
+                  className="input"
+                  value={modal.is_active ? 'active' : 'inactive'}
+                  onChange={(e) => setModal({ ...modal, is_active: e.target.value === 'active' })}
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </label>
+              <label className="field" style={{ gridColumn: '1 / -1' }}>
+                <span>Description</span>
+                <input
+                  className="input"
+                  value={modal.description}
+                  onChange={(e) => setModal({ ...modal, description: e.target.value })}
+                  placeholder="Optional"
+                />
+              </label>
+              {modal.mode === 'edit' && (modal.survey_type_count || 0) > 0 ? (
+                <p className="muted" style={{ gridColumn: '1 / -1', margin: 0 }}>
+                  Used by {modal.survey_type_count} survey type(s). Disable only after reassigning them.
+                </p>
+              ) : null}
+            </div>
+            <div className="modalFoot">
+              <button type="button" className="btn ghost" onClick={() => setModal(null)}>Cancel</button>
+              <button type="submit" className="btn primary" disabled={saving}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+    </>
+  )
+}

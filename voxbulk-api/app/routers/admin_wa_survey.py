@@ -9,7 +9,7 @@ from app.core.admin_rbac import CAP_INTEGRATION, require_cap
 from app.core.database import get_db
 from app.services.survey_generation_service import SurveyGenerationService
 from app.models.industry import Industry
-from app.services.industry_service import IndustryService
+from app.services.industry_service import IndustryService, industry_to_dict
 from app.services.survey_type_service import SurveyTypeService, survey_type_to_dict
 from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackError, SurveyWaTemplatePackService
 from app.services.survey_whatsapp_template_service import (
@@ -28,8 +28,97 @@ def _raise_wa_survey_error(exc: SurveyWhatsappTemplateError, *, status_code: int
 
 
 @router.get("/industries")
-def list_industries(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    return {"ok": True, "industries": IndustryService.list_industries(db)}
+def list_industries(
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    if include_inactive:
+        return {"ok": True, "industries": IndustryService.list_industries_admin(db)}
+    return {"ok": True, "industries": IndustryService.list_industries(db, active_only=True)}
+
+
+@router.post("/industries")
+def create_industry(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        row = IndustryService.create_industry(db, payload or {})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {
+        "ok": True,
+        "industry": industry_to_dict(row, survey_type_count=0),
+    }
+
+
+@router.get("/industries/{industry_id}")
+def get_industry(
+    industry_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = IndustryService.get_industry(db, industry_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found")
+    return {
+        "ok": True,
+        "industry": industry_to_dict(
+            row,
+            survey_type_count=IndustryService.survey_type_count(db, row.id),
+        ),
+    }
+
+
+@router.put("/industries/{industry_id}")
+def update_industry(
+    industry_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = IndustryService.get_industry(db, industry_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found")
+    try:
+        updated = IndustryService.update_industry(db, row, payload or {})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {
+        "ok": True,
+        "industry": industry_to_dict(
+            updated,
+            survey_type_count=IndustryService.survey_type_count(db, updated.id),
+        ),
+    }
+
+
+@router.post("/industries/{industry_id}/status")
+def set_industry_status(
+    industry_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = IndustryService.get_industry(db, industry_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found")
+    body = payload or {}
+    if "is_active" not in body:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="is_active is required")
+    try:
+        updated = IndustryService.set_active(db, row, is_active=bool(body["is_active"]))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {
+        "ok": True,
+        "industry": industry_to_dict(
+            updated,
+            survey_type_count=IndustryService.survey_type_count(db, updated.id),
+        ),
+    }
 
 
 @router.get("/types")

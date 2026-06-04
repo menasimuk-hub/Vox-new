@@ -86,12 +86,8 @@ export default function WaSurveyTypes() {
   }, [industryFilter])
 
   useEffect(() => {
-    loadIndustries()
-  }, [loadIndustries])
-
-  useEffect(() => {
-    load()
-  }, [load])
+    loadIndustries().then(() => load())
+  }, [loadIndustries, load])
 
   const syncAll = async () => {
     setSyncing(true)
@@ -153,6 +149,9 @@ export default function WaSurveyTypes() {
           </p>
         </div>
         <div className="pageTopActions">
+          <Link className="btn" to="/settings/wa-survey/industries">
+            <i className="ti ti-building" /> Manage industries
+          </Link>
           <button type="button" className="btn" onClick={() => setShowCreate((v) => !v)}>
             <i className="ti ti-plus" /> Create survey type
           </button>

@@ -9,9 +9,68 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:
-    conn = op.get_bind()
-    # Backfill owner survey type from voxbulk_survey_{slug}_* template names.
+def _upgrade_sqlite(conn) -> None:
+    rows = conn.execute(sa.text("SELECT id, slug FROM survey_types")).fetchall()
+    for st_id, slug in rows:
+        slug_l = str(slug or "").strip().lower()
+        if not slug_l:
+            continue
+        prefix = f"voxbulk_survey_{slug_l}_%"
+        conn.execute(
+            sa.text(
+                """
+                UPDATE telnyx_whatsapp_templates
+                SET survey_type_id = :st_id
+                WHERE survey_type_id IS NULL AND LOWER(name) LIKE :prefix
+                """
+            ),
+            {"st_id": st_id, "prefix": prefix},
+        )
+    conn.execute(
+        sa.text(
+            """
+            DELETE FROM survey_type_templates
+            WHERE rowid IN (
+                SELECT stt.rowid FROM survey_type_templates stt
+                INNER JOIN survey_types st ON st.id = stt.survey_type_id
+                INNER JOIN telnyx_whatsapp_templates t ON t.id = stt.template_id
+                WHERE t.survey_type_id IS NOT NULL AND t.survey_type_id <> stt.survey_type_id
+            )
+            """
+        )
+    )
+    for st_id, slug in rows:
+        slug_l = str(slug or "").strip().lower()
+        if not slug_l:
+            continue
+        prefix = f"voxbulk_survey_{slug_l}_%"
+        legacy_std = f"voxbulk_survey_{slug_l}_standard"
+        legacy_anon = f"voxbulk_survey_{slug_l}_anonymous"
+        conn.execute(
+            sa.text(
+                """
+                DELETE FROM survey_type_templates
+                WHERE rowid IN (
+                    SELECT stt.rowid FROM survey_type_templates stt
+                    INNER JOIN survey_types st ON st.id = stt.survey_type_id
+                    INNER JOIN telnyx_whatsapp_templates t ON t.id = stt.template_id
+                    WHERE stt.survey_type_id = :st_id
+                      AND t.survey_type_id IS NULL
+                      AND LOWER(t.name) NOT LIKE :prefix
+                      AND LOWER(t.name) NOT IN (:legacy_std, :legacy_anon)
+                )
+                """
+            ),
+            {
+                "st_id": st_id,
+                "prefix": prefix,
+                "legacy_std": legacy_std,
+                "legacy_anon": legacy_anon,
+            },
+        )
+
+
+def _upgrade_mysql(conn) -> None:
     conn.execute(
         sa.text(
             """
@@ -22,7 +81,6 @@ def upgrade() -> None:
             """
         )
     )
-    # Remove join rows where template slug does not match the linked survey type slug.
     conn.execute(
         sa.text(
             """
@@ -46,6 +104,14 @@ def upgrade() -> None:
             """
         )
     )
+
+
+def upgrade() -> None:
+    conn = op.get_bind()
+    if conn.dialect.name == "sqlite":
+        _upgrade_sqlite(conn)
+    else:
+        _upgrade_mysql(conn)
 
 
 def downgrade() -> None:

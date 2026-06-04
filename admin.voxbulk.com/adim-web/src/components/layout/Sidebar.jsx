@@ -202,6 +202,7 @@ const NAV = [
       ['Feature flags', '/settings/flags'],
       ['Email / notification settings', '/settings/email'],
       ['WA Survey', '/settings/wa-survey'],
+      ['WA Survey industries', '/settings/wa-survey/industries'],
       ['Legal pages', '/settings/legal'],
       ['API keys / secrets', '/settings/api-keys'],
     ],
@@ -210,7 +211,9 @@ const NAV = [
 
 function findGroupForPath(pathname, tree) {
   for (const [group, items] of tree) {
-    if (items.some(([, path]) => path === pathname)) return group
+    if (items.some(([, path]) => path === pathname || (pathname.startsWith(`${path}/`) && path !== '/'))) {
+      return group
+    }
   }
   return null
 }
