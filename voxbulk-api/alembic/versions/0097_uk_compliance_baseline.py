@@ -109,6 +109,10 @@ def upgrade() -> None:
         )
 
     if not _table_exists(conn, "platform_compliance_audit_events"):
+        # MySQL rejects DEFAULT on TEXT/BLOB (error 1101); app always sets detail_json on insert.
+        detail_col = sa.Column("detail_json", sa.Text(), nullable=False)
+        if conn.dialect.name == "sqlite":
+            detail_col = sa.Column("detail_json", sa.Text(), nullable=False, server_default="{}")
         op.create_table(
             "platform_compliance_audit_events",
             sa.Column("id", sa.String(36), primary_key=True),
@@ -118,7 +122,7 @@ def upgrade() -> None:
             sa.Column("order_id", sa.String(36), sa.ForeignKey("service_orders.id"), nullable=True),
             sa.Column("resource_type", sa.String(32), nullable=True),
             sa.Column("resource_id", sa.String(64), nullable=True),
-            sa.Column("detail_json", sa.Text(), nullable=False, server_default="{}"),
+            detail_col,
             sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         )
         op.create_index("ix_pca_events_type", "platform_compliance_audit_events", ["event_type"])
