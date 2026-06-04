@@ -182,6 +182,8 @@ def test_pack_system_prompt_forbids_reference_without_admin_override():
     assert "at least 8 of 12" in prompt
     assert "META / WHATSAPP BUSINESS APPROVAL RULES" in prompt
     assert "Reply STOP to opt out" in prompt
+    assert "MAX 3 buttons" in prompt or "MAX 3" in prompt
+    assert "NEVER output 4" in prompt
 
 
 def test_coerce_meta_template_fields_fixes_long_footer():
@@ -196,6 +198,31 @@ def test_coerce_meta_template_fields_fixes_long_footer():
     )
     assert item["footer"] == "Reply STOP to opt out"
     assert len(item["footer"]) <= 60
+
+
+def test_coerce_meta_template_fields_trims_extra_quick_reply_buttons():
+    from app.services.survey_wa_template_pack_service import coerce_meta_template_fields
+
+    buttons = [{"text": f"Opt {i}", "url": "", "phone_number": ""} for i in range(5)]
+    item = coerce_meta_template_fields(
+        _sample_item(button_type="quick_reply", buttons=buttons),
+        privacy_mode="off",
+    )
+    assert len(item["buttons"]) == 3
+
+
+def test_validate_rejects_long_button_label():
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        ok, errors = validate_generated_template(
+            _sample_item(
+                button_type="quick_reply",
+                buttons=[{"text": "A" * 30, "url": "", "phone_number": ""}],
+            ),
+            survey_type=st,
+        )
+        assert ok is None
+        assert any("25 characters" in e for e in errors)
 
 
 def test_validate_anonymous_wording():

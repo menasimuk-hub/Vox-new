@@ -39,6 +39,7 @@ from app.services.survey_whatsapp_template_service import (
     META_BUTTON_LABEL_MAX_CHARS,
     META_FOOTER_MAX_CHARS,
     META_HEADER_MAX_CHARS,
+    META_QUICK_REPLY_MAX_BUTTONS,
     STANDARD_OPT_OUT_FOOTER,
     SYNC_DRAFT,
     VARIANT_ANONYMOUS,
@@ -143,9 +144,11 @@ def coerce_meta_template_fields(
             }
         )
     if button_type == "quick_reply":
-        cleaned_buttons = cleaned_buttons[:3]
+        cleaned_buttons = cleaned_buttons[:META_QUICK_REPLY_MAX_BUTTONS]
     elif button_type in {"url", "phone"}:
         cleaned_buttons = cleaned_buttons[:1]
+    elif button_type == "none":
+        cleaned_buttons = []
     out["buttons"] = cleaned_buttons
     out["button_type"] = button_type
     return out
@@ -177,6 +180,7 @@ _PACK_TEMPLATE_ITEM_SCHEMA: dict[str, Any] = {
         "button_type": {"type": "string", "enum": ["none", "quick_reply", "url", "phone"]},
         "buttons": {
             "type": "array",
+            "maxItems": META_QUICK_REPLY_MAX_BUTTONS,
             "items": {
                 "type": "object",
                 "properties": {
@@ -285,7 +289,7 @@ def _build_buttons_component(button_type: str, buttons: list[dict[str, Any]]) ->
     cleaned = [b for b in buttons if isinstance(b, dict) and str(b.get("text") or "").strip()]
     if bt == "quick_reply":
         out = []
-        for btn in cleaned[:3]:
+        for btn in cleaned[:META_QUICK_REPLY_MAX_BUTTONS]:
             label = str(btn.get("text") or "").strip()[:25]
             if label:
                 out.append({"type": "QUICK_REPLY", "text": label})
@@ -419,23 +423,44 @@ def validate_generated_template(
 
     button_type = _normalize_button_type(item.get("button_type"))
     buttons = item.get("buttons") if isinstance(item.get("buttons"), list) else []
+    if button_type == "none" and buttons:
+        errors.append("button_type none must have an empty buttons array")
     if button_type == "quick_reply":
         labels = [str(b.get("text") or "").strip() for b in buttons if isinstance(b, dict)]
-        labels = [l for l in labels if l]
+        labels = [label for label in labels if label]
         if not labels:
             errors.append("quick_reply templates need at least one button label")
-        elif len(labels) > 3:
-            errors.append("quick_reply supports at most 3 buttons")
+        elif len(labels) > META_QUICK_REPLY_MAX_BUTTONS:
+            errors.append(
+                f"quick_reply supports at most {META_QUICK_REPLY_MAX_BUTTONS} buttons (Meta/VoxBulk limit — never generate 4+)"
+            )
+        for label in labels:
+            if len(label) > META_BUTTON_LABEL_MAX_CHARS:
+                errors.append(
+                    f"button label “{label[:20]}…” exceeds {META_BUTTON_LABEL_MAX_CHARS} characters (Meta limit)"
+                )
     elif button_type == "url":
+        if len([b for b in buttons if isinstance(b, dict) and str(b.get("text") or "").strip()]) > 1:
+            errors.append("url button templates allow exactly one button")
         btn = buttons[0] if buttons else {}
         url = str(btn.get("url") or "").strip() if isinstance(btn, dict) else ""
+        label = str(btn.get("text") or "").strip() if isinstance(btn, dict) else ""
+        if not label:
+            errors.append("url button templates need button text")
+        elif len(label) > META_BUTTON_LABEL_MAX_CHARS:
+            errors.append(f"url button label exceeds {META_BUTTON_LABEL_MAX_CHARS} characters")
         if not _URL_RE.match(url):
             errors.append("url button templates need a valid https URL")
     elif button_type == "phone":
+        if len([b for b in buttons if isinstance(b, dict) and str(b.get("text") or "").strip()]) > 1:
+            errors.append("phone button templates allow exactly one button")
         btn = buttons[0] if buttons else {}
         phone = str(btn.get("phone_number") or "").strip() if isinstance(btn, dict) else ""
+        label = str(btn.get("text") or "").strip() if isinstance(btn, dict) else ""
         if not phone:
             errors.append("phone button templates need phone_number")
+        if label and len(label) > META_BUTTON_LABEL_MAX_CHARS:
+            errors.append(f"phone button label exceeds {META_BUTTON_LABEL_MAX_CHARS} characters")
 
     if variant == VARIANT_ANONYMOUS:
         if ANONYMOUS_BODY_SENTENCE.lower() not in body.lower():
@@ -554,6 +579,29 @@ def _reference_copy_rules_block(*, instruction: str = "", purpose: str = "") -> 
     )
 
 
+def _meta_buttons_rules_block() -> str:
+    return (
+        "BUTTONS — Meta WhatsApp template rules (strict; Telnyx will reject invalid templates):\n"
+        f"• quick_reply — MIN 1, MAX {META_QUICK_REPLY_MAX_BUTTONS} buttons per template. NEVER output 4 or more.\n"
+        f"  – Each label ≤{META_BUTTON_LABEL_MAX_CHARS} characters. Plain text only (no emojis in button labels).\n"
+        "  – yes_no step: exactly 2 buttons (e.g. Yes / No). abc_choice: 2–3 buttons (A / B / C).\n"
+        "  – start step: usually 1 quick_reply (“Start survey”) OR use button_type url with one button.\n"
+        "• url — exactly ONE button; label ≤25 chars; url MUST start with https:// (static URL in template, not {{variables}} in url field).\n"
+        "• phone — exactly ONE button; label ≤25 chars; include phone_number in E.164 (e.g. +441234567890).\n"
+        "• none — no buttons; set buttons to [] and button_type to none.\n"
+        "• NEVER mix quick_reply with url or phone in the same template — pick one button_type only.\n"
+        "• completion/thank-you templates: prefer button_type none (no CTA buttons).\n"
+        "• Do not duplicate button labels within the same template.\n\n"
+        "NOT ALLOWED (Meta rejects these):\n"
+        "• More than 3 quick_reply buttons (even though Meta allows 10, VoxBulk caps at 3 for approval and UX).\n"
+        "• Variables {{1}} in footer, header, or button labels — variables belong in BODY only.\n"
+        "• URLs or emails in footer.\n"
+        "• ALL CAPS body, spam phrases, false urgency, prizes, or misleading claims.\n"
+        "• AUTHENTICATION category for survey invites — use MARKETING.\n"
+        "• Threatening, abusive, or adult content.\n\n"
+    )
+
+
 def _meta_compliance_rules_block(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
     pm = normalize_privacy_mode(privacy_mode)
     standard_footer = STANDARD_OPT_OUT_FOOTER
@@ -568,8 +616,9 @@ def _meta_compliance_rules_block(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str
         "  – Put privacy/data wording in the BODY instead (keep body concise).\n"
         f"• HEADER — optional; max {META_HEADER_MAX_CHARS} chars; no variables; plain text only.\n"
         f"• BODY — max {META_BODY_HARD_MAX_CHARS} chars; target ≤{META_BODY_SOFT_MAX_CHARS} for faster Meta approval.\n"
-        f"• BUTTON labels — max {META_BUTTON_LABEL_MAX_CHARS} chars each; max 3 quick replies.\n"
-        "• CATEGORY — use MARKETING for survey invitations.\n"
+        "  Variables {{1}}, {{2}}, etc. allowed in BODY only — sequential from {{1}}.\n"
+        f"{_meta_buttons_rules_block()}"
+        "• CATEGORY — use MARKETING for survey invitations (not AUTHENTICATION).\n"
         "• TONE — professional UK business English: warm, clear, trustworthy. No spam triggers.\n"
         "  Avoid: ALL CAPS, false urgency, guilt-tripping, ‘ACT NOW’, ‘FREE’, or exaggerated claims.\n"
         "  Do not mention Meta, WhatsApp, OpenAI, or Telnyx in customer-facing copy.\n\n"
@@ -652,16 +701,15 @@ def _pack_system_prompt(
         f"{_emoji_rules_block()}"
         "CTA COPY — weave in natural action phrases such as: ‘Tap below’, ‘Rate your experience’, ‘Share feedback’, "
         "‘It only takes a minute’, ‘We’d love your thoughts’. Keep sentences short and scannable on mobile.\n\n"
-        "BUTTON-AWARE COPY:\n"
-        "• quick_reply: body must invite a tap (‘Tap below to start’, ‘Choose an option below’). "
-        f"Button labels: short, tap-friendly (≤{META_BUTTON_LABEL_MAX_CHARS} chars), e.g. ‘Start survey’, ‘Share feedback’, ‘Yes, happy to’.\n"
-        "• url: body must clearly direct to the button link (‘Tap the button below to open your survey’, "
-        "‘Use the link below — it only takes a minute’). Button text: ‘Open survey’, ‘Rate experience’, ‘Give feedback’. "
-        "URL must be https.\n"
-        "• phone: body invites a call (‘Need help? Tap below to call us’). Button: ‘Call us’, ‘Speak to team’.\n"
-        "• none: soft CTA pointing to the survey link ({{3}}) — never call it a reference.\n\n"
+        "BUTTON-AWARE COPY (follow Meta limits exactly):\n"
+        f"• quick_reply: 1–{META_QUICK_REPLY_MAX_BUTTONS} buttons ONLY — never 4+. Body invites a tap.\n"
+        f"  Labels ≤{META_BUTTON_LABEL_MAX_CHARS} chars: ‘Start survey’, ‘Yes’, ‘No’, ‘Share feedback’.\n"
+        "• url: exactly ONE button + https URL. Body directs user to tap the link button.\n"
+        "• phone: exactly ONE call button. Body invites a call if needed.\n"
+        "• none: buttons [] — use for rating/reason/completion steps answered by free-text reply.\n"
+        "• Never combine quick_reply with url/phone in one template.\n\n"
         f"STRUCTURE: strong opening hook in first line; short paragraphs; WhatsApp-friendly length (body ≤{META_BODY_SOFT_MAX_CHARS} chars ideal). "
-        "Quick reply: max 3 buttons. "
+        f"Quick reply: never more than {META_QUICK_REPLY_MAX_BUTTONS} buttons. "
         f"Standard templates: footer exactly “{STANDARD_OPT_OUT_FOOTER}”. "
         f"Anonymous templates: body must include that the survey is anonymous; footer exactly “{ANONYMOUS_FOOTER}”. "
         "template_name: unique lowercase snake_case, no voxbulk_survey prefix.\n\n"
@@ -669,11 +717,11 @@ def _pack_system_prompt(
         "• one template per middle step_role (rating, yes_no, helpfulness, abc_choice, reason, feeling_word, follow_up, improvement)\n"
         "• one start template\n"
         "• THREE completion templates — each step_role=completion with a distinct outcome_key: happy, neutral, unhappy\n"
-        "start — intro with quick_reply or url CTA to begin the survey\n"
-        "rating — 0–10 or star-style satisfaction score prompt\n"
-        "yes_no — simple yes/no check-in\n"
-        "helpfulness — how helpful was our service/team\n"
-        "abc_choice — pick A/B/C style option\n"
+        "start — intro with quick_reply (1 button) or url CTA (1 button) to begin the survey\n"
+        "rating — button_type none (user replies with a score in chat)\n"
+        "yes_no — quick_reply with exactly 2 buttons\n"
+        "helpfulness — button_type none or quick_reply with 2–3 options\n"
+        "abc_choice — quick_reply with 2 or 3 buttons (never 4+)\n"
         "reason — open follow-up asking why or what stood out\n"
         "feeling_word — pick a feeling word (great, okay, disappointing…)\n"
         "follow_up — short follow-up or reminder nudge\n"
