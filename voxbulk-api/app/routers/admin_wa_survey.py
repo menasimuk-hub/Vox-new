@@ -338,11 +338,16 @@ def preview_template(
 @router.post("/generate-preview")
 def generate_survey_preview(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:
+        page_count = payload.get("page_count")
+        selected = payload.get("selected_step_roles")
         result = SurveyGenerationService.generate(
             db,
             survey_type_id=str(payload.get("survey_type_id") or ""),
             variant=str(payload.get("variant") or "standard"),
             length=str(payload.get("length") or "standard"),
+            page_count=int(page_count) if page_count is not None else None,
+            auto_select_steps=bool(payload.get("auto_select_steps", True)),
+            selected_step_roles=[str(r) for r in selected] if isinstance(selected, list) else None,
             goal=str(payload.get("goal") or ""),
             organisation_name=str(payload.get("organisation_name") or "Your business"),
             client_name=str(payload.get("client_name") or ""),

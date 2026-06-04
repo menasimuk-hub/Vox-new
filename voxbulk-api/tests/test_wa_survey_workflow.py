@@ -20,6 +20,7 @@ from app.models.user import User
 from app.core.security import hash_password
 from app.models.membership import OrganisationMembership
 from app.services.survey_generation_service import SurveyGenerationService
+from app.services.survey_step_bank_service import PACK_STEP_ROLES
 from app.services.survey_results_service import SurveyResultsService
 from app.services.survey_type_service import SurveyTypeService
 from app.services.survey_type_template_service import SurveyTypeTemplateService
@@ -81,6 +82,7 @@ def _approved_template(
     *,
     variant: str = VARIANT_STANDARD,
     name: str | None = None,
+    step_role: str = "start",
 ) -> TelnyxWhatsappTemplate:
     components = [
         {
@@ -102,6 +104,7 @@ def _approved_template(
         category="MARKETING",
         status="APPROVED",
         variant_type=variant,
+        step_role=step_role,
         body_preview="Hi {{1}}",
         components_json=json.dumps(components),
         draft_components_json=json.dumps(components),
@@ -132,6 +135,47 @@ def _approved_template(
         )
     db.refresh(row)
     return row
+
+
+def _seed_step_bank(db, survey_type: SurveyType, *, variant: str = VARIANT_STANDARD) -> None:
+    """Minimal 10-role step bank for generation tests."""
+    now = datetime.utcnow()
+    for role in PACK_STEP_ROLES:
+        record_id = str(uuid.uuid4())
+        status = "APPROVED" if role == "start" else "LOCAL_DRAFT"
+        body = f"Step {role} for {{{{1}}}} at {{{{2}}}}."
+        components = [
+            {"type": "BODY", "text": body},
+            {"type": "FOOTER", "text": "Reply STOP to opt out"},
+        ]
+        if role == "start":
+            components.append({"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Start survey"}]})
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id=record_id,
+            template_id=record_id,
+            name=f"voxbulk_survey_{survey_type.slug}_{role}",
+            display_name=role.replace("_", " ").title(),
+            language="en_US",
+            category="MARKETING",
+            status=status,
+            variant_type=variant,
+            step_role=role,
+            body_preview=body[:60],
+            components_json=json.dumps(components) if status == "APPROVED" else None,
+            draft_components_json=json.dumps(components),
+            example_values_json=json.dumps(["Alex"]),
+            local_sync_status="in_sync" if status == "APPROVED" else "draft",
+            active_for_survey=True,
+            created_at=now,
+            updated_at=now,
+            synced_at=now,
+        )
+        db.add(row)
+        db.flush()
+        if variant == VARIANT_ANONYMOUS:
+            _link_template(db, survey_type, row, usable_as_anonymous=True)
+        else:
+            _link_template(db, survey_type, row, usable_as_standard=True)
 
 
 def test_survey_types_seeded_and_listed():
@@ -315,14 +359,15 @@ def test_generation_chooses_template_and_question_count(monkeypatch):
     )
     with get_sessionmaker()() as db:
         survey_type = _seed_survey_type(db)
-        _approved_template(db, survey_type, variant=VARIANT_STANDARD)
+        _seed_step_bank(db, survey_type)
         result = SurveyGenerationService.generate(
             db,
             survey_type_id=survey_type.id,
             variant=VARIANT_STANDARD,
             length="short",
         )
-        assert result["question_count"] == 4
+        assert result["page_count"] == 4
+        assert len(result["page_roles"]) == 4
         assert result["wa_template_id"]
         assert len(result["flow_steps"]) >= 4
         assert result["template_preview"]["rendered_body"]
@@ -335,7 +380,7 @@ def test_anonymous_generation_flags_privacy(monkeypatch):
     )
     with get_sessionmaker()() as db:
         survey_type = _seed_survey_type(db)
-        _approved_template(db, survey_type, variant=VARIANT_ANONYMOUS)
+        _seed_step_bank(db, survey_type, variant=VARIANT_ANONYMOUS)
         result = SurveyGenerationService.generate(
             db,
             survey_type_id=survey_type.id,
@@ -543,15 +588,18 @@ def test_generation_uses_explicit_default_mapping(monkeypatch):
     )
     with get_sessionmaker()() as db:
         survey_type = _seed_survey_type(db)
+        _seed_step_bank(db, survey_type)
         name_match = _approved_template(
             db,
             survey_type,
             name=f"voxbulk_survey_{survey_type.slug}_standard",
+            step_role="start",
         )
         explicit_default = _approved_template(
             db,
             survey_type,
             name="voxbulk_shared_explicit_default",
+            step_role="start",
         )
         SurveyTypeTemplateService.upsert_mapping(
             db,

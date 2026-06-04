@@ -368,6 +368,7 @@ def survey_template_to_dict(
         "is_local_only": _is_local_row(row),
         "send_template_id": send_template_id_for_row(row),
         "linked_survey_type_count": linked_survey_type_count,
+        "step_role": str(row.step_role or "").strip().lower() or None,
     }
     if mapping is not None:
         payload.update(

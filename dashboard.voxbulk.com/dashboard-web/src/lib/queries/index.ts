@@ -747,6 +747,17 @@ export function useWaSurveyTypes() {
   });
 }
 
+export function useWaSurveyStepBank(surveyTypeId: string | null, variant: string) {
+  return useQuery({
+    queryKey: ["dashboard", "wa-survey-step-bank", surveyTypeId, variant],
+    enabled: Boolean(surveyTypeId),
+    queryFn: () =>
+      apiFetch<Record<string, unknown>>(
+        `/dashboard/service-scripts/wa-survey/types/${encodeURIComponent(surveyTypeId!)}/step-bank?variant=${encodeURIComponent(variant)}`,
+      ),
+  });
+}
+
 export function useGenerateWaSurvey() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
-import { Upload, Download, Wand2, Lock, RotateCcw, Eye } from "lucide-react";
+import { Upload, Download, Wand2, Lock, RotateCcw, Eye, ChevronUp, ChevronDown, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -16,12 +16,31 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
-import { useCreateServiceOrder, usePatchServiceOrder, useSurveyPackages, useWaSurveyTypes, useGenerateWaSurvey } from "@/lib/queries";
+import { useCreateServiceOrder, usePatchServiceOrder, useSurveyPackages, useWaSurveyTypes, useWaSurveyStepBank, useGenerateWaSurvey } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/surveys/new")({
   head: () => ({ meta: [{ title: "Create survey — VoxBulk" }] }),
   component: CreateSurvey,
 });
+
+const STEP_ROLE_LABELS: Record<string, string> = {
+  start: "Start",
+  completion: "Completion",
+  rating: "Rating",
+  yes_no: "Yes / No",
+  helpfulness: "Helpfulness",
+  abc_choice: "A / B / C choice",
+  reason: "Reason",
+  feeling_word: "Feeling word",
+  follow_up: "Follow-up",
+  improvement: "Improvement",
+};
+
+const PAGE_COUNT_TO_LENGTH: Record<4 | 5 | 6, "short" | "standard" | "detailed"> = {
+  4: "short",
+  5: "standard",
+  6: "detailed",
+};
 
 function CreateSurvey() {
   const packagesQ = useSurveyPackages();
@@ -32,10 +51,13 @@ function CreateSurvey() {
   const [waPreview, setWaPreview] = React.useState<Record<string, unknown> | null>(null);
   const [surveyTypeId, setSurveyTypeId] = React.useState("");
   const [surveyVariant, setSurveyVariant] = React.useState<"standard" | "anonymous">("standard");
-  const [surveyLength, setSurveyLength] = React.useState<"short" | "standard" | "detailed">("standard");
+  const [pageCount, setPageCount] = React.useState<4 | 5 | 6>(5);
+  const [autoSelectSteps, setAutoSelectSteps] = React.useState(true);
+  const [manualMiddleRoles, setManualMiddleRoles] = React.useState<string[]>([]);
   const [generating, setGenerating] = React.useState(false);
   const [waOpen, setWaOpen] = React.useState(false);
   const waTypesQ = useWaSurveyTypes();
+  const stepBankQ = useWaSurveyStepBank(method === "whatsapp" ? surveyTypeId : null, surveyVariant);
   const generateWaM = useGenerateWaSurvey();
   const [quote, setQuote] = React.useState(false);
   const [approved, setApproved] = React.useState(false);
@@ -86,13 +108,76 @@ function CreateSurvey() {
     if (surveyVariant === "anonymous") setAnonymous(true);
   }, [surveyVariant]);
 
+  const stepBankByRole = React.useMemo(
+    () => (stepBankQ.data?.by_role || {}) as Record<string, { title?: string; body?: string; display_name?: string }>,
+    [stepBankQ.data],
+  );
+  const suggestedRoles = React.useMemo(
+    () => (stepBankQ.data?.suggested_page_roles || {}) as Record<string, string[]>,
+    [stepBankQ.data],
+  );
+  const availableMiddleRoles = React.useMemo(
+    () => ((stepBankQ.data?.middle_roles || []) as string[]).filter((r) => r !== "start" && r !== "completion"),
+    [stepBankQ.data],
+  );
+
+  React.useEffect(() => {
+    const suggested = suggestedRoles[String(pageCount)] || [];
+    const middle = suggested.filter((r) => r !== "start" && r !== "completion");
+    setManualMiddleRoles(middle.slice(0, Math.max(0, pageCount - 2)));
+  }, [pageCount, surveyTypeId, surveyVariant, suggestedRoles]);
+
+  const resolvedPageRoles = React.useMemo(() => {
+    const auto = suggestedRoles[String(pageCount)];
+    if (autoSelectSteps && auto?.length === pageCount) return auto;
+    const middle = manualMiddleRoles.slice(0, Math.max(0, pageCount - 2));
+    return ["start", ...middle, "completion"];
+  }, [autoSelectSteps, suggestedRoles, pageCount, manualMiddleRoles]);
+
+  const pageOrderValid =
+    resolvedPageRoles.length === pageCount &&
+    resolvedPageRoles[0] === "start" &&
+    resolvedPageRoles[resolvedPageRoles.length - 1] === "completion" &&
+    new Set(resolvedPageRoles.slice(1, -1)).size === resolvedPageRoles.slice(1, -1).length;
+
+  const moveMiddleRole = (index: number, direction: -1 | 1) => {
+    setManualMiddleRoles((prev) => {
+      const next = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+    setAutoSelectSteps(false);
+  };
+
+  const removeMiddleRole = (index: number) => {
+    setManualMiddleRoles((prev) => prev.filter((_, i) => i !== index));
+    setAutoSelectSteps(false);
+  };
+
+  const addMiddleRole = (role: string) => {
+    setManualMiddleRoles((prev) => {
+      if (prev.includes(role) || prev.length >= pageCount - 2) return prev;
+      return [...prev, role];
+    });
+    setAutoSelectSteps(false);
+  };
+
   const onGenerateWaSurvey = async () => {
+    if (!pageOrderValid) {
+      toast.error(`Choose ${pageCount - 2} unique middle steps between start and completion`);
+      return;
+    }
     setGenerating(true);
     try {
       const generated = await generateWaM.mutateAsync({
         survey_type_id: surveyTypeId,
         variant: surveyVariant,
-        length: surveyLength,
+        length: PAGE_COUNT_TO_LENGTH[pageCount],
+        page_count: pageCount,
+        auto_select_steps: autoSelectSteps,
+        selected_step_roles: autoSelectSteps ? undefined : resolvedPageRoles,
         goal,
       });
       setWaPreview(generated);
@@ -109,7 +194,9 @@ function CreateSurvey() {
             allow_follow_up: generated.allow_follow_up !== false,
             script: String(generated.approved_script || script),
             survey_type_id: surveyTypeId,
-            survey_length: surveyLength,
+            survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
+            page_count: pageCount,
+            page_roles: generated.page_roles,
             survey_variant: surveyVariant,
             wa_template_id: generated.wa_template_id,
             whatsapp_flow: generated.whatsapp_flow,
@@ -227,18 +314,102 @@ function CreateSurvey() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Length">
-                <Select value={surveyLength} onValueChange={(v) => setSurveyLength(v as "short" | "standard" | "detailed")}>
+              <Field label="Survey length (pages)">
+                <Select value={String(pageCount)} onValueChange={(v) => setPageCount(Number(v) as 4 | 5 | 6)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="short">Short — 4 questions</SelectItem>
-                    <SelectItem value="standard">Standard — 5 questions</SelectItem>
-                    <SelectItem value="detailed">Detailed — 6 questions</SelectItem>
+                    <SelectItem value="4">4 pages — start + 2 steps + completion</SelectItem>
+                    <SelectItem value="5">5 pages — start + 3 steps + completion</SelectItem>
+                    <SelectItem value="6">6 pages — start + 4 steps + completion</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
+              <div className="md:col-span-2 space-y-4 rounded-lg border border-border bg-background/40 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Survey pages</p>
+                    <p className="text-xs text-muted-foreground">
+                      Pick 4–6 pages from the 10-template step bank. Start and completion are always included.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="auto-steps" className="text-xs text-muted-foreground">Auto-select best steps</Label>
+                    <Switch id="auto-steps" checked={autoSelectSteps} onCheckedChange={setAutoSelectSteps} />
+                  </div>
+                </div>
+                {stepBankQ.isLoading ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : (
+                  <>
+                    {!autoSelectSteps && (
+                      <div className="space-y-3">
+                        <p className="text-xs font-medium text-muted-foreground">Middle steps (reorder or swap)</p>
+                        <ol className="space-y-2">
+                          <li className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                            <span className="text-muted-foreground">1.</span>
+                            <span className="font-medium">{STEP_ROLE_LABELS.start}</span>
+                            <span className="ml-auto text-xs text-muted-foreground">Required</span>
+                          </li>
+                          {manualMiddleRoles.map((role, idx) => (
+                            <li key={`${role}-${idx}`} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                              <span className="text-muted-foreground">{idx + 2}.</span>
+                              <span className="font-medium">{STEP_ROLE_LABELS[role] || role}</span>
+                              <div className="ml-auto flex items-center gap-1">
+                                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => moveMiddleRole(idx, -1)} disabled={idx === 0}>
+                                  <ChevronUp className="size-4" />
+                                </Button>
+                                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => moveMiddleRole(idx, 1)} disabled={idx === manualMiddleRoles.length - 1}>
+                                  <ChevronDown className="size-4" />
+                                </Button>
+                                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => removeMiddleRole(idx)}>
+                                  <X className="size-4" />
+                                </Button>
+                              </div>
+                            </li>
+                          ))}
+                          <li className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                            <span className="text-muted-foreground">{pageCount}.</span>
+                            <span className="font-medium">{STEP_ROLE_LABELS.completion}</span>
+                            <span className="ml-auto text-xs text-muted-foreground">Required</span>
+                          </li>
+                        </ol>
+                        {manualMiddleRoles.length < pageCount - 2 && (
+                          <div className="flex flex-wrap gap-2">
+                            {availableMiddleRoles
+                              .filter((r) => !manualMiddleRoles.includes(r))
+                              .map((role) => (
+                                <Button key={role} type="button" size="sm" variant="outline" className="gap-1" onClick={() => addMiddleRole(role)}>
+                                  <Plus className="size-3.5" /> {STEP_ROLE_LABELS[role] || role}
+                                </Button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Final page order preview</p>
+                      <ol className="space-y-1.5">
+                        {resolvedPageRoles.map((role, idx) => (
+                          <li key={`preview-${role}-${idx}`} className="rounded-md border border-dashed border-border px-3 py-2 text-sm">
+                            <span className="text-muted-foreground">{idx + 1}. </span>
+                            <span className="font-medium">{STEP_ROLE_LABELS[role] || role}</span>
+                            {stepBankByRole[role]?.title ? (
+                              <span className="ml-2 text-xs text-muted-foreground">— {String(stepBankByRole[role].title)}</span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ol>
+                      {!pageOrderValid && (
+                        <p className="text-xs text-destructive">
+                          Need exactly {pageCount} pages with unique middle steps between start and completion.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
               <div className="md:col-span-2">
-                <Button className="gap-1.5" onClick={() => void onGenerateWaSurvey()} disabled={generating || !surveyTypeId}>
+                <Button className="gap-1.5" onClick={() => void onGenerateWaSurvey()} disabled={generating || !surveyTypeId || !pageOrderValid}>
                   <Wand2 className="size-4" /> {generating ? "Generating…" : "Generate"}
                 </Button>
               </div>

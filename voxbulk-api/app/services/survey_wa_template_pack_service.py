@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.providers.openai_service import OpenAIProviderService
+from app.services.survey_step_bank_service import ALL_STEP_ROLES, PACK_STEP_ROLES, normalize_step_role
 from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.survey_whatsapp_template_service import (
     ANONYMOUS_BODY_SENTENCE,
@@ -46,6 +47,7 @@ WA_TEMPLATE_PACK_JSON_SCHEMA: dict[str, Any] = {
                     "template_name": {"type": "string"},
                     "variant_type": {"type": "string", "enum": ["standard", "anonymous"]},
                     "title": {"type": "string"},
+                    "step_role": {"type": "string", "enum": list(PACK_STEP_ROLES)},
                     "purpose": {"type": "string"},
                     "body": {"type": "string"},
                     "footer": {"type": "string"},
@@ -72,6 +74,7 @@ WA_TEMPLATE_PACK_JSON_SCHEMA: dict[str, Any] = {
                     "template_name",
                     "variant_type",
                     "title",
+                    "step_role",
                     "purpose",
                     "body",
                     "footer",
@@ -285,6 +288,10 @@ def validate_generated_template(item: dict[str, Any], *, survey_type: SurveyType
         if len(telnyx_name) < 8:
             errors.append("resolved Telnyx template name is too short")
 
+    step_role = normalize_step_role(item.get("step_role") or item.get("purpose") or "")
+    if step_role not in ALL_STEP_ROLES:
+        errors.append(f"step_role must be one of: {', '.join(PACK_STEP_ROLES)}")
+
     if errors:
         return None, errors
 
@@ -292,7 +299,8 @@ def validate_generated_template(item: dict[str, Any], *, survey_type: SurveyType
         "template_name": template_name,
         "variant_type": variant,
         "title": str(item.get("title") or template_name).strip()[:128],
-        "purpose": str(item.get("purpose") or "").strip()[:128],
+        "step_role": step_role,
+        "purpose": str(item.get("purpose") or step_role).strip()[:128],
         "body": body,
         "footer": footer,
         "header": header,
@@ -337,10 +345,21 @@ def _pack_system_prompt() -> str:
         "• phone: body invites a call (‘Need help? Tap below to call us’). Button: ‘Call us’, ‘Speak to team’.\n"
         "• none: still include a soft CTA in body referencing {{3}} where natural.\n\n"
         "STRUCTURE: strong opening hook in first line; short paragraphs; WhatsApp-friendly length (body ≤600 chars ideal). "
-        "Include: standard intro, reminder, follow-up, anonymous intro, short invitation, plain text, quick_reply, URL CTA, phone CTA. "
         "Quick reply: max 3 buttons. "
         f"Anonymous templates: body must include that the survey is anonymous; footer must be exactly “{ANONYMOUS_FOOTER}”. "
-        "template_name: unique lowercase snake_case, no voxbulk_survey prefix."
+        "template_name: unique lowercase snake_case, no voxbulk_survey prefix.\n\n"
+        "STEP BANK — return exactly one template per step_role (10 total, no duplicates):\n"
+        "start — intro with quick_reply or url CTA to begin the survey\n"
+        "rating — 0–10 or star-style satisfaction score prompt\n"
+        "yes_no — simple yes/no check-in\n"
+        "helpfulness — how helpful was our service/team\n"
+        "abc_choice — pick A/B/C style option\n"
+        "reason — open follow-up asking why or what stood out\n"
+        "feeling_word — pick a feeling word (great, okay, disappointing…)\n"
+        "follow_up — short follow-up or reminder nudge\n"
+        "improvement — what could we improve\n"
+        "completion — warm thank-you / closing message (no aggressive CTA)\n"
+        "Set step_role on every template. Middle roles should use standard variant unless anonymous-specific."
     )
 
 
@@ -364,7 +383,8 @@ def _pack_user_prompt(*, survey_type: SurveyType, purpose: str, instruction: str
         parts.append(f"Admin instruction: {instruction.strip()}")
     parts.append(
         f"Generate exactly {PACK_SIZE} visually attractive, conversational, persuasive WhatsApp templates as JSON. "
-        "Each must have a distinct tone and purpose. Avoid generic filler like ‘We value your feedback’ without a hook."
+        "Each template maps to one step_role from the step bank (start, rating, yes_no, helpfulness, abc_choice, "
+        "reason, feeling_word, follow_up, improvement, completion). Avoid duplicate step_role values."
     )
     return "\n".join(parts)
 
@@ -598,6 +618,7 @@ class SurveyWaTemplatePackService:
             template_id=local_id,
             name=telnyx_name,
             display_name=str(item.get("title") or item.get("template_name"))[:128],
+            step_role=str(item.get("step_role") or "")[:32] or None,
             language=str(item.get("language") or "en_US"),
             category=_normalize_category(item.get("category")),
             status="LOCAL_DRAFT",

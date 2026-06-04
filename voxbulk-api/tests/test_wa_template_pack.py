@@ -47,6 +47,7 @@ def _sample_item(**overrides):
         "template_name": "std_intro",
         "variant_type": VARIANT_STANDARD,
         "title": "Standard intro",
+        "step_role": "start",
         "purpose": "intro",
         "body": "Hi {{1}}, {{2}} would love your feedback. Ref {{3}}.",
         "footer": "Reply STOP to opt out",
@@ -63,20 +64,24 @@ def _sample_item(**overrides):
 
 def _mock_pack_response():
     templates = []
-    styles = [
-        ("std_intro", VARIANT_STANDARD, "intro", "quick_reply"),
-        ("std_reminder", VARIANT_STANDARD, "reminder", "none"),
-        ("std_followup", VARIANT_STANDARD, "follow_up", "quick_reply"),
-        ("anon_intro", VARIANT_ANONYMOUS, "anonymous_intro", "quick_reply"),
-        ("short_invite", VARIANT_STANDARD, "short_invitation", "none"),
-        ("plain_text", VARIANT_STANDARD, "plain_text", "none"),
-        ("qr_start", VARIANT_STANDARD, "button_quick_reply", "quick_reply"),
-        ("url_cta", VARIANT_STANDARD, "url_cta", "url"),
-        ("phone_cta", VARIANT_STANDARD, "phone_cta", "phone"),
-        ("std_closing", VARIANT_STANDARD, "follow_up", "quick_reply"),
+    roles_buttons = [
+        ("start", "quick_reply"),
+        ("rating", "none"),
+        ("yes_no", "quick_reply"),
+        ("helpfulness", "none"),
+        ("abc_choice", "quick_reply"),
+        ("reason", "none"),
+        ("feeling_word", "quick_reply"),
+        ("follow_up", "none"),
+        ("improvement", "none"),
+        ("completion", "none"),
     ]
-    for name, variant, purpose, btn_type in styles:
-        body = f"Hi {{{{1}}}}, {{{{2}}}} survey ref {{{{3}}}}."
+    for idx, (role, btn_type) in enumerate(roles_buttons):
+        name = role if role != "start" else "std_intro"
+        variant = VARIANT_ANONYMOUS if role == "start" and idx == 3 else VARIANT_STANDARD
+        if role == "start":
+            variant = VARIANT_STANDARD
+        body = f"Hi {{{{1}}}}, {{{{2}}}} survey ref {{{{3}}}} — {role}."
         footer = "Reply STOP to opt out"
         buttons = [{"text": "Start", "url": "", "phone_number": ""}]
         if btn_type == "url":
@@ -88,10 +93,11 @@ def _mock_pack_response():
             footer = ANONYMOUS_FOOTER
         templates.append(
             _sample_item(
-                template_name=name,
+                template_name=f"{name}_{idx}",
                 variant_type=variant,
-                title=name.replace("_", " ").title(),
-                purpose=purpose,
+                title=role.replace("_", " ").title(),
+                step_role=role,
+                purpose=role,
                 body=body,
                 footer=footer,
                 button_type=btn_type,
@@ -188,11 +194,10 @@ def test_generate_pack_uses_responses_api(monkeypatch):
         assert result["valid_count"] == PACK_SIZE
         assert result["openai"]["api_style"] == "responses"
         purposes = {t["template"]["purpose"] for t in result["templates"] if t.get("template")}
-        button_types = {t["template"]["button_type"] for t in result["templates"] if t.get("template")}
+        roles = {t["template"]["step_role"] for t in result["templates"] if t.get("template")}
         assert len(purposes) >= 4
-        assert "quick_reply" in button_types
-        assert "url" in button_types
-        assert "none" in button_types
+        assert "start" in roles
+        assert "completion" in roles
 
 
 def test_save_pack_creates_local_drafts(monkeypatch):

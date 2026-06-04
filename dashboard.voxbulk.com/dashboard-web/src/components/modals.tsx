@@ -375,6 +375,8 @@ export function WhatsAppPreviewModal({
 }) {
   const templatePreview = (preview?.template_preview || {}) as Record<string, unknown>;
   const flowSteps = (preview?.flow_steps || []) as Array<Record<string, unknown>>;
+  const pages = (preview?.pages || []) as Array<Record<string, unknown>>;
+  const pageRoles = (preview?.page_roles || []) as string[];
   const hasGenerated = Boolean(preview?.ok);
 
   return (
@@ -389,7 +391,23 @@ export function WhatsAppPreviewModal({
           </DialogDescription>
         </DialogHeader>
         {hasGenerated ? (
-          <WaSurveyPhonePreview
+          <div className="space-y-4">
+            {pageRoles.length > 0 && (
+              <div className="rounded-lg border border-border bg-muted/20 p-3">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Survey page order ({pageRoles.length} pages)</p>
+                <ol className="space-y-1 text-xs">
+                  {pageRoles.map((role, idx) => {
+                    const page = pages.find((p) => Number(p.page) === idx + 1) || pages[idx];
+                    return (
+                      <li key={`${role}-${idx}`}>
+                        {idx + 1}. {String(page?.title || role).replace(/_/g, " ")}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            )}
+            <WaSurveyPhonePreview
             businessName={String(templatePreview.business_name || "Your business")}
             renderedBody={String(templatePreview.rendered_body || "")}
             footer={String(templatePreview.footer || "")}
@@ -405,6 +423,7 @@ export function WhatsAppPreviewModal({
             templateName={String(preview?.wa_template_name || "")}
             approvalStatus="APPROVED"
           />
+          </div>
         ) : (
           <div className="mx-auto w-full max-w-[280px] overflow-hidden rounded-[2rem] border-[10px] border-foreground/90 bg-[#e5ddd5] shadow-xl">
             <div className="bg-[#075e54] px-3 py-2 text-xs text-white">

@@ -136,17 +136,38 @@ def list_wa_survey_types(db: Session = Depends(get_db), principal=Depends(get_cu
     return {"ok": True, "types": types}
 
 
+@router.get("/wa-survey/types/{survey_type_id}/step-bank")
+def get_wa_survey_step_bank(
+    survey_type_id: str,
+    variant: str = "standard",
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.survey_step_bank_service import SurveyStepBankService
+    from app.services.survey_type_service import SurveyTypeService
+
+    survey_type = SurveyTypeService.get_type(db, survey_type_id)
+    if survey_type is None or not survey_type.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    return SurveyStepBankService.get_bank(db, survey_type=survey_type, variant=variant)
+
+
 @router.post("/wa-survey/generate")
 def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.survey_generation_service import SurveyGenerationService
 
     branding = _client_branding(db, principal.org_id, payload)
+    page_count = payload.get("page_count")
+    selected = payload.get("selected_step_roles")
     try:
         return SurveyGenerationService.generate(
             db,
             survey_type_id=str(payload.get("survey_type_id") or ""),
             variant=str(payload.get("variant") or "standard"),
             length=str(payload.get("length") or "standard"),
+            page_count=int(page_count) if page_count is not None else None,
+            auto_select_steps=bool(payload.get("auto_select_steps", True)),
+            selected_step_roles=[str(r) for r in selected] if isinstance(selected, list) else None,
             goal=str(payload.get("goal") or ""),
             organisation_name=branding["organisation_name"],
             client_name=branding.get("client_name") or branding["organisation_name"],
