@@ -60,8 +60,75 @@ def _telnyx_config(db: Session) -> dict[str, Any]:
     }
 
 
+TELNYX_WHATSAPP_BUSINESS_ACCOUNTS_URL = "https://api.telnyx.com/v2/whatsapp/business_accounts"
+
+
 def _telnyx_headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {normalize_telnyx_api_key(api_key)}", "Content-Type": "application/json", "Accept": "application/json"}
+
+
+def resolve_telnyx_whatsapp_waba_id(
+    db: Session,
+    config: dict[str, Any] | None = None,
+    *,
+    template_waba_id: str | None = None,
+) -> str:
+    """Resolve WABA id for WhatsApp template create/sync — config, template row, then Telnyx API."""
+    cfg: dict[str, Any] = dict(config or {})
+    if not cfg.get("api_key"):
+        try:
+            cfg = {**cfg, **_telnyx_config(db)}
+        except TelnyxConfigError:
+            pass
+
+    for candidate in (
+        str(cfg.get("whatsapp_waba_id") or "").strip(),
+        str(cfg.get("waba_id") or "").strip(),
+        str(template_waba_id or "").strip(),
+    ):
+        if candidate:
+            return candidate
+
+    api_key = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
+    if not api_key:
+        try:
+            api_key, _ = require_telnyx_api_key(db)
+        except Exception:
+            return ""
+
+    try:
+        with httpx.Client(timeout=20.0, verify=httpx_ssl_verify()) as client:
+            response = client.get(
+                TELNYX_WHATSAPP_BUSINESS_ACCOUNTS_URL,
+                headers=_telnyx_headers(api_key),
+                params={"page[size]": 50, "page[number]": 1},
+            )
+            response.raise_for_status()
+            body = response.json()
+    except Exception:
+        return ""
+
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, list) or not data:
+        return ""
+
+    ordered = sorted(
+        [item for item in data if isinstance(item, dict)],
+        key=lambda item: (
+            0
+            if str(item.get("status") or "").upper() in {"APPROVED", "CONNECTED", "ACTIVE", "VERIFIED"}
+            else 1
+        ),
+    )
+    for item in ordered:
+        meta_waba = str(item.get("waba_id") or "").strip()
+        if meta_waba:
+            return meta_waba
+    for item in ordered:
+        internal_id = str(item.get("id") or "").strip()
+        if internal_id:
+            return internal_id
+    return ""
 
 
 def _encode_client_state(state: dict[str, Any]) -> str:

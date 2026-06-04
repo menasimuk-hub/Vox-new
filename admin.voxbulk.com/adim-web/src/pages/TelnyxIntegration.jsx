@@ -525,6 +525,33 @@ export default function TelnyxIntegration({
 
       {activeTab === 'whatsapp' ? (
       <div className='telnyxWaLayout'>
+        <div className='card'>
+          <div className='cardHead'>
+            <h3>WhatsApp Business Account (WABA)</h3>
+            <span className='pill p-cyan'>Template push</span>
+          </div>
+          <div className='cardBody stack'>
+            <Field
+              label='WhatsApp Business Account ID'
+              hint='Required to push WA Survey templates to Telnyx/Meta. Telnyx Portal → Messaging → WhatsApp → your WABA → copy the Meta WABA id (numeric). Leave blank to auto-detect from your Telnyx account on push/sync.'
+            >
+              <input
+                className='input'
+                value={String(activeConfig.whatsapp_waba_id || activeConfig.waba_id || '')}
+                onChange={(e) => {
+                  setProviderField('telnyx', 'whatsapp_waba_id', e.target.value)
+                  setProviderField('telnyx', 'waba_id', e.target.value)
+                }}
+                placeholder='e.g. 2019979452207634'
+              />
+            </Field>
+            <div className='note'>
+              Sending WhatsApp messages only needs your <strong>WhatsApp number</strong> on the Telnyx API tab.
+              Pushing new survey templates to Meta additionally needs this WABA id (or a connected WABA VoxBulk can auto-detect).
+            </div>
+          </div>
+        </div>
+
         <div className='card telnyxWaTemplatesCard'>
           <div className='cardHead'>
             <h3>WhatsApp templates</h3>

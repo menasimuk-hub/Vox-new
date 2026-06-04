@@ -35,7 +35,13 @@ from app.services.telnyx_whatsapp_template_sync_service import (
     send_template_id_for_row,
     template_to_dict,
 )
-from app.services.telnyx_voice_service import _telnyx_config, _telnyx_headers, _telnyx_http_error_detail, TelnyxConfigError
+from app.services.telnyx_voice_service import (
+    _telnyx_config,
+    _telnyx_headers,
+    _telnyx_http_error_detail,
+    resolve_telnyx_whatsapp_waba_id,
+    TelnyxConfigError,
+)
 from app.services.wa_template_privacy import (
     PRIVACY_MODE_OFF,
     PRIVACY_MODE_ON,
@@ -758,9 +764,13 @@ class SurveyWhatsappTemplateService:
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
-        waba_id = str(config.get("whatsapp_waba_id") or config.get("waba_id") or "").strip()
+        waba_id = resolve_telnyx_whatsapp_waba_id(db, config, template_waba_id=row.waba_id)
         if not waba_id:
-            raise SurveyWhatsappTemplateError("WhatsApp Business Account ID is not configured in Telnyx settings")
+            raise SurveyWhatsappTemplateError(
+                "WhatsApp Business Account ID is not configured in Telnyx settings. "
+                "Open Admin → Integrations → Telnyx → WhatsApp and set WhatsApp Business Account ID "
+                "(Meta WABA id from Telnyx Portal → Messaging → WhatsApp), or connect a WABA on your Telnyx account."
+            )
 
         approval = str(row.status or "").upper()
         if approval == "APPROVED" and not _is_local_row(row):

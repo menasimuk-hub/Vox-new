@@ -605,6 +605,10 @@ class ProviderSettingsService:
             cfg["whatsapp_from"] = wa_from
         cfg["messaging_profile_id"] = str(cfg.get("messaging_profile_id") or "").strip()
         cfg["whatsapp_messaging_profile_id"] = str(cfg.get("whatsapp_messaging_profile_id") or "").strip()
+        waba_id = str(cfg.get("whatsapp_waba_id") or cfg.get("waba_id") or "").strip()
+        if waba_id:
+            cfg["whatsapp_waba_id"] = waba_id
+            cfg["waba_id"] = waba_id
         cfg["messaging_org_id"] = str(cfg.get("messaging_org_id") or cfg.get("default_messaging_org_id") or "").strip()
         cfg["api_key"] = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
         from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService

@@ -25,7 +25,13 @@ from app.services.sales_whatsapp_telnyx_service import (
 )
 from app.services.telnyx_api_key import normalize_telnyx_api_key, require_telnyx_api_key
 from app.services.telnyx_messaging_service import _TEMPLATE_UUID_RE
-from app.services.telnyx_voice_service import _telnyx_config, _telnyx_headers, _telnyx_http_error_detail, TelnyxConfigError
+from app.services.telnyx_voice_service import (
+    _telnyx_config,
+    _telnyx_headers,
+    _telnyx_http_error_detail,
+    resolve_telnyx_whatsapp_waba_id,
+    TelnyxConfigError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +157,7 @@ class TelnyxWhatsappTemplateSyncService:
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
 
-        waba_id = str(config.get("whatsapp_waba_id") or config.get("waba_id") or "").strip()
+        waba_id = resolve_telnyx_whatsapp_waba_id(db, config)
         params: dict[str, Any] = {"page[size]": 250, "page[number]": 1}
         if waba_id:
             params["filter[waba_id]"] = waba_id
