@@ -13,6 +13,7 @@ from app.services.survey_generation_service import SurveyGenerationService
 from app.models.industry import Industry
 from app.services.industry_service import IndustryService, industry_to_dict
 from app.services.survey_type_service import SurveyTypeService, survey_type_to_dict
+from app.services.survey_picker_settings_service import SurveyPickerSettingsService
 from app.services.survey_simulator_service import SurveySimulatorService
 from app.services.survey_wa_test_pack_seed_service import SurveyWaTestPackSeedService
 from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackError, SurveyWaTemplatePackService
@@ -660,6 +661,30 @@ def ensure_wa_survey_test_pack(
     return SurveyWaTestPackSeedService.ensure_test_pack(db)
 
 
+@router.get("/picker-settings")
+def get_picker_settings(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return {"ok": True, **SurveyPickerSettingsService.get_settings(db)}
+
+
+@router.put("/picker-settings")
+def update_picker_settings(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    body = payload or {}
+    return {
+        "ok": True,
+        **SurveyPickerSettingsService.update_settings(
+            db,
+            ai_picker_enabled=bool(body.get("ai_picker_enabled", True)),
+        ),
+    }
+
+
 @router.get("/simulator/options")
 def simulator_options(
     db: Session = Depends(get_db),
@@ -687,6 +712,8 @@ def simulator_start(
             selected_step_roles=[str(r) for r in roles] if isinstance(roles, list) else None,
             flow_branches=branches if isinstance(branches, list) else None,
             force_outcome_text_fallback=bool(body.get("force_outcome_text_fallback")),
+            ai_picker_enabled=bool(body.get("ai_picker_enabled")),
+            simulator_mock_picker=bool(body.get("simulator_mock_picker", True)),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

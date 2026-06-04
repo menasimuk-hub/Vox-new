@@ -12,6 +12,8 @@ export default function WaSurveyFlowSimulator() {
   const [privacyMode, setPrivacyMode] = useState('off')
   const [flowEngine, setFlowEngine] = useState(FLOW_GRAPH)
   const [forceTextFallback, setForceTextFallback] = useState(false)
+  const [aiPickerEnabled, setAiPickerEnabled] = useState(false)
+  const [mockPicker, setMockPicker] = useState(true)
   const [state, setState] = useState(null)
   const [answer, setAnswer] = useState('')
   const [loading, setLoading] = useState(true)
@@ -73,6 +75,8 @@ export default function WaSurveyFlowSimulator() {
           page_count: 6,
           selected_step_roles: ['start', 'rating', 'yes_no', 'helpfulness', 'reason', 'completion'],
           force_outcome_text_fallback: forceTextFallback,
+          ai_picker_enabled: aiPickerEnabled,
+          simulator_mock_picker: mockPicker,
         }),
       })
       setState(data.state)
@@ -116,6 +120,11 @@ export default function WaSurveyFlowSimulator() {
       <h1>WA Survey flow simulator</h1>
       <p className="muted">
         Internal browser test — uses the real survey runtime with dry-run messaging (no Telnyx / OpenAI).
+      </p>
+      <p className="muted" style={{ fontSize: '0.85rem' }}>
+        Admin app only: use port <strong>5174</strong> (e.g.{' '}
+        <a href="http://localhost:5174/settings/wa-survey/simulator">localhost:5174/settings/wa-survey/simulator</a>
+        ). Port 5173 is the public marketing site and does not include this page.
       </p>
 
       {loading ? <p className="muted">Loading…</p> : null}
@@ -169,6 +178,24 @@ export default function WaSurveyFlowSimulator() {
               </select>
             </label>
           </div>
+          <label style={{ display: 'block', marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              checked={aiPickerEnabled}
+              onChange={(e) => setAiPickerEnabled(e.target.checked)}
+              disabled={flowEngine !== FLOW_GRAPH}
+            />{' '}
+            Enable AI picker on graph (rating node → ai_assisted; uses mock picker by default)
+          </label>
+          <label style={{ display: 'block', marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              checked={mockPicker}
+              onChange={(e) => setMockPicker(e.target.checked)}
+              disabled={!aiPickerEnabled}
+            />{' '}
+            Use mock picker (no OpenAI call)
+          </label>
           <label style={{ display: 'block', marginBottom: 12 }}>
             <input
               type="checkbox"
@@ -177,6 +204,11 @@ export default function WaSurveyFlowSimulator() {
             />{' '}
             Force outcome text fallback (simulated template failure)
           </label>
+          {options?.platform_picker ? (
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              Platform picker: {options.platform_picker.ai_picker_enabled ? 'enabled' : 'disabled'} (kill switch)
+            </p>
+          ) : null}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="btn btnSecondary" disabled={busy} onClick={ensurePack}>
               Ensure test pack in DB
@@ -220,11 +252,29 @@ export default function WaSurveyFlowSimulator() {
                   current_node_key: state.current_node_key,
                   outcome_key: state.outcome_key,
                   completed: state.completed,
+                  ai_picker_enabled: state.ai_picker_enabled,
+                  picker_invocation_count: state.picker_invocation_count,
                 },
                 null,
                 2
               )}
             </pre>
+
+            {state.picker_debug ? (
+              <details open style={{ marginBottom: 12 }}>
+                <summary>Last picker decision</summary>
+                <pre style={{ fontSize: '0.75rem', background: '#f4f4f5', padding: 8 }}>
+                  {JSON.stringify(state.picker_debug, null, 2)}
+                </pre>
+                <p className="muted" style={{ fontSize: '0.85rem' }}>
+                  Called: {state.picker_debug.picker_called ? 'yes' : 'no'} · Source:{' '}
+                  {state.picker_debug.picker_source || state.picker_debug.picker || '—'}
+                  {state.picker_debug.fallback_reason
+                    ? ` · Fallback: ${state.picker_debug.fallback_reason}`
+                    : ''}
+                </p>
+              </details>
+            ) : null}
 
             {state.completed ? (
               <div>

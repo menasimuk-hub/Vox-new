@@ -57,6 +57,7 @@ from app.models.survey_session import (  # noqa: F401
     SurveySessionAnswer,
     SurveySessionDecision,
 )
+from app.models.wa_survey_platform_settings import WaSurveyPlatformSettings  # noqa: F401
 from app.models.survey_flow import (  # noqa: F401
     SurveyFlowDefinition,
     SurveyFlowEdge,

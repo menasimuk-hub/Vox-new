@@ -32,3 +32,19 @@ RULE_BRANCH_DEFAULT = "branch.default"
 RULE_GRAPH_START = "graph.start"
 RULE_GRAPH_SEND = "graph.send_question"
 RULE_GRAPH_COMPLETE = "graph.complete"
+
+NEXT_RESOLUTION_DETERMINISTIC = "deterministic"
+NEXT_RESOLUTION_AI_ASSISTED = "ai_assisted"
+
+PICKER_DETERMINISTIC = "deterministic"
+PICKER_AI_ASSISTED = "ai_assisted"
+
+DECISION_BRANCH_PICKER_INVOKE = "branch_picker_invoke"
+DECISION_BRANCH_PICKER_RESULT = "branch_picker_result"
+
+RULE_AI_PICKER_REQUEST = "ai_picker.request"
+RULE_AI_PICKER_CHOSEN = "ai_picker.chosen"
+RULE_AI_PICKER_FALLBACK = "ai_picker.fallback"
+RULE_AI_PICKER_SKIPPED = "ai_picker.skipped"
+
+MAX_PICKER_INVOCATIONS_PER_SESSION = 3

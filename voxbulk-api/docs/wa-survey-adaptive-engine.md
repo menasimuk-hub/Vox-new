@@ -125,9 +125,9 @@ Allowed future AI role: **picker only** — given current answers and allowed `s
 
 **Runtime:** Graph mode only — `SurveyOutcomeSendService` sends WhatsApp template (or text fallback). Linear unchanged.
 
-### P4 — Constrained AI picker (design only — not implemented)
+### P4 — Constrained AI picker ✅
 
-**Status:** Product decisions **confirmed** (see below). **Implementation blocked** until P3 E2E sign-off. No migration or runtime code for P4 yet.
+**Status:** Implemented. Migration `0095_wa_survey_ai_picker_p4`. Browser test via admin simulator (`/settings/wa-survey/simulator` on port **5174**).
 
 **Goal:** When a graph node is configured for assisted routing, the engine asks a constrained model call to choose **one** next destination from an explicit candidate set. The model never writes question text, never invents roles, and never bypasses industry / survey-type / privacy scoping.
 
@@ -352,7 +352,7 @@ None required. Sessions are written internally during WhatsApp inbound/outbound 
 |------|----------|
 | Test pack seed | `SurveyWaTestPackSeedService` — Industry **Services**, Survey type **General**, privacy **off**, 12 APPROVED local templates |
 | CLI seed | `python scripts/seed_wa_survey_test_pack.py` or `POST /admin/wa-survey/test-pack/ensure` |
-| Admin UI | `/settings/wa-survey/simulator` (admin web) |
+| Admin UI | `http://localhost:5174/settings/wa-survey/simulator` (admin Vite dev — **not** port 5173) |
 | API | `GET /admin/wa-survey/simulator/options`, `POST .../simulator/start`, `POST .../simulator/answer` |
 
 Runtime uses `simulator_dry_run` on order config — same `handle_inbound_reply` / graph engine / outcome delivery, without Telnyx sends.

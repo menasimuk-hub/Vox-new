@@ -13,6 +13,7 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.survey_session import SurveySession, SurveySessionAnswer
 from app.services.survey_flow_compiler_service import index_snapshot
 from app.services.survey_flow_condition_service import evaluate_condition
+from app.services.survey_flow_picker_service import SurveyFlowPickerService
 from app.services.survey_flow_config_service import get_flow_snapshot
 from app.services.survey_flow_constants import (
     ACTION_SEND_TEMPLATE,
@@ -22,6 +23,7 @@ from app.services.survey_flow_constants import (
     DECISION_OUTCOME_ACTION,
     DECISION_OUTCOME_REACHED,
     FLOW_MODE_GRAPH,
+    NEXT_RESOLUTION_AI_ASSISTED,
     NODE_TYPE_OUTCOME,
     NODE_TYPE_QUESTION,
     OUTCOME_KEYS,
@@ -219,33 +221,77 @@ class SurveyFlowEngineService:
                 config=config,
             )
 
-        edges = idx["edges_by_from"].get(current_node_key, [])
-        matched_edge = None
-        for edge in edges:
-            cond = edge.get("condition_json")
-            if cond is None:
-                continue
+        current_node = idx["nodes"].get(current_node_key) or {}
+        next_resolution = str(current_node.get("next_resolution") or "").strip().lower()
+
+        if next_resolution == NEXT_RESOLUTION_AI_ASSISTED:
+            to_key, picker_debug = SurveyFlowPickerService.resolve_next_edge(
+                db,
+                session=session,
+                config=config,
+                snap=snap,
+                idx=idx,
+                current_node_key=current_node_key,
+                current_node=current_node,
+                visit_num=visit_num,
+                last_answer=answer_row,
+                answers=answers,
+            )
+        else:
+            edges = idx["edges_by_from"].get(current_node_key, [])
+            matched_edge = None
+            for edge in edges:
+                cond = edge.get("condition_json")
+                if cond is None:
+                    continue
+                SurveySessionService._append_decision(
+                    db,
+                    session,
+                    decision_kind=DECISION_BRANCH_EVALUATE,
+                    rule_key=str(edge.get("rule_key") or "branch.eval"),
+                    from_step=visit_num,
+                    to_step=None,
+                    from_role=step_role,
+                    to_role=None,
+                    reason="Evaluating branch condition.",
+                    context={"edge": edge, "condition": cond},
+                )
+                if evaluate_condition(cond, last_answer=answer_row, answers=answers):
+                    matched_edge = edge
+                    break
+
+            if matched_edge is None:
+                defaults = [e for e in edges if e.get("condition_json") is None]
+                matched_edge = defaults[0] if defaults else None
+
+            if not matched_edge:
+                fallback = str(snap.get("fallback_outcome_key") or "neutral")
+                return SurveyFlowEngineService._resolve_outcome(
+                    db,
+                    session=session,
+                    snap=snap,
+                    idx=idx,
+                    outcome_node_key=f"outcome_{fallback}",
+                    rule_key=RULE_BRANCH_DEFAULT,
+                    config=config,
+                )
+
+            to_key = str(matched_edge.get("to_node_key") or "")
+            picker_debug = None
             SurveySessionService._append_decision(
                 db,
                 session,
-                decision_kind=DECISION_BRANCH_EVALUATE,
-                rule_key=str(edge.get("rule_key") or "branch.eval"),
+                decision_kind=DECISION_BRANCH_TAKE,
+                rule_key=str(matched_edge.get("rule_key") or RULE_BRANCH_DEFAULT),
                 from_step=visit_num,
-                to_step=None,
+                to_step=visit_num + 1,
                 from_role=step_role,
-                to_role=None,
-                reason="Evaluating branch condition.",
-                context={"edge": edge, "condition": cond},
+                to_role=to_key,
+                reason="Branch edge selected.",
+                context={"from_node_key": current_node_key, "to_node_key": to_key},
             )
-            if evaluate_condition(cond, last_answer=answer_row, answers=answers):
-                matched_edge = edge
-                break
 
-        if matched_edge is None:
-            defaults = [e for e in edges if e.get("condition_json") is None]
-            matched_edge = defaults[0] if defaults else None
-
-        if not matched_edge:
+        if not to_key:
             fallback = str(snap.get("fallback_outcome_key") or "neutral")
             return SurveyFlowEngineService._resolve_outcome(
                 db,
@@ -257,19 +303,20 @@ class SurveyFlowEngineService:
                 config=config,
             )
 
-        to_key = str(matched_edge.get("to_node_key") or "")
-        SurveySessionService._append_decision(
-            db,
-            session,
-            decision_kind=DECISION_BRANCH_TAKE,
-            rule_key=str(matched_edge.get("rule_key") or RULE_BRANCH_DEFAULT),
-            from_step=visit_num,
-            to_step=visit_num + 1,
-            from_role=step_role,
-            to_role=to_key,
-            reason="Branch edge selected.",
-            context={"from_node_key": current_node_key, "to_node_key": to_key},
-        )
+        if picker_debug and next_resolution == NEXT_RESOLUTION_AI_ASSISTED:
+            SurveySessionService._append_decision(
+                db,
+                session,
+                decision_kind=DECISION_BRANCH_TAKE,
+                rule_key=str(picker_debug.get("rule_key") or RULE_BRANCH_DEFAULT),
+                from_step=visit_num,
+                to_step=visit_num + 1,
+                from_role=step_role,
+                to_role=to_key,
+                reason="Branch via AI picker or fallback.",
+                context={"from_node_key": current_node_key, "to_node_key": to_key, "picker_debug": picker_debug},
+                picker=str(picker_debug.get("picker_source") or "deterministic"),
+            )
 
         return SurveyFlowEngineService._advance_to_node(
             db,

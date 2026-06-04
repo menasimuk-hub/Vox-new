@@ -359,6 +359,7 @@ class SurveySessionService:
         to_role: str | None,
         reason: str | None = None,
         context: dict[str, Any] | None = None,
+        picker: str | None = None,
     ) -> SurveySessionDecision:
         seq = SurveySessionService._next_decision_sequence(db, session.id)
         now = datetime.utcnow()
@@ -367,7 +368,7 @@ class SurveySessionService:
             sequence=seq,
             decision_kind=decision_kind,
             rule_key=rule_key,
-            picker=PICKER_DETERMINISTIC,
+            picker=str(picker or PICKER_DETERMINISTIC),
             from_step=from_step,
             to_step=to_step,
             from_role=from_role,

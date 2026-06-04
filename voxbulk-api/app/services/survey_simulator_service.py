@@ -15,8 +15,10 @@ from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.survey_session import SurveySession
 from app.models.user import User
-from app.services.survey_flow_config_service import is_graph_flow, is_simulator_dry_run
+from app.services.survey_flow_config_service import attach_flow_to_config, is_graph_flow, is_simulator_dry_run
 from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH, FLOW_ENGINE_LINEAR
+from app.services.survey_flow_picker_service import SurveyFlowPickerService
+from app.services.survey_picker_settings_service import SurveyPickerSettingsService
 from app.services.survey_generation_service import SurveyGenerationService
 from app.services.survey_session_service import SurveySessionService
 from app.services.survey_wa_test_pack_seed_service import SurveyWaTestPackSeedService
@@ -44,6 +46,23 @@ DEFAULT_GRAPH_BRANCHES: list[dict[str, Any]] = [
             "op": "lte",
             "source": "last_answer.normalized_value",
             "value": "2",
+            "cast": "int",
+        },
+    },
+]
+
+# Extra branch so rating has 3+ outgoing targets for AI picker tests (deterministic still uses conditions).
+AI_PICKER_TEST_BRANCHES: list[dict[str, Any]] = [
+    *DEFAULT_GRAPH_BRANCHES,
+    {
+        "from_step_role": "rating",
+        "to_step_role": "reason",
+        "priority": 12,
+        "rule_key": "simulator.rating.to_reason",
+        "condition": {
+            "op": "lte",
+            "source": "last_answer.normalized_value",
+            "value": "10",
             "cast": "int",
         },
     },
@@ -94,6 +113,8 @@ def _build_order_config(
     flow_engine: str,
     flow_branches: list[dict[str, Any]] | None,
     force_outcome_text_fallback: bool,
+    ai_picker_enabled: bool = False,
+    simulator_mock_picker: bool = True,
 ) -> dict[str, Any]:
     wa = generated.get("whatsapp_flow") or {}
     config: dict[str, Any] = {
@@ -112,10 +133,20 @@ def _build_order_config(
         "flow_engine": flow_engine,
         "simulator_dry_run": True,
         "simulator_force_template_fail": bool(force_outcome_text_fallback),
+        "ai_picker_enabled": bool(ai_picker_enabled),
+        "simulator_mock_picker": bool(simulator_mock_picker),
     }
     extras = generated.get("order_config_flow") or {}
     if flow_engine == FLOW_ENGINE_GRAPH and extras:
         config.update(extras)
+        snap = config.get("flow_snapshot")
+        if isinstance(snap, dict) and ai_picker_enabled:
+            snap = SurveyFlowPickerService.patch_snapshot_for_ai_test(snap)
+            config = attach_flow_to_config(
+                config,
+                snapshot=snap,
+                flow_definition_id=config.get("flow_definition_id"),
+            )
     if flow_engine == FLOW_ENGINE_GRAPH and flow_branches:
         config["flow_branches"] = flow_branches
     return config
@@ -190,7 +221,13 @@ def _session_state(
         "outcome_body_preview": delivery.get("body_preview"),
         "answers": conv.get("answers") or [],
         "simulator_phone": recipient.phone,
+        "ai_picker_enabled": bool(config.get("ai_picker_enabled")),
+        "picker_invocation_count": int(session.picker_invocation_count or 0) if session else 0,
     }
+    if session:
+        picker_dbg = SurveyFlowPickerService.latest_picker_debug(db, session.id)
+        if picker_dbg:
+            state["picker_debug"] = picker_dbg
     if extra:
         state.update(extra)
     return state
@@ -215,6 +252,8 @@ class SurveySimulatorService:
             "default_privacy_mode": "off",
             "flow_engines": [FLOW_ENGINE_LINEAR, FLOW_ENGINE_GRAPH],
             "default_graph_branches": DEFAULT_GRAPH_BRANCHES,
+            "ai_picker_test_branches": AI_PICKER_TEST_BRANCHES,
+            "platform_picker": SurveyPickerSettingsService.get_settings(db),
         }
 
     @staticmethod
@@ -228,6 +267,8 @@ class SurveySimulatorService:
         selected_step_roles: list[str] | None = None,
         flow_branches: list[dict[str, Any]] | None = None,
         force_outcome_text_fallback: bool = False,
+        ai_picker_enabled: bool = False,
+        simulator_mock_picker: bool = True,
     ) -> dict[str, Any]:
         SurveyWaTestPackSeedService.ensure_test_pack(db)
         pm = normalize_privacy_mode(privacy_mode)
@@ -235,6 +276,10 @@ class SurveySimulatorService:
         roles = selected_step_roles
         if not roles:
             roles = ["start", "rating", "yes_no", "helpfulness", "reason", "completion"]
+
+        branches = flow_branches
+        if branches is None:
+            branches = AI_PICKER_TEST_BRANCHES if ai_picker_enabled else DEFAULT_GRAPH_BRANCHES
 
         generated = SurveyGenerationService.generate(
             db,
@@ -247,14 +292,16 @@ class SurveySimulatorService:
             client_name="Acme Services",
             organiser_name="Test Team",
             flow_engine=engine if engine == FLOW_ENGINE_GRAPH else None,
-            flow_branches=flow_branches if flow_branches is not None else DEFAULT_GRAPH_BRANCHES,
+            flow_branches=branches,
         )
 
         config = _build_order_config(
             generated,
             flow_engine=engine,
-            flow_branches=flow_branches if flow_branches is not None else DEFAULT_GRAPH_BRANCHES,
+            flow_branches=branches,
             force_outcome_text_fallback=force_outcome_text_fallback,
+            ai_picker_enabled=ai_picker_enabled,
+            simulator_mock_picker=simulator_mock_picker,
         )
 
         org, user = _ensure_simulator_org(db)
