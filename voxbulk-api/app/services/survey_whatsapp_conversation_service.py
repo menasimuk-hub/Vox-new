@@ -15,6 +15,7 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.survey_dispatch_service import _first_name, _personalize, _uses_whatsapp
+from app.services.survey_session_service import SurveySessionService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
@@ -221,6 +222,14 @@ def send_first_question(
         "answers": [],
         "started_at": datetime.utcnow().isoformat(),
     }
+    session = SurveySessionService.start_linear_session(
+        db,
+        order=order,
+        recipient=recipient,
+        config=config,
+        question_count=len(questions),
+    )
+    payload = SurveySessionService.attach_session_to_result(payload, session)
     recipient.status = "in_progress"
     _save_recipient_result(db, recipient, payload)
 
@@ -283,16 +292,39 @@ def handle_inbound_reply(
         }
     )
 
+    session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+    if session is None:
+        session = SurveySessionService.start_linear_session(
+            db,
+            order=order,
+            recipient=recipient,
+            config=config,
+            question_count=total,
+        )
+    SurveySessionService.record_linear_answer(
+        db,
+        session,
+        step_index=step,
+        question=question,
+        raw_value=str(body or "").strip(),
+        normalized_value=answer,
+        config=config,
+    )
+
     extracted = [{"question": a["question"], "answer": a["answer"]} for a in answers]
     payload["extracted_answers"] = extracted
     payload["channel"] = "whatsapp"
     conv["answers"] = answers
+    payload = SurveySessionService.attach_session_to_result(payload, session)
 
     if step < total:
         next_q = questions[step]
         next_body = format_question_message(next_q, index=step + 1, total=total)
         conv["step"] = step + 1
         payload["wa_conversation"] = conv
+        SurveySessionService.advance_linear(
+            db, session, config=config, from_step=step, to_step=step + 1
+        )
         recipient.status = "in_progress"
         _save_recipient_result(db, recipient, payload)
         sent = _send_message(db, order=order, recipient=recipient, body=next_body)
@@ -316,6 +348,7 @@ def handle_inbound_reply(
     conv["step"] = total + 1
     conv["completed_at"] = datetime.utcnow().isoformat()
     payload["wa_conversation"] = conv
+    SurveySessionService.complete_linear(db, session, config=config, final_step=step)
     recipient.status = "completed"
     _save_recipient_result(db, recipient, payload)
     _send_message(db, order=order, recipient=recipient, body=closing)
