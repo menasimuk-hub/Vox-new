@@ -158,6 +158,60 @@ OUTCOME_COMPLETION_KEYS = ("happy", "neutral", "unhappy")
 _LOCAL_ID_PREFIX = "local-"
 _NAME_RE = re.compile(r"^[a-z0-9_]{3,64}$")
 _URL_RE = re.compile(r"^https://[^\s]+$", re.I)
+_NEUTRAL_COMPANY_NAMES = frozenset(
+    {"voxbulk", "retover", "your business", "company", "business", "the hiring team"}
+)
+
+
+def resolve_wa_survey_company_name(db: Session, *, org_id: str | None = None) -> str | None:
+    """Company display name from org profile (AI identity) for WA template generation."""
+    from sqlalchemy import select
+
+    from app.models.organisation import Organisation
+    from app.models.organisation_ai_config import OrganisationAIIdentity
+
+    resolved_org_id = str(org_id or "").strip() or SurveyWhatsappTemplateService._messaging_org_id(db)
+    if not resolved_org_id:
+        return None
+    org = db.get(Organisation, resolved_org_id)
+    if org is None:
+        return None
+
+    identity = db.execute(
+        select(OrganisationAIIdentity).where(OrganisationAIIdentity.org_id == resolved_org_id).limit(1)
+    ).scalar_one_or_none()
+
+    candidates: list[str] = []
+    if identity is not None and str(identity.organisation_name or "").strip():
+        candidates.append(str(identity.organisation_name).strip())
+    if str(org.name or "").strip():
+        candidates.append(str(org.name).strip())
+
+    for name in candidates:
+        cleaned = name.strip()
+        if not cleaned or cleaned.lower() in _NEUTRAL_COMPANY_NAMES:
+            continue
+        return cleaned
+    return None
+
+
+def _company_name_prompt_block(*, company_name: str | None = None) -> str:
+    if company_name:
+        return (
+            "COMPANY NAME — who the survey is from (Meta variable {{2}}):\n"
+            f"• Use the business name “{company_name}” via placeholder {{2}} on the start template and on EVERY "
+            "completion template (happy, neutral, unhappy).\n"
+            "• Mention {{2}} naturally and briefly so recipients know who is asking — e.g. "
+            "“{{2}} would love your feedback” or “Thanks for sharing your thoughts with {{2}}”.\n"
+            "• Do NOT use {{2}} on middle question templates (rating, yes_no, reason, follow_up, etc.) — "
+            "keep those generic.\n"
+            f"• Set example_values[1] (the sample for {{2}}) to “{company_name}” whenever {{2}} appears.\n\n"
+        )
+    return (
+        "COMPANY NAME — no profile name available:\n"
+        "• Do not use {{2}} in any template. Write neutral copy without naming a business.\n"
+        "• Start and completion templates should still read naturally without a company name.\n\n"
+    )
 
 _PACK_TEMPLATE_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -356,6 +410,8 @@ def validate_generated_template(
     privacy_mode: str = PRIVACY_MODE_OFF,
     instruction: str = "",
     purpose: str = "",
+    company_name: str | None = None,
+    apply_company_name_rules: bool = False,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     errors: list[str] = []
     if not isinstance(item, dict):
@@ -506,6 +562,23 @@ def validate_generated_template(
                 'Do not use "reference", "ref", or reference-style wording unless Admin instruction explicitly asks for it'
             )
 
+    company = str(company_name or "").strip() or None
+    has_var2 = "{{2}}" in combined
+    if apply_company_name_rules:
+        if company:
+            if step_role == "start" and not has_var2:
+                errors.append(
+                    "start template must include {{2}} (company name) when a company profile name is available"
+                )
+            if step_role == "completion" and not has_var2:
+                errors.append(
+                    "completion template must include {{2}} (company name) when a company profile name is available"
+                )
+        elif has_var2:
+            errors.append(
+                "Do not use {{2}} when no company profile name is available — use neutral wording instead"
+            )
+
     if errors:
         return None, errors
 
@@ -529,6 +602,12 @@ def validate_generated_template(
         "outcome_key": outcome_key,
         "outcome_variables": item.get("outcome_variables"),
     }
+    if company and has_var2:
+        examples_out = list(normalized["example_values"])
+        while len(examples_out) < 2:
+            examples_out.append("")
+        examples_out[1] = company
+        normalized["example_values"] = examples_out
     return normalized, []
 
 
@@ -641,6 +720,7 @@ def _pack_system_prompt(
     privacy_mode: str = PRIVACY_MODE_OFF,
     instruction: str = "",
     purpose: str = "",
+    company_name: str | None = None,
 ) -> str:
     privacy_mode = normalize_privacy_mode(privacy_mode)
     anonymous_block = ""
@@ -696,6 +776,7 @@ def _pack_system_prompt(
         f"{_meta_compliance_rules_block(privacy_mode=privacy_mode)}"
         f"{anonymous_block}"
         f"{variable_block}"
+        f"{_company_name_prompt_block(company_name=company_name)}"
         f"{style_mix}"
         f"{_reference_copy_rules_block(instruction=instruction, purpose=purpose)}"
         f"{_emoji_rules_block()}"
@@ -717,7 +798,8 @@ def _pack_system_prompt(
         "• one template per middle step_role (rating, yes_no, helpfulness, abc_choice, reason, feeling_word, follow_up, improvement)\n"
         "• one start template\n"
         "• THREE completion templates — each step_role=completion with a distinct outcome_key: happy, neutral, unhappy\n"
-        "start — intro with quick_reply (1 button) or url CTA (1 button) to begin the survey\n"
+        "start — intro with quick_reply (1 button) or url CTA (1 button) to begin the survey; "
+        "include {{2}} when a company name is provided\n"
         "rating — button_type none (user replies with a score in chat)\n"
         "yes_no — quick_reply with exactly 2 buttons\n"
         "helpfulness — button_type none or quick_reply with 2–3 options\n"
@@ -726,7 +808,7 @@ def _pack_system_prompt(
         "feeling_word — pick a feeling word (great, okay, disappointing…)\n"
         "follow_up — short follow-up or reminder nudge\n"
         "improvement — what could we improve\n"
-        "completion (×3) — warm thank-you closings tuned to outcome_key:\n"
+        "completion (×3) — warm thank-you closings tuned to outcome_key; each must include {{2}} when a company name is provided:\n"
         "  happy — appreciative, positive tone\n"
         "  neutral — balanced thank-you\n"
         "  unhappy — empathetic apology / support tone (no aggressive CTA)\n"
@@ -743,6 +825,7 @@ def _pack_user_prompt(
     purpose: str,
     instruction: str,
     privacy_mode: str = PRIVACY_MODE_OFF,
+    company_name: str | None = None,
 ) -> str:
     privacy_mode = normalize_privacy_mode(privacy_mode)
     is_csat = survey_type.slug in {"customer_satisfaction", "csat", "nps"} or "satisfaction" in survey_type.slug
@@ -759,6 +842,16 @@ def _pack_user_prompt(
     parts.append(
         f"Write all copy for the {industry.name} industry — tone, examples, and wording must fit this vertical."
     )
+    company = str(company_name or "").strip()
+    if company:
+        parts.append(
+            f"Company / business name from profile: {company}. "
+            "Use Meta placeholder {{2}} for this name on the start screen and on all three completion screens only."
+        )
+    else:
+        parts.append(
+            "Company / business name: not set in profile — omit {{2}} everywhere; use neutral wording without naming a business."
+        )
     if is_csat:
         parts.append(
             "Pack focus: customer satisfaction / post-service feedback for UK businesses. "
@@ -782,9 +875,15 @@ def _single_template_system_prompt(
     privacy_mode: str = PRIVACY_MODE_OFF,
     instruction: str = "",
     purpose: str = "",
+    company_name: str | None = None,
 ) -> str:
     return (
-        _pack_system_prompt(privacy_mode=privacy_mode, instruction=instruction, purpose=purpose)
+        _pack_system_prompt(
+            privacy_mode=privacy_mode,
+            instruction=instruction,
+            purpose=purpose,
+            company_name=company_name,
+        )
         + "\n\nYou are regenerating ONE template slot. Return JSON with a single `template` object. "
         "Make it noticeably better, more WhatsApp-native, emoji-friendly where appropriate, and more button-aware "
         "than a generic draft. Never add reference/ref wording unless Admin instruction explicitly requires it."
@@ -801,6 +900,7 @@ def _single_template_user_prompt(
     current_template: dict[str, Any] | None,
     sibling_summaries: list[dict[str, Any]] | None,
     privacy_mode: str = PRIVACY_MODE_OFF,
+    company_name: str | None = None,
 ) -> str:
     parts = [
         _pack_user_prompt(
@@ -809,6 +909,7 @@ def _single_template_user_prompt(
             purpose=purpose,
             instruction=instruction,
             privacy_mode=privacy_mode,
+            company_name=company_name,
         )
     ]
     if slot_hint.strip():
@@ -841,6 +942,7 @@ def _build_pack_item_row(
     privacy_mode: str = PRIVACY_MODE_OFF,
     instruction: str = "",
     purpose: str = "",
+    company_name: str | None = None,
 ) -> dict[str, Any]:
     coerced = coerce_meta_template_fields(item, privacy_mode=privacy_mode)
     normalized, errors = validate_generated_template(
@@ -849,6 +951,8 @@ def _build_pack_item_row(
         privacy_mode=privacy_mode,
         instruction=instruction,
         purpose=purpose,
+        company_name=company_name,
+        apply_company_name_rules=True,
     )
     row: dict[str, Any] = {
         "index": idx,
@@ -866,11 +970,16 @@ def _build_pack_item_row(
         return row
     seen_names.add(name_key)
     telnyx_name = _ensure_unique_telnyx_name(db, _telnyx_pack_name(survey_type.slug, normalized["template_name"]))
+    preview_business = (
+        normalized["example_values"][1]
+        if len(normalized["example_values"]) > 1 and str(normalized["example_values"][1] or "").strip()
+        else (str(company_name or "").strip() or "Your business")
+    )
     preview = SurveyWhatsappTemplateService.build_preview(
         db,
         _preview_row(normalized, telnyx_name),
         first_name=normalized["example_values"][0] if normalized["example_values"] else "Alex",
-        business_name=normalized["example_values"][1] if len(normalized["example_values"]) > 1 else "Northgate Dental",
+        business_name=preview_business,
     )
     row["template"] = {
         **normalized,
@@ -894,8 +1003,10 @@ class SurveyWaTemplatePackService:
         theme_variant: str = "",
         template_count: int = PACK_SIZE,
         industry_id: str | None = None,
+        org_id: str | None = None,
     ) -> dict[str, Any]:
         privacy_mode = normalize_privacy_mode(privacy_mode)
+        company_name = resolve_wa_survey_company_name(db, org_id=org_id)
         try:
             industry = load_industry_for_prompt(db, survey_type)
         except SurveyIndustryScopeError as e:
@@ -909,6 +1020,7 @@ class SurveyWaTemplatePackService:
                     privacy_mode=privacy_mode,
                     instruction=instruction,
                     purpose=purpose,
+                    company_name=company_name,
                 ),
                 user_prompt=_pack_user_prompt(
                     survey_type=survey_type,
@@ -916,6 +1028,7 @@ class SurveyWaTemplatePackService:
                     purpose=purpose,
                     instruction=instruction,
                     privacy_mode=privacy_mode,
+                    company_name=company_name,
                 ),
                 json_schema=WA_TEMPLATE_PACK_JSON_SCHEMA,
                 schema_name="wa_survey_template_pack",
@@ -947,6 +1060,7 @@ class SurveyWaTemplatePackService:
                 privacy_mode=privacy_mode,
                 instruction=instruction,
                 purpose=purpose,
+                company_name=company_name,
             )
             if row.get("valid") and row.get("template"):
                 validated.append(row)
@@ -962,6 +1076,7 @@ class SurveyWaTemplatePackService:
             "industry_id": industry.id,
             "industry_slug": industry.slug,
             "industry_name": industry.name,
+            "company_name": company_name,
             "survey_type_id": survey_type.id,
             "survey_type_name": survey_type.name,
             "service_type": survey_type.slug,
@@ -992,10 +1107,12 @@ class SurveyWaTemplatePackService:
         seen_names: list[str] | None = None,
         privacy_mode: str = PRIVACY_MODE_OFF,
         industry_id: str | None = None,
+        org_id: str | None = None,
     ) -> dict[str, Any]:
         privacy_mode = normalize_privacy_mode(
             privacy_mode or (current_template or {}).get("privacy_mode") or PRIVACY_MODE_OFF
         )
+        company_name = resolve_wa_survey_company_name(db, org_id=org_id)
         try:
             industry = load_industry_for_prompt(db, survey_type)
         except SurveyIndustryScopeError as e:
@@ -1009,6 +1126,7 @@ class SurveyWaTemplatePackService:
                     privacy_mode=privacy_mode,
                     instruction=instruction,
                     purpose=purpose,
+                    company_name=company_name,
                 ),
                 user_prompt=_single_template_user_prompt(
                     survey_type=survey_type,
@@ -1019,6 +1137,7 @@ class SurveyWaTemplatePackService:
                     current_template=current_template,
                     sibling_summaries=sibling_summaries,
                     privacy_mode=privacy_mode,
+                    company_name=company_name,
                 ),
                 json_schema=WA_SINGLE_TEMPLATE_JSON_SCHEMA,
                 schema_name="wa_survey_template_single",
@@ -1044,8 +1163,15 @@ class SurveyWaTemplatePackService:
             privacy_mode=privacy_mode,
             instruction=instruction,
             purpose=purpose,
+            company_name=company_name,
         )
-        return {"ok": True, "item": row, "openai": meta, "privacy_mode": privacy_mode}
+        return {
+            "ok": True,
+            "item": row,
+            "openai": meta,
+            "privacy_mode": privacy_mode,
+            "company_name": company_name,
+        }
 
     @staticmethod
     def _upsert_or_create_draft_row(

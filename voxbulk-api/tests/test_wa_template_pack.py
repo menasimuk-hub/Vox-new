@@ -14,7 +14,10 @@ from app.services.survey_wa_template_pack_service import (
     WA_TEMPLATE_PACK_JSON_SCHEMA,
     SurveyWaTemplatePackService,
     build_components_from_generated,
+    resolve_wa_survey_company_name,
     validate_generated_template,
+    _pack_system_prompt,
+    _pack_user_prompt,
 )
 from app.services.survey_whatsapp_template_service import (
     ANONYMOUS_BODY_SENTENCE,
@@ -64,7 +67,7 @@ def _sample_item(**overrides):
     return base
 
 
-def _mock_pack_response():
+def _mock_pack_response(*, company_name: str | None = None):
     templates = []
     roles_buttons = [
         ("start", "quick_reply", None),
@@ -80,12 +83,24 @@ def _mock_pack_response():
         ("completion", "none", "neutral"),
         ("completion", "none", "unhappy"),
     ]
+    company = str(company_name or "").strip()
     for idx, (role, btn_type, outcome_key) in enumerate(roles_buttons):
         name = role if role != "start" else "std_intro"
         variant = VARIANT_STANDARD
-        body = f"Hi {{{{1}}}}, {{{{2}}}} 👋 Share your thoughts — {role}."
-        if outcome_key:
-            body = f"Thanks {{{{1}}}} — {outcome_key} closing."
+        if role == "start":
+            body = (
+                f"Hi {{{{1}}}}, {{{{2}}}} would love your feedback 👋 Tap below to start."
+                if company
+                else "Hi {{1}}, we'd love your feedback 👋 Tap below to start."
+            )
+        elif outcome_key:
+            body = (
+                f"Thanks {{1}} — {{{{2}}}} appreciates your time ({outcome_key} closing)."
+                if company
+                else f"Thanks {{1}} — we appreciate your time ({outcome_key} closing)."
+            )
+        else:
+            body = f"Hi {{1}}, share your thoughts — {role}."
         footer = "Reply STOP to opt out"
         buttons = [{"text": "Start", "url": "", "phone_number": ""}]
         if btn_type == "url":
@@ -104,6 +119,8 @@ def _mock_pack_response():
             buttons=buttons if btn_type != "none" else [],
         )
         item["outcome_key"] = outcome_key if outcome_key else None
+        if company:
+            item["example_values"] = ["Alex", company, "https://example.com/s/1"]
         templates.append(item)
     assert len(templates) == PACK_SIZE
     return {"templates": templates}
@@ -172,6 +189,96 @@ def test_validate_allows_reference_when_admin_instruction_requests():
         )
         assert ok is not None
         assert not errors
+
+
+def test_pack_system_prompt_includes_company_name_rules():
+    with_company = _pack_system_prompt(company_name="Northgate Dental")
+    assert "COMPANY NAME" in with_company
+    assert "Northgate Dental" in with_company
+    assert "{{2}}" in with_company
+    without = _pack_system_prompt(company_name=None)
+    assert "no profile name available" in without
+
+
+def test_validate_company_name_rules_for_start_and_completion():
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        start_ok, start_errors = validate_generated_template(
+            _sample_item(body="Hi {{1}}, {{2}} would love your feedback."),
+            survey_type=st,
+            company_name="Acme Dental",
+            apply_company_name_rules=True,
+        )
+        assert start_ok is not None
+        assert not start_errors
+        assert start_ok["example_values"][1] == "Acme Dental"
+
+        start_bad, bad_errors = validate_generated_template(
+            _sample_item(body="Hi {{1}}, we'd love your feedback."),
+            survey_type=st,
+            company_name="Acme Dental",
+            apply_company_name_rules=True,
+        )
+        assert start_bad is None
+        assert any("start template must include {{2}}" in e for e in bad_errors)
+
+        completion_ok, _ = validate_generated_template(
+            _sample_item(
+                template_name="completion_happy",
+                step_role="completion",
+                outcome_key="happy",
+                body="Thanks {{1}} — {{2}} appreciates your feedback.",
+            ),
+            survey_type=st,
+            company_name="Acme Dental",
+            apply_company_name_rules=True,
+        )
+        assert completion_ok is not None
+
+        neutral_ok, neutral_errors = validate_generated_template(
+            _sample_item(body="Hi {{1}}, we'd love your feedback."),
+            survey_type=st,
+            company_name=None,
+            apply_company_name_rules=True,
+        )
+        assert neutral_ok is not None
+        assert not neutral_errors
+
+
+def test_resolve_wa_survey_company_name_from_profile():
+    from app.models.organisation import Organisation
+    from app.models.organisation_ai_config import OrganisationAIIdentity
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Fallback Org Ltd")
+        db.add(org)
+        db.flush()
+        db.add(
+            OrganisationAIIdentity(
+                org_id=org.id,
+                assistant_name="Sam",
+                organisation_name="Profile Dental Care",
+            )
+        )
+        db.commit()
+        assert resolve_wa_survey_company_name(db, org_id=org.id) == "Profile Dental Care"
+
+
+def test_pack_user_prompt_includes_company_name():
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        from app.services.survey_industry_scope import load_industry_for_prompt
+
+        industry = load_industry_for_prompt(db, st)
+        prompt = _pack_user_prompt(
+            survey_type=st,
+            industry=industry,
+            purpose="",
+            instruction="",
+            company_name="Harbour Clinic",
+        )
+        assert "Harbour Clinic" in prompt
+        assert "{{2}}" in prompt
 
 
 def test_pack_system_prompt_forbids_reference_without_admin_override():

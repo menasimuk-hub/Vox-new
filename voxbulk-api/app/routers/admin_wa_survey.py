@@ -246,6 +246,7 @@ def generate_template_pack(
             theme_variant=str(body.get("theme_variant") or body.get("category") or "").strip(),
             template_count=int(body.get("template_count") or 10),
             industry_id=str(body.get("industry_id") or "").strip() or None,
+            org_id=str(body.get("org_id") or body.get("organisation_id") or "").strip() or None,
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
@@ -304,6 +305,7 @@ def regenerate_template_pack_item(
             seen_names=body.get("seen_names") if isinstance(body.get("seen_names"), list) else None,
             privacy_mode=str(body.get("privacy_mode") or "off"),
             industry_id=str(body.get("industry_id") or "").strip() or None,
+            org_id=str(body.get("org_id") or body.get("organisation_id") or "").strip() or None,
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
