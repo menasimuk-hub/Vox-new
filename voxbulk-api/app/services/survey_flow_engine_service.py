@@ -367,6 +367,7 @@ class SurveyFlowEngineService:
             outcome_key = str(snap.get("fallback_outcome_key") or "neutral")
 
         outcome_cfg = idx["outcomes_by_node"].get(outcome_node_key) or idx["outcomes_by_key"].get(outcome_key) or {}
+        template_send = outcome_cfg.get("template_send")
         session.outcome_key = outcome_key
         session.current_node_key = outcome_node_key
         session.status = "completed"
@@ -387,12 +388,8 @@ class SurveyFlowEngineService:
             context={"outcome_node_key": outcome_node_key},
         )
 
-        body = ""
         action_type = str(outcome_cfg.get("action_type") or ACTION_SEND_TEXT)
-        if action_type == ACTION_SEND_TEMPLATE and outcome_cfg.get("template_id"):
-            body = str(outcome_cfg.get("message_body") or "Thank you for your feedback.")
-        else:
-            body = str(outcome_cfg.get("message_body") or "Thank you for your feedback.")
+        message_body = str(outcome_cfg.get("message_body") or "Thank you for your feedback.")
 
         SurveySessionService._append_decision(
             db,
@@ -404,14 +401,20 @@ class SurveyFlowEngineService:
             from_role=None,
             to_role=outcome_key,
             reason="Outcome action resolved.",
-            context={"action_type": action_type, "template_id": outcome_cfg.get("template_id")},
+            context={
+                "action_type": action_type,
+                "template_id": outcome_cfg.get("template_id"),
+                "has_template_send": bool(template_send),
+            },
         )
 
         return {
             "action": "complete",
             "completed": True,
             "outcome_key": outcome_key,
-            "body": body,
+            "body": message_body,
+            "message_body": message_body,
             "action_type": action_type,
             "template_id": outcome_cfg.get("template_id"),
+            "template_send": template_send,
         }

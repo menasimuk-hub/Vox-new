@@ -51,7 +51,9 @@ class SurveyFlowNode(Base):
     node_key: Mapped[str] = mapped_column(String(64), nullable=False)
     node_type: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     step_role: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
-    template_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    template_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("telnyx_whatsapp_templates.id"), nullable=True
+    )
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     outcome_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -93,7 +95,9 @@ class SurveyFlowOutcome(Base):
     outcome_key: Mapped[str] = mapped_column(String(64), nullable=False)
     node_key: Mapped[str] = mapped_column(String(64), nullable=False)
     action_type: Mapped[str] = mapped_column(String(32), nullable=False, default="send_text")
-    template_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    template_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("telnyx_whatsapp_templates.id"), nullable=True
+    )
     message_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

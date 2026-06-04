@@ -17,6 +17,7 @@ from app.services.platform_catalog_service import PlatformCatalogService, Servic
 from app.services.survey_dispatch_service import _first_name, _personalize, _uses_whatsapp
 from app.services.survey_flow_config_service import is_graph_flow
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
+from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
@@ -504,13 +505,14 @@ def _handle_inbound_reply_graph(
         payload["wa_conversation"] = conv
         recipient.status = "completed"
         _save_recipient_result(db, recipient, payload)
-        closing = _personalize(
-            str(result.get("body") or "Thank you for your feedback."),
-            first_name=_first_name(recipient.name),
-            org_name=org_name,
-            organiser=organiser,
+        SurveyOutcomeSendService.deliver(
+            db,
+            order=order,
+            recipient=recipient,
+            session=session,
+            outcome_result=result,
+            config=config,
         )
-        _send_message(db, order=order, recipient=recipient, body=closing)
         report = {}
         try:
             report = json.loads(order.report_json or "{}")

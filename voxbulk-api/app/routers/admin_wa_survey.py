@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.admin_rbac import CAP_INTEGRATION, require_cap
 from app.core.database import get_db
 from app.services.survey_flow_definition_service import SurveyFlowDefinitionService, flow_definition_to_dict
+from app.services.survey_outcome_template_service import SurveyOutcomeTemplateService
 from app.services.survey_generation_service import SurveyGenerationService
 from app.models.industry import Industry
 from app.services.industry_service import IndustryService, industry_to_dict
@@ -541,6 +542,21 @@ def generate_survey_preview(payload: dict, db: Session = Depends(get_db), _admin
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return result
+
+
+@router.get("/types/{type_id}/outcome-templates")
+def list_outcome_templates(
+    type_id: str,
+    privacy_mode: str = "off",
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return {
+        "ok": True,
+        "templates": SurveyOutcomeTemplateService.list_for_survey_type(
+            db, survey_type_id=type_id, privacy_mode=privacy_mode
+        ),
+    }
 
 
 @router.get("/types/{type_id}/flows")

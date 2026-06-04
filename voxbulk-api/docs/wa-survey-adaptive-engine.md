@@ -112,11 +112,23 @@ Allowed future AI role: **picker only** — given current answers and allowed `s
 
 **Admin API:** `GET/POST /types/{id}/flows`, `GET/PUT /flows/{id}`, `POST .../validate`, `POST .../publish`
 
-### P3+ — Future
+### P3 — Outcome template delivery ✅
+
+**Migration:** `0094_wa_survey_outcome_templates_p3`
+
+| Change | Purpose |
+|--------|---------|
+| `telnyx_whatsapp_templates.outcome_key` | `happy` \| `neutral` \| `unhappy` on `step_role=completion` |
+| `telnyx_whatsapp_templates.outcome_variables_json` | Per-template placeholder → context key map |
+| `survey_sessions.outcome_delivery_json` | Idempotent send log |
+| Pack size **12** | 8 middle + start + 3 completion outcomes |
+
+**Runtime:** Graph mode only — `SurveyOutcomeSendService` sends WhatsApp template (or text fallback). Linear unchanged.
+
+### P4+ — Future
 
 - Constrained AI picker (P5)
 - Richer admin graph UI
-- `send_template` outcome actions wired to Telnyx template send (P2 uses personalized text)
 
 ### P5 — Constrained AI picker (optional)
 

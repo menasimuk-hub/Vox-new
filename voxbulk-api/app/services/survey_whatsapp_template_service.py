@@ -503,6 +503,8 @@ def survey_template_to_dict(
         "send_template_id": send_template_id_for_row(row),
         "linked_survey_type_count": linked_survey_type_count,
         "step_role": str(row.step_role or "").strip().lower() or None,
+        "outcome_key": str(row.outcome_key or "").strip().lower() or None,
+        "outcome_variables": _loads(row.outcome_variables_json),
         "privacy_mode": resolve_row_privacy_mode(row),
         "industry_id": row.industry_id,
         "pack_id": row.pack_id,

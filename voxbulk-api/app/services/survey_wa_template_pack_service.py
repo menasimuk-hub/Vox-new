@@ -47,7 +47,8 @@ from app.services.survey_whatsapp_template_service import (
     survey_template_to_dict,
 )
 
-PACK_SIZE = 10
+PACK_SIZE = 12
+OUTCOME_COMPLETION_KEYS = ("happy", "neutral", "unhappy")
 _LOCAL_ID_PREFIX = "local-"
 _NAME_RE = re.compile(r"^[a-z0-9_]{3,64}$")
 _URL_RE = re.compile(r"^https://[^\s]+$", re.I)
@@ -64,6 +65,7 @@ WA_TEMPLATE_PACK_JSON_SCHEMA: dict[str, Any] = {
                     "variant_type": {"type": "string", "enum": ["standard", "anonymous"]},
                     "title": {"type": "string"},
                     "step_role": {"type": "string", "enum": list(PACK_STEP_ROLES)},
+                    "outcome_key": {"type": "string", "enum": list(OUTCOME_COMPLETION_KEYS)},
                     "purpose": {"type": "string"},
                     "body": {"type": "string"},
                     "footer": {"type": "string"},
@@ -332,6 +334,12 @@ def validate_generated_template(
     step_role = normalize_step_role(item.get("step_role") or item.get("purpose") or "")
     if step_role not in ALL_STEP_ROLES:
         errors.append(f"step_role must be one of: {', '.join(PACK_STEP_ROLES)}")
+    outcome_key = str(item.get("outcome_key") or "").strip().lower() or None
+    if step_role == "completion":
+        if outcome_key not in OUTCOME_COMPLETION_KEYS:
+            errors.append("completion templates must include outcome_key: happy, neutral, or unhappy")
+    elif outcome_key:
+        errors.append("outcome_key is only allowed on completion templates")
 
     if errors:
         return None, errors
@@ -353,8 +361,41 @@ def validate_generated_template(
         "category": _normalize_category(item.get("category")),
         "service_type": survey_type.slug if survey_type else str(item.get("service_type") or ""),
         "components": build_components_from_generated(item),
+        "outcome_key": outcome_key,
+        "outcome_variables": item.get("outcome_variables"),
     }
     return normalized, []
+
+
+def _validate_pack_composition(items: list[dict[str, Any]]) -> list[str]:
+    """Ensure 12-pack has one start, eight middle roles, three completion outcomes."""
+    from app.services.survey_step_bank_service import MIDDLE_STEP_ROLES
+
+    errors: list[str] = []
+    if len(items) != PACK_SIZE:
+        errors.append(f"Expected {PACK_SIZE} templates, got {len(items)}")
+    roles_seen: set[str] = set()
+    outcomes_seen: set[str] = set()
+    for item in items:
+        role = normalize_step_role(str(item.get("step_role") or ""))
+        if role == "completion":
+            ok = str(item.get("outcome_key") or "")
+            if ok in outcomes_seen:
+                errors.append(f"Duplicate completion outcome_key: {ok}")
+            outcomes_seen.add(ok)
+        elif role in roles_seen:
+            errors.append(f"Duplicate step_role: {role}")
+        else:
+            roles_seen.add(role)
+    if "start" not in roles_seen:
+        errors.append("Pack must include start template")
+    for ok in OUTCOME_COMPLETION_KEYS:
+        if ok not in outcomes_seen:
+            errors.append(f"Pack must include completion template for outcome={ok}")
+    for role in MIDDLE_STEP_ROLES:
+        if role not in roles_seen:
+            errors.append(f"Pack missing middle step_role: {role}")
+    return errors
 
 
 def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
@@ -427,7 +468,10 @@ def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
         "Quick reply: max 3 buttons. "
         f"Anonymous templates: body must include that the survey is anonymous; footer must be exactly “{ANONYMOUS_FOOTER}”. "
         "template_name: unique lowercase snake_case, no voxbulk_survey prefix.\n\n"
-        "STEP BANK — return exactly one template per step_role (10 total, no duplicates):\n"
+        "STEP BANK — return exactly 12 templates:\n"
+        "• one template per middle step_role (rating, yes_no, helpfulness, abc_choice, reason, feeling_word, follow_up, improvement)\n"
+        "• one start template\n"
+        "• THREE completion templates — each step_role=completion with a distinct outcome_key: happy, neutral, unhappy\n"
         "start — intro with quick_reply or url CTA to begin the survey\n"
         "rating — 0–10 or star-style satisfaction score prompt\n"
         "yes_no — simple yes/no check-in\n"
@@ -437,7 +481,11 @@ def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
         "feeling_word — pick a feeling word (great, okay, disappointing…)\n"
         "follow_up — short follow-up or reminder nudge\n"
         "improvement — what could we improve\n"
-        "completion — warm thank-you / closing message (no aggressive CTA)\n"
+        "completion (×3) — warm thank-you closings tuned to outcome_key:\n"
+        "  happy — appreciative, positive tone\n"
+        "  neutral — balanced thank-you\n"
+        "  unhappy — empathetic apology / support tone (no aggressive CTA)\n"
+        "Each completion template MUST set outcome_key to happy, neutral, or unhappy.\n"
         "Set step_role on every template. Middle roles should use standard variant unless anonymous-specific."
     )
 
@@ -477,8 +525,8 @@ def _pack_user_prompt(
         parts.append(f"Admin instruction: {instruction.strip()}")
     parts.append(
         f"Generate exactly {PACK_SIZE} visually attractive, conversational, persuasive WhatsApp templates as JSON. "
-        "Each template maps to one step_role from the step bank (start, rating, yes_no, helpfulness, abc_choice, "
-        "reason, feeling_word, follow_up, improvement, completion). Avoid duplicate step_role values."
+        "Include one template per middle step_role, one start, and three completion templates "
+        "(outcome_key happy, neutral, unhappy). No duplicate non-completion step_roles."
     )
     return "\n".join(parts)
 
@@ -638,6 +686,10 @@ class SurveyWaTemplatePackService:
             else:
                 invalid.append(row)
 
+        composition_errors = _validate_pack_composition(
+            [r["template"] for r in validated if r.get("template")]
+        )
+
         return {
             "ok": True,
             "industry_id": industry.id,
@@ -654,6 +706,8 @@ class SurveyWaTemplatePackService:
             "invalid_count": len(invalid),
             "templates": validated + invalid,
             "valid_templates": [r["template"] for r in validated if r.get("template")],
+            "composition_errors": composition_errors,
+            "composition_ok": not composition_errors,
             "openai": meta,
         }
 
@@ -832,12 +886,20 @@ class SurveyWaTemplatePackService:
         local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"
         privacy_mode = normalize_privacy_mode(item.get("privacy_mode") or privacy_mode)
         variant = privacy_mode_to_variant(privacy_mode)
+        outcome_key = str(item.get("outcome_key") or "")[:16] or None
+        outcome_vars = item.get("outcome_variables")
+        if outcome_key and not outcome_vars:
+            from app.services.survey_outcome_template_service import default_outcome_variables
+
+            outcome_vars = default_outcome_variables(outcome_key)
         row = TelnyxWhatsappTemplate(
             telnyx_record_id=local_id,
             template_id=local_id,
             name=telnyx_name,
             display_name=str(item.get("title") or item.get("template_name"))[:128],
             step_role=str(item.get("step_role") or "")[:32] or None,
+            outcome_key=outcome_key,
+            outcome_variables_json=_dumps(outcome_vars) if outcome_vars else None,
             language=str(item.get("language") or "en_US"),
             category=_normalize_category(item.get("category")),
             status="LOCAL_DRAFT",

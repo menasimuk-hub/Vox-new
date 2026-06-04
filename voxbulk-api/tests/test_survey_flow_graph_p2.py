@@ -125,9 +125,11 @@ def test_is_graph_flow_requires_snapshot():
     assert is_graph_flow(cfg) is True
 
 
+@patch("app.services.survey_outcome_send_service.TelnyxMessagingService.send_whatsapp")
 @patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
-def test_graph_low_rating_routes_to_unhappy(mock_send, db):
+def test_graph_low_rating_routes_to_unhappy(mock_send, mock_wa, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+    mock_wa.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok", external_id="ext-1")
     config = _graph_config()
     order = _order(config)
     db.add(order)
@@ -163,9 +165,11 @@ def test_graph_low_rating_routes_to_unhappy(mock_send, db):
     assert "outcome_reached" in kinds
 
 
+@patch("app.services.survey_outcome_send_service.TelnyxMessagingService.send_whatsapp")
 @patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
-def test_graph_high_rating_continues_then_completes(mock_send, db):
+def test_graph_high_rating_continues_then_completes(mock_send, mock_wa, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+    mock_wa.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok", external_id="ext-2")
     config = _graph_config(branches=[])
     order = _order(config)
     db.add(order)

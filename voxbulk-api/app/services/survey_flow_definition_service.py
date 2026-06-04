@@ -262,6 +262,7 @@ class SurveyFlowDefinitionService:
         mq = max_question_visits or (st.max_length if st else 6)
         snap = SurveyFlowDefinitionService.build_snapshot(db, flow_id, max_question_visits=mq)
         errors = validate_flow_snapshot(snap)
+        warnings: list[str] = list(snap.get("outcome_warnings") or [])
         if row:
             variant = privacy_mode_to_variant(row.privacy_mode)
             if st:
@@ -271,7 +272,15 @@ class SurveyFlowDefinitionService:
                         role = normalize_step_role(str(n.get("step_role") or ""))
                         if role and role not in (bank.get("by_role") or {}):
                             errors.append(f"step_role not in step bank: {role}")
-        return {"ok": not errors, "errors": errors, "snapshot_preview": snap}
+                from app.services.survey_outcome_template_service import SurveyOutcomeTemplateService
+
+                for ok in ("happy", "neutral", "unhappy"):
+                    reg = SurveyOutcomeTemplateService.get_registry(
+                        db, survey_type=st, privacy_mode=row.privacy_mode
+                    )
+                    if ok not in reg:
+                        warnings.append(f"No bank completion template for outcome={ok}")
+        return {"ok": not errors, "errors": errors, "warnings": warnings, "snapshot_preview": snap}
 
     @staticmethod
     def build_snapshot(
@@ -287,7 +296,7 @@ class SurveyFlowDefinitionService:
         nodes = list(db.execute(select(SurveyFlowNode).where(SurveyFlowNode.flow_id == flow_id)).scalars())
         edges = list(db.execute(select(SurveyFlowEdge).where(SurveyFlowEdge.flow_id == flow_id)).scalars())
         outcomes = list(db.execute(select(SurveyFlowOutcome).where(SurveyFlowOutcome.flow_id == flow_id)).scalars())
-        return snapshot_from_db_rows(
+        snap = snapshot_from_db_rows(
             flow_id=flow_id,
             version=row.version,
             entry_node_key=row.entry_node_key,
@@ -298,6 +307,21 @@ class SurveyFlowDefinitionService:
             outcomes=outcomes,
             questions_by_role=questions_by_role,
         )
+        st = db.get(SurveyType, row.survey_type_id)
+        if st:
+            from app.services.survey_outcome_template_service import (
+                SurveyOutcomeTemplateService,
+                build_variable_context,
+            )
+
+            snap = SurveyOutcomeTemplateService.enrich_snapshot_outcomes(
+                db,
+                snapshot=snap,
+                survey_type=st,
+                privacy_mode=row.privacy_mode,
+                context=build_variable_context(first_name="there", org_name="Your business", organiser="the team"),
+            )
+        return snap
 
     @staticmethod
     def publish(db: Session, flow_id: str, *, max_question_visits: int = 6) -> dict[str, Any]:
@@ -361,6 +385,22 @@ class SurveyFlowDefinitionService:
             snap = SurveyFlowDefinitionService.build_snapshot(
                 db, fid, max_question_visits=mq, questions_by_role=qmap
             )
+            from app.services.survey_outcome_template_service import (
+                SurveyOutcomeTemplateService,
+                build_variable_context,
+            )
+
+            snap = SurveyOutcomeTemplateService.enrich_snapshot_outcomes(
+                db,
+                snapshot=snap,
+                survey_type=survey_type,
+                privacy_mode=pm,
+                context=build_variable_context(
+                    first_name="there",
+                    org_name=str(config.get("organisation_name") or "Your business"),
+                    organiser=str(config.get("survey_organiser_name") or "the team"),
+                ),
+            )
             return snap, fid
 
         snap = compile_linear_graph(
@@ -374,4 +414,20 @@ class SurveyFlowDefinitionService:
         errors = validate_flow_snapshot(snap)
         if errors:
             raise ValueError("; ".join(errors))
+        from app.services.survey_outcome_template_service import (
+            SurveyOutcomeTemplateService,
+            build_variable_context,
+        )
+
+        snap = SurveyOutcomeTemplateService.enrich_snapshot_outcomes(
+            db,
+            snapshot=snap,
+            survey_type=survey_type,
+            privacy_mode=pm,
+            context=build_variable_context(
+                first_name="there",
+                org_name=str(config.get("organisation_name") or "Your business"),
+                organiser=str(config.get("survey_organiser_name") or "the team"),
+            ),
+        )
         return snap, None

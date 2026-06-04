@@ -65,45 +65,46 @@ def _sample_item(**overrides):
 def _mock_pack_response():
     templates = []
     roles_buttons = [
-        ("start", "quick_reply"),
-        ("rating", "none"),
-        ("yes_no", "quick_reply"),
-        ("helpfulness", "none"),
-        ("abc_choice", "quick_reply"),
-        ("reason", "none"),
-        ("feeling_word", "quick_reply"),
-        ("follow_up", "none"),
-        ("improvement", "none"),
-        ("completion", "none"),
+        ("start", "quick_reply", None),
+        ("rating", "none", None),
+        ("yes_no", "quick_reply", None),
+        ("helpfulness", "none", None),
+        ("abc_choice", "quick_reply", None),
+        ("reason", "none", None),
+        ("feeling_word", "quick_reply", None),
+        ("follow_up", "none", None),
+        ("improvement", "none", None),
+        ("completion", "none", "happy"),
+        ("completion", "none", "neutral"),
+        ("completion", "none", "unhappy"),
     ]
-    for idx, (role, btn_type) in enumerate(roles_buttons):
+    for idx, (role, btn_type, outcome_key) in enumerate(roles_buttons):
         name = role if role != "start" else "std_intro"
-        variant = VARIANT_ANONYMOUS if role == "start" and idx == 3 else VARIANT_STANDARD
-        if role == "start":
-            variant = VARIANT_STANDARD
+        variant = VARIANT_STANDARD
         body = f"Hi {{{{1}}}}, {{{{2}}}} survey ref {{{{3}}}} — {role}."
+        if outcome_key:
+            body = f"Thanks {{{{1}}}} — {outcome_key} closing."
         footer = "Reply STOP to opt out"
         buttons = [{"text": "Start", "url": "", "phone_number": ""}]
         if btn_type == "url":
             buttons = [{"text": "Open survey", "url": "https://example.com/s/{{3}}", "phone_number": ""}]
         if btn_type == "phone":
             buttons = [{"text": "Call us", "url": "", "phone_number": "+447700900123"}]
-        if variant == VARIANT_ANONYMOUS:
-            body = f"Hi {{{{1}}}}, {{{{2}}}}. {ANONYMOUS_BODY_SENTENCE}"
-            footer = ANONYMOUS_FOOTER
-        templates.append(
-            _sample_item(
-                template_name=f"{name}_{idx}",
-                variant_type=variant,
-                title=role.replace("_", " ").title(),
-                step_role=role,
-                purpose=role,
-                body=body,
-                footer=footer,
-                button_type=btn_type,
-                buttons=buttons if btn_type != "none" else [],
-            )
+        item = _sample_item(
+            template_name=f"{name}_{idx}" if not outcome_key else f"completion_{outcome_key}",
+            variant_type=variant,
+            title=role.replace("_", " ").title(),
+            step_role=role,
+            purpose=role if not outcome_key else f"completion_{outcome_key}",
+            body=body,
+            footer=footer,
+            button_type=btn_type,
+            buttons=buttons if btn_type != "none" else [],
         )
+        if outcome_key:
+            item["outcome_key"] = outcome_key
+        templates.append(item)
+    assert len(templates) == PACK_SIZE
     return {"templates": templates}
 
 
@@ -199,6 +200,12 @@ def test_generate_pack_uses_responses_api(monkeypatch):
         assert len(purposes) >= 4
         assert "start" in roles
         assert "completion" in roles
+        outcome_keys = {
+            t["template"].get("outcome_key")
+            for t in result["templates"]
+            if t.get("template") and t["template"].get("step_role") == "completion"
+        }
+        assert outcome_keys == {"happy", "neutral", "unhappy"}
 
 
 def test_save_pack_creates_local_drafts(monkeypatch):

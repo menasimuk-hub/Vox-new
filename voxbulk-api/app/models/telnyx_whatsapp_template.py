@@ -30,6 +30,8 @@ class TelnyxWhatsappTemplate(Base):
     survey_type_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("survey_types.id"), nullable=True, index=True)
     variant_type: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     step_role: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    outcome_key: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    outcome_variables_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     privacy_mode: Mapped[str] = mapped_column(String(8), nullable=False, default="off", index=True)
     pack_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("survey_template_packs.id"), nullable=True, index=True)
     parent_template_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("telnyx_whatsapp_templates.id"), nullable=True)

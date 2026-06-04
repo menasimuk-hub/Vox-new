@@ -41,6 +41,7 @@ class SurveySession(Base):
     survey_type_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("survey_types.id"), nullable=True)
     privacy_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
     outcome_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    outcome_delivery_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
