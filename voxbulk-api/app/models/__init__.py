@@ -57,6 +57,12 @@ from app.models.survey_session import (  # noqa: F401
     SurveySessionAnswer,
     SurveySessionDecision,
 )
+from app.models.survey_flow import (  # noqa: F401
+    SurveyFlowDefinition,
+    SurveyFlowEdge,
+    SurveyFlowNode,
+    SurveyFlowOutcome,
+)
 from app.models.sms_template import SmsTemplate  # noqa: F401
 from app.models.password_reset_token import PasswordResetToken  # noqa: F401
 from app.models.admin_user import AdminUser  # noqa: F401

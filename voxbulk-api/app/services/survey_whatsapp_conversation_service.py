@@ -15,6 +15,8 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.survey_dispatch_service import _first_name, _personalize, _uses_whatsapp
+from app.services.survey_flow_config_service import is_graph_flow
+from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_session_service import SurveySessionService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
@@ -208,9 +210,10 @@ def send_first_question(
     if not isinstance(questions, list) or not questions:
         return
 
-    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
-    organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
-    first = _first_name(recipient.name)
+    if is_graph_flow(config):
+        _send_first_question_graph(db, order=order, recipient=recipient, config=config, questions=questions)
+        return
+
     q0 = questions[0] if isinstance(questions[0], dict) else {"text": str(questions[0])}
     body = format_question_message(q0, index=1, total=len(questions))
 
@@ -235,6 +238,36 @@ def send_first_question(
 
     if _send_message(db, order=order, recipient=recipient, body=body):
         logger.info("%s first_question_sent order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
+
+
+def _send_first_question_graph(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+    questions: list[Any],
+) -> None:
+    from app.services.survey_flow_config_service import max_question_visits
+
+    session, _q, body = SurveyFlowEngineService.start_graph_session(
+        db, order=order, recipient=recipient, config=config
+    )
+    total = max_question_visits(config)
+    payload = _recipient_result(recipient)
+    payload["channel"] = "whatsapp"
+    payload["wa_conversation"] = {
+        "step": 1,
+        "total": total,
+        "answers": [],
+        "started_at": datetime.utcnow().isoformat(),
+        "current_node_key": session.current_node_key,
+    }
+    payload = SurveySessionService.attach_session_to_result(payload, session)
+    recipient.status = "in_progress"
+    _save_recipient_result(db, recipient, payload)
+    if _send_message(db, order=order, recipient=recipient, body=body):
+        logger.info("%s graph_first_question order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
 
 
 def _maybe_complete_order(db: Session, order: ServiceOrder) -> None:
@@ -268,6 +301,18 @@ def handle_inbound_reply(
     questions = [q for q in (flow.get("questions") or []) if isinstance(q, dict)]
     if not questions:
         return {"handled": False, "reason": "no_questions"}
+
+    if is_graph_flow(config):
+        return _handle_inbound_reply_graph(
+            db,
+            order=order,
+            recipient=recipient,
+            config=config,
+            flow=flow,
+            questions=questions,
+            body=body,
+            log_id=log_id,
+        )
 
     org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
     organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
@@ -373,6 +418,135 @@ def handle_inbound_reply(
         "order_id": order.id,
         "recipient_id": recipient.id,
         "completed": True,
+        "log_id": log_id,
+    }
+
+
+def _handle_inbound_reply_graph(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+    flow: dict[str, Any],
+    questions: list[dict[str, Any]],
+    body: str,
+    log_id: int | None,
+) -> dict[str, Any]:
+    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
+    organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
+
+    payload = _recipient_result(recipient)
+    conv = _wa_conversation(payload)
+    step = int(conv.get("step") or 0)
+    from app.services.survey_flow_config_service import max_question_visits
+
+    total = int(conv.get("total") or max_question_visits(config))
+    answers: list[dict[str, Any]] = list(conv.get("answers") or [])
+
+    current_node_key = str(conv.get("current_node_key") or "")
+    session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+    if session and session.current_node_key:
+        current_node_key = session.current_node_key
+
+    if not current_node_key:
+        return {"handled": False, "reason": "invalid_graph_state"}
+
+    q_index = max(0, step - 1)
+    question = questions[q_index] if q_index < len(questions) else {}
+    if session and session.flow_snapshot_json:
+        try:
+            import json as _json
+
+            snap = _json.loads(session.flow_snapshot_json)
+            node = {n["node_key"]: n for n in snap.get("nodes") or [] if isinstance(n, dict)}.get(
+                current_node_key
+            )
+            if node and isinstance(node.get("question"), dict):
+                question = node["question"]
+        except Exception:
+            pass
+
+    answer = match_answer(body, question)
+    answers.append(
+        {
+            "question": str(question.get("text") or f"Question {step}"),
+            "answer": answer,
+            "reply_type": question.get("reply_type"),
+            "node_key": current_node_key,
+        }
+    )
+
+    if session is None:
+        session, _, _ = SurveyFlowEngineService.start_graph_session(
+            db, order=order, recipient=recipient, config=config
+        )
+
+    result = SurveyFlowEngineService.record_answer_and_resolve(
+        db,
+        session=session,
+        config=config,
+        current_node_key=current_node_key,
+        question=question,
+        raw_body=body,
+    )
+
+    extracted = [{"question": a["question"], "answer": a["answer"]} for a in answers]
+    payload["extracted_answers"] = extracted
+    payload["channel"] = "whatsapp"
+    conv["answers"] = answers
+    payload = SurveySessionService.attach_session_to_result(payload, session)
+
+    if result.get("completed"):
+        conv["step"] = total + 1
+        conv["completed_at"] = datetime.utcnow().isoformat()
+        conv["outcome_key"] = result.get("outcome_key")
+        payload["wa_conversation"] = conv
+        recipient.status = "completed"
+        _save_recipient_result(db, recipient, payload)
+        closing = _personalize(
+            str(result.get("body") or "Thank you for your feedback."),
+            first_name=_first_name(recipient.name),
+            org_name=org_name,
+            organiser=organiser,
+        )
+        _send_message(db, order=order, recipient=recipient, body=closing)
+        report = {}
+        try:
+            report = json.loads(order.report_json or "{}")
+            if not isinstance(report, dict):
+                report = {}
+        except Exception:
+            report = {}
+        report["completed"] = int(report.get("completed") or 0) + 1
+        order.report_json = json.dumps(report, ensure_ascii=False)
+        order.updated_at = datetime.utcnow()
+        db.add(order)
+        db.commit()
+        _maybe_complete_order(db, order)
+        return {
+            "handled": True,
+            "order_id": order.id,
+            "recipient_id": recipient.id,
+            "completed": True,
+            "outcome_key": result.get("outcome_key"),
+            "log_id": log_id,
+        }
+
+    next_body = str(result.get("body") or "")
+    conv["step"] = int(session.question_visits or step) + 1
+    conv["current_node_key"] = result.get("node_key") or session.current_node_key
+    payload["wa_conversation"] = conv
+    recipient.status = "in_progress"
+    _save_recipient_result(db, recipient, payload)
+    sent = _send_message(db, order=order, recipient=recipient, body=next_body)
+    return {
+        "handled": True,
+        "order_id": order.id,
+        "recipient_id": recipient.id,
+        "step": step,
+        "next_step": conv["step"],
+        "sent": sent,
         "log_id": log_id,
     }
 

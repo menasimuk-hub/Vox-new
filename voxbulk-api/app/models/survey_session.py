@@ -32,6 +32,12 @@ class SurveySession(Base):
     total_steps: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     page_roles_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    flow_definition_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("survey_flow_definitions.id"), nullable=True, index=True
+    )
+    flow_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_node_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    question_visits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     survey_type_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("survey_types.id"), nullable=True)
     privacy_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
     outcome_key: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -318,6 +318,10 @@ class SurveySessionService:
             conv = {}
         conv["survey_session_id"] = session.id
         conv["flow_mode"] = session.flow_mode
+        if session.current_node_key:
+            conv["current_node_key"] = session.current_node_key
+        if session.outcome_key:
+            conv["outcome_key"] = session.outcome_key
         payload["wa_conversation"] = conv
         payload["survey_session_id"] = session.id
         return payload

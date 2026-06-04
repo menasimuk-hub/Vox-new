@@ -12,6 +12,9 @@ from app.services.survey_step_bank_service import (
     SurveyStepBankService,
     page_count_from_length,
 )
+from app.services.survey_flow_config_service import attach_flow_to_config, flow_engine as resolve_flow_engine
+from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH
+from app.services.survey_flow_definition_service import SurveyFlowDefinitionService
 from app.services.survey_type_service import SurveyTypeService
 from app.services.wa_template_privacy import (
     VARIANT_ANONYMOUS,
@@ -39,6 +42,9 @@ class SurveyGenerationService:
         client_name: str = "",
         assistant_name: str = "",
         organiser_name: str = "",
+        flow_engine: str | None = None,
+        flow_definition_id: str | None = None,
+        flow_branches: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         survey_type = SurveyTypeService.get_type(db, survey_type_id)
         if survey_type is None or not survey_type.is_active:
@@ -137,7 +143,34 @@ class SurveyGenerationService:
             "closing": closing,
         }
 
-        return {
+        engine_key = resolve_flow_engine({"flow_engine": flow_engine} if flow_engine else {})
+        flow_snapshot = None
+        resolved_flow_definition_id = None
+        order_config_extras: dict[str, Any] = {}
+        if engine_key == FLOW_ENGINE_GRAPH:
+            draft_config = {
+                "survey_type_id": survey_type.id,
+                "privacy_mode": resolved_privacy,
+                "page_count": count,
+                "page_roles": composed["page_roles"],
+                "flow_definition_id": flow_definition_id,
+                "flow_branches": flow_branches,
+            }
+            flow_snapshot, resolved_flow_definition_id = SurveyFlowDefinitionService.resolve_snapshot_for_order(
+                db,
+                config=draft_config,
+                survey_type=survey_type,
+                questions=middle_questions,
+                page_roles=composed["page_roles"],
+                closing_body=closing,
+            )
+            order_config_extras = attach_flow_to_config(
+                draft_config,
+                snapshot=flow_snapshot,
+                flow_definition_id=resolved_flow_definition_id,
+            )
+
+        result_payload = {
             "ok": True,
             "survey_type": {
                 "id": survey_type.id,
@@ -170,7 +203,18 @@ class SurveyGenerationService:
                 + ["", "CLOSING", closing]
             ),
             "system_prompt": script_result.get("system_prompt") or "",
+            "flow_engine": engine_key,
+            "flow_definition_id": resolved_flow_definition_id,
+            "flow_snapshot": flow_snapshot,
         }
+        if order_config_extras:
+            result_payload["order_config_flow"] = {
+                "flow_engine": order_config_extras.get("flow_engine"),
+                "flow_definition_id": order_config_extras.get("flow_definition_id"),
+                "flow_snapshot": order_config_extras.get("flow_snapshot"),
+                "flow_snapshot_json": order_config_extras.get("flow_snapshot_json"),
+            }
+        return result_payload
 
     @staticmethod
     def validate_order_config(config: dict[str, Any]) -> list[str]:
@@ -191,4 +235,13 @@ class SurveyGenerationService:
                     errors.append("WhatsApp surveys must be 4–6 pages")
             except (TypeError, ValueError):
                 errors.append("page_count must be an integer between 4 and 6")
+        if resolve_flow_engine(config) == FLOW_ENGINE_GRAPH:
+            from app.services.survey_flow_config_service import get_flow_snapshot
+            from app.services.survey_flow_compiler_service import validate_flow_snapshot
+
+            snap = get_flow_snapshot(config)
+            if not snap:
+                errors.append("flow_engine=graph requires flow_snapshot on order config")
+            else:
+                errors.extend(validate_flow_snapshot(snap))
         return errors

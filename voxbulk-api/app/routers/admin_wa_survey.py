@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import CAP_INTEGRATION, require_cap
 from app.core.database import get_db
+from app.services.survey_flow_definition_service import SurveyFlowDefinitionService, flow_definition_to_dict
 from app.services.survey_generation_service import SurveyGenerationService
 from app.models.industry import Industry
 from app.services.industry_service import IndustryService, industry_to_dict
@@ -521,6 +522,7 @@ def generate_survey_preview(payload: dict, db: Session = Depends(get_db), _admin
     try:
         page_count = payload.get("page_count")
         selected = payload.get("selected_step_roles")
+        branches = payload.get("flow_branches")
         result = SurveyGenerationService.generate(
             db,
             survey_type_id=str(payload.get("survey_type_id") or ""),
@@ -532,7 +534,100 @@ def generate_survey_preview(payload: dict, db: Session = Depends(get_db), _admin
             goal=str(payload.get("goal") or ""),
             organisation_name=str(payload.get("organisation_name") or "Your business"),
             client_name=str(payload.get("client_name") or ""),
+            flow_engine=str(payload.get("flow_engine") or "").strip() or None,
+            flow_definition_id=str(payload.get("flow_definition_id") or "").strip() or None,
+            flow_branches=branches if isinstance(branches, list) else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return result
+
+
+@router.get("/types/{type_id}/flows")
+def list_survey_flows(
+    type_id: str,
+    privacy_mode: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return {
+        "ok": True,
+        "flows": SurveyFlowDefinitionService.list_for_survey_type(db, type_id, privacy_mode=privacy_mode),
+    }
+
+
+@router.post("/types/{type_id}/flows")
+def create_survey_flow(
+    type_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    body = dict(payload or {})
+    body["survey_type_id"] = type_id
+    try:
+        row = SurveyFlowDefinitionService.create_draft(db, body)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    graph = SurveyFlowDefinitionService.load_graph(db, row.id)
+    return {"ok": True, "flow": flow_definition_to_dict(row), "graph": graph}
+
+
+@router.get("/flows/{flow_id}")
+def get_survey_flow(
+    flow_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    graph = SurveyFlowDefinitionService.load_graph(db, flow_id)
+    if not graph:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Flow not found")
+    return {"ok": True, **graph}
+
+
+@router.put("/flows/{flow_id}")
+def update_survey_flow(
+    flow_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        graph = SurveyFlowDefinitionService.replace_graph(db, flow_id, payload or {})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {"ok": True, **graph}
+
+
+@router.post("/flows/{flow_id}/validate")
+def validate_survey_flow(
+    flow_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    body = payload or {}
+    mq = body.get("max_question_visits")
+    try:
+        max_visits = int(mq) if mq is not None else 6
+    except (TypeError, ValueError):
+        max_visits = 6
+    return SurveyFlowDefinitionService.validate(db, flow_id, max_question_visits=max_visits)
+
+
+@router.post("/flows/{flow_id}/publish")
+def publish_survey_flow(
+    flow_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    body = payload or {}
+    try:
+        mq = int(body.get("max_question_visits") or 6)
+    except (TypeError, ValueError):
+        mq = 6
+    try:
+        return SurveyFlowDefinitionService.publish(db, flow_id, max_question_visits=mq)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

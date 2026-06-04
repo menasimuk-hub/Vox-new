@@ -91,24 +91,32 @@ Allowed future AI role: **picker only** — given current answers and allowed `s
 
 **Migration:** `0092_wa_survey_sessions_p1`
 
-### P2 — Flow graph (data model)
+### P2 — Deterministic graph runtime ✅
 
-- `survey_flow_nodes` (role, template ref, metadata)
-- `survey_flow_edges` (condition → next node)
-- Session `current_node_key` instead of only `current_step`
-- Engine reads graph; still no AI picker
+**Migration:** `0093_wa_survey_flow_graph_p2`
 
-### P3 — Deterministic branching
+| Table | Purpose |
+|-------|---------|
+| `survey_flow_definitions` | Published flow library per `survey_type` + `privacy_mode` |
+| `survey_flow_nodes` | `question` / `outcome` nodes (`step_role` unique per flow) |
+| `survey_flow_edges` | Priority-ordered conditions + one default edge per question |
+| `survey_flow_outcomes` | `happy` \| `neutral` \| `unhappy` → `send_text` / `send_template` |
 
-- Rule evaluator on normalized answers (e.g. rating ≤ 6 → `reason`)
-- Decision log records `rule_key` / matched condition
-- Admin-defined edges per survey type
+**Session extensions:** `flow_definition_id`, `flow_snapshot_json`, `current_node_key`, `question_visits`
 
-### P4 — Outcome mapping
+**Activation:** `flow_engine=graph` on order config + valid `flow_snapshot`. Default remains `linear`.
 
-- `outcome_key` on session (happy / neutral / unhappy)
-- Map to completion templates / Telnyx actions / internal tasks
-- Replace single `closing` string where configured
+**Storage (A3):** DB definition → order `config_json.flow_snapshot` → session `flow_snapshot_json` at start.
+
+**Auto-compile:** `compile_linear_graph()` when `flow_engine=graph` without `flow_definition_id`.
+
+**Admin API:** `GET/POST /types/{id}/flows`, `GET/PUT /flows/{id}`, `POST .../validate`, `POST .../publish`
+
+### P3+ — Future
+
+- Constrained AI picker (P5)
+- Richer admin graph UI
+- `send_template` outcome actions wired to Telnyx template send (P2 uses personalized text)
 
 ### P5 — Constrained AI picker (optional)
 
