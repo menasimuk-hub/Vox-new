@@ -25,6 +25,12 @@ from app.services.telnyx_messaging_service import TelnyxMessagingService
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[survey-wa]"
 
+# WhatsApp keyword opt-out (Meta standard) — never stored as survey answers.
+SURVEY_WA_OPT_OUT_RE = re.compile(
+    r"^\s*(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT)\s*\.?\s*$",
+    re.IGNORECASE,
+)
+
 
 def is_whatsapp_survey_order(order: ServiceOrder) -> bool:
     if order.service_code != "survey":
@@ -60,6 +66,22 @@ def _whatsapp_flow(config: dict[str, Any]) -> dict[str, Any]:
 def _wa_conversation(result: dict[str, Any]) -> dict[str, Any]:
     wa = result.get("wa_conversation")
     return wa if isinstance(wa, dict) else {}
+
+
+def is_survey_wa_opt_out_message(body: str) -> bool:
+    return bool(SURVEY_WA_OPT_OUT_RE.match(str(body or "").strip()))
+
+
+def _conversation_already_started(recipient: ServiceOrderRecipient) -> bool:
+    """True when the first survey question was already queued or answers exist."""
+    conv = _wa_conversation(_recipient_result(recipient))
+    step = int(conv.get("step") or 0)
+    if step >= 1:
+        return True
+    if conv.get("started_at"):
+        return True
+    answers = conv.get("answers")
+    return isinstance(answers, list) and len(answers) > 0
 
 
 def _save_recipient_result(db: Session, recipient: ServiceOrderRecipient, payload: dict[str, Any]) -> None:
@@ -139,7 +161,11 @@ def find_active_recipient(
     from_phone: str,
     org_id: str | None = None,
 ) -> tuple[ServiceOrder | None, ServiceOrderRecipient | None]:
-    """Find a running WhatsApp survey recipient awaiting a reply."""
+    """Find a running WhatsApp survey recipient awaiting a reply (scoped to org_id)."""
+    scoped_org = str(org_id or "").strip()
+    if not scoped_org:
+        return None, None
+
     needles = _phone_candidates(from_phone)
     if not needles:
         return None, None
@@ -149,13 +175,12 @@ def find_active_recipient(
             select(ServiceOrder).where(
                 ServiceOrder.service_code == "survey",
                 ServiceOrder.status == "running",
+                ServiceOrder.org_id == scoped_org,
             )
         ).scalars()
     )
 
     for order in orders:
-        if org_id and order.org_id != org_id:
-            continue
         if not is_whatsapp_survey_order(order):
             continue
         for recipient in ServiceOrderService.get_recipients(db, order.id):
@@ -170,6 +195,158 @@ def find_active_recipient(
             if step >= 1 and step <= max(total, 1):
                 return order, recipient
     return None, None
+
+
+def find_survey_recipient_for_opt_out(
+    db: Session,
+    *,
+    from_phone: str,
+    org_id: str,
+) -> tuple[ServiceOrder | None, ServiceOrderRecipient | None]:
+    """Latest running WA survey recipient for this phone in org (for STOP handling)."""
+    scoped_org = str(org_id or "").strip()
+    if not scoped_org:
+        return None, None
+    needles = _phone_candidates(from_phone)
+    if not needles:
+        return None, None
+
+    orders = list(
+        db.execute(
+            select(ServiceOrder).where(
+                ServiceOrder.service_code == "survey",
+                ServiceOrder.status == "running",
+                ServiceOrder.org_id == scoped_org,
+            )
+        ).scalars()
+    )
+    best: tuple[ServiceOrder, ServiceOrderRecipient] | None = None
+    for order in orders:
+        if not is_whatsapp_survey_order(order):
+            continue
+        for recipient in ServiceOrderService.get_recipients(db, order.id):
+            if str(recipient.status or "").lower() in {"opted_out", "completed", "cancelled"}:
+                continue
+            rec_phones = _phone_candidates(recipient.phone or "")
+            if needles.intersection(rec_phones):
+                best = (order, recipient)
+    return best if best else (None, None)
+
+
+def handle_survey_wa_opt_out(
+    db: Session,
+    *,
+    from_phone: str,
+    body: str,
+    org_id: str,
+    log_id: int | None = None,
+    inbound_message_id: str | None = None,
+) -> dict[str, Any]:
+    """Record org-level opt-out; do not treat keyword as a survey answer."""
+    from app.services.org_opt_out_service import OrgOptOutService
+    from app.services.survey_voice_agent_service import mark_recipient_opted_out
+
+    scoped_org = str(org_id or "").strip()
+    if not scoped_org:
+        return {"handled": False, "reason": "missing_org_id"}
+
+    order, recipient = find_survey_recipient_for_opt_out(db, from_phone=from_phone, org_id=scoped_org)
+    try:
+        OrgOptOutService.add_opt_out(
+            db,
+            org_id=scoped_org,
+            phone=from_phone,
+            contact_name=recipient.name if recipient else None,
+            reason="whatsapp_keyword_opt_out",
+        )
+    except Exception:
+        logger.exception("%s opt_out_org_record_failed org=%s", LOG_PREFIX, scoped_org)
+
+    if recipient and order:
+        payload = _recipient_result(recipient)
+        if is_duplicate_inbound(payload, log_id=log_id, inbound_message_id=inbound_message_id):
+            return {
+                "handled": True,
+                "duplicate": True,
+                "opted_out": True,
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+            }
+        mark_recipient_opted_out(
+            db,
+            recipient,
+            reason="whatsapp_keyword_opt_out",
+            source_text=body,
+        )
+        db.refresh(recipient)
+        payload = mark_inbound_processed(
+            _recipient_result(recipient),
+            log_id=log_id,
+            inbound_message_id=inbound_message_id,
+        )
+        payload["wa_conversation"] = _wa_conversation(payload)
+        payload["wa_conversation"]["opted_out_at"] = datetime.utcnow().isoformat()
+        _save_recipient_result(db, recipient, payload)
+        confirm = "You have been unsubscribed from survey messages. Reply START if this was a mistake."
+        _send_message(db, order=order, recipient=recipient, body=confirm)
+        logger.info(
+            "%s opt_out order=%s recipient=%s org=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+            scoped_org,
+        )
+        return {
+            "handled": True,
+            "opted_out": True,
+            "order_id": order.id,
+            "recipient_id": recipient.id,
+            "log_id": log_id,
+        }
+
+    logger.info("%s opt_out_no_active_recipient org=%s phone=%r", LOG_PREFIX, scoped_org, from_phone)
+    return {"handled": True, "opted_out": True, "org_id": scoped_org, "log_id": log_id}
+
+
+def try_handle_survey_whatsapp_inbound(
+    db: Session,
+    *,
+    from_phone: str,
+    body: str,
+    org_id: str,
+    log_id: int | None = None,
+    inbound_message_id: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Survey-only WA inbound entry. Returns None when the message is not for survey WA
+    (caller may route to interview/sales). Interview booking must not receive survey replies.
+    """
+    scoped_org = str(org_id or "").strip()
+    if not scoped_org:
+        return {"handled": False, "reason": "missing_org_id"}
+
+    if is_survey_wa_opt_out_message(body):
+        return handle_survey_wa_opt_out(
+            db,
+            from_phone=from_phone,
+            body=body,
+            org_id=scoped_org,
+            log_id=log_id,
+            inbound_message_id=inbound_message_id,
+        )
+
+    order, recipient = find_active_recipient(db, from_phone=from_phone, org_id=scoped_org)
+    if not order or not recipient:
+        return None
+
+    return handle_inbound_reply(
+        db,
+        from_phone=from_phone,
+        body=body,
+        org_id=scoped_org,
+        log_id=log_id,
+        inbound_message_id=inbound_message_id,
+    )
 
 
 def _send_message(
@@ -210,6 +387,15 @@ def send_first_question(
     recipient: ServiceOrderRecipient,
     config: dict[str, Any],
 ) -> None:
+    if _conversation_already_started(recipient):
+        logger.info(
+            "%s send_first_question_skipped order=%s recipient=%s (already started)",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+        )
+        return
+
     flow = _whatsapp_flow(config)
     questions = flow.get("questions") or []
     if not isinstance(questions, list) or not questions:
@@ -601,5 +787,13 @@ def bootstrap_after_intro(
 ) -> None:
     """After intro is sent, queue the first survey question."""
     if not _uses_whatsapp(config):
+        return
+    if _conversation_already_started(recipient):
+        logger.info(
+            "%s bootstrap_skipped order=%s recipient=%s (conversation already started)",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+        )
         return
     send_first_question(db, order=order, recipient=recipient, config=config)

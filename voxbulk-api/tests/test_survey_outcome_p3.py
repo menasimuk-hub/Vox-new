@@ -208,7 +208,7 @@ def test_graph_outcome_uses_whatsapp_template_send(mock_survey_msg, mock_wa, db)
     db.commit()
 
     send_first_question(db, order=order, recipient=recipient, config=config)
-    handle_inbound_reply(db, from_phone="+447700900123", body="1")
+    handle_inbound_reply(db, from_phone="+447700900123", body="1", org_id=order.org_id)
 
     assert mock_wa.called
     session = SurveySessionService.get_by_recipient(db, recipient.id)

@@ -307,9 +307,11 @@ class TelnyxInboundMessagingService:
                 }
                 if direction == "inbound" and channel == "whatsapp":
                     try:
-                        from app.services.survey_whatsapp_conversation_service import handle_inbound_reply
+                        from app.services.survey_whatsapp_conversation_service import (
+                            try_handle_survey_whatsapp_inbound,
+                        )
 
-                        survey_result = handle_inbound_reply(
+                        survey_result = try_handle_survey_whatsapp_inbound(
                             db,
                             from_phone=from_norm or from_number,
                             body=body,
@@ -317,9 +319,10 @@ class TelnyxInboundMessagingService:
                             log_id=existing.id,
                             inbound_message_id=message_id,
                         )
-                        result["survey"] = survey_result
-                        if survey_result.get("duplicate"):
-                            result["survey_duplicate_skipped"] = True
+                        if survey_result is not None:
+                            result["survey"] = survey_result
+                            if survey_result.get("duplicate"):
+                                result["survey_duplicate_skipped"] = True
                     except Exception:
                         logger.exception(
                             "survey_wa_inbound_handler_failed duplicate=True log_id=%s message_id=%s from=%r",
@@ -363,68 +366,22 @@ class TelnyxInboundMessagingService:
             button_id = button_reply.get("id") or (
                 inbound_text if _looks_like_uuid(inbound_text) else ""
             )
+
+            # Survey WA is isolated from interview booking: route survey first when applicable.
             try:
-                from app.services.interview_whatsapp_inbound_service import (
-                    find_active_booking_context,
-                    handle_inbound_reply as handle_interview_booking_reply,
-                    resolve_interview_booking_intent,
+                from app.services.survey_whatsapp_conversation_service import (
+                    try_handle_survey_whatsapp_inbound,
                 )
 
-                booking_ctx = find_active_booking_context(
+                survey_result = try_handle_survey_whatsapp_inbound(
                     db,
                     from_phone=from_norm or from_number,
+                    body=body,
                     org_id=org_id,
+                    log_id=row.id,
+                    inbound_message_id=message_id,
                 )
-                intent = resolve_interview_booking_intent(
-                    db,
-                    body=inbound_text,
-                    button_id=button_id,
-                    button_title=button_reply.get("title") or "",
-                    org_id=org_id,
-                    order=booking_ctx[1] if booking_ctx else None,
-                )
-                if intent or (booking_ctx is not None and (inbound_text or button_id)):
-                    interview_result = handle_interview_booking_reply(
-                        db,
-                        from_phone=from_norm or from_number,
-                        body=inbound_text,
-                        button_id=button_id,
-                        button_title=button_reply.get("title") or "",
-                        org_id=org_id,
-                        log_id=row.id if direction == "inbound" else None,
-                    )
-                    handled_interview = bool(interview_result.get("handled"))
-                    if not handled_interview:
-                        import logging
-
-                        logging.getLogger(__name__).warning(
-                            "interview_wa_inbound_not_handled body=%r button_id=%r button_title=%r intent=%s reason=%s",
-                            inbound_text[:120],
-                            button_id[:80] if button_id else "",
-                            (button_reply.get("title") or "")[:80],
-                            intent,
-                            interview_result.get("reason"),
-                        )
-            except Exception:
-                import logging
-
-                logging.getLogger(__name__).exception(
-                    "interview_wa_inbound_handler_failed body=%r from=%r",
-                    (body or "")[:120],
-                    from_norm or from_number,
-                )
-            if not handled_interview:
-                try:
-                    from app.services.survey_whatsapp_conversation_service import handle_inbound_reply
-
-                    survey_result = handle_inbound_reply(
-                        db,
-                        from_phone=from_norm or from_number,
-                        body=body,
-                        org_id=org_id,
-                        log_id=row.id,
-                        inbound_message_id=message_id,
-                    )
+                if survey_result is not None:
                     handled_survey = bool(survey_result.get("handled"))
                     if survey_result.get("duplicate"):
                         logger.info(
@@ -433,13 +390,61 @@ class TelnyxInboundMessagingService:
                             message_id,
                             survey_result.get("recipient_id"),
                         )
+            except Exception:
+                logger.exception(
+                    "survey_wa_inbound_handler_failed log_id=%s message_id=%s from=%r body=%r",
+                    row.id,
+                    message_id,
+                    from_norm or from_number,
+                    (body or "")[:120],
+                )
+
+            if not handled_survey:
+                try:
+                    from app.services.interview_whatsapp_inbound_service import (
+                        find_active_booking_context,
+                        handle_inbound_reply as handle_interview_booking_reply,
+                        resolve_interview_booking_intent,
+                    )
+
+                    booking_ctx = find_active_booking_context(
+                        db,
+                        from_phone=from_norm or from_number,
+                        org_id=org_id,
+                    )
+                    intent = resolve_interview_booking_intent(
+                        db,
+                        body=inbound_text,
+                        button_id=button_id,
+                        button_title=button_reply.get("title") or "",
+                        org_id=org_id,
+                        order=booking_ctx[1] if booking_ctx else None,
+                    )
+                    if intent or (booking_ctx is not None and (inbound_text or button_id)):
+                        interview_result = handle_interview_booking_reply(
+                            db,
+                            from_phone=from_norm or from_number,
+                            body=inbound_text,
+                            button_id=button_id,
+                            button_title=button_reply.get("title") or "",
+                            org_id=org_id,
+                            log_id=row.id if direction == "inbound" else None,
+                        )
+                        handled_interview = bool(interview_result.get("handled"))
+                        if not handled_interview:
+                            logger.warning(
+                                "interview_wa_inbound_not_handled body=%r button_id=%r button_title=%r intent=%s reason=%s",
+                                inbound_text[:120],
+                                button_id[:80] if button_id else "",
+                                (button_reply.get("title") or "")[:80],
+                                intent,
+                                interview_result.get("reason"),
+                            )
                 except Exception:
                     logger.exception(
-                        "survey_wa_inbound_handler_failed log_id=%s message_id=%s from=%r body=%r",
-                        row.id,
-                        message_id,
-                        from_norm or from_number,
+                        "interview_wa_inbound_handler_failed body=%r from=%r",
                         (body or "")[:120],
+                        from_norm or from_number,
                     )
             if not handled_interview and not handled_survey:
                 try:

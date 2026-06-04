@@ -103,6 +103,7 @@ def test_duplicate_inbound_does_not_double_advance(mock_send, db):
         db,
         from_phone="+447700900123",
         body="5",
+        org_id=order.org_id,
         log_id=log_id,
         inbound_message_id=message_id,
     )
@@ -122,6 +123,7 @@ def test_duplicate_inbound_does_not_double_advance(mock_send, db):
         db,
         from_phone="+447700900123",
         body="5",
+        org_id=order.org_id,
         log_id=log_id,
         inbound_message_id=message_id,
     )

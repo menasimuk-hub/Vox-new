@@ -151,7 +151,7 @@ def test_graph_low_rating_routes_to_unhappy(mock_send, mock_wa, db):
     assert session.flow_mode == "graph"
     assert session.current_node_key == "rating"
 
-    r1 = handle_inbound_reply(db, from_phone="+447700900123", body="1")
+    r1 = handle_inbound_reply(db, from_phone="+447700900123", body="1", org_id=order.org_id)
     assert r1["handled"] is True
     assert r1.get("completed") is True
     assert r1.get("outcome_key") == OUTCOME_UNHAPPY
@@ -185,11 +185,11 @@ def test_graph_high_rating_continues_then_completes(mock_send, mock_wa, db):
     db.commit()
 
     send_first_question(db, order=order, recipient=recipient, config=config)
-    r1 = handle_inbound_reply(db, from_phone="+447700900123", body="5")
+    r1 = handle_inbound_reply(db, from_phone="+447700900123", body="5", org_id=order.org_id)
     assert r1["handled"] is True
     assert not r1.get("completed")
 
-    r2 = handle_inbound_reply(db, from_phone="+447700900123", body="Yes")
+    r2 = handle_inbound_reply(db, from_phone="+447700900123", body="Yes", org_id=order.org_id)
     assert r2.get("completed") is True
     session = SurveySessionService.get_by_recipient(db, recipient.id)
     assert session.outcome_key == "neutral"

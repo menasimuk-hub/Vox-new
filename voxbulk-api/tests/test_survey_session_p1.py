@@ -172,7 +172,7 @@ def test_handle_inbound_reply_persists_answers_and_decisions(mock_send, db):
         db, order=order, recipient=recipient, config=config, question_count=2
     )
 
-    r1 = handle_inbound_reply(db, from_phone="+447700900123", body="5")
+    r1 = handle_inbound_reply(db, from_phone="+447700900123", body="5", org_id=order.org_id)
     assert r1["handled"] is True
 
     session = SurveySessionService.get_by_recipient(db, recipient.id)
@@ -182,7 +182,7 @@ def test_handle_inbound_reply_persists_answers_and_decisions(mock_send, db):
     assert answers[0].normalized_value == "5"
     assert answers[0].sequence == 1
 
-    r2 = handle_inbound_reply(db, from_phone="+447700900123", body="Yes")
+    r2 = handle_inbound_reply(db, from_phone="+447700900123", body="Yes", org_id=order.org_id)
     assert r2.get("completed") is True
 
     db.refresh(session)

@@ -117,14 +117,14 @@ def test_handle_inbound_reply_completes_flow(mock_send, db):
     db.add(recipient)
     db.commit()
 
-    r1 = handle_inbound_reply(db, from_phone="+447700900123", body="5")
+    r1 = handle_inbound_reply(db, from_phone="+447700900123", body="5", org_id="org-1")
     assert r1["handled"] is True
     assert r1.get("next_step") == 2
 
     db.refresh(recipient)
     assert recipient.status == "in_progress"
 
-    r2 = handle_inbound_reply(db, from_phone="+447700900123", body="Yes")
+    r2 = handle_inbound_reply(db, from_phone="+447700900123", body="Yes", org_id="org-1")
     assert r2["handled"] is True
     assert r2.get("completed") is True
 
