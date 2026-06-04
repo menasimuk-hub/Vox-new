@@ -1,9 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatWaSurveyError } from '../lib/waSurveyFeedback'
+import {
+  VAR_LABELS,
+  ensureExampleValues,
+  previewButtonsFromTemplate,
+  substituteTemplateVars,
+} from '../lib/waSurveyTemplateVars'
 import WaSurveyPhonePreview from './WaSurveyPhonePreview'
 
-const PAGE_SIZE = 2
+const PAGE_SIZE = 1
 
 function buttonTypeLabel(type) {
   const map = {
@@ -16,26 +22,11 @@ function buttonTypeLabel(type) {
 }
 
 function formatButtons(tpl) {
-  const preview = tpl?.preview || {}
-  const raw = preview.buttons || tpl?.buttons_preview || []
-  if (Array.isArray(raw) && raw.length) {
-    return raw.map((b, i) => ({
-      key: `${b.label || b.text || i}`,
-      label: b.label || b.text || 'Button',
-      url: b.url || '',
-      phone: b.phone_number || '',
-      type: b.type || tpl?.button_type,
-    }))
-  }
-  const bt = tpl?.button_type
-  const defs = Array.isArray(tpl?.buttons) ? tpl.buttons : []
-  if (bt === 'none' || !defs.length) return []
-  return defs.map((b, i) => ({
-    key: `${b.text || i}`,
-    label: b.text || 'Button',
-    url: b.url || '',
-    phone: b.phone_number || '',
-    type: bt,
+  return previewButtonsFromTemplate(tpl).map((b, i) => ({
+    key: `${b.label}-${i}`,
+    label: b.label,
+    url: b.url,
+    phone: b.phone_number,
   }))
 }
 
@@ -47,15 +38,18 @@ function PackTemplateGalleryCard({
   cardError,
   onToggleEdit,
   onEdit,
+  onEditVariable,
   onSave,
   onRegenerate,
 }) {
   const tpl = item.template
-  const preview = tpl?.preview || {}
   const buttons = formatButtons(tpl)
   const isSaving = workingKey === `save-${item.index}`
   const isRegenerating = workingKey === `regen-${item.index}`
   const cardBusy = isSaving || isRegenerating
+  const exampleValues = ensureExampleValues(tpl?.body, tpl?.header, tpl?.example_values)
+  const liveBody = substituteTemplateVars(tpl?.body, exampleValues)
+  const liveBusiness = exampleValues[1] || 'Northgate Dental'
 
   if (!tpl) {
     return (
@@ -72,7 +66,7 @@ function PackTemplateGalleryCard({
         </ul>
         <footer className="waSurveyPackGalleryActions">
           <button type="button" className="btn" disabled={cardBusy} onClick={() => onRegenerate(item)}>
-            {isRegenerating ? 'Regenerating this template…' : 'Regenerate this template'}
+            {isRegenerating ? 'Regenerating…' : 'Regenerate this template'}
           </button>
         </footer>
       </article>
@@ -80,12 +74,12 @@ function PackTemplateGalleryCard({
   }
 
   return (
-    <article className={`waSurveyPackGalleryCard${saved ? ' is-saved' : ''}${cardBusy ? ' is-busy' : ''}`}>
+    <article className={`waSurveyPackGalleryCard waSurveyPackGalleryCardFull${saved ? ' is-saved' : ''}${cardBusy ? ' is-busy' : ''}`}>
       {cardBusy ? <div className="waSurveyPackGalleryBusy">{isRegenerating ? 'Regenerating…' : 'Saving…'}</div> : null}
 
       <header className="waSurveyPackGalleryHead">
         <div>
-          <span className="waSurveyPackSlotLabel">Template {item.index + 1}</span>
+          <span className="waSurveyPackSlotLabel">Template {item.index + 1} of 10</span>
           <h4>{tpl.title || tpl.template_name}</h4>
           <div className="waSurveyPackBadgeRow">
             <span className="waSurveyPackBadge">{tpl.variant_type}</span>
@@ -103,63 +97,79 @@ function PackTemplateGalleryCard({
         </ul>
       ) : null}
 
-      <div className="waSurveyPackGalleryBody">
-        <div className="waSurveyPackGalleryPhone">
+      <div className="waSurveyPackGalleryBody waSurveyPackGalleryBodyFull">
+        <div className="waSurveyPackGalleryPhone waSurveyPackGalleryPhoneFull">
           <WaSurveyPhonePreview
-            businessName={tpl.example_values?.[1] || 'Northgate Dental'}
-            renderedBody={preview.rendered_body || tpl.body}
-            footer={preview.footer || tpl.footer}
-            buttons={preview.buttons || tpl.buttons_preview || []}
+            businessName={liveBusiness}
+            renderedBody={liveBody}
+            footer={tpl.footer}
+            buttons={previewButtonsFromTemplate(tpl)}
             templateName={tpl.telnyx_name}
             approvalStatus="LOCAL_DRAFT"
           />
         </div>
 
-        <div className="waSurveyPackGalleryMeta">
-          <div className="waSurveyPackMetaBlock">
-            <span className="label">Body</span>
-            {editing ? (
-              <textarea className="input msgFieldEditorBox" rows={6} value={tpl.body} onChange={(e) => onEdit(item.index, { body: e.target.value })} />
-            ) : (
-              <p className="waSurveyPackCopy">{tpl.body}</p>
-            )}
-          </div>
+        <div className="waSurveyPackGalleryMeta waSurveyPackGalleryMetaFull">
+          <div className="waSurveyPackMetaGrid">
+            <div className="waSurveyPackMetaBlock">
+              <span className="label">Body</span>
+              {editing ? (
+                <textarea className="input msgFieldEditorBox" rows={5} value={tpl.body} onChange={(e) => onEdit(item.index, { body: e.target.value })} />
+              ) : (
+                <p className="waSurveyPackCopy">{tpl.body}</p>
+              )}
+            </div>
 
-          <div className="waSurveyPackMetaBlock">
-            <span className="label">Footer</span>
-            {editing ? (
-              <input className="input" value={tpl.footer} onChange={(e) => onEdit(item.index, { footer: e.target.value })} />
-            ) : (
-              <p className="waSurveyPackCopy waSurveyPackCopyFooter">{tpl.footer}</p>
-            )}
-          </div>
+            <div className="waSurveyPackMetaBlock">
+              <span className="label">Footer</span>
+              {editing ? (
+                <input className="input" value={tpl.footer} onChange={(e) => onEdit(item.index, { footer: e.target.value })} />
+              ) : (
+                <p className="waSurveyPackCopy waSurveyPackCopyFooter">{tpl.footer}</p>
+              )}
+            </div>
 
-          <div className="waSurveyPackMetaBlock">
-            <span className="label">Variables</span>
-            <div className="waSurveyPackChipRow">
-              {(tpl.example_values || []).map((val, i) => (
-                <span key={i} className="waSurveyPackVarChip">{`{{${i + 1}}} → ${val}`}</span>
-              ))}
+            <div className="waSurveyPackMetaBlock waSurveyPackMetaBlockVars">
+              <span className="label">Variables (example values)</span>
+              {editing ? (
+                <div className="waSurveyPackVarEditGrid">
+                  {exampleValues.map((val, i) => (
+                    <label key={i} className="waSurveyPackVarEditRow">
+                      <span className="waSurveyPackVarEditLabel">{`{{${i + 1}}} — ${VAR_LABELS[i] || 'Variable'}`}</span>
+                      <input
+                        className="input"
+                        value={val}
+                        onChange={(e) => onEditVariable(item.index, i, e.target.value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div className="waSurveyPackChipRow">
+                  {exampleValues.map((val, i) => (
+                    <span key={i} className="waSurveyPackVarChip">{`{{${i + 1}}} → ${val}`}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="waSurveyPackMetaBlock">
+              <span className="label">Buttons / CTA</span>
+              {buttons.length ? (
+                <ul className="waSurveyPackButtonList">
+                  {buttons.map((b) => (
+                    <li key={b.key}>
+                      <strong>{b.label}</strong>
+                      {b.url ? <span className="fieldHint">{b.url}</span> : null}
+                      {b.phone ? <span className="fieldHint">{b.phone}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">No buttons — plain text message</p>
+              )}
             </div>
           </div>
-
-          <div className="waSurveyPackMetaBlock">
-            <span className="label">Buttons / CTA</span>
-            {buttons.length ? (
-              <ul className="waSurveyPackButtonList">
-                {buttons.map((b) => (
-                  <li key={b.key}>
-                    <strong>{b.label}</strong>
-                    {b.url ? <span className="fieldHint">{b.url}</span> : null}
-                    {b.phone ? <span className="fieldHint">{b.phone}</span> : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted">No buttons — plain text message</p>
-            )}
-          </div>
-
           <p className="fieldHint waSurveyPackTelnyxName">Telnyx: {tpl.telnyx_name}</p>
         </div>
       </div>
@@ -172,7 +182,7 @@ function PackTemplateGalleryCard({
           {isRegenerating ? 'Regenerating…' : 'Regenerate this template'}
         </button>
         <button type="button" className="btn ghost" disabled={cardBusy} onClick={() => onToggleEdit(item.index)}>
-          {editing ? 'Done editing' : 'Edit body/footer'}
+          {editing ? 'Done editing' : 'Edit template'}
         </button>
       </footer>
     </article>
@@ -205,6 +215,15 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
 
   useEffect(() => {
     if (!open) reset()
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
   }, [open])
 
   const items = useMemo(() => (Array.isArray(pack?.templates) ? pack.templates : []), [pack])
@@ -266,7 +285,26 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
         ...prev,
         templates: prev.templates.map((row) => {
           if (row.index !== index || !row.template) return row
-          return { ...row, template: { ...row.template, ...patch } }
+          const next = { ...row.template, ...patch }
+          if (patch.body !== undefined) {
+            next.example_values = ensureExampleValues(next.body, next.header, next.example_values)
+          }
+          return { ...row, template: next }
+        }),
+      }
+    })
+  }
+
+  const editVariable = (index, varIndex, value) => {
+    setPack((prev) => {
+      if (!prev?.templates) return prev
+      return {
+        ...prev,
+        templates: prev.templates.map((row) => {
+          if (row.index !== index || !row.template) return row
+          const values = ensureExampleValues(row.template.body, row.template.header, row.template.example_values)
+          values[varIndex] = value
+          return { ...row, template: { ...row.template, example_values: values } }
         }),
       }
     })
@@ -283,13 +321,17 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
 
   const saveOne = async (item) => {
     if (!item?.template) return
+    const payload = {
+      ...item.template,
+      example_values: ensureExampleValues(item.template.body, item.template.header, item.template.example_values),
+    }
     setWorking(`save-${item.index}`)
     setCardErrors((prev) => ({ ...prev, [item.index]: '' }))
     setError('')
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/save-pack`, {
         method: 'POST',
-        body: JSON.stringify({ templates: [item.template] }),
+        body: JSON.stringify({ templates: [payload] }),
       })
       setSavedIndices((prev) => new Set(prev).add(item.index))
       setMsg(formatActionSuccess(data, `Saved “${item.template.title || item.template.template_name}” as local draft`).message)
@@ -343,7 +385,10 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     setWorking('save-all')
     setError('')
     try {
-      const templates = items.filter((i) => i.template && i.valid).map((i) => i.template)
+      const templates = items.filter((i) => i.template && i.valid).map((i) => ({
+        ...i.template,
+        example_values: ensureExampleValues(i.template.body, i.template.header, i.template.example_values),
+      }))
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/save-pack`, {
         method: 'POST',
         body: JSON.stringify({ templates }),
@@ -362,11 +407,11 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
 
   return (
     <div className="waSurveyPackBackdrop" role="dialog" aria-modal="true">
-      <div className="waSurveyPackShell">
-        <header className="waSurveyPackTopBar">
+      <div className="waSurveyPackShell waSurveyPackShellNoScroll">
+        <header className="waSurveyPackTopBar waSurveyPackTopBarCompact">
           <div className="waSurveyPackTopBarMain">
             <h2>Generate 10 Templates with OpenAI</h2>
-            <p className="muted">{surveyTypeName} — full-width template gallery · 2 per page · save or regenerate individually</p>
+            <p className="muted">{surveyTypeName} · one template per screen · edit variables and save individually</p>
           </div>
           <div className="waSurveyPackTopBarActions">
             {items.length ? (
@@ -387,57 +432,49 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
         {error ? <div className="alert error waSurveyPackGlobalAlert"><strong>{error}</strong></div> : null}
         {msg ? <div className="alert ok waSurveyPackGlobalAlert"><strong>{msg}</strong></div> : null}
 
-        <div className="waSurveyPackToolbar">
+        <div className="waSurveyPackToolbar waSurveyPackToolbarCompact">
           <label className="waSurveyPackToolbarField">
             <span className="label">Purpose</span>
-            <input className="input" value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Post-visit feedback, reminders…" />
+            <input className="input" value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Post-visit feedback…" />
           </label>
           <label className="waSurveyPackToolbarField waSurveyPackToolbarFieldGrow">
             <span className="label">Admin instruction</span>
-            <input className="input" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Tone, emoji level, CTA style…" />
+            <input className="input" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Tone, emoji, CTA…" />
           </label>
           <div className="waSurveyPackToolbarButtons">
             <button type="button" className="btn primary" onClick={generatePack} disabled={working === 'generate'}>
-              {working === 'generate' ? 'Generating pack…' : 'Generate 10 templates'}
+              {working === 'generate' ? 'Generating…' : 'Generate 10'}
             </button>
             {pack ? (
               <button type="button" className="btn" onClick={saveAllValid} disabled={working === 'save-all'}>
-                {working === 'save-all' ? 'Saving all…' : 'Save all valid'}
+                Save all valid
               </button>
             ) : null}
           </div>
-          {pack?.openai ? (
-            <span className="fieldHint waSurveyPackModelHint">Model: {pack.openai.model}</span>
-          ) : null}
         </div>
 
-        <div className="waSurveyPackScroll">
+        <div className="waSurveyPackScroll waSurveyPackScrollFit">
           {items.length ? (
-            <>
-              <div className="waSurveyPackGalleryHeader">
-                <h3>Template gallery</h3>
-                <span className="muted">{pack.valid_count} valid · {pack.generated_count} generated</span>
-              </div>
-              <div className="waSurveyPackGallery">
-                {pageItems.map((item) => (
-                  <PackTemplateGalleryCard
-                    key={item.index}
-                    item={item}
-                    editing={editing.has(item.index)}
-                    saved={savedIndices.has(item.index)}
-                    workingKey={working}
-                    cardError={cardErrors[item.index]}
-                    onToggleEdit={toggleEdit}
-                    onEdit={editTemplate}
-                    onSave={saveOne}
-                    onRegenerate={regenerateOne}
-                  />
-                ))}
-              </div>
-            </>
+            <div className="waSurveyPackGallery waSurveyPackGallerySingle">
+              {pageItems.map((item) => (
+                <PackTemplateGalleryCard
+                  key={item.index}
+                  item={item}
+                  editing={editing.has(item.index)}
+                  saved={savedIndices.has(item.index)}
+                  workingKey={working}
+                  cardError={cardErrors[item.index]}
+                  onToggleEdit={toggleEdit}
+                  onEdit={editTemplate}
+                  onEditVariable={editVariable}
+                  onSave={saveOne}
+                  onRegenerate={regenerateOne}
+                />
+              ))}
+            </div>
           ) : (
             <div className="waSurveyPackEmpty">
-              <p>Generate a 10-template pack to open the gallery. Each template gets its own WhatsApp preview, Save, and Regenerate controls.</p>
+              <p>Generate a 10-template pack. Each template fills the screen with live WhatsApp preview — edit body, footer, and variables, then save.</p>
             </div>
           )}
         </div>

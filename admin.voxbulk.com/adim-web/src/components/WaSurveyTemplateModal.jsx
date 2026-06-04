@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
+import { VAR_LABELS, ensureExampleValues, substituteTemplateVars } from '../lib/waSurveyTemplateVars'
 import WaSurveyPhonePreview from './WaSurveyPhonePreview'
 
 function parseComponents(raw) {
@@ -178,6 +179,26 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
     if (open && templateId) load()
   }, [open, templateId, load])
 
+  useEffect(() => {
+    if (!open) return undefined
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open])
+
+  const livePreview = useMemo(() => {
+    if (!draft) return null
+    const values = ensureExampleValues(draft.body, '', draft.example_values)
+    return {
+      businessName: values[1] || 'Northgate Dental',
+      renderedBody: substituteTemplateVars(draft.body, values),
+      footer: draft.footer,
+      values,
+    }
+  }, [draft])
+
   if (!open) return null
 
   const toggleSurveyType = (id, field) => {
@@ -208,7 +229,7 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
         body: JSON.stringify({
           display_name: draft.display_name,
           components,
-          example_values: draft.example_values,
+          example_values: ensureExampleValues(draft.body, '', draft.example_values),
         }),
       })
       setTemplate(data.template)
@@ -324,71 +345,81 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
   }
 
   return (
-    <div className="waSurveyModalBackdrop" role="dialog" aria-modal="true">
-      <div className="waSurveyModal">
-        <div className="waSurveyModalHead">
-          <div>
+    <div className="waSurveyPackBackdrop" role="dialog" aria-modal="true">
+      <div className="waSurveyPackShell waSurveyPackShellNoScroll waSurveyTemplateEditShell">
+        <header className="waSurveyPackTopBar waSurveyPackTopBarCompact">
+          <div className="waSurveyPackTopBarMain">
             <h2>{draft?.display_name || template?.name || 'Template'}</h2>
-            <p className="muted">Shared source template · used by {linkedCount || template?.linked_survey_type_count || 0} survey type(s)</p>
+            <p className="muted">Shared source · {linkedCount || template?.linked_survey_type_count || 0} survey type(s)</p>
           </div>
           <button type="button" className="btn ghost" onClick={onClose}>Close</button>
-        </div>
+        </header>
 
-        {loading ? <p className="muted">Loading…</p> : null}
-        {error ? <div className="alert error"><strong>{error}</strong>{errorDetail ? <pre className="waSurveyFeedbackDetail">{errorDetail}</pre> : null}</div> : null}
-        {msg ? <div className={`alert ${feedbackTone === 'warn' ? 'warn' : 'ok'}`}><strong>{msg}</strong>{msgDetail ? <pre className="waSurveyFeedbackDetail">{msgDetail}</pre> : null}</div> : null}
+        {loading ? <p className="muted waSurveyPackGlobalAlert">Loading…</p> : null}
+        {error ? <div className="alert error waSurveyPackGlobalAlert"><strong>{error}</strong>{errorDetail ? <pre className="waSurveyFeedbackDetail">{errorDetail}</pre> : null}</div> : null}
+        {msg ? <div className={`alert ${feedbackTone === 'warn' ? 'warn' : 'ok'} waSurveyPackGlobalAlert`}><strong>{msg}</strong>{msgDetail ? <pre className="waSurveyFeedbackDetail">{msgDetail}</pre> : null}</div> : null}
 
         {!loading && draft ? (
-          <div className="waSurveyModalBody">
-            <section className="card">
+          <div className="waSurveyTemplateEditMain">
+            <section className="waSurveyTemplateEditForm card">
               <div className="cardHead"><h3>Template content</h3></div>
               <div className="cardBody">
-                <p className="fieldHint">Content edits update the shared source for every linked survey type. Mapping-only changes do not require Telnyx resubmission.</p>
                 <label className="msgFieldBlock">
                   <span className="label">Display name</span>
                   <input className="input" value={draft.display_name} onChange={(e) => setDraft((d) => ({ ...d, display_name: e.target.value }))} />
                 </label>
                 <label className="msgFieldBlock">
                   <span className="label">Body</span>
-                  <textarea className="input msgFieldEditorBox" rows={7} value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
+                  <textarea
+                    className="input msgFieldEditorBox"
+                    rows={5}
+                    value={draft.body}
+                    onChange={(e) => setDraft((d) => ({
+                      ...d,
+                      body: e.target.value,
+                      example_values: ensureExampleValues(e.target.value, '', d.example_values),
+                    }))}
+                  />
                 </label>
                 <label className="msgFieldBlock">
                   <span className="label">Footer</span>
                   <input className="input" value={draft.footer} onChange={(e) => setDraft((d) => ({ ...d, footer: e.target.value }))} />
                 </label>
+                <div className="waSurveyPackMetaBlock waSurveyPackMetaBlockVars">
+                  <span className="label">Variables (example values)</span>
+                  <div className="waSurveyPackVarEditGrid">
+                    {(livePreview?.values || ensureExampleValues(draft.body, '', draft.example_values)).map((val, i) => (
+                      <label key={i} className="waSurveyPackVarEditRow">
+                        <span className="waSurveyPackVarEditLabel">{`{{${i + 1}}} — ${VAR_LABELS[i] || 'Variable'}`}</span>
+                        <input
+                          className="input"
+                          value={val}
+                          onChange={(e) => setDraft((d) => {
+                            const values = ensureExampleValues(d.body, '', d.example_values)
+                            values[i] = e.target.value
+                            return { ...d, example_values: values }
+                          })}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
                 <div className="btnRow">
-                  <button type="button" className="btn" onClick={saveDraft} disabled={working === 'save'}>Save Draft</button>
-                  <button type="button" className="btn primary" onClick={pushTemplate} disabled={working === 'push'}>Push to Telnyx</button>
-                  <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>Sync from Telnyx</button>
-                  <button type="button" className="btn" onClick={cloneAnonymous} disabled={working === 'clone'}>Clone as Anonymous</button>
+                  <button type="button" className="btn primary" onClick={saveDraft} disabled={working === 'save'}>Save draft</button>
+                  <button type="button" className="btn" onClick={pushTemplate} disabled={working === 'push'}>Push to Telnyx</button>
+                  <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>Sync</button>
+                  <button type="button" className="btn" onClick={cloneAnonymous} disabled={working === 'clone'}>Clone anonymous</button>
                 </div>
                 <p className="fieldHint">Approval: <strong>{template?.approval_status}</strong> · Sync: <strong>{template?.sync_status_label || template?.sync_status}</strong></p>
               </div>
             </section>
 
-            <section className="card">
-              <div className="cardHead"><h3>Survey type usage</h3></div>
-              <div className="cardBody waSurveyMappingList">
-                {surveyTypes.map((st) => (
-                  <div key={st.survey_type_id} className="waSurveyMappingRow">
-                    <strong>{st.name}</strong>
-                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.usable_as_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_standard')} /> Standard</label>
-                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.usable_as_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_anonymous')} disabled={!st.supports_anonymous} /> Anonymous</label>
-                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.is_default_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_standard')} /> Default standard</label>
-                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.is_default_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_anonymous')} disabled={!st.supports_anonymous} /> Default anonymous</label>
-                  </div>
-                ))}
-                <button type="button" className="btn primary" onClick={saveMappings} disabled={working === 'mappings'}>Save mappings</button>
-              </div>
-            </section>
-
-            <section className="card waSurveyPreviewCard">
-              <div className="cardHead"><h3>Preview & test send</h3></div>
-              <div className="cardBody">
+            <aside className="waSurveyTemplateEditPreview">
+              <div className="waSurveyTemplateEditPreviewInner">
                 <WaSurveyPhonePreview
-                  businessName="Northgate Dental"
-                  renderedBody={preview?.rendered_body || draft.body}
-                  footer={preview?.footer || draft.footer}
+                  businessName={livePreview?.businessName || 'Northgate Dental'}
+                  renderedBody={livePreview?.renderedBody || draft.body}
+                  footer={livePreview?.footer || draft.footer}
                   buttons={preview?.buttons || template?.buttons || []}
                   templateName={template?.name}
                   approvalStatus={template?.approval_status}
@@ -396,13 +427,29 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
                 />
                 <div className="waSurveyTestSend">
                   <label className="msgFieldBlock">
-                    <span className="label">Test mobile number</span>
+                    <span className="label">Test mobile</span>
                     <input className="input" value={testMobile} onChange={(e) => setTestMobile(e.target.value)} placeholder="+447700900123" />
                   </label>
                   <button type="button" className="btn primary" onClick={sendTest} disabled={working === 'send-test' || !testMobile.trim() || template?.approval_status !== 'APPROVED'}>
-                    {working === 'send-test' ? 'Sending…' : 'Send test survey'}
+                    {working === 'send-test' ? 'Sending…' : 'Send test'}
                   </button>
                 </div>
+              </div>
+            </aside>
+
+            <section className="waSurveyTemplateEditMappings card">
+              <div className="cardHead"><h3>Survey type usage</h3></div>
+              <div className="cardBody waSurveyMappingList">
+                {surveyTypes.map((st) => (
+                  <div key={st.survey_type_id} className="waSurveyMappingRow">
+                    <strong>{st.name}</strong>
+                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.usable_as_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_standard')} /> Standard</label>
+                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.usable_as_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_anonymous')} disabled={!st.supports_anonymous} /> Anonymous</label>
+                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.is_default_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_standard')} /> Default std</label>
+                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.is_default_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_anonymous')} disabled={!st.supports_anonymous} /> Default anon</label>
+                  </div>
+                ))}
+                <button type="button" className="btn primary" onClick={saveMappings} disabled={working === 'mappings'}>Save mappings</button>
               </div>
             </section>
           </div>
