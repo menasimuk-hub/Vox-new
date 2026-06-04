@@ -15,7 +15,7 @@ from app.services.industry_service import IndustryService
 from app.services.survey_industry_scope import SurveyIndustryScopeError
 from app.services.survey_step_bank_service import load_step_bank
 from app.services.survey_type_service import SurveyTypeService
-from app.services.survey_type_template_service import SurveyTypeTemplateService
+from app.services.survey_type_template_service import SurveyTypeTemplateError, SurveyTypeTemplateService
 from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackService, validate_generated_template
 from app.services.survey_whatsapp_template_service import (
     ANONYMOUS_BODY_SENTENCE,
@@ -202,7 +202,7 @@ def test_cross_industry_mapping_rejected():
             privacy_mode=PRIVACY_MODE_OFF,
         )
         tpl_id = int(saved["templates"][0]["id"])
-        with pytest.raises(SurveyIndustryScopeError):
+        with pytest.raises(SurveyTypeTemplateError, match="different industry"):
             SurveyTypeTemplateService.upsert_mapping(
                 db,
                 survey_type_id=st_hc.id,
@@ -241,6 +241,59 @@ def test_privacy_banks_stay_separate_per_industry():
         assert off_list[0]["privacy_mode"] == PRIVACY_MODE_OFF
         assert on_list[0]["privacy_mode"] == PRIVACY_MODE_ON
         assert off_list[0]["id"] != on_list[0]["id"]
+
+
+def test_ambiguous_slug_lookup_does_not_guess():
+    Session = get_sessionmaker()
+    with Session() as db:
+        healthcare = IndustryService.get_by_slug(db, "healthcare")
+        ecommerce = IndustryService.get_by_slug(db, "ecommerce")
+        SurveyTypeService.create_type(
+            db,
+            {"name": "Dup A", "slug": "shared_slug", "industry_id": healthcare.id},
+        )
+        SurveyTypeService.create_type(
+            db,
+            {"name": "Dup B", "slug": "shared_slug", "industry_id": ecommerce.id},
+        )
+        assert SurveyTypeService.get_by_slug(db, "shared_slug", default_industry_fallback=False) is None
+        assert SurveyTypeService.resolve_unique_by_slug(db, "shared_slug") is None
+        assert SurveyTypeService.get_by_slug(db, "shared_slug", industry_id=healthcare.id) is not None
+
+
+def test_telnyx_null_industry_set_on_link():
+    Session = get_sessionmaker()
+    with Session() as db:
+        industry = IndustryService.get_by_slug(db, "healthcare")
+        st = SurveyTypeService.create_type(
+            db,
+            {"name": "Telnyx owner", "slug": "telnyx_owner", "industry_id": industry.id},
+        )
+        now = __import__("datetime").datetime.utcnow()
+        tpl = TelnyxWhatsappTemplate(
+            telnyx_record_id="remote-1",
+            template_id="remote-1",
+            name=f"voxbulk_survey_{st.slug}_std_intro",
+            language="en_US",
+            status="APPROVED",
+            variant_type=VARIANT_STANDARD,
+            active_for_survey=True,
+            created_at=now,
+            updated_at=now,
+            synced_at=now,
+        )
+        db.add(tpl)
+        db.commit()
+        assert tpl.industry_id is None
+
+        SurveyTypeTemplateService.upsert_mapping(
+            db,
+            survey_type_id=st.id,
+            template_id=tpl.id,
+            usable_as_standard=True,
+        )
+        db.refresh(tpl)
+        assert tpl.industry_id == industry.id
 
 
 def test_create_survey_type_requires_industry():

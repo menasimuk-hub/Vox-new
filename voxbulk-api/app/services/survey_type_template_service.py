@@ -13,7 +13,13 @@ from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 
-from app.services.survey_industry_scope import apply_industry_to_template, assert_industry_match, resolve_survey_type_industry_id
+from app.services.survey_industry_scope import (
+    SurveyIndustryScopeError,
+    apply_industry_to_template,
+    assert_industry_match,
+    resolve_survey_type_industry_id,
+    template_matches_survey_industry,
+)
 from app.services.wa_template_privacy import (
     PRIVACY_MODE_OFF,
     PRIVACY_MODE_ON,
@@ -124,6 +130,8 @@ class SurveyTypeTemplateService:
                 tpl = db.get(TelnyxWhatsappTemplate, row.template_id)
                 if tpl is None or not template_belongs_to_survey_type(tpl, survey_type):
                     continue
+                if not template_matches_survey_industry(tpl, survey_type, mapping=row):
+                    continue
             if row.usable_as_standard:
                 standard += 1
             if row.usable_as_anonymous:
@@ -212,19 +220,22 @@ class SurveyTypeTemplateService:
         is_default_anonymous: bool = False,
         privacy_mode: str | None = None,
     ) -> SurveyTypeTemplate:
-        survey_type = db.get(SurveyType, survey_type_id)
-        if survey_type is None:
-            raise SurveyTypeTemplateError("Survey type not found")
-        industry_id = resolve_survey_type_industry_id(survey_type)
-        tpl = db.get(TelnyxWhatsappTemplate, template_id)
-        if tpl is None:
-            raise SurveyTypeTemplateError("Template not found")
-        assert_industry_match(
-            expected_industry_id=industry_id,
-            actual_industry_id=getattr(tpl, "industry_id", None),
-            message="Cannot link a template from a different industry",
-        )
-        apply_industry_to_template(tpl, survey_type)
+        try:
+            survey_type = db.get(SurveyType, survey_type_id)
+            if survey_type is None:
+                raise SurveyTypeTemplateError("Survey type not found")
+            industry_id = resolve_survey_type_industry_id(survey_type)
+            tpl = db.get(TelnyxWhatsappTemplate, template_id)
+            if tpl is None:
+                raise SurveyTypeTemplateError("Template not found")
+            assert_industry_match(
+                expected_industry_id=industry_id,
+                actual_industry_id=getattr(tpl, "industry_id", None),
+                message="Cannot link a template from a different industry",
+            )
+            apply_industry_to_template(tpl, survey_type)
+        except SurveyIndustryScopeError as exc:
+            raise SurveyTypeTemplateError(str(exc)) from exc
 
         if usable_as_anonymous and not usable_as_standard:
             resolved_privacy = normalize_privacy_mode(PRIVACY_MODE_ON if privacy_mode is None else privacy_mode)
@@ -312,6 +323,10 @@ class SurveyTypeTemplateService:
             SurveyTypeTemplateService._clear_defaults(db, stid, field="anonymous")
         db.flush()
 
+        tpl = db.get(TelnyxWhatsappTemplate, template_id)
+        if tpl is None:
+            raise SurveyTypeTemplateError("Template not found")
+
         for item in mappings:
             stid = str(item.get("survey_type_id") or "").strip()
             if not stid:
@@ -322,26 +337,20 @@ class SurveyTypeTemplateService:
             is_default_anonymous = bool(item.get("is_default_anonymous"))
             if not any([usable_standard, usable_anonymous, is_default_standard, is_default_anonymous]):
                 continue
-            row = db.execute(
-                select(SurveyTypeTemplate).where(
-                    SurveyTypeTemplate.survey_type_id == stid,
-                    SurveyTypeTemplate.template_id == template_id,
-                )
-            ).scalar_one_or_none()
-            now = datetime.utcnow()
-            if row is None:
-                row = SurveyTypeTemplate(
+            try:
+                row = SurveyTypeTemplateService.upsert_mapping(
+                    db,
                     survey_type_id=stid,
                     template_id=template_id,
-                    created_at=now,
-                    updated_at=now,
+                    usable_as_standard=usable_standard or is_default_standard,
+                    usable_as_anonymous=usable_anonymous or is_default_anonymous,
+                    is_default_standard=is_default_standard,
+                    is_default_anonymous=is_default_anonymous,
                 )
-                db.add(row)
-            row.usable_as_standard = usable_standard or is_default_standard
-            row.usable_as_anonymous = usable_anonymous or is_default_anonymous
-            row.is_default_standard = is_default_standard
-            row.is_default_anonymous = is_default_anonymous
-            row.updated_at = now
+            except SurveyTypeTemplateError as exc:
+                if "removed" not in str(exc).lower():
+                    raise
+                continue
             saved.append(row)
 
         db.commit()
@@ -362,11 +371,15 @@ class SurveyTypeTemplateService:
         if not mappings:
             return None
 
+        survey_type = db.get(SurveyType, survey_type_id)
+
         def pick(pool: list[SurveyTypeTemplate]) -> TelnyxWhatsappTemplate | None:
             templates: list[TelnyxWhatsappTemplate] = []
             for mapping in pool:
                 tpl = db.get(TelnyxWhatsappTemplate, mapping.template_id)
                 if tpl is None or not tpl.active_for_survey:
+                    continue
+                if survey_type is not None and not template_matches_survey_industry(tpl, survey_type, mapping=mapping):
                     continue
                 templates.append(tpl)
             if not templates:

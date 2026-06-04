@@ -191,14 +191,67 @@ class SurveyTypeService:
         return db.get(SurveyType, tid)
 
     @staticmethod
-    def get_by_slug(db: Session, slug: str, *, industry_id: str | None = None) -> SurveyType | None:
+    def get_by_slug(
+        db: Session,
+        slug: str,
+        *,
+        industry_id: str | None = None,
+        default_industry_fallback: bool = True,
+    ) -> SurveyType | None:
+        """Resolve survey type by slug. Without industry_id, returns a row only when unambiguous."""
         key = str(slug or "").strip().lower()
         if not key:
             return None
-        stmt = select(SurveyType).where(SurveyType.slug == key)
         if industry_id:
-            stmt = stmt.where(SurveyType.industry_id == str(industry_id).strip())
-        return db.execute(stmt).scalar_one_or_none()
+            return db.execute(
+                select(SurveyType).where(
+                    SurveyType.slug == key,
+                    SurveyType.industry_id == str(industry_id).strip(),
+                )
+            ).scalar_one_or_none()
+
+        rows = list(db.execute(select(SurveyType).where(SurveyType.slug == key)).scalars())
+        if len(rows) == 1:
+            return rows[0]
+        if len(rows) > 1 and default_industry_fallback:
+            default = IndustryService.default_industry(db)
+            scoped = [r for r in rows if r.industry_id == default.id]
+            if len(scoped) == 1:
+                return scoped[0]
+        return None
+
+    @staticmethod
+    def resolve_unique_by_slug(
+        db: Session,
+        slug: str,
+        *,
+        survey_type_id: str | None = None,
+    ) -> SurveyType | None:
+        """Telnyx/sync helper — never guess when the same slug exists in multiple industries."""
+        key = str(slug or "").strip().lower()
+        if not key:
+            return None
+        scoped_id = str(survey_type_id or "").strip()
+        if scoped_id:
+            row = db.get(SurveyType, scoped_id)
+            if row is not None and str(row.slug or "").strip().lower() == key:
+                return row
+            return None
+        rows = list(db.execute(select(SurveyType).where(SurveyType.slug == key)).scalars())
+        if len(rows) == 1:
+            return rows[0]
+        return None
+
+    @staticmethod
+    def survey_types_matching_name_slug(db: Session, name: str, *, known_slugs: list[str] | None = None) -> list[SurveyType]:
+        from app.services.survey_type_template_service import template_name_matches_survey_slug, template_name_survey_slug
+
+        all_types = list(db.execute(select(SurveyType)).scalars())
+        slugs = known_slugs or [str(st.slug or "") for st in all_types]
+        name_slug = template_name_survey_slug(name, known_slugs=slugs)
+        if name_slug:
+            return [st for st in all_types if str(st.slug or "").strip().lower() == name_slug]
+        return [st for st in all_types if template_name_matches_survey_slug(name, st.slug)]
 
     @staticmethod
     def create_type(db: Session, payload: dict[str, Any]) -> SurveyType:

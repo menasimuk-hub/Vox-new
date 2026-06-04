@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.survey_industry_scope import template_matches_survey_industry
 from app.services.survey_type_template_service import (
     SurveyTypeTemplateService,
     template_belongs_to_survey_type,
@@ -184,9 +185,7 @@ def load_step_bank(
         if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
             if not (mapping.is_default_standard or mapping.is_default_anonymous):
                 continue
-        if survey_type is not None and str(row.industry_id or "") and str(row.industry_id) != str(survey_type.industry_id):
-            continue
-        if survey_type is not None and str(mapping.industry_id or "") and str(mapping.industry_id) != str(survey_type.industry_id):
+        if survey_type is not None and not template_matches_survey_industry(row, survey_type, mapping=mapping):
             continue
         row_pm = resolve_row_privacy_mode(row)
         map_pm = resolve_mapping_privacy_mode(mapping, template_row=row)
