@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { buildWaSurveySimulatorUrl } from '../lib/waSurveySimulatorLink'
+import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
 
 const FLOW_LINEAR = 'linear'
 const FLOW_GRAPH = 'graph'
@@ -37,7 +38,11 @@ export default function WaSurveyFlowSimulator() {
     try {
       const data = await apiFetch('/admin/wa-survey/simulator/options')
       setOptions(data)
-      if (!deepLinkTypeId) {
+      if (deepLinkIndustry) setIndustryId(deepLinkIndustry)
+      if (deepLinkTypeId) {
+        setSurveyTypeId(deepLinkTypeId)
+        setPrivacyMode(deepLinkPrivacy || 'off')
+      } else {
         setIndustryId(data.default_industry_id || '')
         setSurveyTypeId(data.default_survey_type_id || '')
         setPrivacyMode(data.default_privacy_mode || 'off')
@@ -47,7 +52,7 @@ export default function WaSurveyFlowSimulator() {
     } finally {
       setLoading(false)
     }
-  }, [deepLinkTypeId])
+  }, [deepLinkTypeId, deepLinkIndustry, deepLinkPrivacy])
 
   const loadPrefill = useCallback(async (typeId, pm, industryOverride) => {
     if (!typeId) {
@@ -162,8 +167,10 @@ export default function WaSurveyFlowSimulator() {
     }
   }
 
-  const submitAnswer = async () => {
+  const submitAnswer = async (textOverride) => {
     if (!state?.recipient_id) return
+    const text = String(textOverride ?? answer).trim()
+    if (!text) return
     setBusy(true)
     setError('')
     try {
@@ -172,7 +179,7 @@ export default function WaSurveyFlowSimulator() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           recipient_id: state.recipient_id,
-          answer: answer.trim(),
+          answer: text,
         }),
       })
       setState(data.state)
@@ -190,6 +197,45 @@ export default function WaSurveyFlowSimulator() {
   }, [state, prefill])
 
   const q = state?.question
+
+  const chatMessages = useMemo(() => {
+    if (!state) return []
+    const msgs = []
+    const startTpl = (templatesInUse || []).find((t) => t.step_role === 'start')
+    if (startTpl?.preview_body || startTpl?.body_preview) {
+      msgs.push({
+        role: 'outbound',
+        body: startTpl.preview_body || startTpl.body_preview,
+        footer: 'Simulator · saved start template',
+      })
+    }
+    for (const row of state.answers || []) {
+      if (row.question) {
+        msgs.push({ role: 'outbound', body: row.question })
+      }
+      if (row.answer) {
+        msgs.push({ role: 'inbound', body: String(row.answer) })
+      }
+    }
+    if (!state.completed && (q?.body || q?.text)) {
+      const opts = (q?.options || []).map((label) => ({ label: String(label) }))
+      msgs.push({
+        role: 'outbound',
+        body: q.body || q.text,
+        buttons: opts.length ? opts : undefined,
+      })
+    }
+    if (state.completed && state.outcome_body_preview) {
+      msgs.push({ role: 'outbound', body: state.outcome_body_preview, footer: 'Outcome (simulated)' })
+    }
+    return msgs
+  }, [state, q, templatesInUse])
+
+  const quickReplies = useMemo(() => {
+    if (!q?.options?.length || state?.completed) return []
+    return q.options.map((o) => String(o))
+  }, [q, state?.completed])
+
   const deepLinkLabel = deepLinkTypeId
     ? buildWaSurveySimulatorUrl({
         surveyTypeId: deepLinkTypeId,
@@ -200,7 +246,7 @@ export default function WaSurveyFlowSimulator() {
     : ''
 
   return (
-    <div className="page" style={{ maxWidth: 960 }}>
+    <div className="page waSurveySimulatorPage">
       <p className="muted" style={{ marginBottom: 8 }}>
         <Link to="/settings/wa-survey">← WA Survey types</Link>
         {deepLinkTypeId && prefill?.survey_type_name ? (
@@ -270,9 +316,15 @@ export default function WaSurveyFlowSimulator() {
                 className="input"
                 value={industryId}
                 onChange={(e) => {
-                  setIndustryId(e.target.value)
-                  const first = (options?.survey_types || []).find((t) => t.industry_id === e.target.value)
-                  if (first) void onSurveyTypeChange(first.id, e.target.value)
+                  const nextIndustry = e.target.value
+                  setIndustryId(nextIndustry)
+                  const typesForInd = (options?.survey_types || []).filter((t) => t.industry_id === nextIndustry)
+                  const first = typesForInd[0]
+                  if (first) void onSurveyTypeChange(first.id, nextIndustry)
+                  else {
+                    setSurveyTypeId('')
+                    setPrefill(null)
+                  }
                 }}
               >
                 {(options?.industries || []).map((i) => (
@@ -287,8 +339,12 @@ export default function WaSurveyFlowSimulator() {
               <select
                 className="input"
                 value={surveyTypeId}
-                onChange={(e) => void onSurveyTypeChange(e.target.value)}
+                onChange={(e) => void onSurveyTypeChange(e.target.value, industryId)}
+                disabled={!surveyTypesForIndustry.length}
               >
+                <option value="">
+                  {surveyTypesForIndustry.length ? 'Select survey type…' : 'No survey types for this industry'}
+                </option>
                 {surveyTypesForIndustry.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name} ({t.slug})
@@ -409,10 +465,64 @@ export default function WaSurveyFlowSimulator() {
       ) : null}
 
       {state ? (
-        <section className="card" style={{ marginTop: 16 }}>
+        <section className="card waSurveySimulatorSessionCard" style={{ marginTop: 16 }}>
           <div className="cardBody">
-            <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Session</h2>
-            <div className="waSurveySimulatorRuntimeGrid" style={{ marginBottom: 12 }}>
+            <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Live test chat</h2>
+            <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 12 }}>
+              Dry-run only — same runtime as production, no Telnyx or OpenAI. Synthetic phone:{' '}
+              <code>{state.simulator_phone || '—'}</code>
+            </p>
+
+            <div className="waSurveySimulatorChatColumn">
+              <WaSurveyPhonePreview
+                businessName={prefill?.survey_type_name || 'Survey'}
+                conversationMessages={chatMessages}
+                hideFlowNav
+                approvalStatus="Simulator (dry-run)"
+                disclaimer=""
+              />
+              {!state.completed ? (
+                <div className="waSurveySimulatorComposer">
+                  {quickReplies.length ? (
+                    <div className="waSurveySimulatorQuickReplies">
+                      {quickReplies.map((label) => (
+                        <button
+                          key={label}
+                          type="button"
+                          className="btn btnSecondary btnSm"
+                          disabled={busy}
+                          onClick={() => void submitAnswer(label)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="waSurveySimulatorComposerRow">
+                    <input
+                      className="input"
+                      placeholder="Type a reply as the respondent…"
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && void submitAnswer()}
+                      disabled={busy}
+                    />
+                    <button
+                      type="button"
+                      className="btn btnPrimary"
+                      disabled={busy || !answer.trim()}
+                      onClick={() => void submitAnswer()}
+                    >
+                      Send
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <details style={{ marginTop: 16 }}>
+              <summary>Runtime details</summary>
+            <div className="waSurveySimulatorRuntimeGrid" style={{ marginTop: 12, marginBottom: 12 }}>
               <div>
                 <span className="muted">Step role</span>
                 <div><strong>{state.current_step_role || '—'}</strong></div>
@@ -465,45 +575,11 @@ export default function WaSurveyFlowSimulator() {
 
             {state.completed ? (
               <div>
-                <p className="muted">{state.outcome_body_preview}</p>
                 <pre style={{ fontSize: '0.75rem', background: '#f4f4f5', padding: 8 }}>
                   {JSON.stringify(state.outcome_delivery, null, 2)}
                 </pre>
               </div>
-            ) : (
-              <div>
-                <div
-                  style={{
-                    background: '#e8f5e9',
-                    border: '1px solid #c8e6c9',
-                    padding: 12,
-                    borderRadius: 8,
-                    marginBottom: 12,
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
-                  {q?.body || q?.text || '(no question)'}
-                </div>
-                {q?.options?.length ? (
-                  <p className="muted" style={{ fontSize: '0.85rem' }}>
-                    Suggested replies: {q.options.join(' · ')}
-                  </p>
-                ) : null}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <input
-                    className="input"
-                    style={{ flex: '1 1 200px' }}
-                    placeholder="Your answer"
-                    value={answer}
-                    onChange={(e) => setAnswer(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && submitAnswer()}
-                  />
-                  <button type="button" className="btn btnPrimary" disabled={busy || !answer.trim()} onClick={submitAnswer}>
-                    Send answer
-                  </button>
-                </div>
-              </div>
-            )}
+            ) : null}
 
             {state.answers?.length ? (
               <details style={{ marginTop: 16 }}>
@@ -511,6 +587,7 @@ export default function WaSurveyFlowSimulator() {
                 <pre style={{ fontSize: '0.75rem' }}>{JSON.stringify(state.answers, null, 2)}</pre>
               </details>
             ) : null}
+            </details>
           </div>
         </section>
       ) : null}

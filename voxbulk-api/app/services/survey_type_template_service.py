@@ -149,13 +149,6 @@ class SurveyTypeTemplateService:
         survey_type = db.get(SurveyType, survey_type_id)
         if survey_type is None:
             raise SurveyTypeTemplateError("Survey type not found")
-        tpl = db.get(TelnyxWhatsappTemplate, int(template_id))
-        if tpl is None:
-            raise SurveyTypeTemplateError("Template not found")
-        if not template_belongs_to_survey_type(tpl, survey_type):
-            raise SurveyTypeTemplateError("Template does not belong to this survey type")
-        if not template_matches_survey_industry(tpl, survey_type):
-            raise SurveyTypeTemplateError("Template industry does not match survey type")
 
         mapping = db.execute(
             select(SurveyTypeTemplate).where(
@@ -166,13 +159,24 @@ class SurveyTypeTemplateService:
         if mapping is None:
             raise SurveyTypeTemplateError("Template is not linked to this survey type")
 
+        tpl = db.get(TelnyxWhatsappTemplate, int(template_id))
+        if tpl is not None and not template_matches_survey_industry(
+            tpl, survey_type, mapping=mapping
+        ):
+            raise SurveyTypeTemplateError("Template industry does not match survey type")
+
         db.delete(mapping)
         remaining = SurveyTypeTemplateService.linked_survey_type_count(db, int(template_id))
-        if remaining == 0 and str(tpl.telnyx_record_id or "").startswith("local-"):
+        if tpl is not None and remaining == 0 and str(tpl.telnyx_record_id or "").startswith("local-"):
             tpl.active_for_survey = False
             db.add(tpl)
         db.commit()
-        return {"ok": True, "template_id": int(template_id), "survey_type_id": survey_type_id}
+        return {
+            "ok": True,
+            "message": "Template removed from this survey type.",
+            "template_id": int(template_id),
+            "survey_type_id": survey_type_id,
+        }
 
     @staticmethod
     def prune_stale_step_bank_mappings(

@@ -45,6 +45,7 @@ class SurveyGenerationService:
         flow_engine: str | None = None,
         flow_definition_id: str | None = None,
         flow_branches: list[dict[str, Any]] | None = None,
+        allow_unapproved_templates: bool = False,
     ) -> dict[str, Any]:
         survey_type = SurveyTypeService.get_type(db, survey_type_id)
         if survey_type is None or not survey_type.is_active:
@@ -81,7 +82,8 @@ class SurveyGenerationService:
         start_row = db.get(TelnyxWhatsappTemplate, int(start_id))
         if start_row is None:
             raise ValueError("Start template not found in step bank")
-        if str(start_row.status or "").upper() != "APPROVED":
+        start_status = str(start_row.status or "").upper()
+        if start_status != "APPROVED" and not allow_unapproved_templates:
             raise ValueError(
                 f"Start template “{start_row.display_name or start_row.name}” is not APPROVED yet "
                 f"(status: {start_row.status}). Push to Telnyx and wait for Meta approval."

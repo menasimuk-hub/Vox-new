@@ -34,6 +34,12 @@ from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.survey_whatsapp_template_service import (
     ANONYMOUS_BODY_SENTENCE,
     ANONYMOUS_FOOTER,
+    META_BODY_HARD_MAX_CHARS,
+    META_BODY_SOFT_MAX_CHARS,
+    META_BUTTON_LABEL_MAX_CHARS,
+    META_FOOTER_MAX_CHARS,
+    META_HEADER_MAX_CHARS,
+    STANDARD_OPT_OUT_FOOTER,
     SYNC_DRAFT,
     VARIANT_ANONYMOUS,
     VARIANT_STANDARD,
@@ -46,6 +52,9 @@ from app.services.survey_whatsapp_template_service import (
     _now,
     survey_template_to_dict,
 )
+
+_FOOTER_URL_RE = re.compile(r"https?://", re.I)
+_FOOTER_VAR_RE = re.compile(r"\{\{\d+\}\}")
 
 PACK_SIZE = 12
 
@@ -87,6 +96,61 @@ def copy_contains_forbidden_reference(*parts: str) -> bool:
     if not text:
         return False
     return bool(_REFERENCE_COPY_RE.search(text))
+
+
+def canonical_footer_for_privacy_mode(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
+    if normalize_privacy_mode(privacy_mode) == PRIVACY_MODE_ON:
+        return ANONYMOUS_FOOTER
+    return STANDARD_OPT_OUT_FOOTER
+
+
+def coerce_meta_template_fields(
+    item: dict[str, Any],
+    *,
+    privacy_mode: str = PRIVACY_MODE_OFF,
+) -> dict[str, Any]:
+    """Normalize OpenAI output to Meta/Telnyx field limits before validation."""
+    out = dict(item)
+    pm = normalize_privacy_mode(privacy_mode or out.get("privacy_mode"))
+    variant = privacy_mode_to_variant(pm)
+    out["variant_type"] = variant
+    out["footer"] = canonical_footer_for_privacy_mode(privacy_mode=pm)
+
+    header = str(out.get("header") or "").strip()
+    if header and _FOOTER_VAR_RE.search(header):
+        out["header"] = ""
+    elif header:
+        out["header"] = header[:META_HEADER_MAX_CHARS]
+
+    body = str(out.get("body") or "").strip()
+    if body:
+        out["body"] = body[:META_BODY_HARD_MAX_CHARS].rstrip()
+
+    button_type = _normalize_button_type(out.get("button_type"))
+    buttons = out.get("buttons") if isinstance(out.get("buttons"), list) else []
+    cleaned_buttons: list[dict[str, Any]] = []
+    for btn in buttons:
+        if not isinstance(btn, dict):
+            continue
+        label = str(btn.get("text") or "").strip()[:META_BUTTON_LABEL_MAX_CHARS]
+        if not label and button_type != "none":
+            continue
+        cleaned_buttons.append(
+            {
+                "text": label,
+                "url": str(btn.get("url") or "").strip(),
+                "phone_number": str(btn.get("phone_number") or "").strip(),
+            }
+        )
+    if button_type == "quick_reply":
+        cleaned_buttons = cleaned_buttons[:3]
+    elif button_type in {"url", "phone"}:
+        cleaned_buttons = cleaned_buttons[:1]
+    out["buttons"] = cleaned_buttons
+    out["button_type"] = button_type
+    return out
+
+
 OUTCOME_COMPLETION_KEYS = ("happy", "neutral", "unhappy")
 _LOCAL_ID_PREFIX = "local-"
 _NAME_RE = re.compile(r"^[a-z0-9_]{3,64}$")
@@ -314,18 +378,31 @@ def validate_generated_template(
     body = str(item.get("body") or "").strip()
     if not body:
         errors.append("body is required")
-    if len(body) > 1024:
-        errors.append("body exceeds WhatsApp length guidance (1024 chars)")
+    if len(body) > META_BODY_HARD_MAX_CHARS:
+        errors.append(f"body exceeds WhatsApp length guidance ({META_BODY_HARD_MAX_CHARS} chars)")
+    elif len(body) > META_BODY_SOFT_MAX_CHARS:
+        pass  # soft limit — prompt targets ≤550; hard reject only above 1024
 
     footer = str(item.get("footer") or "").strip()
+    required_footer = canonical_footer_for_privacy_mode(privacy_mode=privacy_mode)
     if not footer:
         errors.append("footer is required")
-    elif len(footer) > 60:
-        errors.append("footer exceeds 60 characters")
+    elif len(footer) > META_FOOTER_MAX_CHARS:
+        errors.append(f"footer exceeds {META_FOOTER_MAX_CHARS} characters (Meta limit)")
+    elif _FOOTER_VAR_RE.search(footer):
+        errors.append("footer must not contain {{variables}} — Meta only allows plain text in footers")
+    elif _FOOTER_URL_RE.search(footer):
+        errors.append("footer must not contain URLs — put privacy links in the body only")
+    elif footer != required_footer:
+        errors.append(
+            f'footer must be exactly “{required_footer}” ({len(required_footer)} chars) for Meta approval'
+        )
 
     header = str(item.get("header") or "").strip()
-    if header and len(header) > 60:
-        errors.append("header exceeds 60 characters")
+    if header and len(header) > META_HEADER_MAX_CHARS:
+        errors.append(f"header exceeds {META_HEADER_MAX_CHARS} characters")
+    if header and _FOOTER_VAR_RE.search(header):
+        errors.append("header must not contain {{variables}}")
 
     combined = f"{header} {body}"
     var_ids = _var_re_from_text(combined)
@@ -365,6 +442,8 @@ def validate_generated_template(
             errors.append("anonymous templates must mention the survey is anonymous in the body")
         if footer != ANONYMOUS_FOOTER:
             errors.append(f"anonymous templates must use footer “{ANONYMOUS_FOOTER}”")
+    elif footer != STANDARD_OPT_OUT_FOOTER:
+        errors.append(f'standard templates must use footer “{STANDARD_OPT_OUT_FOOTER}”')
 
     errors.extend(
         validate_privacy_mode_content(
@@ -475,13 +554,36 @@ def _reference_copy_rules_block(*, instruction: str = "", purpose: str = "") -> 
     )
 
 
+def _meta_compliance_rules_block(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
+    pm = normalize_privacy_mode(privacy_mode)
+    standard_footer = STANDARD_OPT_OUT_FOOTER
+    anon_footer = ANONYMOUS_FOOTER
+    _ = pm  # reserved for future privacy-specific Meta notes
+    return (
+        "META / WHATSAPP BUSINESS APPROVAL RULES (strict — violations cause Telnyx/Meta rejection):\n"
+        f"• FOOTER — hard limit {META_FOOTER_MAX_CHARS} characters. Plain text only. No URLs. No {{variables}}.\n"
+        f"  – Privacy Mode Off: footer MUST be exactly “{standard_footer}” ({len(standard_footer)} chars).\n"
+        f"  – Privacy Mode On: footer MUST be exactly “{anon_footer}” ({len(anon_footer)} chars).\n"
+        "  – NEVER put privacy policy URLs, contact emails, legal disclaimers, or PECR/GDPR paragraphs in the footer.\n"
+        "  – Put privacy/data wording in the BODY instead (keep body concise).\n"
+        f"• HEADER — optional; max {META_HEADER_MAX_CHARS} chars; no variables; plain text only.\n"
+        f"• BODY — max {META_BODY_HARD_MAX_CHARS} chars; target ≤{META_BODY_SOFT_MAX_CHARS} for faster Meta approval.\n"
+        f"• BUTTON labels — max {META_BUTTON_LABEL_MAX_CHARS} chars each; max 3 quick replies.\n"
+        "• CATEGORY — use MARKETING for survey invitations.\n"
+        "• TONE — professional UK business English: warm, clear, trustworthy. No spam triggers.\n"
+        "  Avoid: ALL CAPS, false urgency, guilt-tripping, ‘ACT NOW’, ‘FREE’, or exaggerated claims.\n"
+        "  Do not mention Meta, WhatsApp, OpenAI, or Telnyx in customer-facing copy.\n\n"
+    )
+
+
 def _emoji_rules_block() -> str:
     return (
         "EMOJIS — make templates visually appealing on WhatsApp:\n"
         f"• Use tasteful, friendly emojis in at least 8 of {PACK_SIZE} templates "
         "(e.g. 👋 ✨ 📋 ⭐ 🙏 💬 🌟 — never more than 3 per message).\n"
         "• Warm/friendly and follow-up templates should usually include 1–2 emojis.\n"
-        "• Premium/professional variants may use 0–1 subtle emoji only.\n\n"
+        "• Premium/professional variants may use 0–1 subtle emoji only.\n"
+        "• Healthcare/clinical packs: prefer calm, reassuring tone; use emojis sparingly (0–1).\n\n"
     )
 
 
@@ -494,12 +596,13 @@ def _pack_system_prompt(
     privacy_mode = normalize_privacy_mode(privacy_mode)
     anonymous_block = ""
     style_mix = (
-        "STYLE MIX — make all 10 feel distinct, not repetitive:\n"
+        "STYLE MIX — make all 12 feel distinct, not repetitive:\n"
         "• 2 warm/friendly (emoji-friendly, conversational)\n"
         "• 2 premium/professional (polished, trust-building, minimal emoji)\n"
         "• 2 short/direct (under ~280 chars, punchy hook)\n"
         "• 2 follow-up/reminder (gentle nudge, ‘still time to…’)\n"
-        "• 2 standard identified feedback (variant_type standard)\n\n"
+        "• 2 standard identified feedback (variant_type standard)\n"
+        "• 2 completion/thank-you closings with distinct tone per outcome_key\n\n"
     )
     variable_block = (
         "VARIABLES (Meta format, sequential, must appear in body/header):\n"
@@ -510,9 +613,9 @@ def _pack_system_prompt(
     )
     if privacy_mode == PRIVACY_MODE_ON:
         style_mix = (
-            "PRIVACY MODE ON — all 10 templates must use variant_type anonymous.\n"
+            "PRIVACY MODE ON — all 12 templates must use variant_type anonymous.\n"
             "Every template must clearly state responses are anonymous and must not identify the recipient.\n"
-            "STYLE MIX — make all 10 feel distinct while staying anonymous:\n"
+            "STYLE MIX — make all 12 feel distinct while staying anonymous:\n"
             "• 2 warm/friendly\n"
             "• 2 premium/professional\n"
             "• 2 short/direct\n"
@@ -538,27 +641,29 @@ def _pack_system_prompt(
 
     return (
         "You are an expert WhatsApp Business template copywriter for VoxBulk customer satisfaction surveys. "
-        "Write exactly 10 reusable Meta/Telnyx-compatible templates that feel native on WhatsApp — warm, mobile-first, "
-        "and visually appealing while staying Meta approval-friendly (no spam, no ALL CAPS shouting, no false urgency). "
-        "Use British English. Do not use OpenAI Realtime.\n\n"
+        "Write exactly 12 reusable Meta/Telnyx-compatible templates that feel native on WhatsApp — warm, mobile-first, "
+        "professional, and visually polished while staying Meta approval-friendly (no spam, no ALL CAPS shouting, "
+        "no false urgency). Use British English. Do not use OpenAI Realtime.\n\n"
+        f"{_meta_compliance_rules_block(privacy_mode=privacy_mode)}"
         f"{anonymous_block}"
         f"{variable_block}"
         f"{style_mix}"
         f"{_reference_copy_rules_block(instruction=instruction, purpose=purpose)}"
         f"{_emoji_rules_block()}"
         "CTA COPY — weave in natural action phrases such as: ‘Tap below’, ‘Rate your experience’, ‘Share feedback’, "
-        "‘Call us’, ‘It only takes a minute’, ‘We’d love your thoughts’.\n\n"
+        "‘It only takes a minute’, ‘We’d love your thoughts’. Keep sentences short and scannable on mobile.\n\n"
         "BUTTON-AWARE COPY:\n"
         "• quick_reply: body must invite a tap (‘Tap below to start’, ‘Choose an option below’). "
-        "Button labels: short, tap-friendly (≤20 chars), e.g. ‘Start survey’, ‘Share feedback’, ‘Yes, happy to’.\n"
+        f"Button labels: short, tap-friendly (≤{META_BUTTON_LABEL_MAX_CHARS} chars), e.g. ‘Start survey’, ‘Share feedback’, ‘Yes, happy to’.\n"
         "• url: body must clearly direct to the button link (‘Tap the button below to open your survey’, "
         "‘Use the link below — it only takes a minute’). Button text: ‘Open survey’, ‘Rate experience’, ‘Give feedback’. "
         "URL must be https.\n"
         "• phone: body invites a call (‘Need help? Tap below to call us’). Button: ‘Call us’, ‘Speak to team’.\n"
         "• none: soft CTA pointing to the survey link ({{3}}) — never call it a reference.\n\n"
-        "STRUCTURE: strong opening hook in first line; short paragraphs; WhatsApp-friendly length (body ≤600 chars ideal). "
+        f"STRUCTURE: strong opening hook in first line; short paragraphs; WhatsApp-friendly length (body ≤{META_BODY_SOFT_MAX_CHARS} chars ideal). "
         "Quick reply: max 3 buttons. "
-        f"Anonymous templates: body must include that the survey is anonymous; footer must be exactly “{ANONYMOUS_FOOTER}”. "
+        f"Standard templates: footer exactly “{STANDARD_OPT_OUT_FOOTER}”. "
+        f"Anonymous templates: body must include that the survey is anonymous; footer exactly “{ANONYMOUS_FOOTER}”. "
         "template_name: unique lowercase snake_case, no voxbulk_survey prefix.\n\n"
         "STEP BANK — return exactly 12 templates:\n"
         "• one template per middle step_role (rating, yes_no, helpfulness, abc_choice, reason, feeling_word, follow_up, improvement)\n"
@@ -689,8 +794,9 @@ def _build_pack_item_row(
     instruction: str = "",
     purpose: str = "",
 ) -> dict[str, Any]:
+    coerced = coerce_meta_template_fields(item, privacy_mode=privacy_mode)
     normalized, errors = validate_generated_template(
-        item,
+        coerced,
         survey_type=survey_type,
         privacy_mode=privacy_mode,
         instruction=instruction,
@@ -1007,7 +1113,7 @@ class SurveyWaTemplatePackService:
         saved: list[dict[str, Any]] = []
         errors: list[str] = []
         for item in templates:
-            item = {**item, "privacy_mode": privacy_mode}
+            item = coerce_meta_template_fields({**item, "privacy_mode": privacy_mode}, privacy_mode=privacy_mode)
             normalized, val_errors = validate_generated_template(
                 item,
                 survey_type=survey_type,

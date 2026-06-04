@@ -399,13 +399,12 @@ def link_existing_template(
     }
 
 
-@router.delete("/types/{type_id}/templates/{template_id}")
-def delete_survey_type_template(
+def _unlink_survey_type_template_impl(
+    db: Session,
+    *,
     type_id: str,
     template_id: int,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
+) -> dict:
     row = SurveyTypeService.get_type(db, type_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
@@ -427,6 +426,27 @@ def delete_survey_type_template(
         return result
     except SurveyTypeTemplateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.delete("/types/{type_id}/templates/{template_id}")
+def delete_survey_type_template(
+    type_id: str,
+    template_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return _unlink_survey_type_template_impl(db, type_id=type_id, template_id=template_id)
+
+
+@router.post("/types/{type_id}/templates/{template_id}/unlink")
+def unlink_survey_type_template(
+    type_id: str,
+    template_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """POST alias for delete — same behaviour (remove from survey type step bank)."""
+    return _unlink_survey_type_template_impl(db, type_id=type_id, template_id=template_id)
 
 
 @router.put("/templates/{template_id}")

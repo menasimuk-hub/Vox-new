@@ -193,19 +193,32 @@ export default function WaSurveyTypeEdit() {
   }
 
   const deleteTemplate = async (tpl) => {
-    if (!tpl?.id || !window.confirm(`Remove "${tpl.display_name || tpl.name}" from this survey type?`)) return
-    setWorking(`delete-${tpl.id}`)
+    const templateId = tpl?.id
+    if (templateId == null || templateId === '') return
+    if (!window.confirm(`Remove "${tpl.display_name || tpl.name}" from this survey type?`)) return
+    setWorking(`delete-${templateId}`)
     clearFeedback()
+    const path = `/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/${encodeURIComponent(templateId)}`
     try {
-      await apiFetch(
-        `/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/${encodeURIComponent(tpl.id)}`,
-        { method: 'DELETE' },
-      )
-      showOk({ message: 'Template removed from this survey type.' })
+      let result
+      try {
+        result = await apiFetch(`${path}/unlink`, { method: 'POST', body: '{}' })
+      } catch (postErr) {
+        if (postErr?.status === 404) {
+          result = await apiFetch(path, { method: 'DELETE' })
+        } else {
+          throw postErr
+        }
+      }
+      showOk(result, 'Template removed from this survey type.')
       await load()
       await loadReadiness()
     } catch (e) {
-      showError(e, 'Could not delete template')
+      const hint =
+        e?.status === 404
+          ? ' Delete endpoint not found — restart the API server (uvicorn) so it loads the latest code, then try again.'
+          : ''
+      showError(e, `Could not delete template.${hint}`)
     } finally {
       setWorking('')
     }

@@ -19,6 +19,9 @@ from app.services.provider_settings import ProviderSettingsService
 logger = logging.getLogger(__name__)
 
 RESPONSES_READ_TIMEOUT_SECONDS = float(os.getenv("OPENAI_RESPONSES_TIMEOUT_SECONDS") or 300)
+RESPONSES_RETRY_COUNT = max(1, int(os.getenv("OPENAI_RESPONSES_RETRY_COUNT") or 3))
+RESPONSES_RETRY_DELAY_SECONDS = float(os.getenv("OPENAI_RESPONSES_RETRY_DELAY_SECONDS") or 2.0)
+OPENAI_TRANSIENT_HTTP_STATUSES = frozenset({408, 429, 500, 502, 503, 504, 529})
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
 DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
 GROQ_DEFAULT_BASE_URL = "https://api.groq.com/openai"
@@ -433,6 +436,116 @@ class OpenAIProviderService:
                     yield str(delta)
 
     @staticmethod
+    def _sanitize_provider_error_body(body: Any, *, max_len: int = 400) -> str:
+        if isinstance(body, dict):
+            err = body.get("error")
+            if isinstance(err, dict):
+                msg = str(err.get("message") or "").strip()
+                code = str(err.get("code") or "").strip()
+                if msg and code:
+                    return f"{code}: {msg}"[:max_len]
+                if msg:
+                    return msg[:max_len]
+            return json.dumps(body, ensure_ascii=False)[:max_len]
+        text = str(body or "").strip()
+        if "<html" in text.lower() or "<!doctype" in text.lower():
+            import re
+
+            title = re.search(r"<title[^>]*>([^<]+)</title>", text, re.I)
+            if title:
+                return title.group(1).strip()[:max_len]
+            return "Upstream gateway error (HTML response from provider — usually temporary)."
+        return text[:max_len] if text else "Unknown provider error"
+
+    @staticmethod
+    def _is_transient_openai_status(status_code: int) -> bool:
+        return int(status_code) in OPENAI_TRANSIENT_HTTP_STATUSES
+
+    @staticmethod
+    def _responses_retry_delay(attempt: int) -> float:
+        return RESPONSES_RETRY_DELAY_SECONDS * (2 ** max(0, attempt - 1))
+
+    @staticmethod
+    def _parse_structured_json_text(text: str, *, label: str) -> dict[str, Any]:
+        if not text:
+            raise ValueError(f"OpenAI {label} returned empty structured output")
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"OpenAI {label} returned invalid JSON: {text[:400]}") from e
+        if not isinstance(parsed, dict):
+            raise ValueError(f"OpenAI {label} JSON root must be an object")
+        return parsed
+
+    @staticmethod
+    def _chat_completions_json(
+        config: dict[str, Any],
+        *,
+        text_model: str,
+        system_prompt: str,
+        user_prompt: str,
+        json_schema: dict[str, Any],
+        schema_name: str,
+        output_limit: int,
+        selected_temperature: float,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Fallback structured JSON via /v1/chat/completions when Responses API is unavailable."""
+        endpoint_path = "/v1/chat/completions"
+        payload: dict[str, Any] = {
+            "model": text_model,
+            "messages": [
+                {"role": "system", "content": str(system_prompt or "").strip()},
+                {"role": "user", "content": str(user_prompt or "").strip()},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema_name,
+                    "schema": json_schema,
+                    "strict": True,
+                },
+            },
+            **OpenAIProviderService._chat_token_limit_payload(
+                provider="openai",
+                model=text_model,
+                tokens=output_limit,
+            ),
+        }
+        if not OpenAIProviderService._reasoning_model(text_model):
+            payload["temperature"] = selected_temperature
+        response = OpenAIProviderService._http_client().post(
+            OpenAIProviderService._endpoint_url(config, endpoint_path),
+            json=payload,
+            headers=OpenAIProviderService._headers(config),
+            timeout=OpenAIProviderService._responses_timeout(),
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            body: Any
+            try:
+                body = response.json()
+            except Exception:
+                body = response.text
+            detail = OpenAIProviderService._sanitize_provider_error_body(body)
+            raise ValueError(
+                f"OpenAI Chat fallback failed ({response.status_code}): {detail}"
+            ) from e
+        raw = response.json()
+        choices = raw.get("choices") or []
+        message = (choices[0] or {}).get("message") if choices else {}
+        text = str((message or {}).get("content") or "").strip()
+        parsed = OpenAIProviderService._parse_structured_json_text(text, label="Chat")
+        meta = {
+            "model": text_model,
+            "api_style": "chat_json_schema",
+            "endpoint_path": endpoint_path,
+            "usage": raw.get("usage") or {},
+            "fallback_from": "responses",
+        }
+        return parsed, meta
+
+    @staticmethod
     def _extract_responses_output_text(body: dict[str, Any]) -> str:
         chunks: list[str] = []
         for item in body.get("output") or []:
@@ -499,52 +612,105 @@ class OpenAIProviderService:
                 "endpoint_path": endpoint_path,
                 "schema_name": schema_name,
                 "max_output_tokens": payload["max_output_tokens"],
+                "retry_count": RESPONSES_RETRY_COUNT,
             },
         )
-        try:
-            response = OpenAIProviderService._http_client().post(
-                OpenAIProviderService._endpoint_url(config, endpoint_path),
-                json=payload,
-                headers=OpenAIProviderService._headers(config),
-                timeout=OpenAIProviderService._responses_timeout(),
-            )
-        except httpx.TimeoutException as e:
-            raise ValueError(
-                f"OpenAI Responses request timed out after {RESPONSES_READ_TIMEOUT_SECONDS:.0f}s. "
-                "Generating 10 templates can take several minutes — please try again."
-            ) from e
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            body: Any
+        last_error: str | None = None
+        last_status: int | None = None
+        url = OpenAIProviderService._endpoint_url(config, endpoint_path)
+        client = OpenAIProviderService._http_client()
+        timeout = OpenAIProviderService._responses_timeout()
+
+        for attempt in range(1, RESPONSES_RETRY_COUNT + 1):
+            try:
+                response = client.post(
+                    url,
+                    json=payload,
+                    headers=OpenAIProviderService._headers(config),
+                    timeout=timeout,
+                )
+            except httpx.TimeoutException as e:
+                last_error = (
+                    f"OpenAI timed out after {RESPONSES_READ_TIMEOUT_SECONDS:.0f}s "
+                    f"(attempt {attempt}/{RESPONSES_RETRY_COUNT})."
+                )
+                if attempt < RESPONSES_RETRY_COUNT:
+                    time.sleep(OpenAIProviderService._responses_retry_delay(attempt))
+                    continue
+                raise ValueError(
+                    f"{last_error} Generating 10 templates can take several minutes — please try again."
+                ) from e
+            except (httpx.ConnectError, httpx.NetworkError) as e:
+                last_error = f"Network error reaching OpenAI (attempt {attempt}/{RESPONSES_RETRY_COUNT}): {e}"
+                if attempt < RESPONSES_RETRY_COUNT:
+                    time.sleep(OpenAIProviderService._responses_retry_delay(attempt))
+                    continue
+                raise ValueError(last_error) from e
+
+            if response.is_success:
+                raw = response.json()
+                text = OpenAIProviderService._extract_responses_output_text(raw)
+                parsed = OpenAIProviderService._parse_structured_json_text(text, label="Responses")
+                meta = {
+                    "model": text_model,
+                    "api_style": "responses",
+                    "endpoint_path": endpoint_path,
+                    "usage": raw.get("usage") or {},
+                    "attempts": attempt,
+                }
+                return parsed, meta
+
+            last_status = response.status_code
             try:
                 body = response.json()
             except Exception:
                 body = response.text
-            logger.error(
-                "openai_responses_failed",
-                extra={"status_code": response.status_code, "model": text_model, "provider_body": body},
+            detail = OpenAIProviderService._sanitize_provider_error_body(body)
+            last_error = f"OpenAI Responses failed ({response.status_code}): {detail}"
+            logger.warning(
+                "openai_responses_attempt_failed",
+                extra={
+                    "status_code": response.status_code,
+                    "model": text_model,
+                    "attempt": attempt,
+                    "detail": detail,
+                },
             )
+            if (
+                OpenAIProviderService._is_transient_openai_status(response.status_code)
+                and attempt < RESPONSES_RETRY_COUNT
+            ):
+                time.sleep(OpenAIProviderService._responses_retry_delay(attempt))
+                continue
+            break
+
+        if last_status and OpenAIProviderService._is_transient_openai_status(last_status):
+            logger.info(
+                "openai_responses_chat_fallback",
+                extra={"model": text_model, "last_status": last_status},
+            )
+            try:
+                return OpenAIProviderService._chat_completions_json(
+                    config,
+                    text_model=text_model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    json_schema=json_schema,
+                    schema_name=schema_name,
+                    output_limit=output_limit,
+                    selected_temperature=selected_temperature,
+                )
+            except ValueError as fallback_exc:
+                raise ValueError(
+                    f"{last_error} Chat completions fallback also failed: {fallback_exc}"
+                ) from fallback_exc
+
+        if last_status == 502:
             raise ValueError(
-                f"OpenAI Responses request failed ({response.status_code}) at {diagnostics['final_url']}: {body}"
-            ) from e
-        raw = response.json()
-        text = OpenAIProviderService._extract_responses_output_text(raw)
-        if not text:
-            raise ValueError("OpenAI Responses returned empty structured output")
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"OpenAI Responses returned invalid JSON: {text[:400]}") from e
-        if not isinstance(parsed, dict):
-            raise ValueError("OpenAI Responses JSON root must be an object")
-        meta = {
-            "model": text_model,
-            "api_style": "responses",
-            "endpoint_path": endpoint_path,
-            "usage": raw.get("usage") or {},
-        }
-        return parsed, meta
+                "OpenAI returned 502 Bad Gateway (temporary outage at api.openai.com). "
+                "Wait a minute and try again. If it persists, check https://status.openai.com/"
+            )
+        raise ValueError(last_error or "OpenAI Responses request failed")
 
     @staticmethod
     def diagnostics(db: Session) -> dict[str, Any]:

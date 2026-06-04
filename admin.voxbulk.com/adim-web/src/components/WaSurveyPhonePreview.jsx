@@ -30,6 +30,8 @@ export default function WaSurveyPhonePreview({
   footer = '',
   buttons = [],
   flowSteps = [],
+  conversationMessages = null,
+  hideFlowNav = false,
   disclaimer = '',
   templateName = '',
   approvalStatus = '',
@@ -41,6 +43,7 @@ export default function WaSurveyPhonePreview({
   const showTemplateBubble = current?.kind === 'template_outbound' || activeStep === 1
   const bubbleBody = showTemplateBubble ? renderedBody : current?.body || renderedBody
   const bubbleButtons = showTemplateBubble ? buttons : []
+  const thread = Array.isArray(conversationMessages) ? conversationMessages.filter((m) => m?.body) : []
 
   const metaLine = useMemo(() => {
     const parts = []
@@ -76,36 +79,64 @@ export default function WaSurveyPhonePreview({
               </div>
             </div>
             <div className="waPhoneChatBody">
-              <div className="waBubbleOutbound">
-                <p className="waBubbleText">{substituteVars(bubbleBody)}</p>
-                {footer ? <p className="waBubbleFooter">{footer}</p> : null}
-                {bubbleButtons?.length ? (
-                  <div className="waBubbleButtons">
-                    {bubbleButtons.map((btn) => (
-                      <div key={btn.label} className="waBubbleButton">
-                        {btn.label}
+              {thread.length ? (
+                thread.map((msg, idx) => {
+                  const outbound = msg.role !== 'inbound'
+                  const msgButtons = outbound && Array.isArray(msg.buttons) ? msg.buttons : []
+                  return (
+                    <div
+                      key={`${msg.role}-${idx}`}
+                      className={outbound ? 'waBubbleOutbound' : 'waBubbleInbound'}
+                    >
+                      <p className="waBubbleText">{substituteVars(msg.body)}</p>
+                      {outbound && msg.footer ? <p className="waBubbleFooter">{msg.footer}</p> : null}
+                      {msgButtons.length ? (
+                        <div className="waBubbleButtons">
+                          {msgButtons.map((btn) => (
+                            <div key={btn.label || btn} className="waBubbleButton">
+                              {btn.label || btn}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <p className="waBubbleTime">{outbound ? '9:41 ✓✓' : '9:42'}</p>
+                    </div>
+                  )
+                })
+              ) : (
+                <>
+                  <div className="waBubbleOutbound">
+                    <p className="waBubbleText">{substituteVars(bubbleBody)}</p>
+                    {footer ? <p className="waBubbleFooter">{footer}</p> : null}
+                    {bubbleButtons?.length ? (
+                      <div className="waBubbleButtons">
+                        {bubbleButtons.map((btn) => (
+                          <div key={btn.label} className="waBubbleButton">
+                            {btn.label}
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    ) : null}
+                    <p className="waBubbleTime">9:41 ✓✓</p>
                   </div>
-                ) : null}
-                <p className="waBubbleTime">9:41 ✓✓</p>
-              </div>
-              {!showTemplateBubble && current?.kind === 'user_action' ? (
-                <div className="waBubbleInbound">
-                  <p className="waBubbleText">{current.description || 'Recipient tapped a button'}</p>
-                </div>
-              ) : null}
-              {!showTemplateBubble && current?.kind === 'survey_question' ? (
-                <div className="waBubbleOutbound">
-                  <p className="waBubbleText">{current.body}</p>
-                  <p className="waBubbleTime">9:42</p>
-                </div>
-              ) : null}
+                  {!showTemplateBubble && current?.kind === 'user_action' ? (
+                    <div className="waBubbleInbound">
+                      <p className="waBubbleText">{current.description || 'Recipient tapped a button'}</p>
+                    </div>
+                  ) : null}
+                  {!showTemplateBubble && current?.kind === 'survey_question' ? (
+                    <div className="waBubbleOutbound">
+                      <p className="waBubbleText">{current.body}</p>
+                      <p className="waBubbleTime">9:42</p>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
         </div>
       </div>
-      {steps.length > 1 ? (
+      {!hideFlowNav && steps.length > 1 ? (
         <div className="waSurveyFlowNav">
           <div className="waSurveyFlowTitle">Simulated survey flow</div>
           {steps.map((step) => (

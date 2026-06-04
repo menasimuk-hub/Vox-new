@@ -180,6 +180,22 @@ def test_pack_system_prompt_forbids_reference_without_admin_override():
     prompt = _pack_system_prompt()
     assert "NO REFERENCE COPY" in prompt
     assert "at least 8 of 12" in prompt
+    assert "META / WHATSAPP BUSINESS APPROVAL RULES" in prompt
+    assert "Reply STOP to opt out" in prompt
+
+
+def test_coerce_meta_template_fields_fixes_long_footer():
+    from app.services.survey_wa_template_pack_service import coerce_meta_template_fields
+
+    long_footer = (
+        "Privacy: https://www.voxbulk.com/privacy Contact: Data.Pro@voxbulk.com Reply STOP to opt out."
+    )
+    item = coerce_meta_template_fields(
+        _sample_item(footer=long_footer),
+        privacy_mode="off",
+    )
+    assert item["footer"] == "Reply STOP to opt out"
+    assert len(item["footer"]) <= 60
 
 
 def test_validate_anonymous_wording():
@@ -232,6 +248,7 @@ def test_generate_pack_uses_responses_api(monkeypatch):
         assert captured.get("schema_name") == "wa_survey_template_pack"
         assert "NO REFERENCE COPY" in (captured.get("system_prompt") or "")
         assert "at least 8 of 12" in (captured.get("system_prompt") or "")
+        assert "META / WHATSAPP BUSINESS APPROVAL RULES" in (captured.get("system_prompt") or "")
         assert result["valid_count"] == PACK_SIZE
         assert result["openai"]["api_style"] == "responses"
         purposes = {t["template"]["purpose"] for t in result["templates"] if t.get("template")}

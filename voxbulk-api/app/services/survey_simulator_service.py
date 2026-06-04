@@ -137,6 +137,7 @@ def _templates_manifest_from_bank(bank: dict[str, Any]) -> list[dict[str, Any]]:
                 "template_id": item.get("template_id"),
                 "template_name": item.get("display_name") or item.get("template_name"),
                 "status": item.get("status") or item.get("approval_status"),
+                "preview_body": item.get("body") or item.get("body_preview") or "",
                 "usage": "completion" if role == "completion" else ("start" if role == "start" else "question"),
             }
         )
@@ -346,7 +347,7 @@ class SurveySimulatorService:
 
         pack = SurveyWaTestPackSeedService.ensure_test_pack(db)
         industries = IndustryService.list_industries(db, active_only=True)
-        types = SurveyTypeService.list_types(db, industry_id=pack["industry"]["id"])
+        types = SurveyTypeService.list_types(db)
         return {
             "ok": True,
             "test_pack": pack,
@@ -392,11 +393,21 @@ class SurveySimulatorService:
         ai_picker_default = bool(platform_on and ai_nodes > 0 and flow_engine == FLOW_ENGINE_GRAPH)
 
         blocking: list[str] = []
+        simulator_warnings: list[str] = list(readiness.get("warnings") or [])
         for err in readiness.get("errors") or []:
-            if "start template" in str(err).lower() or "step_role not in step bank" in str(err).lower():
+            low = str(err).lower()
+            if "step_role not in step bank" in low:
                 blocking.append(err)
-        if not (bank.get("by_role") or {}).get("start"):
+            elif "no start template" in low:
+                blocking.append(err)
+        start_row = (bank.get("by_role") or {}).get("start")
+        if not start_row:
             blocking.append("No start template in saved step bank for this privacy mode.")
+        elif str(start_row.get("status") or "").upper() != "APPROVED":
+            simulator_warnings.append(
+                f"Start template is {start_row.get('status') or 'draft'} — simulator dry-run only; "
+                "push to Telnyx and wait for Meta approval before live sends."
+            )
 
         return {
             "ok": True,
@@ -413,7 +424,7 @@ class SurveySimulatorService:
             "templates_preview": bank_templates,
             "readiness_ok": bool(readiness.get("ok")),
             "errors": readiness.get("errors") or [],
-            "warnings": readiness.get("warnings") or [],
+            "warnings": simulator_warnings,
             "blocking_errors": blocking,
             "can_start_simulation": len(blocking) == 0,
             "outcome_matrix": readiness.get("outcome_matrix") or [],
@@ -469,6 +480,7 @@ class SurveySimulatorService:
             flow_engine=engine if engine == FLOW_ENGINE_GRAPH else None,
             flow_definition_id=resolved_flow_id,
             flow_branches=branches,
+            allow_unapproved_templates=True,
         )
 
         config = _build_order_config(

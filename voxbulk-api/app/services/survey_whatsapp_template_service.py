@@ -52,6 +52,13 @@ _LOCAL_ID_PREFIX = "local-"
 
 ANONYMOUS_BODY_SENTENCE = "This survey is anonymous. Your name will not appear in the results."
 ANONYMOUS_FOOTER = "Anonymous survey"
+STANDARD_OPT_OUT_FOOTER = "Reply STOP to opt out"
+
+META_FOOTER_MAX_CHARS = 60
+META_HEADER_MAX_CHARS = 60
+META_BODY_HARD_MAX_CHARS = 1024
+META_BODY_SOFT_MAX_CHARS = 550
+META_BUTTON_LABEL_MAX_CHARS = 25
 
 VARIANT_STANDARD = "standard"
 VARIANT_ANONYMOUS = "anonymous"
