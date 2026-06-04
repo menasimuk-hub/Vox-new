@@ -11,9 +11,16 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.industry import Industry
 from app.models.survey_template_pack import SurveyTemplatePack
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.survey_industry_scope import (
+    SurveyIndustryScopeError,
+    apply_industry_to_template,
+    load_industry_for_prompt,
+    resolve_survey_type_industry_id,
+)
 from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_step_bank_service import ALL_STEP_ROLES, PACK_STEP_ROLES, normalize_step_role
 from app.services.wa_template_privacy import (
@@ -435,10 +442,19 @@ def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
     )
 
 
-def _pack_user_prompt(*, survey_type: SurveyType, purpose: str, instruction: str, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
+def _pack_user_prompt(
+    *,
+    survey_type: SurveyType,
+    industry: Industry,
+    purpose: str,
+    instruction: str,
+    privacy_mode: str = PRIVACY_MODE_OFF,
+) -> str:
     privacy_mode = normalize_privacy_mode(privacy_mode)
     is_csat = survey_type.slug in {"customer_satisfaction", "csat", "nps"} or "satisfaction" in survey_type.slug
     parts = [
+        f"Industry: {industry.name}",
+        f"Industry slug: {industry.slug}",
         f"Survey type: {survey_type.name}",
         f"Slug: {survey_type.slug}",
         f"Service type: {survey_type.slug}",
@@ -446,6 +462,9 @@ def _pack_user_prompt(*, survey_type: SurveyType, purpose: str, instruction: str
         f"Description: {survey_type.description or survey_type.name}",
         f"Supports anonymous: {bool(survey_type.supports_anonymous)}",
     ]
+    parts.append(
+        f"Write all copy for the {industry.name} industry — tone, examples, and wording must fit this vertical."
+    )
     if is_csat:
         parts.append(
             "Pack focus: customer satisfaction / post-service feedback for UK businesses. "
@@ -475,6 +494,7 @@ def _single_template_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> s
 def _single_template_user_prompt(
     *,
     survey_type: SurveyType,
+    industry: Industry,
     purpose: str,
     instruction: str,
     slot_hint: str,
@@ -482,7 +502,15 @@ def _single_template_user_prompt(
     sibling_summaries: list[dict[str, Any]] | None,
     privacy_mode: str = PRIVACY_MODE_OFF,
 ) -> str:
-    parts = [_pack_user_prompt(survey_type=survey_type, purpose=purpose, instruction=instruction, privacy_mode=privacy_mode)]
+    parts = [
+        _pack_user_prompt(
+            survey_type=survey_type,
+            industry=industry,
+            purpose=purpose,
+            instruction=instruction,
+            privacy_mode=privacy_mode,
+        )
+    ]
     if slot_hint.strip():
         parts.append(f"Slot/style to preserve: {slot_hint.strip()}")
     if current_template:
@@ -556,14 +584,22 @@ class SurveyWaTemplatePackService:
         privacy_mode: str = PRIVACY_MODE_OFF,
         theme_variant: str = "",
         template_count: int = PACK_SIZE,
+        industry_id: str | None = None,
     ) -> dict[str, Any]:
         privacy_mode = normalize_privacy_mode(privacy_mode)
+        try:
+            industry = load_industry_for_prompt(db, survey_type)
+        except SurveyIndustryScopeError as e:
+            raise SurveyWaTemplatePackError(str(e)) from e
+        if industry_id and str(industry_id).strip() != industry.id:
+            raise SurveyWaTemplatePackError("Industry does not match survey type")
         try:
             raw, meta = OpenAIProviderService.responses_json(
                 db,
                 system_prompt=_pack_system_prompt(privacy_mode=privacy_mode),
                 user_prompt=_pack_user_prompt(
                     survey_type=survey_type,
+                    industry=industry,
                     purpose=purpose,
                     instruction=instruction,
                     privacy_mode=privacy_mode,
@@ -604,6 +640,9 @@ class SurveyWaTemplatePackService:
 
         return {
             "ok": True,
+            "industry_id": industry.id,
+            "industry_slug": industry.slug,
+            "industry_name": industry.name,
             "survey_type_id": survey_type.id,
             "survey_type_name": survey_type.name,
             "service_type": survey_type.slug,
@@ -631,16 +670,24 @@ class SurveyWaTemplatePackService:
         sibling_summaries: list[dict[str, Any]] | None = None,
         seen_names: list[str] | None = None,
         privacy_mode: str = PRIVACY_MODE_OFF,
+        industry_id: str | None = None,
     ) -> dict[str, Any]:
         privacy_mode = normalize_privacy_mode(
             privacy_mode or (current_template or {}).get("privacy_mode") or PRIVACY_MODE_OFF
         )
+        try:
+            industry = load_industry_for_prompt(db, survey_type)
+        except SurveyIndustryScopeError as e:
+            raise SurveyWaTemplatePackError(str(e)) from e
+        if industry_id and str(industry_id).strip() != industry.id:
+            raise SurveyWaTemplatePackError("Industry does not match survey type")
         try:
             raw, meta = OpenAIProviderService.responses_json(
                 db,
                 system_prompt=_single_template_system_prompt(privacy_mode=privacy_mode),
                 user_prompt=_single_template_user_prompt(
                     survey_type=survey_type,
+                    industry=industry,
                     purpose=purpose,
                     instruction=instruction,
                     slot_hint=slot_hint,
@@ -683,15 +730,24 @@ class SurveyWaTemplatePackService:
         theme_variant: str = "",
         purpose: str = "",
         instruction: str = "",
+        industry_id: str | None = None,
     ) -> dict[str, Any]:
         if not templates:
             raise SurveyWaTemplatePackError("Select at least one template to save")
+
+        try:
+            industry_id_resolved = resolve_survey_type_industry_id(survey_type)
+        except SurveyIndustryScopeError as e:
+            raise SurveyWaTemplatePackError(str(e)) from e
+        if industry_id and str(industry_id).strip() != industry_id_resolved:
+            raise SurveyWaTemplatePackError("Industry does not match survey type")
 
         privacy_mode = normalize_privacy_mode(
             privacy_mode or (templates[0] or {}).get("privacy_mode") or PRIVACY_MODE_OFF
         )
         pack = SurveyTemplatePack(
             id=str(uuid.uuid4()),
+            industry_id=industry_id_resolved,
             survey_type_id=survey_type.id,
             privacy_mode=privacy_mode,
             template_count=len(templates),
@@ -746,6 +802,7 @@ class SurveyWaTemplatePackService:
         return {
             "ok": True,
             "pack_id": pack.id,
+            "industry_id": industry_id_resolved,
             "privacy_mode": privacy_mode,
             "saved_count": len(saved),
             "templates": saved,
@@ -787,6 +844,7 @@ class SurveyWaTemplatePackService:
             variant_type=variant,
             privacy_mode=privacy_mode,
             pack_id=pack_id,
+            industry_id=resolve_survey_type_industry_id(survey_type),
             survey_type_id=survey_type.id,
             body_preview=_body_preview(components),
             draft_components_json=_dumps(components),
@@ -799,6 +857,7 @@ class SurveyWaTemplatePackService:
         )
         db.add(row)
         db.flush()
+        apply_industry_to_template(row, survey_type)
 
         if variant == VARIANT_ANONYMOUS:
             SurveyTypeTemplateService.upsert_mapping(

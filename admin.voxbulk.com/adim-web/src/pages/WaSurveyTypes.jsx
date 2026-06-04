@@ -10,6 +10,9 @@ function statusTone(label) {
 }
 
 export default function WaSurveyTypes() {
+  const [industries, setIndustries] = useState([])
+  const [industryFilter, setIndustryFilter] = useState('')
+  const [newIndustryId, setNewIndustryId] = useState('')
   const [types, setTypes] = useState([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -56,18 +59,35 @@ export default function WaSurveyTypes() {
     setErrorDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
   }
 
+  const loadIndustries = useCallback(async () => {
+    try {
+      const data = await apiFetch('/admin/wa-survey/industries')
+      const list = Array.isArray(data?.industries) ? data.industries : []
+      setIndustries(list)
+      setIndustryFilter((prev) => prev || String(list[0]?.id || ''))
+      setNewIndustryId((prev) => prev || String(list[0]?.id || ''))
+    } catch (e) {
+      showError(e, 'Could not load industries')
+    }
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     clearFeedback()
     try {
-      const data = await apiFetch('/admin/wa-survey/types')
+      const qs = industryFilter ? `?industry_id=${encodeURIComponent(industryFilter)}` : ''
+      const data = await apiFetch(`/admin/wa-survey/types${qs}`)
       setTypes(Array.isArray(data?.types) ? data.types : [])
     } catch (e) {
       showError(e, 'Could not load survey types')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [industryFilter])
+
+  useEffect(() => {
+    loadIndustries()
+  }, [loadIndustries])
 
   useEffect(() => {
     load()
@@ -93,9 +113,18 @@ export default function WaSurveyTypes() {
     setCreating(true)
     clearFeedback()
     try {
+      if (!newIndustryId) {
+        showError(new Error('Select an industry first'), 'Industry is required')
+        setCreating(false)
+        return
+      }
       await apiFetch('/admin/wa-survey/types', {
         method: 'POST',
-        body: JSON.stringify({ name: newName.trim(), description: newDescription.trim() || undefined }),
+        body: JSON.stringify({
+          name: newName.trim(),
+          description: newDescription.trim() || undefined,
+          industry_id: newIndustryId,
+        }),
       })
       setShowCreate(false)
       setNewName('')
@@ -142,6 +171,15 @@ export default function WaSurveyTypes() {
           <div className="cardHead"><h2>New survey type</h2></div>
           <div className="cardBody grid2">
             <label className="field">
+              <span>Industry</span>
+              <select className="input" value={newIndustryId} onChange={(e) => setNewIndustryId(e.target.value)} required>
+                <option value="">Select industry…</option>
+                {industries.map((ind) => (
+                  <option key={ind.id} value={ind.id}>{ind.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
               <span>Name</span>
               <input className="input" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Post-visit feedback" required />
             </label>
@@ -170,6 +208,20 @@ export default function WaSurveyTypes() {
         </div>
       ) : null}
 
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="cardBody" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label className="field" style={{ margin: 0, minWidth: 220 }}>
+            <span>Filter by industry</span>
+            <select className="input" value={industryFilter} onChange={(e) => setIndustryFilter(e.target.value)}>
+              <option value="">All industries</option>
+              {industries.map((ind) => (
+                <option key={ind.id} value={ind.id}>{ind.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+
       <div className="card">
         <div className="cardHead">
           <h2>Survey types</h2>
@@ -184,6 +236,7 @@ export default function WaSurveyTypes() {
                 <thead>
                   <tr>
                     <th>Survey type</th>
+                    <th>Industry</th>
                     <th>Active</th>
                     <th>Standard</th>
                     <th>Anonymous</th>
@@ -199,6 +252,7 @@ export default function WaSurveyTypes() {
                         <strong>{row.name}</strong>
                         <div className="muted">{row.description}</div>
                       </td>
+                      <td>{row.industry_name || row.industry_slug || '—'}</td>
                       <td>{row.is_active ? 'Yes' : 'No'}</td>
                       <td>{row.standard_template_count || 0}</td>
                       <td>{row.anonymous_template_count || 0}</td>

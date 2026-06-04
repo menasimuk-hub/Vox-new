@@ -141,6 +141,7 @@ class SurveyGenerationService:
             "ok": True,
             "survey_type": {
                 "id": survey_type.id,
+                "industry_id": survey_type.industry_id,
                 "slug": survey_type.slug,
                 "name": survey_type.name,
             },

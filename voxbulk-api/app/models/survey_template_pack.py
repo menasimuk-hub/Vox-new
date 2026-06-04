@@ -14,6 +14,7 @@ class SurveyTemplatePack(Base):
     __tablename__ = "survey_template_packs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    industry_id: Mapped[str] = mapped_column(String(36), ForeignKey("industries.id"), nullable=False, index=True)
     survey_type_id: Mapped[str] = mapped_column(String(36), ForeignKey("survey_types.id"), nullable=False, index=True)
     privacy_mode: Mapped[str] = mapped_column(String(8), nullable=False, default="off", index=True)
     template_count: Mapped[int] = mapped_column(Integer, nullable=False, default=10)

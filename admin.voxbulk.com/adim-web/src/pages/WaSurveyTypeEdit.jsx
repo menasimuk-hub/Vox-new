@@ -262,7 +262,12 @@ export default function WaSurveyTypeEdit() {
             / {surveyType?.name}
           </div>
           <h1>{surveyType?.name}</h1>
-          <p className="pageLead">{surveyType?.description}</p>
+          <p className="pageLead">
+            {surveyType?.description}
+            {surveyType?.industry_name ? (
+              <span className="muted"> · Industry: {surveyType.industry_name}</span>
+            ) : null}
+          </p>
         </div>
         <div className="pageTopActions">
           <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>
@@ -463,6 +468,7 @@ export default function WaSurveyTypeEdit() {
       <WaSurveyTemplatePackModal
         surveyTypeId={typeId}
         surveyTypeName={surveyType?.name}
+        industryId={surveyType?.industry_id}
         open={packModalOpen}
         onClose={() => setPackModalOpen(false)}
         onSaved={() => void load()}

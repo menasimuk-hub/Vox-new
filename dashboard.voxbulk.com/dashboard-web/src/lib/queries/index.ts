@@ -740,10 +740,20 @@ export function useWhatsappTemplates() {
   });
 }
 
-export function useWaSurveyTypes() {
+export function useWaSurveyIndustries() {
   return useQuery({
-    queryKey: ["dashboard", "wa-survey-types"],
-    queryFn: () => apiFetch<{ ok?: boolean; types?: Array<Record<string, unknown>> }>("/dashboard/service-scripts/wa-survey/types"),
+    queryKey: ["dashboard", "wa-survey-industries"],
+    queryFn: () => apiFetch<{ ok?: boolean; industries?: Array<Record<string, unknown>> }>("/dashboard/service-scripts/wa-survey/industries"),
+  });
+}
+
+export function useWaSurveyTypes(industryId?: string | null) {
+  const qs = industryId ? `?industry_id=${encodeURIComponent(industryId)}` : "";
+  return useQuery({
+    queryKey: ["dashboard", "wa-survey-types", industryId || ""],
+    queryFn: () =>
+      apiFetch<{ ok?: boolean; types?: Array<Record<string, unknown>> }>(`/dashboard/service-scripts/wa-survey/types${qs}`),
+    enabled: Boolean(industryId),
   });
 }
 

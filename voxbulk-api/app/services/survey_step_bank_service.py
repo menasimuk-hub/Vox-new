@@ -184,6 +184,10 @@ def load_step_bank(
         if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
             if not (mapping.is_default_standard or mapping.is_default_anonymous):
                 continue
+        if survey_type is not None and str(row.industry_id or "") and str(row.industry_id) != str(survey_type.industry_id):
+            continue
+        if survey_type is not None and str(mapping.industry_id or "") and str(mapping.industry_id) != str(survey_type.industry_id):
+            continue
         row_pm = resolve_row_privacy_mode(row)
         map_pm = resolve_mapping_privacy_mode(mapping, template_row=row)
         if row_pm != target_privacy or map_pm != target_privacy:
@@ -406,6 +410,7 @@ class SurveyStepBankService:
         )
         return {
             "ok": True,
+            "industry_id": survey_type.industry_id,
             "survey_type_id": survey_type.id,
             "variant": variant,
             "privacy_mode": bank.get("privacy_mode") or variant_to_privacy_mode(variant),

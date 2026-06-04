@@ -9,9 +9,11 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.industry import Industry
 from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.industry_service import IndustryService, industry_to_dict
 from app.services.survey_type_template_service import SurveyTypeTemplateService
 
 DEFAULT_SURVEY_TYPES: list[dict[str, Any]] = [
@@ -54,10 +56,16 @@ LENGTH_OPTIONS = {
 }
 
 
-def survey_type_to_dict(row: SurveyType, *, template_counts: dict[str, int] | None = None) -> dict[str, Any]:
+def survey_type_to_dict(
+    row: SurveyType,
+    *,
+    template_counts: dict[str, int] | None = None,
+    industry: Industry | None = None,
+) -> dict[str, Any]:
     counts = template_counts or {}
-    return {
+    payload = {
         "id": row.id,
+        "industry_id": row.industry_id,
         "slug": row.slug,
         "name": row.name,
         "description": row.description,
@@ -72,19 +80,31 @@ def survey_type_to_dict(row: SurveyType, *, template_counts: dict[str, int] | No
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
+    if industry is not None:
+        payload["industry_slug"] = industry.slug
+        payload["industry_name"] = industry.name
+    return payload
 
 
 class SurveyTypeService:
     @staticmethod
     def ensure_defaults(db: Session) -> None:
+        IndustryService.ensure_defaults(db)
+        default_industry = IndustryService.default_industry(db)
         now = datetime.utcnow()
         for item in DEFAULT_SURVEY_TYPES:
-            existing = db.execute(select(SurveyType).where(SurveyType.slug == item["slug"])).scalar_one_or_none()
+            existing = db.execute(
+                select(SurveyType).where(
+                    SurveyType.industry_id == default_industry.id,
+                    SurveyType.slug == item["slug"],
+                )
+            ).scalar_one_or_none()
             if existing is not None:
                 continue
             db.add(
                 SurveyType(
                     id=str(uuid.uuid4()),
+                    industry_id=default_industry.id,
                     slug=item["slug"],
                     name=item["name"],
                     description=item.get("description"),
@@ -109,13 +129,22 @@ class SurveyTypeService:
         return [m.template_id for m in SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)]
 
     @staticmethod
-    def list_types(db: Session) -> list[dict[str, Any]]:
+    def list_types(db: Session, *, industry_id: str | None = None) -> list[dict[str, Any]]:
         SurveyTypeService.ensure_defaults(db)
-        rows = list(db.execute(select(SurveyType).order_by(SurveyType.sort_order.asc(), SurveyType.name.asc())).scalars())
+        stmt = select(SurveyType).order_by(SurveyType.sort_order.asc(), SurveyType.name.asc())
+        if industry_id:
+            stmt = stmt.where(SurveyType.industry_id == str(industry_id).strip())
+        rows = list(db.execute(stmt).scalars())
+        industry_cache: dict[str, Industry] = {}
         payload: list[dict[str, Any]] = []
         for row in rows:
+            industry = industry_cache.get(row.industry_id)
+            if industry is None and row.industry_id:
+                industry = db.get(Industry, row.industry_id)
+                if industry is not None:
+                    industry_cache[row.industry_id] = industry
             counts = SurveyTypeService._template_counts(db, row.id)
-            data = survey_type_to_dict(row, template_counts=counts)
+            data = survey_type_to_dict(row, template_counts=counts, industry=industry)
             linked_ids = SurveyTypeService._linked_template_ids(db, row.id)
             if linked_ids:
                 last_sync = db.execute(
@@ -162,11 +191,14 @@ class SurveyTypeService:
         return db.get(SurveyType, tid)
 
     @staticmethod
-    def get_by_slug(db: Session, slug: str) -> SurveyType | None:
+    def get_by_slug(db: Session, slug: str, *, industry_id: str | None = None) -> SurveyType | None:
         key = str(slug or "").strip().lower()
         if not key:
             return None
-        return db.execute(select(SurveyType).where(SurveyType.slug == key)).scalar_one_or_none()
+        stmt = select(SurveyType).where(SurveyType.slug == key)
+        if industry_id:
+            stmt = stmt.where(SurveyType.industry_id == str(industry_id).strip())
+        return db.execute(stmt).scalar_one_or_none()
 
     @staticmethod
     def create_type(db: Session, payload: dict[str, Any]) -> SurveyType:
@@ -178,12 +210,16 @@ class SurveyTypeService:
         slug = "_".join(part for part in slug.split("_") if part)
         if not slug:
             raise ValueError("Survey type slug is required")
-        existing = db.execute(select(SurveyType).where(SurveyType.slug == slug)).scalar_one_or_none()
+        industry = IndustryService.require_industry_id(db, str(payload.get("industry_id") or ""))
+        existing = db.execute(
+            select(SurveyType).where(SurveyType.industry_id == industry.id, SurveyType.slug == slug)
+        ).scalar_one_or_none()
         if existing is not None:
-            raise ValueError(f"A survey type with slug “{slug}” already exists")
+            raise ValueError(f"A survey type with slug “{slug}” already exists in this industry")
         now = datetime.utcnow()
         row = SurveyType(
             id=str(uuid.uuid4()),
+            industry_id=industry.id,
             slug=slug,
             name=name,
             description=str(payload.get("description") or "").strip() or None,
@@ -222,6 +258,9 @@ class SurveyTypeService:
             row.max_length = max(row.min_length, min(12, int(payload["max_length"] or 6)))
         if "supports_anonymous" in payload:
             row.supports_anonymous = bool(payload["supports_anonymous"])
+        if "industry_id" in payload and str(payload.get("industry_id") or "").strip():
+            industry = IndustryService.require_industry_id(db, str(payload["industry_id"]))
+            row.industry_id = industry.id
         row.updated_at = datetime.utcnow()
         db.add(row)
         db.commit()

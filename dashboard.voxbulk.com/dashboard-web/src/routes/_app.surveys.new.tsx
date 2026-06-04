@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
-import { useCreateServiceOrder, usePatchServiceOrder, useSurveyPackages, useWaSurveyTypes, useWaSurveyStepBank, useGenerateWaSurvey } from "@/lib/queries";
+import { useCreateServiceOrder, usePatchServiceOrder, useSurveyPackages, useWaSurveyIndustries, useWaSurveyTypes, useWaSurveyStepBank, useGenerateWaSurvey } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/surveys/new")({
   head: () => ({ meta: [{ title: "Create survey — VoxBulk" }] }),
@@ -49,6 +49,7 @@ function CreateSurvey() {
 
   const [method, setMethod] = React.useState<"phone" | "whatsapp">("phone");
   const [waPreview, setWaPreview] = React.useState<Record<string, unknown> | null>(null);
+  const [industryId, setIndustryId] = React.useState("");
   const [surveyTypeId, setSurveyTypeId] = React.useState("");
   const [privacyMode, setPrivacyMode] = React.useState<"off" | "on">("off");
   const surveyVariant = privacyMode === "on" ? "anonymous" : "standard";
@@ -57,7 +58,8 @@ function CreateSurvey() {
   const [manualMiddleRoles, setManualMiddleRoles] = React.useState<string[]>([]);
   const [generating, setGenerating] = React.useState(false);
   const [waOpen, setWaOpen] = React.useState(false);
-  const waTypesQ = useWaSurveyTypes();
+  const waIndustriesQ = useWaSurveyIndustries();
+  const waTypesQ = useWaSurveyTypes(industryId || null);
   const stepBankQ = useWaSurveyStepBank(method === "whatsapp" ? surveyTypeId : null, privacyMode);
   const generateWaM = useGenerateWaSurvey();
   const [quote, setQuote] = React.useState(false);
@@ -99,6 +101,15 @@ function CreateSurvey() {
     setOrderId(created.id);
     return created.id;
   };
+
+  React.useEffect(() => {
+    const industries = (waIndustriesQ.data?.industries || []) as Array<Record<string, unknown>>;
+    if (industries[0] && !industryId) setIndustryId(String(industries[0].id));
+  }, [waIndustriesQ.data, industryId]);
+
+  React.useEffect(() => {
+    setSurveyTypeId("");
+  }, [industryId]);
 
   React.useEffect(() => {
     const types = (waTypesQ.data?.types || []) as Array<Record<string, unknown>>;
@@ -299,9 +310,19 @@ function CreateSurvey() {
           </div>
           {method === "whatsapp" && (
             <>
+              <Field label="Industry">
+                <Select value={industryId} onValueChange={setIndustryId}>
+                  <SelectTrigger><SelectValue placeholder="Select industry" /></SelectTrigger>
+                  <SelectContent>
+                    {((waIndustriesQ.data?.industries || []) as Array<Record<string, unknown>>).map((ind) => (
+                      <SelectItem key={String(ind.id)} value={String(ind.id)}>{String(ind.name)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
               <Field label="Survey type">
-                <Select value={surveyTypeId} onValueChange={setSurveyTypeId}>
-                  <SelectTrigger><SelectValue placeholder="Select survey type" /></SelectTrigger>
+                <Select value={surveyTypeId} onValueChange={setSurveyTypeId} disabled={!industryId}>
+                  <SelectTrigger><SelectValue placeholder={industryId ? "Select survey type" : "Select industry first"} /></SelectTrigger>
                   <SelectContent>
                     {((waTypesQ.data?.types || []) as Array<Record<string, unknown>>).map((t) => (
                       <SelectItem key={String(t.id)} value={String(t.id)}>{String(t.name)}</SelectItem>

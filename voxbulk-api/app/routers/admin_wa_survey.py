@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.admin_rbac import CAP_INTEGRATION, require_cap
 from app.core.database import get_db
 from app.services.survey_generation_service import SurveyGenerationService
+from app.models.industry import Industry
+from app.services.industry_service import IndustryService
 from app.services.survey_type_service import SurveyTypeService, survey_type_to_dict
 from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackError, SurveyWaTemplatePackService
 from app.services.survey_whatsapp_template_service import (
@@ -25,9 +27,18 @@ def _raise_wa_survey_error(exc: SurveyWhatsappTemplateError, *, status_code: int
     raise HTTPException(status_code=code, detail=payload) from exc
 
 
+@router.get("/industries")
+def list_industries(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    return {"ok": True, "industries": IndustryService.list_industries(db)}
+
+
 @router.get("/types")
-def list_survey_types(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    return {"ok": True, "types": SurveyTypeService.list_types(db)}
+def list_survey_types(
+    industry_id: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return {"ok": True, "types": SurveyTypeService.list_types(db, industry_id=industry_id)}
 
 
 @router.post("/types")
@@ -41,7 +52,8 @@ def create_survey_type(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     counts = SurveyTypeService._template_counts(db, row.id)
-    return {"ok": True, "type": survey_type_to_dict(row, template_counts=counts)}
+    industry = db.get(Industry, row.industry_id) if row.industry_id else None
+    return {"ok": True, "type": survey_type_to_dict(row, template_counts=counts, industry=industry)}
 
 
 @router.get("/types/{type_id}")
@@ -55,10 +67,11 @@ def get_survey_type(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
     counts = SurveyTypeService._template_counts(db, row.id)
+    industry = db.get(Industry, row.industry_id) if row.industry_id else None
     templates = SurveyWhatsappTemplateService.list_for_survey_type(db, row.id, privacy_mode=privacy_mode)
     return {
         "ok": True,
-        "type": survey_type_to_dict(row, template_counts=counts),
+        "type": survey_type_to_dict(row, template_counts=counts, industry=industry),
         "templates": templates,
     }
 
@@ -123,6 +136,7 @@ def generate_template_pack(
             privacy_mode=str(body.get("privacy_mode") or "off"),
             theme_variant=str(body.get("theme_variant") or body.get("category") or "").strip(),
             template_count=int(body.get("template_count") or 10),
+            industry_id=str(body.get("industry_id") or "").strip() or None,
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
@@ -150,6 +164,7 @@ def save_template_pack(
             theme_variant=str(payload.get("theme_variant") or "").strip(),
             purpose=str(payload.get("purpose") or "").strip(),
             instruction=str(payload.get("instruction") or "").strip(),
+            industry_id=str(payload.get("industry_id") or "").strip() or None,
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -178,6 +193,7 @@ def regenerate_template_pack_item(
             sibling_summaries=body.get("sibling_summaries") if isinstance(body.get("sibling_summaries"), list) else None,
             seen_names=body.get("seen_names") if isinstance(body.get("seen_names"), list) else None,
             privacy_mode=str(body.get("privacy_mode") or "off"),
+            industry_id=str(body.get("industry_id") or "").strip() or None,
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e

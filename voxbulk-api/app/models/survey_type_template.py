@@ -17,6 +17,7 @@ class SurveyTypeTemplate(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    industry_id: Mapped[str] = mapped_column(String(36), ForeignKey("industries.id"), nullable=False, index=True)
     survey_type_id: Mapped[str] = mapped_column(String(36), ForeignKey("survey_types.id"), nullable=False, index=True)
     template_id: Mapped[int] = mapped_column(Integer, ForeignKey("telnyx_whatsapp_templates.id"), nullable=False, index=True)
     usable_as_standard: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

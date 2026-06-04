@@ -13,6 +13,7 @@ from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 
+from app.services.survey_industry_scope import apply_industry_to_template, assert_industry_match, resolve_survey_type_industry_id
 from app.services.wa_template_privacy import (
     PRIVACY_MODE_OFF,
     PRIVACY_MODE_ON,
@@ -72,12 +73,14 @@ def mapping_to_dict(row: SurveyTypeTemplate, *, survey_type: SurveyType | None =
         "is_default_standard": bool(row.is_default_standard),
         "is_default_anonymous": bool(row.is_default_anonymous),
         "privacy_mode": resolve_mapping_privacy_mode(row),
+        "industry_id": row.industry_id,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
     if survey_type is not None:
         data["survey_type_name"] = survey_type.name
         data["survey_type_slug"] = survey_type.slug
+        data["industry_id"] = survey_type.industry_id
     return data
 
 
@@ -209,6 +212,20 @@ class SurveyTypeTemplateService:
         is_default_anonymous: bool = False,
         privacy_mode: str | None = None,
     ) -> SurveyTypeTemplate:
+        survey_type = db.get(SurveyType, survey_type_id)
+        if survey_type is None:
+            raise SurveyTypeTemplateError("Survey type not found")
+        industry_id = resolve_survey_type_industry_id(survey_type)
+        tpl = db.get(TelnyxWhatsappTemplate, template_id)
+        if tpl is None:
+            raise SurveyTypeTemplateError("Template not found")
+        assert_industry_match(
+            expected_industry_id=industry_id,
+            actual_industry_id=getattr(tpl, "industry_id", None),
+            message="Cannot link a template from a different industry",
+        )
+        apply_industry_to_template(tpl, survey_type)
+
         if usable_as_anonymous and not usable_as_standard:
             resolved_privacy = normalize_privacy_mode(PRIVACY_MODE_ON if privacy_mode is None else privacy_mode)
         elif usable_as_standard and not usable_as_anonymous:
@@ -241,6 +258,7 @@ class SurveyTypeTemplateService:
         now = datetime.utcnow()
         if row is None:
             row = SurveyTypeTemplate(
+                industry_id=industry_id,
                 survey_type_id=survey_type_id,
                 template_id=template_id,
                 created_at=now,
@@ -248,6 +266,7 @@ class SurveyTypeTemplateService:
             )
             db.add(row)
 
+        row.industry_id = industry_id
         row.usable_as_standard = bool(usable_as_standard)
         row.usable_as_anonymous = bool(usable_as_anonymous)
         row.is_default_standard = bool(is_default_standard)

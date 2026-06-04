@@ -252,11 +252,12 @@ function WaPackGenCard({
   )
 }
 
-export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName, open, onClose, onSaved }) {
+export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName, industryId, open, onClose, onSaved }) {
   const [instruction, setInstruction] = useState('')
   const [purpose, setPurpose] = useState('')
   const [categoryHint, setCategoryHint] = useState('MARKETING')
-  const [industryHint, setIndustryHint] = useState('healthcare')
+  const [industries, setIndustries] = useState([])
+  const [selectedIndustryId, setSelectedIndustryId] = useState(industryId || '')
   const [privacyMode, setPrivacyMode] = useState('off')
   const [templateCount] = useState(10)
   const [working, setWorking] = useState('')
@@ -274,7 +275,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     setInstruction('')
     setPurpose('')
     setCategoryHint('MARKETING')
-    setIndustryHint('healthcare')
+    setSelectedIndustryId(industryId || '')
     setPrivacyMode('off')
     setError('')
     setToast('')
@@ -289,7 +290,24 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
 
   useEffect(() => {
     if (!open) reset()
-  }, [open])
+  }, [open, industryId])
+
+  useEffect(() => {
+    if (!open) return undefined
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await apiFetch('/admin/wa-survey/industries')
+        if (cancelled) return
+        const list = Array.isArray(data?.industries) ? data.industries : []
+        setIndustries(list)
+        setSelectedIndustryId((prev) => prev || industryId || String(list[0]?.id || ''))
+      } catch {
+        if (!cancelled) setIndustries([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [open, industryId])
 
   useEffect(() => {
     if (!open) return undefined
@@ -311,9 +329,12 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   const buildInstruction = () => {
     const parts = [instruction.trim()]
     if (categoryHint) parts.push(`Template category focus: ${categoryHint}`)
-    if (industryHint) parts.push(`Industry context: ${industryHint}`)
     return parts.filter(Boolean).join('\n')
   }
+
+  const selectedIndustry = industries.find((i) => String(i.id) === String(selectedIndustryId))
+  const industryLocked = Boolean(industryId)
+  const canGenerate = Boolean(selectedIndustryId) && (!industryLocked || String(selectedIndustryId) === String(industryId))
 
   const showToast = (text) => setToast(text)
 
@@ -332,13 +353,18 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
       .map((i) => i.template.template_name)
 
   const packPayloadMeta = () => ({
+    industry_id: selectedIndustryId,
     privacy_mode: privacyMode,
-    theme_variant: [categoryHint, industryHint].filter(Boolean).join(' · '),
+    theme_variant: categoryHint || undefined,
     purpose,
     instruction: buildInstruction(),
   })
 
   const generatePack = async () => {
+    if (!canGenerate) {
+      setError(industryLocked ? 'Industry must match this survey type' : 'Select an industry before generating')
+      return
+    }
     setWorking('generate')
     setError('')
     setCardErrors({})
@@ -346,11 +372,12 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/generate-pack`, {
         method: 'POST',
         body: JSON.stringify({
+          industry_id: selectedIndustryId,
           instruction: buildInstruction(),
           purpose,
           privacy_mode: privacyMode,
           template_count: templateCount,
-          theme_variant: [categoryHint, industryHint].filter(Boolean).join(' · '),
+          theme_variant: categoryHint || undefined,
         }),
       })
       const stamped = {
@@ -692,6 +719,19 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                 />
               </div>
               <div className="waTplGen-field">
+                <label>Industry</label>
+                <select
+                  value={selectedIndustryId}
+                  onChange={(e) => setSelectedIndustryId(e.target.value)}
+                  disabled={industryLocked || Boolean(pack)}
+                >
+                  <option value="">Select industry…</option>
+                  {industries.map((ind) => (
+                    <option key={ind.id} value={ind.id}>{ind.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="waTplGen-field">
                 <label>Survey type (service type)</label>
                 <input type="text" value={surveyTypeName} readOnly />
               </div>
@@ -707,10 +747,6 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                 </select>
               </div>
               <div className="waTplGen-field">
-                <label>Theme / variant</label>
-                <input type="text" value={[categoryHint, industryHint].filter(Boolean).join(' · ')} readOnly />
-              </div>
-              <div className="waTplGen-field">
                 <label>Template Category</label>
                 <select value={categoryHint} onChange={(e) => setCategoryHint(e.target.value)}>
                   <option value="MARKETING">Marketing</option>
@@ -718,18 +754,12 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                   <option value="AUTHENTICATION">Authentication</option>
                 </select>
               </div>
-              <div className="waTplGen-field">
-                <label>Industry (hint)</label>
-                <select value={industryHint} onChange={(e) => setIndustryHint(e.target.value)}>
-                  <option value="healthcare">Healthcare / Medical</option>
-                  <option value="ecommerce">E-commerce / Retail</option>
-                  <option value="finance">Finance / Banking</option>
-                  <option value="hospitality">Hospitality / Travel</option>
-                  <option value="education">Education</option>
-                  <option value="saas">SaaS / Tech</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
+              {selectedIndustry ? (
+                <div className="waTplGen-field waTplGen-field-full">
+                  <label>Current selection</label>
+                  <input type="text" readOnly value={`${selectedIndustry.name} · ${surveyTypeName} · Privacy ${privacyMode === 'on' ? 'On' : 'Off'}`} />
+                </div>
+              ) : null}
               <div className="waTplGen-field waTplGen-field-full">
                 <label>Admin Instructions (extra context, do&apos;s/don&apos;ts, brand voice…)</label>
                 <textarea
@@ -743,7 +773,7 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
               <button
                 type="button"
                 className={`waTplGen-generate-btn${working === 'generate' ? ' loading' : ''}`}
-                disabled={working === 'generate'}
+                disabled={working === 'generate' || !canGenerate}
                 onClick={generatePack}
               >
                 <div className="spinner" />

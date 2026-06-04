@@ -128,11 +128,22 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
     return {"ok": True, "service_code": service_code, **result}
 
 
+@router.get("/wa-survey/industries")
+def list_wa_survey_industries(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.industry_service import IndustryService
+
+    return {"ok": True, "industries": IndustryService.list_industries(db)}
+
+
 @router.get("/wa-survey/types")
-def list_wa_survey_types(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def list_wa_survey_types(
+    industry_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
     from app.services.survey_type_service import SurveyTypeService
 
-    types = [t for t in SurveyTypeService.list_types(db) if t.get("is_active")]
+    types = [t for t in SurveyTypeService.list_types(db, industry_id=industry_id) if t.get("is_active")]
     return {"ok": True, "types": types}
 
 

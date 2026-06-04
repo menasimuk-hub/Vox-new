@@ -503,6 +503,7 @@ def survey_template_to_dict(
         "linked_survey_type_count": linked_survey_type_count,
         "step_role": str(row.step_role or "").strip().lower() or None,
         "privacy_mode": resolve_row_privacy_mode(row),
+        "industry_id": row.industry_id,
         "pack_id": row.pack_id,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         **workflow,
@@ -538,6 +539,8 @@ class SurveyWhatsappTemplateService:
             if row is None:
                 continue
             if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
+                continue
+            if survey_type is not None and str(row.industry_id or "") and str(row.industry_id) != str(survey_type.industry_id):
                 continue
             if target_privacy is not None:
                 row_pm = resolve_row_privacy_mode(row)

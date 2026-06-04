@@ -48,6 +48,7 @@ from app.models.smtp_settings import SmtpSettings  # noqa: F401
 from app.models.email_template import EmailTemplate  # noqa: F401
 from app.models.whatsapp_template import WhatsAppTemplate  # noqa: F401
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate  # noqa: F401
+from app.models.industry import Industry  # noqa: F401
 from app.models.survey_type import SurveyType  # noqa: F401
 from app.models.survey_type_template import SurveyTypeTemplate  # noqa: F401
 from app.models.survey_template_pack import SurveyTemplatePack  # noqa: F401

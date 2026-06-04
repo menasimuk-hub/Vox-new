@@ -26,6 +26,7 @@ class TelnyxWhatsappTemplate(Base):
     components_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     waba_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    industry_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("industries.id"), nullable=True, index=True)
     survey_type_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("survey_types.id"), nullable=True, index=True)
     variant_type: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     step_role: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
