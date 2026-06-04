@@ -202,6 +202,7 @@ const NAV = [
       ['Feature flags', '/settings/flags'],
       ['Email / notification settings', '/settings/email'],
       ['WA Survey', '/settings/wa-survey'],
+      ['WA Survey flow simulator', '/settings/wa-survey/simulator'],
       ['WA Survey industries', '/settings/wa-survey/industries'],
       ['Legal pages', '/settings/legal'],
       ['API keys / secrets', '/settings/api-keys'],

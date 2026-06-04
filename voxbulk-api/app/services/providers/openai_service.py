@@ -17,6 +17,8 @@ from app.services.agents.base import AgentMessage, AgentToolCall
 from app.services.provider_settings import ProviderSettingsService
 
 logger = logging.getLogger(__name__)
+
+RESPONSES_READ_TIMEOUT_SECONDS = float(os.getenv("OPENAI_RESPONSES_TIMEOUT_SECONDS") or 300)
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
 DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
 GROQ_DEFAULT_BASE_URL = "https://api.groq.com/openai"
@@ -133,6 +135,11 @@ class OpenAIProviderService:
                 if OpenAIProviderService._client is None:
                     OpenAIProviderService._client = httpx.Client(timeout=30.0, verify=OpenAIProviderService._ssl_context())
         return OpenAIProviderService._client
+
+    @staticmethod
+    def _responses_timeout() -> httpx.Timeout:
+        read = max(60.0, RESPONSES_READ_TIMEOUT_SECONDS)
+        return httpx.Timeout(connect=30.0, read=read, write=60.0, pool=30.0)
 
     @staticmethod
     def _config(db: Session) -> dict[str, Any]:
@@ -494,12 +501,18 @@ class OpenAIProviderService:
                 "max_output_tokens": payload["max_output_tokens"],
             },
         )
-        response = OpenAIProviderService._http_client().post(
-            OpenAIProviderService._endpoint_url(config, endpoint_path),
-            json=payload,
-            headers=OpenAIProviderService._headers(config),
-            timeout=120.0,
-        )
+        try:
+            response = OpenAIProviderService._http_client().post(
+                OpenAIProviderService._endpoint_url(config, endpoint_path),
+                json=payload,
+                headers=OpenAIProviderService._headers(config),
+                timeout=OpenAIProviderService._responses_timeout(),
+            )
+        except httpx.TimeoutException as e:
+            raise ValueError(
+                f"OpenAI Responses request timed out after {RESPONSES_READ_TIMEOUT_SECONDS:.0f}s. "
+                "Generating 10 templates can take several minutes — please try again."
+            ) from e
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
