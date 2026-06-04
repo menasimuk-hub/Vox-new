@@ -16,12 +16,22 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.survey_session import SurveySession
 from app.models.user import User
 from app.services.survey_flow_config_service import attach_flow_to_config, is_graph_flow, is_simulator_dry_run
-from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH, FLOW_ENGINE_LINEAR
+from app.services.survey_flow_constants import (
+    DECISION_BRANCH_PICKER_RESULT,
+    DECISION_BRANCH_TAKE,
+    FLOW_ENGINE_GRAPH,
+    FLOW_ENGINE_LINEAR,
+)
+from app.services.survey_flow_definition_service import SurveyFlowDefinitionService
 from app.services.survey_flow_picker_service import SurveyFlowPickerService
 from app.services.survey_picker_settings_service import SurveyPickerSettingsService
 from app.services.survey_generation_service import SurveyGenerationService
 from app.services.survey_session_service import SurveySessionService
+from app.services.survey_step_bank_service import SurveyStepBankService
+from app.services.survey_type_service import SurveyTypeService
+from app.services.survey_wa_readiness_service import SurveyWaReadinessService
 from app.services.survey_wa_test_pack_seed_service import SurveyWaTestPackSeedService
+from app.services.wa_template_privacy import privacy_mode_to_variant
 from app.services.survey_whatsapp_conversation_service import (
     _order_config,
     _recipient_result,
@@ -67,6 +77,94 @@ AI_PICKER_TEST_BRANCHES: list[dict[str, Any]] = [
         },
     },
 ]
+
+
+def _templates_manifest_from_composed(generated: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    start_id = generated.get("wa_template_id")
+    if start_id:
+        rows.append(
+            {
+                "step_role": "start",
+                "template_id": start_id,
+                "template_name": generated.get("wa_template_name"),
+                "status": "APPROVED",
+                "usage": "intro",
+            }
+        )
+    for page in generated.get("pages") or []:
+        if not isinstance(page, dict):
+            continue
+        role = str(page.get("step_role") or "")
+        if role in ("start", "completion"):
+            continue
+        rows.append(
+            {
+                "step_role": role,
+                "template_id": page.get("template_id"),
+                "template_name": page.get("title") or page.get("display_name"),
+                "status": page.get("approval_status") or page.get("status"),
+                "usage": "question",
+            }
+        )
+    snap = generated.get("flow_snapshot")
+    if isinstance(snap, dict):
+        for oc in snap.get("outcome_actions") or []:
+            if not isinstance(oc, dict):
+                continue
+            rows.append(
+                {
+                    "step_role": "completion",
+                    "outcome_key": oc.get("outcome_key"),
+                    "template_id": oc.get("template_id"),
+                    "template_name": (oc.get("template_send") or {}).get("template_name"),
+                    "status": (oc.get("template_send") or {}).get("approval_status"),
+                    "action_type": oc.get("action_type"),
+                    "usage": "outcome",
+                }
+            )
+    return rows
+
+
+def _templates_manifest_from_bank(bank: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for role, item in (bank.get("by_role") or {}).items():
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "step_role": role,
+                "template_id": item.get("template_id"),
+                "template_name": item.get("display_name") or item.get("template_name"),
+                "status": item.get("status") or item.get("approval_status"),
+                "usage": "completion" if role == "completion" else ("start" if role == "start" else "question"),
+            }
+        )
+    return rows
+
+
+def _latest_branch_decision(db: Session, session_id: str) -> dict[str, Any] | None:
+    for row in reversed(SurveySessionService.list_decisions(db, session_id)):
+        if row.decision_kind not in (
+            DECISION_BRANCH_TAKE,
+            DECISION_BRANCH_PICKER_RESULT,
+            "branch_evaluate",
+        ):
+            continue
+        try:
+            ctx = json.loads(row.context_json or "{}")
+        except Exception:
+            ctx = {}
+        return {
+            "decision_kind": row.decision_kind,
+            "rule_key": row.rule_key,
+            "picker": row.picker,
+            "from_role": row.from_role,
+            "to_role": row.to_role,
+            "reason": row.reason,
+            "context": ctx if isinstance(ctx, dict) else {},
+        }
+    return None
 
 
 def _loads_delivery(raw: str | None) -> dict[str, Any]:
@@ -135,6 +233,7 @@ def _build_order_config(
         "simulator_force_template_fail": bool(force_outcome_text_fallback),
         "ai_picker_enabled": bool(ai_picker_enabled),
         "simulator_mock_picker": bool(simulator_mock_picker),
+        "simulator_use_saved_templates": True,
     }
     extras = generated.get("order_config_flow") or {}
     if flow_engine == FLOW_ENGINE_GRAPH and extras:
@@ -223,11 +322,17 @@ def _session_state(
         "simulator_phone": recipient.phone,
         "ai_picker_enabled": bool(config.get("ai_picker_enabled")),
         "picker_invocation_count": int(session.picker_invocation_count or 0) if session else 0,
+        "templates_in_use": config.get("simulator_templates_manifest") or [],
+        "use_saved_templates": bool(config.get("simulator_use_saved_templates")),
+        "flow_definition_id": config.get("flow_definition_id"),
     }
     if session:
         picker_dbg = SurveyFlowPickerService.latest_picker_debug(db, session.id)
         if picker_dbg:
             state["picker_debug"] = picker_dbg
+        branch = _latest_branch_decision(db, session.id)
+        if branch:
+            state["last_branch_decision"] = branch
     if extra:
         state.update(extra)
     return state
@@ -257,6 +362,59 @@ class SurveySimulatorService:
         }
 
     @staticmethod
+    def prefill_for_survey_type(
+        db: Session,
+        *,
+        survey_type_id: str,
+        privacy_mode: str = "off",
+    ) -> dict[str, Any]:
+        st = SurveyTypeService.get_type(db, survey_type_id)
+        if st is None:
+            raise ValueError("Survey type not found")
+        pm = normalize_privacy_mode(privacy_mode)
+        variant = privacy_mode_to_variant(pm)
+        readiness = SurveyWaReadinessService.readiness(db, survey_type_id=survey_type_id, privacy_mode=pm)
+        published = readiness.get("published_flow")
+        flow_engine = FLOW_ENGINE_GRAPH if published else FLOW_ENGINE_LINEAR
+        flow_definition_id = str(published["id"]) if published else None
+
+        bank = SurveyStepBankService.get_bank(db, survey_type=st, variant=variant, privacy_mode=pm)
+        bank_templates = _templates_manifest_from_bank(bank)
+
+        platform_on = SurveyPickerSettingsService.is_platform_picker_enabled(db)
+        ai_nodes = int(readiness.get("ai_assisted_node_count") or 0)
+        ai_picker_default = bool(platform_on and ai_nodes > 0 and flow_engine == FLOW_ENGINE_GRAPH)
+
+        blocking: list[str] = []
+        for err in readiness.get("errors") or []:
+            if "start template" in str(err).lower() or "step_role not in step bank" in str(err).lower():
+                blocking.append(err)
+        if not (bank.get("by_role") or {}).get("start"):
+            blocking.append("No start template in saved step bank for this privacy mode.")
+
+        return {
+            "ok": True,
+            "survey_type_id": survey_type_id,
+            "survey_type_name": st.name,
+            "industry_id": st.industry_id,
+            "privacy_mode": pm,
+            "flow_engine": flow_engine,
+            "flow_definition_id": flow_definition_id,
+            "published_flow": published,
+            "ai_picker_enabled_default": ai_picker_default,
+            "platform_picker_enabled": platform_on,
+            "use_saved_templates": True,
+            "templates_preview": bank_templates,
+            "readiness_ok": bool(readiness.get("ok")),
+            "errors": readiness.get("errors") or [],
+            "warnings": readiness.get("warnings") or [],
+            "blocking_errors": blocking,
+            "can_start_simulation": len(blocking) == 0,
+            "outcome_matrix": readiness.get("outcome_matrix") or [],
+            "step_bank_missing": bank.get("missing_roles") or [],
+        }
+
+    @staticmethod
     def start(
         db: Session,
         *,
@@ -269,8 +427,11 @@ class SurveySimulatorService:
         force_outcome_text_fallback: bool = False,
         ai_picker_enabled: bool = False,
         simulator_mock_picker: bool = True,
+        flow_definition_id: str | None = None,
+        skip_test_pack_seed: bool = False,
     ) -> dict[str, Any]:
-        SurveyWaTestPackSeedService.ensure_test_pack(db)
+        if not skip_test_pack_seed:
+            SurveyWaTestPackSeedService.ensure_test_pack(db)
         pm = normalize_privacy_mode(privacy_mode)
         engine = str(flow_engine or FLOW_ENGINE_LINEAR).strip().lower()
         roles = selected_step_roles
@@ -280,6 +441,14 @@ class SurveySimulatorService:
         branches = flow_branches
         if branches is None:
             branches = AI_PICKER_TEST_BRANCHES if ai_picker_enabled else DEFAULT_GRAPH_BRANCHES
+
+        resolved_flow_id = flow_definition_id
+        if engine == FLOW_ENGINE_GRAPH and not resolved_flow_id:
+            pub = SurveyFlowDefinitionService.get_published_default(
+                db, survey_type_id=survey_type_id, privacy_mode=pm
+            )
+            if pub is not None:
+                resolved_flow_id = pub.id
 
         generated = SurveyGenerationService.generate(
             db,
@@ -292,6 +461,7 @@ class SurveySimulatorService:
             client_name="Acme Services",
             organiser_name="Test Team",
             flow_engine=engine if engine == FLOW_ENGINE_GRAPH else None,
+            flow_definition_id=resolved_flow_id,
             flow_branches=branches,
         )
 
@@ -303,6 +473,9 @@ class SurveySimulatorService:
             ai_picker_enabled=ai_picker_enabled,
             simulator_mock_picker=simulator_mock_picker,
         )
+        config["simulator_templates_manifest"] = _templates_manifest_from_composed(generated)
+        if resolved_flow_id:
+            config["flow_definition_id"] = resolved_flow_id
 
         org, user = _ensure_simulator_org(db)
         phone = f"{SIMULATOR_PHONE_PREFIX}{uuid.uuid4().int % 10000:04d}"
@@ -340,9 +513,12 @@ class SurveySimulatorService:
         send_first_question(db, order=order, recipient=recipient, config=config)
         db.refresh(recipient)
         session = SurveySessionService.get_by_recipient(db, recipient.id)
+        state = _session_state(db, order=order, recipient=recipient, session=session)
         return {
             "ok": True,
-            "state": _session_state(db, order=order, recipient=recipient, session=session),
+            "state": state,
+            "templates_in_use": state.get("templates_in_use") or [],
+            "flow_definition_id": resolved_flow_id,
         }
 
     @staticmethod

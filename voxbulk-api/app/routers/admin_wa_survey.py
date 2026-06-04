@@ -783,6 +783,21 @@ def wa_survey_observability_overview(
     }
 
 
+@router.get("/types/{type_id}/simulator-prefill")
+def simulator_prefill_for_type(
+    type_id: str,
+    privacy_mode: str = "off",
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        return SurveySimulatorService.prefill_for_survey_type(
+            db, survey_type_id=type_id, privacy_mode=privacy_mode
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/simulator/options")
 def simulator_options(
     db: Session = Depends(get_db),
@@ -812,6 +827,8 @@ def simulator_start(
             force_outcome_text_fallback=bool(body.get("force_outcome_text_fallback")),
             ai_picker_enabled=bool(body.get("ai_picker_enabled")),
             simulator_mock_picker=bool(body.get("simulator_mock_picker", True)),
+            flow_definition_id=str(body.get("flow_definition_id") or "").strip() or None,
+            skip_test_pack_seed=bool(body.get("skip_test_pack_seed", True)),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
+import { buildWaSurveySimulatorUrl } from '../lib/waSurveySimulatorLink'
 import { resolveTelnyxSyncLabel, telnyxSyncPillClass } from '../lib/waSurveyTelnyxSync'
 import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
 import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
@@ -297,11 +298,30 @@ export default function WaSurveyTypeEdit() {
           </p>
         </div>
         <div className="pageTopActions">
+          <Link
+            className="btn primary"
+            to={buildWaSurveySimulatorUrl({
+              surveyTypeId: typeId,
+              privacyMode: templatePrivacyFilter,
+              industryId: surveyType?.industry_id,
+              autoStart: true,
+            })}
+          >
+            Simulate workflow
+          </Link>
           <Link className="btn" to={`/settings/wa-survey/${typeId}/flows`}>
             Flows
           </Link>
-          <Link className="btn" to="/settings/wa-survey/simulator">
-            Simulator
+          <Link
+            className="btn"
+            to={buildWaSurveySimulatorUrl({
+              surveyTypeId: typeId,
+              privacyMode: templatePrivacyFilter,
+              industryId: surveyType?.industry_id,
+              autoStart: false,
+            })}
+          >
+            Simulator setup
           </Link>
           <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>
             Sync from Telnyx
@@ -528,6 +548,17 @@ export default function WaSurveyTypeEdit() {
             <button type="button" className="btn sm" onClick={createStandard} disabled={working === 'create'}>
               Add standard draft
             </button>
+            <Link
+              className="btn sm primary"
+              to={buildWaSurveySimulatorUrl({
+                surveyTypeId: typeId,
+                privacyMode: templatePrivacyFilter,
+                industryId: surveyType?.industry_id,
+                autoStart: true,
+              })}
+            >
+              Simulate workflow
+            </Link>
           </div>
         </div>
         <div className="cardBody">

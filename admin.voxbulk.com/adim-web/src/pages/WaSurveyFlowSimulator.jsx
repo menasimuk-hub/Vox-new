@@ -1,16 +1,25 @@
-import React, { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { buildWaSurveySimulatorUrl } from '../lib/waSurveySimulatorLink'
 
 const FLOW_LINEAR = 'linear'
 const FLOW_GRAPH = 'graph'
 
 export default function WaSurveyFlowSimulator() {
+  const [searchParams] = useSearchParams()
+  const deepLinkTypeId = searchParams.get('survey_type_id') || ''
+  const deepLinkPrivacy = searchParams.get('privacy_mode') || 'off'
+  const deepLinkIndustry = searchParams.get('industry_id') || ''
+  const autoStartRequested = searchParams.get('auto_start') === '1'
+
   const [options, setOptions] = useState(null)
+  const [prefill, setPrefill] = useState(null)
   const [industryId, setIndustryId] = useState('')
   const [surveyTypeId, setSurveyTypeId] = useState('')
   const [privacyMode, setPrivacyMode] = useState('off')
   const [flowEngine, setFlowEngine] = useState(FLOW_GRAPH)
+  const [flowDefinitionId, setFlowDefinitionId] = useState('')
   const [forceTextFallback, setForceTextFallback] = useState(false)
   const [aiPickerEnabled, setAiPickerEnabled] = useState(false)
   const [mockPicker, setMockPicker] = useState(true)
@@ -20,6 +29,7 @@ export default function WaSurveyFlowSimulator() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [seedMsg, setSeedMsg] = useState('')
+  const autoStartDone = useRef(false)
 
   const loadOptions = useCallback(async () => {
     setLoading(true)
@@ -27,40 +37,56 @@ export default function WaSurveyFlowSimulator() {
     try {
       const data = await apiFetch('/admin/wa-survey/simulator/options')
       setOptions(data)
-      setIndustryId(data.default_industry_id || '')
-      setSurveyTypeId(data.default_survey_type_id || '')
-      setPrivacyMode(data.default_privacy_mode || 'off')
+      if (!deepLinkTypeId) {
+        setIndustryId(data.default_industry_id || '')
+        setSurveyTypeId(data.default_survey_type_id || '')
+        setPrivacyMode(data.default_privacy_mode || 'off')
+      }
     } catch (e) {
       setError(e?.message || 'Failed to load simulator options')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [deepLinkTypeId])
+
+  const loadPrefill = useCallback(async (typeId, pm) => {
+    if (!typeId) {
+      setPrefill(null)
+      return null
+    }
+    try {
+      const data = await apiFetch(
+        `/admin/wa-survey/types/${encodeURIComponent(typeId)}/simulator-prefill?privacy_mode=${encodeURIComponent(pm)}`
+      )
+      setPrefill(data)
+      setIndustryId(data.industry_id || deepLinkIndustry || '')
+      setSurveyTypeId(data.survey_type_id || typeId)
+      setPrivacyMode(data.privacy_mode || pm)
+      setFlowEngine(data.flow_engine || FLOW_LINEAR)
+      setFlowDefinitionId(data.flow_definition_id || '')
+      setAiPickerEnabled(Boolean(data.ai_picker_enabled_default))
+      return data
+    } catch (e) {
+      setPrefill(null)
+      setError(e?.message || 'Could not load simulator prefill')
+      return null
+    }
+  }, [deepLinkIndustry])
 
   useEffect(() => {
     loadOptions()
   }, [loadOptions])
 
+  useEffect(() => {
+    if (!deepLinkTypeId || loading) return
+    void loadPrefill(deepLinkTypeId, deepLinkPrivacy || 'off')
+  }, [deepLinkTypeId, deepLinkPrivacy, loading, loadPrefill])
+
   const surveyTypesForIndustry = (options?.survey_types || []).filter(
     (t) => !industryId || t.industry_id === industryId
   )
 
-  const ensurePack = async () => {
-    setBusy(true)
-    setSeedMsg('')
-    setError('')
-    try {
-      const data = await apiFetch('/admin/wa-survey/test-pack/ensure', { method: 'POST' })
-      setSeedMsg(`Pack ready: ${data.template_count} templates (${data.created} new, ${data.updated} updated)`)
-      await loadOptions()
-    } catch (e) {
-      setError(e?.message || 'Seed failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const startSession = async () => {
+  const startSession = useCallback(async () => {
     setBusy(true)
     setError('')
     setState(null)
@@ -72,17 +98,61 @@ export default function WaSurveyFlowSimulator() {
           survey_type_id: surveyTypeId,
           privacy_mode: privacyMode,
           flow_engine: flowEngine,
+          flow_definition_id: flowDefinitionId || undefined,
           page_count: 6,
           selected_step_roles: ['start', 'rating', 'yes_no', 'helpfulness', 'reason', 'completion'],
           force_outcome_text_fallback: forceTextFallback,
           ai_picker_enabled: aiPickerEnabled,
           simulator_mock_picker: mockPicker,
+          skip_test_pack_seed: true,
         }),
       })
       setState(data.state)
       setAnswer('')
     } catch (e) {
       setError(e?.message || 'Start failed')
+    } finally {
+      setBusy(false)
+    }
+  }, [
+    surveyTypeId,
+    privacyMode,
+    flowEngine,
+    flowDefinitionId,
+    forceTextFallback,
+    aiPickerEnabled,
+    mockPicker,
+  ])
+
+  useEffect(() => {
+    if (!autoStartRequested || autoStartDone.current || loading || busy) return
+    if (!surveyTypeId || !prefill) return
+    if (!prefill.can_start_simulation) return
+    autoStartDone.current = true
+    void startSession()
+  }, [autoStartRequested, loading, busy, surveyTypeId, prefill, startSession])
+
+  const onSurveyTypeChange = async (nextTypeId) => {
+    setSurveyTypeId(nextTypeId)
+    await loadPrefill(nextTypeId, privacyMode)
+  }
+
+  const onPrivacyChange = async (pm) => {
+    setPrivacyMode(pm)
+    if (surveyTypeId) await loadPrefill(surveyTypeId, pm)
+  }
+
+  const ensurePack = async () => {
+    setBusy(true)
+    setSeedMsg('')
+    setError('')
+    try {
+      const data = await apiFetch('/admin/wa-survey/test-pack/ensure', { method: 'POST' })
+      setSeedMsg(`Pack ready: ${data.template_count} templates (${data.created} new, ${data.updated} updated)`)
+      await loadOptions()
+      if (surveyTypeId) await loadPrefill(surveyTypeId, privacyMode)
+    } catch (e) {
+      setError(e?.message || 'Seed failed')
     } finally {
       setBusy(false)
     }
@@ -110,26 +180,81 @@ export default function WaSurveyFlowSimulator() {
     }
   }
 
+  const templatesInUse = useMemo(() => {
+    if (state?.templates_in_use?.length) return state.templates_in_use
+    return prefill?.templates_preview || []
+  }, [state, prefill])
+
   const q = state?.question
+  const deepLinkLabel = deepLinkTypeId
+    ? buildWaSurveySimulatorUrl({
+        surveyTypeId: deepLinkTypeId,
+        privacyMode: deepLinkPrivacy,
+        industryId: deepLinkIndustry,
+        autoStart: autoStartRequested,
+      })
+    : ''
 
   return (
     <div className="page" style={{ maxWidth: 960 }}>
       <p className="muted" style={{ marginBottom: 8 }}>
         <Link to="/settings/wa-survey">← WA Survey types</Link>
+        {deepLinkTypeId && prefill?.survey_type_name ? (
+          <>
+            {' '}
+            ·{' '}
+            <Link to={`/settings/wa-survey/${deepLinkTypeId}`} style={{ color: 'var(--grn)' }}>
+              {prefill.survey_type_name}
+            </Link>
+          </>
+        ) : null}
       </p>
       <h1>WA Survey flow simulator</h1>
       <p className="muted">
         Internal browser test — uses the real survey runtime with dry-run messaging (no Telnyx / OpenAI).
       </p>
       <p className="muted" style={{ fontSize: '0.85rem' }}>
-        Admin app only: use port <strong>5174</strong> (e.g.{' '}
-        <a href="http://localhost:5174/settings/wa-survey/simulator">localhost:5174/settings/wa-survey/simulator</a>
-        ). Port 5173 is the public marketing site and does not include this page.
+        Admin app only: port <strong>5174</strong>. Deep link example:{' '}
+        <code style={{ fontSize: '0.8rem' }}>{deepLinkLabel || '/settings/wa-survey/simulator?survey_type_id=…'}</code>
       </p>
+
+      {prefill?.use_saved_templates ? (
+        <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 8 }}>
+          <span className="pill ok">Using latest saved templates</span> for this survey type and privacy mode.
+        </p>
+      ) : null}
 
       {loading ? <p className="muted">Loading…</p> : null}
       {error ? <p style={{ color: 'crimson' }}>{error}</p> : null}
       {seedMsg ? <p style={{ color: 'green' }}>{seedMsg}</p> : null}
+
+      {prefill && (prefill.blocking_errors?.length || prefill.warnings?.length) ? (
+        <section className="card" style={{ marginTop: 12 }}>
+          <div className="cardBody">
+            <h2 style={{ marginTop: 0, fontSize: '1.05rem' }}>Pre-flight</h2>
+            {(prefill.blocking_errors || []).length ? (
+              <div className="alert error">
+                <strong>Cannot start until fixed</strong>
+                <ul className="waSurveyReadinessList">
+                  {(prefill.blocking_errors || []).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {(prefill.warnings || []).length ? (
+              <div className="alert warn">
+                <strong>Warnings</strong>
+                <ul className="waSurveyReadinessList">
+                  {(prefill.warnings || []).slice(0, 8).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className="card" style={{ marginTop: 16 }}>
         <div className="cardBody">
@@ -143,7 +268,7 @@ export default function WaSurveyFlowSimulator() {
                 onChange={(e) => {
                   setIndustryId(e.target.value)
                   const first = (options?.survey_types || []).find((t) => t.industry_id === e.target.value)
-                  if (first) setSurveyTypeId(first.id)
+                  if (first) void onSurveyTypeChange(first.id)
                 }}
               >
                 {(options?.industries || []).map((i) => (
@@ -155,7 +280,11 @@ export default function WaSurveyFlowSimulator() {
             </label>
             <label>
               Survey type
-              <select className="input" value={surveyTypeId} onChange={(e) => setSurveyTypeId(e.target.value)}>
+              <select
+                className="input"
+                value={surveyTypeId}
+                onChange={(e) => void onSurveyTypeChange(e.target.value)}
+              >
                 {surveyTypesForIndustry.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name} ({t.slug})
@@ -165,7 +294,7 @@ export default function WaSurveyFlowSimulator() {
             </label>
             <label>
               Privacy
-              <select className="input" value={privacyMode} onChange={(e) => setPrivacyMode(e.target.value)}>
+              <select className="input" value={privacyMode} onChange={(e) => void onPrivacyChange(e.target.value)}>
                 <option value="off">Off (standard)</option>
                 <option value="on">On (anonymous)</option>
               </select>
@@ -178,6 +307,16 @@ export default function WaSurveyFlowSimulator() {
               </select>
             </label>
           </div>
+          {flowDefinitionId ? (
+            <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 8 }}>
+              Published flow: <code>{flowDefinitionId}</code>
+              {prefill?.published_flow?.name ? ` (${prefill.published_flow.name})` : ''}
+            </p>
+          ) : flowEngine === FLOW_GRAPH ? (
+            <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 8 }}>
+              No published graph — simulator will compile a draft graph from the step bank.
+            </p>
+          ) : null}
           <label style={{ display: 'block', marginBottom: 8 }}>
             <input
               type="checkbox"
@@ -185,7 +324,10 @@ export default function WaSurveyFlowSimulator() {
               onChange={(e) => setAiPickerEnabled(e.target.checked)}
               disabled={flowEngine !== FLOW_GRAPH}
             />{' '}
-            Enable AI picker on graph (rating node → ai_assisted; uses mock picker by default)
+            Enable AI picker on graph
+            {prefill && !prefill.platform_picker_enabled ? (
+              <span className="muted"> (platform kill switch off)</span>
+            ) : null}
           </label>
           <label style={{ display: 'block', marginBottom: 8 }}>
             <input
@@ -213,78 +355,112 @@ export default function WaSurveyFlowSimulator() {
             <button type="button" className="btn btnSecondary" disabled={busy} onClick={ensurePack}>
               Ensure test pack in DB
             </button>
-            <button type="button" className="btn btnPrimary" disabled={busy || !surveyTypeId} onClick={startSession}>
+            <button
+              type="button"
+              className="btn btnPrimary"
+              disabled={busy || !surveyTypeId || (prefill && !prefill.can_start_simulation)}
+              onClick={startSession}
+            >
               Start test session
             </button>
           </div>
-          {options?.test_pack ? (
-            <p className="muted" style={{ marginTop: 12, fontSize: '0.85rem' }}>
-              Default pack: {options.test_pack.industry.name} / {options.test_pack.survey_type.name} —{' '}
-              {options.test_pack.template_count} templates
-            </p>
-          ) : null}
         </div>
       </section>
+
+      {templatesInUse.length ? (
+        <section className="card" style={{ marginTop: 16 }}>
+          <div className="cardBody">
+            <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Templates in use</h2>
+            <div className="tableWrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th>Template</th>
+                    <th>Status</th>
+                    <th>Usage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {templatesInUse.map((row, idx) => (
+                    <tr key={`${row.step_role}-${row.template_id}-${idx}`}>
+                      <td>
+                        {row.step_role}
+                        {row.outcome_key ? ` (${row.outcome_key})` : ''}
+                      </td>
+                      <td>{row.template_name || row.template_id || '—'}</td>
+                      <td>
+                        <span className={`pill ${String(row.status).toUpperCase() === 'APPROVED' ? 'ok' : 'warn'}`}>
+                          {row.status || '—'}
+                        </span>
+                      </td>
+                      <td>{row.usage || row.action_type || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {state ? (
         <section className="card" style={{ marginTop: 16 }}>
           <div className="cardBody">
             <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Session</h2>
-            <pre
-              style={{
-                fontSize: '0.8rem',
-                background: '#f4f4f5',
-                padding: 12,
-                overflow: 'auto',
-                borderRadius: 6,
-              }}
-            >
-              {JSON.stringify(
-                {
-                  session_id: state.session_id,
-                  recipient_id: state.recipient_id,
-                  order_id: state.order_id,
-                  flow_engine: state.flow_engine,
-                  flow_mode: state.flow_mode,
-                  step: state.step,
-                  total: state.total,
-                  current_step_role: state.current_step_role,
-                  current_node_key: state.current_node_key,
-                  outcome_key: state.outcome_key,
-                  completed: state.completed,
-                  ai_picker_enabled: state.ai_picker_enabled,
-                  picker_invocation_count: state.picker_invocation_count,
-                },
-                null,
-                2
-              )}
-            </pre>
+            <div className="waSurveySimulatorRuntimeGrid" style={{ marginBottom: 12 }}>
+              <div>
+                <span className="muted">Step role</span>
+                <div><strong>{state.current_step_role || '—'}</strong></div>
+              </div>
+              <div>
+                <span className="muted">Node key</span>
+                <div><strong>{state.current_node_key || '—'}</strong></div>
+              </div>
+              <div>
+                <span className="muted">Outcome</span>
+                <div><strong>{state.outcome_key || '—'}</strong></div>
+              </div>
+              <div>
+                <span className="muted">Delivery</span>
+                <div>
+                  <strong>
+                    {state.completed
+                      ? state.outcome_used_text_fallback
+                        ? 'Text fallback'
+                        : state.outcome_action_type === 'send_template'
+                          ? 'Template send (simulated)'
+                          : state.outcome_action_type || '—'
+                      : '—'}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            {state.last_branch_decision ? (
+              <details open style={{ marginBottom: 12 }}>
+                <summary>Last branch decision</summary>
+                <pre style={{ fontSize: '0.75rem', background: '#f4f4f5', padding: 8 }}>
+                  {JSON.stringify(state.last_branch_decision, null, 2)}
+                </pre>
+                <p className="muted" style={{ fontSize: '0.85rem' }}>
+                  Rule: {state.last_branch_decision.rule_key} · {state.last_branch_decision.from_role} →{' '}
+                  {state.last_branch_decision.to_role}
+                </p>
+              </details>
+            ) : null}
 
             {state.picker_debug ? (
-              <details open style={{ marginBottom: 12 }}>
+              <details style={{ marginBottom: 12 }}>
                 <summary>Last picker decision</summary>
                 <pre style={{ fontSize: '0.75rem', background: '#f4f4f5', padding: 8 }}>
                   {JSON.stringify(state.picker_debug, null, 2)}
                 </pre>
-                <p className="muted" style={{ fontSize: '0.85rem' }}>
-                  Called: {state.picker_debug.picker_called ? 'yes' : 'no'} · Source:{' '}
-                  {state.picker_debug.picker_source || state.picker_debug.picker || '—'}
-                  {state.picker_debug.fallback_reason
-                    ? ` · Fallback: ${state.picker_debug.fallback_reason}`
-                    : ''}
-                </p>
               </details>
             ) : null}
 
             {state.completed ? (
               <div>
-                <p>
-                  <strong>Outcome:</strong> {state.outcome_key || '—'}
-                </p>
-                <p>
-                  <strong>Final delivery:</strong>{' '}
-                  {state.outcome_used_text_fallback ? 'text fallback' : 'template send (simulated)'}
-                </p>
                 <p className="muted">{state.outcome_body_preview}</p>
                 <pre style={{ fontSize: '0.75rem', background: '#f4f4f5', padding: 8 }}>
                   {JSON.stringify(state.outcome_delivery, null, 2)}
@@ -292,15 +468,6 @@ export default function WaSurveyFlowSimulator() {
               </div>
             ) : (
               <div>
-                <p>
-                  <strong>Step role:</strong> {state.current_step_role || '—'}
-                  {state.current_node_key ? (
-                    <>
-                      {' '}
-                      · <strong>Node:</strong> {state.current_node_key}
-                    </>
-                  ) : null}
-                </p>
                 <div
                   style={{
                     background: '#e8f5e9',
