@@ -11,6 +11,7 @@ from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_type_service import SurveyTypeService
 from app.services.survey_wa_template_pack_service import (
     PACK_SIZE,
+    WA_TEMPLATE_PACK_JSON_SCHEMA,
     SurveyWaTemplatePackService,
     build_components_from_generated,
     validate_generated_template,
@@ -57,6 +58,7 @@ def _sample_item(**overrides):
         "example_values": ["Alex", "Northgate Dental", "https://example.com/s/1"],
         "language": "en_US",
         "category": "MARKETING",
+        "outcome_key": None,
     }
     base.update(overrides)
     return base
@@ -101,11 +103,15 @@ def _mock_pack_response():
             button_type=btn_type,
             buttons=buttons if btn_type != "none" else [],
         )
-        if outcome_key:
-            item["outcome_key"] = outcome_key
+        item["outcome_key"] = outcome_key if outcome_key else None
         templates.append(item)
     assert len(templates) == PACK_SIZE
     return {"templates": templates}
+
+
+def test_pack_json_schema_includes_outcome_key_in_required():
+    required = WA_TEMPLATE_PACK_JSON_SCHEMA["properties"]["templates"]["items"]["required"]
+    assert "outcome_key" in required
 
 
 def test_openai_chat_token_limit_for_reasoning_models():

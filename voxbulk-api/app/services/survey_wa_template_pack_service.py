@@ -53,58 +53,67 @@ _LOCAL_ID_PREFIX = "local-"
 _NAME_RE = re.compile(r"^[a-z0-9_]{3,64}$")
 _URL_RE = re.compile(r"^https://[^\s]+$", re.I)
 
+_PACK_TEMPLATE_ITEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "template_name": {"type": "string"},
+        "variant_type": {"type": "string", "enum": ["standard", "anonymous"]},
+        "title": {"type": "string"},
+        "step_role": {"type": "string", "enum": list(PACK_STEP_ROLES)},
+        # OpenAI strict json_schema: every property must appear in required; use null when N/A.
+        "outcome_key": {
+            "anyOf": [
+                {"type": "string", "enum": list(OUTCOME_COMPLETION_KEYS)},
+                {"type": "null"},
+            ],
+        },
+        "purpose": {"type": "string"},
+        "body": {"type": "string"},
+        "footer": {"type": "string"},
+        "header": {"type": "string"},
+        "button_type": {"type": "string", "enum": ["none", "quick_reply", "url", "phone"]},
+        "buttons": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "url": {"type": "string"},
+                    "phone_number": {"type": "string"},
+                },
+                "required": ["text", "url", "phone_number"],
+                "additionalProperties": False,
+            },
+        },
+        "example_values": {"type": "array", "items": {"type": "string"}},
+        "language": {"type": "string"},
+        "category": {"type": "string", "enum": ["MARKETING", "UTILITY", "AUTHENTICATION"]},
+    },
+    "required": [
+        "template_name",
+        "variant_type",
+        "title",
+        "step_role",
+        "outcome_key",
+        "purpose",
+        "body",
+        "footer",
+        "header",
+        "button_type",
+        "buttons",
+        "example_values",
+        "language",
+        "category",
+    ],
+    "additionalProperties": False,
+}
+
 WA_TEMPLATE_PACK_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "templates": {
             "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "template_name": {"type": "string"},
-                    "variant_type": {"type": "string", "enum": ["standard", "anonymous"]},
-                    "title": {"type": "string"},
-                    "step_role": {"type": "string", "enum": list(PACK_STEP_ROLES)},
-                    "outcome_key": {"type": "string", "enum": list(OUTCOME_COMPLETION_KEYS)},
-                    "purpose": {"type": "string"},
-                    "body": {"type": "string"},
-                    "footer": {"type": "string"},
-                    "header": {"type": "string"},
-                    "button_type": {"type": "string", "enum": ["none", "quick_reply", "url", "phone"]},
-                    "buttons": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "text": {"type": "string"},
-                                "url": {"type": "string"},
-                                "phone_number": {"type": "string"},
-                            },
-                            "required": ["text", "url", "phone_number"],
-                            "additionalProperties": False,
-                        },
-                    },
-                    "example_values": {"type": "array", "items": {"type": "string"}},
-                    "language": {"type": "string"},
-                    "category": {"type": "string", "enum": ["MARKETING", "UTILITY", "AUTHENTICATION"]},
-                },
-                "required": [
-                    "template_name",
-                    "variant_type",
-                    "title",
-                    "step_role",
-                    "purpose",
-                    "body",
-                    "footer",
-                    "header",
-                    "button_type",
-                    "buttons",
-                    "example_values",
-                    "language",
-                    "category",
-                ],
-                "additionalProperties": False,
-            },
+            "items": _PACK_TEMPLATE_ITEM_SCHEMA,
             "minItems": PACK_SIZE,
             "maxItems": PACK_SIZE,
         }
@@ -117,7 +126,7 @@ WA_TEMPLATE_PACK_JSON_SCHEMA: dict[str, Any] = {
 WA_SINGLE_TEMPLATE_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "template": WA_TEMPLATE_PACK_JSON_SCHEMA["properties"]["templates"]["items"],
+        "template": _PACK_TEMPLATE_ITEM_SCHEMA,
     },
     "required": ["template"],
     "additionalProperties": False,
@@ -486,6 +495,7 @@ def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
         "  neutral — balanced thank-you\n"
         "  unhappy — empathetic apology / support tone (no aggressive CTA)\n"
         "Each completion template MUST set outcome_key to happy, neutral, or unhappy.\n"
+        "All other templates MUST set outcome_key to null (not omitted).\n"
         "Set step_role on every template. Middle roles should use standard variant unless anonymous-specific."
     )
 
