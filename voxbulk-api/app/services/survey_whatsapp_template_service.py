@@ -19,7 +19,12 @@ from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.survey_type_service import SurveyTypeService
-from app.services.survey_type_template_service import SurveyTypeTemplateService
+from app.services.survey_type_template_service import (
+    SurveyTypeTemplateService,
+    template_belongs_to_survey_type,
+    template_name_matches_survey_slug,
+    template_name_survey_slug,
+)
 from app.services.telnyx_api_key import normalize_telnyx_api_key, require_telnyx_api_key
 from app.services.telnyx_whatsapp_template_sync_service import (
     TELNYX_WHATSAPP_TEMPLATES_URL,
@@ -474,11 +479,13 @@ def survey_template_to_dict(
 class SurveyWhatsappTemplateService:
     @staticmethod
     def list_for_survey_type(db: Session, survey_type_id: str) -> list[dict[str, Any]]:
-        mappings = SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)
         payload: list[dict[str, Any]] = []
-        for mapping in mappings:
+        survey_type = db.get(SurveyType, survey_type_id)
+        for mapping in SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id):
             row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
             if row is None:
+                continue
+            if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
                 continue
             linked = SurveyTypeTemplateService.linked_survey_type_count(db, row.id)
             payload.append(survey_template_to_dict(row, mapping=mapping, linked_survey_type_count=linked))
@@ -544,6 +551,7 @@ class SurveyWhatsappTemplateService:
             category=category,
             status="LOCAL_DRAFT",
             variant_type=VARIANT_STANDARD,
+            survey_type_id=survey_type.id,
             body_preview=_body_preview(components),
             draft_components_json=_dumps(components),
             example_values_json=_dumps(_extract_example_values(components)),
@@ -625,6 +633,7 @@ class SurveyWhatsappTemplateService:
             category=parent.category,
             status="LOCAL_DRAFT",
             variant_type=VARIANT_ANONYMOUS,
+            survey_type_id=survey_type.id,
             parent_template_id=parent.id,
             body_preview=_body_preview(anon_components),
             draft_components_json=_dumps(anon_components),
@@ -837,25 +846,36 @@ class SurveyWhatsappTemplateService:
         survey_type_id: str | None,
     ) -> bool:
         linked = False
-        slug_match = re.search(r"voxbulk_survey_([a-z0-9_]+)_(standard|anonymous)", name.lower())
         target_types: list[tuple[SurveyType, str]] = []
-        if slug_match:
-            st = SurveyTypeService.get_by_slug(db, slug_match.group(1))
-            if st is not None:
-                target_types.append((st, slug_match.group(2)))
+        lower = name.lower()
         scoped = str(survey_type_id or "").strip()
+        all_types = list(db.execute(select(SurveyType)).scalars().all())
+        known_slugs = [str(st.slug or "") for st in all_types]
+
         if scoped:
             st = db.get(SurveyType, scoped)
-            if st is not None and all(st.id != existing[0].id for existing in target_types):
-                variant = VARIANT_ANONYMOUS if "anonymous" in name.lower() else VARIANT_STANDARD
+            if st is not None and template_belongs_to_survey_type(template, st):
+                variant = VARIANT_ANONYMOUS if "anonymous" in lower else VARIANT_STANDARD
                 target_types.append((st, variant))
-        elif not target_types:
-            slug = name.lower()
-            for st in list(db.execute(select(SurveyType)).scalars().all()):
-                token = str(st.slug or "").lower()
-                if token and token in slug:
-                    variant = VARIANT_ANONYMOUS if "anonymous" in slug else VARIANT_STANDARD
+        else:
+            legacy = re.search(r"voxbulk_survey_([a-z0-9_]+)_(standard|anonymous)$", lower)
+            if legacy:
+                st = SurveyTypeService.get_by_slug(db, legacy.group(1))
+                if st is not None:
+                    target_types.append((st, legacy.group(2)))
+
+            name_slug = template_name_survey_slug(name, known_slugs=known_slugs)
+            if name_slug and not target_types:
+                st = SurveyTypeService.get_by_slug(db, name_slug)
+                if st is not None:
+                    variant = VARIANT_ANONYMOUS if "anonymous" in lower else VARIANT_STANDARD
                     target_types.append((st, variant))
+            elif not target_types:
+                for st in all_types:
+                    if template_name_matches_survey_slug(name, st.slug):
+                        variant = VARIANT_ANONYMOUS if "anonymous" in lower else VARIANT_STANDARD
+                        target_types.append((st, variant))
+                        break
 
         for st, variant in target_types:
             existing = db.execute(
@@ -979,6 +999,15 @@ class SurveyWhatsappTemplateService:
                 existing.language = str(item.get("language") or "en_US")
                 existing.category = str(item.get("category") or "").strip() or None
                 existing.status = status
+                all_slugs = [
+                    str(st.slug or "")
+                    for st in db.execute(select(SurveyType)).scalars().all()
+                ]
+                name_slug = template_name_survey_slug(name, known_slugs=all_slugs)
+                if name_slug:
+                    owner = SurveyTypeService.get_by_slug(db, name_slug)
+                    if owner is not None:
+                        existing.survey_type_id = owner.id
                 existing.components_json = components_json
                 existing.body_preview = _body_preview(components if isinstance(components, list) else None)
                 existing.example_values_json = _dumps(_extract_example_values(components if isinstance(components, list) else None))

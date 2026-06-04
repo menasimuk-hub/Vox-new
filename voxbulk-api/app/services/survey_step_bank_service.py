@@ -9,7 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
-from app.services.survey_type_template_service import SurveyTypeTemplateService
+from app.services.survey_type_template_service import (
+    SurveyTypeTemplateService,
+    template_belongs_to_survey_type,
+)
 from app.services.survey_whatsapp_template_service import (
     VARIANT_ANONYMOUS,
     VARIANT_STANDARD,
@@ -161,6 +164,7 @@ def load_step_bank(
     variant: str = VARIANT_STANDARD,
 ) -> dict[str, Any]:
     variant_key = str(variant or VARIANT_STANDARD).strip().lower()
+    survey_type = db.get(SurveyType, survey_type_id)
     mappings = SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)
     by_role: dict[str, dict[str, Any]] = {}
     items: list[dict[str, Any]] = []
@@ -169,6 +173,9 @@ def load_step_bank(
         row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
         if row is None or not row.active_for_survey:
             continue
+        if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
+            if not (mapping.is_default_standard or mapping.is_default_anonymous):
+                continue
         row_variant = str(row.variant_type or VARIANT_STANDARD).strip().lower()
         if variant_key == VARIANT_ANONYMOUS and row_variant != VARIANT_ANONYMOUS:
             if not mapping.usable_as_anonymous:

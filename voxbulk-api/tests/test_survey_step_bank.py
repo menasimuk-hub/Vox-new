@@ -75,6 +75,7 @@ def _template_for_role(db, survey_type, role: str, *, status: str = "LOCAL_DRAFT
         category="MARKETING",
         status=status,
         variant_type=VARIANT_STANDARD,
+        survey_type_id=survey_type.id,
         step_role=role,
         body_preview=body[:80],
         draft_components_json=json.dumps(components),

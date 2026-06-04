@@ -7,6 +7,7 @@ import re
 import uuid
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -489,6 +490,11 @@ class SurveyWaTemplatePackService:
             )
         except ValueError as e:
             raise SurveyWaTemplatePackError(str(e)) from e
+        except httpx.TimeoutException as e:
+            raise SurveyWaTemplatePackError(
+                "OpenAI took too long to generate the template pack. Please try again — "
+                "10-template packs can take 2–5 minutes."
+            ) from e
 
         items = raw.get("templates")
         if not isinstance(items, list):
@@ -591,6 +597,14 @@ class SurveyWaTemplatePackService:
         if not saved and errors:
             raise SurveyWaTemplatePackError("; ".join(errors[:5]))
 
+        saved_ids = [int(t["id"]) for t in saved if t.get("id")]
+        if saved_ids:
+            SurveyTypeTemplateService.prune_stale_step_bank_mappings(
+                db,
+                survey_type_id=survey_type.id,
+                keep_template_ids=saved_ids,
+            )
+
         return {
             "ok": True,
             "saved_count": len(saved),
@@ -623,6 +637,7 @@ class SurveyWaTemplatePackService:
             category=_normalize_category(item.get("category")),
             status="LOCAL_DRAFT",
             variant_type=variant,
+            survey_type_id=survey_type.id,
             body_preview=_body_preview(components),
             draft_components_json=_dumps(components),
             example_values_json=_dumps([str(v) for v in examples]),

@@ -73,6 +73,31 @@ def update_survey_type(
     return {"ok": True, "type": survey_type_to_dict(updated, template_counts=counts)}
 
 
+@router.post("/types/{type_id}/cleanup-template-links")
+def cleanup_survey_type_template_links(
+    type_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.survey_type_template_service import SurveyTypeTemplateService
+
+    row = SurveyTypeService.get_type(db, type_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    body = payload or {}
+    dry_run = bool(body.get("dry_run"))
+    result = SurveyTypeTemplateService.cleanup_mistaken_links(db, survey_type_id=type_id, dry_run=dry_run)
+    counts = SurveyTypeService._template_counts(db, row.id)
+    return {
+        "ok": True,
+        "survey_type_id": type_id,
+        "dry_run": dry_run,
+        **result,
+        "template_count": int(counts.get("standard", 0) + counts.get("anonymous", 0)),
+    }
+
+
 @router.post("/types/{type_id}/templates/generate-pack")
 def generate_template_pack(
     type_id: str,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -15,9 +16,45 @@ from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 VARIANT_STANDARD = "standard"
 VARIANT_ANONYMOUS = "anonymous"
 
+_PACK_PREFIX_RE = re.compile(r"^voxbulk_survey_", re.I)
+_LEGACY_VARIANT_RE = re.compile(r"^voxbulk_survey_([a-z0-9_]+)_(standard|anonymous)$", re.I)
+
 
 class SurveyTypeTemplateError(ValueError):
     pass
+
+
+def template_name_matches_survey_slug(name: str | None, survey_slug: str | None) -> bool:
+    slug = str(survey_slug or "").strip().lower()
+    if not slug:
+        return False
+    lower = str(name or "").strip().lower()
+    if lower.startswith(f"voxbulk_survey_{slug}_"):
+        return True
+    return bool(re.match(rf"^voxbulk_survey_{re.escape(slug)}_(standard|anonymous)$", lower))
+
+
+def template_name_survey_slug(name: str | None, *, known_slugs: list[str] | None = None) -> str | None:
+    """Extract survey slug from voxbulk_survey_{slug}_* names (longest known slug wins)."""
+    lower = str(name or "").strip().lower()
+    if not lower.startswith("voxbulk_survey_"):
+        return None
+    rest = lower[len("voxbulk_survey_") :]
+    legacy = re.match(r"^([a-z0-9_]+)_(standard|anonymous)$", rest)
+    if legacy:
+        return legacy.group(1)
+    if known_slugs:
+        for slug in sorted({str(s or "").strip().lower() for s in known_slugs if str(s or "").strip()}, key=len, reverse=True):
+            if rest.startswith(f"{slug}_"):
+                return slug
+    return None
+
+
+def template_belongs_to_survey_type(row: TelnyxWhatsappTemplate, survey_type: SurveyType) -> bool:
+    """True when a template is owned by / named for this survey type (not a mistaken sync link)."""
+    if str(row.survey_type_id or "").strip() == str(survey_type.id):
+        return True
+    return template_name_matches_survey_slug(row.name, survey_type.slug)
 
 
 def mapping_to_dict(row: SurveyTypeTemplate, *, survey_type: SurveyType | None = None) -> dict[str, Any]:
@@ -70,16 +107,69 @@ class SurveyTypeTemplateService:
 
     @staticmethod
     def template_counts_for_survey_type(db: Session, survey_type_id: str) -> dict[str, int]:
-        rows = db.execute(
-            select(SurveyTypeTemplate).where(SurveyTypeTemplate.survey_type_id == survey_type_id)
-        ).scalars()
+        survey_type = db.get(SurveyType, survey_type_id)
+        rows = SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)
         standard = anonymous = 0
         for row in rows:
+            if survey_type is not None:
+                tpl = db.get(TelnyxWhatsappTemplate, row.template_id)
+                if tpl is None or not template_belongs_to_survey_type(tpl, survey_type):
+                    continue
             if row.usable_as_standard:
                 standard += 1
             if row.usable_as_anonymous:
                 anonymous += 1
         return {"standard": standard, "anonymous": anonymous}
+
+    @staticmethod
+    def prune_stale_step_bank_mappings(
+        db: Session,
+        *,
+        survey_type_id: str,
+        keep_template_ids: list[int],
+    ) -> int:
+        """Drop step-bank mappings for this survey type that are not in the latest saved pack."""
+        keep = {int(tid) for tid in keep_template_ids}
+        survey_type = db.get(SurveyType, survey_type_id)
+        if survey_type is None:
+            return 0
+        removed = 0
+        for mapping in SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id):
+            if mapping.template_id in keep:
+                continue
+            row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
+            if row is None or not row.step_role:
+                continue
+            if not template_belongs_to_survey_type(row, survey_type):
+                continue
+            db.delete(mapping)
+            removed += 1
+        if removed:
+            db.commit()
+        return removed
+
+    @staticmethod
+    def cleanup_mistaken_links(db: Session, *, survey_type_id: str | None = None, dry_run: bool = False) -> dict[str, int]:
+        """Remove survey_type_templates rows where the template name/owner does not match the survey type."""
+        query = select(SurveyTypeTemplate)
+        if survey_type_id:
+            query = query.where(SurveyTypeTemplate.survey_type_id == survey_type_id)
+        removed = 0
+        scanned = 0
+        for mapping in db.execute(query).scalars().all():
+            scanned += 1
+            st = db.get(SurveyType, mapping.survey_type_id)
+            row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
+            if st is None or row is None:
+                continue
+            if template_belongs_to_survey_type(row, st):
+                continue
+            removed += 1
+            if not dry_run:
+                db.delete(mapping)
+        if removed and not dry_run:
+            db.commit()
+        return {"scanned": scanned, "removed": removed, "dry_run": dry_run}
 
     @staticmethod
     def _clear_defaults(db: Session, survey_type_id: str, *, field: str) -> None:
