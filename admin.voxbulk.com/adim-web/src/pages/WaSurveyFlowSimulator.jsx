@@ -26,6 +26,8 @@ export default function WaSurveyFlowSimulator() {
   const [mockPicker, setMockPicker] = useState(true)
   const [testPhone, setTestPhone] = useState('')
   const [sendLive, setSendLive] = useState(false)
+  const [pageCount, setPageCount] = useState(6)
+  const [selectedPageRoles, setSelectedPageRoles] = useState([])
   const [state, setState] = useState(null)
   const [answer, setAnswer] = useState('')
   const [loading, setLoading] = useState(true)
@@ -77,6 +79,12 @@ export default function WaSurveyFlowSimulator() {
       setFlowEngine(data.flow_engine || FLOW_LINEAR)
       setFlowDefinitionId(data.flow_definition_id || '')
       setAiPickerEnabled(Boolean(data.ai_picker_enabled_default))
+      const roles =
+        data.page_roles?.length
+          ? data.page_roles
+          : data.suggested_page_roles?.['6'] || data.suggested_page_roles?.['5'] || []
+      setSelectedPageRoles(roles)
+      if (roles.length) setPageCount(roles.length)
       return data
     } catch (e) {
       setPrefill(null)
@@ -108,8 +116,8 @@ export default function WaSurveyFlowSimulator() {
         privacy_mode: privacyMode,
         flow_engine: flowEngine,
         flow_definition_id: flowDefinitionId || undefined,
-        page_count: 6,
-        selected_step_roles: ['start', 'rating', 'yes_no', 'helpfulness', 'reason', 'completion'],
+        page_count: pageCount,
+        selected_step_roles: selectedPageRoles.length ? selectedPageRoles : undefined,
         force_outcome_text_fallback: forceTextFallback,
         ai_picker_enabled: aiPickerEnabled,
         simulator_mock_picker: mockPicker,
@@ -140,7 +148,29 @@ export default function WaSurveyFlowSimulator() {
     mockPicker,
     sendLive,
     testPhone,
+    pageCount,
+    selectedPageRoles,
   ])
+
+  const onPageCountChange = (count) => {
+    const n = Number(count) || 6
+    setPageCount(n)
+    const suggested = prefill?.suggested_page_roles?.[String(n)]
+    if (suggested?.length) setSelectedPageRoles(suggested)
+  }
+
+  const toggleMiddleRole = (role) => {
+    const start = selectedPageRoles[0] === 'start' ? ['start'] : []
+    const completion = selectedPageRoles[selectedPageRoles.length - 1] === 'completion' ? ['completion'] : []
+    const middle = selectedPageRoles.filter((r) => r !== 'start' && r !== 'completion')
+    const has = middle.includes(role)
+    const nextMiddle = has ? middle.filter((r) => r !== role) : [...middle, role]
+    const merged = [...start, ...nextMiddle, ...completion].filter(Boolean)
+    if (!merged.includes('start')) merged.unshift('start')
+    if (!merged.includes('completion')) merged.push('completion')
+    setSelectedPageRoles(merged)
+    setPageCount(merged.length)
+  }
 
   const refreshState = useCallback(async (silent = false) => {
     if (!state?.recipient_id) return
@@ -240,43 +270,85 @@ export default function WaSurveyFlowSimulator() {
 
   const q = state?.question
 
+  const tplForRole = useCallback(
+    (role) => (templatesInUse || []).find((t) => t.step_role === role),
+    [templatesInUse]
+  )
+
   const chatMessages = useMemo(() => {
     if (!state) return []
     const msgs = []
-    const startTpl = (templatesInUse || []).find((t) => t.step_role === 'start')
-    if (startTpl?.preview_body || startTpl?.body_preview) {
+    const startTpl = tplForRole('start')
+    const showStart =
+      state.awaiting_start ||
+      Number(state.step) === 0 ||
+      (state.answers || []).length > 0 ||
+      !state.completed
+    if (showStart && (startTpl?.preview_body || q?.preview_body)) {
       msgs.push({
         role: 'outbound',
-        body: startTpl.preview_body || startTpl.body_preview,
-        footer: 'Simulator · saved start template',
+        body: startTpl?.preview_body || q?.preview_body,
+        footer: startTpl?.footer || q?.footer || '',
+        buttons: startTpl?.buttons || q?.buttons,
       })
     }
     for (const row of state.answers || []) {
-      if (row.question) {
-        msgs.push({ role: 'outbound', body: row.question })
+      const tpl = row.step_role ? tplForRole(row.step_role) : null
+      const qBody = row.question || tpl?.preview_body
+      if (qBody) {
+        msgs.push({
+          role: 'outbound',
+          body: qBody,
+          footer: tpl?.footer,
+          buttons: tpl?.buttons,
+        })
       }
       if (row.answer) {
         msgs.push({ role: 'inbound', body: String(row.answer) })
       }
     }
-    if (!state.completed && (q?.body || q?.text)) {
-      const opts = (q?.options || []).map((label) => ({ label: String(label) }))
+    if (!state.completed && !state.awaiting_start && (q?.preview_body || q?.body)) {
+      const btnList = Array.isArray(q?.buttons) && q.buttons.length
+        ? q.buttons
+        : (q?.options || []).map((label) => ({ label: String(label) }))
       msgs.push({
         role: 'outbound',
-        body: q.body || q.text,
-        buttons: opts.length ? opts : undefined,
+        body: q.preview_body || q.body,
+        footer: q.footer,
+        buttons: btnList.length ? btnList : undefined,
       })
     }
     if (state.completed && state.outcome_body_preview) {
-      msgs.push({ role: 'outbound', body: state.outcome_body_preview, footer: 'Outcome (simulated)' })
+      msgs.push({ role: 'outbound', body: state.outcome_body_preview, footer: 'Outcome message' })
     }
     return msgs
-  }, [state, q, templatesInUse])
+  }, [state, q, tplForRole])
 
   const quickReplies = useMemo(() => {
-    if (!q?.options?.length || state?.completed) return []
-    return q.options.map((o) => String(o))
-  }, [q, state?.completed])
+    if (state?.completed || !q) return []
+    if (state.awaiting_start) {
+      const fromButtons = (q.buttons || []).map((b) => String(b.label || b.text || b)).filter(Boolean)
+      if (fromButtons.length) return fromButtons
+      return ['Start survey']
+    }
+    if (q.button_labels?.length) return q.button_labels.map(String)
+    if (q.options?.length) return q.options.map((o) => String(o))
+    return []
+  }, [q, state?.completed, state?.awaiting_start])
+
+  const flowStepsForPreview = useMemo(() => {
+    if (state?.flow_steps?.length) return state.flow_steps
+    return (selectedPageRoles || []).map((role, idx) => {
+      const tpl = tplForRole(role)
+      return {
+        step: idx + 1,
+        step_role: role,
+        title: tpl?.template_name || role.replace(/_/g, ' '),
+        body: tpl?.preview_body || '',
+        kind: role === 'start' ? 'template_outbound' : role === 'completion' ? 'closing' : 'survey_question',
+      }
+    })
+  }, [state?.flow_steps, selectedPageRoles, tplForRole])
 
   const deepLinkLabel = deepLinkTypeId
     ? buildWaSurveySimulatorUrl({
@@ -404,7 +476,57 @@ export default function WaSurveyFlowSimulator() {
                 <option value={FLOW_GRAPH}>Graph</option>
               </select>
             </label>
+            <label>
+              Pages
+              <select className="input" value={pageCount} onChange={(e) => onPageCountChange(e.target.value)}>
+                {[4, 5, 6].map((n) => (
+                  <option key={n} value={n}>
+                    {n} steps
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
+          {selectedPageRoles.length ? (
+            <div className="waSurveySimulatorFlowPath" style={{ marginBottom: 12 }}>
+              <div className="muted" style={{ fontSize: '0.85rem', marginBottom: 6 }}>
+                Survey path (your saved templates, in order):
+              </div>
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.9rem' }}>
+                {selectedPageRoles.map((role, idx) => {
+                  const tpl = (prefill?.templates_preview || []).find((t) => t.step_role === role)
+                  return (
+                    <li key={`${role}-${idx}`}>
+                      <strong>{idx + 1}.</strong> {role}
+                      {tpl?.template_name ? ` — ${tpl.template_name}` : ''}
+                    </li>
+                  )
+                })}
+              </ol>
+            </div>
+          ) : null}
+          {(prefill?.middle_step_roles || []).length ? (
+            <div style={{ marginBottom: 12 }}>
+              <div className="muted" style={{ fontSize: '0.85rem', marginBottom: 6 }}>
+                Middle steps in your pack (toggle to change path):
+              </div>
+              <div className="waSurveySimulatorQuickReplies">
+                {(prefill.middle_step_roles || []).map((role) => {
+                  const active = selectedPageRoles.includes(role)
+                  return (
+                    <button
+                      key={role}
+                      type="button"
+                      className={`btn btnSecondary btnSm${active ? ' is-active' : ''}`}
+                      onClick={() => toggleMiddleRole(role)}
+                    >
+                      {role}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
           {flowDefinitionId ? (
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 8 }}>
               Published flow: <code>{flowDefinitionId}</code>
@@ -467,8 +589,8 @@ export default function WaSurveyFlowSimulator() {
                   />
                 </label>
                 <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>
-                  Sends the first survey question to your phone via Telnyx. Reply on WhatsApp — this screen
-                  refreshes every few seconds.
+                  Sends your approved <strong>start template</strong> to your phone via Telnyx. Tap the button
+                  on WhatsApp to open question 1 — this screen refreshes every few seconds.
                   {options?.telnyx_ready && !options.telnyx_ready.whatsapp ? (
                     <span style={{ color: 'crimson' }}> Telnyx WhatsApp is not ready yet.</span>
                   ) : null}
@@ -571,23 +693,33 @@ export default function WaSurveyFlowSimulator() {
               <WaSurveyPhonePreview
                 businessName={prefill?.survey_type_name || 'Survey'}
                 conversationMessages={chatMessages}
-                hideFlowNav
-                approvalStatus={state.live_test ? 'Live WhatsApp test' : 'Simulator (dry-run)'}
+                flowSteps={flowStepsForPreview}
+                hideFlowNav={!flowStepsForPreview.length}
+                approvalStatus={state.live_test ? 'Live WhatsApp test' : 'Saved templates (dry-run)'}
                 disclaimer=""
               />
               {!state.completed && !state.live_test ? (
                 <div className="waSurveySimulatorComposer">
+                  {state.awaiting_start ? (
+                    <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 8 }}>
+                      Step 1 — tap the start button below (same as WhatsApp quick reply).
+                    </p>
+                  ) : quickReplies.length ? (
+                    <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 8 }}>
+                      Reply with a number or tap a choice:
+                    </p>
+                  ) : null}
                   {quickReplies.length ? (
                     <div className="waSurveySimulatorQuickReplies">
-                      {quickReplies.map((label) => (
+                      {quickReplies.map((label, idx) => (
                         <button
-                          key={label}
+                          key={`${label}-${idx}`}
                           type="button"
                           className="btn btnSecondary btnSm"
                           disabled={busy}
                           onClick={() => void submitAnswer(label)}
                         >
-                          {label}
+                          {state.awaiting_start ? label : `${idx + 1}. ${label}`}
                         </button>
                       ))}
                     </div>

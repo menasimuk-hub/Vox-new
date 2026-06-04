@@ -421,10 +421,17 @@ class TelnyxWhatsappTemplateSyncService:
         if count <= 0:
             return None
         first = str(vars_.get("first_name") or "Alex")
+        org = str(
+            vars_.get("organisation_name")
+            or vars_.get("clinic_name")
+            or vars_.get("business_name")
+            or ""
+        ).strip()
         filler = [
             first,
-            str(vars_.get("offer_line") or "VOXBULK offer"),
-            str(vars_.get("offer_summary") or "Special offer"),
+            org or str(vars_.get("offer_line") or "Your business"),
+            str(vars_.get("organiser_name") or vars_.get("survey_organiser") or org or first),
+            str(vars_.get("offer_summary") or "Ref"),
         ]
         values = filler[:count]
         while len(values) < count:

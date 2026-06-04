@@ -82,9 +82,28 @@ def test_format_question_message_lists_options():
         {"text": "Rate us", "reply_type": "rating", "options": ["1", "2", "3"]},
         index=1,
         total=2,
+        include_progress=True,
     )
     assert "Question 1 of 2" in msg
     assert "1. 1" in msg
+
+
+def test_format_question_message_rating_uses_compact_prompt():
+    msg = format_question_message(
+        {
+            "text": "How would you rate {{2}}?",
+            "step_role": "rating",
+            "reply_type": "choice",
+            "options": [str(i) for i in range(11)],
+        },
+        index=1,
+        total=4,
+        variables={"first_name": "Sam", "organisation_name": "Acme Ltd"},
+    )
+    assert "{{" not in msg
+    assert "Acme Ltd" in msg
+    assert "0 to 10" in msg
+    assert "11. 10" not in msg
 
 
 def test_match_answer_numeric_choice():
@@ -92,7 +111,7 @@ def test_match_answer_numeric_choice():
     assert match_answer("2", q) == "Good"
 
 
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_handle_inbound_reply_completes_flow(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
 

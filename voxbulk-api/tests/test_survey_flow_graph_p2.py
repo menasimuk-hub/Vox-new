@@ -126,7 +126,7 @@ def test_is_graph_flow_requires_snapshot():
 
 
 @patch("app.services.survey_outcome_send_service.TelnyxMessagingService.send_whatsapp")
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_graph_low_rating_routes_to_unhappy(mock_send, mock_wa, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     mock_wa.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok", external_id="ext-1")
@@ -166,7 +166,7 @@ def test_graph_low_rating_routes_to_unhappy(mock_send, mock_wa, db):
 
 
 @patch("app.services.survey_outcome_send_service.TelnyxMessagingService.send_whatsapp")
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_graph_high_rating_continues_then_completes(mock_send, mock_wa, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     mock_wa.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok", external_id="ext-2")

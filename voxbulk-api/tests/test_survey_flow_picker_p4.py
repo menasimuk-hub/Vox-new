@@ -116,7 +116,7 @@ def test_build_candidates_outgoing_edges_only(db):
     db.add(recipient)
     db.commit()
 
-    with patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message") as mock_send:
+    with patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp") as mock_send:
         mock_send.return_value = type("R", (), {"ok": True, "detail": "ok", "channel": "whatsapp"})()
         send_first_question(db, order=order, recipient=recipient, config=config)
 
@@ -139,7 +139,7 @@ def test_build_candidates_outgoing_edges_only(db):
 
 
 @patch("app.services.survey_outcome_send_service.TelnyxMessagingService.send_whatsapp")
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_mock_picker_on_rating_node(mock_send, mock_wa, db):
     mock_send.return_value = type("R", (), {"ok": True, "detail": "ok", "channel": "whatsapp"})()
     mock_wa.return_value = type("R", (), {"ok": True, "detail": "ok", "channel": "whatsapp", "external_id": "x"})()

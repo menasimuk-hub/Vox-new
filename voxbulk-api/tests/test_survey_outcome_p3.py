@@ -126,7 +126,7 @@ def test_enrich_snapshot_uses_approved_template(db):
 
 
 @patch("app.services.survey_outcome_send_service.TelnyxMessagingService.send_whatsapp")
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_graph_outcome_uses_whatsapp_template_send(mock_survey_msg, mock_wa, db):
     mock_survey_msg.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     mock_wa.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="tpl", external_id="x1")

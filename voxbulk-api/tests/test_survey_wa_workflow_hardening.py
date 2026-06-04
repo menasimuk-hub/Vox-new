@@ -114,7 +114,7 @@ def _seed_org(db, name: str) -> str:
     return org.id
 
 
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_try_handle_survey_routes_reply_to_survey_flow(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     org_id = _seed_org(db, "Org A")
@@ -154,7 +154,7 @@ def test_wrong_org_does_not_match_recipient(db):
     assert wrong_recipient.id != recipient_b.id
 
 
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_duplicate_bootstrap_does_not_reset_answers(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, channel="whatsapp", detail="ok")
     org_id = _seed_org(db, "Bootstrap Org")
@@ -183,7 +183,7 @@ def test_duplicate_bootstrap_does_not_reset_answers(mock_send, db):
     mock_send.assert_not_called()
 
 
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_opt_out_not_saved_as_survey_answer(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, channel="whatsapp", detail="ok")
     org_id = _seed_org(db, "Opt-out Org")

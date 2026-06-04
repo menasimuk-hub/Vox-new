@@ -118,7 +118,7 @@ def test_start_linear_session_creates_decisions(db):
     assert decisions[1].decision_kind == "send_question"
 
 
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_send_first_question_creates_session_and_result_json(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     config = _config()
@@ -145,7 +145,7 @@ def test_send_first_question_creates_session_and_result_json(mock_send, db):
     assert session.flow_mode == "linear"
 
 
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_handle_inbound_reply_persists_answers_and_decisions(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     config = _config()

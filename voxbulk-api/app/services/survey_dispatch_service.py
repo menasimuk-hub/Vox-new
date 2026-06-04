@@ -246,13 +246,6 @@ class SurveyDispatchService:
                 "error": "sender_not_approved",
             }
 
-        result = TelnyxMessagingService.send_survey_message(
-            db,
-            org_id=order.org_id,
-            to_number=recipient.phone,
-            body=body,
-            prefer_whatsapp=prefer_whatsapp,
-        )
         if (
             prefer_whatsapp
             and template_row is not None
@@ -270,6 +263,19 @@ class SurveyDispatchService:
                 template_name=template_row.name,
                 template_language=template_row.language,
                 template_components=template_components,
+            )
+        elif prefer_whatsapp:
+            result = TelnyxMessagingService.send_whatsapp(
+                db,
+                org_id=order.org_id,
+                to_number=recipient.phone,
+                body=body,
+            )
+        else:
+            result = TelnyxMessagingService.send_sms(
+                db,
+                to_number=recipient.phone,
+                body=body,
             )
 
         log_payload = {
@@ -296,13 +302,21 @@ class SurveyDispatchService:
             if template_row is not None:
                 log_payload["wa_template_id"] = template_row.id
                 log_payload["wa_template_name"] = template_row.name
+            if prefer_whatsapp and template_row is not None:
+                from app.services.survey_whatsapp_conversation_service import _whatsapp_flow
+
+                wa_flow = _whatsapp_flow(config)
+                wa_questions = wa_flow.get("questions") or []
+                total = len(wa_questions) if isinstance(wa_questions, list) else 0
+                log_payload["wa_conversation"] = {
+                    "step": 0,
+                    "total": total,
+                    "answers": [],
+                    "intro_sent_at": datetime.utcnow().isoformat(),
+                }
             recipient.result_json = json.dumps(log_payload, ensure_ascii=False)
             db.add(recipient)
             db.commit()
-            if prefer_whatsapp:
-                from app.services.survey_whatsapp_conversation_service import bootstrap_after_intro
-
-                bootstrap_after_intro(db, order=order, recipient=recipient, config=config)
         else:
             recipient.status = "failed"
             log_payload["status"] = "failed"

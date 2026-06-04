@@ -47,7 +47,7 @@ def test_ensure_test_pack_creates_twelve_templates(db):
     assert {r.outcome_key for r in outcomes} == {"happy", "neutral", "unhappy"}
 
 
-@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_survey_message")
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
 def test_simulator_graph_low_rating_unhappy(mock_send, db):
     mock_send.return_value = type("R", (), {"ok": True, "detail": "ok", "channel": "whatsapp"})()
     pack = SurveyWaTestPackSeedService.ensure_test_pack(db)
@@ -61,6 +61,11 @@ def test_simulator_graph_low_rating_unhappy(mock_send, db):
         selected_step_roles=["start", "rating", "yes_no", "helpfulness", "reason", "completion"],
     )
     state = started["state"]
+    assert state["completed"] is False
+    assert state["awaiting_start"] is True
+    assert state["current_step_role"] == "start"
+
+    state = SurveySimulatorService.answer(db, recipient_id=state["recipient_id"], answer="Start survey")["state"]
     assert state["completed"] is False
     assert state["current_step_role"] == "rating"
 

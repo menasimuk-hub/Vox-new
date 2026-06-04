@@ -37,9 +37,11 @@ from app.services.survey_whatsapp_conversation_service import (
     _recipient_result,
     _wa_conversation,
     _whatsapp_flow,
-    format_question_message,
     handle_inbound_reply,
     send_first_question,
+    send_survey_opening,
+    survey_question_display,
+    survey_template_preview,
 )
 from app.services.wa_template_privacy import normalize_privacy_mode
 
@@ -126,22 +128,50 @@ def _templates_manifest_from_composed(generated: dict[str, Any]) -> list[dict[st
     return rows
 
 
-def _templates_manifest_from_bank(bank: dict[str, Any]) -> list[dict[str, Any]]:
+def _templates_manifest_from_bank(
+    db: Session,
+    *,
+    config: dict[str, Any],
+    bank: dict[str, Any],
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for role, item in (bank.get("by_role") or {}).items():
         if not isinstance(item, dict):
             continue
-        rows.append(
-            {
-                "step_role": role,
-                "template_id": item.get("template_id"),
-                "template_name": item.get("display_name") or item.get("template_name"),
-                "status": item.get("status") or item.get("approval_status"),
-                "preview_body": item.get("body") or item.get("body_preview") or "",
-                "usage": "completion" if role == "completion" else ("start" if role == "start" else "question"),
-            }
-        )
+        row = {
+            "step_role": role,
+            "template_id": item.get("template_id"),
+            "template_name": item.get("display_name") or item.get("template_name"),
+            "status": item.get("status") or item.get("approval_status"),
+            "usage": "completion" if role == "completion" else ("start" if role == "start" else "question"),
+        }
+        preview = survey_template_preview(db, config=config, template_id=item.get("template_id"))
+        if preview:
+            row.update(preview)
+        else:
+            row["preview_body"] = item.get("body") or item.get("body_preview") or ""
+        rows.append(row)
     return rows
+
+
+def _enrich_templates_manifest(
+    db: Session,
+    *,
+    config: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        merged = dict(row)
+        tid = merged.get("template_id")
+        if tid and not merged.get("preview_body"):
+            preview = survey_template_preview(db, config=config, template_id=tid)
+            if preview:
+                merged.update(preview)
+        enriched.append(merged)
+    return enriched
 
 
 def _latest_branch_decision(db: Session, session_id: str) -> dict[str, Any] | None:
@@ -264,9 +294,11 @@ def _build_order_config(
         "page_count": generated.get("page_count"),
         "page_roles": generated.get("page_roles") or [],
         "whatsapp_flow": wa,
-        "organisation_name": "Acme Services",
+        "wa_template_id": generated.get("wa_template_id"),
+        "wa_template_name": generated.get("wa_template_name"),
+        "organisation_name": str(generated.get("organisation_name") or generated.get("survey_type", {}).get("name") or "Your business"),
         "survey_organiser_name": "Test Team",
-        "client_name": "Acme Services",
+        "client_name": str(generated.get("organisation_name") or generated.get("survey_type", {}).get("name") or "Your business"),
         "flow_engine": flow_engine,
         "simulator_dry_run": not live_test,
         "simulator_live_test": bool(live_test),
@@ -292,14 +324,36 @@ def _build_order_config(
 
 
 def _current_question(
+    db: Session,
     *,
     config: dict[str, Any],
     session: SurveySession | None,
     conv: dict[str, Any],
+    recipient: ServiceOrderRecipient | None = None,
 ) -> dict[str, Any]:
     flow = _whatsapp_flow(config)
     questions = [q for q in (flow.get("questions") or []) if isinstance(q, dict)]
-    step = int(conv.get("step") or 1)
+    step = int(conv.get("step") or 0)
+    total = int(conv.get("total") or len(questions) or 1)
+
+    if step == 0 and conv.get("intro_sent_at"):
+        preview = survey_template_preview(db, config=config, template_id=config.get("wa_template_id"), recipient=recipient)
+        buttons = preview.get("buttons") or []
+        return {
+            "step_role": "start",
+            "awaiting_start": True,
+            "node_key": None,
+            "reply_type": "button",
+            "options": preview.get("button_labels") or [str(b.get("label") or "") for b in buttons if isinstance(b, dict)],
+            "text": preview.get("preview_body") or "",
+            "body": preview.get("preview_body") or "",
+            "preview_body": preview.get("preview_body") or "",
+            "footer": preview.get("footer") or "",
+            "buttons": buttons,
+            "template_name": preview.get("template_name"),
+            "uses_template": True,
+        }
+
     q: dict[str, Any] = {}
     if is_graph_flow(config) and session and session.flow_snapshot_json:
         try:
@@ -314,16 +368,19 @@ def _current_question(
     if not q and questions:
         idx = max(0, step - 1)
         q = questions[idx] if idx < len(questions) else questions[-1]
-    total = int(conv.get("total") or len(questions) or 1)
-    body = format_question_message(q, index=step, total=total) if q else ""
-    return {
-        "step_role": str(q.get("step_role") or session.current_node_key if session else ""),
-        "node_key": session.current_node_key if session else None,
-        "reply_type": q.get("reply_type"),
-        "options": q.get("options") or [],
-        "text": q.get("text") or "",
-        "body": body,
-    }
+    if not q:
+        return {}
+    display = survey_question_display(
+        db,
+        config=config,
+        question=q,
+        recipient=recipient,
+        index=max(1, step),
+        total=total,
+    )
+    display["node_key"] = session.current_node_key if session else None
+    display["awaiting_start"] = False
+    return display
 
 
 def _session_state(
@@ -338,7 +395,7 @@ def _session_state(
     payload = _recipient_result(recipient)
     conv = _wa_conversation(payload)
     delivery = _loads_delivery(session.outcome_delivery_json if session else None)
-    question = _current_question(config=config, session=session, conv=conv)
+    question = _current_question(db, config=config, session=session, conv=conv, recipient=recipient)
     state: dict[str, Any] = {
         "order_id": order.id,
         "recipient_id": recipient.id,
@@ -367,6 +424,9 @@ def _session_state(
         "templates_in_use": config.get("simulator_templates_manifest") or [],
         "use_saved_templates": bool(config.get("simulator_use_saved_templates")),
         "flow_definition_id": config.get("flow_definition_id"),
+        "page_roles": config.get("page_roles") or [],
+        "flow_steps": config.get("flow_steps") or [],
+        "awaiting_start": bool(question.get("awaiting_start")),
     }
     if session:
         picker_dbg = SurveyFlowPickerService.latest_picker_debug(db, session.id)
@@ -431,7 +491,13 @@ class SurveySimulatorService:
         flow_definition_id = str(published["id"]) if published else None
 
         bank = SurveyStepBankService.get_bank(db, survey_type=st, variant=variant, privacy_mode=pm)
-        bank_templates = _templates_manifest_from_bank(bank)
+        preview_config = {
+            "organisation_name": st.name,
+            "client_name": st.name,
+            "survey_organiser_name": "Test Team",
+        }
+        bank_templates = _templates_manifest_from_bank(db, config=preview_config, bank=bank)
+        default_page_roles = (bank.get("suggested_page_roles") or {}).get("6") or (bank.get("suggested_page_roles") or {}).get("5") or []
 
         platform_on = SurveyPickerSettingsService.is_platform_picker_enabled(db)
         ai_nodes = int(readiness.get("ai_assisted_node_count") or 0)
@@ -467,6 +533,10 @@ class SurveySimulatorService:
             "platform_picker_enabled": platform_on,
             "use_saved_templates": True,
             "templates_preview": bank_templates,
+            "page_roles": default_page_roles,
+            "available_step_roles": bank.get("available_roles") or [],
+            "middle_step_roles": bank.get("middle_roles") or [],
+            "suggested_page_roles": bank.get("suggested_page_roles") or {},
             "readiness_ok": bool(readiness.get("ok")),
             "errors": readiness.get("errors") or [],
             "warnings": simulator_warnings,
@@ -499,11 +569,13 @@ class SurveySimulatorService:
         normalized_phone: str | None = None
         if live_test:
             normalized_phone = _prepare_live_test_phone(db, str(test_phone or ""))
+        st = SurveyTypeService.get_type(db, survey_type_id)
+        if st is None:
+            raise ValueError("Survey type not found")
+        org_label = str(st.name or "Your business")
         pm = normalize_privacy_mode(privacy_mode)
         engine = str(flow_engine or FLOW_ENGINE_LINEAR).strip().lower()
         roles = selected_step_roles
-        if not roles:
-            roles = ["start", "rating", "yes_no", "helpfulness", "reason", "completion"]
 
         branches = flow_branches
         if branches is None:
@@ -522,10 +594,10 @@ class SurveySimulatorService:
             survey_type_id=survey_type_id,
             privacy_mode=pm,
             page_count=int(page_count),
-            auto_select_steps=False if roles else True,
+            auto_select_steps=not bool(roles),
             selected_step_roles=roles,
-            organisation_name="Acme Services",
-            client_name="Acme Services",
+            organisation_name=org_label,
+            client_name=org_label,
             organiser_name="Test Team",
             flow_engine=engine if engine == FLOW_ENGINE_GRAPH else None,
             flow_definition_id=resolved_flow_id,
@@ -542,7 +614,12 @@ class SurveySimulatorService:
             simulator_mock_picker=simulator_mock_picker,
             live_test=live_test,
         )
-        config["simulator_templates_manifest"] = _templates_manifest_from_composed(generated)
+        config["simulator_templates_manifest"] = _enrich_templates_manifest(
+            db,
+            config=config,
+            rows=_templates_manifest_from_composed(generated),
+        )
+        config["flow_steps"] = generated.get("flow_steps") or []
         if resolved_flow_id:
             config["flow_definition_id"] = resolved_flow_id
         from app.services.uk_compliance_service import UkComplianceService
@@ -601,7 +678,27 @@ class SurveySimulatorService:
         db.add(recipient)
         db.commit()
 
-        send_first_question(db, order=order, recipient=recipient, config=config)
+        if live_test:
+            send_survey_opening(db, order=order, recipient=recipient, config=config)
+        else:
+            from app.services.survey_flow_config_service import is_graph_flow, max_question_visits
+
+            wa_flow = _whatsapp_flow(config)
+            wa_questions = wa_flow.get("questions") or []
+            total = max_question_visits(config) if is_graph_flow(config) else len(wa_questions)
+            intro_payload = {
+                "channel": "whatsapp",
+                "wa_conversation": {
+                    "step": 0,
+                    "total": total,
+                    "answers": [],
+                    "intro_sent_at": datetime.utcnow().isoformat(),
+                },
+            }
+            recipient.status = "sent"
+            recipient.result_json = json.dumps(intro_payload, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
         db.refresh(recipient)
         session = SurveySessionService.get_by_recipient(db, recipient.id)
         state = _session_state(db, order=order, recipient=recipient, session=session)

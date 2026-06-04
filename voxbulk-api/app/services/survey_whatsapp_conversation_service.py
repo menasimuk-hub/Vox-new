@@ -15,12 +15,18 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.survey_dispatch_service import _first_name, _personalize, _uses_whatsapp
+from app.services.survey_step_bank_service import normalize_step_role
+from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+from app.services.telnyx_whatsapp_template_sync_service import (
+    TelnyxWhatsappTemplateSyncService,
+    send_template_id_for_row,
+)
 from app.services.survey_flow_config_service import is_graph_flow, is_simulator_dry_run
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
 from app.services.survey_whatsapp_inbound_guard import is_duplicate_inbound, mark_inbound_processed
-from app.services.telnyx_messaging_service import TelnyxMessagingService
+from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[survey-wa]"
@@ -87,21 +93,158 @@ def _save_recipient_result(db: Session, recipient: ServiceOrderRecipient, payloa
     db.commit()
 
 
+def _survey_variables(
+    config: dict[str, Any],
+    recipient: ServiceOrderRecipient | None = None,
+    *,
+    default_first_name: str = "Alex",
+) -> dict[str, str]:
+    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
+    organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
+    first = _first_name(recipient.name or "") if recipient else default_first_name
+    if not first or first == "there":
+        first = default_first_name
+    return {
+        "first_name": first,
+        "clinic_name": org_name,
+        "organisation_name": org_name,
+        "business_name": org_name,
+        "organiser_name": organiser,
+        "survey_organiser": organiser,
+    }
+
+
+def survey_template_preview(
+    db: Session,
+    *,
+    config: dict[str, Any],
+    template_id: Any,
+    recipient: ServiceOrderRecipient | None = None,
+) -> dict[str, Any]:
+    """Rendered WhatsApp template body + buttons for UI and simulator previews."""
+    tid = str(template_id or "").strip()
+    if not tid.isdigit():
+        return {}
+    row = SurveyWhatsappTemplateService.get_template(db, int(tid))
+    if row is None:
+        return {}
+    variables = _survey_variables(config, recipient)
+    preview = SurveyWhatsappTemplateService.build_preview(
+        db,
+        row,
+        business_name=variables["organisation_name"],
+        first_name=variables["first_name"],
+    )
+    buttons = preview.get("buttons") or []
+    return {
+        "template_id": row.id,
+        "template_name": row.display_name or row.name,
+        "preview_body": str(preview.get("rendered_body") or row.body_preview or "").strip(),
+        "footer": str(preview.get("footer") or "").strip(),
+        "buttons": buttons,
+        "button_labels": [str(b.get("label") or b.get("text") or "") for b in buttons if isinstance(b, dict)],
+        "status": str(row.status or "").upper(),
+        "step_role": normalize_step_role(row.step_role or ""),
+    }
+
+
+def survey_question_display(
+    db: Session,
+    *,
+    config: dict[str, Any],
+    question: dict[str, Any],
+    recipient: ServiceOrderRecipient | None,
+    index: int,
+    total: int,
+) -> dict[str, Any]:
+    """Prefer saved template preview; fall back to compact free-text for unapproved rows."""
+    variables = _survey_variables(config, recipient)
+    template_id = question.get("template_id")
+    if template_id:
+        preview = survey_template_preview(db, config=config, template_id=template_id, recipient=recipient)
+        if preview.get("preview_body"):
+            step_role = str(question.get("step_role") or preview.get("step_role") or "").strip()
+            options = question.get("options") or []
+            reply_type = str(question.get("reply_type") or "text").strip().lower()
+            if step_role == "rating" or (
+                reply_type == "choice" and isinstance(options, list) and len(options) >= 7
+            ):
+                choice_labels = [str(o) for o in options] if isinstance(options, list) else []
+            else:
+                choice_labels = preview.get("button_labels") or []
+            return {
+                **preview,
+                "step_role": step_role,
+                "reply_type": reply_type,
+                "options": choice_labels,
+                "body": preview["preview_body"],
+                "text": preview["preview_body"],
+                "uses_template": True,
+            }
+    body = format_question_message(question, index=index, total=total, variables=variables)
+    return {
+        "step_role": str(question.get("step_role") or ""),
+        "reply_type": question.get("reply_type"),
+        "options": question.get("options") or [],
+        "text": _personalize_survey_text(str(question.get("text") or ""), variables),
+        "body": body,
+        "preview_body": body,
+        "uses_template": False,
+    }
+
+
+def _personalize_survey_text(text: str, variables: dict[str, str]) -> str:
+    from app.services.survey_whatsapp_template_service import _render_body_text
+
+    raw = str(text or "").strip()
+    if not raw:
+        return raw
+    if "{{" in raw:
+        filler = [
+            variables.get("first_name") or "there",
+            variables.get("organisation_name") or "Your business",
+            variables.get("organiser_name") or variables.get("organisation_name") or "there",
+        ]
+        max_idx = 0
+        for match in re.finditer(r"\{\{(\d+)\}\}", raw):
+            max_idx = max(max_idx, int(match.group(1)))
+        while len(filler) < max_idx:
+            filler.append("—")
+        return _render_body_text(raw, filler[:max_idx]).strip()
+    return _personalize(
+        raw,
+        first_name=variables.get("first_name") or "there",
+        org_name=variables.get("organisation_name") or "Your business",
+        organiser=variables.get("organiser_name") or variables.get("organisation_name") or "Your business",
+    )
+
+
 def format_question_message(
     question: dict[str, Any],
     *,
     index: int,
     total: int,
+    variables: dict[str, str] | None = None,
+    include_progress: bool = False,
 ) -> str:
-    text = str(question.get("text") or "Question").strip()
+    text = _personalize_survey_text(str(question.get("text") or "Question"), variables or {}) if variables else str(
+        question.get("text") or "Question"
+    ).strip()
     reply_type = str(question.get("reply_type") or "text").strip().lower()
+    step_role = str(question.get("step_role") or "").strip().lower()
     options = question.get("options") or []
     if not isinstance(options, list):
         options = []
 
-    lines = [f"Question {index} of {total}", text]
+    lines = [f"Question {index} of {total}", text] if include_progress else [text]
     if reply_type in {"text", "long_text", "contact", "date"}:
         lines.append("Reply with your answer.")
+    elif step_role == "rating" or (
+        reply_type == "choice" and len(options) >= 7 and all(str(opt).strip().isdigit() for opt in options)
+    ):
+        low = str(options[0]).strip() if options else "0"
+        high = str(options[-1]).strip() if options else "10"
+        lines.append(f"Please reply with one number from {low} to {high}.")
     elif options:
         lines.append("Reply with one of:")
         for i, opt in enumerate(options[:12], start=1):
@@ -188,6 +331,8 @@ def find_active_recipient(
             conv = _wa_conversation(_recipient_result(recipient))
             step = int(conv.get("step") or 0)
             total = int(conv.get("total") or 0)
+            if conv.get("intro_sent_at") and step == 0:
+                return order, recipient
             if step >= 1 and step <= max(total, 1):
                 return order, recipient
     return None, None
@@ -354,23 +499,121 @@ def try_handle_survey_whatsapp_inbound(
     )
 
 
+def _resolve_template_row(db: Session, template_id: Any) -> Any | None:
+    try:
+        row = SurveyWhatsappTemplateService.get_template(db, int(template_id))
+    except (TypeError, ValueError):
+        return None
+    if row is None or str(row.status or "").upper() != "APPROVED":
+        return None
+    return row
+
+
+def _send_whatsapp_template(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    template_row: Any,
+    variables: dict[str, str],
+    body: str,
+) -> TelnyxMessageResult:
+    preview = SurveyWhatsappTemplateService.build_preview(
+        db,
+        template_row,
+        business_name=variables.get("organisation_name") or "Your business",
+        first_name=variables.get("first_name") or "there",
+    )
+    template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
+        template_row,
+        variables=variables,
+    )
+    send_id = send_template_id_for_row(template_row)
+    rendered = str(body or preview.get("rendered_body") or template_row.body_preview or "Survey message").strip()
+    langs: list[str] = []
+    for candidate in (template_row.language, "en_US", "en_GB", "en"):
+        code = str(candidate or "").strip()
+        if code and code not in langs:
+            langs.append(code)
+    if not langs:
+        langs = ["en_US"]
+
+    result = None
+    for lang in langs:
+        attempt = TelnyxMessagingService.send_whatsapp(
+            db,
+            org_id=order.org_id,
+            to_number=recipient.phone or "",
+            body=rendered,
+            template_name=template_row.name,
+            template_language=lang,
+            template_components=template_components,
+        )
+        result = attempt
+        if attempt.ok:
+            return attempt
+    if send_id:
+        for lang in langs:
+            attempt = TelnyxMessagingService.send_whatsapp(
+                db,
+                org_id=order.org_id,
+                to_number=recipient.phone or "",
+                body=rendered,
+                template_id=send_id,
+                template_language=lang,
+                template_components=template_components,
+            )
+            result = attempt
+            if attempt.ok:
+                return attempt
+    return result or TelnyxMessageResult(
+        ok=False,
+        status="failed",
+        detail="WhatsApp template send failed",
+        channel="whatsapp",
+    )
+
+
 def _send_message(
     db: Session,
     *,
     order: ServiceOrder,
     recipient: ServiceOrderRecipient,
     body: str,
+    config: dict[str, Any] | None = None,
+    question: dict[str, Any] | None = None,
 ) -> bool:
-    config = _order_config(order)
+    config = config or _order_config(order)
     if is_simulator_dry_run(config):
         return True
-    result = TelnyxMessagingService.send_survey_message(
-        db,
-        org_id=order.org_id,
-        to_number=recipient.phone or "",
-        body=body,
-        prefer_whatsapp=True,
-    )
+
+    variables = _survey_variables(config, recipient)
+    template_row = None
+    if question and question.get("template_id"):
+        template_row = _resolve_template_row(db, question.get("template_id"))
+    if template_row is None and question is None:
+        wa_template_id = config.get("wa_template_id")
+        if wa_template_id:
+            template_row = _resolve_template_row(db, wa_template_id)
+
+    if template_row is not None:
+        result = _send_whatsapp_template(
+            db,
+            order=order,
+            recipient=recipient,
+            template_row=template_row,
+            variables=variables,
+            body=body,
+        )
+    else:
+        personalized = _personalize_survey_text(body, variables)
+        result = TelnyxMessagingService.send_whatsapp(
+            db,
+            org_id=order.org_id,
+            to_number=recipient.phone or "",
+            body=personalized,
+        )
+
     try:
         TelnyxMessagingService.log_outbound(
             db,
@@ -382,7 +625,74 @@ def _send_message(
         )
     except Exception:
         pass
+    if not result.ok:
+        payload = _recipient_result(recipient)
+        payload["error"] = result.detail or result.status
+        payload["channel"] = result.channel or "whatsapp"
+        recipient.result_json = json.dumps(payload, ensure_ascii=False)
+        recipient.status = "failed"
+        db.add(recipient)
+        db.commit()
     return bool(result.ok)
+
+
+def send_survey_opening(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+) -> bool:
+    """Send the approved start WhatsApp template; first question follows after the recipient replies."""
+    if is_simulator_dry_run(config):
+        return True
+    if _conversation_already_started(recipient):
+        return True
+
+    flow = _whatsapp_flow(config)
+    questions = flow.get("questions") or []
+    total = len(questions) if isinstance(questions, list) else 0
+    if is_graph_flow(config):
+        from app.services.survey_flow_config_service import max_question_visits
+
+        total = max_question_visits(config)
+
+    variables = _survey_variables(config, recipient)
+    template_row = _resolve_template_row(db, config.get("wa_template_id"))
+    preview_body = ""
+    if template_row is not None:
+        preview = SurveyWhatsappTemplateService.build_preview(
+            db,
+            template_row,
+            business_name=variables.get("organisation_name") or "Your business",
+            first_name=variables.get("first_name") or "there",
+        )
+        preview_body = str(preview.get("rendered_body") or template_row.body_preview or "").strip()
+    else:
+        preview_body = _personalize_survey_text(str(flow.get("intro") or ""), variables)
+
+    sent = _send_message(
+        db,
+        order=order,
+        recipient=recipient,
+        body=preview_body or "Tap below to start your survey.",
+        config=config,
+    )
+    if not sent:
+        return False
+
+    payload = _recipient_result(recipient)
+    payload["channel"] = "whatsapp"
+    payload["wa_conversation"] = {
+        "step": 0,
+        "total": total,
+        "answers": [],
+        "intro_sent_at": datetime.utcnow().isoformat(),
+    }
+    recipient.status = "sent"
+    _save_recipient_result(db, recipient, payload)
+    logger.info("%s opening_sent order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
+    return True
 
 
 def send_first_question(
@@ -392,13 +702,20 @@ def send_first_question(
     recipient: ServiceOrderRecipient,
     config: dict[str, Any],
 ) -> None:
-    if _conversation_already_started(recipient):
+    conv = _wa_conversation(_recipient_result(recipient))
+    awaiting_start = bool(conv.get("intro_sent_at")) and int(conv.get("step") or 0) == 0
+
+    if _conversation_already_started(recipient) and not awaiting_start:
         logger.info(
             "%s send_first_question_skipped order=%s recipient=%s (already started)",
             LOG_PREFIX,
             order.id,
             recipient.id,
         )
+        return
+
+    if not awaiting_start and not is_simulator_dry_run(config) and config.get("wa_template_id"):
+        send_survey_opening(db, order=order, recipient=recipient, config=config)
         return
 
     flow = _whatsapp_flow(config)
@@ -410,8 +727,9 @@ def send_first_question(
         _send_first_question_graph(db, order=order, recipient=recipient, config=config, questions=questions)
         return
 
+    variables = _survey_variables(config, recipient)
     q0 = questions[0] if isinstance(questions[0], dict) else {"text": str(questions[0])}
-    body = format_question_message(q0, index=1, total=len(questions))
+    body = format_question_message(q0, index=1, total=len(questions), variables=variables)
 
     payload = _recipient_result(recipient)
     payload["channel"] = "whatsapp"
@@ -420,6 +738,7 @@ def send_first_question(
         "total": len(questions),
         "answers": [],
         "started_at": datetime.utcnow().isoformat(),
+        "intro_sent_at": conv.get("intro_sent_at"),
     }
     session = SurveySessionService.start_linear_session(
         db,
@@ -432,7 +751,7 @@ def send_first_question(
     recipient.status = "in_progress"
     _save_recipient_result(db, recipient, payload)
 
-    if _send_message(db, order=order, recipient=recipient, body=body):
+    if _send_message(db, order=order, recipient=recipient, body=body, config=config, question=q0):
         logger.info("%s first_question_sent order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
 
 
@@ -446,10 +765,13 @@ def _send_first_question_graph(
 ) -> None:
     from app.services.survey_flow_config_service import max_question_visits
 
-    session, _q, body = SurveyFlowEngineService.start_graph_session(
+    session, q, _body = SurveyFlowEngineService.start_graph_session(
         db, order=order, recipient=recipient, config=config
     )
     total = max_question_visits(config)
+    variables = _survey_variables(config, recipient)
+    body = format_question_message(q, index=1, total=total, variables=variables)
+    conv = _wa_conversation(_recipient_result(recipient))
     payload = _recipient_result(recipient)
     payload["channel"] = "whatsapp"
     payload["wa_conversation"] = {
@@ -457,12 +779,13 @@ def _send_first_question_graph(
         "total": total,
         "answers": [],
         "started_at": datetime.utcnow().isoformat(),
+        "intro_sent_at": conv.get("intro_sent_at"),
         "current_node_key": session.current_node_key,
     }
     payload = SurveySessionService.attach_session_to_result(payload, session)
     recipient.status = "in_progress"
     _save_recipient_result(db, recipient, payload)
-    if _send_message(db, order=order, recipient=recipient, body=body):
+    if _send_message(db, order=order, recipient=recipient, body=body, config=config, question=q):
         logger.info("%s graph_first_question order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
 
 
@@ -519,6 +842,20 @@ def handle_inbound_reply(
     if not questions:
         return {"handled": False, "reason": "no_questions"}
 
+    conv = _wa_conversation(payload)
+    step = int(conv.get("step") or 0)
+    if step == 0 and conv.get("intro_sent_at"):
+        send_first_question(db, order=order, recipient=recipient, config=config)
+        db.refresh(recipient)
+        return {
+            "handled": True,
+            "order_id": order.id,
+            "recipient_id": recipient.id,
+            "started": True,
+            "log_id": log_id,
+            "inbound_message_id": inbound_message_id,
+        }
+
     if is_graph_flow(config):
         return _handle_inbound_reply_graph(
             db,
@@ -539,6 +876,7 @@ def handle_inbound_reply(
     step = int(conv.get("step") or 0)
     total = int(conv.get("total") or len(questions))
     answers: list[dict[str, Any]] = list(conv.get("answers") or [])
+    variables = _survey_variables(config, recipient)
 
     if step < 1 or step > total:
         return {"handled": False, "reason": "invalid_step"}
@@ -546,9 +884,18 @@ def handle_inbound_reply(
     q_index = step - 1
     question = questions[q_index]
     answer = match_answer(body, question)
+    q_display = survey_question_display(
+        db,
+        config=config,
+        question=question,
+        recipient=recipient,
+        index=step,
+        total=total,
+    )
     answers.append(
         {
-            "question": str(question.get("text") or f"Question {step}"),
+            "step_role": str(question.get("step_role") or ""),
+            "question": str(q_display.get("preview_body") or q_display.get("body") or question.get("text") or f"Question {step}"),
             "answer": answer,
             "reply_type": question.get("reply_type"),
         }
@@ -581,7 +928,7 @@ def handle_inbound_reply(
 
     if step < total:
         next_q = questions[step]
-        next_body = format_question_message(next_q, index=step + 1, total=total)
+        next_body = format_question_message(next_q, index=step + 1, total=total, variables=variables)
         conv["step"] = step + 1
         payload["wa_conversation"] = conv
         payload = mark_inbound_processed(
@@ -592,7 +939,9 @@ def handle_inbound_reply(
         )
         recipient.status = "in_progress"
         _save_recipient_result(db, recipient, payload)
-        sent = _send_message(db, order=order, recipient=recipient, body=next_body)
+        sent = _send_message(
+            db, order=order, recipient=recipient, body=next_body, config=config, question=next_q
+        )
         return {
             "handled": True,
             "order_id": order.id,
@@ -761,16 +1110,34 @@ def _handle_inbound_reply_graph(
             "log_id": log_id,
         }
 
-    next_body = str(result.get("body") or "")
-    conv["step"] = int(session.question_visits or step) + 1
-    conv["current_node_key"] = result.get("node_key") or session.current_node_key
+    variables = _survey_variables(config, recipient)
+    next_node_key = str(result.get("node_key") or session.current_node_key or "")
+    next_q: dict[str, Any] = {}
+    if session.flow_snapshot_json:
+        try:
+            snap = json.loads(session.flow_snapshot_json)
+            node = {n["node_key"]: n for n in snap.get("nodes") or [] if isinstance(n, dict)}.get(next_node_key)
+            if node:
+                next_q = SurveyFlowEngineService._question_for_node(node)
+        except Exception:
+            next_q = {}
+    next_step = int(session.question_visits or step) + 1
+    next_body = (
+        format_question_message(next_q, index=next_step, total=total, variables=variables)
+        if next_q
+        else str(result.get("body") or "")
+    )
+    conv["step"] = next_step
+    conv["current_node_key"] = next_node_key or session.current_node_key
     payload["wa_conversation"] = conv
     payload = mark_inbound_processed(
         payload, log_id=log_id, inbound_message_id=inbound_message_id
     )
     recipient.status = "in_progress"
     _save_recipient_result(db, recipient, payload)
-    sent = _send_message(db, order=order, recipient=recipient, body=next_body)
+    sent = _send_message(
+        db, order=order, recipient=recipient, body=next_body, config=config, question=next_q or None
+    )
     return {
         "handled": True,
         "order_id": order.id,
