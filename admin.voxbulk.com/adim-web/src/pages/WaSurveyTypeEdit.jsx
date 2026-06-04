@@ -3,7 +3,7 @@ import { Link, Navigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import { buildWaSurveySimulatorUrl } from '../lib/waSurveySimulatorLink'
-import { resolveTelnyxSyncLabel, telnyxSyncPillClass } from '../lib/waSurveyTelnyxSync'
+import { resolveTelnyxSyncLabel, telnyxSyncPillClass, validateCategoryBeforeSync } from '../lib/waSurveyTelnyxSync'
 import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
 import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
 import WaSurveyTemplatePackModal from '../components/WaSurveyTemplatePackModal'
@@ -224,6 +224,27 @@ export default function WaSurveyTypeEdit() {
     }
   }
 
+  const pushOneToTelnyx = async (tpl) => {
+    const templateId = tpl?.id
+    if (templateId == null || templateId === '') return
+    const categoryError = validateCategoryBeforeSync(tpl?.category)
+    if (categoryError) {
+      showError(new Error(categoryError), categoryError)
+      return
+    }
+    setWorking(`push-${templateId}`)
+    clearFeedback()
+    try {
+      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/push`, { method: 'POST', body: '{}' })
+      showOk({ message: data.sync_message || data.message || `Synced “${tpl.display_name || tpl.name}” to Telnyx.` })
+      await load()
+    } catch (e) {
+      showError(e, `Could not sync “${tpl.display_name || tpl.name}” to Telnyx`)
+    } finally {
+      setWorking('')
+    }
+  }
+
   const pushAllToTelnyx = async () => {
     setWorking('push-all')
     clearFeedback()
@@ -358,7 +379,7 @@ export default function WaSurveyTypeEdit() {
           <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>
             Sync from Telnyx
           </button>
-          <button type="button" className="btn" onClick={pushAllToTelnyx} disabled={working === 'push-all'}>
+          <button type="button" className="btn" onClick={pushAllToTelnyx} disabled={working === 'push-all'} title="Push every linked template — use row Sync for one template only">
             {working === 'push-all' ? 'Syncing all…' : 'Sync all to Telnyx'}
           </button>
           <button type="button" className="btn primary" onClick={saveTypeSettings} disabled={saving}>
@@ -633,6 +654,15 @@ export default function WaSurveyTypeEdit() {
                           }}
                         >
                           Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm soft"
+                          disabled={working === `push-${tpl.id}`}
+                          onClick={() => pushOneToTelnyx(tpl)}
+                          title="Push only this template to Telnyx"
+                        >
+                          {working === `push-${tpl.id}` ? 'Syncing…' : 'Sync'}
                         </button>
                         <button
                           type="button"

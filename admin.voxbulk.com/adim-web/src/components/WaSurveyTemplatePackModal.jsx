@@ -241,7 +241,7 @@ function WaPackGenCard({
         </button>
         {savedRecord?.id ? (
           <button type="button" className="waTplGen-action-btn waTplGen-btn-save-t" disabled={cardBusy} onClick={() => onSync(item)}>
-            <i className="ti ti-cloud-upload" /> {isSyncing ? 'Syncing…' : 'Sync to Telnyx'}
+            <i className="ti ti-cloud-upload" /> {isSyncing ? 'Syncing…' : 'Sync this to Telnyx'}
           </button>
         ) : null}
         <button type="button" className={`waTplGen-action-btn waTplGen-btn-regen${isRegenerating ? ' loading' : ''}`} disabled={cardBusy} onClick={() => onRegenerate(item)}>
@@ -544,13 +544,9 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   }
 
   const syncOne = async (item) => {
-    const record = savedRecords[item.index]
+    if (!item?.template) return
     const category = item.template?.category || categoryHint
     const categoryError = validateCategoryBeforeSync(category)
-    if (!record?.id) {
-      setCardErrors((prev) => ({ ...prev, [item.index]: 'Save the template locally before syncing to Telnyx.' }))
-      return
-    }
     if (categoryError) {
       setCardErrors((prev) => ({ ...prev, [item.index]: categoryError }))
       return
@@ -558,14 +554,18 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     setWorking(`sync-${item.index}`)
     setCardErrors((prev) => ({ ...prev, [item.index]: '' }))
     try {
-      if (category !== record.category) {
-        await apiFetch(`/admin/wa-survey/templates/${record.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ category }),
-        })
+      const saveData = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/save-pack`, {
+        method: 'POST',
+        body: JSON.stringify({ templates: [templatePayloadForSave(item)], replace_step_bank: false, ...packPayloadMeta() }),
+      })
+      const savedRow = saveData.templates?.[0]
+      if (!savedRow?.id) {
+        throw new Error('Save before sync failed — fix validation errors on this card first.')
       }
-      const data = await apiFetch(`/admin/wa-survey/templates/${record.id}/push`, { method: 'POST', body: '{}' })
-      setSavedRecords((prev) => ({ ...prev, [item.index]: data.template || record }))
+      setSavedIndices((prev) => new Set(prev).add(item.index))
+      setSavedRecords((prev) => ({ ...prev, [item.index]: savedRow }))
+      const data = await apiFetch(`/admin/wa-survey/templates/${savedRow.id}/push`, { method: 'POST', body: '{}' })
+      setSavedRecords((prev) => ({ ...prev, [item.index]: data.template || savedRow }))
       showToast(data.sync_message || data.message || TELNYX_SYNC_LABELS.SYNCED)
       onSaved?.()
     } catch (e) {

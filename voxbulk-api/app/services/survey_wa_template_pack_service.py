@@ -105,6 +105,43 @@ def canonical_footer_for_privacy_mode(*, privacy_mode: str = PRIVACY_MODE_OFF) -
     return STANDARD_OPT_OUT_FOOTER
 
 
+def _button_label_from_dict(btn: dict[str, Any]) -> str:
+    """Read button label from OpenAI output (text, label, title, etc.)."""
+    if not isinstance(btn, dict):
+        return ""
+    for key in ("text", "label", "title", "button_text", "name"):
+        val = str(btn.get(key) or "").strip()
+        if val:
+            return val[:META_BUTTON_LABEL_MAX_CHARS]
+    return ""
+
+
+def _default_buttons_for_step(*, step_role: str, button_type: str) -> list[dict[str, Any]]:
+    """Sensible Meta-safe defaults when OpenAI leaves button labels empty."""
+    role = normalize_step_role(step_role or "")
+    bt = _normalize_button_type(button_type)
+    empty = {"url": "", "phone_number": ""}
+    if bt == "none":
+        return []
+    if bt == "quick_reply":
+        if role == "start":
+            return [{"text": "Start survey", **empty}]
+        if role == "yes_no":
+            return [{"text": "Yes", **empty}, {"text": "No", **empty}]
+        if role == "abc_choice":
+            return [{"text": "A", **empty}, {"text": "B", **empty}, {"text": "C", **empty}]
+        if role == "feeling_word":
+            return [{"text": "Great", **empty}, {"text": "Okay", **empty}, {"text": "Poor", **empty}]
+        if role == "helpfulness":
+            return [{"text": "Yes", **empty}, {"text": "No", **empty}]
+        return [{"text": "Continue", **empty}]
+    if bt == "url":
+        return [{"text": "Open survey", "url": "https://example.com/survey", "phone_number": ""}]
+    if bt == "phone":
+        return [{"text": "Call us", "url": "", "phone_number": "+441234567890"}]
+    return []
+
+
 def coerce_meta_template_fields(
     item: dict[str, Any],
     *,
@@ -133,8 +170,10 @@ def coerce_meta_template_fields(
     for btn in buttons:
         if not isinstance(btn, dict):
             continue
-        label = str(btn.get("text") or "").strip()[:META_BUTTON_LABEL_MAX_CHARS]
-        if not label and button_type != "none":
+        label = _button_label_from_dict(btn)
+        if not label and button_type == "none":
+            continue
+        if not label:
             continue
         cleaned_buttons.append(
             {
@@ -143,6 +182,9 @@ def coerce_meta_template_fields(
                 "phone_number": str(btn.get("phone_number") or "").strip(),
             }
         )
+    if button_type != "none" and not cleaned_buttons:
+        step_role = normalize_step_role(str(out.get("step_role") or out.get("purpose") or ""))
+        cleaned_buttons = _default_buttons_for_step(step_role=step_role, button_type=button_type)
     if button_type == "quick_reply":
         cleaned_buttons = cleaned_buttons[:META_QUICK_REPLY_MAX_BUTTONS]
     elif button_type in {"url", "phone"}:
@@ -662,6 +704,7 @@ def _meta_buttons_rules_block() -> str:
     return (
         "BUTTONS — Meta WhatsApp template rules (strict; Telnyx will reject invalid templates):\n"
         f"• quick_reply — MIN 1, MAX {META_QUICK_REPLY_MAX_BUTTONS} buttons per template. NEVER output 4 or more.\n"
+        f"  – Each button object MUST include a non-empty text field (1–{META_BUTTON_LABEL_MAX_CHARS} chars). Never leave text blank.\n"
         f"  – Each label ≤{META_BUTTON_LABEL_MAX_CHARS} characters. Plain text only (no emojis in button labels).\n"
         "  – yes_no step: exactly 2 buttons (e.g. Yes / No). abc_choice: 2–3 buttons (A / B / C).\n"
         "  – start step: usually 1 quick_reply (“Start survey”) OR use button_type url with one button.\n"

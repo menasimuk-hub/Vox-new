@@ -307,6 +307,32 @@ def test_coerce_meta_template_fields_fixes_long_footer():
     assert len(item["footer"]) <= 60
 
 
+def test_coerce_fills_default_button_labels_when_openai_leaves_text_empty():
+    from app.services.survey_wa_template_pack_service import coerce_meta_template_fields
+
+    item = coerce_meta_template_fields(
+        _sample_item(
+            step_role="start",
+            button_type="quick_reply",
+            buttons=[{"text": "", "label": "", "url": "", "phone_number": ""}],
+        ),
+        privacy_mode="off",
+    )
+    assert item["buttons"][0]["text"] == "Start survey"
+
+    yes_no = coerce_meta_template_fields(
+        _sample_item(
+            template_name="yes_no_step",
+            step_role="yes_no",
+            button_type="quick_reply",
+            buttons=[{"label": "Yes", "url": "", "phone_number": ""}, {"title": "No", "url": "", "phone_number": ""}],
+        ),
+        privacy_mode="off",
+    )
+    assert yes_no["buttons"][0]["text"] == "Yes"
+    assert yes_no["buttons"][1]["text"] == "No"
+
+
 def test_coerce_meta_template_fields_trims_extra_quick_reply_buttons():
     from app.services.survey_wa_template_pack_service import coerce_meta_template_fields
 

@@ -61,6 +61,62 @@ function updateFooterInComponents(components, text) {
   return out
 }
 
+function emptyButton() {
+  return { text: '', url: '', phone_number: '' }
+}
+
+function buttonsMetaFromComponents(components) {
+  const comp = (components || []).find((c) => String(c?.type || '').toUpperCase() === 'BUTTONS')
+  const list = Array.isArray(comp?.buttons) ? comp.buttons : []
+  if (!list.length) return { button_type: 'none', buttons: [] }
+  const first = list[0] || {}
+  const kind = String(first.type || '').toUpperCase()
+  if (kind === 'URL') {
+    return {
+      button_type: 'url',
+      buttons: [{ text: first.text || '', url: first.url || '', phone_number: '' }],
+    }
+  }
+  if (kind === 'PHONE_NUMBER') {
+    return {
+      button_type: 'phone',
+      buttons: [{ text: first.text || '', url: '', phone_number: first.phone_number || '' }],
+    }
+  }
+  return {
+    button_type: 'quick_reply',
+    buttons: list.map((b) => ({ text: b.text || '', url: '', phone_number: '' })),
+  }
+}
+
+function updateButtonsInComponents(components, buttonType, buttons) {
+  const without = (components || []).filter((c) => String(c?.type || '').toUpperCase() !== 'BUTTONS')
+  const bt = buttonType || 'none'
+  if (bt === 'none') return without
+  const cleaned = (buttons || []).filter((b) => String(b?.text || '').trim())
+  if (!cleaned.length) return without
+  let built = []
+  if (bt === 'quick_reply') {
+    built = cleaned.slice(0, 3).map((b) => ({ type: 'QUICK_REPLY', text: String(b.text).trim().slice(0, 25) }))
+  } else if (bt === 'url') {
+    const b = cleaned[0]
+    built = [{
+      type: 'URL',
+      text: String(b.text).trim().slice(0, 25),
+      url: String(b.url || 'https://example.com/survey').trim(),
+    }]
+  } else if (bt === 'phone') {
+    const b = cleaned[0]
+    built = [{
+      type: 'PHONE_NUMBER',
+      text: String(b.text).trim().slice(0, 25),
+      phone_number: String(b.phone_number || '+441234567890').trim(),
+    }]
+  }
+  if (!built.length) return without
+  return [...without, { type: 'BUTTONS', buttons: built }]
+}
+
 function buildSurveyTypesFallback(allTypes, tpl, currentTypeId) {
   return (allTypes || []).map((t) => {
     const isCurrent = String(t.id) === String(currentTypeId)
@@ -82,12 +138,15 @@ function buildSurveyTypesFallback(allTypes, tpl, currentTypeId) {
 
 function applyTemplateDraft(setDraft, tpl) {
   const components = parseComponents(tpl?.draft_components || tpl?.remote_components)
+  const buttonMeta = buttonsMetaFromComponents(components)
   setDraft({
     display_name: tpl?.display_name || tpl?.name,
     category: tpl?.category || 'MARKETING',
     body: bodyTextFromComponents(components),
     footer: footerTextFromComponents(components) || tpl?.footer || '',
     components,
+    button_type: buttonMeta.button_type,
+    buttons: buttonMeta.buttons.length ? buttonMeta.buttons : [emptyButton()],
     example_values: tpl?.example_values || ['Alex'],
   })
 }
@@ -205,11 +264,15 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
   const livePreview = useMemo(() => {
     if (!draft) return null
     const values = ensureExampleValues(draft.body, '', draft.example_values)
+    const previewButtons = (draft.buttons || [])
+      .filter((b) => String(b?.text || '').trim())
+      .map((b) => ({ text: b.text, title: b.text, label: b.text }))
     return {
       businessName: values[1] || 'Northgate Dental',
       renderedBody: substituteTemplateVars(draft.body, values),
       footer: draft.footer,
       values,
+      buttons: previewButtons,
     }
   }, [draft])
 
@@ -238,6 +301,7 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
       let components = draft.components?.length ? [...draft.components] : []
       components = updateBodyInComponents(components, draft.body)
       components = updateFooterInComponents(components, draft.footer)
+      components = updateButtonsInComponents(components, draft.button_type, draft.buttons)
       const data = await apiFetch(`/admin/wa-survey/templates/${templateId}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -292,14 +356,28 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
       showError({ message: categoryError }, categoryError)
       return
     }
-    if (isDirty) {
-      showError({ message: 'Save your changes locally before syncing to Telnyx.' }, 'Unsaved changes')
-      return
-    }
     setWorking('push')
     setSyncing(true)
     clearFeedback()
     try {
+      if (isDirty) {
+        let components = draft.components?.length ? [...draft.components] : []
+        components = updateBodyInComponents(components, draft.body)
+        components = updateFooterInComponents(components, draft.footer)
+        components = updateButtonsInComponents(components, draft.button_type, draft.buttons)
+        const saved = await apiFetch(`/admin/wa-survey/templates/${templateId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            display_name: draft.display_name,
+            category: draft.category,
+            components,
+            example_values: ensureExampleValues(draft.body, '', draft.example_values),
+          }),
+        })
+        setTemplate(saved.template)
+        applyTemplateDraft(setDraft, saved.template)
+        setIsDirty(false)
+      }
       const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/push`, { method: 'POST', body: '{}' })
       setTemplate(data.template)
       const syncMessage = data.sync_message || data.message || TELNYX_SYNC_LABELS.SYNCED
@@ -369,7 +447,9 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
     }
   }
 
-  const buttons = preview?.buttons || template?.buttons || []
+  const buttons = livePreview?.buttons?.length
+    ? livePreview.buttons
+    : (preview?.buttons || template?.buttons || [])
   const rejectionReason = template?.rejection_reason
   const syncError = template?.sync_error || template?.last_push_error
 
@@ -400,7 +480,7 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
               disabled={working === 'push' || syncing}
             >
               <i className="ti ti-cloud-upload" />
-              {syncing ? 'Syncing…' : needsResync ? 'Sync to Telnyx' : 'Sync to Telnyx'}
+              {syncing ? 'Syncing…' : 'Sync this to Telnyx'}
             </button>
             <div className="waTplEd-divider" />
             <button
@@ -535,6 +615,79 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
                       placeholder="Footer note…"
                     />
                     <div className="waTplEd-char-count">{draft.footer.length}/60</div>
+                  </div>
+                </div>
+
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-click" /></div>
+                    <span className="waTplEd-ftitle">Buttons</span>
+                    <span className="waTplEd-fbadge">max 25 chars each</span>
+                  </div>
+                  <div className="waTplEd-field-body">
+                    <select
+                      className="waTplEd-select"
+                      value={draft.button_type || 'none'}
+                      onChange={(e) => patchDraft((d) => ({
+                        ...d,
+                        button_type: e.target.value,
+                        buttons: e.target.value === 'none' ? [] : (d.buttons?.length ? d.buttons : [emptyButton()]),
+                      }))}
+                    >
+                      <option value="none">No buttons</option>
+                      <option value="quick_reply">Quick reply (up to 3)</option>
+                      <option value="url">URL button</option>
+                      <option value="phone">Phone button</option>
+                    </select>
+                    {draft.button_type && draft.button_type !== 'none' ? (
+                      <div className="waTplEd-var-rows" style={{ marginTop: 12 }}>
+                        {[0, 1, 2].map((i) => {
+                          if (draft.button_type !== 'quick_reply' && i > 0) return null
+                          const btn = draft.buttons?.[i] || emptyButton()
+                          return (
+                            <div key={i} className="waTplEd-var-row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                              <span className="waTplEd-var-key">Btn {i + 1}</span>
+                              <input
+                                className="waTplEd-input"
+                                maxLength={25}
+                                placeholder="Button label"
+                                value={btn.text}
+                                onChange={(e) => patchDraft((d) => {
+                                  const buttons = [...(d.buttons || [emptyButton()])]
+                                  while (buttons.length <= i) buttons.push(emptyButton())
+                                  buttons[i] = { ...buttons[i], text: e.target.value }
+                                  return { ...d, buttons }
+                                })}
+                              />
+                              {draft.button_type === 'url' && i === 0 ? (
+                                <input
+                                  className="waTplEd-input"
+                                  placeholder="https://…"
+                                  value={btn.url}
+                                  onChange={(e) => patchDraft((d) => {
+                                    const buttons = [...(d.buttons || [emptyButton()])]
+                                    buttons[0] = { ...buttons[0], url: e.target.value }
+                                    return { ...d, buttons }
+                                  })}
+                                />
+                              ) : null}
+                              {draft.button_type === 'phone' && i === 0 ? (
+                                <input
+                                  className="waTplEd-input"
+                                  placeholder="+441234567890"
+                                  value={btn.phone_number}
+                                  onChange={(e) => patchDraft((d) => {
+                                    const buttons = [...(d.buttons || [emptyButton()])]
+                                    buttons[0] = { ...buttons[0], phone_number: e.target.value }
+                                    return { ...d, buttons }
+                                  })}
+                                />
+                              ) : null}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
