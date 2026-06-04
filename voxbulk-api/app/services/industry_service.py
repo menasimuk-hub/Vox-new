@@ -20,6 +20,7 @@ DEFAULT_INDUSTRIES: list[dict[str, Any]] = [
     {"slug": "hospitality", "name": "Hospitality", "description": "Hotels, restaurants, venues.", "sort_order": 40},
     {"slug": "education", "name": "Education", "description": "Schools, training, and ed-tech.", "sort_order": 50},
     {"slug": "saas", "name": "SaaS / Technology", "description": "Software and digital product feedback.", "sort_order": 60},
+    {"slug": "services", "name": "Services", "description": "Professional and consumer services feedback.", "sort_order": 35},
     {"slug": "general", "name": "General / Other", "description": "Cross-industry or unspecified vertical.", "sort_order": 90},
 ]
 

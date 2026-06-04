@@ -59,6 +59,10 @@ def attach_flow_to_config(config: dict[str, Any], *, snapshot: dict[str, Any], f
     return out
 
 
+def is_simulator_dry_run(config: dict[str, Any]) -> bool:
+    return bool(config.get("simulator_dry_run"))
+
+
 def max_question_visits(config: dict[str, Any], *, survey_type_max_length: int = 6) -> int:
     snap = get_flow_snapshot(config)
     if snap and snap.get("max_question_visits"):

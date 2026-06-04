@@ -15,7 +15,7 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.survey_dispatch_service import _first_name, _personalize, _uses_whatsapp
-from app.services.survey_flow_config_service import is_graph_flow
+from app.services.survey_flow_config_service import is_graph_flow, is_simulator_dry_run
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
@@ -178,6 +178,9 @@ def _send_message(
     recipient: ServiceOrderRecipient,
     body: str,
 ) -> bool:
+    config = _order_config(order)
+    if is_simulator_dry_run(config):
+        return True
     result = TelnyxMessagingService.send_survey_message(
         db,
         org_id=order.org_id,

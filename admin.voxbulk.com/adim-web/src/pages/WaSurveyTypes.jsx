@@ -152,6 +152,9 @@ export default function WaSurveyTypes() {
           <Link className="btn" to="/settings/wa-survey/industries">
             <i className="ti ti-building" /> Manage industries
           </Link>
+          <Link className="btn" to="/settings/wa-survey/simulator">
+            <i className="ti ti-flask" /> Flow simulator
+          </Link>
           <button type="button" className="btn" onClick={() => setShowCreate((v) => !v)}>
             <i className="ti ti-plus" /> Create survey type
           </button>

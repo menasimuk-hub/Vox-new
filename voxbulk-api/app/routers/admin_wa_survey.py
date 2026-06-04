@@ -13,6 +13,8 @@ from app.services.survey_generation_service import SurveyGenerationService
 from app.models.industry import Industry
 from app.services.industry_service import IndustryService, industry_to_dict
 from app.services.survey_type_service import SurveyTypeService, survey_type_to_dict
+from app.services.survey_simulator_service import SurveySimulatorService
+from app.services.survey_wa_test_pack_seed_service import SurveyWaTestPackSeedService
 from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackError, SurveyWaTemplatePackService
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
@@ -647,3 +649,73 @@ def publish_survey_flow(
         return SurveyFlowDefinitionService.publish(db, flow_id, max_question_visits=mq)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/test-pack/ensure")
+def ensure_wa_survey_test_pack(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Seed Services / General / off local APPROVED templates (no OpenAI)."""
+    return SurveyWaTestPackSeedService.ensure_test_pack(db)
+
+
+@router.get("/simulator/options")
+def simulator_options(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return SurveySimulatorService.list_options(db)
+
+
+@router.post("/simulator/start")
+def simulator_start(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    body = payload or {}
+    try:
+        roles = body.get("selected_step_roles")
+        branches = body.get("flow_branches")
+        return SurveySimulatorService.start(
+            db,
+            survey_type_id=str(body.get("survey_type_id") or ""),
+            privacy_mode=str(body.get("privacy_mode") or "off"),
+            flow_engine=str(body.get("flow_engine") or "linear"),
+            page_count=int(body.get("page_count") or 6),
+            selected_step_roles=[str(r) for r in roles] if isinstance(roles, list) else None,
+            flow_branches=branches if isinstance(branches, list) else None,
+            force_outcome_text_fallback=bool(body.get("force_outcome_text_fallback")),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/simulator/answer")
+def simulator_answer(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    body = payload or {}
+    try:
+        return SurveySimulatorService.answer(
+            db,
+            recipient_id=str(body.get("recipient_id") or ""),
+            answer=str(body.get("answer") or ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/simulator/state/{recipient_id}")
+def simulator_state(
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        return SurveySimulatorService.get_state(db, recipient_id=recipient_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

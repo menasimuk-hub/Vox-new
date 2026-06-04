@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.survey_session import SurveySession
 from app.services.survey_dispatch_service import _first_name, _personalize
+from app.services.survey_flow_config_service import is_simulator_dry_run
 from app.services.survey_flow_constants import ACTION_SEND_TEMPLATE, ACTION_SEND_TEXT
 from app.services.survey_session_service import SurveySessionService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
@@ -58,6 +59,7 @@ class SurveyOutcomeSendService:
 
         action_type = str(outcome_result.get("action_type") or ACTION_SEND_TEXT)
         template_send = outcome_result.get("template_send")
+        force_template_fail = bool(config.get("simulator_force_template_fail"))
         fallback_body = _personalize(
             str(outcome_result.get("body") or outcome_result.get("message_body") or "Thank you for your feedback."),
             first_name=first,
@@ -72,7 +74,19 @@ class SurveyOutcomeSendService:
         used_fallback = False
         result = None
 
-        if action_type == ACTION_SEND_TEMPLATE and isinstance(template_send, dict) and template_send.get("telnyx_template_id"):
+        if is_simulator_dry_run(config):
+            used_fallback = (
+                force_template_fail
+                and action_type == ACTION_SEND_TEMPLATE
+                and isinstance(template_send, dict)
+                and template_send.get("telnyx_template_id")
+            ) or action_type == ACTION_SEND_TEXT or not template_send
+            ok = True
+            detail = "simulated_text_fallback" if used_fallback else "simulated_template_send"
+            if used_fallback and action_type == ACTION_SEND_TEMPLATE:
+                detail = "simulated_template_failure_fallback"
+            external_id = "simulator-dry-run"
+        elif action_type == ACTION_SEND_TEMPLATE and isinstance(template_send, dict) and template_send.get("telnyx_template_id"):
             components = template_send.get("components")
             try:
                 result = TelnyxMessagingService.send_whatsapp(
