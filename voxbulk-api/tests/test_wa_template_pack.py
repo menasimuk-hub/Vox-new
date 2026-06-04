@@ -50,7 +50,7 @@ def _sample_item(**overrides):
         "title": "Standard intro",
         "step_role": "start",
         "purpose": "intro",
-        "body": "Hi {{1}}, {{2}} would love your feedback. Ref {{3}}.",
+        "body": "Hi {{1}}, {{2}} would love your feedback 👋 Tap below to start your survey.",
         "footer": "Reply STOP to opt out",
         "header": "",
         "button_type": "quick_reply",
@@ -83,7 +83,7 @@ def _mock_pack_response():
     for idx, (role, btn_type, outcome_key) in enumerate(roles_buttons):
         name = role if role != "start" else "std_intro"
         variant = VARIANT_STANDARD
-        body = f"Hi {{{{1}}}}, {{{{2}}}} survey ref {{{{3}}}} — {role}."
+        body = f"Hi {{{{1}}}}, {{{{2}}}} 👋 Share your thoughts — {role}."
         if outcome_key:
             body = f"Thanks {{{{1}}}} — {outcome_key} closing."
         footer = "Reply STOP to opt out"
@@ -151,6 +151,37 @@ def test_validate_quick_reply_and_url_templates():
         assert any("https URL" in e for e in err_url)
 
 
+def test_validate_rejects_reference_copy_by_default():
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        ok, errors = validate_generated_template(
+            _sample_item(body="Hi {{1}}, {{2}} — your reference number is {{3}}."),
+            survey_type=st,
+        )
+        assert ok is None
+        assert any("reference" in e.lower() for e in errors)
+
+
+def test_validate_allows_reference_when_admin_instruction_requests():
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        ok, errors = validate_generated_template(
+            _sample_item(body="Hi {{1}}, {{2}} — your reference number is {{3}}."),
+            survey_type=st,
+            instruction="Include reference number for each customer",
+        )
+        assert ok is not None
+        assert not errors
+
+
+def test_pack_system_prompt_forbids_reference_without_admin_override():
+    from app.services.survey_wa_template_pack_service import _pack_system_prompt
+
+    prompt = _pack_system_prompt()
+    assert "NO REFERENCE COPY" in prompt
+    assert "at least 8 of 12" in prompt
+
+
 def test_validate_anonymous_wording():
     with get_sessionmaker()() as db:
         st = _seed_survey_type(db)
@@ -199,6 +230,8 @@ def test_generate_pack_uses_responses_api(monkeypatch):
         st = _seed_survey_type(db)
         result = SurveyWaTemplatePackService.generate_pack(db, survey_type=st, instruction="Keep friendly tone")
         assert captured.get("schema_name") == "wa_survey_template_pack"
+        assert "NO REFERENCE COPY" in (captured.get("system_prompt") or "")
+        assert "at least 8 of 12" in (captured.get("system_prompt") or "")
         assert result["valid_count"] == PACK_SIZE
         assert result["openai"]["api_style"] == "responses"
         purposes = {t["template"]["purpose"] for t in result["templates"] if t.get("template")}

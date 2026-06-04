@@ -48,6 +48,45 @@ from app.services.survey_whatsapp_template_service import (
 )
 
 PACK_SIZE = 12
+
+# Prose that mentions "reference" / "ref" — forbidden unless admin instruction explicitly allows it.
+_REFERENCE_COPY_RE = re.compile(
+    r"\b("
+    r"reference(?:\s*(?:number|code|id))?|"
+    r"ref\s*#|"
+    r"ref\s*:|"
+    r"your\s+ref\b|"
+    r"ref\s+\{\{3\}\}|"
+    r"ref\s+no\.?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def admin_allows_reference_copy(*, instruction: str = "", purpose: str = "") -> bool:
+    """True when admin text explicitly requests reference-style copy."""
+    combined = f"{instruction or ''} {purpose or ''}".lower()
+    markers = (
+        "reference number",
+        "reference code",
+        "reference id",
+        "include reference",
+        "use reference",
+        "ref number",
+        "ref code",
+        "case id",
+        "ticket id",
+        "tracking code",
+        "order id",
+    )
+    return any(m in combined for m in markers)
+
+
+def copy_contains_forbidden_reference(*parts: str) -> bool:
+    text = " ".join(p for p in parts if p).strip()
+    if not text:
+        return False
+    return bool(_REFERENCE_COPY_RE.search(text))
 OUTCOME_COMPLETION_KEYS = ("happy", "neutral", "unhappy")
 _LOCAL_ID_PREFIX = "local-"
 _NAME_RE = re.compile(r"^[a-z0-9_]{3,64}$")
@@ -247,6 +286,8 @@ def validate_generated_template(
     *,
     survey_type: SurveyType | None = None,
     privacy_mode: str = PRIVACY_MODE_OFF,
+    instruction: str = "",
+    purpose: str = "",
 ) -> tuple[dict[str, Any] | None, list[str]]:
     errors: list[str] = []
     if not isinstance(item, dict):
@@ -350,6 +391,17 @@ def validate_generated_template(
     elif outcome_key:
         errors.append("outcome_key is only allowed on completion templates")
 
+    if not admin_allows_reference_copy(instruction=instruction, purpose=purpose):
+        button_text = " ".join(
+            str(b.get("text") or "")
+            for b in buttons
+            if isinstance(b, dict)
+        )
+        if copy_contains_forbidden_reference(header, body, footer, button_text):
+            errors.append(
+                'Do not use "reference", "ref", or reference-style wording unless Admin instruction explicitly asks for it'
+            )
+
     if errors:
         return None, errors
 
@@ -407,7 +459,38 @@ def _validate_pack_composition(items: list[dict[str, Any]]) -> list[str]:
     return errors
 
 
-def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
+def _reference_copy_rules_block(*, instruction: str = "", purpose: str = "") -> str:
+    if admin_allows_reference_copy(instruction=instruction, purpose=purpose):
+        return (
+            "REFERENCE COPY: Admin instruction allows reference numbers/codes/IDs — include them only as described "
+            "in Admin instruction, nowhere else.\n\n"
+        )
+    return (
+        "NO REFERENCE COPY (mandatory unless Admin instruction overrides):\n"
+        "• Never use the words reference, ref, reference number, reference code, your ref, or similar in "
+        "header, body, footer, or button labels.\n"
+        "• {{3}} is only a survey link/URL placeholder — never describe {{3}} as a reference, code, or ID in prose.\n"
+        "• Do not invent case IDs, ticket IDs, order IDs, CSAT codes, or tracking codes.\n"
+        "• CTAs should say survey link, button below, open your survey — not reference number.\n\n"
+    )
+
+
+def _emoji_rules_block() -> str:
+    return (
+        "EMOJIS — make templates visually appealing on WhatsApp:\n"
+        f"• Use tasteful, friendly emojis in at least 8 of {PACK_SIZE} templates "
+        "(e.g. 👋 ✨ 📋 ⭐ 🙏 💬 🌟 — never more than 3 per message).\n"
+        "• Warm/friendly and follow-up templates should usually include 1–2 emojis.\n"
+        "• Premium/professional variants may use 0–1 subtle emoji only.\n\n"
+    )
+
+
+def _pack_system_prompt(
+    *,
+    privacy_mode: str = PRIVACY_MODE_OFF,
+    instruction: str = "",
+    purpose: str = "",
+) -> str:
     privacy_mode = normalize_privacy_mode(privacy_mode)
     anonymous_block = ""
     style_mix = (
@@ -422,7 +505,7 @@ def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
         "VARIABLES (Meta format, sequential, must appear in body/header):\n"
         "{{1}} = customer first name\n"
         "{{2}} = business/service name\n"
-        "{{3}} = survey link or reference code\n"
+        "{{3}} = personal survey link (URL only — never label it a reference or code in copy)\n"
         "{{4}} = appointment or service date when relevant\n\n"
     )
     if privacy_mode == PRIVACY_MODE_ON:
@@ -461,8 +544,8 @@ def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
         f"{anonymous_block}"
         f"{variable_block}"
         f"{style_mix}"
-        "EMOJIS: use tasteful emojis in at least 6 of 10 templates (e.g. 👋 ✨ 📋 ⭐ 🙏 — never more than 3 per message). "
-        "Skip emojis on premium/professional variants.\n\n"
+        f"{_reference_copy_rules_block(instruction=instruction, purpose=purpose)}"
+        f"{_emoji_rules_block()}"
         "CTA COPY — weave in natural action phrases such as: ‘Tap below’, ‘Rate your experience’, ‘Share feedback’, "
         "‘Call us’, ‘It only takes a minute’, ‘We’d love your thoughts’.\n\n"
         "BUTTON-AWARE COPY:\n"
@@ -472,7 +555,7 @@ def _pack_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
         "‘Use the link below — it only takes a minute’). Button text: ‘Open survey’, ‘Rate experience’, ‘Give feedback’. "
         "URL must be https.\n"
         "• phone: body invites a call (‘Need help? Tap below to call us’). Button: ‘Call us’, ‘Speak to team’.\n"
-        "• none: still include a soft CTA in body referencing {{3}} where natural.\n\n"
+        "• none: soft CTA pointing to the survey link ({{3}}) — never call it a reference.\n\n"
         "STRUCTURE: strong opening hook in first line; short paragraphs; WhatsApp-friendly length (body ≤600 chars ideal). "
         "Quick reply: max 3 buttons. "
         f"Anonymous templates: body must include that the survey is anonymous; footer must be exactly “{ANONYMOUS_FOOTER}”. "
@@ -541,11 +624,17 @@ def _pack_user_prompt(
     return "\n".join(parts)
 
 
-def _single_template_system_prompt(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str:
+def _single_template_system_prompt(
+    *,
+    privacy_mode: str = PRIVACY_MODE_OFF,
+    instruction: str = "",
+    purpose: str = "",
+) -> str:
     return (
-        _pack_system_prompt(privacy_mode=privacy_mode)
+        _pack_system_prompt(privacy_mode=privacy_mode, instruction=instruction, purpose=purpose)
         + "\n\nYou are regenerating ONE template slot. Return JSON with a single `template` object. "
-        "Make it noticeably better, more WhatsApp-native, and more button-aware than a generic draft."
+        "Make it noticeably better, more WhatsApp-native, emoji-friendly where appropriate, and more button-aware "
+        "than a generic draft. Never add reference/ref wording unless Admin instruction explicitly requires it."
     )
 
 
@@ -597,8 +686,16 @@ def _build_pack_item_row(
     item: dict[str, Any],
     seen_names: set[str],
     privacy_mode: str = PRIVACY_MODE_OFF,
+    instruction: str = "",
+    purpose: str = "",
 ) -> dict[str, Any]:
-    normalized, errors = validate_generated_template(item, survey_type=survey_type, privacy_mode=privacy_mode)
+    normalized, errors = validate_generated_template(
+        item,
+        survey_type=survey_type,
+        privacy_mode=privacy_mode,
+        instruction=instruction,
+        purpose=purpose,
+    )
     row: dict[str, Any] = {
         "index": idx,
         "raw": item,
@@ -654,7 +751,11 @@ class SurveyWaTemplatePackService:
         try:
             raw, meta = OpenAIProviderService.responses_json(
                 db,
-                system_prompt=_pack_system_prompt(privacy_mode=privacy_mode),
+                system_prompt=_pack_system_prompt(
+                    privacy_mode=privacy_mode,
+                    instruction=instruction,
+                    purpose=purpose,
+                ),
                 user_prompt=_pack_user_prompt(
                     survey_type=survey_type,
                     industry=industry,
@@ -690,6 +791,8 @@ class SurveyWaTemplatePackService:
                 item=item,
                 seen_names=seen_names,
                 privacy_mode=privacy_mode,
+                instruction=instruction,
+                purpose=purpose,
             )
             if row.get("valid") and row.get("template"):
                 validated.append(row)
@@ -748,7 +851,11 @@ class SurveyWaTemplatePackService:
         try:
             raw, meta = OpenAIProviderService.responses_json(
                 db,
-                system_prompt=_single_template_system_prompt(privacy_mode=privacy_mode),
+                system_prompt=_single_template_system_prompt(
+                    privacy_mode=privacy_mode,
+                    instruction=instruction,
+                    purpose=purpose,
+                ),
                 user_prompt=_single_template_user_prompt(
                     survey_type=survey_type,
                     industry=industry,
@@ -781,6 +888,8 @@ class SurveyWaTemplatePackService:
             item=item,
             seen_names=names,
             privacy_mode=privacy_mode,
+            instruction=instruction,
+            purpose=purpose,
         )
         return {"ok": True, "item": row, "openai": meta, "privacy_mode": privacy_mode}
 
@@ -832,6 +941,8 @@ class SurveyWaTemplatePackService:
                 item,
                 survey_type=survey_type,
                 privacy_mode=privacy_mode,
+                instruction=instruction,
+                purpose=purpose,
             )
             if not normalized:
                 errors.append(f"{item.get('template_name') or 'template'}: {'; '.join(val_errors)}")

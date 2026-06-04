@@ -765,7 +765,7 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                 <textarea
                   value={instruction}
                   onChange={(e) => setInstruction(e.target.value)}
-                  placeholder="e.g. Always include a discount code. Keep messages under 160 chars. Use warm but professional tone…"
+                  placeholder="e.g. Warm tone with emojis. No reference numbers unless you write it here (e.g. include reference number). Keep under 280 chars…"
                 />
               </div>
             </div>
