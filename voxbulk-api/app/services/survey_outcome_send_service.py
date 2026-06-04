@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 from typing import Any
@@ -14,6 +13,11 @@ from app.models.survey_session import SurveySession
 from app.services.survey_dispatch_service import _first_name, _personalize
 from app.services.survey_flow_config_service import is_simulator_dry_run
 from app.services.survey_flow_constants import ACTION_SEND_TEMPLATE, ACTION_SEND_TEXT
+from app.services.survey_outcome_delivery_schema import (
+    build_outcome_delivery_record,
+    dumps_outcome_delivery,
+    loads_outcome_delivery,
+)
 from app.services.survey_session_service import SurveySessionService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
@@ -21,18 +25,10 @@ logger = logging.getLogger(__name__)
 LOG_PREFIX = "[survey-outcome]"
 
 
-def _loads_delivery(raw: str | None) -> dict[str, Any]:
-    try:
-        data = json.loads(raw or "{}")
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
 class SurveyOutcomeSendService:
     @staticmethod
     def already_delivered(session: SurveySession) -> bool:
-        delivery = _loads_delivery(session.outcome_delivery_json)
+        delivery = loads_outcome_delivery(session.outcome_delivery_json)
         return bool(delivery.get("sent_at"))
 
     @staticmethod
@@ -50,8 +46,16 @@ class SurveyOutcomeSendService:
         Template send failure falls back to personalized text on WhatsApp (no SMS).
         """
         if SurveyOutcomeSendService.already_delivered(session):
-            delivery = _loads_delivery(session.outcome_delivery_json)
-            return {"ok": True, "skipped": True, "detail": "outcome_already_sent", **delivery}
+            delivery = loads_outcome_delivery(session.outcome_delivery_json)
+            logger.info(
+                "%s idempotent_skip session=%s outcome=%s",
+                LOG_PREFIX,
+                session.id,
+                delivery.get("outcome_key"),
+            )
+            out = {"ok": True, "skipped": True, "detail": "outcome_already_sent", **delivery}
+            out["skipped"] = True
+            return out
 
         org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
         organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
@@ -72,6 +76,7 @@ class SurveyOutcomeSendService:
         external_id = None
         ok = False
         used_fallback = False
+        template_send_failed = False
         result = None
 
         if is_simulator_dry_run(config):
@@ -104,12 +109,22 @@ class SurveyOutcomeSendService:
                 external_id = result.external_id
                 channel = result.channel or "whatsapp"
             except Exception as exc:
-                logger.warning("%s template_send_failed session=%s err=%s", LOG_PREFIX, session.id, exc)
+                template_send_failed = True
+                logger.warning(
+                    "%s template_send_failed session=%s order=%s template=%s err=%s",
+                    LOG_PREFIX,
+                    session.id,
+                    order.id,
+                    template_send.get("template_id"),
+                    exc,
+                )
                 ok = False
                 detail = str(exc)
 
             if not ok:
                 used_fallback = True
+                if action_type == ACTION_SEND_TEMPLATE:
+                    template_send_failed = True
                 result = TelnyxMessagingService.send_whatsapp(
                     db,
                     org_id=order.org_id,
@@ -144,20 +159,29 @@ class SurveyOutcomeSendService:
         except Exception:
             pass
 
-        now = datetime.utcnow().isoformat()
-        delivery = {
-            "sent_at": now,
-            "ok": ok,
-            "channel": str(channel or "whatsapp"),
-            "action_type": action_type,
-            "used_text_fallback": used_fallback or action_type == ACTION_SEND_TEXT,
-            "outcome_key": str(outcome_result.get("outcome_key") or ""),
-            "template_id": outcome_result.get("template_id"),
-            "detail": str(detail or "")[:500],
-            "external_id": str(external_id) if external_id else None,
-            "body_preview": fallback_body[:200],
-        }
-        session.outcome_delivery_json = json.dumps(delivery, ensure_ascii=False)
+        delivery = build_outcome_delivery_record(
+            ok=ok,
+            channel=str(channel or "whatsapp"),
+            action_type=action_type,
+            used_text_fallback=used_fallback or action_type == ACTION_SEND_TEXT,
+            template_send_failed=template_send_failed,
+            outcome_key=str(outcome_result.get("outcome_key") or ""),
+            template_id=outcome_result.get("template_id"),
+            detail=str(detail or ""),
+            external_id=str(external_id) if external_id else None,
+            body_preview=fallback_body[:200],
+        )
+        session.outcome_delivery_json = dumps_outcome_delivery(delivery)
+        logger.info(
+            "%s delivered session=%s order=%s ok=%s fallback=%s template_failed=%s outcome=%s",
+            LOG_PREFIX,
+            session.id,
+            order.id,
+            ok,
+            delivery.get("used_text_fallback"),
+            template_send_failed,
+            delivery.get("outcome_key"),
+        )
         session.updated_at = datetime.utcnow()
         db.add(session)
 

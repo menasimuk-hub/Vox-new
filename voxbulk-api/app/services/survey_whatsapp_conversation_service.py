@@ -19,6 +19,7 @@ from app.services.survey_flow_config_service import is_graph_flow, is_simulator_
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
+from app.services.survey_whatsapp_inbound_guard import is_duplicate_inbound, mark_inbound_processed
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
@@ -294,11 +295,32 @@ def handle_inbound_reply(
     body: str,
     org_id: str | None = None,
     log_id: int | None = None,
+    inbound_message_id: str | None = None,
 ) -> dict[str, Any]:
     """Advance an active WhatsApp survey when a contact replies."""
     order, recipient = find_active_recipient(db, from_phone=from_phone, org_id=org_id)
     if not order or not recipient:
         return {"handled": False, "reason": "no_active_survey"}
+
+    payload = _recipient_result(recipient)
+    if is_duplicate_inbound(payload, log_id=log_id, inbound_message_id=inbound_message_id):
+        logger.info(
+            "%s duplicate_inbound_skipped order=%s recipient=%s log_id=%s message_id=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+            log_id,
+            inbound_message_id,
+        )
+        return {
+            "handled": True,
+            "duplicate": True,
+            "skipped": True,
+            "order_id": order.id,
+            "recipient_id": recipient.id,
+            "log_id": log_id,
+            "inbound_message_id": inbound_message_id,
+        }
 
     config = _order_config(order)
     flow = _whatsapp_flow(config)
@@ -316,12 +338,12 @@ def handle_inbound_reply(
             questions=questions,
             body=body,
             log_id=log_id,
+            inbound_message_id=inbound_message_id,
         )
 
     org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
     organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
 
-    payload = _recipient_result(recipient)
     conv = _wa_conversation(payload)
     step = int(conv.get("step") or 0)
     total = int(conv.get("total") or len(questions))
@@ -371,6 +393,9 @@ def handle_inbound_reply(
         next_body = format_question_message(next_q, index=step + 1, total=total)
         conv["step"] = step + 1
         payload["wa_conversation"] = conv
+        payload = mark_inbound_processed(
+            payload, log_id=log_id, inbound_message_id=inbound_message_id
+        )
         SurveySessionService.advance_linear(
             db, session, config=config, from_step=step, to_step=step + 1
         )
@@ -397,6 +422,9 @@ def handle_inbound_reply(
     conv["step"] = total + 1
     conv["completed_at"] = datetime.utcnow().isoformat()
     payload["wa_conversation"] = conv
+    payload = mark_inbound_processed(
+        payload, log_id=log_id, inbound_message_id=inbound_message_id
+    )
     SurveySessionService.complete_linear(db, session, config=config, final_step=step)
     recipient.status = "completed"
     _save_recipient_result(db, recipient, payload)
@@ -436,6 +464,7 @@ def _handle_inbound_reply_graph(
     questions: list[dict[str, Any]],
     body: str,
     log_id: int | None,
+    inbound_message_id: str | None = None,
 ) -> dict[str, Any]:
     org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
     organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
@@ -506,6 +535,9 @@ def _handle_inbound_reply_graph(
         conv["completed_at"] = datetime.utcnow().isoformat()
         conv["outcome_key"] = result.get("outcome_key")
         payload["wa_conversation"] = conv
+        payload = mark_inbound_processed(
+            payload, log_id=log_id, inbound_message_id=inbound_message_id
+        )
         recipient.status = "completed"
         _save_recipient_result(db, recipient, payload)
         SurveyOutcomeSendService.deliver(
@@ -542,6 +574,9 @@ def _handle_inbound_reply_graph(
     conv["step"] = int(session.question_visits or step) + 1
     conv["current_node_key"] = result.get("node_key") or session.current_node_key
     payload["wa_conversation"] = conv
+    payload = mark_inbound_processed(
+        payload, log_id=log_id, inbound_message_id=inbound_message_id
+    )
     recipient.status = "in_progress"
     _save_recipient_result(db, recipient, payload)
     sent = _send_message(db, order=order, recipient=recipient, body=next_body)
@@ -553,6 +588,7 @@ def _handle_inbound_reply_graph(
         "next_step": conv["step"],
         "sent": sent,
         "log_id": log_id,
+        "inbound_message_id": inbound_message_id,
     }
 
 

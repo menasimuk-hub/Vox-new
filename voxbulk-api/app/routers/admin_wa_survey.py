@@ -15,6 +15,7 @@ from app.services.industry_service import IndustryService, industry_to_dict
 from app.services.survey_type_service import SurveyTypeService, survey_type_to_dict
 from app.services.survey_picker_settings_service import SurveyPickerSettingsService
 from app.services.survey_simulator_service import SurveySimulatorService
+from app.services.survey_wa_observability_service import SurveyWaObservabilityService
 from app.services.survey_wa_test_pack_seed_service import SurveyWaTestPackSeedService
 from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackError, SurveyWaTemplatePackService
 from app.services.survey_whatsapp_template_service import (
@@ -681,6 +682,60 @@ def update_picker_settings(
         **SurveyPickerSettingsService.update_settings(
             db,
             ai_picker_enabled=bool(body.get("ai_picker_enabled", True)),
+        ),
+    }
+
+
+@router.get("/sessions")
+def list_wa_survey_sessions(
+    order_id: str | None = None,
+    org_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return {
+        "ok": True,
+        **SurveyWaObservabilityService.list_sessions(
+            db,
+            order_id=order_id,
+            org_id=org_id,
+            status=status,
+            limit=limit,
+        ),
+    }
+
+
+@router.get("/sessions/{session_id}")
+def get_wa_survey_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    detail = SurveyWaObservabilityService.get_session_detail(db, session_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return {"ok": True, **detail}
+
+
+@router.get("/observability/overview")
+def wa_survey_observability_overview(
+    order_id: str | None = None,
+    org_id: str | None = None,
+    survey_type_id: str | None = None,
+    since_days: int = 7,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return {
+        "ok": True,
+        **SurveyWaObservabilityService.overview(
+            db,
+            order_id=order_id,
+            org_id=org_id,
+            survey_type_id=survey_type_id,
+            since_days=since_days,
         ),
     }
 

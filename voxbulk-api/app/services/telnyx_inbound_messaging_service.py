@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.models.organisation import Organisation
 from app.models.whatsapp_log import WhatsAppLog
@@ -251,6 +254,19 @@ class TelnyxInboundMessagingService:
         status = _extract_delivery_status(record) or ("received" if direction == "inbound" else "sent")
         delivery_error = _format_delivery_errors(record)
 
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        config = cfg if isinstance(cfg, dict) else {}
+        org_id = _resolve_org_id(db, header_org_id=header_org_id, config=config)
+
+        try:
+            from_norm = normalize_e164(from_number) if from_number else from_number
+        except ValueError:
+            from_norm = from_number
+        try:
+            to_norm = normalize_e164(to_number) if to_number else to_number
+        except ValueError:
+            to_norm = to_number
+
         if message_id:
             existing = db.execute(
                 select(WhatsAppLog).where(
@@ -283,26 +299,41 @@ class TelnyxInboundMessagingService:
                         db.commit()
                     except Exception:
                         pass
-                return {"ok": True, "log_id": existing.id, "duplicate": True, "status": status}
+                result: dict[str, Any] = {
+                    "ok": True,
+                    "log_id": existing.id,
+                    "duplicate": True,
+                    "status": status,
+                }
+                if direction == "inbound" and channel == "whatsapp":
+                    try:
+                        from app.services.survey_whatsapp_conversation_service import handle_inbound_reply
+
+                        survey_result = handle_inbound_reply(
+                            db,
+                            from_phone=from_norm or from_number,
+                            body=body,
+                            org_id=org_id,
+                            log_id=existing.id,
+                            inbound_message_id=message_id,
+                        )
+                        result["survey"] = survey_result
+                        if survey_result.get("duplicate"):
+                            result["survey_duplicate_skipped"] = True
+                    except Exception:
+                        logger.exception(
+                            "survey_wa_inbound_handler_failed duplicate=True log_id=%s message_id=%s from=%r",
+                            existing.id,
+                            message_id,
+                            from_norm or from_number,
+                        )
+                return result
 
         if direction != "inbound" and event_type != "message.received":
             if direction == "outbound" and event_type in {"message.sent", "message.finalized"} and message_id:
                 pass
             else:
                 return {"ok": True, "ignored": True, "event_type": event_type, "direction": direction}
-
-        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-        config = cfg if isinstance(cfg, dict) else {}
-        org_id = _resolve_org_id(db, header_org_id=header_org_id, config=config)
-
-        try:
-            from_norm = normalize_e164(from_number) if from_number else from_number
-        except ValueError:
-            from_norm = from_number
-        try:
-            to_norm = normalize_e164(to_number) if to_number else to_number
-        except ValueError:
-            to_norm = to_number
 
         media = record.get("media")
         media_json = json.dumps(media, ensure_ascii=False)[:8000] if media else None
@@ -392,10 +423,24 @@ class TelnyxInboundMessagingService:
                         body=body,
                         org_id=org_id,
                         log_id=row.id,
+                        inbound_message_id=message_id,
                     )
                     handled_survey = bool(survey_result.get("handled"))
+                    if survey_result.get("duplicate"):
+                        logger.info(
+                            "survey_wa_inbound_duplicate_skipped log_id=%s message_id=%s recipient=%s",
+                            row.id,
+                            message_id,
+                            survey_result.get("recipient_id"),
+                        )
                 except Exception:
-                    pass
+                    logger.exception(
+                        "survey_wa_inbound_handler_failed log_id=%s message_id=%s from=%r body=%r",
+                        row.id,
+                        message_id,
+                        from_norm or from_number,
+                        (body or "")[:120],
+                    )
             if not handled_interview and not handled_survey:
                 try:
                     from app.services.sales_automation_service import SalesAutomationService
