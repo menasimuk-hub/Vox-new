@@ -894,6 +894,76 @@ class SurveyWaTemplatePackService:
         return {"ok": True, "item": row, "openai": meta, "privacy_mode": privacy_mode}
 
     @staticmethod
+    def _upsert_or_create_draft_row(
+        db: Session,
+        *,
+        survey_type: SurveyType,
+        item: dict[str, Any],
+        pack_id: str | None,
+        privacy_mode: str,
+    ) -> TelnyxWhatsappTemplate:
+        from app.services.survey_type_template_service import template_belongs_to_survey_type
+
+        raw_id = item.get("id") or item.get("template_id")
+        if raw_id is not None:
+            try:
+                template_id = int(raw_id)
+            except (TypeError, ValueError):
+                template_id = 0
+            if template_id > 0:
+                row = db.get(TelnyxWhatsappTemplate, template_id)
+                if row is not None and template_belongs_to_survey_type(row, survey_type):
+                    components = item.get("components")
+                    if not isinstance(components, list) or not components:
+                        components = build_components_from_generated(item)
+                    SurveyWhatsappTemplateService.save_draft(
+                        db,
+                        row,
+                        {
+                            "display_name": item.get("title") or item.get("template_name"),
+                            "components": components,
+                            "category": item.get("category"),
+                            "example_values": item.get("example_values"),
+                        },
+                    )
+                    row.step_role = str(item.get("step_role") or "")[:32] or None
+                    outcome_key = str(item.get("outcome_key") or "").strip().lower() or None
+                    row.outcome_key = outcome_key
+                    row.pack_id = pack_id or row.pack_id
+                    row.privacy_mode = privacy_mode
+                    row.variant_type = privacy_mode_to_variant(privacy_mode)
+                    apply_industry_to_template(row, survey_type)
+                    db.add(row)
+                    db.flush()
+                    pm = privacy_mode
+                    if pm == PRIVACY_MODE_ON:
+                        SurveyTypeTemplateService.upsert_mapping(
+                            db,
+                            survey_type_id=survey_type.id,
+                            template_id=row.id,
+                            usable_as_anonymous=True,
+                            privacy_mode=pm,
+                        )
+                    else:
+                        SurveyTypeTemplateService.upsert_mapping(
+                            db,
+                            survey_type_id=survey_type.id,
+                            template_id=row.id,
+                            usable_as_standard=True,
+                            privacy_mode=pm,
+                        )
+                    db.refresh(row)
+                    return row
+
+        return SurveyWaTemplatePackService._create_draft_row(
+            db,
+            survey_type=survey_type,
+            item=item,
+            pack_id=pack_id,
+            privacy_mode=privacy_mode,
+        )
+
+    @staticmethod
     def save_selected_templates(
         db: Session,
         *,
@@ -904,6 +974,7 @@ class SurveyWaTemplatePackService:
         purpose: str = "",
         instruction: str = "",
         industry_id: str | None = None,
+        replace_step_bank: bool = False,
     ) -> dict[str, Any]:
         if not templates:
             raise SurveyWaTemplatePackError("Select at least one template to save")
@@ -948,10 +1019,10 @@ class SurveyWaTemplatePackService:
                 errors.append(f"{item.get('template_name') or 'template'}: {'; '.join(val_errors)}")
                 continue
             try:
-                row = SurveyWaTemplatePackService._create_draft_row(
+                row = SurveyWaTemplatePackService._upsert_or_create_draft_row(
                     db,
                     survey_type=survey_type,
-                    item=normalized,
+                    item={**normalized, "id": item.get("id") or item.get("template_id")},
                     pack_id=pack.id,
                     privacy_mode=privacy_mode,
                 )
@@ -964,7 +1035,7 @@ class SurveyWaTemplatePackService:
             raise SurveyWaTemplatePackError("; ".join(errors[:5]))
 
         saved_ids = [int(t["id"]) for t in saved if t.get("id")]
-        if saved_ids:
+        if replace_step_bank and saved_ids:
             SurveyTypeTemplateService.prune_stale_step_bank_mappings(
                 db,
                 survey_type_id=survey_type.id,

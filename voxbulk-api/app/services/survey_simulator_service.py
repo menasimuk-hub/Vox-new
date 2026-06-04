@@ -367,10 +367,16 @@ class SurveySimulatorService:
         *,
         survey_type_id: str,
         privacy_mode: str = "off",
+        industry_id: str | None = None,
     ) -> dict[str, Any]:
         st = SurveyTypeService.get_type(db, survey_type_id)
         if st is None:
             raise ValueError("Survey type not found")
+        expected_industry = str(st.industry_id or "").strip()
+        if not expected_industry:
+            raise ValueError("Survey type must belong to an industry")
+        if industry_id and str(industry_id).strip() != expected_industry:
+            raise ValueError("industry_id does not match survey type")
         pm = normalize_privacy_mode(privacy_mode)
         variant = privacy_mode_to_variant(pm)
         readiness = SurveyWaReadinessService.readiness(db, survey_type_id=survey_type_id, privacy_mode=pm)

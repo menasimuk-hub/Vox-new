@@ -13,6 +13,7 @@ from app.services.survey_generation_service import SurveyGenerationService
 from app.models.industry import Industry
 from app.services.industry_service import IndustryService, industry_to_dict
 from app.services.survey_type_service import SurveyTypeService, survey_type_to_dict
+from app.services.survey_type_template_service import SurveyTypeTemplateError, SurveyTypeTemplateService
 from app.services.survey_picker_settings_service import SurveyPickerSettingsService
 from app.services.survey_simulator_service import SurveySimulatorService
 from app.services.survey_wa_observability_service import SurveyWaObservabilityService
@@ -261,6 +262,7 @@ def save_template_pack(
             purpose=str(payload.get("purpose") or "").strip(),
             instruction=str(payload.get("instruction") or "").strip(),
             industry_id=str(payload.get("industry_id") or "").strip() or None,
+            replace_step_bank=bool(payload.get("replace_step_bank")),
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -383,6 +385,26 @@ def link_existing_template(
             linked_survey_type_count=SurveyTypeTemplateService.linked_survey_type_count(db, template_id),
         ),
     }
+
+
+@router.delete("/types/{type_id}/templates/{template_id}")
+def delete_survey_type_template(
+    type_id: str,
+    template_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = SurveyTypeService.get_type(db, type_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    try:
+        return SurveyTypeTemplateService.unlink_template_from_survey_type(
+            db,
+            survey_type_id=type_id,
+            template_id=template_id,
+        )
+    except SurveyTypeTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.put("/templates/{template_id}")
@@ -787,12 +809,16 @@ def wa_survey_observability_overview(
 def simulator_prefill_for_type(
     type_id: str,
     privacy_mode: str = "off",
+    industry_id: str | None = None,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
     try:
         return SurveySimulatorService.prefill_for_survey_type(
-            db, survey_type_id=type_id, privacy_mode=privacy_mode
+            db,
+            survey_type_id=type_id,
+            privacy_mode=privacy_mode,
+            industry_id=industry_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

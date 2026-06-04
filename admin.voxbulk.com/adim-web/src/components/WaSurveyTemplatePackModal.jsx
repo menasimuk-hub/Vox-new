@@ -290,6 +290,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
 
   useEffect(() => {
     if (!open) reset()
+    else if (industryId) setSelectedIndustryId(industryId)
   }, [open, industryId])
 
   useEffect(() => {
@@ -506,20 +507,26 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     showToast('Changes applied!')
   }
 
-  const saveOne = async (item) => {
-    if (!item?.template) return
-    const payload = {
+  const templatePayloadForSave = (item) => {
+    const savedId = savedRecords[item.index]?.id
+    return {
       ...item.template,
+      ...(savedId ? { id: savedId } : {}),
       privacy_mode: privacyMode,
       example_values: ensureExampleValues(item.template.body, item.template.header, item.template.example_values),
     }
+  }
+
+  const saveOne = async (item) => {
+    if (!item?.template) return
+    const payload = templatePayloadForSave(item)
     setWorking(`save-${item.index}`)
     setCardErrors((prev) => ({ ...prev, [item.index]: '' }))
     setError('')
     try {
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/save-pack`, {
         method: 'POST',
-        body: JSON.stringify({ templates: [payload], ...packPayloadMeta() }),
+        body: JSON.stringify({ templates: [payload], replace_step_bank: false, ...packPayloadMeta() }),
       })
       const savedRow = data.templates?.[0]
       setSavedIndices((prev) => new Set(prev).add(item.index))
@@ -579,6 +586,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
         method: 'POST',
         body: JSON.stringify({
           index: item.index,
+          industry_id: selectedIndustryId,
           instruction: buildInstruction(),
           purpose: item.template?.purpose || purpose,
           privacy_mode: privacyMode,
@@ -612,14 +620,10 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     setWorking('save-all')
     setError('')
     try {
-      const templates = items.filter((i) => i.template && i.valid).map((i) => ({
-        ...i.template,
-        privacy_mode: privacyMode,
-        example_values: ensureExampleValues(i.template.body, i.template.header, i.template.example_values),
-      }))
+      const templates = items.filter((i) => i.template && i.valid).map((i) => templatePayloadForSave(i))
       const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(surveyTypeId)}/templates/save-pack`, {
         method: 'POST',
-        body: JSON.stringify({ templates, ...packPayloadMeta() }),
+        body: JSON.stringify({ templates, replace_step_bank: true, ...packPayloadMeta() }),
       })
       setSavedIndices(new Set(items.filter((i) => i.template && i.valid).map((i) => i.index)))
       const nextRecords = {}

@@ -192,6 +192,25 @@ export default function WaSurveyTypeEdit() {
     }
   }
 
+  const deleteTemplate = async (tpl) => {
+    if (!tpl?.id || !window.confirm(`Remove "${tpl.display_name || tpl.name}" from this survey type?`)) return
+    setWorking(`delete-${tpl.id}`)
+    clearFeedback()
+    try {
+      await apiFetch(
+        `/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/${encodeURIComponent(tpl.id)}`,
+        { method: 'DELETE' },
+      )
+      showOk({ message: 'Template removed from this survey type.' })
+      await load()
+      await loadReadiness()
+    } catch (e) {
+      showError(e, 'Could not delete template')
+    } finally {
+      setWorking('')
+    }
+  }
+
   const pushAllToTelnyx = async () => {
     setWorking('push-all')
     clearFeedback()
@@ -591,16 +610,26 @@ export default function WaSurveyTypeEdit() {
                       </span>
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn sm"
-                        onClick={() => {
-                          setModalTemplate(tpl)
-                          setModalTemplateId(tpl.id)
-                        }}
-                      >
-                        Edit
-                      </button>
+                      <div className="runningSurveyRowActions">
+                        <button
+                          type="button"
+                          className="btn sm"
+                          onClick={() => {
+                            setModalTemplate(tpl)
+                            setModalTemplateId(tpl.id)
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm soft"
+                          disabled={working === `delete-${tpl.id}`}
+                          onClick={() => deleteTemplate(tpl)}
+                        >
+                          {working === `delete-${tpl.id}` ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )) : (

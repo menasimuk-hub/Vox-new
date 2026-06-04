@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.database import get_sessionmaker
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
@@ -256,11 +256,44 @@ def test_save_pack_creates_local_drafts(monkeypatch):
         st = _seed_survey_type(db)
         generated = SurveyWaTemplatePackService.generate_pack(db, survey_type=st)
         selected = [t["template"] for t in generated["templates"] if t.get("template")][:3]
-        saved = SurveyWaTemplatePackService.save_selected_templates(db, survey_type=st, templates=selected)
+        saved = SurveyWaTemplatePackService.save_selected_templates(
+            db, survey_type=st, templates=selected, replace_step_bank=True
+        )
         assert saved["saved_count"] == 3
         rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars())
         assert len(rows) == 3
         assert all(r.status == "LOCAL_DRAFT" for r in rows)
+
+
+def test_save_single_template_does_not_prune_other_mappings(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.survey_wa_template_pack_service.OpenAIProviderService.responses_json",
+        lambda db, **kwargs: (_mock_pack_response(), {"model": "gpt-4o-mini", "api_style": "responses"}),
+    )
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        generated = SurveyWaTemplatePackService.generate_pack(db, survey_type=st)
+        selected = [t["template"] for t in generated["templates"] if t.get("template")][:3]
+        SurveyWaTemplatePackService.save_selected_templates(
+            db, survey_type=st, templates=selected, replace_step_bank=True
+        )
+        first = db.execute(select(TelnyxWhatsappTemplate)).scalars().first()
+        assert first is not None
+        one = generated["templates"][0]["template"]
+        SurveyWaTemplatePackService.save_selected_templates(
+            db,
+            survey_type=st,
+            templates=[{**one, "id": first.id}],
+            replace_step_bank=False,
+        )
+        from app.models.survey_type_template import SurveyTypeTemplate
+
+        mapping_count = db.execute(
+            select(func.count()).select_from(SurveyTypeTemplate).where(
+                SurveyTypeTemplate.survey_type_id == st.id
+            )
+        ).scalar_one()
+        assert mapping_count == 3
 
 
 def test_regenerate_pack_item(monkeypatch):

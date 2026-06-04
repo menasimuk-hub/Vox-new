@@ -49,14 +49,17 @@ export default function WaSurveyFlowSimulator() {
     }
   }, [deepLinkTypeId])
 
-  const loadPrefill = useCallback(async (typeId, pm) => {
+  const loadPrefill = useCallback(async (typeId, pm, industryOverride) => {
     if (!typeId) {
       setPrefill(null)
       return null
     }
     try {
+      const prefillQs = new URLSearchParams({ privacy_mode: pm })
+      const industryQs = industryOverride || deepLinkIndustry || industryId
+      if (industryQs) prefillQs.set('industry_id', industryQs)
       const data = await apiFetch(
-        `/admin/wa-survey/types/${encodeURIComponent(typeId)}/simulator-prefill?privacy_mode=${encodeURIComponent(pm)}`
+        `/admin/wa-survey/types/${encodeURIComponent(typeId)}/simulator-prefill?${prefillQs}`
       )
       setPrefill(data)
       setIndustryId(data.industry_id || deepLinkIndustry || '')
@@ -132,9 +135,10 @@ export default function WaSurveyFlowSimulator() {
     void startSession()
   }, [autoStartRequested, loading, busy, surveyTypeId, prefill, startSession])
 
-  const onSurveyTypeChange = async (nextTypeId) => {
+  const onSurveyTypeChange = async (nextTypeId, nextIndustryId) => {
     setSurveyTypeId(nextTypeId)
-    await loadPrefill(nextTypeId, privacyMode)
+    if (nextIndustryId) setIndustryId(nextIndustryId)
+    await loadPrefill(nextTypeId, privacyMode, nextIndustryId || industryId)
   }
 
   const onPrivacyChange = async (pm) => {
@@ -268,7 +272,7 @@ export default function WaSurveyFlowSimulator() {
                 onChange={(e) => {
                   setIndustryId(e.target.value)
                   const first = (options?.survey_types || []).find((t) => t.industry_id === e.target.value)
-                  if (first) void onSurveyTypeChange(first.id)
+                  if (first) void onSurveyTypeChange(first.id, e.target.value)
                 }}
               >
                 {(options?.industries || []).map((i) => (
