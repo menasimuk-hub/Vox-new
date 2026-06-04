@@ -1,15 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
-import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
+import { formatActionSuccess, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import {
+  LOCAL_STATUS_LABELS,
   TELNYX_SYNC_LABELS,
   WA_TEMPLATE_CATEGORY_OPTIONS,
-  resolveTelnyxSyncLabel,
+  formatLastSyncedAt,
+  localStatusPillClass,
+  resolveLocalStatus,
+  resolveSyncStatus,
   telnyxSyncPillClass,
+  templateNeedsResync,
   validateCategoryBeforeSync,
 } from '../lib/waSurveyTelnyxSync'
 import { VAR_LABELS, ensureExampleValues, substituteTemplateVars } from '../lib/waSurveyTemplateVars'
-import WaSurveyPhonePreview from './WaSurveyPhonePreview'
+import '../styles/waTemplateEditor.css'
 
 function parseComponents(raw) {
   if (Array.isArray(raw)) return raw
@@ -92,54 +97,46 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
-  const [msg, setMsg] = useState('')
-  const [msgDetail, setMsgDetail] = useState('')
-  const [feedbackTone, setFeedbackTone] = useState('ok')
   const [template, setTemplate] = useState(null)
   const [draft, setDraft] = useState(null)
   const [surveyTypes, setSurveyTypes] = useState([])
   const [preview, setPreview] = useState(null)
   const [testMobile, setTestMobile] = useState('')
-  const [saveNotice, setSaveNotice] = useState('')
-  const [syncNotice, setSyncNotice] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [isDirty, setIsDirty] = useState(false)
+  const [toast, setToast] = useState('')
 
-  const telnyxLabel = useMemo(() => {
-    if (syncing) return TELNYX_SYNC_LABELS.SYNCING
-    return resolveTelnyxSyncLabel(template)
-  }, [template, syncing])
-
-  const linkedCount = useMemo(
-    () => surveyTypes.filter((st) => st.linked || st.usable_as_standard || st.usable_as_anonymous || st.is_default_standard || st.is_default_anonymous).length,
-    [surveyTypes]
+  const localStatus = useMemo(
+    () => resolveLocalStatus(template, { isDirty }),
+    [template, isDirty]
   )
+  const syncStatus = useMemo(
+    () => resolveSyncStatus(template, { syncing }),
+    [template, syncing]
+  )
+  const lastSynced = formatLastSyncedAt(template?.last_synced_at || template?.last_pushed_at)
+  const needsResync = templateNeedsResync(template) || isDirty
+  const canRefreshStatus = template && !template.is_local_only
+
+  const patchDraft = (updater) => {
+    setIsDirty(true)
+    setDraft((current) => (typeof updater === 'function' ? updater(current) : { ...current, ...updater }))
+  }
+
+  const showToast = (message) => {
+    setToast(message)
+    window.setTimeout(() => setToast(''), 2800)
+  }
 
   const clearFeedback = () => {
     setError('')
     setErrorDetail('')
-    setMsg('')
-    setMsgDetail('')
-    setFeedbackTone('ok')
-    setSaveNotice('')
-    setSyncNotice('')
   }
 
   const showError = (err, fallback = 'Request failed') => {
     const formatted = formatWaSurveyError(err, fallback)
-    setFeedbackTone('error')
     setError(formatted.message)
     setErrorDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
-    setMsg('')
-    setMsgDetail('')
-  }
-
-  const showOk = (result, fallback = 'Done') => {
-    const formatted = formatActionSuccess(result, fallback)
-    setFeedbackTone('ok')
-    setError('')
-    setErrorDetail('')
-    setMsg(formatted.message)
-    setMsgDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
   }
 
   const loadPreview = async (id) => {
@@ -151,14 +148,12 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
     if (!initialTemplate) throw new Error('Could not load template')
     setTemplate(initialTemplate)
     applyTemplateDraft(setDraft, initialTemplate)
+    setIsDirty(false)
     const typesRes = await apiFetch('/admin/wa-survey/types')
     setSurveyTypes(buildSurveyTypesFallback(typesRes.types, initialTemplate, surveyTypeId))
     await loadPreview(templateId)
-    setFeedbackTone('warn')
-    setError('')
-    setErrorDetail('')
-    setMsg('FastAPI on port 8000 is outdated — restart it so shared-template mappings load.')
-    setMsgDetail(
+    setError('FastAPI on port 8000 is outdated — restart it so shared-template mappings load.')
+    setErrorDetail(
       'Run: cd voxbulk-api && python -m alembic upgrade head && python -m uvicorn main:app --host 127.0.0.1 --port 8000'
     )
   }
@@ -172,6 +167,7 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
       setTemplate(data.template)
       setSurveyTypes(Array.isArray(data.survey_types) ? data.survey_types : [])
       applyTemplateDraft(setDraft, data.template)
+      setIsDirty(false)
       await loadPreview(templateId)
     } catch (e) {
       if (e?.status === 405 && initialTemplate) {
@@ -252,9 +248,9 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
         }),
       })
       setTemplate(data.template)
-      setSaveNotice('Template saved')
-      showOk({ message: 'Template saved', template_name: data.template?.name })
-      await load()
+      applyTemplateDraft(setDraft, data.template)
+      setIsDirty(false)
+      showToast(data.message || 'Template saved')
       onSaved?.()
     } catch (e) {
       showError(e, 'Could not save draft')
@@ -281,7 +277,7 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
         body: JSON.stringify({ mappings }),
       })
       setSurveyTypes(data.survey_types || [])
-      showOk({ message: `Mappings saved for ${data.linked_survey_type_count || mappings.length} survey type(s).`, template_name: template?.name })
+      showToast(`Mappings saved (${data.linked_survey_type_count || mappings.length} types)`)
       onSaved?.()
     } catch (e) {
       showError(e, 'Could not save mappings')
@@ -296,6 +292,10 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
       showError({ message: categoryError }, categoryError)
       return
     }
+    if (isDirty) {
+      showError({ message: 'Save your changes locally before syncing to Telnyx.' }, 'Unsaved changes')
+      return
+    }
     setWorking('push')
     setSyncing(true)
     clearFeedback()
@@ -303,16 +303,11 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
       const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/push`, { method: 'POST', body: '{}' })
       setTemplate(data.template)
       const syncMessage = data.sync_message || data.message || TELNYX_SYNC_LABELS.SYNCED
-      setSyncNotice(syncMessage)
-      if (syncMessage === TELNYX_SYNC_LABELS.FAILED) {
-        showError({ message: syncMessage, data: { detail: data } }, syncMessage)
-      } else {
-        showOk({ message: syncMessage, template_name: data.template?.name, approval_status: data.approval_status })
-      }
-      await load()
+      if (data.template) applyTemplateDraft(setDraft, data.template)
+      setIsDirty(false)
+      showToast(syncMessage)
       onSaved?.()
     } catch (e) {
-      setSyncNotice(TELNYX_SYNC_LABELS.FAILED)
       showError(e, TELNYX_SYNC_LABELS.FAILED)
     } finally {
       setSyncing(false)
@@ -329,43 +324,12 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
         body: '{}',
       })
       setTemplate(data.template)
-      setSyncNotice(data.telnyx_sync_label || data.message)
-      showOk({ message: data.message || data.telnyx_sync_label, approval_status: data.approval_status })
-      await load()
+      if (data.template) applyTemplateDraft(setDraft, data.template)
+      setIsDirty(false)
+      showToast(data.telnyx_sync_label || data.message || 'Status refreshed')
       onSaved?.()
     } catch (e) {
       showError(e, TELNYX_SYNC_LABELS.FAILED)
-    } finally {
-      setWorking('')
-    }
-  }
-
-  const needsResync = template?.is_local_only || template?.telnyx_sync_label === TELNYX_SYNC_LABELS.FAILED
-    || template?.telnyx_sync_label === TELNYX_SYNC_LABELS.REJECTED
-    || template?.sync_status === 'local_changes'
-  const canRefreshStatus = template && !template.is_local_only
-
-  const syncTemplates = async () => {
-    setWorking('sync')
-    clearFeedback()
-    try {
-      const summary = await apiFetch('/admin/wa-survey/sync', {
-        method: 'POST',
-        body: JSON.stringify({ survey_type_id: surveyTypeId || undefined }),
-      })
-      const formatted = formatSyncSummary(summary)
-      setFeedbackTone(formatted.severity === 'error' ? 'error' : formatted.severity === 'warn' ? 'warn' : 'ok')
-      if (formatted.severity === 'error') {
-        setError(formatted.message)
-        setErrorDetail(formatted.detailText)
-      } else {
-        setMsg(formatted.message)
-        setMsgDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
-      }
-      await load()
-      onSaved?.()
-    } catch (e) {
-      showError(e, 'Sync from Telnyx failed')
     } finally {
       setWorking('')
     }
@@ -379,7 +343,7 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
         method: 'POST',
         body: JSON.stringify({ survey_type_id: surveyTypeId }),
       })
-      showOk({ message: 'Anonymous content variant created as a separate shared template.' })
+      showToast('Anonymous variant created')
       onSaved?.()
     } catch (e) {
       showError(e, 'Clone failed')
@@ -396,7 +360,8 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
         method: 'POST',
         body: JSON.stringify({ to_number: testMobile.trim(), first_name: draft?.example_values?.[0] || 'Alex' }),
       })
-      showOk(data, 'Test survey sent')
+      const formatted = formatActionSuccess(data, 'Test survey sent')
+      showToast(formatted.message)
     } catch (e) {
       showError(e, 'Send test survey failed')
     } finally {
@@ -404,156 +369,262 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
     }
   }
 
+  const buttons = preview?.buttons || template?.buttons || []
+  const rejectionReason = template?.rejection_reason
+  const syncError = template?.sync_error || template?.last_push_error
+
   return (
-    <div className="waSurveyPackBackdrop" role="dialog" aria-modal="true">
-      <div className="waSurveyPackShell waSurveyPackShellNoScroll waSurveyTemplateEditShell">
-        <header className="waSurveyPackTopBar waSurveyPackTopBarCompact">
-          <div className="waSurveyPackTopBarMain">
-            <h2>{draft?.display_name || template?.name || 'Template'}</h2>
-            <p className="muted">Shared source · {linkedCount || template?.linked_survey_type_count || 0} survey type(s)</p>
+    <div className="waTplEd-overlay" role="dialog" aria-modal="true" aria-label="Edit WhatsApp template">
+      <div className="waTplEd">
+        <header className="waTplEd-topbar">
+          <div className="waTplEd-topbar-left">
+            <div className="waTplEd-wa-icon">
+              <i className="ti ti-brand-whatsapp" />
+            </div>
+            <div className="waTplEd-name-wrap">
+              <input
+                className="waTplEd-name"
+                value={draft?.display_name || ''}
+                onChange={(e) => patchDraft({ display_name: e.target.value })}
+                spellCheck={false}
+                placeholder="Template name"
+              />
+              {draft?.category ? <span className="waTplEd-tag">{draft.category}</span> : null}
+            </div>
           </div>
-          <button type="button" className="btn ghost" onClick={onClose}>Close</button>
+          <div className="waTplEd-topbar-actions">
+            <button
+              type="button"
+              className={`waTplEd-tb-btn sync-btn${syncing ? ' syncing' : ''}`}
+              onClick={pushTemplate}
+              disabled={working === 'push' || syncing}
+            >
+              <i className="ti ti-cloud-upload" />
+              {syncing ? 'Syncing…' : needsResync ? 'Sync to Telnyx' : 'Sync to Telnyx'}
+            </button>
+            <div className="waTplEd-divider" />
+            <button
+              type="button"
+              className="waTplEd-tb-btn primary"
+              onClick={saveDraft}
+              disabled={working === 'save' || loading}
+            >
+              <i className="ti ti-check" />
+              {working === 'save' ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" className="waTplEd-tb-btn close-btn" onClick={onClose}>
+              <i className="ti ti-x" />
+              Close
+            </button>
+          </div>
         </header>
 
-        {loading ? <p className="muted waSurveyPackGlobalAlert">Loading…</p> : null}
-        {error ? <div className="alert error waSurveyPackGlobalAlert"><strong>{error}</strong>{errorDetail ? <pre className="waSurveyFeedbackDetail">{errorDetail}</pre> : null}</div> : null}
-        {msg ? <div className={`alert ${feedbackTone === 'warn' ? 'warn' : 'ok'} waSurveyPackGlobalAlert`}><strong>{msg}</strong>{msgDetail ? <pre className="waSurveyFeedbackDetail">{msgDetail}</pre> : null}</div> : null}
+        {loading ? <p className="waTplEd-hint" style={{ padding: '1rem 1.25rem' }}>Loading…</p> : null}
+        {error ? (
+          <div className="waTplEd-alert error">
+            <strong>{error}</strong>
+            {errorDetail ? <pre style={{ marginTop: 8, whiteSpace: 'pre-wrap', fontSize: 12 }}>{errorDetail}</pre> : null}
+          </div>
+        ) : null}
 
         {!loading && draft ? (
-          <div className="waSurveyTemplateEditMain">
-            <section className="waSurveyTemplateEditForm card">
-              <div className="cardHead"><h3>Template content</h3></div>
-              <div className="cardBody">
-                <label className="msgFieldBlock">
-                  <span className="label">Display name</span>
-                  <input className="input" value={draft.display_name} onChange={(e) => setDraft((d) => ({ ...d, display_name: e.target.value }))} />
-                </label>
-                <label className="msgFieldBlock">
-                  <span className="label">Template Category</span>
-                  <select
-                    className="input"
-                    value={draft.category || ''}
-                    onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}
-                  >
-                    <option value="">Select category…</option>
-                    {WA_TEMPLATE_CATEGORY_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                  <p className="fieldHint">Required before syncing to Telnyx — MARKETING, UTILITY, or AUTHENTICATION.</p>
-                </label>
-                <label className="msgFieldBlock">
-                  <span className="label">Body</span>
-                  <textarea
-                    className="input msgFieldEditorBox"
-                    rows={5}
-                    value={draft.body}
-                    onChange={(e) => setDraft((d) => ({
-                      ...d,
-                      body: e.target.value,
-                      example_values: ensureExampleValues(e.target.value, '', d.example_values),
-                    }))}
-                  />
-                </label>
-                <label className="msgFieldBlock">
-                  <span className="label">Footer</span>
-                  <input className="input" value={draft.footer} onChange={(e) => setDraft((d) => ({ ...d, footer: e.target.value }))} />
-                </label>
-                <div className="waSurveyPackMetaBlock waSurveyPackMetaBlockVars">
-                  <span className="label">Variables (example values)</span>
-                  <div className="waSurveyPackVarEditGrid">
-                    {(livePreview?.values || ensureExampleValues(draft.body, '', draft.example_values)).map((val, i) => (
-                      <label key={i} className="waSurveyPackVarEditRow">
-                        <span className="waSurveyPackVarEditLabel">{`{{${i + 1}}} — ${VAR_LABELS[i] || 'Variable'}`}</span>
-                        <input
-                          className="input"
-                          value={val}
-                          onChange={(e) => setDraft((d) => {
-                            const values = ensureExampleValues(d.body, '', d.example_values)
-                            values[i] = e.target.value
-                            return { ...d, example_values: values }
-                          })}
-                        />
-                      </label>
-                    ))}
+          <div className="waTplEd-scroll">
+            <div className="waTplEd-layout">
+              <div className="waTplEd-preview-col">
+                <div className="waTplEd-preview-label">
+                  <i className="ti ti-device-mobile" />
+                  Preview
+                </div>
+                <div className="waTplEd-phone">
+                  <div className="waTplEd-phone-notch" />
+                  <div className="waTplEd-phone-status">
+                    <div className="waTplEd-p-avatar">
+                      {String(livePreview?.businessName || 'B').slice(0, 1)}
+                    </div>
+                    <div>
+                      <div className="waTplEd-p-name">{livePreview?.businessName || 'Business'}</div>
+                      <div className="waTplEd-p-online">online</div>
+                    </div>
+                  </div>
+                  <div className="waTplEd-phone-body">
+                    <div className="waTplEd-wa-bubble">
+                      <div className="waTplEd-wa-body">{livePreview?.renderedBody || draft.body}</div>
+                      {livePreview?.footer ? <div className="waTplEd-wa-ftr">{livePreview.footer}</div> : null}
+                      {buttons.length ? (
+                        <div className="waTplEd-wa-btns">
+                          {buttons.map((btn, i) => (
+                            <div key={i} className="waTplEd-wa-btn">{btn.text || btn.title || 'Button'}</div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-                <div className="btnRow">
-                  <button type="button" className="btn primary" onClick={saveDraft} disabled={working === 'save'}>
-                    {working === 'save' ? 'Saving…' : 'Save template'}
-                  </button>
-                  <button type="button" className="btn" onClick={pushTemplate} disabled={working === 'push' || syncing}>
-                    {syncing ? 'Syncing…' : needsResync ? 'Re-sync to Telnyx' : 'Sync to Telnyx'}
-                  </button>
-                  {canRefreshStatus ? (
-                    <button type="button" className="btn" onClick={refreshTelnyxStatus} disabled={working === 'refresh'}>
-                      Refresh status
-                    </button>
-                  ) : null}
-                  <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>Sync from Telnyx</button>
-                  <button type="button" className="btn" onClick={cloneAnonymous} disabled={working === 'clone'}>Clone anonymous</button>
-                </div>
-                <div className="waSurveyTelnyxStatusRow">
-                  {saveNotice ? <span className="waSurveySaveNotice">{saveNotice}</span> : null}
-                  {syncNotice ? <span className="waSurveySyncNotice">{syncNotice}</span> : null}
-                  <span className={`pill ${telnyxSyncPillClass(telnyxLabel)}`}>{telnyxLabel}</span>
-                  {template?.category ? <span className="pill muted">{template.category}</span> : null}
-                </div>
-                {template?.rejection_reason && telnyxLabel === TELNYX_SYNC_LABELS.REJECTED ? (
-                  <p className="fieldHint waSurveyRejectionReason">
-                    Rejection reason: <strong>{template.rejection_reason}</strong>
-                  </p>
-                ) : null}
-                {template?.last_push_error && telnyxLabel === TELNYX_SYNC_LABELS.FAILED ? (
-                  <p className="fieldHint waSurveyRejectionReason">
-                    Sync error: <strong>{template.last_push_error}</strong>
-                  </p>
-                ) : null}
-                <p className="fieldHint">
-                  Local content sync: <strong>{template?.sync_status_label || template?.sync_status}</strong>
-                  {template?.telnyx_template_id ? <> · Telnyx id: <code>{template.telnyx_template_id}</code></> : null}
-                </p>
-              </div>
-            </section>
-
-            <aside className="waSurveyTemplateEditPreview">
-              <div className="waSurveyTemplateEditPreviewInner">
-                <WaSurveyPhonePreview
-                  businessName={livePreview?.businessName || 'Northgate Dental'}
-                  renderedBody={livePreview?.renderedBody || draft.body}
-                  footer={livePreview?.footer || draft.footer}
-                  buttons={preview?.buttons || template?.buttons || []}
-                  templateName={template?.name}
-                  approvalStatus={template?.approval_status}
-                  syncStatus={template?.sync_status}
-                />
-                <div className="waSurveyTestSend">
-                  <label className="msgFieldBlock">
-                    <span className="label">Test mobile</span>
-                    <input className="input" value={testMobile} onChange={(e) => setTestMobile(e.target.value)} placeholder="+447700900123" />
-                  </label>
-                  <button type="button" className="btn primary" onClick={sendTest} disabled={working === 'send-test' || !testMobile.trim() || template?.approval_status !== 'APPROVED'}>
+                <div className="waTplEd-test-row">
+                  <input
+                    className="waTplEd-input"
+                    value={testMobile}
+                    onChange={(e) => setTestMobile(e.target.value)}
+                    placeholder="+447700900123"
+                  />
+                  <button
+                    type="button"
+                    className="waTplEd-tb-btn primary"
+                    onClick={sendTest}
+                    disabled={working === 'send-test' || !testMobile.trim() || template?.approval_status !== 'APPROVED'}
+                  >
                     {working === 'send-test' ? 'Sending…' : 'Send test'}
                   </button>
                 </div>
               </div>
-            </aside>
 
-            <section className="waSurveyTemplateEditMappings card">
-              <div className="cardHead"><h3>Survey type usage</h3></div>
-              <div className="cardBody waSurveyMappingList">
-                {surveyTypes.map((st) => (
-                  <div key={st.survey_type_id} className="waSurveyMappingRow">
-                    <strong>{st.name}</strong>
-                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.usable_as_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_standard')} /> Standard</label>
-                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.usable_as_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_anonymous')} disabled={!st.supports_anonymous} /> Anonymous</label>
-                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.is_default_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_standard')} /> Default std</label>
-                    <label className="checkRow"><input type="checkbox" checked={Boolean(st.is_default_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_anonymous')} disabled={!st.supports_anonymous} /> Default anon</label>
+              <div className="waTplEd-edit-panel">
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-tag" /></div>
+                    <span className="waTplEd-ftitle">Category</span>
+                    <span className="waTplEd-fbadge">required for sync</span>
                   </div>
-                ))}
-                <button type="button" className="btn primary" onClick={saveMappings} disabled={working === 'mappings'}>Save mappings</button>
+                  <div className="waTplEd-field-body">
+                    <select
+                      className="waTplEd-select"
+                      value={draft.category || ''}
+                      onChange={(e) => patchDraft({ category: e.target.value })}
+                    >
+                      <option value="">Select category…</option>
+                      {WA_TEMPLATE_CATEGORY_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-align-left" /></div>
+                    <span className="waTplEd-ftitle">Body</span>
+                    <span className="waTplEd-fbadge">required · max 1024</span>
+                  </div>
+                  <div className="waTplEd-field-body">
+                    <textarea
+                      className="waTplEd-textarea"
+                      maxLength={1024}
+                      value={draft.body}
+                      onChange={(e) => patchDraft((d) => ({
+                        ...d,
+                        body: e.target.value,
+                        example_values: ensureExampleValues(e.target.value, '', d.example_values),
+                      }))}
+                    />
+                    <div className="waTplEd-char-count">{draft.body.length}/1024</div>
+                  </div>
+                </div>
+
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-minus" /></div>
+                    <span className="waTplEd-ftitle">Footer</span>
+                    <span className="waTplEd-fbadge">optional · max 60</span>
+                  </div>
+                  <div className="waTplEd-field-body">
+                    <input
+                      className="waTplEd-input"
+                      maxLength={60}
+                      value={draft.footer}
+                      onChange={(e) => patchDraft({ footer: e.target.value })}
+                      placeholder="Footer note…"
+                    />
+                    <div className="waTplEd-char-count">{draft.footer.length}/60</div>
+                  </div>
+                </div>
+
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-braces" /></div>
+                    <span className="waTplEd-ftitle">Variables</span>
+                    <span className="waTplEd-fbadge">sample values</span>
+                  </div>
+                  <div className="waTplEd-field-body">
+                    <div className="waTplEd-var-rows">
+                      {(livePreview?.values || ensureExampleValues(draft.body, '', draft.example_values)).map((val, i) => (
+                        <div key={i} className="waTplEd-var-row">
+                          <span className="waTplEd-var-key">{`{{${i + 1}}}`}</span>
+                          <input
+                            className="waTplEd-input"
+                            value={val}
+                            onChange={(e) => patchDraft((d) => {
+                              const values = ensureExampleValues(d.body, '', d.example_values)
+                              values[i] = e.target.value
+                              return { ...d, example_values: values }
+                            })}
+                          />
+                          <span className="waTplEd-hint" style={{ margin: 0, minWidth: 72 }}>{VAR_LABELS[i] || 'Variable'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-link" /></div>
+                    <span className="waTplEd-ftitle">Survey type usage</span>
+                  </div>
+                  <div className="waTplEd-field-body">
+                    {surveyTypes.map((st) => (
+                      <div key={st.survey_type_id} className="waTplEd-mapping-row">
+                        <strong>{st.name}</strong>
+                        <label><input type="checkbox" checked={Boolean(st.usable_as_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_standard')} /> Std</label>
+                        <label><input type="checkbox" checked={Boolean(st.usable_as_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_anonymous')} disabled={!st.supports_anonymous} /> Anon</label>
+                        <label><input type="checkbox" checked={Boolean(st.is_default_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_standard')} /> Def std</label>
+                        <label><input type="checkbox" checked={Boolean(st.is_default_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_anonymous')} disabled={!st.supports_anonymous} /> Def anon</label>
+                      </div>
+                    ))}
+                    <div className="waTplEd-actions-row">
+                      <button type="button" className="waTplEd-tb-btn primary" onClick={saveMappings} disabled={working === 'mappings'}>
+                        Save mappings
+                      </button>
+                      {canRefreshStatus ? (
+                        <button type="button" className="waTplEd-tb-btn" onClick={refreshTelnyxStatus} disabled={working === 'refresh'}>
+                          Refresh Telnyx status
+                        </button>
+                      ) : null}
+                      <button type="button" className="waTplEd-tb-btn" onClick={cloneAnonymous} disabled={working === 'clone'}>
+                        Clone anonymous
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </section>
+            </div>
+          </div>
+        ) : null}
+
+        <footer className="waTplEd-statusbar">
+          <span className={`waTplEd-status-dot ${isDirty ? 'unsaved' : 'saved'}`} />
+          <span>Local:</span>
+          <span className={`waTplEd-status-pill ${localStatusPillClass(localStatus)}`}>{localStatus}</span>
+          <span>Telnyx:</span>
+          <span className={`waTplEd-status-pill ${telnyxSyncPillClass(syncStatus)}`}>{syncStatus}</span>
+          {!isDirty && syncStatus === TELNYX_SYNC_LABELS.NOT_SYNCED ? (
+            <span>— not uploaded yet</span>
+          ) : null}
+          {lastSynced ? <span>Last synced: {lastSynced}</span> : null}
+          {template?.telnyx_template_id ? (
+            <span>ID: {template.telnyx_template_id}</span>
+          ) : null}
+          {rejectionReason && syncStatus === TELNYX_SYNC_LABELS.REJECTED ? (
+            <span>Rejection: {rejectionReason}</span>
+          ) : null}
+          {syncError && syncStatus === TELNYX_SYNC_LABELS.FAILED ? (
+            <span>Error: {syncError}</span>
+          ) : null}
+        </footer>
+
+        {toast ? (
+          <div className={`waTplEd-toast show`}>
+            <i className="ti ti-check" />
+            {toast}
           </div>
         ) : null}
       </div>

@@ -267,7 +267,14 @@ def save_template_draft(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
     updated = SurveyWhatsappTemplateService.save_draft(db, row, payload)
-    return {"ok": True, "message": "Template saved", "template": survey_template_to_dict(updated)}
+    tpl = survey_template_to_dict(updated)
+    return {
+        "ok": True,
+        "message": "Template saved",
+        "local_status": tpl.get("local_status"),
+        "sync_status": tpl.get("sync_status"),
+        "template": tpl,
+    }
 
 
 @router.post("/templates/{template_id}/refresh-telnyx-status")
@@ -344,6 +351,18 @@ def push_template_to_telnyx(
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)
     return result
+
+
+@router.post("/types/{type_id}/templates/push-all")
+def push_all_templates_to_telnyx(
+    type_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        return SurveyWhatsappTemplateService.push_all_for_survey_type(db, type_id)
+    except SurveyWhatsappTemplateError as e:
+        _raise_wa_survey_error(e)
 
 
 @router.post("/sync")

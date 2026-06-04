@@ -9,14 +9,18 @@ import pytest
 from app.core.database import get_sessionmaker
 from app.services.survey_type_service import SurveyTypeService
 from app.services.survey_whatsapp_template_service import (
+    LOCAL_STATUS_SAVED,
     TELNYX_SYNC_FAILED,
     TELNYX_SYNC_NOT_SYNCED,
+    TELNYX_SYNC_OUT_OF_SYNC,
     TELNYX_SYNC_PENDING,
     SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
     normalize_wa_template_category,
+    survey_template_to_dict,
     telnyx_sync_action_message,
     telnyx_sync_ui_label,
+    template_workflow_state,
 )
 
 
@@ -151,3 +155,57 @@ def test_push_sends_category_and_refreshes(monkeypatch):
         assert result["sync_message"] == TELNYX_SYNC_PENDING
         assert result["category"] == "UTILITY"
         assert result["telnyx_template_id"] == "telnyx-new-id"
+
+
+def test_save_draft_does_not_push(monkeypatch):
+    pushed = {"count": 0}
+
+    def _fail_push(*args, **kwargs):
+        pushed["count"] += 1
+        raise AssertionError("save_draft must not call Telnyx")
+
+    monkeypatch.setattr(
+        SurveyWhatsappTemplateService,
+        "push_to_telnyx",
+        staticmethod(_fail_push),
+    )
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type, category="MARKETING")
+        updated = SurveyWhatsappTemplateService.save_draft(
+            db,
+            row,
+            {"display_name": "Updated name", "category": "UTILITY"},
+        )
+        assert pushed["count"] == 0
+        tpl = survey_template_to_dict(updated)
+        assert tpl["local_status"] == LOCAL_STATUS_SAVED
+        assert tpl["sync_status"] == TELNYX_SYNC_NOT_SYNCED
+
+
+def test_out_of_sync_after_local_edit():
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type, category="MARKETING")
+        components = json_module.loads(row.draft_components_json)
+        row.telnyx_record_id = "telnyx-uuid"
+        row.template_id = "telnyx-uuid"
+        row.status = "APPROVED"
+        row.components_json = row.draft_components_json
+        from app.services.survey_whatsapp_template_service import _content_hash
+
+        row.remote_content_hash = _content_hash(components)
+        row.last_pushed_at = row.updated_at
+        row.local_sync_status = "in_sync"
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        body = components[0]
+        body["text"] = str(body.get("text") or "") + " Updated locally."
+        SurveyWhatsappTemplateService.save_draft(db, row, {"components": components})
+        row = SurveyWhatsappTemplateService.get_template(db, row.id)
+        assert telnyx_sync_ui_label(row) == TELNYX_SYNC_OUT_OF_SYNC
+        state = template_workflow_state(row)
+        assert state["needs_resync"] is True
+        assert state["sync_status"] == TELNYX_SYNC_OUT_OF_SYNC

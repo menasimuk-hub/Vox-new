@@ -165,6 +165,35 @@ export default function WaSurveyTypeEdit() {
     }
   }
 
+  const pushAllToTelnyx = async () => {
+    setWorking('push-all')
+    clearFeedback()
+    try {
+      const summary = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/push-all`, {
+        method: 'POST',
+        body: '{}',
+      })
+      if (summary.error_count) {
+        setFeedbackTone('warn')
+        setError('')
+        setErrorDetail('')
+        setMsg(summary.message || `Pushed ${summary.pushed} template(s)`)
+        setMsgDetail(
+          (summary.errors || [])
+            .map((item) => `${item.template_name || item.template_id}: ${item.error}`)
+            .join('\n')
+        )
+      } else {
+        showOk({ message: summary.message || `Pushed ${summary.pushed} template(s) to Telnyx.` })
+      }
+      await load()
+    } catch (e) {
+      showError(e, 'Sync all to Telnyx failed')
+    } finally {
+      setWorking('')
+    }
+  }
+
   const createStandard = async () => {
     setWorking('create')
     clearFeedback()
@@ -235,6 +264,9 @@ export default function WaSurveyTypeEdit() {
         <div className="pageTopActions">
           <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>
             Sync from Telnyx
+          </button>
+          <button type="button" className="btn" onClick={pushAllToTelnyx} disabled={working === 'push-all'}>
+            {working === 'push-all' ? 'Syncing all…' : 'Sync all to Telnyx'}
           </button>
           <button type="button" className="btn primary" onClick={saveTypeSettings} disabled={saving}>
             Save settings

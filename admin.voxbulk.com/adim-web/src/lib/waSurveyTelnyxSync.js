@@ -6,6 +6,11 @@ export const WA_TEMPLATE_CATEGORY_OPTIONS = [
   { value: 'AUTHENTICATION', label: 'Authentication' },
 ]
 
+export const LOCAL_STATUS_LABELS = {
+  DRAFT: 'Draft',
+  SAVED: 'Template saved',
+}
+
 export const TELNYX_SYNC_LABELS = {
   NOT_SYNCED: 'Not synced',
   SYNCING: 'Syncing',
@@ -14,6 +19,7 @@ export const TELNYX_SYNC_LABELS = {
   APPROVED: 'Approved',
   REJECTED: 'Rejected',
   FAILED: 'Sync failed',
+  OUT_OF_SYNC: 'Out of sync',
 }
 
 export function isValidWaTemplateCategory(value) {
@@ -31,9 +37,35 @@ export function validateCategoryBeforeSync(category) {
   return null
 }
 
+export function resolveLocalStatus(template, { isDirty = false } = {}) {
+  if (isDirty) return LOCAL_STATUS_LABELS.DRAFT
+  return template?.local_status || LOCAL_STATUS_LABELS.SAVED
+}
+
+export function resolveSyncStatus(template, { syncing = false } = {}) {
+  if (syncing) return TELNYX_SYNC_LABELS.SYNCING
+  return template?.sync_status || template?.telnyx_sync_label || TELNYX_SYNC_LABELS.NOT_SYNCED
+}
+
+export function resolveTelnyxSyncLabel(template) {
+  return resolveSyncStatus(template)
+}
+
+export function templateNeedsResync(template) {
+  if (template?.needs_resync) return true
+  const label = resolveSyncStatus(template)
+  return [
+    TELNYX_SYNC_LABELS.NOT_SYNCED,
+    TELNYX_SYNC_LABELS.OUT_OF_SYNC,
+    TELNYX_SYNC_LABELS.FAILED,
+    TELNYX_SYNC_LABELS.REJECTED,
+  ].includes(label)
+}
+
 export function telnyxSyncPillClass(label) {
   switch (label) {
     case TELNYX_SYNC_LABELS.APPROVED:
+    case TELNYX_SYNC_LABELS.SYNCED:
       return 'p-green'
     case TELNYX_SYNC_LABELS.PENDING:
       return 'p-amber'
@@ -42,13 +74,22 @@ export function telnyxSyncPillClass(label) {
       return 'p-red'
     case TELNYX_SYNC_LABELS.SYNCING:
       return 'p-cyan'
-    case TELNYX_SYNC_LABELS.SYNCED:
-      return 'p-green'
+    case TELNYX_SYNC_LABELS.OUT_OF_SYNC:
+      return 'p-amber'
     default:
       return 'muted'
   }
 }
 
-export function resolveTelnyxSyncLabel(template) {
-  return template?.telnyx_sync_label || template?.sync_status_label || TELNYX_SYNC_LABELS.NOT_SYNCED
+export function localStatusPillClass(label) {
+  return label === LOCAL_STATUS_LABELS.DRAFT ? 'p-amber' : 'p-green'
+}
+
+export function formatLastSyncedAt(iso) {
+  if (!iso) return null
+  try {
+    return new Date(iso).toLocaleString()
+  } catch {
+    return iso
+  }
 }

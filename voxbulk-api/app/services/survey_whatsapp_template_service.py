@@ -63,6 +63,10 @@ TELNYX_SYNC_PENDING = "Pending approval"
 TELNYX_SYNC_APPROVED = "Approved"
 TELNYX_SYNC_REJECTED = "Rejected"
 TELNYX_SYNC_FAILED = "Sync failed"
+TELNYX_SYNC_OUT_OF_SYNC = "Out of sync"
+
+LOCAL_STATUS_DRAFT = "Draft"
+LOCAL_STATUS_SAVED = "Template saved"
 
 
 class SurveyWhatsappTemplateError(RuntimeError):
@@ -351,6 +355,9 @@ def normalize_wa_template_category(raw: Any, *, required: bool = False) -> str |
 def telnyx_sync_ui_label(row: TelnyxWhatsappTemplate, *, syncing: bool = False) -> str:
     if syncing:
         return TELNYX_SYNC_SYNCING
+    content_sync = _refresh_local_sync_status(row)
+    if content_sync == SYNC_LOCAL_CHANGES and not _is_local_row(row):
+        return TELNYX_SYNC_OUT_OF_SYNC
     if row.last_push_error and (_is_local_row(row) or str(row.local_sync_status or "") == SYNC_ERROR):
         return TELNYX_SYNC_FAILED
     if _is_local_row(row):
@@ -365,6 +372,37 @@ def telnyx_sync_ui_label(row: TelnyxWhatsappTemplate, *, syncing: bool = False) 
     if status in {"PAUSED", "DISABLED"}:
         return status.title()
     return TELNYX_SYNC_SYNCED
+
+
+def resolve_local_status(row: TelnyxWhatsappTemplate) -> str:
+    components = _effective_components(row)
+    if not components:
+        return LOCAL_STATUS_DRAFT
+    if str(row.status or "").upper() == "LOCAL_DRAFT" and _is_local_row(row):
+        return LOCAL_STATUS_SAVED if row.updated_at else LOCAL_STATUS_DRAFT
+    return LOCAL_STATUS_SAVED
+
+
+def template_workflow_state(row: TelnyxWhatsappTemplate, *, syncing: bool = False) -> dict[str, Any]:
+    content_sync = _refresh_local_sync_status(row)
+    telnyx_label = telnyx_sync_ui_label(row, syncing=syncing)
+    needs_resync = telnyx_label in {
+        TELNYX_SYNC_NOT_SYNCED,
+        TELNYX_SYNC_OUT_OF_SYNC,
+        TELNYX_SYNC_FAILED,
+        TELNYX_SYNC_REJECTED,
+    }
+    return {
+        "local_status": resolve_local_status(row),
+        "sync_status": telnyx_label,
+        "telnyx_sync_label": telnyx_label,
+        "telnyx_status": str(row.status or "UNKNOWN").upper(),
+        "telnyx_template_id": row.telnyx_record_id if not _is_local_row(row) else None,
+        "last_synced_at": row.last_pushed_at.isoformat() if row.last_pushed_at else None,
+        "sync_error": row.last_push_error,
+        "needs_resync": needs_resync,
+        "content_sync_status": content_sync,
+    }
 
 
 def telnyx_sync_action_message(row: TelnyxWhatsappTemplate, *, ok: bool) -> str:
@@ -431,12 +469,12 @@ def survey_template_to_dict(
     examples = _loads(row.example_values_json)
     if not isinstance(examples, list):
         examples = _extract_example_values(components)
+    workflow = template_workflow_state(row)
     payload = {
         **base,
         "display_name": row.display_name or row.name,
         "parent_template_id": row.parent_template_id,
         "approval_status": str(row.status or "UNKNOWN").upper(),
-        "sync_status": sync_status,
         "sync_status_label": sync_status.replace("_", " ").title(),
         "active_for_survey": bool(row.active_for_survey),
         "example_values": examples,
@@ -457,9 +495,8 @@ def survey_template_to_dict(
         "send_template_id": send_template_id_for_row(row),
         "linked_survey_type_count": linked_survey_type_count,
         "step_role": str(row.step_role or "").strip().lower() or None,
-        "telnyx_sync_label": telnyx_sync_ui_label(row),
-        "telnyx_template_id": row.telnyx_record_id if not _is_local_row(row) else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
+        **workflow,
     }
     if mapping is not None:
         payload.update(
@@ -835,6 +872,71 @@ class SurveyWhatsappTemplateService:
             "category": row.category,
             "rejection_reason": row.rejection_reason,
             "telnyx_template_id": row.telnyx_record_id,
+        }
+
+    @staticmethod
+    def push_all_for_survey_type(db: Session, survey_type_id: str) -> dict[str, Any]:
+        survey_type = db.get(SurveyType, survey_type_id)
+        if survey_type is None:
+            raise SurveyWhatsappTemplateError("Survey type not found")
+
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        pushed = 0
+        skipped = 0
+
+        for mapping in SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id):
+            row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
+            if row is None:
+                continue
+            if not template_belongs_to_survey_type(row, survey_type):
+                continue
+            if not _effective_components(row):
+                skipped += 1
+                continue
+
+            label = telnyx_sync_ui_label(row)
+            content_sync = _refresh_local_sync_status(row)
+            if label == TELNYX_SYNC_APPROVED and content_sync == SYNC_IN_SYNC:
+                skipped += 1
+                continue
+            if label == TELNYX_SYNC_PENDING and content_sync == SYNC_IN_SYNC:
+                skipped += 1
+                continue
+
+            template_id = row.id
+            template_name = row.name
+            try:
+                result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+                pushed += 1
+                results.append(
+                    {
+                        "template_id": template_id,
+                        "template_name": template_name,
+                        "ok": True,
+                        "message": result.get("sync_message") or result.get("message"),
+                        "sync_status": result.get("telnyx_sync_label"),
+                    }
+                )
+            except SurveyWhatsappTemplateError as exc:
+                errors.append(
+                    {
+                        "template_id": template_id,
+                        "template_name": template_name,
+                        "error": str(exc),
+                    }
+                )
+
+        return {
+            "ok": len(errors) == 0,
+            "pushed": pushed,
+            "skipped": skipped,
+            "error_count": len(errors),
+            "errors": errors,
+            "results": results,
+            "message": f"Pushed {pushed} template(s) to Telnyx"
+            + (f", {len(errors)} failed" if errors else "")
+            + (f", {skipped} skipped" if skipped else ""),
         }
 
     @staticmethod
