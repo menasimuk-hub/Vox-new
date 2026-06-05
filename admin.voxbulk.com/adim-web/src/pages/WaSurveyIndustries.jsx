@@ -107,8 +107,8 @@ export default function WaSurveyIndustries() {
       `Delete industry “${row.name}”?`,
       '',
       typeCount > 0
-        ? `This removes ${typeCount} survey type(s) and linked WhatsApp templates.`
-        : 'This removes the industry permanently.',
+        ? `This permanently removes ${typeCount} survey type(s), linked WhatsApp templates, template packs, and mappings under this industry.`
+        : 'This permanently removes the industry and any linked records under it.',
       'This cannot be undone.',
     ]
     if (row.is_active) {
@@ -204,6 +204,7 @@ export default function WaSurveyIndustries() {
                     <th>Status</th>
                     <th>Sort</th>
                     <th>Survey types</th>
+                    <th>Created</th>
                     <th>Updated</th>
                     <th />
                   </tr>
@@ -220,6 +221,7 @@ export default function WaSurveyIndustries() {
                       </td>
                       <td>{row.sort_order}</td>
                       <td>{row.survey_type_count ?? 0}</td>
+                      <td>{formatWhen(row.created_at)}</td>
                       <td>{formatWhen(row.updated_at)}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <button type="button" className="btn sm" onClick={() => openEdit(row)}>Edit</button>
@@ -313,6 +315,12 @@ export default function WaSurveyIndustries() {
                   placeholder="Optional"
                 />
               </label>
+              {modal.mode === 'edit' ? (
+                <p className="muted" style={{ gridColumn: '1 / -1', margin: 0 }}>
+                  Industry ID: <code>{modal.id}</code>
+                  {modal.survey_type_count ? ` · ${modal.survey_type_count} survey type(s) under this industry.` : ' · No survey types yet.'}
+                </p>
+              ) : null}
               {modal.mode === 'edit' && (modal.survey_type_count || 0) > 0 ? (
                 <p className="muted" style={{ gridColumn: '1 / -1', margin: 0 }}>
                   {modal.survey_type_count} survey type(s) under this industry. Deleting the industry removes them and linked templates.

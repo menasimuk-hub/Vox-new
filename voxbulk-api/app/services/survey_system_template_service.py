@@ -31,7 +31,8 @@ from app.services.survey_wa_template_pack_service import (
     assert_openai_strict_json_schema,
     build_system_template_json_schema,
 )
-from app.services.wa_template_privacy import PRIVACY_MODE_OFF, normalize_privacy_mode
+from app.services.survey_type_template_service import SurveyTypeTemplateService
+from app.services.wa_template_privacy import PRIVACY_MODE_OFF, PRIVACY_MODE_ON, normalize_privacy_mode, resolve_row_privacy_mode
 
 SYSTEM_TEMPLATE_KINDS = ("welcome", "thank_you", "tell_us_more")
 
@@ -87,6 +88,21 @@ def _step_role_for_kind(kind: str) -> str:
     return "reason"
 
 
+def _variant_label(row: TelnyxWhatsappTemplate) -> str:
+    variant = str(row.variant_type or "standard").strip().lower()
+    privacy = resolve_row_privacy_mode(row)
+    if variant == "anonymous" or privacy == PRIVACY_MODE_ON:
+        return "Noname"
+    return "Named"
+
+
+def _body_text_from_template(row: TelnyxWhatsappTemplate) -> str:
+    preview = str(row.body_preview or "").strip()
+    if preview:
+        return preview
+    return str(row.display_name or row.name or "").strip()
+
+
 def _default_components_for_kind(kind: str) -> list[dict[str, Any]]:
     if kind == "welcome":
         return [
@@ -127,6 +143,106 @@ def _default_components_for_kind(kind: str) -> list[dict[str, Any]]:
 
 
 class SurveySystemTemplateService:
+    @staticmethod
+    def _admin_template_row(
+        db: Session,
+        tpl: TelnyxWhatsappTemplate,
+        *,
+        kind: str,
+        survey_type: SurveyType,
+        mapping: SurveyTypeTemplate | None = None,
+    ) -> dict[str, Any]:
+        payload = survey_template_to_dict(tpl, mapping=mapping)
+        payload.update(
+            {
+                "system_template_kind": kind,
+                "kind_label": KIND_LABELS[kind],
+                "survey_type_id": survey_type.id,
+                "survey_type_name": survey_type.name,
+                "step_role": tpl.step_role or _step_role_for_kind(kind),
+                "variant_label": _variant_label(tpl),
+                "variant_type": tpl.variant_type or "standard",
+                "privacy_mode": resolve_row_privacy_mode(tpl),
+                "body_text": _body_text_from_template(tpl),
+                "updated_at": tpl.updated_at.isoformat() if tpl.updated_at else None,
+            }
+        )
+        return payload
+
+    @staticmethod
+    def _ensure_system_mapping(
+        db: Session,
+        *,
+        survey_type: SurveyType,
+        template: TelnyxWhatsappTemplate,
+    ) -> SurveyTypeTemplate:
+        is_anonymous = str(template.variant_type or "").lower() == "anonymous" or resolve_row_privacy_mode(
+            template
+        ) == PRIVACY_MODE_ON
+        return SurveyTypeTemplateService.upsert_mapping(
+            db,
+            survey_type_id=survey_type.id,
+            template_id=int(template.id),
+            usable_as_standard=not is_anonymous,
+            usable_as_anonymous=is_anonymous,
+            privacy_mode=PRIVACY_MODE_ON if is_anonymous else PRIVACY_MODE_OFF,
+        )
+
+    @staticmethod
+    def _templates_for_kind(db: Session, survey_type: SurveyType, kind: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        mappings = list(
+            db.execute(
+                select(SurveyTypeTemplate).where(SurveyTypeTemplate.survey_type_id == survey_type.id)
+            ).scalars()
+        )
+        for mapping in mappings:
+            tpl = db.get(TelnyxWhatsappTemplate, mapping.template_id)
+            if tpl is None:
+                continue
+            seen.add(int(tpl.id))
+            rows.append(
+                SurveySystemTemplateService._admin_template_row(
+                    db,
+                    tpl,
+                    kind=kind,
+                    survey_type=survey_type,
+                    mapping=mapping,
+                )
+            )
+
+        orphans = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.survey_type_id == survey_type.id
+                )
+            ).scalars()
+        )
+        for tpl in orphans:
+            tid = int(tpl.id)
+            if tid in seen:
+                continue
+            SurveySystemTemplateService._ensure_system_mapping(db, survey_type=survey_type, template=tpl)
+            seen.add(tid)
+            rows.append(
+                SurveySystemTemplateService._admin_template_row(
+                    db,
+                    tpl,
+                    kind=kind,
+                    survey_type=survey_type,
+                )
+            )
+
+        rows.sort(
+            key=lambda item: (
+                str(item.get("updated_at") or item.get("created_at") or ""),
+                str(item.get("display_name") or item.get("name") or ""),
+            ),
+            reverse=True,
+        )
+        return rows
+
     @staticmethod
     def ensure_system_industry(db: Session) -> Industry:
         IndustryService.ensure_defaults(db)
@@ -298,26 +414,7 @@ class SurveySystemTemplateService:
             st = type_by_kind.get(kind)
             if st is None:
                 continue
-            mappings = list(
-                db.execute(
-                    select(SurveyTypeTemplate).where(SurveyTypeTemplate.survey_type_id == st.id)
-                ).scalars()
-            )
-            rows: list[dict[str, Any]] = []
-            for mapping in mappings:
-                tpl = db.get(TelnyxWhatsappTemplate, mapping.template_id)
-                if tpl is None:
-                    continue
-                rows.append(
-                    {
-                        **survey_template_to_dict(tpl),
-                        "system_template_kind": kind,
-                        "survey_type_id": st.id,
-                        "step_role": tpl.step_role or _step_role_for_kind(kind),
-                    }
-                )
-            rows.sort(key=lambda item: str(item.get("display_name") or item.get("name") or ""))
-            grouped[kind] = rows
+            grouped[kind] = SurveySystemTemplateService._templates_for_kind(db, st, kind)
         return {
             **meta,
             "kinds": [
@@ -325,6 +422,7 @@ class SurveySystemTemplateService:
                     "kind": kind,
                     "label": KIND_LABELS[kind],
                     "survey_type_id": type_by_kind[kind].id if kind in type_by_kind else None,
+                    "survey_type_slug": type_by_kind[kind].slug if kind in type_by_kind else None,
                     "templates": grouped[kind],
                     "count": len(grouped[kind]),
                 }
@@ -341,12 +439,25 @@ class SurveySystemTemplateService:
         language = str(body.get("language") or "en_US").strip() or "en_US"
         category = str(body.get("category") or "MARKETING").strip() or "MARKETING"
         display_name = str(body.get("display_name") or "").strip() or KIND_LABELS[kind].rstrip("s")
+        privacy_mode = normalize_privacy_mode(
+            body.get("privacy_mode") or body.get("variant_type") or PRIVACY_MODE_OFF
+        )
         row = SurveyWhatsappTemplateService.create_standard_draft(
             db,
             survey_type=survey_type,
             language=language,
             category=category,
         )
+        if privacy_mode == PRIVACY_MODE_ON:
+            parent_id = int(row.id)
+            row = SurveyWhatsappTemplateService.clone_as_anonymous(
+                db,
+                row,
+                survey_type_id=survey_type.id,
+            )
+            parent = db.get(TelnyxWhatsappTemplate, parent_id)
+            if parent is not None:
+                SurveyWhatsappTemplateService.delete_template_local(db, parent)
         components = _default_components_for_kind(kind)
         row = SurveyWhatsappTemplateService.save_draft(
             db,
@@ -362,13 +473,19 @@ class SurveySystemTemplateService:
             row.outcome_key = "neutral"
         row.industry_id = survey_type.industry_id
         db.add(row)
+        SurveySystemTemplateService._ensure_system_mapping(db, survey_type=survey_type, template=row)
         db.commit()
         db.refresh(row)
         return {
             "ok": True,
             "system_template_kind": kind,
             "survey_type_id": survey_type.id,
-            "template": survey_template_to_dict(row),
+            "template": SurveySystemTemplateService._admin_template_row(
+                db,
+                row,
+                kind=kind,
+                survey_type=survey_type,
+            ),
         }
 
     @staticmethod
@@ -377,7 +494,8 @@ class SurveySystemTemplateService:
         try:
             result = SurveyWhatsappTemplateService.delete_template(db, tpl)
         except SurveyWhatsappTemplateError as exc:
-            raise SurveySystemTemplateError(str(exc)) from exc
+            result = SurveyWhatsappTemplateService.delete_template_local(db, tpl)
+            result["warning"] = str(exc)
         return {**result, "system_template_kind": None}
 
     @staticmethod

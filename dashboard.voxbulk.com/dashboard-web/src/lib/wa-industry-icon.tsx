@@ -139,6 +139,17 @@ export function waIndustryIcon(name?: string, slug?: string): LucideIcon {
     return Briefcase;
   }
 
+  if (
+    includesAny(key, "services", "professional", "consumer") ||
+    hasToken(tokens, "services", "professional", "consumer")
+  ) {
+    return Briefcase;
+  }
+
+  if (includesAny(key, "general", "other") || hasToken(tokens, "general", "other")) {
+    return Briefcase;
+  }
+
   if (includesAny(key, "luxury", "premium") || hasToken(tokens, "luxury", "premium")) {
     return Sparkles;
   }

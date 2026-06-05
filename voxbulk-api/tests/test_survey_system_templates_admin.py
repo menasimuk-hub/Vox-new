@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import delete, select
 
+from app.models.survey_type_template import SurveyTypeTemplate
 from app.services.industry_service import IndustryService
 from app.services.platform_catalog_service import PlatformCatalogService
 from app.services.survey_industry_seed_service import SurveyIndustrySeedService
@@ -13,6 +15,7 @@ from app.services.survey_system_template_service import (
     normalize_system_template_kind,
 )
 from app.services.survey_type_service import SurveyTypeService
+from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
 
 
 @pytest.fixture()
@@ -47,6 +50,29 @@ def test_create_draft_welcome(db):
     assert result["template"]["display_name"] == "Warm welcome"
     grouped = SurveySystemTemplateService.list_grouped_admin(db)
     assert grouped["templates"]["welcome"]
+
+
+def test_orphan_system_template_appears_in_grouped_list(db):
+    survey_type = SurveySystemTemplateService.survey_type_for_kind(db, "welcome")
+    row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+    row.display_name = "Orphan welcome"
+    db.add(row)
+    db.commit()
+    grouped = SurveySystemTemplateService.list_grouped_admin(db)
+    ids = {item["id"] for item in grouped["templates"]["welcome"]}
+    assert int(row.id) in ids
+
+
+def test_create_draft_noname_variant(db):
+    result = SurveySystemTemplateService.create_draft(
+        db,
+        kind="welcome",
+        payload={"display_name": "Quiet welcome", "privacy_mode": "on"},
+    )
+    assert result["template"]["variant_label"] == "Noname"
+    grouped = SurveySystemTemplateService.list_grouped_admin(db)
+    labels = {item["variant_label"] for item in grouped["templates"]["welcome"]}
+    assert "Noname" in labels
 
 
 def test_normalize_kind_rejects_invalid():

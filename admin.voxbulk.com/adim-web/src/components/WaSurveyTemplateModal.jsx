@@ -151,7 +151,16 @@ function applyTemplateDraft(setDraft, tpl) {
   })
 }
 
-export default function WaSurveyTemplateModal({ templateId, initialTemplate, surveyTypeId, open, onClose, onSaved }) {
+export default function WaSurveyTemplateModal({
+  templateId,
+  initialTemplate,
+  surveyTypeId,
+  open,
+  onClose,
+  onSaved,
+  systemTemplateMode = false,
+  systemTemplateKind = '',
+}) {
   const [loading, setLoading] = useState(false)
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
@@ -224,7 +233,12 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
     try {
       const data = await apiFetch(`/admin/wa-survey/templates/${templateId}`)
       setTemplate(data.template)
-      setSurveyTypes(Array.isArray(data.survey_types) ? data.survey_types : [])
+      const loadedTypes = Array.isArray(data.survey_types) ? data.survey_types : []
+      if (systemTemplateMode && surveyTypeId) {
+        setSurveyTypes(loadedTypes.filter((row) => String(row.survey_type_id) === String(surveyTypeId)))
+      } else {
+        setSurveyTypes(loadedTypes)
+      }
       applyTemplateDraft(setDraft, data.template)
       setIsDirty(false)
       await loadPreview(templateId)
@@ -315,7 +329,7 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
       applyTemplateDraft(setDraft, data.template)
       setIsDirty(false)
       showToast(data.message || 'Template saved')
-      onSaved?.()
+      onSaved?.(data.template || data)
     } catch (e) {
       showError(e, 'Could not save draft')
     } finally {
@@ -509,6 +523,12 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
 
         {!loading && draft ? (
           <div className="waTplEd-scroll">
+            {systemTemplateMode ? (
+              <div className="waTplEd-alert" style={{ margin: '0 1.25rem 0.75rem' }}>
+                Global system template · <strong>{systemTemplateKind || 'system'}</strong>
+                {' '}· editing here does not change industry survey types. Survey-type mappings are locked for system templates.
+              </div>
+            ) : null}
             <div className="waTplEd-layout">
               <div className="waTplEd-preview-col">
                 <div className="waTplEd-preview-label">
@@ -718,6 +738,7 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
                   </div>
                 </div>
 
+                {!systemTemplateMode ? (
                 <div className="waTplEd-field-card">
                   <div className="waTplEd-field-hdr">
                     <div className="waTplEd-ficon"><i className="ti ti-link" /></div>
@@ -748,6 +769,28 @@ export default function WaSurveyTemplateModal({ templateId, initialTemplate, sur
                     </div>
                   </div>
                 </div>
+                ) : (
+                  <div className="waTplEd-field-card">
+                    <div className="waTplEd-field-hdr">
+                      <div className="waTplEd-ficon"><i className="ti ti-link" /></div>
+                      <span className="waTplEd-ftitle">System template scope</span>
+                    </div>
+                    <div className="waTplEd-field-body">
+                      <p className="waTplEd-hint" style={{ margin: 0 }}>
+                        Linked to hidden system survey type
+                        {surveyTypeId ? <> <code>{surveyTypeId}</code></> : null}.
+                        Use Save above for content changes; mappings stay on this system type.
+                      </p>
+                      {canRefreshStatus ? (
+                        <div className="waTplEd-actions-row" style={{ marginTop: 12 }}>
+                          <button type="button" className="waTplEd-tb-btn" onClick={refreshTelnyxStatus} disabled={working === 'refresh'}>
+                            Refresh Telnyx status
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

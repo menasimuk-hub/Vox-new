@@ -8480,6 +8480,51 @@ input[type="radio"] {
   margin: 0;
 }
 
+.waSurveySystemTemplateTitleRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.waSurveySystemTemplateBody {
+  color: var(--muted, #64748b);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.waSurveySystemTemplateCardHighlight {
+  border-color: var(--grn, #16a34a);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--grn, #16a34a) 35%, transparent);
+}
+
+.waSurveySystemTemplateViewMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.waSurveySystemTemplateViewDl {
+  display: grid;
+  gap: 8px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 0 0 16px;
+}
+
+.waSurveySystemTemplateViewDl dt {
+  color: var(--muted, #64748b);
+  font-size: 11px;
+  margin: 0 0 2px;
+  text-transform: uppercase;
+}
+
+.waSurveySystemTemplateViewDl dd {
+  margin: 0;
+}
+
 .waSurveySystemTemplateMeta {
   align-items: center;
   color: var(--t2);
