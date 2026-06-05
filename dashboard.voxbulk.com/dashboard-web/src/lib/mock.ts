@@ -95,7 +95,7 @@ export const auditLog = [
   { who: "Amelia M.", action: "Launched survey 'NPS Q4'", when: "2m ago" },
   { who: "Sam T.", action: "Updated AI script for Recall campaign", when: "1h ago" },
   { who: "Owner", action: "Added Tom B. to team (Manager)", when: "yesterday" },
-  { who: "System", action: "Dentally sync completed (412 records)", when: "yesterday" },
+  { who: "System", action: "Weekly usage report generated", when: "yesterday" },
 ];
 
 export const invoices = [

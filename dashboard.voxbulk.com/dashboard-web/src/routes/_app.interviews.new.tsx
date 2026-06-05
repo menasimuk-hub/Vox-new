@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
-import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity, ChevronDown, Settings2 } from "lucide-react";
+import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity, ChevronDown, Settings2, FileText, Users, Mail, Rocket } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { notifyInterviewLaunch, type InterviewLaunchResult } from "@/lib/interviewLaunchFeedback";
 import {
   ATS_ANALYZING_LABEL,
@@ -24,6 +25,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 
+import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { AtsPreviewGateModal, InterviewPreviewQuoteModal, PackageUpgradeModal, type InterviewPreviewData } from "@/components/modals";
@@ -214,6 +216,13 @@ function inputErrorClass(invalid: boolean) {
   return invalid ? "border-destructive ring-1 ring-destructive/40 focus-visible:ring-destructive/40" : "";
 }
 
+const INTERVIEW_WIZARD_STEPS: WizardStepDef[] = [
+  { id: 1, title: "Script", subtitle: "Voice & questions", icon: FileText },
+  { id: 2, title: "CVs", subtitle: "Upload candidates", icon: Users },
+  { id: 3, title: "Email collect", subtitle: "Inbox options", icon: Mail },
+  { id: 4, title: "Review & launch", subtitle: "Confirm and go", icon: Rocket },
+];
+
 function collectInterviewLaunchErrors(opts: {
   cvEmailActive: boolean;
   cvReadyForScreening: boolean;
@@ -316,6 +325,10 @@ function CreateInterview() {
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
   const [activityCandidate, setActivityCandidate] = React.useState<CandidateRow | null>(null);
+  const [wizardStep, setWizardStep] = React.useState(1);
+  const goWizardNext = () => setWizardStep((s) => Math.min(INTERVIEW_WIZARD_STEPS.length, s + 1));
+  const goWizardPrev = () => setWizardStep((s) => Math.max(1, s - 1));
+  const goWizardTo = (n: number) => setWizardStep(n);
 
   const config = (order?.config || {}) as Record<string, unknown>;
   const configAppliedMinAts = React.useMemo(() => {
@@ -1286,6 +1299,19 @@ function CreateInterview() {
   const missingScriptApproval = !scriptIsApproved && Boolean(script.trim());
   const missingCallingWindow = !callingStart || !callingEnd;
 
+  const canWizardNext = React.useMemo(() => {
+    if (wizardStep === 1) return setupErrors.length === 0;
+    return true;
+  }, [wizardStep, setupErrors]);
+
+  const onWizardNext = () => {
+    if (wizardStep === 1 && setupErrors.length > 0) {
+      toast.error(setupErrors.length === 1 ? setupErrors[0] : `Complete Step 1 first: ${setupErrors[0]}`);
+      return;
+    }
+    goWizardNext();
+  };
+
   React.useEffect(() => {
     if (!cvEmailEnabled || cvLimits?.unlimited) return;
     const available = cvLimits?.available_for_order ?? cvLimits?.remaining;
@@ -1547,7 +1573,7 @@ function CreateInterview() {
 
   return (
     <div className="flex w-full flex-col gap-6 pb-24">
-      <PageHeader eyebrow="Interviews" title="Create new interview" description="Define your interview, collect CVs, then launch — three steps." />
+      <PageHeader eyebrow="Interviews" title="Create new interview" description="A guided 4-step wizard — script, CVs, email collection, then launch." />
 
       {campaignReadOnly && orderId ? (
         <Card className="border-muted bg-muted/40">
@@ -1560,7 +1586,11 @@ function CreateInterview() {
         </Card>
       ) : null}
 
-      {(setupErrors.length > 0 || launchErrors.length > 0) && !campaignReadOnly && (
+      {!campaignReadOnly ? (
+        <Stepper steps={INTERVIEW_WIZARD_STEPS} current={wizardStep} onStepClick={goWizardTo} />
+      ) : null}
+
+      {(setupErrors.length > 0 || launchErrors.length > 0) && !campaignReadOnly && wizardStep === 1 && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
           <p className="font-medium text-foreground">Action needed — complete the items below:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
@@ -1574,6 +1604,8 @@ function CreateInterview() {
         </div>
       )}
 
+      <div key={wizardStep} className="animate-fade-in">
+      {(wizardStep === 1 || campaignReadOnly) && (
       <Card>
         <CardHeader>
           <CardTitle>Step 1 · Define interview</CardTitle>
@@ -1628,15 +1660,15 @@ function CreateInterview() {
           </div>
           <div className="md:col-span-2 space-y-1.5">
             <Label className="text-xs">Additional report notes (optional)</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Extra context for your hiring team — not asked on the call. Shown in the launch preview and on each candidate PDF report, next to screening criteria and questions.
+            </p>
             <Textarea
               rows={3}
               value={reportNotes}
               onChange={(e) => setReportNotes(e.target.value)}
-              placeholder="Anything else for the hiring report — priorities, culture fit, red flags, follow-up notes…"
+              placeholder="e.g. Must start within 4 weeks · hybrid 2 days in office · no agencies · priority: bedside manner with anxious patients"
             />
-            <p className="text-[11px] text-muted-foreground">
-              Optional. Shown in each candidate report alongside criteria and interview questions.
-            </p>
           </div>
           <div className="md:col-span-2 space-y-1.5">
             <Label className={`text-xs ${missingScript || missingScriptApproval ? "text-destructive" : ""}`}>Interview questions</Label>
@@ -1696,243 +1728,15 @@ function CreateInterview() {
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {(wizardStep === 2 || campaignReadOnly) && (
       <Card>
         <CardHeader>
           <CardTitle>Step 2 · Collect candidates</CardTitle>
-          <CardDescription>Upload CVs or enable email collection, then run ATS and apply your cutoff.</CardDescription>
+          <CardDescription>Upload CVs, then run ATS and apply your cutoff.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 md:grid-cols-2">
-          {referenceId ? (
-            <div className="space-y-1.5 md:col-span-2">
-              <Label className="text-xs">Job reference</Label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input value={referenceId} readOnly className="min-w-0 font-mono text-xs sm:text-sm" />
-                <Button variant="outline" className="w-full shrink-0 gap-1.5 sm:w-auto" onClick={() => void copyReference()}>
-                  {copiedReference ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
-                  {copiedReference ? "Copied!" : "Copy reference"}
-                </Button>
-              </div>
-              {cvEmailAllowed && cvEmailEnabled ? (
-                <p className="text-[11px] text-muted-foreground">
-                  CVs sent to{" "}
-                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                    {CAREERS_INBOX}
-                    <button
-                      type="button"
-                      className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
-                      aria-label={copiedCareersEmail ? "Email copied" : "Copy careers email"}
-                      title={copiedCareersEmail ? "Copied!" : "Copy email"}
-                      onClick={() => void copyCareersInbox()}
-                    >
-                      {copiedCareersEmail ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
-                    </button>
-                  </span>{" "}
-                  with your <strong className="font-semibold text-foreground">job reference</strong> will be collected here.
-                </p>
-              ) : (
-                <p className="text-[11px] text-muted-foreground">
-                  CVs sent to {CAREERS_INBOX} with your <strong className="font-semibold text-foreground">job reference</strong> will be collected here once email collection is enabled.
-                </p>
-              )}
-            </div>
-          ) : null}
-
-          <div className="md:col-span-2">
-          <ToggleRow
-            title="CV email collection"
-            desc={
-              cvEmailAllowed
-                ? "Turn on to collect CVs by email using your job reference."
-                : cvEmailBlockReason ||
-                  (billingPlanName
-                    ? `Not included on ${billingPlanName} — upgrade to Starter, Pro, or Business.`
-                    : "Included on Starter, Pro, and Business packages — not Pay as you go or top-up only.")
-            }
-            checked={cvEmailEnabled}
-            onCheckedChange={(v) => {
-              if (v && !cvEmailAllowed) {
-                setUpgradeOpen(true);
-                return;
-              }
-              setCvEmailEnabled(v);
-              if (v) {
-                setAutoCloseOnLimit(true);
-                setAdvancedOpen(true);
-                if (cvLimits?.default_max_cvs != null) setMaxCvCount(cvLimits.default_max_cvs);
-              }
-              if (orderId) {
-                void onSaveDraft(true, { cv_email_enabled: v }).catch(() => {
-                  /* toast handled in onSaveDraft */
-                });
-              }
-            }}
-          />
-          </div>
-
-          <div className="md:col-span-2 space-y-2">
-            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-              <CollapsibleTrigger className="group flex w-full items-center gap-2.5 rounded-lg border border-border bg-muted/25 px-3 py-2.5 text-left text-sm transition hover:bg-muted/40">
-                <Settings2 className="size-4 shrink-0 text-muted-foreground transition group-hover:text-foreground" aria-hidden />
-                <span className="flex-1 font-medium text-foreground">Advanced options</span>
-                <ChevronDown className="size-4 shrink-0 text-muted-foreground transition group-data-[state=open]:rotate-180" />
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2 space-y-4 rounded-lg border border-border bg-background/50 p-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {cvEmailActive ? (
-                    <>
-                      <div className="grid gap-4 sm:col-span-2 lg:grid-cols-2">
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Max CVs to receive</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            value={maxCvCount}
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              setMaxCvCount(raw === "" ? "" : Math.max(0, Number(raw)));
-                              setOverageAcknowledged(false);
-                            }}
-                            disabled={cvCollectionClosed || cvLimits?.unlimited}
-                            className="w-full min-w-0"
-                          />
-                          {!cvLimits?.unlimited && planRemainingDisplay != null ? (
-                            <p className="text-[11px] text-muted-foreground">
-                              You have {planRemainingDisplay} screening
-                              {planRemainingDisplay === 1 ? "" : "s"} remaining on your plan
-                            </p>
-                          ) : null}
-                          {isOverPlanLimit ? (
-                            <div className="space-y-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
-                              <label className="flex items-start gap-2 text-xs text-muted-foreground">
-                                <Checkbox
-                                  checked={overageAcknowledged}
-                                  onCheckedChange={(checked) => setOverageAcknowledged(checked === true)}
-                                  className="mt-0.5"
-                                />
-                                <span>
-                                  I understand additional screenings beyond my plan will be invoiced at the standard
-                                  rate
-                                </span>
-                              </label>
-                              {!overageAcknowledged || advancedSettingsDirty ? (
-                                <p className="text-[11px] text-amber-800 dark:text-amber-300">
-                                  {!overageAcknowledged
-                                    ? "Tick this box, then click Save advanced settings below."
-                                    : "Click Save advanced settings below to keep this change."}
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Auto-close when limit is reached</Label>
-                          <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-3">
-                            <p className="text-[11px] leading-tight text-muted-foreground">
-                              Stop collection at max
-                            </p>
-                            <Switch
-                              checked={autoCloseOnLimit}
-                              onCheckedChange={setAutoCloseOnLimit}
-                              disabled={cvCollectionClosed}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground sm:col-span-2">
-                        Set the ATS cutoff next to the candidates table. When auto-close is on, new CVs after the max
-                        get a polite auto-reply.
-                      </p>
-                      <Field label="Start collecting">
-                        <Input
-                          type="datetime-local"
-                          value={collectionStartAt}
-                          onChange={(e) => setCollectionStartAt(e.target.value)}
-                          disabled={cvCollectionClosed}
-                          className="w-full min-w-0"
-                        />
-                        <p className="text-[11px] text-muted-foreground">Leave blank to start immediately.</p>
-                      </Field>
-                      <Field label="Stop accepting CVs">
-                        <Input
-                          type="datetime-local"
-                          value={collectionCloseAt}
-                          onChange={(e) => setCollectionCloseAt(e.target.value)}
-                          disabled={cvCollectionClosed}
-                          className="w-full min-w-0"
-                        />
-                        <p className="text-[11px] text-muted-foreground">
-                          Leave blank for no end date. Whichever comes first — max or date — closes collection.
-                        </p>
-                      </Field>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground sm:col-span-2">
-                      CV email is off — upload candidates below and set the ATS cutoff next to the candidates table.
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-col items-stretch gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-h-5 text-[11px]">
-                    {advancedSettingsDirty ? (
-                      <p className="text-amber-800 dark:text-amber-300">
-                        Unsaved changes — click Save advanced settings to apply.
-                      </p>
-                    ) : advancedSettingsSaved ? (
-                      <p className="inline-flex items-center gap-1.5 text-muted-foreground">
-                        <CheckCircle2 className="size-3.5 shrink-0 text-success" aria-hidden />
-                        Advanced settings saved
-                      </p>
-                    ) : null}
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={advancedSettingsDirty ? "default" : "outline"}
-                    disabled={advancedSaveBusy || campaignReadOnly || !orderId || !advancedSettingsDirty}
-                    onClick={() => void onSaveAdvancedSettings()}
-                  >
-                    {advancedSaveBusy ? "Saving…" : "Save advanced settings"}
-                  </Button>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-
-            {!advancedOpen && advancedSummary ? (
-              <p className="text-[11px] text-muted-foreground">{advancedSummary}</p>
-            ) : null}
-          </div>
-
-          {cvEmailActive ? (
-            <div className="md:col-span-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              <div className="flex flex-wrap items-center gap-2">
-                {cvCollectionClosed ? (
-                  <span className="inline-flex items-center gap-1 font-medium text-success">
-                    <Lock className="size-3.5" /> CV collection closed
-                    {cvCollectionClosedEarly ? " (closed early)" : cvCollectionClosedOnLimit ? " (limit reached)" : ""}
-                  </span>
-                ) : cvPhase === "before" ? (
-                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                    <LockOpen className="size-3.5" /> CV collection not started yet
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 font-medium text-primary">
-                    <LockOpen className="size-3.5" /> CV collection open
-                  </span>
-                )}
-              </div>
-              {cvPhase === "before" ? (
-                <>
-                  {" — share your "}
-                  <strong className="font-semibold text-foreground">job reference</strong>
-                  {" and careers email when collection opens."}
-                </>
-              ) : null}
-              {cvPhase === "open" && " — CVs arrive by email and appear in the table below."}
-              {cvCollectionClosed && " — review candidates, remove weak profiles, then launch."}
-            </div>
-          ) : null}
 
           <div className="md:col-span-2 group relative overflow-hidden rounded-xl border-2 border-dashed border-border bg-gradient-to-br from-background/60 via-background/40 to-accent/20 px-4 py-8 transition-colors hover:border-primary/40 sm:px-6 sm:py-10">
             <BackdropIllustration />
@@ -2196,11 +2000,252 @@ function CreateInterview() {
           </div>
         </CardContent>
       </Card>
+      )}
 
-      {!campaignReadOnly ? (
+      {(wizardStep === 3 || campaignReadOnly) && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Step 3 · CV email collection</CardTitle>
+          <CardDescription>Optionally collect CVs by email using your job reference and careers inbox.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 md:grid-cols-2">
+          {referenceId ? (
+            <div className="space-y-1.5 md:col-span-2">
+              <Label className="text-xs">Job reference</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input value={referenceId} readOnly className="min-w-0 font-mono text-xs sm:text-sm" />
+                <Button variant="outline" className="w-full shrink-0 gap-1.5 sm:w-auto" onClick={() => void copyReference()}>
+                  {copiedReference ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
+                  {copiedReference ? "Copied!" : "Copy reference"}
+                </Button>
+              </div>
+              {cvEmailAllowed && cvEmailEnabled ? (
+                <p className="text-[11px] text-muted-foreground">
+                  CVs sent to{" "}
+                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                    {CAREERS_INBOX}
+                    <button
+                      type="button"
+                      className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      aria-label={copiedCareersEmail ? "Email copied" : "Copy careers email"}
+                      title={copiedCareersEmail ? "Copied!" : "Copy email"}
+                      onClick={() => void copyCareersInbox()}
+                    >
+                      {copiedCareersEmail ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                    </button>
+                  </span>{" "}
+                  with your <strong className="font-semibold text-foreground">job reference</strong> will be collected here.
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  CVs sent to {CAREERS_INBOX} with your <strong className="font-semibold text-foreground">job reference</strong> will be collected here once email collection is enabled.
+                </p>
+              )}
+            </div>
+          ) : null}
+
+          <div className="md:col-span-2">
+          <ToggleRow
+            title="CV email collection"
+            desc={
+              cvEmailAllowed
+                ? "Turn on to collect CVs by email using your job reference."
+                : cvEmailBlockReason ||
+                  (billingPlanName
+                    ? `Not included on ${billingPlanName} — upgrade to Starter, Pro, or Business.`
+                    : "Included on Starter, Pro, and Business packages — not Pay as you go or top-up only.")
+            }
+            checked={cvEmailEnabled}
+            onCheckedChange={(v) => {
+              if (v && !cvEmailAllowed) {
+                setUpgradeOpen(true);
+                return;
+              }
+              setCvEmailEnabled(v);
+              if (v) {
+                setAutoCloseOnLimit(true);
+                setAdvancedOpen(true);
+                if (cvLimits?.default_max_cvs != null) setMaxCvCount(cvLimits.default_max_cvs);
+              }
+              if (orderId) {
+                void onSaveDraft(true, { cv_email_enabled: v }).catch(() => {
+                  /* toast handled in onSaveDraft */
+                });
+              }
+            }}
+          />
+          </div>
+
+          <div className="md:col-span-2 space-y-2">
+            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+              <CollapsibleTrigger className="group flex w-full items-center gap-2.5 rounded-lg border border-border bg-muted/25 px-3 py-2.5 text-left text-sm transition hover:bg-muted/40">
+                <Settings2 className="size-4 shrink-0 text-muted-foreground transition group-hover:text-foreground" aria-hidden />
+                <span className="flex-1 font-medium text-foreground">Advanced options</span>
+                <ChevronDown className="size-4 shrink-0 text-muted-foreground transition group-data-[state=open]:rotate-180" />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2 space-y-4 rounded-lg border border-border bg-background/50 p-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {cvEmailActive ? (
+                    <>
+                      <div className="grid gap-4 sm:col-span-2 lg:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Max CVs to receive</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={maxCvCount}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setMaxCvCount(raw === "" ? "" : Math.max(0, Number(raw)));
+                              setOverageAcknowledged(false);
+                            }}
+                            disabled={cvCollectionClosed || cvLimits?.unlimited}
+                            className="w-full min-w-0"
+                          />
+                          {!cvLimits?.unlimited && planRemainingDisplay != null ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              You have {planRemainingDisplay} screening
+                              {planRemainingDisplay === 1 ? "" : "s"} remaining on your plan
+                            </p>
+                          ) : null}
+                          {isOverPlanLimit ? (
+                            <div className="space-y-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
+                              <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                                <Checkbox
+                                  checked={overageAcknowledged}
+                                  onCheckedChange={(checked) => setOverageAcknowledged(checked === true)}
+                                  className="mt-0.5"
+                                />
+                                <span>
+                                  I understand additional screenings beyond my plan will be invoiced at the standard
+                                  rate
+                                </span>
+                              </label>
+                              {!overageAcknowledged || advancedSettingsDirty ? (
+                                <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                                  {!overageAcknowledged
+                                    ? "Tick this box, then click Save advanced settings below."
+                                    : "Click Save advanced settings below to keep this change."}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Auto-close when limit is reached</Label>
+                          <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-3">
+                            <p className="text-[11px] leading-tight text-muted-foreground">
+                              Stop collection at max
+                            </p>
+                            <Switch
+                              checked={autoCloseOnLimit}
+                              onCheckedChange={setAutoCloseOnLimit}
+                              disabled={cvCollectionClosed}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground sm:col-span-2">
+                        Set the ATS cutoff in Step 2. When auto-close is on, new CVs after the max get a polite auto-reply.
+                      </p>
+                      <Field label="Start collecting">
+                        <Input
+                          type="datetime-local"
+                          value={collectionStartAt}
+                          onChange={(e) => setCollectionStartAt(e.target.value)}
+                          disabled={cvCollectionClosed}
+                          className="w-full min-w-0"
+                        />
+                        <p className="text-[11px] text-muted-foreground">Leave blank to start immediately.</p>
+                      </Field>
+                      <Field label="Stop accepting CVs">
+                        <Input
+                          type="datetime-local"
+                          value={collectionCloseAt}
+                          onChange={(e) => setCollectionCloseAt(e.target.value)}
+                          disabled={cvCollectionClosed}
+                          className="w-full min-w-0"
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          Leave blank for no end date. Whichever comes first — max or date — closes collection.
+                        </p>
+                      </Field>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground sm:col-span-2">
+                      Turn on CV email collection above to configure inbox limits and collection windows.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-col items-stretch gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-h-5 text-[11px]">
+                    {advancedSettingsDirty ? (
+                      <p className="text-amber-800 dark:text-amber-300">
+                        Unsaved changes — click Save advanced settings to apply.
+                      </p>
+                    ) : advancedSettingsSaved ? (
+                      <p className="inline-flex items-center gap-1.5 text-muted-foreground">
+                        <CheckCircle2 className="size-3.5 shrink-0 text-success" aria-hidden />
+                        Advanced settings saved
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={advancedSettingsDirty ? "default" : "outline"}
+                    disabled={advancedSaveBusy || campaignReadOnly || !orderId || !advancedSettingsDirty}
+                    onClick={() => void onSaveAdvancedSettings()}
+                  >
+                    {advancedSaveBusy ? "Saving…" : "Save advanced settings"}
+                  </Button>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
+            {!advancedOpen && advancedSummary ? (
+              <p className="text-[11px] text-muted-foreground">{advancedSummary}</p>
+            ) : null}
+          </div>
+
+          {cvEmailActive ? (
+            <div className="md:col-span-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2">
+                {cvCollectionClosed ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-success">
+                    <Lock className="size-3.5" /> CV collection closed
+                    {cvCollectionClosedEarly ? " (closed early)" : cvCollectionClosedOnLimit ? " (limit reached)" : ""}
+                  </span>
+                ) : cvPhase === "before" ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                    <LockOpen className="size-3.5" /> CV collection not started yet
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-medium text-primary">
+                    <LockOpen className="size-3.5" /> CV collection open
+                  </span>
+                )}
+              </div>
+              {cvPhase === "before" ? (
+                <>
+                  {" — share your "}
+                  <strong className="font-semibold text-foreground">job reference</strong>
+                  {" and careers email when collection opens."}
+                </>
+              ) : null}
+              {cvPhase === "open" && " — CVs arrive by email and appear in the candidates table in Step 2."}
+              {cvCollectionClosed && " — review candidates, remove weak profiles, then launch."}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+      )}
+
+      {wizardStep === 4 && !campaignReadOnly ? (
       <Card ref={launchStatusRef}>
         <CardHeader>
-          <CardTitle>Step 3 · ATS, preview & launch</CardTitle>
+          <CardTitle>Step 4 · ATS, preview & launch</CardTitle>
           <CardDescription>
             {cvEmailActive
               ? "When CV collection ends, review email applicants, approve the preview, then launch — booking invites go out by WhatsApp and email."
@@ -2280,6 +2325,32 @@ function CreateInterview() {
           </div>
         </CardContent>
       </Card>
+      ) : null}
+      </div>
+
+      {!campaignReadOnly ? (
+        <WizardNav
+          step={wizardStep}
+          total={INTERVIEW_WIZARD_STEPS.length}
+          onPrev={goWizardPrev}
+          onNext={onWizardNext}
+          nextDisabled={!canWizardNext}
+          skippable={wizardStep === 2}
+          onSkip={goWizardNext}
+          finalLabel="Preview & launch"
+          onFinish={onAttemptPreview}
+          finishDisabled={setupErrors.length > 0}
+          leftActions={
+            <>
+              <Button variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" disabled>
+                <Trash2 className="size-4" /> Delete draft
+              </Button>
+              <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending}>
+                <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
+              </Button>
+            </>
+          }
+        />
       ) : null}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">

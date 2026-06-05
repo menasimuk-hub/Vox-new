@@ -60,7 +60,6 @@ const NAV = [
     'Onboarding',
     [
       ['Add customer', '/onboarding/add-customer'],
-      ['Go-live checklist', '/onboarding/checklist'],
     ],
   ],
   [
@@ -149,8 +148,6 @@ const NAV = [
     [
       ['Support inbox', '/support/inbox'],
       ['Open tickets', '/support/tickets'],
-      ['Customer notes', '/support/notes'],
-      ['Escalations', '/support/escalations'],
       ['Help centre content', '/support/help'],
       ['FAQ management', '/support/faq'],
       ['SLA tracking', '/support/sla'],
@@ -162,10 +159,6 @@ const NAV = [
       ['Call scripts', '/ai/scripts'],
       ['Agents', '/ai/agents'],
       ['Vox Sales demo', '/ai/agent-demo'],
-      ['Prompt templates', '/ai/prompts'],
-      ['Retry logic', '/ai/retry'],
-      ['Voicemail logic', '/ai/voicemail'],
-      ['Cost controls', '/ai/cost'],
     ],
   ],
   [
@@ -182,8 +175,6 @@ const NAV = [
     'Analytics',
     [
       ['Platform KPIs', '/analytics/kpis'],
-      ['Org benchmarks', '/analytics/benchmarks'],
-      ['Recovery performance', '/analytics/recovery'],
       ['Cost vs revenue', '/analytics/cost-revenue'],
     ],
   ],
@@ -199,14 +190,11 @@ const NAV = [
   [
     'Platform Settings',
     [
-      ['Global config', '/settings/global'],
-      ['Feature flags', '/settings/flags'],
       ['Email / notification settings', '/settings/email'],
       ['WA Survey', '/settings/wa-survey'],
       ['WA Survey flow simulator', '/settings/wa-survey/simulator'],
       ['WA Survey industries', '/settings/wa-survey/industries'],
       ['Legal pages', '/settings/legal'],
-      ['API keys / secrets', '/settings/api-keys'],
     ],
   ],
 ]

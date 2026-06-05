@@ -629,7 +629,9 @@ body.dark .sb-logo-icon .icon-light { display: none; }
 .span-12 { grid-column: span 12; }
 
 .input, .select {
-  font-size: 12.5px; padding: 8px 10px;
+  font-size: 12.5px;
+  height: 38px;
+  padding: 0 12px;
   border-radius: 9px; border: 1.5px solid var(--b2);
   background: var(--s2); color: var(--t1);
   font-family: inherit;
@@ -639,7 +641,7 @@ body.dark .sb-logo-icon .icon-light { display: none; }
   outline: none; border-color: var(--grn); background: var(--s1);
 }
 textarea.input {
-  min-height: 120px;
+  min-height: 90px;
   height: auto;
   padding: 10px 12px;
   line-height: 1.5;
@@ -806,8 +808,8 @@ textarea.input {
 
 .input,
 .select{
-  height:44px;
-  padding:0 14px;
+  height:38px;
+  padding:0 12px;
   border:1.5px solid var(--b2);
   border-radius:9px;
   background:var(--s2);
@@ -815,13 +817,13 @@ textarea.input {
 }
 
 .input{
-  min-width:240px;
+  min-width:120px;
 }
 
 textarea.input{
-  min-height:140px;
+  min-height:90px;
   height:auto;
-  padding:12px 14px;
+  padding:10px 12px;
   line-height:1.5;
   resize:vertical;
 }
@@ -8230,3 +8232,217 @@ body.dark .matrix th {
   transition: width 0.3s ease;
 }
 
+/* ── Forms & navigation UI — responsive system pass ── */
+
+.main {
+  min-width: 0;
+}
+
+.content {
+  min-width: 0;
+  max-width: var(--content-max);
+  overflow-x: clip;
+}
+
+.input,
+.select,
+textarea.input,
+select.input {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.input {
+  min-width: 0;
+}
+
+select.input,
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b6458' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  padding-right: 32px;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.input:focus-visible,
+.select:focus-visible,
+textarea.input:focus-visible,
+select.input:focus-visible {
+  outline: 2px solid var(--grn);
+  outline-offset: 2px;
+  border-color: var(--grn);
+}
+
+.input:disabled,
+.select:disabled,
+textarea.input:disabled,
+select.input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.label,
+.formField .label {
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.fieldHint,
+.formField .fieldHint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  margin: 0;
+  word-break: break-word;
+}
+
+.formError,
+.fieldError {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--red);
+  margin: 0;
+}
+
+.filters {
+  min-width: 0;
+  width: 100%;
+}
+
+.filters .input,
+.filters .select,
+.filters select.input {
+  flex: 1 1 140px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.actions {
+  min-width: 0;
+  width: 100%;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--grn);
+  outline-offset: 2px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--grn);
+}
+
+.table .input,
+.table .select,
+.table select.input {
+  min-width: 0;
+  width: 100%;
+}
+
+.modalOverlay {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  align-items: safe center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+
+.modalOverlay > .card,
+.modalOverlay > .ticketModal,
+.modalOverlay > .runningSurveyActivityModal {
+  margin: auto;
+  width: min(100%, 96vw);
+  max-height: min(92vh, 900px);
+}
+
+.npanel {
+  width: min(288px, calc(100vw - 24px));
+  max-height: min(420px, calc(100vh - 80px));
+  overflow-y: auto;
+}
+
+@media (max-width: 1024px) {
+  .grid-12 > .span-8,
+  .grid-12 > .span-7,
+  .grid-12 > .span-6,
+  .grid-12 > .span-5,
+  .grid-12 > .span-4,
+  .grid-12 > .span-3 {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 768px) {
+  .grid-4,
+  .kg4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .ticketModalBody {
+    grid-template-columns: 1fr;
+  }
+
+  .cannedPanel {
+    border-left: none;
+    border-top: 1px solid var(--line);
+    padding-left: 0;
+    padding-top: 18px;
+  }
+
+  .modalOverlay {
+    padding: 12px;
+    align-items: flex-start;
+  }
+
+  .ni,
+  .ni-sub {
+    min-height: 44px;
+  }
+
+  .nav-children {
+    margin-left: 4px;
+    padding-left: 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid-4,
+  .kg4 {
+    grid-template-columns: 1fr;
+  }
+
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filters .input,
+  .filters .select,
+  .filters select.input {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .cardHead {
+    flex-wrap: wrap;
+  }
+
+  .cardBody {
+    padding: 12px;
+  }
+}

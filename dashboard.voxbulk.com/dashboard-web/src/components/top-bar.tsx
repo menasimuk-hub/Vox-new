@@ -1,5 +1,5 @@
 import { useRouterState } from "@tanstack/react-router";
-import { Bell, Moon, Search, Sun, Plug, Sparkles, Send, X, Bot, User as UserIcon, Menu } from "lucide-react";
+import { Bell, Moon, Search, Sun, Sparkles, Send, X, Bot, User as UserIcon, Menu } from "lucide-react";
 import * as React from "react";
 
 import { useSidebar } from "@/components/ui/sidebar";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
-import { useConnections, bookingSystemName } from "@/lib/connections";
+import { useConnections } from "@/lib/connections";
 import { initialsFromName, useSession } from "@/lib/session";
 
 function SidebarToggle() {
@@ -33,8 +33,7 @@ export function TopBar() {
   const { session } = useSession();
   const { title, subtitle } = titleForPath(path);
   const showSearch = path.startsWith("/surveys");
-  const { bookingSystem } = useConnections();
-  const connectedName = bookingSystemName(bookingSystem);
+  const { toggleChat } = useConnections();
   const avatar = initialsFromName(
     session?.org?.name || session?.org?.display_name || session?.profile?.email || "U",
   );
@@ -54,11 +53,15 @@ export function TopBar() {
             <Input placeholder="Search surveys by name or company…" className="h-9 w-80 pl-8 bg-card" />
           </div>
         )}
-        <span className="hidden lg:inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] text-muted-foreground">
-          <span className="size-1.5 rounded-full bg-success" />
-          <Plug className="size-3" />
-          {connectedName} connected
-        </span>
+        <Button
+          onClick={toggleChat}
+          className="h-8 gap-1.5 bg-[#0f1b3d] text-white border border-[#0f1b3d] hover:bg-[#16244a] hover:scale-[1.03] active:scale-[0.97] transition-all px-2.5 shadow-[0_0_12px_rgba(15,27,61,0.25)] sm:h-9 sm:px-3 cursor-pointer"
+          aria-label="Ask AI"
+          title="Ask AI"
+        >
+          <Sparkles className="size-4 text-amber-300 animate-pulse" />
+          <span className="hidden text-xs font-semibold sm:inline">Ask AI</span>
+        </Button>
         <Button size="icon" variant="ghost" className="size-8 sm:size-9" onClick={toggle} aria-label="Toggle theme">
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
@@ -110,8 +113,7 @@ const SUGGESTIONS = [
 ];
 
 export function LiveChatFab() {
-  const { chatOpen, toggleChat, closeChat } = useConnections();
-  const [minimized, setMinimized] = React.useState(false);
+  const { chatOpen, closeChat } = useConnections();
   const [pos, setPos] = React.useState({ x: 0, y: 0 });
   const dragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [messages, setMessages] = React.useState<Msg[]>([
@@ -149,32 +151,10 @@ export function LiveChatFab() {
     }, 900);
   }
 
-  if (minimized) {
-    return (
-      <button
-        type="button"
-        onClick={() => setMinimized(false)}
-        className="fixed bottom-4 right-4 z-20 grid size-10 place-items-center rounded-full border border-border bg-background shadow-md"
-        aria-label="Open Ask AI"
-        title="Ask AI"
-      >
-        <Sparkles className="size-4 text-primary" />
-      </button>
-    );
-  }
+  if (!chatOpen) return null;
 
   return (
     <>
-      {!chatOpen && (
-        <Button
-          onClick={toggleChat}
-          className="fixed bottom-4 right-4 z-20 h-10 gap-1.5 rounded-full bg-[#0f1b3d] px-3 shadow-md hover:bg-[#16244a] sm:bottom-5 sm:right-5"
-          aria-label="Ask AI"
-        >
-          <Sparkles className="size-4" />
-          <span className="hidden text-sm font-medium sm:inline">Ask AI</span>
-        </Button>
-      )}
       {chatOpen && (
         <div
           className="fixed z-20 flex h-[min(520px,calc(100vh-6rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl touch-none"
@@ -189,7 +169,6 @@ export function LiveChatFab() {
               <p className="text-sm font-semibold">VoxBulk AI</p>
             </div>
             <div className="flex items-center gap-1">
-              <button type="button" onClick={() => setMinimized(true)} className="rounded p-1 opacity-80 hover:bg-primary-foreground/10" aria-label="Minimize">—</button>
               <button type="button" onClick={closeChat} className="rounded p-1 opacity-80 hover:bg-primary-foreground/10" aria-label="Close"><X className="size-4" /></button>
             </div>
           </div>
@@ -265,7 +244,7 @@ function ChatBubble({ role, text }: { role: "user" | "ai"; text: string }) {
 function aiReply(q: string): string {
   const t = q.toLowerCase();
   if (t.includes("fail")) return "3 calls failed last night: 2 voicemails (no answer after 3 retries) and 1 invalid number. I've queued WhatsApp follow-ups for the voicemails — want me to send them now?";
-  if (t.includes("recall") || t.includes("hygiene")) return "Drafted a 35-second hygiene recall script in a warm UK tone. It mentions the 6-month interval and offers two slots from your Dentally calendar. Open Settings → System → Script builder to preview.";
+  if (t.includes("recall") || t.includes("hygiene")) return "Drafted a 35-second hygiene recall script in a warm UK tone. It mentions the 6-month interval and offers two slots from your connected calendar. Open Settings → Integrations to review scheduling.";
   if (t.includes("nps")) return "NPS Q4 stands at +52 (1,204 responses, 78% response rate). Top theme: 'friendly staff' (+). Watch-out: 'waiting times' mentioned in 11% of detractors.";
   if (t.includes("priori")) return "Today's top 5: 3 high-LTV patients overdue for hygiene, 1 no-show from Tuesday, and 1 lapsed whitening enquiry. Shall I start an AI call batch?";
   return "Got it. I can pull campaign metrics, draft scripts, or kick off a workflow — tell me a bit more about what you'd like to see.";

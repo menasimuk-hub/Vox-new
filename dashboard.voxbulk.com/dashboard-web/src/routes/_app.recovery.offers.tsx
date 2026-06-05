@@ -45,12 +45,12 @@ export const Route = createFileRoute("/_app/recovery/offers")({
             <Textarea rows={3} placeholder="Short description sent to AI script writer…" />
           </div>
           <Field label="Booking method">
-            <Select defaultValue="dentally">
+            <Select defaultValue="link">
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="dentally">Auto-book in Dentally</SelectItem>
                 <SelectItem value="link">Booking link sent via WhatsApp</SelectItem>
                 <SelectItem value="callback">Request callback</SelectItem>
+                <SelectItem value="calendar">Auto-book via connected calendar</SelectItem>
               </SelectContent>
             </Select>
           </Field>

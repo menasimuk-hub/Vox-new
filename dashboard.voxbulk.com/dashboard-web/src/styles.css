@@ -189,4 +189,56 @@
       box-shadow: none;
     }
   }
+
+  .animate-fade-in {
+    animation: wizard-fade-in 0.3s ease-out both;
+  }
+
+  .animate-scale-in {
+    animation: wizard-scale-in 0.35s ease-out both;
+  }
+
+  /* Form controls — consistent sizing, no overflow in grids */
+  main input:not([type="checkbox"]):not([type="radio"]),
+  main textarea,
+  main [data-slot="select-trigger"],
+  main button[role="combobox"] {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  main [class*="grid"] > *,
+  main form > * {
+    min-width: 0;
+  }
+
+  main label {
+    word-break: break-word;
+  }
+
+  main [data-radix-popper-content-wrapper] {
+    z-index: 60;
+  }
+}
+
+@keyframes wizard-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wizard-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

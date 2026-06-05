@@ -1,40 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
-import { Upload, Download, Wand2, Lock, RotateCcw, Eye, ChevronUp, ChevronDown, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
-import { StatusBadge } from "@/components/status-badge";
-import { WhatsAppPreviewModal, PreviewQuoteModal } from "@/components/modals";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ChannelPicker } from "@/components/create-wizard";
+import { SurveyPhoneWizard } from "@/components/create-wizard/survey-phone-wizard";
+import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
 import { apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
-import { useCreateServiceOrder, usePatchServiceOrder, useSurveyPackages, useWaSurveyIndustries, useWaSurveyTypes, useWaSurveyStepBank, useWaSurveySystemTemplates, useGenerateWaSurvey } from "@/lib/queries";
+import {
+  useCreateServiceOrder,
+  useGenerateWaSurvey,
+  usePatchServiceOrder,
+  useSurveyPackages,
+  useWaSurveyIndustries,
+  useWaSurveyStepBank,
+  useWaSurveySystemTemplates,
+  useWaSurveyTypes,
+} from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/surveys/new")({
   head: () => ({ meta: [{ title: "Create survey — VoxBulk" }] }),
   component: CreateSurvey,
 });
-
-const STEP_ROLE_LABELS: Record<string, string> = {
-  start: "Start",
-  completion: "Completion",
-  rating: "Rating",
-  yes_no: "Yes / No",
-  helpfulness: "Helpfulness",
-  abc_choice: "A / B / C choice",
-  reason: "Reason",
-  feeling_word: "Feeling word",
-  follow_up: "Follow-up",
-  improvement: "Improvement",
-};
 
 const PAGE_COUNT_TO_LENGTH: Record<4 | 5 | 6, "short" | "standard" | "detailed"> = {
   4: "short",
@@ -42,12 +29,15 @@ const PAGE_COUNT_TO_LENGTH: Record<4 | 5 | 6, "short" | "standard" | "detailed">
   6: "detailed",
 };
 
+type Channel = "whatsapp" | "phone" | null;
+
 function CreateSurvey() {
   const packagesQ = useSurveyPackages();
   const createM = useCreateServiceOrder();
   const patchM = usePatchServiceOrder();
+  const generateWaM = useGenerateWaSurvey();
 
-  const [method, setMethod] = React.useState<"phone" | "whatsapp">("phone");
+  const [channel, setChannel] = React.useState<Channel>(null);
   const [waPreview, setWaPreview] = React.useState<Record<string, unknown> | null>(null);
   const [industryId, setIndustryId] = React.useState("");
   const [selectedServiceTagIds, setSelectedServiceTagIds] = React.useState<string[]>([]);
@@ -59,18 +49,19 @@ function CreateSurvey() {
   const [autoSelectSteps, setAutoSelectSteps] = React.useState(true);
   const [manualMiddleRoles, setManualMiddleRoles] = React.useState<string[]>([]);
   const [generating, setGenerating] = React.useState(false);
-  const [waOpen, setWaOpen] = React.useState(false);
   const waIndustriesQ = useWaSurveyIndustries();
   const waTypesQ = useWaSurveyTypes(industryId || null);
   const systemTemplatesQ = useWaSurveySystemTemplates();
   const primarySurveyTypeId = selectedServiceTagIds[0] || "";
-  const stepBankQ = useWaSurveyStepBank(method === "whatsapp" ? primarySurveyTypeId : null, privacyMode);
-  const generateWaM = useGenerateWaSurvey();
-  const [quote, setQuote] = React.useState(false);
+  const stepBankQ = useWaSurveyStepBank(channel === "whatsapp" ? primarySurveyTypeId : null, privacyMode);
   const [approved, setApproved] = React.useState(false);
   const [anonymous, setAnonymous] = React.useState(false);
-  const [goal, setGoal] = React.useState("Measure satisfaction with our new hygienist team and identify the top 1 improvement.");
-  const [script, setScript] = React.useState("1. On a scale of 0-10, how likely are you to recommend us?\n2. What stood out about your visit?\n3. Anything we could improve?");
+  const [goal, setGoal] = React.useState(
+    "Measure satisfaction with our new hygienist team and identify the top 1 improvement.",
+  );
+  const [script, setScript] = React.useState(
+    "1. On a scale of 0-10, how likely are you to recommend us?\n2. What stood out about your visit?\n3. Anything we could improve?",
+  );
   const [startAt, setStartAt] = React.useState("");
   const [endAt, setEndAt] = React.useState("");
   const [packageId, setPackageId] = React.useState("");
@@ -78,12 +69,14 @@ function CreateSurvey() {
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
 
+  const delivery = channel === "whatsapp" ? "whatsapp" : "ai_call";
+
   const packages = React.useMemo(() => {
     const data = packagesQ.data || {};
-    const channel = method === "whatsapp" ? "whatsapp" : "ai_call";
-    const list = (data.packages as Record<string, unknown[]>)?.[channel] || [];
+    const channelKey = channel === "whatsapp" ? "whatsapp" : "ai_call";
+    const list = (data.packages as Record<string, unknown[]>)?.[channelKey] || [];
     return list as Array<Record<string, unknown>>;
-  }, [packagesQ.data, method]);
+  }, [packagesQ.data, channel]);
 
   React.useEffect(() => {
     if (packages[0] && !packageId) setPackageId(String(packages[0].id || packages[0].rule_id || ""));
@@ -96,7 +89,7 @@ function CreateSurvey() {
       title: goal.slice(0, 80) || "New survey",
       config: {
         goal,
-        delivery: method === "whatsapp" ? "whatsapp" : "ai_call",
+        delivery,
         anonymous_responses: anonymous,
         script,
         package_id: packageId || undefined,
@@ -115,6 +108,7 @@ function CreateSurvey() {
     setSelectedServiceTagIds([]);
     setWelcomeTemplateId("");
     setThankYouTemplateId("");
+    setApproved(false);
   }, [industryId]);
 
   const serviceTypes = React.useMemo(
@@ -123,11 +117,11 @@ function CreateSurvey() {
   );
 
   const welcomeTemplates = React.useMemo(
-    () => ((systemTemplatesQ.data?.templates?.welcome || []) as Array<Record<string, unknown>>),
+    () => (systemTemplatesQ.data?.templates?.welcome || []) as Array<Record<string, unknown>>,
     [systemTemplatesQ.data],
   );
   const thankYouTemplates = React.useMemo(
-    () => ((systemTemplatesQ.data?.templates?.thank_you || []) as Array<Record<string, unknown>>),
+    () => (systemTemplatesQ.data?.templates?.thank_you || []) as Array<Record<string, unknown>>,
     [systemTemplatesQ.data],
   );
 
@@ -150,7 +144,7 @@ function CreateSurvey() {
       const row = serviceTypes.find((t) => String(t.id) === id);
       if (!row) continue;
       if (!row.has_wa_template) {
-        errors.push(`“${String(row.name)}” has no WhatsApp template yet.`);
+        errors.push(`"${String(row.name)}" has no WhatsApp template yet.`);
       }
     }
     if (!welcomeTemplateId) errors.push("Select a welcome template.");
@@ -285,19 +279,38 @@ function CreateSurvey() {
   const onSaveDraft = async () => {
     try {
       const id = await ensureOrder();
+      const baseConfig =
+        channel === "whatsapp"
+          ? {
+              goal,
+              delivery: "whatsapp" as const,
+              anonymous_responses: anonymous,
+              script,
+              package_id: packageId || undefined,
+              industry_id: industryId,
+              survey_type_id: primarySurveyTypeId || undefined,
+              selected_survey_type_ids: selectedServiceTagIds,
+              welcome_template_id: welcomeTemplateId ? Number(welcomeTemplateId) : undefined,
+              thank_you_template_id: thankYouTemplateId ? Number(thankYouTemplateId) : undefined,
+              survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
+              page_count: pageCount,
+              privacy_mode: privacyMode,
+              survey_variant: surveyVariant,
+            }
+          : {
+              goal,
+              delivery: "ai_call" as const,
+              anonymous_responses: anonymous,
+              script,
+              package_id: packageId || undefined,
+            };
       await patchM.mutateAsync({
         orderId: id,
         body: {
           title: goal.slice(0, 80) || "Survey draft",
           scheduled_start_at: startAt || null,
           scheduled_end_at: endAt || null,
-          config: {
-            goal,
-            delivery: method === "whatsapp" ? "whatsapp" : "ai_call",
-            anonymous_responses: anonymous,
-            script,
-            package_id: packageId || undefined,
-          },
+          config: baseConfig,
         },
       });
       toast.success("Draft saved");
@@ -329,314 +342,107 @@ function CreateSurvey() {
     }
   };
 
+  const industries = (waIndustriesQ.data?.industries || []) as Array<Record<string, unknown>>;
+  const savePending = createM.isPending || patchM.isPending;
+
   return (
     <div className="flex w-full flex-col gap-6">
-      <PageHeader eyebrow="Surveys" title="Create new survey" description="AI phone call or WhatsApp — your choice." />
+      <PageHeader
+        eyebrow="Surveys"
+        title="Create new survey"
+        description="Pick a channel — AI phone call or WhatsApp — then run through the guided wizard."
+      />
 
-      <Card>
-        <CardHeader><CardTitle>Channel</CardTitle><CardDescription>How patients will be contacted.</CardDescription></CardHeader>
-        <CardContent className="space-y-4">
-          <Tabs value={method} onValueChange={(v) => setMethod(v as "phone" | "whatsapp")}>
-            <TabsList className="w-full sm:w-auto">
-              <TabsTrigger value="phone">AI phone call</TabsTrigger>
-              <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          {method === "whatsapp" && (
-            <div className="animate-fade-in flex items-start justify-between gap-3 rounded-lg border border-border bg-background/40 p-3">
-              <div>
-                <p className="text-sm font-medium">Anonymous responses</p>
-                <p className="text-xs text-muted-foreground">
-                  When on, replies are recorded without name or phone number. Useful for honest feedback.
-                </p>
-              </div>
-              <Switch checked={anonymous} onCheckedChange={setAnonymous} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {!channel && (
+        <ChannelPicker anonymous={anonymous} setAnonymous={setAnonymous} onPick={(c) => setChannel(c)} />
+      )}
 
-      <Card>
-        <CardHeader><CardTitle>What do you want to learn?</CardTitle></CardHeader>
-        <CardContent className="grid gap-5 md:grid-cols-2">
-          <div className="md:col-span-2 space-y-1.5">
-            <Label className="text-xs">Survey goal</Label>
-            <Textarea rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} />
-          </div>
-          {method === "whatsapp" && (
-            <>
-              <Field label="Industry">
-                <Select value={industryId} onValueChange={setIndustryId}>
-                  <SelectTrigger><SelectValue placeholder="Select industry" /></SelectTrigger>
-                  <SelectContent>
-                    {((waIndustriesQ.data?.industries || []) as Array<Record<string, unknown>>).map((ind) => (
-                      <SelectItem key={String(ind.id)} value={String(ind.id)}>{String(ind.name)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <div className="md:col-span-2 space-y-2">
-                <Label className="text-xs">Services (select 1–4)</Label>
-                {waTypesQ.isLoading ? (
-                  <Skeleton className="h-10 w-full" />
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {serviceTypes.map((t) => {
-                      const id = String(t.id);
-                      const selected = selectedServiceTagIds.includes(id);
-                      const missingTemplate = !t.has_wa_template;
-                      return (
-                        <Button
-                          key={id}
-                          type="button"
-                          size="sm"
-                          variant={selected ? "default" : "outline"}
-                          className={missingTemplate ? "border-destructive/50" : undefined}
-                          onClick={() => toggleServiceTag(id)}
-                          disabled={!industryId}
-                        >
-                          {String(t.name)}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                )}
-                {serviceTagErrors.length ? (
-                  <p className="text-xs text-destructive">{serviceTagErrors[0]}</p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">{selectedServiceTagIds.length} of 4 selected</p>
-                )}
-              </div>
-              <Field label="Welcome template">
-                <Select value={welcomeTemplateId} onValueChange={setWelcomeTemplateId}>
-                  <SelectTrigger><SelectValue placeholder="Select welcome template" /></SelectTrigger>
-                  <SelectContent>
-                    {welcomeTemplates.map((t) => (
-                      <SelectItem key={String(t.id)} value={String(t.id)}>
-                        {String(t.display_name || t.name || t.id)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Thank-you template">
-                <Select value={thankYouTemplateId} onValueChange={setThankYouTemplateId}>
-                  <SelectTrigger><SelectValue placeholder="Select thank-you template" /></SelectTrigger>
-                  <SelectContent>
-                    {thankYouTemplates.map((t) => (
-                      <SelectItem key={String(t.id)} value={String(t.id)}>
-                        {String(t.display_name || t.name || t.id)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Privacy Mode">
-                <Select value={privacyMode} onValueChange={(v) => setPrivacyMode(v as "off" | "on")}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="off">Off — identified / normal templates</SelectItem>
-                    <SelectItem value="on">On — anonymous templates only</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Survey length (pages)">
-                <Select value={String(pageCount)} onValueChange={(v) => setPageCount(Number(v) as 4 | 5 | 6)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="4">4 pages — start + 2 steps + completion</SelectItem>
-                    <SelectItem value="5">5 pages — start + 3 steps + completion</SelectItem>
-                    <SelectItem value="6">6 pages — start + 4 steps + completion</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <div className="md:col-span-2 space-y-4 rounded-lg border border-border bg-background/40 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">Survey pages</p>
-                    <p className="text-xs text-muted-foreground">
-                      Pick 4–6 pages from the 10-template step bank. Start and completion are always included.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="auto-steps" className="text-xs text-muted-foreground">Auto-select best steps</Label>
-                    <Switch id="auto-steps" checked={autoSelectSteps} onCheckedChange={setAutoSelectSteps} />
-                  </div>
-                </div>
-                {stepBankQ.isLoading ? (
-                  <Skeleton className="h-24 w-full" />
-                ) : (
-                  <>
-                    {!autoSelectSteps && (
-                      <div className="space-y-3">
-                        <p className="text-xs font-medium text-muted-foreground">Middle steps (reorder or swap)</p>
-                        <ol className="space-y-2">
-                          <li className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                            <span className="text-muted-foreground">1.</span>
-                            <span className="font-medium">{STEP_ROLE_LABELS.start}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">Required</span>
-                          </li>
-                          {manualMiddleRoles.map((role, idx) => (
-                            <li key={`${role}-${idx}`} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                              <span className="text-muted-foreground">{idx + 2}.</span>
-                              <span className="font-medium">{STEP_ROLE_LABELS[role] || role}</span>
-                              <div className="ml-auto flex items-center gap-1">
-                                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => moveMiddleRole(idx, -1)} disabled={idx === 0}>
-                                  <ChevronUp className="size-4" />
-                                </Button>
-                                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => moveMiddleRole(idx, 1)} disabled={idx === manualMiddleRoles.length - 1}>
-                                  <ChevronDown className="size-4" />
-                                </Button>
-                                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => removeMiddleRole(idx)}>
-                                  <X className="size-4" />
-                                </Button>
-                              </div>
-                            </li>
-                          ))}
-                          <li className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                            <span className="text-muted-foreground">{pageCount}.</span>
-                            <span className="font-medium">{STEP_ROLE_LABELS.completion}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">Required</span>
-                          </li>
-                        </ol>
-                        {manualMiddleRoles.length < pageCount - 2 && (
-                          <div className="flex flex-wrap gap-2">
-                            {availableMiddleRoles
-                              .filter((r) => !manualMiddleRoles.includes(r))
-                              .map((role) => (
-                                <Button key={role} type="button" size="sm" variant="outline" className="gap-1" onClick={() => addMiddleRole(role)}>
-                                  <Plus className="size-3.5" /> {STEP_ROLE_LABELS[role] || role}
-                                </Button>
-                              ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground">Final page order preview</p>
-                      <ol className="space-y-1.5">
-                        {resolvedPageRoles.map((role, idx) => (
-                          <li key={`preview-${role}-${idx}`} className="rounded-md border border-dashed border-border px-3 py-2 text-sm">
-                            <span className="text-muted-foreground">{idx + 1}. </span>
-                            <span className="font-medium">{STEP_ROLE_LABELS[role] || role}</span>
-                            {stepBankByRole[role]?.title ? (
-                              <span className="ml-2 text-xs text-muted-foreground">— {String(stepBankByRole[role].title)}</span>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ol>
-                      {!pageOrderValid && (
-                        <p className="text-xs text-destructive">
-                          Need exactly {pageCount} pages with unique middle steps between start and completion.
-                        </p>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="md:col-span-2">
-                <Button className="gap-1.5" onClick={() => void onGenerateWaSurvey()} disabled={generating || !primarySurveyTypeId || !pageOrderValid || serviceTagErrors.length > 0}>
-                  <Wand2 className="size-4" /> {generating ? "Generating…" : "Generate"}
-                </Button>
-              </div>
-            </>
-          )}
-          {method === "phone" && (
-            <>
-              <Field label="Max call length">
-                <Select defaultValue="2">
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["1", "2", "3", "5"].map((m) => <SelectItem key={m} value={m}>{m} minutes</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="AI voice agent">
-                <Select defaultValue="amelia">
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="amelia">Amelia (UK · warm)</SelectItem>
-                    <SelectItem value="ravi">Ravi (UK · professional)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {channel === "whatsapp" && (
+        <SurveyWaWizard
+          onBack={() => setChannel(null)}
+          anonymous={anonymous}
+          industryId={industryId}
+          setIndustryId={setIndustryId}
+          industries={industries}
+          industriesLoading={waIndustriesQ.isLoading}
+          selectedServiceTagIds={selectedServiceTagIds}
+          toggleServiceTag={toggleServiceTag}
+          serviceTypes={serviceTypes}
+          serviceTypesLoading={waTypesQ.isLoading}
+          serviceTagErrors={serviceTagErrors}
+          welcomeTemplateId={welcomeTemplateId}
+          setWelcomeTemplateId={setWelcomeTemplateId}
+          thankYouTemplateId={thankYouTemplateId}
+          setThankYouTemplateId={setThankYouTemplateId}
+          welcomeTemplates={welcomeTemplates}
+          thankYouTemplates={thankYouTemplates}
+          privacyMode={privacyMode}
+          setPrivacyMode={setPrivacyMode}
+          pageCount={pageCount}
+          setPageCount={setPageCount}
+          autoSelectSteps={autoSelectSteps}
+          setAutoSelectSteps={setAutoSelectSteps}
+          manualMiddleRoles={manualMiddleRoles}
+          moveMiddleRole={moveMiddleRole}
+          removeMiddleRole={removeMiddleRole}
+          addMiddleRole={addMiddleRole}
+          availableMiddleRoles={availableMiddleRoles}
+          resolvedPageRoles={resolvedPageRoles}
+          pageOrderValid={pageOrderValid}
+          stepBankByRole={stepBankByRole}
+          stepBankLoading={stepBankQ.isLoading}
+          goal={goal}
+          setGoal={setGoal}
+          script={script}
+          setScript={setScript}
+          approved={approved}
+          setApproved={setApproved}
+          generating={generating}
+          onGenerateWaSurvey={onGenerateWaSurvey}
+          waPreview={waPreview}
+          startAt={startAt}
+          setStartAt={setStartAt}
+          endAt={endAt}
+          setEndAt={setEndAt}
+          packageId={packageId}
+          setPackageId={setPackageId}
+          packages={packages}
+          packagesLoading={packagesQ.isLoading}
+          fileRef={fileRef}
+          uploading={uploading}
+          onUpload={onUpload}
+          onDownloadTemplate={onDownloadTemplate}
+          onSaveDraft={onSaveDraft}
+          savePending={savePending}
+        />
+      )}
 
-      <Card>
-        <CardHeader><CardTitle>Contacts</CardTitle><CardDescription>Upload patient list.</CardDescription></CardHeader>
-        <CardContent>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => void onUpload(e.target.files)} />
-          <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border bg-background/50 px-4 py-8 text-center sm:px-6 sm:py-10">
-            <Upload className="size-6 text-muted-foreground" />
-            <p className="text-sm font-medium">Upload CSV or Excel</p>
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <Button size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
-                {uploading ? "Uploading…" : "Choose file"}
-              </Button>
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void onDownloadTemplate()}>
-                <Download className="size-3.5" /> Sample template
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>AI script</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <Textarea rows={6} value={script} onChange={(e) => setScript(e.target.value)} />
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="gap-1.5"><Wand2 className="size-4" /> AI write survey script</Button>
-            <Button variant="outline" className="gap-1.5" onClick={() => setApproved(true)}><Lock className="size-4" /> Approve script</Button>
-            <Button variant="ghost" className="gap-1.5"><RotateCcw className="size-4" /> Regenerate</Button>
-            {method === "whatsapp" && (
-              <Button variant="outline" className="gap-1.5" onClick={() => setWaOpen(true)}><Eye className="size-4" /> Preview WhatsApp</Button>
-            )}
-            <div className="ml-auto"><StatusBadge tone={approved ? "approved-script" : "draft-script"} /></div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Schedule & package</CardTitle></CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
-          <Field label="Start"><Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} /></Field>
-          <Field label="End"><Input type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} /></Field>
-          <Field label="Package">
-            {packagesQ.isLoading ? (
-              <Skeleton className="h-10 w-full" />
-            ) : (
-              <Select value={packageId} onValueChange={setPackageId}>
-                <SelectTrigger><SelectValue placeholder="Select package" /></SelectTrigger>
-                <SelectContent>
-                  {packages.map((p) => (
-                    <SelectItem key={String(p.id || p.rule_id)} value={String(p.id || p.rule_id)}>
-                      {String(p.label || p.name || p.bundle_size || "Package")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </Field>
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-        <Button variant="outline" onClick={() => void onSaveDraft()} disabled={createM.isPending || patchM.isPending}>
-          {createM.isPending || patchM.isPending ? "Saving…" : "Save draft"}
-        </Button>
-        <Button className="gap-1.5" onClick={() => setQuote(true)}><Eye className="size-4" /> Preview & approve</Button>
-      </div>
-
-      <WhatsAppPreviewModal open={waOpen} onOpenChange={setWaOpen} preview={waPreview} />
-      <PreviewQuoteModal open={quote} onOpenChange={setQuote} kind="survey" />
+      {channel === "phone" && (
+        <SurveyPhoneWizard
+          onBack={() => setChannel(null)}
+          anonymous={anonymous}
+          goal={goal}
+          setGoal={setGoal}
+          script={script}
+          setScript={setScript}
+          approved={approved}
+          setApproved={setApproved}
+          startAt={startAt}
+          setStartAt={setStartAt}
+          endAt={endAt}
+          setEndAt={setEndAt}
+          packageId={packageId}
+          setPackageId={setPackageId}
+          packages={packages}
+          packagesLoading={packagesQ.isLoading}
+          fileRef={fileRef}
+          uploading={uploading}
+          onUpload={onUpload}
+          onDownloadTemplate={onDownloadTemplate}
+          onSaveDraft={onSaveDraft}
+          savePending={savePending}
+        />
+      )}
     </div>
   );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="space-y-1.5"><Label className="text-xs">{label}</Label>{children}</div>;
 }
