@@ -7,10 +7,12 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.industry import Industry
+from app.models.industry_deletion_tombstone import IndustryDeletionTombstone
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 
@@ -54,21 +56,59 @@ def industry_to_dict(row: Industry, *, survey_type_count: int | None = None) -> 
 
 class IndustryService:
     @staticmethod
+    def _tombstoned_slugs(db: Session) -> set[str]:
+        try:
+            rows = db.execute(select(IndustryDeletionTombstone.slug)).scalars().all()
+            return {str(slug) for slug in rows if slug}
+        except Exception:
+            return set()
+
+    @staticmethod
+    def is_slug_tombstoned(db: Session, slug: str) -> bool:
+        key = _normalize_slug(slug)
+        if not key:
+            return False
+        try:
+            return db.get(IndustryDeletionTombstone, key) is not None
+        except Exception:
+            return False
+
+    @staticmethod
+    def record_deleted_slug(db: Session, *, slug: str, name: str | None = None) -> None:
+        key = _normalize_slug(slug)
+        if not key:
+            return
+        row = db.get(IndustryDeletionTombstone, key)
+        if row is not None:
+            return
+        db.add(
+            IndustryDeletionTombstone(
+                slug=key,
+                name=str(name or "").strip() or None,
+                deleted_at=datetime.utcnow(),
+            )
+        )
+
+    @staticmethod
     def ensure_defaults(db: Session) -> None:
         """Seed default industries only when the catalog is empty (first bootstrap).
 
-        Do not re-insert slugs that an admin deleted — listing industries must not
-        resurrect removed rows.
+        Never re-insert individual slugs that an admin deleted. Tombstoned slugs are
+        skipped even on empty-catalog bootstrap.
         """
         existing_count = int(
             db.execute(select(func.count()).select_from(Industry)).scalar_one() or 0
         )
         if existing_count > 0:
             return
+        tombstones = IndustryService._tombstoned_slugs(db)
         now = datetime.utcnow()
         changed = False
         for item in DEFAULT_INDUSTRIES:
-            existing = db.execute(select(Industry).where(Industry.slug == item["slug"])).scalar_one_or_none()
+            slug = str(item["slug"])
+            if slug in tombstones:
+                continue
+            existing = db.execute(select(Industry).where(Industry.slug == slug)).scalar_one_or_none()
             if existing is not None:
                 continue
             db.add(
@@ -225,6 +265,7 @@ class IndustryService:
     def delete_industry(db: Session, row: Industry) -> dict[str, Any]:
         """Delete an industry and its survey types, flows, packs, and templates."""
         from app.models.survey_flow import SurveyFlowDefinition
+        from app.models.survey_session import SurveySession
         from app.models.survey_template_pack import SurveyTemplatePack
         from app.services.survey_type_template_service import SurveyTypeTemplateService
         from app.services.survey_whatsapp_template_service import (
@@ -236,12 +277,15 @@ class IndustryService:
             raise ValueError("The system survey-templates industry cannot be deleted.")
 
         industry_id = row.id
+        industry_slug = str(row.slug or "")
+        industry_name = str(row.name or "")
         survey_types = list(
             db.execute(select(SurveyType).where(SurveyType.industry_id == industry_id)).scalars()
         )
         survey_type_ids = [st.id for st in survey_types]
         warnings: list[str] = []
 
+        flows: list[SurveyFlowDefinition] = []
         if survey_type_ids:
             flows = list(
                 db.execute(
@@ -250,8 +294,22 @@ class IndustryService:
                     )
                 ).scalars()
             )
-            for flow in flows:
-                db.delete(flow)
+            flow_ids = [flow.id for flow in flows]
+            if flow_ids:
+                db.execute(
+                    update(SurveySession)
+                    .where(SurveySession.flow_definition_id.in_(flow_ids))
+                    .values(flow_definition_id=None)
+                )
+            db.execute(
+                update(SurveySession)
+                .where(SurveySession.survey_type_id.in_(survey_type_ids))
+                .values(survey_type_id=None)
+            )
+            db.flush()
+
+        for flow in flows:
+            db.delete(flow)
 
         for pack in db.execute(
             select(SurveyTemplatePack).where(SurveyTemplatePack.industry_id == industry_id)
@@ -283,6 +341,13 @@ class IndustryService:
             except Exception as exc:
                 raise ValueError(f"{tpl.name}: {exc}") from exc
 
+        if survey_type_ids:
+            db.execute(
+                update(TelnyxWhatsappTemplate)
+                .where(TelnyxWhatsappTemplate.survey_type_id.in_(survey_type_ids))
+                .values(survey_type_id=None)
+            )
+
         deleted_types = 0
         for st in survey_types:
             fresh = db.get(SurveyType, st.id)
@@ -290,11 +355,21 @@ class IndustryService:
                 db.delete(fresh)
                 deleted_types += 1
 
+        IndustryService.record_deleted_slug(db, slug=industry_slug, name=industry_name)
         db.delete(row)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise ValueError(
+                "Could not delete industry — linked survey data still references it. "
+                "Remove or archive related survey orders first."
+            ) from exc
+
         result: dict[str, Any] = {
             "ok": True,
             "deleted_industry_id": industry_id,
+            "deleted_industry_slug": industry_slug,
             "deleted_survey_types": deleted_types,
             "deleted_templates": deleted_templates,
         }

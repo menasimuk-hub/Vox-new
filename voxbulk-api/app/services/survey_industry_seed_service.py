@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.industry import Industry
 from app.models.survey_type import SurveyType
+from app.services.industry_service import IndustryService
 from app.services.survey_system_template_service import SurveySystemTemplateService
 
 INDUSTRY_CATALOG: list[dict[str, Any]] = [
@@ -229,6 +230,8 @@ class SurveyIndustrySeedService:
 
         for item in INDUSTRY_CATALOG:
             slug = str(item["slug"])
+            if IndustryService.is_slug_tombstoned(db, slug):
+                continue
             row = db.execute(select(Industry).where(Industry.slug == slug)).scalar_one_or_none()
             if row is None:
                 row = Industry(

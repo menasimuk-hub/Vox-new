@@ -69,6 +69,44 @@ def test_deleted_default_industry_is_not_resurrected_on_list():
         IndustryService.list_industries(db, active_only=True)
         IndustryService.list_industries_admin(db)
         assert IndustryService.get_by_slug(db, "healthcare") is None
+        assert IndustryService.is_slug_tombstoned(db, "healthcare") is True
+
+
+def test_ensure_catalog_skips_tombstoned_industry():
+    from app.services.survey_industry_seed_service import SurveyIndustrySeedService
+
+    Session = get_sessionmaker()
+    with Session() as db:
+        industry = IndustryService.get_by_slug(db, "healthcare")
+        IndustryService.delete_industry(db, industry)
+        SurveyIndustrySeedService.ensure_catalog(db)
+        assert IndustryService.get_by_slug(db, "healthcare") is None
+
+
+def test_delete_industry_with_survey_session():
+    Session = get_sessionmaker()
+    with Session() as db:
+        from app.models.survey_session import SurveySession
+
+        industry = IndustryService.get_by_slug(db, "healthcare")
+        st = SurveyTypeService.create_type(
+            db,
+            {"name": "HC Session Test", "slug": "hc_session_test", "industry_id": industry.id},
+        )
+        session = SurveySession(
+            id=str(__import__("uuid").uuid4()),
+            order_id=str(__import__("uuid").uuid4()),
+            recipient_id=str(__import__("uuid").uuid4()),
+            org_id=str(__import__("uuid").uuid4()),
+            survey_type_id=st.id,
+        )
+        db.add(session)
+        db.commit()
+        result = IndustryService.delete_industry(db, industry)
+        assert result["ok"] is True
+        db.refresh(session)
+        assert session.survey_type_id is None
+        assert IndustryService.get_industry(db, industry.id) is None
 
 
 def test_duplicate_slug_rejected():
