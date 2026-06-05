@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+import copy
 from typing import Any
 
 import httpx
@@ -237,7 +238,7 @@ def build_pack_json_schema(count: int) -> dict[str, Any]:
         "properties": {
             "templates": {
                 "type": "array",
-                "items": _PACK_TEMPLATE_ITEM_SCHEMA,
+                "items": copy.deepcopy(_PACK_TEMPLATE_ITEM_SCHEMA),
                 "minItems": size,
                 "maxItems": size,
             }
@@ -245,6 +246,44 @@ def build_pack_json_schema(count: int) -> dict[str, Any]:
         "required": ["templates"],
         "additionalProperties": False,
     }
+
+
+def build_system_template_json_schema(count: int) -> dict[str, Any]:
+    """Strict OpenAI Responses schema for global welcome/thank-you/tell-us-more generation."""
+    size = max(1, min(int(count or 1), 6))
+    schema = build_pack_json_schema(size)
+    assert_openai_strict_json_schema(schema)
+    return schema
+
+
+def assert_openai_strict_json_schema(node: Any, *, path: str = "schema") -> None:
+    """Validate OpenAI Responses strict json_schema object rules before calling the API."""
+    if not isinstance(node, dict):
+        return
+    node_type = node.get("type")
+    if node_type == "object":
+        if node.get("additionalProperties") is not False:
+            raise ValueError(
+                f"OpenAI strict schema invalid at {path}: additionalProperties must be false"
+            )
+        properties = node.get("properties")
+        if not isinstance(properties, dict):
+            raise ValueError(f"OpenAI strict schema invalid at {path}: properties must be an object")
+        required = node.get("required")
+        if not isinstance(required, list) or set(required) != set(properties.keys()):
+            raise ValueError(
+                f"OpenAI strict schema invalid at {path}: required must list every property key"
+            )
+        for key, child in properties.items():
+            assert_openai_strict_json_schema(child, path=f"{path}.{key}")
+    elif node_type == "array":
+        items = node.get("items")
+        if isinstance(items, dict):
+            assert_openai_strict_json_schema(items, path=f"{path}.items")
+    if isinstance(node.get("anyOf"), list):
+        for idx, child in enumerate(node["anyOf"]):
+            if isinstance(child, dict):
+                assert_openai_strict_json_schema(child, path=f"{path}.anyOf[{idx}]")
 
 
 _LOCAL_ID_PREFIX = "local-"

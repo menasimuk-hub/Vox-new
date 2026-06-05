@@ -28,7 +28,8 @@ from app.services.survey_wa_template_pack_service import (
     SurveyWaTemplatePackService,
     _build_pack_item_row,
     _meta_compliance_rules_block,
-    build_pack_json_schema,
+    assert_openai_strict_json_schema,
+    build_system_template_json_schema,
 )
 from app.services.wa_template_privacy import PRIVACY_MODE_OFF, normalize_privacy_mode
 
@@ -381,9 +382,10 @@ class SurveySystemTemplateService:
 
     @staticmethod
     def _system_generate_schema(count: int) -> dict[str, Any]:
-        """Strict OpenAI json_schema — same nested object rules as WA template packs."""
-        pack_count = max(1, min(int(count or 1), 6))
-        return build_pack_json_schema(pack_count)
+        """Strict OpenAI json_schema — deep-copied pack item schema with preflight validation."""
+        schema = build_system_template_json_schema(count)
+        assert_openai_strict_json_schema(schema)
+        return schema
 
     @staticmethod
     def _system_generate_prompt(kind: str, *, instruction: str = "", count: int = 1) -> str:

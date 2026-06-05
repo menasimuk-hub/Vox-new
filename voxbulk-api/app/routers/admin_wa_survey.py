@@ -1020,7 +1020,13 @@ def generate_system_templates(
             count=count,
         )
     except SurveySystemTemplateError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+        msg = str(e)
+        status_code = (
+            status.HTTP_400_BAD_REQUEST
+            if "invalid_json_schema" in msg or "strict schema invalid" in msg
+            else status.HTTP_502_BAD_GATEWAY
+        )
+        raise HTTPException(status_code=status_code, detail=msg) from e
 
 
 @router.post("/system-templates/save-generated")

@@ -16,6 +16,7 @@ export default function WaSurveyIndustries() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
   const [modal, setModal] = useState(null)
@@ -119,10 +120,11 @@ export default function WaSurveyIndustries() {
     try {
       const result = await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
       const warnings = Array.isArray(result?.warnings) ? result.warnings : []
+      setRows((prev) => prev.filter((item) => item.id !== row.id))
       setMsg(
         warnings.length
           ? `Industry “${row.name}” deleted. ${warnings.join(' ')}`
-          : `Industry “${row.name}” deleted.`,
+          : `Industry “${row.name}” deleted permanently.`,
       )
       if (modal?.id === row.id) setModal(null)
       await load()
@@ -146,6 +148,8 @@ export default function WaSurveyIndustries() {
     }
   }
 
+  const visibleRows = showInactive ? rows : rows.filter((row) => row.is_active)
+
   return (
     <>
       <div className="pageTop">
@@ -157,7 +161,9 @@ export default function WaSurveyIndustries() {
           <h1>Industries</h1>
           <p className="pageLead">
             Manage industry dimensions for survey types, template banks, and Create Survey dropdowns.
-            Inactive industries are hidden from customers. Use <strong>Delete</strong> to remove an industry, its survey types, and linked templates (system industry cannot be deleted).
+            <strong> Disable</strong> hides an industry from customers but keeps it in this list.
+            <strong> Delete</strong> removes it permanently, including linked survey types and templates.
+            The system industry cannot be deleted.
           </p>
         </div>
         <div className="pageTopActions">
@@ -173,7 +179,17 @@ export default function WaSurveyIndustries() {
       <div className="card">
         <div className="cardHead">
           <h2>All industries</h2>
-          <span className="muted">{rows.length} total</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+              />
+              Show inactive
+            </label>
+            <span className="muted">{visibleRows.length} shown · {rows.length} total</span>
+          </div>
         </div>
         <div className="cardBody">
           {loading ? (
@@ -193,7 +209,7 @@ export default function WaSurveyIndustries() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
+                  {visibleRows.map((row) => (
                     <tr key={row.id} className={row.is_active ? '' : 'waIndustryRowMuted'}>
                       <td><strong>{row.name}</strong>{row.is_hidden ? <span className="pill muted" style={{ marginLeft: 8 }}>System</span> : null}</td>
                       <td><code>{row.slug}</code></td>

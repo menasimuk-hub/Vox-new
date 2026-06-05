@@ -55,7 +55,10 @@ def test_normalize_kind_rejects_invalid():
 
 
 def test_system_generate_schema_is_openai_strict():
+    from app.services.survey_wa_template_pack_service import build_system_template_json_schema
+
     schema = SurveySystemTemplateService._system_generate_schema(2)
+    build_system_template_json_schema(2)
     assert schema.get("additionalProperties") is False
     assert schema.get("required") == ["templates"]
 

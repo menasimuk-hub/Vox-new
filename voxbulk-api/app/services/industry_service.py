@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -57,21 +57,15 @@ def industry_to_dict(row: Industry, *, survey_type_count: int | None = None) -> 
 class IndustryService:
     @staticmethod
     def _tombstoned_slugs(db: Session) -> set[str]:
-        try:
-            rows = db.execute(select(IndustryDeletionTombstone.slug)).scalars().all()
-            return {str(slug) for slug in rows if slug}
-        except Exception:
-            return set()
+        rows = db.execute(select(IndustryDeletionTombstone.slug)).scalars().all()
+        return {str(slug) for slug in rows if slug}
 
     @staticmethod
     def is_slug_tombstoned(db: Session, slug: str) -> bool:
         key = _normalize_slug(slug)
         if not key:
             return False
-        try:
-            return db.get(IndustryDeletionTombstone, key) is not None
-        except Exception:
-            return False
+        return db.get(IndustryDeletionTombstone, key) is not None
 
     @staticmethod
     def record_deleted_slug(db: Session, *, slug: str, name: str | None = None) -> None:
@@ -267,10 +261,11 @@ class IndustryService:
         from app.models.survey_flow import SurveyFlowDefinition
         from app.models.survey_session import SurveySession
         from app.models.survey_template_pack import SurveyTemplatePack
+        from app.models.survey_type_template import SurveyTypeTemplate
         from app.services.survey_type_template_service import SurveyTypeTemplateService
-        from app.services.survey_whatsapp_template_service import (
-            SurveyWhatsappTemplateError,
-            SurveyWhatsappTemplateService,
+        from app.services.telnyx_whatsapp_template_sync_service import (
+            TelnyxWhatsappTemplateSyncError,
+            TelnyxWhatsappTemplateSyncService,
         )
 
         if bool(getattr(row, "is_hidden", False)):
@@ -315,6 +310,7 @@ class IndustryService:
             select(SurveyTemplatePack).where(SurveyTemplatePack.industry_id == industry_id)
         ).scalars():
             db.delete(pack)
+        db.execute(delete(SurveyTypeTemplate).where(SurveyTypeTemplate.industry_id == industry_id))
         db.flush()
 
         template_ids: set[int] = set()
@@ -331,15 +327,17 @@ class IndustryService:
             tpl = db.get(TelnyxWhatsappTemplate, tid)
             if tpl is None:
                 continue
-            try:
-                SurveyWhatsappTemplateService.delete_template(db, tpl)
-                deleted_templates += 1
-            except SurveyWhatsappTemplateError as exc:
-                SurveyWhatsappTemplateService.delete_template_local(db, tpl)
-                deleted_templates += 1
-                warnings.append(f"{tpl.name}: Telnyx delete failed; removed locally ({exc})")
-            except Exception as exc:
-                raise ValueError(f"{tpl.name}: {exc}") from exc
+            record_id = str(tpl.telnyx_record_id or "").strip()
+            if record_id and not record_id.startswith("local-"):
+                try:
+                    TelnyxWhatsappTemplateSyncService.delete_remote_template(db, record_id)
+                except TelnyxWhatsappTemplateSyncError as exc:
+                    warnings.append(f"{tpl.name}: Telnyx delete failed; removed locally ({exc})")
+            for mapping in SurveyTypeTemplateService.list_for_template(db, int(tpl.id)):
+                db.delete(mapping)
+            db.delete(tpl)
+            deleted_templates += 1
+        db.flush()
 
         if survey_type_ids:
             db.execute(
