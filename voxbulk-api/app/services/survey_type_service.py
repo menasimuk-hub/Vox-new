@@ -135,6 +135,8 @@ class SurveyTypeService:
         stmt = select(SurveyType).order_by(SurveyType.sort_order.asc(), SurveyType.name.asc())
         if industry_id:
             stmt = stmt.where(SurveyType.industry_id == str(industry_id).strip())
+        else:
+            stmt = stmt.where(SurveyType.system_template_kind.is_(None))
         rows = list(db.execute(stmt).scalars())
         industry_cache: dict[str, Industry] = {}
         payload: list[dict[str, Any]] = []

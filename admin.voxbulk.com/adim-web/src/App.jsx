@@ -23,6 +23,7 @@ import GenericPage from './pages/GenericPage'
 import ComplianceSettings from './pages/ComplianceSettings'
 import ComplianceAudit from './pages/ComplianceAudit'
 import EmailSettings from './pages/EmailSettings'
+import WaSurveySystemTemplates from './pages/WaSurveySystemTemplates'
 import WaSurveyTypes from './pages/WaSurveyTypes'
 import WaSurveyTypeEdit from './pages/WaSurveyTypeEdit'
 import WaSurveyIndustries from './pages/WaSurveyIndustries'
@@ -241,6 +242,7 @@ export default function App() {
         <Route path='/settings/email/sms/new' element={<SmsTemplateEdit />} />
         <Route path='/settings/email/sms/:templateKey/edit' element={<SmsTemplateEdit />} />
         <Route path='/settings/wa-survey' element={<WaSurveyTypes />} />
+        <Route path='/settings/wa-survey/system-templates' element={<WaSurveySystemTemplates />} />
         <Route path='/settings/wa-survey/simulator' element={<WaSurveyFlowSimulator />} />
         <Route path='/settings/wa-survey/industries' element={<WaSurveyIndustries />} />
         <Route path='/settings/wa-survey/:typeId/flows' element={<WaSurveyFlows />} />

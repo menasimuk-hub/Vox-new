@@ -13,6 +13,7 @@ from app.services.survey_flow_definition_service import SurveyFlowDefinitionServ
 from app.services.survey_outcome_template_service import SurveyOutcomeTemplateService
 from app.services.survey_generation_service import SurveyGenerationService
 from app.models.industry import Industry
+from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.industry_service import IndustryService, industry_to_dict
@@ -20,6 +21,10 @@ from app.services.survey_type_service import SurveyTypeService, survey_type_to_d
 from app.services.survey_type_template_service import SurveyTypeTemplateError, SurveyTypeTemplateService
 from app.services.survey_picker_settings_service import SurveyPickerSettingsService
 from app.services.survey_simulator_service import SurveySimulatorService
+from app.services.survey_system_template_service import (
+    SurveySystemTemplateError,
+    SurveySystemTemplateService,
+)
 from app.services.survey_wa_observability_service import SurveyWaObservabilityService
 from app.services.survey_wa_readiness_service import SurveyWaReadinessService
 from app.services.survey_wa_test_pack_seed_service import SurveyWaTestPackSeedService
@@ -964,3 +969,97 @@ def simulator_state(
         return SurveySimulatorService.get_state(db, recipient_id=recipient_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.get("/system-templates")
+def list_system_templates(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return SurveySystemTemplateService.list_grouped_admin(db)
+
+
+@router.post("/system-templates")
+def create_system_template(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    body = payload or {}
+    kind = str(body.get("system_template_kind") or body.get("kind") or "").strip()
+    if not kind:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="system_template_kind is required (welcome, thank_you, tell_us_more).",
+        )
+    try:
+        return SurveySystemTemplateService.create_draft(db, kind=kind, payload=body)
+    except SurveySystemTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/system-templates/generate")
+def generate_system_templates(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    body = payload or {}
+    kind = str(body.get("system_template_kind") or body.get("kind") or "").strip()
+    if not kind:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="system_template_kind is required.")
+    try:
+        count = int(body.get("count") or body.get("template_count") or 1)
+    except (TypeError, ValueError):
+        count = 1
+    try:
+        return SurveySystemTemplateService.generate_with_openai(
+            db,
+            kind=kind,
+            instruction=str(body.get("instruction") or body.get("admin_instruction") or "").strip(),
+            count=count,
+        )
+    except SurveySystemTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
+@router.post("/system-templates/save-generated")
+def save_generated_system_templates(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    body = payload or {}
+    kind = str(body.get("system_template_kind") or body.get("kind") or "").strip()
+    if not kind:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="system_template_kind is required.")
+    templates = body.get("templates") or body.get("selected") or []
+    if not isinstance(templates, list):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="templates must be an array.")
+    try:
+        return SurveySystemTemplateService.save_generated(
+            db,
+            kind=kind,
+            templates=templates,
+            instruction=str(body.get("instruction") or "").strip(),
+        )
+    except SurveySystemTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.delete("/system-templates/{template_id}")
+def delete_system_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        tpl = SurveySystemTemplateService.template_belongs_to_kind(db, template_id)
+        st = db.get(SurveyType, str(tpl.survey_type_id or ""))
+        result = SurveySystemTemplateService.delete_template(db, template_id)
+        result["system_template_kind"] = st.system_template_kind if st else None
+        return result
+    except SurveySystemTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except SurveyWhatsappTemplateError as e:
+        _raise_wa_survey_error(e, status_code=status.HTTP_502_BAD_GATEWAY)

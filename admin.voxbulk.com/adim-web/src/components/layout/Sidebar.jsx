@@ -192,6 +192,7 @@ const NAV = [
     [
       ['Email / notification settings', '/settings/email'],
       ['WA Survey', '/settings/wa-survey'],
+      ['Global System Templates', '/settings/wa-survey/system-templates'],
       ['WA Survey flow simulator', '/settings/wa-survey/simulator'],
       ['WA Survey industries', '/settings/wa-survey/industries'],
       ['Legal pages', '/settings/legal'],

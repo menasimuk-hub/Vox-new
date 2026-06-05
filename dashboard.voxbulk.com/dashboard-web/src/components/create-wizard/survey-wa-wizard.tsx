@@ -31,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { waIndustryIcon } from "@/lib/wa-industry-icon";
 
 const WA_STEPS: WizardStepDef[] = [
   { id: 1, title: "Industry", subtitle: "Your sector", icon: Briefcase },
@@ -172,6 +173,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   {props.industries.map((ind) => {
                     const id = String(ind.id);
                     const active = props.industryId === id;
+                    const IndustryIcon = waIndustryIcon(String(ind.name || ""), String(ind.slug || ""));
                     return (
                       <button
                         key={id}
@@ -188,7 +190,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                             active ? "bg-primary text-primary-foreground ring-primary/40" : "bg-primary/10 text-primary ring-primary/20",
                           )}
                         >
-                          <Briefcase className="size-5" />
+                          <IndustryIcon className="size-5" />
                         </div>
                         <p className="text-sm font-semibold leading-tight">{String(ind.name)}</p>
                         {active ? (
@@ -291,14 +293,21 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               <CardTitle className="flex items-center gap-2">
                 <FileText className="size-4 text-primary" /> Step 3 · Configure & generate
               </CardTitle>
-              <CardDescription>Templates, privacy, survey pages, then generate from your approved library.</CardDescription>
+              <CardDescription>
+                Pick shared opening/closing templates, then configure survey pages. Service question templates come from your
+                selected industry and services above.
+              </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-5 md:grid-cols-2">
               <div className="md:col-span-2 space-y-1.5">
                 <Label className="text-xs">Survey goal</Label>
                 <Textarea rows={3} value={props.goal} onChange={(e) => props.setGoal(e.target.value)} />
               </div>
-              <Field label="Welcome template">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Welcome template (required)</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Shared global opening message — not tied to your industry.
+                </p>
                 <Select value={props.welcomeTemplateId} onValueChange={props.setWelcomeTemplateId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select welcome template" />
@@ -311,8 +320,12 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                     ))}
                   </SelectContent>
                 </Select>
-              </Field>
-              <Field label="Thank-you template">
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Thank-you template (required)</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Shared global closing message — applied after survey questions complete.
+                </p>
                 <Select value={props.thankYouTemplateId} onValueChange={props.setThankYouTemplateId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select thank-you template" />
@@ -325,7 +338,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                     ))}
                   </SelectContent>
                 </Select>
-              </Field>
+              </div>
               <Field label="Privacy mode">
                 <Select value={props.privacyMode} onValueChange={(v) => props.setPrivacyMode(v as "off" | "on")}>
                   <SelectTrigger>
