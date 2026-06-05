@@ -55,7 +55,16 @@ def industry_to_dict(row: Industry, *, survey_type_count: int | None = None) -> 
 class IndustryService:
     @staticmethod
     def ensure_defaults(db: Session) -> None:
-        """Idempotent seed — safe if migration seed was skipped."""
+        """Seed default industries only when the catalog is empty (first bootstrap).
+
+        Do not re-insert slugs that an admin deleted — listing industries must not
+        resurrect removed rows.
+        """
+        existing_count = int(
+            db.execute(select(func.count()).select_from(Industry)).scalar_one() or 0
+        )
+        if existing_count > 0:
+            return
         now = datetime.utcnow()
         changed = False
         for item in DEFAULT_INDUSTRIES:
@@ -214,24 +223,52 @@ class IndustryService:
 
     @staticmethod
     def delete_industry(db: Session, row: Industry) -> dict[str, Any]:
-        """Delete a disabled industry and its survey types/templates."""
-        from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+        """Delete an industry and its survey types, flows, packs, and templates."""
+        from app.models.survey_flow import SurveyFlowDefinition
+        from app.models.survey_template_pack import SurveyTemplatePack
+        from app.services.survey_type_template_service import SurveyTypeTemplateService
+        from app.services.survey_whatsapp_template_service import (
+            SurveyWhatsappTemplateError,
+            SurveyWhatsappTemplateService,
+        )
 
-        if bool(row.is_active):
-            raise ValueError("Disable the industry before deleting it.")
         if bool(getattr(row, "is_hidden", False)):
             raise ValueError("The system survey-templates industry cannot be deleted.")
-        from app.services.survey_type_template_service import SurveyTypeTemplateService
 
+        industry_id = row.id
         survey_types = list(
-            db.execute(select(SurveyType).where(SurveyType.industry_id == row.id)).scalars()
+            db.execute(select(SurveyType).where(SurveyType.industry_id == industry_id)).scalars()
         )
+        survey_type_ids = [st.id for st in survey_types]
+        warnings: list[str] = []
+
+        if survey_type_ids:
+            flows = list(
+                db.execute(
+                    select(SurveyFlowDefinition).where(
+                        SurveyFlowDefinition.survey_type_id.in_(survey_type_ids)
+                    )
+                ).scalars()
+            )
+            for flow in flows:
+                db.delete(flow)
+
+        for pack in db.execute(
+            select(SurveyTemplatePack).where(SurveyTemplatePack.industry_id == industry_id)
+        ).scalars():
+            db.delete(pack)
+        db.flush()
+
         template_ids: set[int] = set()
         for st in survey_types:
             for mapping in SurveyTypeTemplateService.list_for_survey_type(db, st.id):
                 template_ids.add(int(mapping.template_id))
+        for tpl in db.execute(
+            select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.industry_id == industry_id)
+        ).scalars():
+            template_ids.add(int(tpl.id))
+
         deleted_templates = 0
-        errors: list[str] = []
         for tid in sorted(template_ids):
             tpl = db.get(TelnyxWhatsappTemplate, tid)
             if tpl is None:
@@ -239,21 +276,28 @@ class IndustryService:
             try:
                 SurveyWhatsappTemplateService.delete_template(db, tpl)
                 deleted_templates += 1
+            except SurveyWhatsappTemplateError as exc:
+                SurveyWhatsappTemplateService.delete_template_local(db, tpl)
+                deleted_templates += 1
+                warnings.append(f"{tpl.name}: Telnyx delete failed; removed locally ({exc})")
             except Exception as exc:
-                errors.append(f"{tpl.name}: {exc}")
-        if errors:
-            raise ValueError("; ".join(errors))
+                raise ValueError(f"{tpl.name}: {exc}") from exc
+
         deleted_types = 0
         for st in survey_types:
             fresh = db.get(SurveyType, st.id)
             if fresh is not None:
                 db.delete(fresh)
                 deleted_types += 1
+
         db.delete(row)
         db.commit()
-        return {
+        result: dict[str, Any] = {
             "ok": True,
-            "deleted_industry_id": row.id,
+            "deleted_industry_id": industry_id,
             "deleted_survey_types": deleted_types,
             "deleted_templates": deleted_templates,
         }
+        if warnings:
+            result["warnings"] = warnings
+        return result

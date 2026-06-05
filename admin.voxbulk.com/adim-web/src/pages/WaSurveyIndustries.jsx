@@ -111,20 +111,19 @@ export default function WaSurveyIndustries() {
       'This cannot be undone.',
     ]
     if (row.is_active) {
-      lines.splice(2, 0, 'The industry will be disabled first, then deleted.')
+      lines.splice(2, 0, 'Active industries are removed immediately, including linked survey types and templates.')
     }
     if (!window.confirm(lines.join('\n'))) return
     setError('')
     setMsg('')
     try {
-      if (row.is_active) {
-        await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(row.id)}/status`, {
-          method: 'POST',
-          body: JSON.stringify({ is_active: false }),
-        })
-      }
-      await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
-      setMsg(`Industry “${row.name}” deleted.`)
+      const result = await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+      const warnings = Array.isArray(result?.warnings) ? result.warnings : []
+      setMsg(
+        warnings.length
+          ? `Industry “${row.name}” deleted. ${warnings.join(' ')}`
+          : `Industry “${row.name}” deleted.`,
+      )
       if (modal?.id === row.id) setModal(null)
       await load()
     } catch (err) {
@@ -158,7 +157,7 @@ export default function WaSurveyIndustries() {
           <h1>Industries</h1>
           <p className="pageLead">
             Manage industry dimensions for survey types, template banks, and Create Survey dropdowns.
-            Inactive industries are hidden from customers. Use <strong>Delete</strong> to remove an industry and its survey types (system industry cannot be deleted).
+            Inactive industries are hidden from customers. Use <strong>Delete</strong> to remove an industry, its survey types, and linked templates (system industry cannot be deleted).
           </p>
         </div>
         <div className="pageTopActions">

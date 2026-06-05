@@ -45,7 +45,7 @@ def test_create_update_and_disable_without_survey_types():
         assert not any(i["id"] == row.id for i in active_list)
 
 
-def test_cannot_disable_industry_with_survey_types():
+def test_delete_industry_with_survey_types():
     Session = get_sessionmaker()
     with Session() as db:
         industry = IndustryService.get_by_slug(db, "healthcare")
@@ -53,8 +53,22 @@ def test_cannot_disable_industry_with_survey_types():
             db,
             {"name": "HC Test", "slug": "hc_test_type", "industry_id": industry.id},
         )
-        with pytest.raises(ValueError, match="survey types"):
-            IndustryService.set_active(db, industry, is_active=False)
+        industry_id = industry.id
+        result = IndustryService.delete_industry(db, industry)
+        assert result["ok"] is True
+        assert result["deleted_survey_types"] == 1
+        assert IndustryService.get_industry(db, industry_id) is None
+
+
+def test_deleted_default_industry_is_not_resurrected_on_list():
+    Session = get_sessionmaker()
+    with Session() as db:
+        industry = IndustryService.get_by_slug(db, "healthcare")
+        assert industry is not None
+        IndustryService.delete_industry(db, industry)
+        IndustryService.list_industries(db, active_only=True)
+        IndustryService.list_industries_admin(db)
+        assert IndustryService.get_by_slug(db, "healthcare") is None
 
 
 def test_duplicate_slug_rejected():

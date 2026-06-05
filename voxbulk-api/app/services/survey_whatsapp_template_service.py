@@ -1413,6 +1413,21 @@ class SurveyWhatsappTemplateService:
         return {"ok": True, "message": "Template deleted from Telnyx and database.", "template_id": template_id}
 
     @staticmethod
+    def delete_template_local(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+        """Remove template mappings and DB row without calling Telnyx."""
+        template_id = int(row.id)
+        for mapping in SurveyTypeTemplateService.list_for_template(db, template_id):
+            db.delete(mapping)
+        db.delete(row)
+        db.commit()
+        return {
+            "ok": True,
+            "message": "Template removed from database.",
+            "template_id": template_id,
+            "local_only": True,
+        }
+
+    @staticmethod
     def build_preview(
         db: Session,
         row: TelnyxWhatsappTemplate,
