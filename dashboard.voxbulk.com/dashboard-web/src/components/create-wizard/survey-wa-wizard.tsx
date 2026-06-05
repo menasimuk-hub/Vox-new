@@ -173,7 +173,9 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   {props.industries.map((ind) => {
                     const id = String(ind.id);
                     const active = props.industryId === id;
-                    const IndustryIcon = waIndustryIcon(String(ind.name || ""), String(ind.slug || ""));
+                    const industryName = String(ind.name || ind.label || "");
+                    const industrySlug = String(ind.slug || ind.industry_slug || "");
+                    const IndustryIcon = waIndustryIcon(industryName, industrySlug);
                     return (
                       <button
                         key={id}

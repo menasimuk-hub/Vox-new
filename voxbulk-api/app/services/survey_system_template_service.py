@@ -28,6 +28,7 @@ from app.services.survey_wa_template_pack_service import (
     SurveyWaTemplatePackService,
     _build_pack_item_row,
     _meta_compliance_rules_block,
+    build_pack_json_schema,
 )
 from app.services.wa_template_privacy import PRIVACY_MODE_OFF, normalize_privacy_mode
 
@@ -380,38 +381,9 @@ class SurveySystemTemplateService:
 
     @staticmethod
     def _system_generate_schema(count: int) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "templates": {
-                    "type": "array",
-                    "minItems": count,
-                    "maxItems": count,
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": True,
-                        "properties": {
-                            "template_name": {"type": "string"},
-                            "title": {"type": "string"},
-                            "body": {"type": "string"},
-                            "footer": {"type": "string"},
-                            "header": {"type": "string"},
-                            "button_type": {"type": "string"},
-                            "buttons": {"type": "array"},
-                            "example_values": {"type": "array"},
-                            "language": {"type": "string"},
-                            "category": {"type": "string"},
-                            "variant_type": {"type": "string"},
-                            "step_role": {"type": "string"},
-                            "outcome_key": {"type": "string"},
-                        },
-                        "required": ["template_name", "body", "footer", "button_type", "buttons"],
-                    },
-                }
-            },
-            "required": ["templates"],
-        }
+        """Strict OpenAI json_schema — same nested object rules as WA template packs."""
+        pack_count = max(1, min(int(count or 1), 6))
+        return build_pack_json_schema(pack_count)
 
     @staticmethod
     def _system_generate_prompt(kind: str, *, instruction: str = "", count: int = 1) -> str:

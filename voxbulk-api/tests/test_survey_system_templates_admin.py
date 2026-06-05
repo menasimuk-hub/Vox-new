@@ -52,3 +52,18 @@ def test_create_draft_welcome(db):
 def test_normalize_kind_rejects_invalid():
     with pytest.raises(Exception):
         normalize_system_template_kind("invalid")
+
+
+def test_system_generate_schema_is_openai_strict():
+    schema = SurveySystemTemplateService._system_generate_schema(2)
+    assert schema.get("additionalProperties") is False
+    assert schema.get("required") == ["templates"]
+
+    items = schema["properties"]["templates"]["items"]
+    assert items.get("type") == "object"
+    assert items.get("additionalProperties") is False
+    assert set(items.get("required") or []) == set(items.get("properties") or {})
+
+    button_items = items["properties"]["buttons"]["items"]
+    assert button_items.get("additionalProperties") is False
+    assert set(button_items.get("required") or []) == set(button_items.get("properties") or {})

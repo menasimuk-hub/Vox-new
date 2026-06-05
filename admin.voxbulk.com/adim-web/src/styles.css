@@ -8446,3 +8446,18 @@ input[type="radio"] {
     padding: 12px;
   }
 }
+
+/* Global system templates — keep row actions visible when table scrolls horizontally */
+.table.waSurveySystemTemplatesTable .waSurveySystemTemplatesActionsHead,
+.table.waSurveySystemTemplatesTable .waSurveySystemTemplatesActionsCell {
+  min-width: 260px;
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--card, var(--bg));
+  box-shadow: -10px 0 14px rgba(15, 23, 42, 0.06);
+}
+
+.table.waSurveySystemTemplatesTable .waSurveySystemTemplatesActionsCell .runningSurveyRowActions {
+  justify-content: flex-end;
+}

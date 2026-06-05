@@ -324,14 +324,14 @@ export default function WaSurveySystemTemplates() {
                 {section.kind === 'tell_us_more' && 'Low-rating follow-up — applied automatically (not shown in customer picker).'}
               </p>
               <div className="tableWrap">
-                <table className="table">
+                <table className="table waSurveySystemTemplatesTable">
                   <thead>
                     <tr>
                       <th>Name</th>
                       <th>Language</th>
                       <th>Telnyx</th>
                       <th>Active</th>
-                      <th>Actions</th>
+                      <th className="waSurveySystemTemplatesActionsHead">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -345,13 +345,16 @@ export default function WaSurveySystemTemplates() {
                           </span>
                         </td>
                         <td>{tpl.active_for_survey ? 'Yes' : 'No'}</td>
-                        <td>
-                          <div className="runningSurveyRowActions">
+                        <td className="waSurveySystemTemplatesActionsCell">
+                          <div className="runningSurveyRowActions waSurveyTemplatesActions">
                             <button
                               type="button"
                               className="btn sm"
                               onClick={() => {
-                                setModalTemplate(tpl)
+                                setModalTemplate({
+                                  ...tpl,
+                                  system_template_kind: tpl.system_template_kind || section.kind,
+                                })
                                 setModalTemplateId(tpl.id)
                               }}
                             >
@@ -363,7 +366,7 @@ export default function WaSurveySystemTemplates() {
                               disabled={working === `push-${tpl.id}`}
                               onClick={() => void pushOne(tpl)}
                             >
-                              {working === `push-${tpl.id}` ? 'Syncing…' : 'Sync'}
+                              {working === `push-${tpl.id}` ? 'Syncing…' : 'Sync to Telnyx'}
                             </button>
                             <button
                               type="button"
@@ -392,7 +395,11 @@ export default function WaSurveySystemTemplates() {
       <WaSurveyTemplateModal
         templateId={modalTemplateId}
         initialTemplate={modalTemplate}
-        surveyTypeId={surveyTypeIdForKind[modalTemplate?.system_template_kind] || modalTemplate?.survey_type_id}
+        surveyTypeId={
+          surveyTypeIdForKind[modalTemplate?.system_template_kind]
+          || modalTemplate?.survey_type_id
+          || kinds.find((k) => k.kind === modalTemplate?.system_template_kind)?.survey_type_id
+        }
         open={Boolean(modalTemplateId)}
         onClose={() => {
           setModalTemplateId(null)
