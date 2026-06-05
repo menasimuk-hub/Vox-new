@@ -259,7 +259,13 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   const [industries, setIndustries] = useState([])
   const [selectedIndustryId, setSelectedIndustryId] = useState(industryId || '')
   const [privacyMode, setPrivacyMode] = useState('off')
-  const [templateCount, setTemplateCount] = useState(5)
+  const [templateCountInput, setTemplateCountInput] = useState('5')
+
+  const resolveTemplateCount = (raw = templateCountInput) => {
+    const n = parseInt(String(raw).trim(), 10)
+    if (!Number.isFinite(n)) return 5
+    return Math.max(1, Math.min(50, n))
+  }
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
@@ -271,14 +277,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   const [editField, setEditField] = useState(null)
   const [editDraft, setEditDraft] = useState(null)
 
-  const reset = () => {
-    setInstruction('')
-    setPurpose('')
-    setCategoryHint('MARKETING')
-    setSelectedIndustryId(industryId || '')
-    setPrivacyMode('off')
-    setError('')
-    setToast('')
+  const clearGeneratedPack = () => {
     setPack(null)
     setSavedIndices(new Set())
     setSavedRecords({})
@@ -288,9 +287,24 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     setEditDraft(null)
   }
 
+  const reset = () => {
+    setInstruction('')
+    setPurpose('')
+    setCategoryHint('MARKETING')
+    setSelectedIndustryId(industryId || '')
+    setPrivacyMode('off')
+    setTemplateCountInput('5')
+    setError('')
+    setToast('')
+    clearGeneratedPack()
+  }
+
   useEffect(() => {
     if (!open) reset()
-    else if (industryId) setSelectedIndustryId(industryId)
+    else {
+      setTemplateCountInput('5')
+      if (industryId) setSelectedIndustryId(industryId)
+    }
   }, [open, industryId])
 
   useEffect(() => {
@@ -377,7 +391,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
           instruction: buildInstruction(),
           purpose,
           privacy_mode: privacyMode,
-          template_count: templateCount,
+          template_count: resolveTemplateCount(),
           theme_variant: categoryHint || undefined,
         }),
       })
@@ -745,14 +759,24 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                   type="number"
                   min={1}
                   max={50}
-                  value={templateCount}
+                  step={1}
+                  inputMode="numeric"
+                  value={templateCountInput}
                   onChange={(e) => {
-                    const n = Number(e.target.value)
-                    if (!Number.isFinite(n)) return
-                    setTemplateCount(Math.max(1, Math.min(50, n)))
+                    const next = e.target.value
+                    setTemplateCountInput(next)
+                    if (pack) clearGeneratedPack()
                   }}
-                  disabled={Boolean(pack)}
+                  onBlur={() => {
+                    const clamped = resolveTemplateCount()
+                    setTemplateCountInput(String(clamped))
+                  }}
+                  aria-describedby="waTplGenTemplateCountHelp"
                 />
+                <span id="waTplGenTemplateCountHelp" className="waTplGen-field-hint">
+                  How many templates OpenAI should generate (1–50). Default 5.
+                  {pack ? ' Change the count and click Generate again for a new pack.' : ''}
+                </span>
               </div>
               <div className="waTplGen-field">
                 <label>Privacy Mode</label>
