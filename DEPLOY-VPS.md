@@ -3,12 +3,21 @@
 ## One-command update (on the server)
 
 ```bash
-cd /path/to/Vox          # repo root
-chmod +x vox.sh deploy-vps.sh
+cd /www/voxbulk          # repo root (Baota path)
+git pull origin main
+chmod +x deploy-vps.sh vox.sh scripts/vps-update-ui.sh
 ./deploy-vps.sh
-# or
-./vox.sh update
 ```
+
+**UI only** (skip migrations — use when GitHub is already pulled but sites look old):
+
+```bash
+cd /www/voxbulk
+git pull origin main
+bash scripts/vps-update-ui.sh
+```
+
+**Important:** Pushing to GitHub does **not** update the live sites. You must run one of the commands above on the VPS (Baota → Terminal).
 
 ## First-time VPS setup
 
