@@ -559,8 +559,14 @@ body.dark .sb-logo-icon .icon-light { display: none; }
 .btn.btnr {
   background: var(--rd); color: var(--red); border-color: var(--rd);
 }
+.btn.danger, .btn.btnr {
+  background: var(--rd); color: var(--red); border-color: rgba(220, 38, 38, 0.25);
+}
+.btn.danger:hover, .btn.btnr:hover {
+  background: #fee2e2; border-color: var(--red);
+}
+.btn.sm, .btn.bsm { padding: 5px 11px; font-size: 11.5px; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.bsm { padding: 5px 11px; font-size: 11.5px; }
 .bxsm { padding: 4px 9px; font-size: 11px; }
 
 .bdg, .pill {

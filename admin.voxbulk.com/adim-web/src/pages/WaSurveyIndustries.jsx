@@ -58,6 +58,7 @@ export default function WaSurveyIndustries() {
       description: row.description || '',
       sort_order: row.sort_order ?? 100,
       is_active: Boolean(row.is_active),
+      is_hidden: Boolean(row.is_hidden),
       survey_type_count: row.survey_type_count || 0,
     })
   }
@@ -99,12 +100,32 @@ export default function WaSurveyIndustries() {
   }
 
   const deleteIndustry = async (row) => {
-    if (!window.confirm(`Delete industry “${row.name}” and all its survey types/templates? This cannot be undone.`)) return
+    if (row.is_hidden) return
+    const typeCount = Number(row.survey_type_count || 0)
+    const lines = [
+      `Delete industry “${row.name}”?`,
+      '',
+      typeCount > 0
+        ? `This removes ${typeCount} survey type(s) and linked WhatsApp templates.`
+        : 'This removes the industry permanently.',
+      'This cannot be undone.',
+    ]
+    if (row.is_active) {
+      lines.splice(2, 0, 'The industry will be disabled first, then deleted.')
+    }
+    if (!window.confirm(lines.join('\n'))) return
     setError('')
     setMsg('')
     try {
+      if (row.is_active) {
+        await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(row.id)}/status`, {
+          method: 'POST',
+          body: JSON.stringify({ is_active: false }),
+        })
+      }
       await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
-      setMsg('Industry deleted.')
+      setMsg(`Industry “${row.name}” deleted.`)
+      if (modal?.id === row.id) setModal(null)
       await load()
     } catch (err) {
       setError(formatWaSurveyError(err, 'Could not delete industry').message)
@@ -137,7 +158,7 @@ export default function WaSurveyIndustries() {
           <h1>Industries</h1>
           <p className="pageLead">
             Manage industry dimensions for survey types, template banks, and Create Survey dropdowns.
-            Inactive industries are hidden from customer Create Survey flows.
+            Inactive industries are hidden from customers. Use <strong>Delete</strong> to remove an industry and its survey types (system industry cannot be deleted).
           </p>
         </div>
         <div className="pageTopActions">
@@ -191,10 +212,15 @@ export default function WaSurveyIndustries() {
                         <button type="button" className="btn sm" onClick={() => toggleActive(row)} disabled={row.is_hidden}>
                           {row.is_active ? 'Disable' : 'Enable'}
                         </button>
-                        {!row.is_active && !row.is_hidden ? (
+                        {!row.is_hidden ? (
                           <>
                             {' '}
-                            <button type="button" className="btn sm danger" onClick={() => deleteIndustry(row)}>
+                            <button
+                              type="button"
+                              className="btn sm danger"
+                              onClick={() => void deleteIndustry(row)}
+                              title={row.is_active ? 'Disables the industry, then deletes it' : 'Delete industry'}
+                            >
                               Delete
                             </button>
                           </>
@@ -274,15 +300,34 @@ export default function WaSurveyIndustries() {
               </label>
               {modal.mode === 'edit' && (modal.survey_type_count || 0) > 0 ? (
                 <p className="muted" style={{ gridColumn: '1 / -1', margin: 0 }}>
-                  Used by {modal.survey_type_count} survey type(s). Disable only after reassigning them.
+                  {modal.survey_type_count} survey type(s) under this industry. Deleting the industry removes them and linked templates.
                 </p>
               ) : null}
             </div>
-            <div className="leadModalFoot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div className="leadModalFoot" style={{ display: 'flex', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              {modal.mode === 'edit' && !modal.is_hidden ? (
+                <button
+                  type="button"
+                  className="btn danger"
+                  onClick={() => void deleteIndustry({
+                    id: modal.id,
+                    name: modal.name,
+                    is_active: modal.is_active,
+                    is_hidden: modal.is_hidden,
+                    survey_type_count: modal.survey_type_count,
+                  })}
+                >
+                  Delete industry
+                </button>
+              ) : (
+                <span />
+              )}
+              <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
               <button type="button" className="btn ghost" onClick={() => setModal(null)}>Cancel</button>
               <button type="submit" className="btn primary" disabled={saving}>
                 {saving ? 'Saving…' : 'Save'}
               </button>
+              </div>
             </div>
           </form>
         </div>
