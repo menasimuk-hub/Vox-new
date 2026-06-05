@@ -137,11 +137,20 @@ class IndustryService:
         return [industry_to_dict(r) for r in rows]
 
     @staticmethod
-    def list_industries_admin(db: Session) -> list[dict[str, Any]]:
+    def list_industries_admin(
+        db: Session,
+        *,
+        include_hidden: bool = True,
+        include_inactive: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Full industries table for the Industries admin page."""
         IndustryService.ensure_defaults(db)
-        rows = list(
-            db.execute(select(Industry).order_by(Industry.sort_order.asc(), Industry.name.asc())).scalars()
-        )
+        stmt = select(Industry).order_by(Industry.sort_order.asc(), Industry.name.asc())
+        if not include_inactive:
+            stmt = stmt.where(Industry.is_active.is_(True))
+        if not include_hidden:
+            stmt = stmt.where(or_(Industry.is_hidden.is_(False), Industry.is_hidden.is_(None)))
+        rows = list(db.execute(stmt).scalars())
         counts: dict[str, int] = {}
         for industry_id, cnt in db.execute(
             select(SurveyType.industry_id, func.count())
@@ -150,6 +159,11 @@ class IndustryService:
             if industry_id:
                 counts[str(industry_id)] = int(cnt or 0)
         return [industry_to_dict(r, survey_type_count=counts.get(r.id, 0)) for r in rows]
+
+    @staticmethod
+    def list_industries_selectable(db: Session) -> list[dict[str, Any]]:
+        """Active, non-hidden industries for filters and customer-facing pickers."""
+        return IndustryService.list_industries(db, active_only=True, include_inactive=False)
 
     @staticmethod
     def get_industry(db: Session, industry_id: str) -> Industry | None:

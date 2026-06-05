@@ -75,6 +75,38 @@ def test_create_draft_noname_variant(db):
     assert "Noname" in labels
 
 
+def test_save_generated_appears_in_grouped_welcome(db):
+    payload = {
+        "template_name": "welcome_warm_start",
+        "title": "Warm welcome",
+        "body": "Hi {{1}}, welcome to our short survey.",
+        "footer": "Reply STOP to opt out",
+        "button_type": "quick_reply",
+        "buttons": [{"text": "Start survey", "url": "", "phone_number": ""}],
+        "example_values": ["Alex"],
+        "language": "en_US",
+        "category": "MARKETING",
+        "step_role": "start",
+        "variant_type": "standard",
+    }
+    result = SurveySystemTemplateService.save_generated(db, kind="welcome", templates=[payload])
+    assert result.get("saved_count", 0) >= 1
+    grouped = SurveySystemTemplateService.list_grouped_admin(db)
+    assert grouped["templates"]["welcome"]
+    welcome_kind = next(item for item in grouped["kinds"] if item["kind"] == "welcome")
+    assert welcome_kind["count"] == len(grouped["templates"]["welcome"])
+
+
+def test_selectable_industries_exclude_hidden_system_industry(db):
+    from app.services.industry_service import IndustryService, SYSTEM_SURVEY_INDUSTRY_SLUG
+
+    selectable = IndustryService.list_industries_selectable(db)
+    slugs = {row["slug"] for row in selectable}
+    assert SYSTEM_SURVEY_INDUSTRY_SLUG not in slugs
+    admin_all = IndustryService.list_industries_admin(db, include_hidden=True, include_inactive=True)
+    assert any(row["slug"] == SYSTEM_SURVEY_INDUSTRY_SLUG for row in admin_all)
+
+
 def test_normalize_kind_rejects_invalid():
     with pytest.raises(Exception):
         normalize_system_template_kind("invalid")

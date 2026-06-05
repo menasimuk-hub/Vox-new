@@ -25,7 +25,7 @@ export default function WaSurveyIndustries() {
     setLoading(true)
     setError('')
     try {
-      const data = await apiFetch('/admin/wa-survey/industries?include_inactive=true')
+      const data = await apiFetch('/admin/wa-survey/industries?include_inactive=true&include_hidden=true')
       setRows(Array.isArray(data?.industries) ? data.industries : [])
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not load industries').message)

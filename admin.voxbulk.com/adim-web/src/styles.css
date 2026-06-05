@@ -8546,3 +8546,38 @@ input[type="radio"] {
   border-color: rgba(220, 38, 38, 0.35);
   color: var(--red, #dc2626);
 }
+
+.waSurveyGenDraftArea {
+  padding-top: 0;
+}
+
+.waSurveyGenDraftList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.waSurveyGenDraftCard {
+  background: var(--bg2, rgba(15, 23, 42, 0.02));
+  border: 1px solid var(--b1);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.waSurveyGenDraftCardInvalid {
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+.waSurveyGenDraftHead {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.waSurveyGenDraftBody {
+  min-height: 140px;
+  resize: vertical;
+  white-space: pre-wrap;
+}

@@ -64,11 +64,14 @@ export default function WaSurveyTypes() {
 
   const loadIndustries = useCallback(async () => {
     try {
-      const data = await apiFetch('/admin/wa-survey/industries?include_inactive=true')
+      const data = await apiFetch('/admin/wa-survey/industries')
       const list = Array.isArray(data?.industries) ? data.industries : []
       setIndustries(list)
-      // Default to all industries — admin picks the filter explicitly.
-      setNewIndustryId((prev) => prev || String(list[0]?.id || ''))
+      setIndustryFilter((prev) => (prev && list.some((row) => String(row.id) === String(prev)) ? prev : ''))
+      setNewIndustryId((prev) => {
+        if (prev && list.some((row) => String(row.id) === String(prev))) return prev
+        return String(list[0]?.id || '')
+      })
     } catch (e) {
       showError(e, 'Could not load industries')
     }
@@ -122,6 +125,18 @@ export default function WaSurveyTypes() {
     loadIndustries()
     loadPickerSettings()
   }, [loadIndustries, loadPickerSettings])
+
+  useEffect(() => {
+    const refreshIndustries = () => {
+      if (document.visibilityState === 'visible') void loadIndustries()
+    }
+    window.addEventListener('focus', refreshIndustries)
+    document.addEventListener('visibilitychange', refreshIndustries)
+    return () => {
+      window.removeEventListener('focus', refreshIndustries)
+      document.removeEventListener('visibilitychange', refreshIndustries)
+    }
+  }, [loadIndustries])
 
   useEffect(() => {
     load()

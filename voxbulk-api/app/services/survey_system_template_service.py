@@ -377,14 +377,40 @@ class SurveySystemTemplateService:
         return int(row.id) if row is not None else None
 
     @staticmethod
+    def _system_type_meta(kind: str) -> dict[str, Any]:
+        kind = normalize_system_template_kind(kind)
+        for item in SYSTEM_SURVEY_TYPES:
+            if item["system_template_kind"] == kind:
+                return item
+        raise SurveySystemTemplateError(f"Unknown system template kind: {kind}")
+
+    @staticmethod
     def survey_type_for_kind(db: Session, kind: str) -> SurveyType:
-        normalize_system_template_kind(kind)
-        SurveySystemTemplateService.ensure_system_survey_types(db)
+        """Resolve the canonical hidden-industry survey type for a system template kind."""
+        meta = SurveySystemTemplateService._system_type_meta(kind)
+        industry = SurveySystemTemplateService.ensure_system_industry(db)
         row = db.execute(
-            select(SurveyType).where(SurveyType.system_template_kind == kind).limit(1)
+            select(SurveyType).where(
+                SurveyType.industry_id == industry.id,
+                SurveyType.slug == meta["slug"],
+            )
         ).scalar_one_or_none()
         if row is None:
+            SurveySystemTemplateService.ensure_system_survey_types(db)
+            row = db.execute(
+                select(SurveyType).where(
+                    SurveyType.industry_id == industry.id,
+                    SurveyType.slug == meta["slug"],
+                )
+            ).scalar_one_or_none()
+        if row is None:
             raise SurveySystemTemplateError(f"System survey type for {kind} is not configured.")
+        if not row.system_template_kind:
+            row.system_template_kind = meta["system_template_kind"]
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            db.commit()
+            db.refresh(row)
         return row
 
     @staticmethod
@@ -404,25 +430,21 @@ class SurveySystemTemplateService:
         """Admin view — templates grouped by system_template_kind."""
         meta = SurveySystemTemplateService.list_admin(db)
         grouped: dict[str, list[dict[str, Any]]] = {k: [] for k in SYSTEM_TEMPLATE_KINDS}
-        types = list(
-            db.execute(
-                select(SurveyType).where(SurveyType.system_template_kind.in_(SYSTEM_TEMPLATE_KINDS))
-            ).scalars()
-        )
-        type_by_kind = {str(t.system_template_kind): t for t in types if t.system_template_kind}
+        SurveySystemTemplateService.ensure_system_survey_types(db)
+        type_by_kind = {
+            kind: SurveySystemTemplateService.survey_type_for_kind(db, kind)
+            for kind in SYSTEM_TEMPLATE_KINDS
+        }
         for kind in SYSTEM_TEMPLATE_KINDS:
-            st = type_by_kind.get(kind)
-            if st is None:
-                continue
-            grouped[kind] = SurveySystemTemplateService._templates_for_kind(db, st, kind)
+            grouped[kind] = SurveySystemTemplateService._templates_for_kind(db, type_by_kind[kind], kind)
         return {
             **meta,
             "kinds": [
                 {
                     "kind": kind,
                     "label": KIND_LABELS[kind],
-                    "survey_type_id": type_by_kind[kind].id if kind in type_by_kind else None,
-                    "survey_type_slug": type_by_kind[kind].slug if kind in type_by_kind else None,
+                    "survey_type_id": type_by_kind[kind].id,
+                    "survey_type_slug": SurveySystemTemplateService._system_type_meta(kind)["slug"],
                     "templates": grouped[kind],
                     "count": len(grouped[kind]),
                 }
@@ -670,7 +692,31 @@ class SurveySystemTemplateService:
             )
         except SurveyWaTemplatePackError as exc:
             raise SurveySystemTemplateError(str(exc)) from exc
-        return {**result, "system_template_kind": kind}
+        saved_rows: list[dict[str, Any]] = []
+        for item in result.get("templates") or []:
+            tpl_id = item.get("id")
+            if tpl_id is None:
+                continue
+            tpl = SurveyWhatsappTemplateService.get_template(db, int(tpl_id))
+            if tpl is None:
+                continue
+            SurveySystemTemplateService._ensure_system_mapping(db, survey_type=survey_type, template=tpl)
+            saved_rows.append(
+                SurveySystemTemplateService._admin_template_row(
+                    db,
+                    tpl,
+                    kind=kind,
+                    survey_type=survey_type,
+                )
+            )
+        db.commit()
+        grouped = SurveySystemTemplateService.list_grouped_admin(db)
+        return {
+            **result,
+            "system_template_kind": kind,
+            "saved_templates": saved_rows,
+            "kinds": grouped.get("kinds") or [],
+        }
 
     @staticmethod
     def list_admin(db: Session) -> dict[str, Any]:

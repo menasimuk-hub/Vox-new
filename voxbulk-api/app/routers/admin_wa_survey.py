@@ -51,12 +51,20 @@ def _raise_wa_survey_error(exc: SurveyWhatsappTemplateError, *, status_code: int
 @router.get("/industries")
 def list_industries(
     include_inactive: bool = False,
+    include_hidden: bool = False,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    if include_inactive:
-        return {"ok": True, "industries": IndustryService.list_industries_admin(db)}
-    return {"ok": True, "industries": IndustryService.list_industries(db, active_only=True)}
+    if include_inactive or include_hidden:
+        return {
+            "ok": True,
+            "industries": IndustryService.list_industries_admin(
+                db,
+                include_inactive=include_inactive,
+                include_hidden=include_hidden,
+            ),
+        }
+    return {"ok": True, "industries": IndustryService.list_industries_selectable(db)}
 
 
 @router.post("/industries")
