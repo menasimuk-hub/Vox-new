@@ -305,7 +305,12 @@ export default function WaSurveySystemTemplates() {
         kinds.map((section) => (
           <section className="card" key={section.kind}>
             <div className="cardHead">
-              <h2>{section.label || kindLabel(section.kind)}</h2>
+              <h2>
+                {section.label || kindLabel(section.kind)}
+                <span className="muted" style={{ fontWeight: 500, marginLeft: 8 }}>
+                  ({section.count ?? (section.templates || []).length} template{(section.count ?? (section.templates || []).length) === 1 ? '' : 's'})
+                </span>
+              </h2>
               <div className="actions">
                 <button
                   type="button"
@@ -323,70 +328,57 @@ export default function WaSurveySystemTemplates() {
                 {section.kind === 'thank_you' && 'Closing message — customers choose one when creating a survey.'}
                 {section.kind === 'tell_us_more' && 'Low-rating follow-up — applied automatically (not shown in customer picker).'}
               </p>
-              <div className="tableWrap">
-                <table className="table waSurveySystemTemplatesTable">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Language</th>
-                      <th>Telnyx</th>
-                      <th>Active</th>
-                      <th className="waSurveySystemTemplatesActionsHead">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(section.templates || []).length ? section.templates.map((tpl) => (
-                      <tr key={tpl.id}>
-                        <td>{tpl.display_name || tpl.name}</td>
-                        <td>{tpl.language || '—'}</td>
-                        <td>
+              {(section.templates || []).length ? (
+                <div className="waSurveySystemTemplateList">
+                  {section.templates.map((tpl) => (
+                    <article key={tpl.id} className="waSurveySystemTemplateCard">
+                      <div className="waSurveySystemTemplateMain">
+                        <p className="waSurveySystemTemplateTitle">{tpl.display_name || tpl.name || 'Untitled template'}</p>
+                        <div className="waSurveySystemTemplateMeta">
+                          <span>{tpl.language || '—'}</span>
                           <span className={`pill ${telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}`}>
                             {resolveTelnyxSyncLabel(tpl)}
                           </span>
-                        </td>
-                        <td>{tpl.active_for_survey ? 'Yes' : 'No'}</td>
-                        <td className="waSurveySystemTemplatesActionsCell">
-                          <div className="runningSurveyRowActions waSurveyTemplatesActions">
-                            <button
-                              type="button"
-                              className="btn sm"
-                              onClick={() => {
-                                setModalTemplate({
-                                  ...tpl,
-                                  system_template_kind: tpl.system_template_kind || section.kind,
-                                })
-                                setModalTemplateId(tpl.id)
-                              }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="btn sm soft"
-                              disabled={working === `push-${tpl.id}`}
-                              onClick={() => void pushOne(tpl)}
-                            >
-                              {working === `push-${tpl.id}` ? 'Syncing…' : 'Sync to Telnyx'}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn sm soft"
-                              disabled={working === `delete-${tpl.id}`}
-                              onClick={() => void deleteTemplate(tpl, section.kind)}
-                            >
-                              {working === `delete-${tpl.id}` ? 'Deleting…' : 'Delete'}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )) : (
-                      <tr>
-                        <td colSpan={5} className="muted">No templates yet — create one or generate with OpenAI.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                          <span>{tpl.active_for_survey ? 'Active' : 'Inactive'}</span>
+                        </div>
+                      </div>
+                      <div className="waSurveySystemTemplateActions">
+                        <button
+                          type="button"
+                          className="btn sm"
+                          onClick={() => {
+                            setModalTemplate({
+                              ...tpl,
+                              system_template_kind: tpl.system_template_kind || section.kind,
+                            })
+                            setModalTemplateId(tpl.id)
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm soft"
+                          disabled={working === `push-${tpl.id}`}
+                          onClick={() => void pushOne(tpl)}
+                        >
+                          {working === `push-${tpl.id}` ? 'Syncing…' : 'Sync to Telnyx'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm soft danger"
+                          disabled={working === `delete-${tpl.id}`}
+                          onClick={() => void deleteTemplate(tpl, section.kind)}
+                        >
+                          {working === `delete-${tpl.id}` ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">No templates yet — create one or generate with OpenAI.</p>
+              )}
             </div>
           </section>
         ))

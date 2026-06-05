@@ -8447,17 +8447,57 @@ input[type="radio"] {
   }
 }
 
-/* Global system templates — keep row actions visible when table scrolls horizontally */
-.table.waSurveySystemTemplatesTable .waSurveySystemTemplatesActionsHead,
-.table.waSurveySystemTemplatesTable .waSurveySystemTemplatesActionsCell {
-  min-width: 260px;
-  position: sticky;
-  right: 0;
-  z-index: 1;
-  background: var(--card, var(--bg));
-  box-shadow: -10px 0 14px rgba(15, 23, 42, 0.06);
+/* Global system templates — card rows with always-visible actions */
+.waSurveySystemTemplateList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.table.waSurveySystemTemplatesTable .waSurveySystemTemplatesActionsCell .runningSurveyRowActions {
-  justify-content: flex-end;
+.waSurveySystemTemplateCard {
+  align-items: flex-start;
+  background: var(--bg2, rgba(15, 23, 42, 0.02));
+  border: 1px solid var(--b1);
+  border-radius: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.waSurveySystemTemplateMain {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.waSurveySystemTemplateTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.waSurveySystemTemplateMeta {
+  align-items: center;
+  color: var(--t2);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.waSurveySystemTemplateActions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.waSurveySystemTemplateActions .btn.danger {
+  border-color: rgba(220, 38, 38, 0.35);
+  color: var(--red, #dc2626);
 }

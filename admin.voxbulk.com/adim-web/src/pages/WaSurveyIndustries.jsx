@@ -218,7 +218,7 @@ export default function WaSurveyIndustries() {
                               type="button"
                               className="btn sm danger"
                               onClick={() => void deleteIndustry(row)}
-                              title={row.is_active ? 'Disables the industry, then deletes it' : 'Delete industry'}
+                              title="Delete industry and linked survey types/templates"
                             >
                               Delete
                             </button>

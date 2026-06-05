@@ -182,19 +182,26 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                         type="button"
                         onClick={() => props.setIndustryId(id)}
                         className={cn(
-                          "group flex flex-col items-start gap-2 rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
+                          "group flex w-full flex-col gap-3 rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
                           active ? "border-primary bg-primary/5 shadow-md ring-1 ring-primary/30" : "border-border bg-background/40",
                         )}
                       >
-                        <div
-                          className={cn(
-                            "grid size-10 place-items-center rounded-lg ring-1 transition-transform group-hover:scale-105",
-                            active ? "bg-primary text-primary-foreground ring-primary/40" : "bg-primary/10 text-primary ring-primary/20",
-                          )}
-                        >
-                          <IndustryIcon className="size-5" />
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={cn(
+                              "grid size-10 shrink-0 place-items-center rounded-lg ring-1 transition-transform group-hover:scale-105",
+                              active ? "bg-primary text-primary-foreground ring-primary/40" : "bg-primary/10 text-primary ring-primary/20",
+                            )}
+                          >
+                            <IndustryIcon className="size-5" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold leading-tight">{industryName || "Industry"}</p>
+                            {industrySlug ? (
+                              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{industrySlug.replace(/_/g, " ")}</p>
+                            ) : null}
+                          </div>
                         </div>
-                        <p className="text-sm font-semibold leading-tight">{String(ind.name)}</p>
                         {active ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary">
                             <Check className="size-3" /> Selected
