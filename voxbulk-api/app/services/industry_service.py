@@ -7,11 +7,12 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.industry import Industry
 from app.models.survey_type import SurveyType
+from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 
 DEFAULT_INDUSTRIES: list[dict[str, Any]] = [
     {"slug": "healthcare", "name": "Healthcare", "description": "Clinics, dental, hospitals, care providers.", "sort_order": 10},
@@ -26,6 +27,8 @@ DEFAULT_INDUSTRIES: list[dict[str, Any]] = [
 
 _SLUG_RE = re.compile(r"^[a-z0-9_]{2,64}$")
 
+SYSTEM_SURVEY_INDUSTRY_SLUG = "system-survey-templates"
+
 
 def _normalize_slug(raw: str) -> str:
     token = re.sub(r"[^a-z0-9_]+", "_", str(raw or "").strip().lower()).strip("_")
@@ -39,6 +42,7 @@ def industry_to_dict(row: Industry, *, survey_type_count: int | None = None) -> 
         "name": row.name,
         "description": row.description,
         "is_active": bool(row.is_active),
+        "is_hidden": bool(getattr(row, "is_hidden", False)),
         "sort_order": int(row.sort_order or 100),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -85,6 +89,7 @@ class IndustryService:
         stmt = select(Industry).order_by(Industry.sort_order.asc(), Industry.name.asc())
         if active_only and not include_inactive:
             stmt = stmt.where(Industry.is_active.is_(True))
+        stmt = stmt.where(or_(Industry.is_hidden.is_(False), Industry.is_hidden.is_(None)))
         rows = list(db.execute(stmt).scalars())
         return [industry_to_dict(r) for r in rows]
 
@@ -198,14 +203,57 @@ class IndustryService:
 
     @staticmethod
     def set_active(db: Session, row: Industry, *, is_active: bool) -> Industry:
-        if not is_active and IndustryService.survey_type_count(db, row.id) > 0:
-            raise ValueError(
-                "Cannot disable an industry that is still used by survey types. "
-                "Reassign those survey types first."
-            )
+        if bool(getattr(row, "is_hidden", False)) and not is_active:
+            raise ValueError("The system survey-templates industry cannot be disabled.")
         row.is_active = bool(is_active)
         row.updated_at = datetime.utcnow()
         db.add(row)
         db.commit()
         db.refresh(row)
         return row
+
+    @staticmethod
+    def delete_industry(db: Session, row: Industry) -> dict[str, Any]:
+        """Delete a disabled industry and its survey types/templates."""
+        from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+
+        if bool(row.is_active):
+            raise ValueError("Disable the industry before deleting it.")
+        if bool(getattr(row, "is_hidden", False)):
+            raise ValueError("The system survey-templates industry cannot be deleted.")
+        from app.services.survey_type_template_service import SurveyTypeTemplateService
+
+        survey_types = list(
+            db.execute(select(SurveyType).where(SurveyType.industry_id == row.id)).scalars()
+        )
+        template_ids: set[int] = set()
+        for st in survey_types:
+            for mapping in SurveyTypeTemplateService.list_for_survey_type(db, st.id):
+                template_ids.add(int(mapping.template_id))
+        deleted_templates = 0
+        errors: list[str] = []
+        for tid in sorted(template_ids):
+            tpl = db.get(TelnyxWhatsappTemplate, tid)
+            if tpl is None:
+                continue
+            try:
+                SurveyWhatsappTemplateService.delete_template(db, tpl)
+                deleted_templates += 1
+            except Exception as exc:
+                errors.append(f"{tpl.name}: {exc}")
+        if errors:
+            raise ValueError("; ".join(errors))
+        deleted_types = 0
+        for st in survey_types:
+            fresh = db.get(SurveyType, st.id)
+            if fresh is not None:
+                db.delete(fresh)
+                deleted_types += 1
+        db.delete(row)
+        db.commit()
+        return {
+            "ok": True,
+            "deleted_industry_id": row.id,
+            "deleted_survey_types": deleted_types,
+            "deleted_templates": deleted_templates,
+        }

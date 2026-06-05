@@ -74,6 +74,7 @@ def survey_type_to_dict(
         "min_length": int(row.min_length or 4),
         "max_length": int(row.max_length or 6),
         "supports_anonymous": bool(row.supports_anonymous),
+        "system_template_kind": row.system_template_kind,
         "sort_order": int(row.sort_order or 100),
         "standard_template_count": int(counts.get("standard") or 0),
         "anonymous_template_count": int(counts.get("anonymous") or 0),
@@ -180,6 +181,8 @@ class SurveyTypeService:
                 data["status_label"] = "Pending approval"
             else:
                 data["status_label"] = "Needs templates"
+            wa_count = int(counts.get("standard") or 0) + int(counts.get("anonymous") or 0)
+            data["has_wa_template"] = wa_count > 0
             payload.append(data)
         return payload
 

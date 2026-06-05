@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
-import { useCreateServiceOrder, usePatchServiceOrder, useSurveyPackages, useWaSurveyIndustries, useWaSurveyTypes, useWaSurveyStepBank, useGenerateWaSurvey } from "@/lib/queries";
+import { useCreateServiceOrder, usePatchServiceOrder, useSurveyPackages, useWaSurveyIndustries, useWaSurveyTypes, useWaSurveyStepBank, useWaSurveySystemTemplates, useGenerateWaSurvey } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/surveys/new")({
   head: () => ({ meta: [{ title: "Create survey — VoxBulk" }] }),
@@ -50,7 +50,9 @@ function CreateSurvey() {
   const [method, setMethod] = React.useState<"phone" | "whatsapp">("phone");
   const [waPreview, setWaPreview] = React.useState<Record<string, unknown> | null>(null);
   const [industryId, setIndustryId] = React.useState("");
-  const [surveyTypeId, setSurveyTypeId] = React.useState("");
+  const [selectedServiceTagIds, setSelectedServiceTagIds] = React.useState<string[]>([]);
+  const [welcomeTemplateId, setWelcomeTemplateId] = React.useState("");
+  const [thankYouTemplateId, setThankYouTemplateId] = React.useState("");
   const [privacyMode, setPrivacyMode] = React.useState<"off" | "on">("off");
   const surveyVariant = privacyMode === "on" ? "anonymous" : "standard";
   const [pageCount, setPageCount] = React.useState<4 | 5 | 6>(5);
@@ -60,7 +62,9 @@ function CreateSurvey() {
   const [waOpen, setWaOpen] = React.useState(false);
   const waIndustriesQ = useWaSurveyIndustries();
   const waTypesQ = useWaSurveyTypes(industryId || null);
-  const stepBankQ = useWaSurveyStepBank(method === "whatsapp" ? surveyTypeId : null, privacyMode);
+  const systemTemplatesQ = useWaSurveySystemTemplates();
+  const primarySurveyTypeId = selectedServiceTagIds[0] || "";
+  const stepBankQ = useWaSurveyStepBank(method === "whatsapp" ? primarySurveyTypeId : null, privacyMode);
   const generateWaM = useGenerateWaSurvey();
   const [quote, setQuote] = React.useState(false);
   const [approved, setApproved] = React.useState(false);
@@ -108,13 +112,51 @@ function CreateSurvey() {
   }, [waIndustriesQ.data, industryId]);
 
   React.useEffect(() => {
-    setSurveyTypeId("");
+    setSelectedServiceTagIds([]);
+    setWelcomeTemplateId("");
+    setThankYouTemplateId("");
   }, [industryId]);
 
-  React.useEffect(() => {
-    const types = (waTypesQ.data?.types || []) as Array<Record<string, unknown>>;
-    if (types[0] && !surveyTypeId) setSurveyTypeId(String(types[0].id));
-  }, [waTypesQ.data, surveyTypeId]);
+  const serviceTypes = React.useMemo(
+    () => (waTypesQ.data?.types || []) as Array<Record<string, unknown>>,
+    [waTypesQ.data],
+  );
+
+  const welcomeTemplates = React.useMemo(
+    () => ((systemTemplatesQ.data?.templates?.welcome || []) as Array<Record<string, unknown>>),
+    [systemTemplatesQ.data],
+  );
+  const thankYouTemplates = React.useMemo(
+    () => ((systemTemplatesQ.data?.templates?.thank_you || []) as Array<Record<string, unknown>>),
+    [systemTemplatesQ.data],
+  );
+
+  const toggleServiceTag = (typeId: string) => {
+    setSelectedServiceTagIds((prev) => {
+      if (prev.includes(typeId)) return prev.filter((id) => id !== typeId);
+      if (prev.length >= 4) {
+        toast.error("You can select at most 4 services");
+        return prev;
+      }
+      return [...prev, typeId];
+    });
+  };
+
+  const serviceTagErrors = React.useMemo(() => {
+    const errors: string[] = [];
+    if (selectedServiceTagIds.length < 1) errors.push("Select at least 1 service (max 4).");
+    if (selectedServiceTagIds.length > 4) errors.push("Select at most 4 services.");
+    for (const id of selectedServiceTagIds) {
+      const row = serviceTypes.find((t) => String(t.id) === id);
+      if (!row) continue;
+      if (!row.has_wa_template) {
+        errors.push(`“${String(row.name)}” has no WhatsApp template yet.`);
+      }
+    }
+    if (!welcomeTemplateId) errors.push("Select a welcome template.");
+    if (!thankYouTemplateId) errors.push("Select a thank-you template.");
+    return errors;
+  }, [selectedServiceTagIds, serviceTypes, welcomeTemplateId, thankYouTemplateId]);
 
   React.useEffect(() => {
     if (privacyMode === "on") setAnonymous(true);
@@ -138,7 +180,7 @@ function CreateSurvey() {
     const suggested = suggestedRoles[String(pageCount)] || [];
     const middle = suggested.filter((r) => r !== "start" && r !== "completion");
     setManualMiddleRoles(middle.slice(0, Math.max(0, pageCount - 2)));
-  }, [pageCount, surveyTypeId, surveyVariant, suggestedRoles]);
+  }, [pageCount, primarySurveyTypeId, surveyVariant, suggestedRoles]);
 
   const resolvedPageRoles = React.useMemo(() => {
     const auto = suggestedRoles[String(pageCount)];
@@ -178,6 +220,10 @@ function CreateSurvey() {
   };
 
   const onGenerateWaSurvey = async () => {
+    if (serviceTagErrors.length) {
+      toast.error(serviceTagErrors[0]);
+      return;
+    }
     if (!pageOrderValid) {
       toast.error(`Choose ${pageCount - 2} unique middle steps between start and completion`);
       return;
@@ -185,7 +231,11 @@ function CreateSurvey() {
     setGenerating(true);
     try {
       const generated = await generateWaM.mutateAsync({
-        survey_type_id: surveyTypeId,
+        industry_id: industryId,
+        survey_type_id: primarySurveyTypeId,
+        selected_survey_type_ids: selectedServiceTagIds,
+        welcome_template_id: Number(welcomeTemplateId),
+        thank_you_template_id: Number(thankYouTemplateId),
         variant: surveyVariant,
         privacy_mode: privacyMode,
         length: PAGE_COUNT_TO_LENGTH[pageCount],
@@ -207,7 +257,12 @@ function CreateSurvey() {
             anonymous_responses: Boolean(generated.anonymous_responses),
             allow_follow_up: generated.allow_follow_up !== false,
             script: String(generated.approved_script || script),
-            survey_type_id: surveyTypeId,
+            industry_id: industryId,
+            survey_type_id: primarySurveyTypeId,
+            selected_survey_type_ids: selectedServiceTagIds,
+            welcome_template_id: generated.welcome_template_id ?? Number(welcomeTemplateId),
+            thank_you_template_id: generated.thank_you_template_id ?? Number(thankYouTemplateId),
+            tell_us_more_template_id: generated.tell_us_more_template_id,
             survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
             page_count: pageCount,
             page_roles: generated.page_roles,
@@ -320,12 +375,58 @@ function CreateSurvey() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Survey type">
-                <Select value={surveyTypeId} onValueChange={setSurveyTypeId} disabled={!industryId}>
-                  <SelectTrigger><SelectValue placeholder={industryId ? "Select survey type" : "Select industry first"} /></SelectTrigger>
+              <div className="md:col-span-2 space-y-2">
+                <Label className="text-xs">Services (select 1–4)</Label>
+                {waTypesQ.isLoading ? (
+                  <Skeleton className="h-10 w-full" />
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {serviceTypes.map((t) => {
+                      const id = String(t.id);
+                      const selected = selectedServiceTagIds.includes(id);
+                      const missingTemplate = !t.has_wa_template;
+                      return (
+                        <Button
+                          key={id}
+                          type="button"
+                          size="sm"
+                          variant={selected ? "default" : "outline"}
+                          className={missingTemplate ? "border-destructive/50" : undefined}
+                          onClick={() => toggleServiceTag(id)}
+                          disabled={!industryId}
+                        >
+                          {String(t.name)}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                )}
+                {serviceTagErrors.length ? (
+                  <p className="text-xs text-destructive">{serviceTagErrors[0]}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{selectedServiceTagIds.length} of 4 selected</p>
+                )}
+              </div>
+              <Field label="Welcome template">
+                <Select value={welcomeTemplateId} onValueChange={setWelcomeTemplateId}>
+                  <SelectTrigger><SelectValue placeholder="Select welcome template" /></SelectTrigger>
                   <SelectContent>
-                    {((waTypesQ.data?.types || []) as Array<Record<string, unknown>>).map((t) => (
-                      <SelectItem key={String(t.id)} value={String(t.id)}>{String(t.name)}</SelectItem>
+                    {welcomeTemplates.map((t) => (
+                      <SelectItem key={String(t.id)} value={String(t.id)}>
+                        {String(t.display_name || t.name || t.id)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Thank-you template">
+                <Select value={thankYouTemplateId} onValueChange={setThankYouTemplateId}>
+                  <SelectTrigger><SelectValue placeholder="Select thank-you template" /></SelectTrigger>
+                  <SelectContent>
+                    {thankYouTemplates.map((t) => (
+                      <SelectItem key={String(t.id)} value={String(t.id)}>
+                        {String(t.display_name || t.name || t.id)}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -434,7 +535,7 @@ function CreateSurvey() {
                 )}
               </div>
               <div className="md:col-span-2">
-                <Button className="gap-1.5" onClick={() => void onGenerateWaSurvey()} disabled={generating || !surveyTypeId || !pageOrderValid}>
+                <Button className="gap-1.5" onClick={() => void onGenerateWaSurvey()} disabled={generating || !primarySurveyTypeId || !pageOrderValid || serviceTagErrors.length > 0}>
                   <Wand2 className="size-4" /> {generating ? "Generating…" : "Generate"}
                 </Button>
               </div>

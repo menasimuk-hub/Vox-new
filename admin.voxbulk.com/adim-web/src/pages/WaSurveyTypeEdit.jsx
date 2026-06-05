@@ -596,7 +596,7 @@ export default function WaSurveyTypeEdit() {
               onChange={(e) => setTemplateSearch(e.target.value)}
             />
             <button type="button" className="btn sm" onClick={() => setPackModalOpen(true)}>
-              Generate 10 with OpenAI
+              Generate with OpenAI
             </button>
             <button type="button" className="btn sm" onClick={createStandard} disabled={working === 'create'}>
               Add standard draft

@@ -58,6 +58,9 @@ _FOOTER_URL_RE = re.compile(r"https?://", re.I)
 _FOOTER_VAR_RE = re.compile(r"\{\{\d+\}\}")
 
 PACK_SIZE = 12
+DEFAULT_PACK_COUNT = 5
+MIN_PACK_COUNT = 1
+MAX_PACK_COUNT = 50
 
 # Prose that mentions "reference" / "ref" — forbidden unless admin instruction explicitly allows it.
 _REFERENCE_COPY_RE = re.compile(
@@ -197,6 +200,53 @@ def coerce_meta_template_fields(
 
 
 OUTCOME_COMPLETION_KEYS = ("happy", "neutral", "unhappy")
+
+
+def clamp_pack_count(raw: int | str | None) -> int:
+    if raw is None or raw == "":
+        value = DEFAULT_PACK_COUNT
+    else:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = DEFAULT_PACK_COUNT
+    return max(MIN_PACK_COUNT, min(MAX_PACK_COUNT, value))
+
+
+def pack_slot_plan(count: int) -> list[dict[str, Any]]:
+    """Build required step_role slots for a pack of the given size."""
+    from app.services.survey_step_bank_service import MIDDLE_STEP_ROLES
+
+    count = clamp_pack_count(count)
+    slots: list[dict[str, Any]] = [{"step_role": "start"}]
+    if count <= 1:
+        return slots
+    completions = min(len(OUTCOME_COMPLETION_KEYS), count - 1)
+    middle_count = max(0, count - 1 - completions)
+    for i in range(middle_count):
+        slots.append({"step_role": MIDDLE_STEP_ROLES[i % len(MIDDLE_STEP_ROLES)]})
+    for outcome_key in OUTCOME_COMPLETION_KEYS[:completions]:
+        slots.append({"step_role": "completion", "outcome_key": outcome_key})
+    return slots
+
+
+def build_pack_json_schema(count: int) -> dict[str, Any]:
+    size = clamp_pack_count(count)
+    return {
+        "type": "object",
+        "properties": {
+            "templates": {
+                "type": "array",
+                "items": _PACK_TEMPLATE_ITEM_SCHEMA,
+                "minItems": size,
+                "maxItems": size,
+            }
+        },
+        "required": ["templates"],
+        "additionalProperties": False,
+    }
+
+
 _LOCAL_ID_PREFIX = "local-"
 _NAME_RE = re.compile(r"^[a-z0-9_]{3,64}$")
 _URL_RE = re.compile(r"^https://[^\s]+$", re.I)
@@ -653,34 +703,54 @@ def validate_generated_template(
     return normalized, []
 
 
-def _validate_pack_composition(items: list[dict[str, Any]]) -> list[str]:
-    """Ensure 12-pack has one start, eight middle roles, three completion outcomes."""
+def _validate_pack_composition(items: list[dict[str, Any]], *, template_count: int = PACK_SIZE) -> list[str]:
+    """Validate pack matches the requested template count and slot plan."""
     from app.services.survey_step_bank_service import MIDDLE_STEP_ROLES
 
+    count = clamp_pack_count(template_count)
     errors: list[str] = []
-    if len(items) != PACK_SIZE:
-        errors.append(f"Expected {PACK_SIZE} templates, got {len(items)}")
-    roles_seen: set[str] = set()
-    outcomes_seen: set[str] = set()
-    for item in items:
+    if len(items) != count:
+        errors.append(f"Expected {count} templates, got {len(items)}")
+    plan = pack_slot_plan(count)
+    if count == PACK_SIZE:
+        roles_seen: set[str] = set()
+        outcomes_seen: set[str] = set()
+        for item in items:
+            role = normalize_step_role(str(item.get("step_role") or ""))
+            if role == "completion":
+                ok = str(item.get("outcome_key") or "")
+                if ok in outcomes_seen:
+                    errors.append(f"Duplicate completion outcome_key: {ok}")
+                outcomes_seen.add(ok)
+            elif role in roles_seen:
+                errors.append(f"Duplicate step_role: {role}")
+            else:
+                roles_seen.add(role)
+        if "start" not in roles_seen:
+            errors.append("Pack must include start template")
+        for ok in OUTCOME_COMPLETION_KEYS:
+            if ok not in outcomes_seen:
+                errors.append(f"Pack must include completion template for outcome={ok}")
+        for role in MIDDLE_STEP_ROLES:
+            if role not in roles_seen:
+                errors.append(f"Pack missing middle step_role: {role}")
+        return errors
+
+    for idx, slot in enumerate(plan):
+        if idx >= len(items):
+            errors.append(f"Missing template for slot {idx + 1}")
+            continue
+        item = items[idx]
         role = normalize_step_role(str(item.get("step_role") or ""))
-        if role == "completion":
+        expected_role = slot["step_role"]
+        if role != expected_role:
+            errors.append(f"Template {idx + 1} should be step_role={expected_role}, got {role}")
+        if expected_role == "completion":
             ok = str(item.get("outcome_key") or "")
-            if ok in outcomes_seen:
-                errors.append(f"Duplicate completion outcome_key: {ok}")
-            outcomes_seen.add(ok)
-        elif role in roles_seen:
-            errors.append(f"Duplicate step_role: {role}")
-        else:
-            roles_seen.add(role)
-    if "start" not in roles_seen:
-        errors.append("Pack must include start template")
-    for ok in OUTCOME_COMPLETION_KEYS:
-        if ok not in outcomes_seen:
-            errors.append(f"Pack must include completion template for outcome={ok}")
-    for role in MIDDLE_STEP_ROLES:
-        if role not in roles_seen:
-            errors.append(f"Pack missing middle step_role: {role}")
+            if ok != slot.get("outcome_key"):
+                errors.append(
+                    f"Template {idx + 1} completion should have outcome_key={slot.get('outcome_key')}"
+                )
     return errors
 
 
@@ -747,15 +817,37 @@ def _meta_compliance_rules_block(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str
     )
 
 
-def _emoji_rules_block() -> str:
+def _emoji_rules_block(*, template_count: int = PACK_SIZE) -> str:
+    emoji_target = max(1, min(template_count, 8))
     return (
         "EMOJIS — make templates visually appealing on WhatsApp:\n"
-        f"• Use tasteful, friendly emojis in at least 8 of {PACK_SIZE} templates "
+        f"• Use tasteful, friendly emojis in at least {emoji_target} of {template_count} templates "
         "(e.g. 👋 ✨ 📋 ⭐ 🙏 💬 🌟 — never more than 3 per message).\n"
         "• Warm/friendly and follow-up templates should usually include 1–2 emojis.\n"
         "• Premium/professional variants may use 0–1 subtle emoji only.\n"
         "• Healthcare/clinical packs: prefer calm, reassuring tone; use emojis sparingly (0–1).\n\n"
     )
+
+
+def _pack_structure_block(*, template_count: int = PACK_SIZE) -> str:
+    count = clamp_pack_count(template_count)
+    if count == PACK_SIZE:
+        return (
+            "STEP BANK — return exactly 12 templates:\n"
+            "• one template per middle step_role (rating, yes_no, helpfulness, abc_choice, reason, feeling_word, follow_up, improvement)\n"
+            "• one start template\n"
+            "• THREE completion templates — each step_role=completion with a distinct outcome_key: happy, neutral, unhappy\n"
+        )
+    plan = pack_slot_plan(count)
+    lines = [f"STEP BANK — return exactly {count} templates in this order:"]
+    for idx, slot in enumerate(plan, start=1):
+        if slot["step_role"] == "completion":
+            lines.append(
+                f"  {idx}. step_role=completion, outcome_key={slot.get('outcome_key')}"
+            )
+        else:
+            lines.append(f"  {idx}. step_role={slot['step_role']}")
+    return "\n".join(lines) + "\n"
 
 
 def _pack_system_prompt(
@@ -764,7 +856,9 @@ def _pack_system_prompt(
     instruction: str = "",
     purpose: str = "",
     company_name: str | None = None,
+    template_count: int = PACK_SIZE,
 ) -> str:
+    count = clamp_pack_count(template_count)
     privacy_mode = normalize_privacy_mode(privacy_mode)
     anonymous_block = ""
     style_mix = (
@@ -813,7 +907,7 @@ def _pack_system_prompt(
 
     return (
         "You are an expert WhatsApp Business template copywriter for VoxBulk customer satisfaction surveys. "
-        "Write exactly 12 reusable Meta/Telnyx-compatible templates that feel native on WhatsApp — warm, mobile-first, "
+        f"Write exactly {count} reusable Meta/Telnyx-compatible templates that feel native on WhatsApp — warm, mobile-first, "
         "professional, and visually polished while staying Meta approval-friendly (no spam, no ALL CAPS shouting, "
         "no false urgency). Use British English. Do not use OpenAI Realtime.\n\n"
         f"{_meta_compliance_rules_block(privacy_mode=privacy_mode)}"
@@ -822,7 +916,7 @@ def _pack_system_prompt(
         f"{_company_name_prompt_block(company_name=company_name)}"
         f"{style_mix}"
         f"{_reference_copy_rules_block(instruction=instruction, purpose=purpose)}"
-        f"{_emoji_rules_block()}"
+        f"{_emoji_rules_block(template_count=count)}"
         "CTA COPY — weave in natural action phrases such as: ‘Tap below’, ‘Rate your experience’, ‘Share feedback’, "
         "‘It only takes a minute’, ‘We’d love your thoughts’. Keep sentences short and scannable on mobile.\n\n"
         "BUTTON-AWARE COPY (follow Meta limits exactly):\n"
@@ -837,10 +931,7 @@ def _pack_system_prompt(
         f"Standard templates: footer exactly “{STANDARD_OPT_OUT_FOOTER}”. "
         f"Anonymous templates: body must include that the survey is anonymous; footer exactly “{ANONYMOUS_FOOTER}”. "
         "template_name: unique lowercase snake_case, no voxbulk_survey prefix.\n\n"
-        "STEP BANK — return exactly 12 templates:\n"
-        "• one template per middle step_role (rating, yes_no, helpfulness, abc_choice, reason, feeling_word, follow_up, improvement)\n"
-        "• one start template\n"
-        "• THREE completion templates — each step_role=completion with a distinct outcome_key: happy, neutral, unhappy\n"
+        f"{_pack_structure_block(template_count=count)}"
         "start — intro with quick_reply (1 button) or url CTA (1 button) to begin the survey; "
         "include {{2}} when a company name is provided\n"
         "rating — button_type none (user replies with a score in chat)\n"
@@ -869,7 +960,9 @@ def _pack_user_prompt(
     instruction: str,
     privacy_mode: str = PRIVACY_MODE_OFF,
     company_name: str | None = None,
+    template_count: int = PACK_SIZE,
 ) -> str:
+    count = clamp_pack_count(template_count)
     privacy_mode = normalize_privacy_mode(privacy_mode)
     is_csat = survey_type.slug in {"customer_satisfaction", "csat", "nps"} or "satisfaction" in survey_type.slug
     parts = [
@@ -905,11 +998,17 @@ def _pack_user_prompt(
         parts.append(f"Template purpose focus: {purpose.strip()}")
     if instruction.strip():
         parts.append(f"Admin instruction: {instruction.strip()}")
-    parts.append(
-        f"Generate exactly {PACK_SIZE} visually attractive, conversational, persuasive WhatsApp templates as JSON. "
-        "Include one template per middle step_role, one start, and three completion templates "
-        "(outcome_key happy, neutral, unhappy). No duplicate non-completion step_roles."
-    )
+    if count == PACK_SIZE:
+        parts.append(
+            f"Generate exactly {count} visually attractive, conversational, persuasive WhatsApp templates as JSON. "
+            "Include one template per middle step_role, one start, and three completion templates "
+            "(outcome_key happy, neutral, unhappy). No duplicate non-completion step_roles."
+        )
+    else:
+        parts.append(
+            f"Generate exactly {count} visually attractive, conversational, persuasive WhatsApp templates as JSON "
+            f"following this slot plan: {pack_slot_plan(count)}."
+        )
     return "\n".join(parts)
 
 
@@ -1044,11 +1143,12 @@ class SurveyWaTemplatePackService:
         instruction: str = "",
         privacy_mode: str = PRIVACY_MODE_OFF,
         theme_variant: str = "",
-        template_count: int = PACK_SIZE,
+        template_count: int = DEFAULT_PACK_COUNT,
         industry_id: str | None = None,
         org_id: str | None = None,
     ) -> dict[str, Any]:
         privacy_mode = normalize_privacy_mode(privacy_mode)
+        pack_count = clamp_pack_count(template_count)
         company_name = resolve_wa_survey_company_name(db, org_id=org_id)
         try:
             industry = load_industry_for_prompt(db, survey_type)
@@ -1064,6 +1164,7 @@ class SurveyWaTemplatePackService:
                     instruction=instruction,
                     purpose=purpose,
                     company_name=company_name,
+                    template_count=pack_count,
                 ),
                 user_prompt=_pack_user_prompt(
                     survey_type=survey_type,
@@ -1072,8 +1173,9 @@ class SurveyWaTemplatePackService:
                     instruction=instruction,
                     privacy_mode=privacy_mode,
                     company_name=company_name,
+                    template_count=pack_count,
                 ),
-                json_schema=WA_TEMPLATE_PACK_JSON_SCHEMA,
+                json_schema=build_pack_json_schema(pack_count),
                 schema_name="wa_survey_template_pack",
                 max_output_tokens=16000,
                 temperature=0.68,
@@ -1111,7 +1213,8 @@ class SurveyWaTemplatePackService:
                 invalid.append(row)
 
         composition_errors = _validate_pack_composition(
-            [r["template"] for r in validated if r.get("template")]
+            [r["template"] for r in validated if r.get("template")],
+            template_count=pack_count,
         )
 
         return {
@@ -1125,7 +1228,7 @@ class SurveyWaTemplatePackService:
             "service_type": survey_type.slug,
             "privacy_mode": privacy_mode,
             "theme_variant": str(theme_variant or "").strip() or None,
-            "template_count": int(template_count or PACK_SIZE),
+            "template_count": pack_count,
             "generated_count": len(items),
             "valid_count": len(validated),
             "invalid_count": len(invalid),

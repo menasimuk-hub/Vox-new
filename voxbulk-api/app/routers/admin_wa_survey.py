@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,8 @@ from app.services.survey_flow_definition_service import SurveyFlowDefinitionServ
 from app.services.survey_outcome_template_service import SurveyOutcomeTemplateService
 from app.services.survey_generation_service import SurveyGenerationService
 from app.models.industry import Industry
+from app.models.survey_type_template import SurveyTypeTemplate
+from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.industry_service import IndustryService, industry_to_dict
 from app.services.survey_type_service import SurveyTypeService, survey_type_to_dict
 from app.services.survey_type_template_service import SurveyTypeTemplateError, SurveyTypeTemplateService
@@ -20,7 +23,11 @@ from app.services.survey_simulator_service import SurveySimulatorService
 from app.services.survey_wa_observability_service import SurveyWaObservabilityService
 from app.services.survey_wa_readiness_service import SurveyWaReadinessService
 from app.services.survey_wa_test_pack_seed_service import SurveyWaTestPackSeedService
-from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackError, SurveyWaTemplatePackService
+from app.services.survey_wa_template_pack_service import (
+    SurveyWaTemplatePackError,
+    SurveyWaTemplatePackService,
+    clamp_pack_count,
+)
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
@@ -102,6 +109,21 @@ def update_industry(
             survey_type_count=IndustryService.survey_type_count(db, updated.id),
         ),
     }
+
+
+@router.delete("/industries/{industry_id}")
+def delete_industry(
+    industry_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = IndustryService.get_industry(db, industry_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found")
+    try:
+        return IndustryService.delete_industry(db, row)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post("/industries/{industry_id}/status")
@@ -236,6 +258,7 @@ def generate_template_pack(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
     body = payload or {}
+    template_count = clamp_pack_count(body.get("template_count") or body.get("count"))
     try:
         return SurveyWaTemplatePackService.generate_pack(
             db,
@@ -244,7 +267,7 @@ def generate_template_pack(
             instruction=str(body.get("instruction") or body.get("admin_instruction") or "").strip(),
             privacy_mode=str(body.get("privacy_mode") or "off"),
             theme_variant=str(body.get("theme_variant") or body.get("category") or "").strip(),
-            template_count=int(body.get("template_count") or 10),
+            template_count=template_count,
             industry_id=str(body.get("industry_id") or "").strip() or None,
             org_id=str(body.get("org_id") or body.get("organisation_id") or "").strip() or None,
         )
@@ -410,12 +433,19 @@ def _unlink_survey_type_template_impl(
     row = SurveyTypeService.get_type(db, type_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
-    try:
-        result = SurveyTypeTemplateService.unlink_template_from_survey_type(
-            db,
-            survey_type_id=type_id,
-            template_id=template_id,
+    tpl = db.get(TelnyxWhatsappTemplate, int(template_id))
+    if tpl is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    mapping = db.execute(
+        select(SurveyTypeTemplate).where(
+            SurveyTypeTemplate.survey_type_id == type_id,
+            SurveyTypeTemplate.template_id == int(template_id),
         )
+    ).scalar_one_or_none()
+    if mapping is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Template is not linked to this survey type")
+    try:
+        result = SurveyWhatsappTemplateService.delete_template(db, tpl)
         from app.services.uk_compliance_audit_service import UkComplianceAuditService
 
         UkComplianceAuditService.record(
@@ -423,11 +453,13 @@ def _unlink_survey_type_template_impl(
             event_type="template.deleted",
             resource_type="wa_survey_template",
             resource_id=str(template_id),
-            detail={"survey_type_id": type_id},
+            detail={"survey_type_id": type_id, "telnyx_deleted": True},
         )
         return result
-    except SurveyTypeTemplateError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except SurveyWhatsappTemplateError as e:
+        payload = e.payload or {"message": str(e)}
+        code = status.HTTP_502_BAD_GATEWAY if payload.get("provider_error") else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=payload) from e
 
 
 @router.delete("/types/{type_id}/templates/{template_id}")

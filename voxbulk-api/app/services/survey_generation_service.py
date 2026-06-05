@@ -46,6 +46,7 @@ class SurveyGenerationService:
         flow_definition_id: str | None = None,
         flow_branches: list[dict[str, Any]] | None = None,
         allow_unapproved_templates: bool = False,
+        builder_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         survey_type = SurveyTypeService.get_type(db, survey_type_id)
         if survey_type is None or not survey_type.is_active:
@@ -73,11 +74,21 @@ class SurveyGenerationService:
         except ValueError as e:
             raise ValueError(str(e)) from e
 
-        start_id = composed.get("start_template_id")
+        welcome_template_id = None
+        thank_you_template_id = None
+        tell_us_more_template_id = None
+        selected_survey_type_ids: list[str] = []
+        if builder_config:
+            welcome_template_id = builder_config.get("welcome_template_id")
+            thank_you_template_id = builder_config.get("thank_you_template_id")
+            tell_us_more_template_id = builder_config.get("tell_us_more_template_id")
+            selected_survey_type_ids = list(builder_config.get("selected_survey_type_ids") or [])
+
+        start_id = welcome_template_id or composed.get("start_template_id")
         if not start_id:
             raise ValueError(
                 f"No start template in the step bank for {survey_type.name}. "
-                "Generate and save a 10-template pack in Admin → WA Survey."
+                "Generate and save a template pack in Admin → WA Survey, or select a welcome template."
             )
         start_row = db.get(TelnyxWhatsappTemplate, int(start_id))
         if start_row is None:
@@ -95,10 +106,21 @@ class SurveyGenerationService:
             business_name=client_name or organisation_name,
         )
         middle_questions = composed["whatsapp_flow"]["questions"]
+        if tell_us_more_template_id:
+            tell_row = db.get(TelnyxWhatsappTemplate, int(tell_us_more_template_id))
+            for q in middle_questions:
+                if isinstance(q, dict) and str(q.get("step_role") or "") == "reason":
+                    q["template_id"] = int(tell_us_more_template_id)
+                    if tell_row is not None and tell_row.body_preview:
+                        q["text"] = str(tell_row.body_preview)
         question_texts = [
             str(q.get("text") or q) if isinstance(q, dict) else str(q) for q in middle_questions
         ]
         closing = str(composed.get("completion_body") or "Thank you — your feedback helps us improve.")
+        if thank_you_template_id:
+            thank_row = db.get(TelnyxWhatsappTemplate, int(thank_you_template_id))
+            if thank_row is not None and thank_row.body_preview:
+                closing = str(thank_row.body_preview)
         if variant_key == VARIANT_ANONYMOUS:
             closing = "Thank you — your anonymous feedback has been recorded."
 
@@ -123,6 +145,10 @@ class SurveyGenerationService:
                     "page_count": count,
                     "page_roles": composed["page_roles"],
                     "wa_template_id": start_row.id,
+                    "welcome_template_id": welcome_template_id,
+                    "thank_you_template_id": thank_you_template_id,
+                    "tell_us_more_template_id": tell_us_more_template_id,
+                    "selected_survey_type_ids": selected_survey_type_ids,
                 },
             )
         except Exception:
@@ -191,6 +217,10 @@ class SurveyGenerationService:
             "allow_follow_up": variant_key != VARIANT_ANONYMOUS,
             "auto_select_steps": auto_select_steps,
             "wa_template_id": start_row.id,
+            "welcome_template_id": welcome_template_id,
+            "thank_you_template_id": thank_you_template_id,
+            "tell_us_more_template_id": tell_us_more_template_id,
+            "selected_survey_type_ids": selected_survey_type_ids,
             "wa_template_name": start_row.name,
             "wa_template_send_id": start_row.template_id,
             "template_preview": preview,

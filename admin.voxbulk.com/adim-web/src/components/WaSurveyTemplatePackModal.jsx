@@ -259,7 +259,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   const [industries, setIndustries] = useState([])
   const [selectedIndustryId, setSelectedIndustryId] = useState(industryId || '')
   const [privacyMode, setPrivacyMode] = useState('off')
-  const [templateCount] = useState(10)
+  const [templateCount, setTemplateCount] = useState(5)
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
@@ -741,7 +741,18 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
               </div>
               <div className="waTplGen-field">
                 <label>Template count</label>
-                <input type="text" value={String(templateCount)} readOnly />
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={templateCount}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    if (!Number.isFinite(n)) return
+                    setTemplateCount(Math.max(1, Math.min(50, n)))
+                  }}
+                  disabled={Boolean(pack)}
+                />
               </div>
               <div className="waTplGen-field">
                 <label>Privacy Mode</label>
@@ -781,7 +792,7 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                 onClick={generatePack}
               >
                 <div className="spinner" />
-                <span className="btn-text"><i className="ti ti-wand" /> {working === 'generate' ? 'Generating…' : 'Generate 10 Templates'}</span>
+                <span className="btn-text"><i className="ti ti-wand" /> {working === 'generate' ? 'Generating…' : 'Generate with OpenAI'}</span>
               </button>
               {pack ? (
                 <button type="button" className="waTplGen-secondary-btn" disabled={working === 'save-all'} onClick={saveAllValid}>

@@ -221,6 +221,31 @@ class TelnyxWhatsappTemplateSyncService:
         return item
 
     @staticmethod
+    def delete_remote_template(db: Session, record_id: str) -> None:
+        """Delete a WhatsApp template from Telnyx. Not-found (404) is treated as success."""
+        rid = str(record_id or "").strip()
+        if not rid or rid.startswith("local-"):
+            return
+
+        config = TelnyxWhatsappTemplateSyncService._config(db)
+        api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
+        if not api_key:
+            api_key, _ = require_telnyx_api_key(db)
+
+        url = f"{TELNYX_WHATSAPP_TEMPLATES_URL}/{rid}"
+        try:
+            with httpx.Client(timeout=30.0, verify=httpx_ssl_verify()) as client:
+                response = client.delete(url, headers=_telnyx_headers(api_key))
+                if response.status_code == 404:
+                    return
+                if response.status_code not in (200, 204):
+                    response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise TelnyxWhatsappTemplateSyncError(_telnyx_http_error_detail(e)) from e
+        except Exception as e:
+            raise TelnyxWhatsappTemplateSyncError(str(e)) from e
+
+    @staticmethod
     def sync(db: Session) -> dict[str, Any]:
         remote = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
         now = _now()

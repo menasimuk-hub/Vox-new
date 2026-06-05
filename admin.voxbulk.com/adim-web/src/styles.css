@@ -7285,6 +7285,15 @@ body.dark .matrix th {
   opacity: 0.55;
 }
 
+.waIndustryRowMuted {
+  opacity: 0.55;
+  background: color-mix(in srgb, var(--muted, #f4f4f5) 40%, transparent);
+}
+
+.waIndustryRowMuted td {
+  color: var(--muted-fg, #71717a);
+}
+
 .svcPriceEmptyCell {
   font-size: 12px;
   padding: 16px 6px !important;

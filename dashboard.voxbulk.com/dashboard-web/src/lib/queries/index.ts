@@ -757,6 +757,16 @@ export function useWaSurveyTypes(industryId?: string | null) {
   });
 }
 
+export function useWaSurveySystemTemplates() {
+  return useQuery({
+    queryKey: ["dashboard", "wa-survey-system-templates"],
+    queryFn: () =>
+      apiFetch<{ ok?: boolean; templates?: Record<string, Array<Record<string, unknown>>> }>(
+        "/dashboard/service-scripts/wa-survey/system-templates",
+      ),
+  });
+}
+
 export function useWaSurveyStepBank(surveyTypeId: string | null, privacyMode: "off" | "on") {
   const variant = privacyMode === "on" ? "anonymous" : "standard";
   return useQuery({

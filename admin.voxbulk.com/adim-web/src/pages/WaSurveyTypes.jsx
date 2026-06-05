@@ -64,7 +64,7 @@ export default function WaSurveyTypes() {
 
   const loadIndustries = useCallback(async () => {
     try {
-      const data = await apiFetch('/admin/wa-survey/industries')
+      const data = await apiFetch('/admin/wa-survey/industries?include_inactive=true')
       const list = Array.isArray(data?.industries) ? data.industries : []
       setIndustries(list)
       // Default to all industries — admin picks the filter explicitly.

@@ -143,8 +143,47 @@ def list_wa_survey_types(
 ):
     from app.services.survey_type_service import SurveyTypeService
 
-    types = [t for t in SurveyTypeService.list_types(db, industry_id=industry_id) if t.get("is_active")]
+    types = [
+        t
+        for t in SurveyTypeService.list_types(db, industry_id=industry_id)
+        if t.get("is_active") and not t.get("system_template_kind")
+    ]
     return {"ok": True, "types": types}
+
+
+@router.get("/wa-survey/system-templates")
+def list_wa_survey_system_templates(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.survey_system_template_service import SurveySystemTemplateService
+
+    return SurveySystemTemplateService.list_templates_for_builder(db)
+
+
+@router.post("/wa-survey/validate-builder")
+def validate_wa_survey_builder(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.survey_builder_validation_service import (
+        SurveyBuilderValidationError,
+        SurveyBuilderValidationService,
+    )
+
+    body = payload or {}
+    try:
+        return SurveyBuilderValidationService.validate_builder_selection(
+            db,
+            industry_id=str(body.get("industry_id") or ""),
+            selected_survey_type_ids=body.get("selected_survey_type_ids") or body.get("service_tag_ids") or [],
+            welcome_template_id=body.get("welcome_template_id"),
+            thank_you_template_id=body.get("thank_you_template_id"),
+            require_approved=bool(body.get("require_approved")),
+        )
+    except SurveyBuilderValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"message": str(e), "errors": e.errors}) from e
 
 
 @router.get("/wa-survey/types/{survey_type_id}/step-bank")
@@ -171,15 +210,41 @@ def get_wa_survey_step_bank(
 
 @router.post("/wa-survey/generate")
 def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.survey_builder_validation_service import (
+        SurveyBuilderValidationError,
+        SurveyBuilderValidationService,
+    )
     from app.services.survey_generation_service import SurveyGenerationService
 
     branding = _client_branding(db, principal.org_id, payload)
     page_count = payload.get("page_count")
     selected = payload.get("selected_step_roles")
+    body = payload or {}
+    selected_type_ids = body.get("selected_survey_type_ids") or body.get("service_tag_ids")
+    welcome_template_id = body.get("welcome_template_id")
+    thank_you_template_id = body.get("thank_you_template_id")
+    primary_survey_type_id = str(body.get("survey_type_id") or "")
+    builder_config: dict | None = None
+    if selected_type_ids or welcome_template_id or thank_you_template_id:
+        try:
+            builder_config = SurveyBuilderValidationService.validate_builder_selection(
+                db,
+                industry_id=str(body.get("industry_id") or ""),
+                selected_survey_type_ids=selected_type_ids or ([primary_survey_type_id] if primary_survey_type_id else []),
+                welcome_template_id=welcome_template_id,
+                thank_you_template_id=thank_you_template_id,
+                require_approved=True,
+            )
+            primary_survey_type_id = str(builder_config.get("primary_survey_type_id") or primary_survey_type_id)
+        except SurveyBuilderValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"message": str(e), "errors": e.errors},
+            ) from e
     try:
         return SurveyGenerationService.generate(
             db,
-            survey_type_id=str(payload.get("survey_type_id") or ""),
+            survey_type_id=primary_survey_type_id,
             variant=str(payload.get("variant") or "standard"),
             privacy_mode=str(payload.get("privacy_mode") or "").strip() or None,
             length=str(payload.get("length") or "standard"),
@@ -191,6 +256,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
             client_name=branding.get("client_name") or branding["organisation_name"],
             assistant_name=branding.get("assistant_name") or "",
             organiser_name=branding.get("organiser_name") or "",
+            builder_config=builder_config,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

@@ -98,6 +98,19 @@ export default function WaSurveyIndustries() {
     }
   }
 
+  const deleteIndustry = async (row) => {
+    if (!window.confirm(`Delete industry “${row.name}” and all its survey types/templates? This cannot be undone.`)) return
+    setError('')
+    setMsg('')
+    try {
+      await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+      setMsg('Industry deleted.')
+      await load()
+    } catch (err) {
+      setError(formatWaSurveyError(err, 'Could not delete industry').message)
+    }
+  }
+
   const toggleActive = async (row) => {
     setError('')
     setMsg('')
@@ -161,8 +174,8 @@ export default function WaSurveyIndustries() {
                 </thead>
                 <tbody>
                   {rows.map((row) => (
-                    <tr key={row.id}>
-                      <td><strong>{row.name}</strong></td>
+                    <tr key={row.id} className={row.is_active ? '' : 'waIndustryRowMuted'}>
+                      <td><strong>{row.name}</strong>{row.is_hidden ? <span className="pill muted" style={{ marginLeft: 8 }}>System</span> : null}</td>
                       <td><code>{row.slug}</code></td>
                       <td>
                         <span className={`pill ${row.is_active ? 'ok' : 'muted'}`}>
@@ -175,9 +188,17 @@ export default function WaSurveyIndustries() {
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <button type="button" className="btn sm" onClick={() => openEdit(row)}>Edit</button>
                         {' '}
-                        <button type="button" className="btn sm" onClick={() => toggleActive(row)}>
+                        <button type="button" className="btn sm" onClick={() => toggleActive(row)} disabled={row.is_hidden}>
                           {row.is_active ? 'Disable' : 'Enable'}
                         </button>
+                        {!row.is_active && !row.is_hidden ? (
+                          <>
+                            {' '}
+                            <button type="button" className="btn sm danger" onClick={() => deleteIndustry(row)}>
+                              Delete
+                            </button>
+                          </>
+                        ) : null}
                       </td>
                     </tr>
                   ))}

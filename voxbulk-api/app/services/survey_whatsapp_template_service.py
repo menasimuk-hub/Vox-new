@@ -29,6 +29,7 @@ from app.services.survey_type_template_service import (
 from app.services.telnyx_api_key import normalize_telnyx_api_key, require_telnyx_api_key
 from app.services.telnyx_whatsapp_template_sync_service import (
     TELNYX_WHATSAPP_TEMPLATES_URL,
+    TelnyxWhatsappTemplateSyncError,
     TelnyxWhatsappTemplateSyncService,
     _body_preview,
     _send_template_id_from_api_item,
@@ -1387,6 +1388,29 @@ class SurveyWhatsappTemplateService:
             variant=variant,
             language=language,
         )
+
+    @staticmethod
+    def delete_template(
+        db: Session,
+        row: TelnyxWhatsappTemplate,
+    ) -> dict[str, Any]:
+        """Delete template from Telnyx (when synced) and remove DB row + mappings."""
+        record_id = str(row.telnyx_record_id or "").strip()
+        template_id = int(row.id)
+        if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
+            try:
+                TelnyxWhatsappTemplateSyncService.delete_remote_template(db, record_id)
+            except TelnyxWhatsappTemplateSyncError as exc:
+                raise SurveyWhatsappTemplateError(
+                    f"Telnyx delete failed: {exc}",
+                    payload={"message": str(exc), "provider_error": str(exc)},
+                ) from exc
+
+        for mapping in SurveyTypeTemplateService.list_for_template(db, template_id):
+            db.delete(mapping)
+        db.delete(row)
+        db.commit()
+        return {"ok": True, "message": "Template deleted from Telnyx and database.", "template_id": template_id}
 
     @staticmethod
     def build_preview(
