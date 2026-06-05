@@ -161,7 +161,7 @@ function WaPackGenCard({
       <div className="waTplGen-card-header">
         <div className="waTplGen-card-num">{item.index + 1}</div>
         <div className="waTplGen-card-name">{tpl.template_name || tpl.title || `template_${item.index + 1}`}</div>
-        <span className="waTplGen-card-category">{tpl.step_role || tpl.category || 'MARKETING'}</span>
+        <span className="waTplGen-card-category">{tpl.step_role || tpl.category || 'UTILITY'}</span>
         <span className={`waTplGen-saved-tag${saved ? ' show' : ''}`}><i className="ti ti-check" /> Saved</span>
         {savedRecord ? (
           <span className={`pill ${telnyxSyncPillClass(syncLabel)}`} style={{ marginLeft: 6, fontSize: 10 }}>
@@ -255,7 +255,7 @@ function WaPackGenCard({
 export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName, industryId, open, onClose, onSaved }) {
   const [instruction, setInstruction] = useState('')
   const [purpose, setPurpose] = useState('')
-  const [categoryHint, setCategoryHint] = useState('MARKETING')
+  const [categoryHint, setCategoryHint] = useState('UTILITY')
   const [industries, setIndustries] = useState([])
   const [selectedIndustryId, setSelectedIndustryId] = useState(industryId || '')
   const [privacyMode, setPrivacyMode] = useState('off')
@@ -290,7 +290,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   const reset = () => {
     setInstruction('')
     setPurpose('')
-    setCategoryHint('MARKETING')
+    setCategoryHint('UTILITY')
     setSelectedIndustryId(industryId || '')
     setPrivacyMode('off')
     setTemplateCountInput('5')
@@ -460,7 +460,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
       setEditDraft({
         template_name: tpl.template_name || '',
         title: tpl.title || '',
-        category: tpl.category || 'MARKETING',
+        category: tpl.category || 'UTILITY',
       })
     } else if (field === 'buttons') {
       const bt = tpl.button_type || 'none'
