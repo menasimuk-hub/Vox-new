@@ -204,13 +204,16 @@ function collectInterviewSetupErrors(opts: {
   callingEnd: string;
   agentId: string;
   agentsCount: number;
+  agentsLoaded: boolean;
 }): string[] {
   const errors: string[] = [];
   if (!opts.position.trim() && !opts.role.trim()) errors.push("Add position and role in Step 1");
-  if (opts.agentsCount <= 0) {
-    errors.push("No voice agents configured — ask your admin to enable interview agents");
-  } else if (!opts.agentId.trim()) {
-    errors.push("Select an AI voice agent in Step 1");
+  if (opts.agentsLoaded) {
+    if (opts.agentsCount <= 0) {
+      errors.push("No voice agents configured — ask your admin to enable interview agents");
+    } else if (!opts.agentId.trim()) {
+      errors.push("Select an AI voice agent in Step 1");
+    }
   }
   if (!opts.criteria.trim()) errors.push("Add screening criteria in Step 1");
   if (!opts.script.trim()) errors.push("Generate or write interview questions in Step 1");
@@ -397,19 +400,41 @@ function CreateInterview() {
 
   const agents = agentsQ.data || [];
   const defaultAgent = pickDefaultInterviewAgent(agents);
-  const resolvedAgentId = agentId || defaultAgent?.id || "";
-  const selectedAgent = agents.find((a) => a.id === resolvedAgentId) || defaultAgent;
+  const agentSelectValue = React.useMemo(() => {
+    if (!agents.length) return undefined;
+    if (agentId && agents.some((a) => a.id === agentId)) return agentId;
+    return defaultAgent?.id || undefined;
+  }, [agents, agentId, defaultAgent?.id]);
+  const resolvedAgentId = agentSelectValue || defaultAgent?.id || agentId || "";
+  const selectedAgent =
+    agents.find((a) => a.id === agentSelectValue) ||
+    agents.find((a) => a.id === resolvedAgentId) ||
+    defaultAgent;
   const createStartedRef = React.useRef(false);
+  const lastCreateIntentRef = React.useRef("");
+
+  React.useEffect(() => {
+    const intentKey = wantNew && !draftOrderId ? "new" : draftOrderId || "";
+    if (intentKey === lastCreateIntentRef.current) return;
+    lastCreateIntentRef.current = intentKey;
+    if (wantNew && !draftOrderId) {
+      createStartedRef.current = false;
+      createDraftM.reset();
+    }
+  }, [createDraftM, draftOrderId, wantNew]);
 
   React.useEffect(() => {
     if (draftOrderId || !wantNew) return;
-    if (createStartedRef.current || createDraftM.isPending || createDraftM.isSuccess) return;
+    if (createStartedRef.current || createDraftM.isPending) return;
     createStartedRef.current = true;
     void createDraftM
       .mutateAsync()
       .then((payload) => {
         const id = payload?.order?.id;
-        if (!id) return;
+        if (!id) {
+          createStartedRef.current = false;
+          return;
+        }
         qc.setQueryData([...queryKeys.interviewDraft, id], payload);
         void navigate({
           to: "/interviews/new",
@@ -420,7 +445,7 @@ function CreateInterview() {
       .catch(() => {
         createStartedRef.current = false;
       });
-  }, [createDraftM, createDraftM.isPending, createDraftM.isSuccess, draftOrderId, navigate, qc, wantNew]);
+  }, [createDraftM, createDraftM.isPending, draftOrderId, navigate, qc, wantNew]);
 
   const orderStatus = String(order?.status || "").toLowerCase();
   const campaignReadOnly = isInterviewCampaignReadOnly(orderStatus);
@@ -457,8 +482,11 @@ function CreateInterview() {
         : undefined,
     );
     setScriptApproved(Boolean(config.script_approved));
+    const agentsList = agentsQ.data || [];
     const savedAgentId = String(config.agent_id || "").trim();
-    setAgentId(savedAgentId || pickDefaultInterviewAgent(agents)?.id || "");
+    const validSavedAgentId =
+      savedAgentId && agentsList.some((a) => a.id === savedAgentId) ? savedAgentId : "";
+    setAgentId(validSavedAgentId || pickDefaultInterviewAgent(agentsList)?.id || "");
     setCollectionStartAt(toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || "")));
     setCollectionCloseAt(toLocalInput(String(config.cv_collection_close_at || config.cv_collection_end_at || config.cv_email_end_at || "")));
     setMaxCvCount(config.cv_max_count != null && config.cv_max_count !== "" ? Number(config.cv_max_count) : "");
@@ -486,7 +514,7 @@ function CreateInterview() {
     if (config.ats_skipped === true) {
       setAtsSkipped(true);
     }
-  }, [order, orderHydrationKey, config, agents]);
+  }, [order, orderHydrationKey, config, agentsQ.data]);
 
   React.useEffect(() => {
     setAppliedMinAtsScore(configAppliedMinAts);
@@ -546,9 +574,9 @@ function CreateInterview() {
   }, [orderId, preview, role, loadWaPreview]);
 
   React.useEffect(() => {
-    if (agentId || !defaultAgent?.id) return;
-    setAgentId(defaultAgent.id);
-  }, [agentId, defaultAgent?.id]);
+    if (!agentSelectValue || agentSelectValue === agentId) return;
+    setAgentId(agentSelectValue);
+  }, [agentSelectValue, agentId]);
 
   const candidates = React.useMemo<CandidateRow[]>(() => {
     const rows = draftQ.data?.recipients || [];
@@ -582,6 +610,7 @@ function CreateInterview() {
   }>({ open: false, mode: "single", ids: [] });
   const [deleteBusy, setDeleteBusy] = React.useState(false);
   const [closeCvBusy, setCloseCvBusy] = React.useState(false);
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
 
   React.useEffect(() => {
     setSelected((prev) => {
@@ -617,7 +646,6 @@ function CreateInterview() {
     return countScreeningEligibleCandidates(candidates, appliedMinAtsScore);
   }, [candidates, appliedMinAtsScore, atsSkipped, config.ats_skipped]);
 
-  const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const allSelected = selected.size > 0 && selected.size === candidates.length;
   const someSelected = selected.size > 0 && !allSelected;
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(candidates.map((c) => c.id)));
@@ -1283,6 +1311,7 @@ function CreateInterview() {
     callingEnd,
     agentId: resolvedAgentId,
     agentsCount: agents.length,
+    agentsLoaded: agentsQ.isSuccess,
   });
   const launchErrors = collectInterviewLaunchErrors({
     cvEmailActive,
@@ -1655,7 +1684,7 @@ function CreateInterview() {
             {agents.length === 0 ? (
               <p className="text-xs text-muted-foreground">No voice agents configured yet. Ask your admin to enable interview agents.</p>
             ) : (
-              <Select value={resolvedAgentId} onValueChange={setAgentId}>
+              <Select value={agentSelectValue} onValueChange={setAgentId}>
                 <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
                 <SelectContent>
                   {agents.map((a) => (
