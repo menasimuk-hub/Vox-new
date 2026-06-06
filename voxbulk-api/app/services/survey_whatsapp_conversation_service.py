@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+from app.models.survey_session import SurveySession
 from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.survey_dispatch_service import _first_name, _personalize, _uses_whatsapp
@@ -427,19 +428,45 @@ def find_active_recipient(
     org_id: str | None = None,
 ) -> tuple[ServiceOrder | None, ServiceOrderRecipient | None]:
     """Find a running WhatsApp survey recipient awaiting a reply (scoped to org_id)."""
-    scoped_org = str(org_id or "").strip()
-    if not scoped_org:
-        return None, None
+    order, recipient, _via = find_active_recipient_for_inbound(
+        db, from_phone=from_phone, org_id=org_id
+    )
+    return order, recipient
 
-    needles = _phone_candidates(from_phone)
-    if not needles:
-        return None, None
 
+def _match_recipient_conversation(
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    *,
+    session_step: int | None = None,
+) -> bool:
+    if str(recipient.status or "").lower() not in {"sent", "in_progress"}:
+        return False
+    conv = _wa_conversation(_recipient_result(recipient))
+    step = int(conv.get("step") or 0)
+    total = int(conv.get("total") or 0)
+    if session_step is not None and int(session_step) == 0:
+        return step == 0 or bool(conv.get("intro_sent_at"))
+    if step == 0 and str(recipient.status or "").lower() in {"sent", "in_progress"}:
+        return True
+    if conv.get("intro_sent_at") and step == 0:
+        return True
+    if step >= 1 and step <= max(total, 1):
+        return True
+    return False
+
+
+def _find_active_recipient_in_org(
+    db: Session,
+    *,
+    org_id: str,
+    needles: set[str],
+) -> tuple[ServiceOrder | None, ServiceOrderRecipient | None]:
     orders = list(
         db.execute(
             select(ServiceOrder).where(
                 ServiceOrder.service_code == "survey",
-                ServiceOrder.org_id == scoped_org,
+                ServiceOrder.org_id == org_id,
                 ServiceOrder.status.in_(("running", "draft")),
             )
         ).scalars()
@@ -452,21 +479,184 @@ def find_active_recipient(
         if str(order.status or "").lower() == "draft" and not order_config.get("wa_builder_test"):
             continue
         for recipient in ServiceOrderService.get_recipients(db, order.id):
-            if str(recipient.status or "").lower() not in {"sent", "in_progress"}:
-                continue
             rec_phones = _phone_candidates(recipient.phone or "")
             if not needles.intersection(rec_phones):
                 continue
-            conv = _wa_conversation(_recipient_result(recipient))
-            step = int(conv.get("step") or 0)
-            total = int(conv.get("total") or 0)
-            if step == 0 and str(recipient.status or "").lower() in {"sent", "in_progress"}:
-                return order, recipient
-            if conv.get("intro_sent_at") and step == 0:
-                return order, recipient
-            if step >= 1 and step <= max(total, 1):
+            if _match_recipient_conversation(order, recipient):
                 return order, recipient
     return None, None
+
+
+def _find_active_recipient_by_session_phone(
+    db: Session,
+    *,
+    needles: set[str],
+    org_id: str | None = None,
+) -> tuple[ServiceOrder | None, ServiceOrderRecipient | None]:
+    stmt = (
+        select(SurveySession, ServiceOrder, ServiceOrderRecipient)
+        .join(ServiceOrderRecipient, ServiceOrderRecipient.id == SurveySession.recipient_id)
+        .join(ServiceOrder, ServiceOrder.id == SurveySession.order_id)
+        .where(
+            SurveySession.status == "active",
+            ServiceOrder.service_code == "survey",
+            ServiceOrder.status.in_(("running", "draft")),
+        )
+        .order_by(SurveySession.updated_at.desc())
+    )
+    if org_id:
+        stmt = stmt.where(SurveySession.org_id == org_id)
+
+    for session, order, recipient in db.execute(stmt).all():
+        if not is_whatsapp_survey_order(order):
+            continue
+        order_config = _order_config(order)
+        if str(order.status or "").lower() == "draft" and not order_config.get("wa_builder_test"):
+            continue
+        rec_phones = _phone_candidates(recipient.phone or "")
+        if not needles.intersection(rec_phones):
+            continue
+        if _match_recipient_conversation(order, recipient, session_step=int(session.current_step or 0)):
+            return order, recipient
+    return None, None
+
+
+def _log_active_recipient_miss(
+    *,
+    from_phone: str,
+    org_id: str | None,
+    needles: set[str],
+) -> None:
+    logger.info(
+        "%s active_recipient_miss from_phone=%r org_id=%s needle_count=%s needles=%s",
+        LOG_PREFIX,
+        from_phone,
+        org_id,
+        len(needles),
+        sorted(needles)[:5],
+    )
+
+
+def log_welcome_sent_without_active_session(
+    db: Session,
+    *,
+    from_phone: str,
+    org_id: str | None,
+) -> bool:
+    """Return True when a recent welcome exists for this phone but no active session row."""
+    needles = _phone_candidates(from_phone)
+    if not needles:
+        return False
+    rows = db.execute(
+        select(ServiceOrder, ServiceOrderRecipient)
+        .join(ServiceOrderRecipient, ServiceOrderRecipient.order_id == ServiceOrder.id)
+        .where(
+            ServiceOrder.service_code == "survey",
+            ServiceOrder.status.in_(("running", "draft")),
+        )
+        .order_by(ServiceOrderRecipient.updated_at.desc())
+    ).all()
+    for order, recipient in rows:
+        if not is_whatsapp_survey_order(order):
+            continue
+        rec_phones = _phone_candidates(recipient.phone or "")
+        if not needles.intersection(rec_phones):
+            continue
+        conv = _wa_conversation(_recipient_result(recipient))
+        if not conv.get("intro_sent_at"):
+            continue
+        if int(conv.get("step") or 0) > 0:
+            continue
+        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        if session is None:
+            logger.error(
+                "%s welcome_sent_but_no_active_session order=%s recipient=%s org_id=%s "
+                "from_phone=%r recipient_status=%s conv_step=%s",
+                LOG_PREFIX,
+                order.id,
+                recipient.id,
+                org_id,
+                from_phone,
+                recipient.status,
+                int(conv.get("step") or 0),
+            )
+            return True
+    return False
+
+
+def find_active_recipient_for_inbound(
+    db: Session,
+    *,
+    from_phone: str,
+    org_id: str | None = None,
+) -> tuple[ServiceOrder | None, ServiceOrderRecipient | None, str | None]:
+    """Resolve active survey recipient for inbound; returns (order, recipient, match_via)."""
+    scoped_org = str(org_id or "").strip()
+    needles = _phone_candidates(from_phone)
+    if not needles:
+        _log_active_recipient_miss(from_phone=from_phone, org_id=scoped_org or None, needles=needles)
+        return None, None, None
+
+    try:
+        normalized_phone = normalize_e164(from_phone)
+    except ValueError:
+        normalized_phone = str(from_phone or "").strip()
+
+    logger.info(
+        "%s active_recipient_lookup from_phone=%r normalized=%r org_id=%s needles=%s",
+        LOG_PREFIX,
+        from_phone,
+        normalized_phone,
+        scoped_org or None,
+        sorted(needles)[:5],
+    )
+
+    if scoped_org:
+        order, recipient = _find_active_recipient_in_org(db, org_id=scoped_org, needles=needles)
+        if order and recipient:
+            session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+            logger.info(
+                "%s active_recipient_matched via=org_recipient order=%s recipient=%s session_id=%s",
+                LOG_PREFIX,
+                order.id,
+                recipient.id,
+                session.id if session else None,
+            )
+            return order, recipient, "org_recipient"
+
+    order, recipient = _find_active_recipient_by_session_phone(
+        db, needles=needles, org_id=scoped_org or None
+    )
+    if order and recipient:
+        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        logger.info(
+            "%s active_recipient_matched via=session_phone order=%s recipient=%s session_id=%s org_id=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+            session.id if session else None,
+            order.org_id,
+        )
+        return order, recipient, "session_phone"
+
+    if scoped_org:
+        order, recipient = _find_active_recipient_by_session_phone(db, needles=needles, org_id=None)
+        if order and recipient:
+            session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+            logger.warning(
+                "%s active_recipient_matched via=session_phone_cross_org webhook_org=%s order_org=%s "
+                "recipient=%s session_id=%s",
+                LOG_PREFIX,
+                scoped_org,
+                order.org_id,
+                recipient.id,
+                session.id if session else None,
+            )
+            return order, recipient, "session_phone_cross_org"
+
+    log_welcome_sent_without_active_session(db, from_phone=from_phone, org_id=scoped_org or None)
+    _log_active_recipient_miss(from_phone=from_phone, org_id=scoped_org or None, needles=needles)
+    return None, None, None
 
 
 def find_survey_recipient_for_opt_out(
@@ -617,8 +807,17 @@ def try_handle_survey_whatsapp_inbound(
             inbound_message_id=inbound_message_id,
         )
 
-    order, recipient = find_active_recipient(db, from_phone=from_phone, org_id=scoped_org)
+    order, recipient, _via = find_active_recipient_for_inbound(
+        db, from_phone=from_phone, org_id=scoped_org
+    )
     if not order or not recipient:
+        if log_welcome_sent_without_active_session(db, from_phone=from_phone, org_id=scoped_org):
+            return {
+                "handled": False,
+                "reason": "welcome_sent_but_no_active_session",
+                "org_id": scoped_org,
+                "from_phone": from_phone,
+            }
         return None
 
     return handle_inbound_reply(
@@ -830,6 +1029,38 @@ def send_survey_opening(
         from app.services.survey_flow_config_service import max_question_visits
 
         total = max_question_visits(config)
+    builder_questions = survey_questions_from_config(config)
+    if builder_questions:
+        total = len(builder_questions)
+
+    try:
+        session = SurveySessionService.ensure_awaiting_start_session(
+            db,
+            order=order,
+            recipient=recipient,
+            config=config,
+            question_count=total or len(builder_questions),
+        )
+    except Exception as exc:
+        logger.error(
+            "%s awaiting_start_session_failed order=%s recipient=%s err=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+            exc,
+        )
+        return False
+
+    payload_pre = SurveySessionService.attach_session_to_result(_recipient_result(recipient), session)
+    _save_recipient_result(db, recipient, payload_pre)
+    logger.info(
+        "%s awaiting_start_session_committed session_id=%s order=%s recipient=%s phone=%s step=0",
+        LOG_PREFIX,
+        session.id,
+        order.id,
+        recipient.id,
+        recipient.phone,
+    )
 
     variables = _survey_variables(config, recipient)
     template_row = _resolve_template_row(db, config.get("wa_template_id"))
@@ -862,10 +1093,18 @@ def send_survey_opening(
         "total": total,
         "answers": [],
         "intro_sent_at": datetime.utcnow().isoformat(),
+        "awaiting_start": True,
     }
+    payload = SurveySessionService.attach_session_to_result(payload, session)
     recipient.status = "sent"
     _save_recipient_result(db, recipient, payload)
-    logger.info("%s opening_sent order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
+    logger.info(
+        "%s opening_sent order=%s recipient=%s session_id=%s awaiting_start=true",
+        LOG_PREFIX,
+        order.id,
+        recipient.id,
+        session.id,
+    )
     return True
 
 

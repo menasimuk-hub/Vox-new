@@ -16,6 +16,7 @@ from app.models.service_order import ServiceOrder
 from app.models.user import User
 from app.services.platform_catalog_service import PlatformCatalogService
 from app.services.survey_builder_test_service import SurveyBuilderTestService
+from app.services.survey_session_service import SurveySessionService
 from app.services.survey_whatsapp_conversation_service import (
     find_active_recipient,
     handle_inbound_reply,
@@ -105,6 +106,13 @@ def _draft_order(db, *, org_id: str, user_id: str) -> ServiceOrder:
 @patch("app.services.survey_builder_test_service.send_survey_opening")
 def test_start_wa_test_session_sends_welcome_only(mock_opening, db):
     def _mark_intro_sent(db, *, order, recipient, config):
+        SurveySessionService.ensure_awaiting_start_session(
+            db,
+            order=order,
+            recipient=recipient,
+            config=config,
+            question_count=2,
+        )
         recipient.status = "sent"
         recipient.result_json = json.dumps(
             {
@@ -114,6 +122,7 @@ def test_start_wa_test_session_sends_welcome_only(mock_opening, db):
                     "total": 2,
                     "answers": [],
                     "intro_sent_at": datetime.utcnow().isoformat(),
+                    "awaiting_start": True,
                 },
             }
         )
@@ -137,6 +146,7 @@ def test_start_wa_test_session_sends_welcome_only(mock_opening, db):
 
     assert result["mode"] == "session"
     assert result["sent"] == 1
+    assert result["session_id"] is not None
     assert mock_opening.call_count == 1
     db.refresh(order)
     assert order.status == "running"
@@ -159,6 +169,13 @@ def test_builder_test_reply_advances_sequentially(mock_send, mock_resolve_tpl, d
 
     with patch("app.services.survey_builder_test_service.send_survey_opening") as mock_opening:
         def _mark_intro_sent(db, *, order, recipient, config):
+            SurveySessionService.ensure_awaiting_start_session(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                question_count=2,
+            )
             recipient.status = "sent"
             recipient.result_json = json.dumps(
                 {
@@ -168,6 +185,7 @@ def test_builder_test_reply_advances_sequentially(mock_send, mock_resolve_tpl, d
                         "total": 2,
                         "answers": [],
                         "intro_sent_at": datetime.utcnow().isoformat(),
+                        "awaiting_start": True,
                     },
                 }
             )

@@ -232,13 +232,25 @@ class SurveyBuilderTestService:
             db.commit()
 
         logger.info(
-            "%s send_survey_opening order_id=%s recipient_id=%s",
+            "%s send_survey_opening order_id=%s recipient_id=%s phone=%s",
             LOG_PREFIX,
             order.id,
             recipient.id,
+            recipient_e164,
         )
         sent = send_survey_opening(db, order=order, recipient=recipient, config=config)
         db.refresh(recipient)
+
+        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        if session is None or not session.id:
+            raise SurveyWhatsappTemplateError(
+                "Could not start WA survey test session: session was not created"
+            )
+        if str(session.status or "").lower() != "active":
+            raise SurveyWhatsappTemplateError(
+                f"Could not start WA survey test session: session status is {session.status!r}, expected active"
+            )
+
         if not sent:
             detail = ""
             try:
@@ -250,14 +262,17 @@ class SurveyBuilderTestService:
                 detail or "Could not send the welcome message. Check Telnyx settings and template approval."
             )
 
-        session = SurveySessionService.get_by_recipient(db, recipient.id)
+        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
         logger.info(
-            "%s welcome_sent order_id=%s recipient_id=%s session_id=%s status=%s",
+            "%s welcome_sent order_id=%s recipient_id=%s session_id=%s status=%s phone=%s "
+            "current_step=%s awaiting_start=true",
             LOG_PREFIX,
             order.id,
             recipient.id,
-            session.id if session else None,
-            recipient.status,
+            session.id,
+            session.status,
+            recipient_e164,
+            int(session.current_step or 0),
         )
 
         return {
@@ -267,8 +282,10 @@ class SurveyBuilderTestService:
             "sent": 1,
             "order_id": order.id,
             "recipient_id": recipient.id,
-            "session_id": session.id if session else None,
+            "session_id": session.id,
             "to_number": recipient_e164,
+            "awaiting_start": True,
+            "current_step": int(session.current_step or 0),
             "message": (
                 f"Survey test started — welcome message sent to {recipient_e164}. "
                 "Reply on WhatsApp to continue the survey step by step."

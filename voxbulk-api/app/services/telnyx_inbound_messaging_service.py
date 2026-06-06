@@ -380,6 +380,7 @@ class TelnyxInboundMessagingService:
         if direction == "inbound" and channel == "whatsapp":
             handled_interview = False
             handled_survey = False
+            survey_session_bug = False
             from app.services.survey_wa_inbound_parse_service import (
                 log_raw_telnyx_inbound,
                 parse_telnyx_wa_inbound_record,
@@ -418,6 +419,15 @@ class TelnyxInboundMessagingService:
                 )
                 if survey_result is not None:
                     handled_survey = bool(survey_result.get("handled"))
+                    if survey_result.get("reason") == "welcome_sent_but_no_active_session":
+                        survey_session_bug = True
+                        logger.error(
+                            "welcome_sent_but_no_active_session org=%s from=%r body=%r — "
+                            "blocking sales/generic fallback",
+                            org_id,
+                            from_norm or from_number,
+                            (inbound_text or "")[:80],
+                        )
                     if survey_result.get("duplicate"):
                         logger.info(
                             "survey_wa_inbound_duplicate_skipped log_id=%s message_id=%s recipient=%s",
@@ -481,7 +491,7 @@ class TelnyxInboundMessagingService:
                         (body or "")[:120],
                         from_norm or from_number,
                     )
-            if not handled_interview and not handled_survey:
+            if not handled_interview and not handled_survey and not survey_session_bug:
                 logger.warning(
                     "inbound_fallback_after_survey_miss org=%s from=%r body=%r — "
                     "no active survey session; routing to sales/generic handlers",

@@ -23,12 +23,14 @@ SESSION_ACTIVE = "active"
 SESSION_COMPLETED = "completed"
 
 DECISION_START = "start_session"
+DECISION_AWAITING_START = "awaiting_start"
 DECISION_SEND_QUESTION = "send_question"
 DECISION_RECORD_ANSWER = "record_answer"
 DECISION_ADVANCE_LINEAR = "advance_linear"
 DECISION_COMPLETE = "complete_session"
 
 RULE_LINEAR_START = "linear.start"
+RULE_AWAITING_START = "linear.awaiting_start"
 RULE_LINEAR_SEND = "linear.send_question"
 RULE_LINEAR_ADVANCE = "linear.advance"
 RULE_LINEAR_COMPLETE = "linear.complete"
@@ -94,6 +96,120 @@ class SurveySessionService:
         return None
 
     @staticmethod
+    def _session_meta(*, awaiting_start: bool, runtime_hash: str | None) -> str:
+        return json.dumps(
+            {
+                "awaiting_start": awaiting_start,
+                "builder_runtime_hash": runtime_hash,
+            },
+            ensure_ascii=False,
+        )
+
+    @staticmethod
+    def ensure_awaiting_start_session(
+        db: Session,
+        *,
+        order: ServiceOrder,
+        recipient: ServiceOrderRecipient,
+        config: dict[str, Any],
+        question_count: int | None = None,
+    ) -> SurveySession:
+        """Create or reactivate an active session at step 0 before welcome send (inbound must match this row)."""
+        from app.services.survey_builder_flow_service import survey_questions_from_config
+        from app.services.survey_builder_runtime_service import load_builder_runtime
+
+        if question_count is None:
+            questions = survey_questions_from_config(config)
+            question_count = len(questions)
+        if question_count < 1:
+            raise ValueError("Cannot start WA survey session: no questions in builder runtime")
+
+        runtime = load_builder_runtime(config) or {}
+        runtime_hash = str(runtime.get("hash") or config.get("builder_runtime_hash") or "").strip() or None
+        meta_json = SurveySessionService._session_meta(awaiting_start=True, runtime_hash=runtime_hash)
+
+        privacy_raw = config.get("privacy_mode")
+        if config.get("anonymous_responses") in (True, "true", "1", 1):
+            privacy_raw = "on"
+        privacy = normalize_privacy_mode(privacy_raw)
+
+        middle_roles = _middle_page_roles(config, question_count=question_count)
+        page_roles_snapshot = middle_roles
+        flow = config.get("whatsapp_flow")
+        if isinstance(flow, dict) and isinstance(flow.get("page_roles"), list):
+            page_roles_snapshot = flow["page_roles"]
+
+        now = datetime.utcnow()
+        existing = SurveySessionService.get_by_recipient(db, recipient.id)
+        if existing is not None:
+            existing.status = SESSION_ACTIVE
+            existing.current_step = 0
+            existing.total_steps = question_count
+            existing.completed_at = None
+            existing.order_id = order.id
+            existing.org_id = order.org_id
+            existing.channel = "whatsapp"
+            existing.flow_mode = FLOW_MODE_LINEAR
+            existing.page_roles_json = json.dumps(page_roles_snapshot, ensure_ascii=False)
+            existing.survey_type_id = str(config.get("survey_type_id") or "") or None
+            existing.privacy_mode = privacy
+            existing.flow_snapshot_json = meta_json
+            existing.started_at = now
+            existing.updated_at = now
+            session = existing
+            db.add(session)
+        else:
+            session = SurveySession(
+                order_id=order.id,
+                recipient_id=recipient.id,
+                org_id=order.org_id,
+                channel="whatsapp",
+                status=SESSION_ACTIVE,
+                flow_mode=FLOW_MODE_LINEAR,
+                current_step=0,
+                total_steps=question_count,
+                page_roles_json=json.dumps(page_roles_snapshot, ensure_ascii=False),
+                survey_type_id=str(config.get("survey_type_id") or "") or None,
+                privacy_mode=privacy,
+                flow_snapshot_json=meta_json,
+                started_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(session)
+
+        db.flush()
+        SurveySessionService._append_decision(
+            db,
+            session,
+            decision_kind=DECISION_AWAITING_START,
+            rule_key=RULE_AWAITING_START,
+            from_step=None,
+            to_step=0,
+            from_role=None,
+            to_role="start",
+            reason="Welcome pending; awaiting Start tap.",
+            context={
+                "awaiting_start": True,
+                "builder_runtime_hash": runtime_hash,
+                "question_count": question_count,
+            },
+        )
+        db.commit()
+        db.refresh(session)
+        logger.info(
+            "survey_session awaiting_start session_id=%s order_id=%s recipient_id=%s org_id=%s "
+            "current_step=0 status=%s runtime_hash=%s",
+            session.id,
+            order.id,
+            recipient.id,
+            order.org_id,
+            session.status,
+            runtime_hash,
+        )
+        return session
+
+    @staticmethod
     def _next_answer_sequence(db: Session, session_id: str) -> int:
         current = db.execute(
             select(func.coalesce(func.max(SurveySessionAnswer.sequence), 0)).where(
@@ -121,15 +237,86 @@ class SurveySessionService:
         question_count: int,
     ) -> SurveySession:
         existing = SurveySessionService.get_by_recipient(db, recipient.id)
+        now = datetime.utcnow()
         if existing and str(existing.status or "").lower() == SESSION_ACTIVE:
+            if int(existing.current_step or 0) == 0:
+                from app.services.survey_builder_runtime_service import load_builder_runtime
+
+                runtime = load_builder_runtime(config) or {}
+                runtime_hash = str(runtime.get("hash") or config.get("builder_runtime_hash") or "").strip() or None
+                first_role = resolve_step_role(config, step_index=1, question_count=question_count)
+                existing.current_step = 1
+                existing.flow_snapshot_json = SurveySessionService._session_meta(
+                    awaiting_start=False,
+                    runtime_hash=runtime_hash,
+                )
+                existing.updated_at = now
+                db.add(existing)
+                SurveySessionService._append_decision(
+                    db,
+                    existing,
+                    decision_kind=DECISION_START,
+                    rule_key=RULE_LINEAR_START,
+                    from_step=0,
+                    to_step=1,
+                    from_role="start",
+                    to_role=first_role,
+                    reason="Start tap received; linear survey opened.",
+                    context={"question_count": question_count, "flow_mode": FLOW_MODE_LINEAR},
+                )
+                SurveySessionService._append_decision(
+                    db,
+                    existing,
+                    decision_kind=DECISION_SEND_QUESTION,
+                    rule_key=RULE_LINEAR_SEND,
+                    from_step=0,
+                    to_step=1,
+                    from_role="start",
+                    to_role=first_role,
+                    reason="First survey question dispatched.",
+                )
+                db.commit()
+                db.refresh(existing)
+                return existing
             return existing
 
         if existing and str(existing.status or "").lower() != SESSION_ACTIVE:
-            logger.warning(
-                "survey_session already exists for recipient=%s status=%s; reusing row",
-                recipient.id,
-                existing.status,
+            first_role = resolve_step_role(config, step_index=1, question_count=question_count)
+            existing.status = SESSION_ACTIVE
+            existing.current_step = 1
+            existing.total_steps = question_count
+            existing.completed_at = None
+            existing.order_id = order.id
+            existing.org_id = order.org_id
+            existing.updated_at = now
+            existing.started_at = now
+            db.add(existing)
+            db.flush()
+            SurveySessionService._append_decision(
+                db,
+                existing,
+                decision_kind=DECISION_START,
+                rule_key=RULE_LINEAR_START,
+                from_step=None,
+                to_step=1,
+                from_role=None,
+                to_role=first_role,
+                reason="Linear WA survey session reactivated after intro.",
+                context={"question_count": question_count, "flow_mode": FLOW_MODE_LINEAR},
             )
+            SurveySessionService._append_decision(
+                db,
+                existing,
+                decision_kind=DECISION_SEND_QUESTION,
+                rule_key=RULE_LINEAR_SEND,
+                from_step=None,
+                to_step=1,
+                from_role=None,
+                to_role=first_role,
+                reason="First survey question dispatched.",
+            )
+            db.commit()
+            db.refresh(existing)
             return existing
 
         middle_roles = _middle_page_roles(config, question_count=question_count)
