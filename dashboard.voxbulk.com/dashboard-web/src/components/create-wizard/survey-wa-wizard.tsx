@@ -8,6 +8,7 @@ import {
   FileText,
   Lock,
   Rocket,
+  Send,
   Sparkles,
   Target,
   Upload,
@@ -107,6 +108,10 @@ export type SurveyWaWizardProps = {
   onDownloadTemplate: () => void;
   onSaveDraft: () => void;
   savePending: boolean;
+  testPhone: string;
+  setTestPhone: (v: string) => void;
+  onSendTest: () => void;
+  sendTestPending: boolean;
 };
 
 export function SurveyWaWizard(props: SurveyWaWizardProps) {
@@ -557,6 +562,36 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 <Summary label="Services" value={String(props.selectedServiceTagIds.length)} />
                 <Summary label="Pages" value={String(props.pageCount)} />
                 <Summary label="Anonymous" value={props.anonymous ? "On" : "Off"} />
+              </div>
+              <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold">Send test to WhatsApp</p>
+                  <p className="text-xs text-muted-foreground">
+                    Sends every survey step in order (welcome → questions → thank-you) as WhatsApp template messages.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="grid flex-1 gap-1.5">
+                    <Label htmlFor="wa-test-phone">Test mobile (E.164)</Label>
+                    <Input
+                      id="wa-test-phone"
+                      placeholder="+447700900123"
+                      value={props.testPhone}
+                      onChange={(e) => props.setTestPhone(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      className="gap-1.5"
+                      disabled={!props.testPhone.trim() || props.sendTestPending}
+                      onClick={() => props.onSendTest()}
+                    >
+                      <Send className="size-4" />
+                      {props.sendTestPending ? "Sending…" : "Send test"}
+                    </Button>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,8 @@ from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_api_key import normalize_telnyx_api_key, normalize_telnyx_e164, require_telnyx_api_key
 from app.services.telnyx_voice_service import _telnyx_config, _telnyx_headers, _telnyx_http_error_detail, TelnyxConfigError
 from app.services.messaging_log_service import LogService, normalize_e164
+
+logger = logging.getLogger(__name__)
 
 
 TELNYX_MESSAGES_URL = "https://api.telnyx.com/v2/messages"
@@ -83,12 +86,38 @@ class TelnyxMessagingService:
             if messaging_profile_id and "messaging_profile_id" not in payload:
                 payload["messaging_profile_id"] = messaging_profile_id
 
+        safe_payload = json.loads(json.dumps(payload, default=str))
+        logger.info(
+            "telnyx_message_request channel=%s url=%s payload=%s",
+            channel,
+            url,
+            json.dumps(safe_payload, default=str)[:8000],
+        )
+
         try:
             with httpx.Client(timeout=20.0, verify=httpx_ssl_verify()) as client:
                 response = client.post(url, json=payload, headers=_telnyx_headers(api_key))
+                response_text = response.text[:8000]
+                logger.info(
+                    "telnyx_message_response channel=%s status=%s body=%s",
+                    channel,
+                    response.status_code,
+                    response_text,
+                )
                 response.raise_for_status()
                 body = response.json()
         except httpx.HTTPStatusError as e:
+            error_body = ""
+            try:
+                error_body = e.response.text[:8000]
+            except Exception:
+                pass
+            logger.error(
+                "telnyx_message_http_error channel=%s status=%s body=%s",
+                channel,
+                e.response.status_code if e.response is not None else "?",
+                error_body,
+            )
             return TelnyxMessageResult(
                 ok=False,
                 status="http_error",

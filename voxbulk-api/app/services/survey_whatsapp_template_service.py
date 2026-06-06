@@ -1630,6 +1630,11 @@ class SurveyWhatsappTemplateService:
             },
         )
         send_id = send_template_id_for_row(row)
+        template_name = str(row.name or "").strip()
+        if not template_name and not send_id:
+            raise SurveyWhatsappTemplateError(
+                f"Template “{template_label}” has no Telnyx template name or id — push to Telnyx before sending a test."
+            )
         org_id = SurveyWhatsappTemplateService._messaging_org_id(db)
 
         langs: list[str] = []
@@ -1643,11 +1648,17 @@ class SurveyWhatsappTemplateService:
         result = None
         telnyx_request_mode = "template_name"
         for lang in langs:
+            logger.info(
+                "survey_wa_test_send template=%s lang=%s to=%s mode=template_name",
+                template_name or send_id,
+                lang,
+                recipient,
+            )
             attempt = TelnyxMessagingService.send_whatsapp(
                 db,
                 to_number=recipient,
                 body=str(preview.get("rendered_body") or row.body_preview or "Survey test"),
-                template_name=row.name,
+                template_name=template_name or None,
                 template_language=lang,
                 template_components=template_components,
                 org_id=org_id or None,
@@ -1661,6 +1672,12 @@ class SurveyWhatsappTemplateService:
         if (result is None or not result.ok) and send_id:
             telnyx_request_mode = "template_id"
             for lang in langs:
+                logger.info(
+                    "survey_wa_test_send template_id=%s lang=%s to=%s mode=template_id",
+                    send_id,
+                    lang,
+                    recipient,
+                )
                 attempt = TelnyxMessagingService.send_whatsapp(
                     db,
                     to_number=recipient,
@@ -1702,6 +1719,56 @@ class SurveyWhatsappTemplateService:
             "provider_status": result.status,
             "example_values": examples,
             "rendered_body_preview": str(preview.get("rendered_body") or "")[:240],
+        }
+
+    @staticmethod
+    def send_builder_flow_test(
+        db: Session,
+        *,
+        template_ids: list[int],
+        to_number: str,
+        first_name: str = "Alex",
+        business_name: str = "Your business",
+        delay_seconds: float = 0.75,
+    ) -> dict[str, Any]:
+        """Send each survey template in order as a WhatsApp template message."""
+        import time
+
+        cleaned_ids: list[int] = []
+        for raw_id in template_ids:
+            try:
+                tid = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if tid > 0 and tid not in cleaned_ids:
+                cleaned_ids.append(tid)
+        if not cleaned_ids:
+            raise SurveyWhatsappTemplateError("At least one template id is required for test send.")
+
+        messages: list[dict[str, Any]] = []
+        for index, tpl_id in enumerate(cleaned_ids):
+            row = SurveyWhatsappTemplateService.get_template(db, tpl_id)
+            if row is None:
+                raise SurveyWhatsappTemplateError(f"Template {tpl_id} not found.")
+            one = SurveyWhatsappTemplateService.send_test_template(
+                db,
+                row,
+                to_number=to_number,
+                first_name=first_name,
+                business_name=business_name,
+            )
+            messages.append(one)
+            if index < len(cleaned_ids) - 1 and delay_seconds > 0:
+                time.sleep(delay_seconds)
+
+        recipient = str(messages[0].get("to_number") or to_number)
+        return {
+            "ok": True,
+            "success": True,
+            "sent": len(messages),
+            "to_number": recipient,
+            "messages": messages,
+            "message": f"Sent {len(messages)} WhatsApp template message(s) to {recipient}.",
         }
 
     @staticmethod

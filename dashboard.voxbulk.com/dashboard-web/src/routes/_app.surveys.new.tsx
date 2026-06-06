@@ -13,6 +13,7 @@ import {
   useCreateServiceOrder,
   useGenerateWaSurvey,
   usePatchServiceOrder,
+  useSendWaSurveyTest,
   useSurveyPackages,
   useWaSurveyIndustries,
   useWaSurveyLibraryTemplates,
@@ -69,6 +70,7 @@ function CreateSurvey() {
   const createM = useCreateServiceOrder();
   const patchM = usePatchServiceOrder();
   const generateWaM = useGenerateWaSurvey();
+  const sendTestWaM = useSendWaSurveyTest();
 
   const [channel, setChannel] = React.useState<Channel>(null);
   const [waPreview, setWaPreview] = React.useState<Record<string, unknown> | null>(null);
@@ -109,6 +111,7 @@ function CreateSurvey() {
   const [orderId, setOrderId] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
+  const [testPhone, setTestPhone] = React.useState("");
   const qc = useQueryClient();
 
   const delivery = channel === "whatsapp" ? "whatsapp" : "ai_call";
@@ -371,6 +374,50 @@ function CreateSurvey() {
     return { typeOrder, selectedServiceTemplates, selectedMiddleTemplateIds, effectivePageCount };
   };
 
+  const buildTestTemplateIds = (): number[] => {
+    const ids: number[] = [];
+    const welcome = Number(welcomeTemplateId);
+    if (Number.isFinite(welcome) && welcome > 0) ids.push(welcome);
+    for (const typeId of orderedServiceTagIds) {
+      const raw = selectedServiceTemplateIds[typeId];
+      const num = Number(raw);
+      if (Number.isFinite(num) && num > 0) ids.push(num);
+    }
+    const thankYou = Number(thankYouTemplateId);
+    if (Number.isFinite(thankYou) && thankYou > 0) ids.push(thankYou);
+    return ids;
+  };
+
+  const onSendWaTest = async () => {
+    const phone = testPhone.trim();
+    if (!phone) {
+      toast.error("Enter a test mobile number in E.164 format (e.g. +447700900123).");
+      return;
+    }
+    const templateIds = buildTestTemplateIds();
+    if (templateIds.length < 2) {
+      toast.error("Complete Step 3 template selection before sending a test.");
+      return;
+    }
+    try {
+      const result = await sendTestWaM.mutateAsync({
+        test_phone: phone,
+        template_ids: templateIds,
+        welcome_template_id: Number(welcomeTemplateId),
+        thank_you_template_id: Number(thankYouTemplateId),
+        middle_template_ids: orderedServiceTagIds
+          .map((typeId) => Number(selectedServiceTemplateIds[typeId]))
+          .filter((id) => Number.isFinite(id) && id > 0),
+        first_name: "Alex",
+        client_context: { organisation_name: goal.slice(0, 80) || undefined },
+      });
+      const sent = Number(result.sent ?? result.messages?.length ?? templateIds.length);
+      toast.success(String(result.message || `Sent ${sent} WhatsApp test message(s) to ${phone}.`));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "WhatsApp test send failed");
+    }
+  };
+
   const onGenerateWaSurvey = async (): Promise<boolean> => {
     if (step3SelectionErrors.length) {
       setGenerateErrors(step3SelectionErrors);
@@ -588,6 +635,10 @@ function CreateSurvey() {
           onDownloadTemplate={onDownloadTemplate}
           onSaveDraft={onSaveDraft}
           savePending={savePending}
+          testPhone={testPhone}
+          setTestPhone={setTestPhone}
+          onSendTest={() => void onSendWaTest()}
+          sendTestPending={sendTestWaM.isPending}
         />
       )}
 

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import logging
+import traceback
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_principal
@@ -297,6 +302,15 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"message": str(e), "errors": e.errors},
             ) from e
+    parsed_page_count: int | None = None
+    if page_count is not None:
+        try:
+            parsed_page_count = int(page_count)
+        except (TypeError, ValueError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="page_count must be an integer",
+            ) from e
     try:
         return SurveyGenerationService.generate(
             db,
@@ -304,7 +318,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
             variant=str(payload.get("variant") or "standard"),
             privacy_mode=str(payload.get("privacy_mode") or "").strip() or None,
             length=str(payload.get("length") or "standard"),
-            page_count=int(page_count) if page_count is not None else None,
+            page_count=parsed_page_count,
             auto_select_steps=bool(payload.get("auto_select_steps", True)),
             selected_step_roles=[str(r) for r in selected] if isinstance(selected, list) else None,
             goal=str(payload.get("goal") or ""),
@@ -317,6 +331,66 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("generate_wa_survey failed")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Survey generation failed: {e}",
+        ) from e
+
+
+def _parse_wa_survey_test_template_ids(body: dict) -> list[int]:
+    raw_ids = body.get("template_ids")
+    if isinstance(raw_ids, list) and raw_ids:
+        parsed: list[int] = []
+        for item in raw_ids:
+            try:
+                tid = int(item)
+            except (TypeError, ValueError):
+                continue
+            if tid > 0 and tid not in parsed:
+                parsed.append(tid)
+        return parsed
+
+    ordered: list[int] = []
+    welcome_raw = body.get("welcome_template_id") or body.get("wa_template_id")
+    if welcome_raw is not None and str(welcome_raw).strip():
+        try:
+            ordered.append(int(welcome_raw))
+        except (TypeError, ValueError):
+            pass
+
+    middle_raw = body.get("middle_template_ids") or body.get("selected_middle_template_ids")
+    if isinstance(middle_raw, list):
+        for item in middle_raw:
+            try:
+                tid = int(item)
+            except (TypeError, ValueError):
+                continue
+            if tid > 0:
+                ordered.append(tid)
+    elif isinstance(middle_raw, dict):
+        for value in middle_raw.values():
+            try:
+                tid = int(value)
+            except (TypeError, ValueError):
+                continue
+            if tid > 0:
+                ordered.append(tid)
+
+    thank_raw = body.get("thank_you_template_id")
+    if thank_raw is not None and str(thank_raw).strip():
+        try:
+            ordered.append(int(thank_raw))
+        except (TypeError, ValueError):
+            pass
+
+    deduped: list[int] = []
+    for tid in ordered:
+        if tid not in deduped:
+            deduped.append(tid)
+    return deduped
 
 
 @router.post("/wa-survey/send-test")
@@ -325,7 +399,7 @@ def send_wa_survey_test(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    """Send the selected welcome template to the dashboard user's mobile for Step 5 verification."""
+    """Send ordered survey WhatsApp templates to a test mobile number (Step 5 verification)."""
     from sqlalchemy import select
 
     from app.models.user import User
@@ -336,9 +410,12 @@ def send_wa_survey_test(
     )
 
     body = payload or {}
-    template_raw = body.get("welcome_template_id") or body.get("wa_template_id")
-    if not template_raw:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="welcome_template_id is required")
+    template_ids = _parse_wa_survey_test_template_ids(body)
+    if not template_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="template_ids or welcome/middle/thank-you template ids are required",
+        )
 
     user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
     if user is None:
@@ -353,7 +430,7 @@ def send_wa_survey_test(
     if not to_number:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Add your mobile number in Profile settings or enter a test number.",
+            detail="Enter a test mobile number in E.164 format (e.g. +447700900123).",
         )
 
     branding = _client_branding(db, principal.org_id, body)
@@ -361,18 +438,9 @@ def send_wa_survey_test(
     business_name = str(branding.get("client_name") or branding.get("organisation_name") or "Your business")
 
     try:
-        template_id = int(template_raw)
-    except (TypeError, ValueError) as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid welcome_template_id") from e
-
-    row = SurveyWhatsappTemplateService.get_template(db, template_id)
-    if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
-
-    try:
-        result = SurveyWhatsappTemplateService.send_test_template(
+        result = SurveyWhatsappTemplateService.send_builder_flow_test(
             db,
-            row,
+            template_ids=template_ids,
             to_number=to_number,
             first_name=first_name,
             business_name=business_name,
@@ -380,3 +448,10 @@ def send_wa_survey_test(
         return {"ok": True, **result}
     except SurveyWhatsappTemplateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("send_wa_survey_test failed")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"WhatsApp test send failed: {e}",
+        ) from e

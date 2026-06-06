@@ -70,17 +70,31 @@ class SurveyBuilderValidationService:
                 if value is None:
                     value = raw.get(str(type_id))
                 if value is not None and str(value).strip():
-                    pairs.append((type_id, int(value)))
+                    try:
+                        pairs.append((type_id, int(value)))
+                    except (TypeError, ValueError):
+                        continue
             return pairs
         if isinstance(raw, list):
             if raw and isinstance(raw[0], dict):
-                by_type = {
-                    str(item.get("survey_type_id") or item.get("type_id") or "").strip(): int(item.get("template_id"))
-                    for item in raw
-                    if item.get("template_id") is not None
-                }
+                by_type: dict[str, int] = {}
+                for item in raw:
+                    type_key = str(item.get("survey_type_id") or item.get("type_id") or "").strip()
+                    if not type_key or item.get("template_id") is None:
+                        continue
+                    try:
+                        by_type[type_key] = int(item.get("template_id"))
+                    except (TypeError, ValueError):
+                        continue
                 return [(type_id, by_type[type_id]) for type_id in ids if type_id in by_type]
-            ints = [int(x) for x in raw if x is not None and str(x).strip()]
+            ints: list[int] = []
+            for x in raw:
+                if x is None or not str(x).strip():
+                    continue
+                try:
+                    ints.append(int(x))
+                except (TypeError, ValueError):
+                    continue
             if ints and not ids:
                 return [(str(i), tid) for i, tid in enumerate(ints)]
             if len(ints) == len(ids):
@@ -160,7 +174,12 @@ class SurveyBuilderValidationService:
         ):
             if not tpl_id:
                 continue
-            tpl = db.get(TelnyxWhatsappTemplate, int(tpl_id))
+            try:
+                tpl_int = int(tpl_id)
+            except (TypeError, ValueError):
+                errors.append(f"{label} template id is invalid.")
+                continue
+            tpl = db.get(TelnyxWhatsappTemplate, tpl_int)
             if tpl is None or not tpl.active_for_survey:
                 errors.append(f"{label} template not found.")
                 continue

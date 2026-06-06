@@ -409,10 +409,16 @@ function CreateInterview() {
   const resolvedAgentId = agentId || defaultAgent?.id || "";
   const selectedAgent = agents.find((a) => a.id === resolvedAgentId) || defaultAgent;
   const createStartedRef = React.useRef(false);
+  const createFailedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    createFailedRef.current = false;
+  }, [wantNew]);
 
   React.useEffect(() => {
     if (draftOrderId) return;
     if (!wantNew) return;
+    if (createFailedRef.current) return;
     if (createStartedRef.current || createDraftM.isPending || createDraftM.isSuccess) return;
     createStartedRef.current = true;
     void createDraftM
@@ -421,6 +427,8 @@ function CreateInterview() {
         const id = payload?.order?.id;
         if (!id) {
           createStartedRef.current = false;
+          createFailedRef.current = true;
+          toast.error("Could not start interview draft — server returned no order id.");
           return;
         }
         qc.setQueryData([...queryKeys.interviewDraft, id], payload);
@@ -430,8 +438,10 @@ function CreateInterview() {
           replace: true,
         });
       })
-      .catch(() => {
+      .catch((err) => {
         createStartedRef.current = false;
+        createFailedRef.current = true;
+        toast.error(err instanceof Error ? err.message : "Could not start interview draft");
       });
   }, [createDraftM, draftOrderId, navigate, qc, wantNew]);
 
@@ -1568,7 +1578,7 @@ function CreateInterview() {
         </div>
       );
     }
-    if (createDraftM.isError) {
+    if (createDraftM.isError || (createDraftM.isSuccess && !createDraftM.data?.order?.id && !draftOrderId)) {
       return (
         <div className="flex w-full flex-col gap-6">
           <PageHeader eyebrow="Interviews" title="Create new interview" description="Could not start a new interview." />
@@ -1579,9 +1589,14 @@ function CreateInterview() {
                 <Button
                   onClick={() => {
                     createStartedRef.current = false;
+                    createFailedRef.current = false;
                     void createDraftM.mutateAsync().then((payload) => {
                       const id = payload?.order?.id;
-                      if (!id) return;
+                      if (!id) {
+                        createFailedRef.current = true;
+                        toast.error("Could not start interview draft — server returned no order id.");
+                        return;
+                      }
                       void navigate({ to: "/interviews/new", search: { order_id: id }, replace: true });
                     });
                   }}

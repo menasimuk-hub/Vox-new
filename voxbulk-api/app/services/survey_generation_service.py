@@ -76,9 +76,14 @@ class SurveyGenerationService:
             thank_you_template_id = builder_config.get("thank_you_template_id")
             tell_us_more_template_id = builder_config.get("tell_us_more_template_id")
             selected_survey_type_ids = list(builder_config.get("selected_survey_type_ids") or [])
-            ordered_middle_template_ids = [
-                int(x) for x in (builder_config.get("ordered_middle_template_ids") or []) if x is not None
-            ]
+            ordered_middle_template_ids: list[int] = []
+            for raw_id in builder_config.get("ordered_middle_template_ids") or []:
+                if raw_id is None:
+                    continue
+                try:
+                    ordered_middle_template_ids.append(int(raw_id))
+                except (TypeError, ValueError):
+                    continue
 
         if ordered_middle_template_ids:
             count = builder_page_count(len(ordered_middle_template_ids))
@@ -265,7 +270,10 @@ class SurveyGenerationService:
             "step_bank_missing": composed.get("step_bank_missing") or [],
             "approved_script": script_result.get("script_text") or "\n".join(
                 ["INTRO", preview.get("rendered_body") or "", "", "PAGES"]
-                + [f"{i + 1}. [{p['step_role']}] {p.get('body', '')[:120]}" for i, p in enumerate(composed["pages"])]
+                + [
+                    f"{i + 1}. [{p.get('step_role', '?')}] {str(p.get('body', ''))[:120]}"
+                    for i, p in enumerate(composed.get("pages") or [])
+                ]
                 + ["", "CLOSING", closing]
             ),
             "system_prompt": script_result.get("system_prompt") or "",

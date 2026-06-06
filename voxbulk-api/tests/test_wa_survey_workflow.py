@@ -558,6 +558,39 @@ def test_send_test_success(monkeypatch):
         assert result["to_number"] == "+447700900123"
 
 
+def test_send_builder_flow_test_sends_all_steps(monkeypatch):
+    from app.services.telnyx_messaging_service import TelnyxMessageResult
+
+    sent_names: list[str] = []
+
+    def fake_send(*args, **kwargs):
+        sent_names.append(str(kwargs.get("template_name") or kwargs.get("template_id") or "unknown"))
+        return TelnyxMessageResult(ok=True, status="queued", external_id="msg-123", detail=None, channel="whatsapp")
+
+    monkeypatch.setattr(
+        "app.services.telnyx_messaging_service.TelnyxMessagingService.send_whatsapp",
+        fake_send,
+    )
+    monkeypatch.setattr(
+        "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._messaging_org_id",
+        lambda db: "org-1",
+    )
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        welcome = _approved_template(db, survey_type, name="voxbulk_welcome_test", step_role="start")
+        middle = _approved_template(db, survey_type, name="voxbulk_middle_test", step_role="yes_no")
+        thank = _approved_template(db, survey_type, name="voxbulk_thank_test", step_role="completion")
+        result = SurveyWhatsappTemplateService.send_builder_flow_test(
+            db,
+            template_ids=[welcome.id, middle.id, thank.id],
+            to_number="+447700900123",
+        )
+        assert result["sent"] == 3
+        assert len(result["messages"]) == 3
+        assert len(sent_names) == 3
+
+
 def test_admin_wa_survey_api(app_client):
     from tests.test_agent_architecture import _headers
 
