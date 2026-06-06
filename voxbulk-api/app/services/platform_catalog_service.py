@@ -1361,10 +1361,11 @@ class ServiceOrderService:
             config = {}
         if "config" in payload and isinstance(payload["config"], dict):
             patch = dict(payload["config"])
-            if patch.get("builder_template_ids") or patch.get("builder_step_sequence"):
-                from app.services.survey_builder_flow_service import (
-                    builder_generation_config,
-                    is_builder_bound_flow,
+            if patch.get("builder_template_ids") or patch.get("builder_step_sequence") or patch.get("builder_runtime"):
+                from app.services.survey_builder_flow_service import is_builder_bound_flow
+                from app.services.survey_builder_runtime_service import (
+                    attach_builder_runtime_to_config,
+                    load_builder_runtime,
                 )
 
                 for stale_key in (
@@ -1376,18 +1377,30 @@ class ServiceOrderService:
                 ):
                     config.pop(stale_key, None)
                 merged = {**config, **patch}
-                seq = merged.get("builder_step_sequence") or []
-                ids = merged.get("builder_template_ids") or []
-                if isinstance(seq, list) and isinstance(ids, list) and seq and ids:
-                    builder_core = builder_generation_config(
-                        builder_step_sequence=seq,
-                        builder_template_ids=[int(x) for x in ids],
-                    )
-                    merged = {**merged, **builder_core}
-                elif is_builder_bound_flow(merged):
-                    from app.services.survey_builder_flow_service import sanitize_builder_config
+                runtime = patch.get("builder_runtime")
+                if isinstance(runtime, dict) and runtime.get("step_sequence"):
+                    merged = attach_builder_runtime_to_config(merged, runtime)
+                else:
+                    seq = merged.get("builder_step_sequence") or []
+                    ids = merged.get("builder_template_ids") or []
+                    legacy_runtime = load_builder_runtime(merged)
+                    if isinstance(legacy_runtime, dict):
+                        merged = attach_builder_runtime_to_config(merged, legacy_runtime)
+                    elif isinstance(seq, list) and isinstance(ids, list) and seq and ids:
+                        from app.services.survey_builder_flow_service import builder_generation_config
 
-                    merged = sanitize_builder_config(merged)
+                        builder_core = builder_generation_config(
+                            builder_step_sequence=seq,
+                            builder_template_ids=[int(x) for x in ids],
+                        )
+                        merged = {**merged, **builder_core}
+                        rebuilt = load_builder_runtime(merged)
+                        if isinstance(rebuilt, dict):
+                            merged = attach_builder_runtime_to_config(merged, rebuilt)
+                    elif is_builder_bound_flow(merged):
+                        from app.services.survey_builder_flow_service import sanitize_builder_config
+
+                        merged = sanitize_builder_config(merged)
                 config = merged
             else:
                 config.update(patch)

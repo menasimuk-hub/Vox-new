@@ -34,6 +34,14 @@ from app.services.survey_builder_flow_service import (
     should_use_builder_linear_runtime,
     survey_questions_from_config,
 )
+from app.services.survey_builder_runtime_service import (
+    assert_runtime_template_send,
+    has_builder_runtime,
+    load_builder_runtime,
+    reject_stale_graph_session,
+    runtime_low_rating_threshold,
+    runtime_tell_us_more_enabled,
+)
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
@@ -572,21 +580,15 @@ def _resolve_question_template(
             )
             logger.error("%s %s", LOG_PREFIX, msg)
             raise SurveyBuilderFlowError(msg)
-        row = _resolve_template_row(db, tid)
-        if row is None:
-            msg = f"Template {tid} missing or not APPROVED (order={order_id}, step={step}); refusing fallback."
-            logger.error("%s %s", LOG_PREFIX, msg)
-            raise SurveyBuilderFlowError(msg)
-        logger.info(
-            "%s send_template order=%s session=%s step=%s template_id=%s template_name=%s source=builder_sequence",
-            LOG_PREFIX,
-            order_id,
-            session_id,
-            step,
-            row.id,
-            row.name,
+        return assert_runtime_template_send(
+            db,
+            config,
+            tid,
+            context=f"send_template step={step}",
+            order_id=order_id,
+            session_id=session_id,
+            preview_hash=str(config.get("builder_runtime_hash") or "") or None,
         )
-        return row
     if tid:
         row = _resolve_template_row(db, tid)
         if row is not None:
@@ -810,6 +812,14 @@ def send_first_question(
         return
 
     config = _order_config(order)
+    runtime = load_builder_runtime(config)
+    if runtime:
+        reject_stale_graph_session(
+            db,
+            recipient_id=recipient.id,
+            order_id=order.id,
+            runtime=runtime,
+        )
     questions = survey_questions_from_config(config)
     if not questions:
         return
@@ -864,6 +874,7 @@ def send_first_question(
         "current_template_id": q0.get("template_id"),
         "current_node_key": q0.get("node_key"),
         "builder_template_ids": config.get("builder_template_ids"),
+        "builder_runtime_hash": (runtime or {}).get("hash") or config.get("builder_runtime_hash"),
     }
     session = SurveySessionService.start_linear_session(
         db,
@@ -985,6 +996,14 @@ def handle_inbound_reply(
         }
 
     config = _order_config(order)
+    runtime = load_builder_runtime(config)
+    if runtime:
+        reject_stale_graph_session(
+            db,
+            recipient_id=recipient.id,
+            order_id=order.id,
+            runtime=runtime,
+        )
     questions = survey_questions_from_config(config)
     if not questions:
         logger.error("%s no_questions order=%s — refusing fallback", LOG_PREFIX, order.id)
@@ -1126,10 +1145,10 @@ def handle_inbound_reply(
                 conv.pop("tell_us_more_pending", None)
             elif (
                 should_use_builder_linear_runtime(config)
+                and runtime_tell_us_more_enabled(config)
                 and not conv.get("tell_us_more_asked")
                 and normalize_step_role(str(question.get("step_role") or "")) == "rating"
-                and config.get("tell_us_more_template_id")
-                and _rating_answer_is_low(answer)
+                and _rating_answer_is_low(answer, threshold=runtime_low_rating_threshold(config))
             ):
                 variables = _survey_variables(config, recipient)
                 next_q = question_from_tell_us_more_template(
@@ -1212,22 +1231,67 @@ def handle_inbound_reply(
         }
 
     closing_template = str(flow.get("closing") or "Thank you for your feedback.").strip()
-    closing = _personalize(
-        closing_template,
-        first_name=_first_name(recipient.name),
-        org_name=org_name,
-        organiser=organiser,
-    )
-    conv["step"] = total + 1
-    conv["completed_at"] = datetime.utcnow().isoformat()
-    payload["wa_conversation"] = conv
-    payload = mark_inbound_processed(
-        payload, log_id=log_id, inbound_message_id=inbound_message_id
-    )
-    SurveySessionService.complete_linear(db, session, config=config, final_step=step)
-    recipient.status = "completed"
-    _save_recipient_result(db, recipient, payload)
-    _send_message(db, order=order, recipient=recipient, body=closing)
+    if has_builder_runtime(config):
+        runtime = load_builder_runtime(config) or {}
+        thank_tid = runtime.get("thank_you_template_id")
+        if not thank_tid:
+            logger.error("%s builder_missing_thank_you order=%s", LOG_PREFIX, order.id)
+            return {"handled": False, "reason": "missing_thank_you_template"}
+        thank_q = {"template_id": thank_tid, "step_role": "completion", "source": "order.config_json.builder_runtime"}
+        try:
+            assert_runtime_template_send(
+                db,
+                config,
+                thank_tid,
+                context="builder_completion",
+                order_id=order.id,
+                session_id=session_row.id if session_row else None,
+                preview_hash=str(conv.get("builder_runtime_hash") or config.get("builder_runtime_hash") or "") or None,
+            )
+        except SurveyBuilderFlowError as exc:
+            return {"handled": False, "reason": "thank_you_send_blocked", "detail": str(exc)}
+        closing_body = _question_outbound_body(
+            db,
+            config=config,
+            question=thank_q,
+            recipient=recipient,
+            index=len(questions) + 1,
+            total=len(questions),
+        )
+        conv["step"] = total + 1
+        conv["completed_at"] = datetime.utcnow().isoformat()
+        payload["wa_conversation"] = conv
+        payload = mark_inbound_processed(
+            payload, log_id=log_id, inbound_message_id=inbound_message_id
+        )
+        SurveySessionService.complete_linear(db, session, config=config, final_step=step)
+        recipient.status = "completed"
+        _save_recipient_result(db, recipient, payload)
+        _send_message(
+            db,
+            order=order,
+            recipient=recipient,
+            body=closing_body,
+            config=config,
+            question=thank_q,
+        )
+    else:
+        closing = _personalize(
+            closing_template,
+            first_name=_first_name(recipient.name),
+            org_name=org_name,
+            organiser=organiser,
+        )
+        conv["step"] = total + 1
+        conv["completed_at"] = datetime.utcnow().isoformat()
+        payload["wa_conversation"] = conv
+        payload = mark_inbound_processed(
+            payload, log_id=log_id, inbound_message_id=inbound_message_id
+        )
+        SurveySessionService.complete_linear(db, session, config=config, final_step=step)
+        recipient.status = "completed"
+        _save_recipient_result(db, recipient, payload)
+        _send_message(db, order=order, recipient=recipient, body=closing)
 
     report = {}
     try:
@@ -1265,6 +1329,19 @@ def _handle_inbound_reply_graph(
     log_id: int | None,
     inbound_message_id: str | None = None,
 ) -> dict[str, Any]:
+    if has_builder_runtime(config):
+        logger.error(
+            "%s builder_runtime_blocks_graph order=%s recipient=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+        )
+        return {
+            "handled": False,
+            "reason": "builder_runtime_blocks_graph",
+            "detail": "Graph resolver disabled for builder-selected surveys",
+        }
+
     org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
     organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
 

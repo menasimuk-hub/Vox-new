@@ -16,13 +16,16 @@ from app.services.survey_step_bank_service import (
     normalize_step_role,
 )
 from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+from app.services.survey_builder_runtime_service import (
+    SurveyBuilderFlowError,
+    has_builder_runtime,
+    load_builder_runtime,
+    runtime_step_sequence,
+    sanitize_order_config_for_builder,
+)
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[builder-flow]"
-
-
-class SurveyBuilderFlowError(ValueError):
-    """Next survey step cannot be resolved from the active builder sequence."""
 
 
 # Legacy graph/role fields must not coexist with builder-bound runtime config.
@@ -36,14 +39,7 @@ _STALE_GRAPH_KEYS = (
 
 
 def is_builder_bound_flow(config: dict[str, Any]) -> bool:
-    seq = config.get("builder_step_sequence")
-    ids = config.get("builder_template_ids")
-    return (
-        isinstance(seq, list)
-        and len(seq) > 0
-        and isinstance(ids, list)
-        and len(ids) > 0
-    )
+    return has_builder_runtime(config)
 
 
 def assert_builder_template_allowed(
@@ -78,25 +74,8 @@ def assert_builder_template_allowed(
 
 
 def sanitize_builder_config(config: dict[str, Any]) -> dict[str, Any]:
-    """Remove stale graph/role artifacts so runtime cannot read old snapshots."""
-    out = dict(config)
-    if not is_builder_bound_flow(out):
-        return out
-    for key in _STALE_GRAPH_KEYS:
-        out.pop(key, None)
-    out["flow_engine"] = "linear"
-    seq = [q for q in (out.get("builder_step_sequence") or []) if isinstance(q, dict)]
-    out["builder_step_sequence"] = seq
-    wa = dict(out.get("whatsapp_flow") or {})
-    wa["questions"] = seq
-    out["whatsapp_flow"] = wa
-    logger.info(
-        "%s sanitized builder config template_ids=%s step_count=%s",
-        LOG_PREFIX,
-        out.get("builder_template_ids"),
-        len(seq),
-    )
-    return out
+    """Remove stale graph/role artifacts; prefer immutable builder_runtime when present."""
+    return sanitize_order_config_for_builder(config)
 
 
 def log_builder_step_resolution(
@@ -290,7 +269,20 @@ def question_from_tell_us_more_template(
     *,
     business_name: str = "Your business",
     first_name: str = "Alex",
+    order_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any] | None:
+    if load_builder_runtime(config) is not None:
+        from app.services.survey_builder_runtime_service import question_from_runtime_tell_us_more
+
+        return question_from_runtime_tell_us_more(
+            db,
+            config,
+            business_name=business_name,
+            first_name=first_name,
+            order_id=order_id,
+            session_id=session_id,
+        )
     raw = config.get("tell_us_more_template_id")
     if not raw:
         return None
@@ -414,6 +406,9 @@ def resolve_next_conversation_step(
 
 
 def survey_questions_from_config(config: dict[str, Any]) -> list[dict[str, Any]]:
+    steps = runtime_step_sequence(config)
+    if steps:
+        return steps
     seq = config.get("builder_step_sequence")
     if isinstance(seq, list) and seq:
         return [q for q in seq if isinstance(q, dict)]
@@ -429,7 +424,19 @@ def resolve_conversation_step(
     order_id: str | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """1-based step index into the frozen builder / whatsapp question list."""
+    """1-based step index — builder flows use immutable builder_runtime.step_sequence only."""
+    if load_builder_runtime(config) is not None:
+        from app.services.survey_builder_runtime_service import resolve_runtime_step
+
+        q = resolve_runtime_step(config, step, order_id=order_id, session_id=session_id)
+        assert_builder_template_allowed(
+            config,
+            q.get("template_id"),
+            context=f"resolve_conversation_step step={step}",
+            order_id=order_id,
+            session_id=session_id,
+        )
+        return q
     questions = survey_questions_from_config(config)
     if step < 1 or step > len(questions):
         msg = (

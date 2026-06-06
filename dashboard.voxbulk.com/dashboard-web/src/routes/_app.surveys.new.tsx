@@ -534,6 +534,8 @@ function CreateSurvey() {
             privacy_mode: privacyMode,
             wa_template_id: generated.wa_template_id,
             whatsapp_flow: generated.whatsapp_flow,
+            builder_runtime: generated.builder_runtime,
+            builder_runtime_hash: generated.builder_runtime_hash,
             builder_step_sequence: generated.builder_step_sequence,
             builder_template_ids: generated.builder_template_ids,
             ...(isBuilderFlow

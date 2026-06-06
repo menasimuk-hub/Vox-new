@@ -23,6 +23,10 @@ from app.services.survey_builder_flow_service import (
     build_builder_template_ids,
     builder_generation_config,
 )
+from app.services.survey_builder_runtime_service import (
+    attach_builder_runtime_to_config,
+    build_builder_runtime,
+)
 from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH, FLOW_ENGINE_LINEAR
 from app.services.survey_flow_definition_service import SurveyFlowDefinitionService
 from app.services.survey_type_service import SurveyTypeService
@@ -195,7 +199,7 @@ class SurveyGenerationService:
             script_result = {}
 
         wa_questions = script_result.get("whatsapp_questions")
-        if isinstance(wa_questions, list) and wa_questions:
+        if isinstance(wa_questions, list) and wa_questions and not ordered_middle_template_ids:
             ai_texts = [
                 str(q.get("text") or q) if isinstance(q, dict) else str(q) for q in wa_questions
             ]
@@ -219,21 +223,29 @@ class SurveyGenerationService:
             {"page_count": count},
             survey_type_max_length=survey_type.max_length,
         )
+        builder_runtime: dict[str, Any] | None = None
         if ordered_middle_template_ids:
-            builder_ids = build_builder_template_ids(
+            builder_runtime = build_builder_runtime(
+                db,
+                industry_id=(builder_config or {}).get("industry_id"),
+                survey_type_id=survey_type.id,
+                survey_type_name=survey_type.name,
+                privacy_mode=resolved_privacy,
                 welcome_template_id=welcome_template_id or start_row.id,
                 middle_template_ids=ordered_middle_template_ids,
-                thank_you_template_id=thank_you_template_id,
                 tell_us_more_template_id=tell_us_more_template_id,
+                thank_you_template_id=thank_you_template_id,
+                business_name=client_name or organisation_name,
             )
-            order_config_extras = builder_generation_config(
-                builder_step_sequence=builder_step_sequence,
-                builder_template_ids=builder_ids,
+            order_config_extras = attach_builder_runtime_to_config({}, builder_runtime)
+            builder_step_sequence = builder_runtime["step_sequence"]
+            whatsapp_flow = attach_builder_runtime_to_config(
+                {**whatsapp_flow, "closing": closing},
+                builder_runtime,
             )
             engine_key = FLOW_ENGINE_LINEAR
             flow_snapshot = None
             resolved_flow_definition_id = None
-            whatsapp_flow["questions"] = builder_step_sequence
         elif tell_us_more_template_id:
             order_config_extras = attach_tell_us_more_graph(
                 composed=composed,
@@ -321,6 +333,8 @@ class SurveyGenerationService:
                 tell_us_more_template_id=tell_us_more_template_id,
             )
             or None,
+            "builder_runtime": builder_runtime,
+            "builder_runtime_hash": builder_runtime.get("hash") if builder_runtime else None,
         }
         if order_config_extras:
             result_payload["order_config_flow"] = {
