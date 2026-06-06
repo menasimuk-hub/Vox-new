@@ -4,6 +4,7 @@ import {
   Car,
   Dumbbell,
   GraduationCap,
+  Hotel,
   Landmark,
   Scale,
   Scissors,
@@ -23,6 +24,7 @@ export function normalizeIndustryKey(name?: string, slug?: string): string {
       String(value)
         .toLowerCase()
         .trim()
+        .replace(/&/g, "and")
         .replace(/[\s\-/]+/g, "_")
         .replace(/_+/g, "_")
         .replace(/^_|_$/g, ""),
@@ -42,11 +44,24 @@ function includesAny(key: string, ...needles: string[]): boolean {
   return needles.some((needle) => key.includes(needle));
 }
 
+export function isHospitalityFoodIndustry(name?: string, slug?: string): boolean {
+  const key = normalizeIndustryKey(name, slug);
+  const tokens = industryTokens(key);
+  return (
+    includesAny(key, "hospitality_food", "hospitality_and_food") ||
+    (hasToken(tokens, "hospitality") && hasToken(tokens, "food"))
+  );
+}
+
 /** Map industry slug/name to a Lucide icon for the WA survey wizard. */
 export function waIndustryIcon(name?: string, slug?: string): LucideIcon {
   const key = normalizeIndustryKey(name, slug);
   const tokens = industryTokens(key);
   if (!key) return Briefcase;
+
+  if (isHospitalityFoodIndustry(name, slug)) {
+    return Hotel;
+  }
 
   if (
     includesAny(key, "dental", "dentist", "orthodont") ||
@@ -56,8 +71,22 @@ export function waIndustryIcon(name?: string, slug?: string): LucideIcon {
   }
 
   if (
-    includesAny(key, "healthcare", "health", "medical", "clinic", "hospital", "pharmacy", "nhs") ||
-    hasToken(tokens, "healthcare", "health", "medical", "clinic", "hospital", "gp", "pharmacy", "nhs")
+    includesAny(key, "hospitality", "hotel", "accommodation", "travel", "resort", "lettings") ||
+    hasToken(tokens, "hospitality", "hotel", "accommodation", "travel", "resort", "lettings")
+  ) {
+    return Hotel;
+  }
+
+  if (
+    includesAny(key, "restaurant", "food", "cafe", "coffee", "pub", "bar", "catering") ||
+    hasToken(tokens, "restaurant", "food", "cafe", "coffee", "pub", "bar", "catering")
+  ) {
+    return UtensilsCrossed;
+  }
+
+  if (
+    hasToken(tokens, "healthcare", "health", "medical", "clinic", "hospital", "gp", "pharmacy", "nhs") ||
+    includesAny(key, "healthcare", "medical", "clinical", "hospital", "pharmacy", "nhs")
   ) {
     return Stethoscope;
   }
@@ -74,20 +103,6 @@ export function waIndustryIcon(name?: string, slug?: string): LucideIcon {
     hasToken(tokens, "fitness", "gym", "sport", "wellness", "yoga", "pilates")
   ) {
     return Dumbbell;
-  }
-
-  if (
-    includesAny(key, "restaurant", "food", "cafe", "coffee", "pub", "bar", "catering") ||
-    hasToken(tokens, "restaurant", "food", "cafe", "coffee", "pub", "bar", "catering")
-  ) {
-    return UtensilsCrossed;
-  }
-
-  if (
-    includesAny(key, "hospitality", "hotel", "accommodation", "travel", "resort", "lettings") ||
-    hasToken(tokens, "hospitality", "hotel", "accommodation", "travel", "resort", "lettings")
-  ) {
-    return Building2;
   }
 
   if (
@@ -159,4 +174,24 @@ export function waIndustryIcon(name?: string, slug?: string): LucideIcon {
   }
 
   return Briefcase;
+}
+
+type WaIndustryIconProps = {
+  name?: string;
+  slug?: string;
+  className?: string;
+};
+
+/** Renders hotel + food icons for Hospitality & food; otherwise a single industry icon. */
+export function WaIndustryIcon({ name, slug, className }: WaIndustryIconProps) {
+  if (isHospitalityFoodIndustry(name, slug)) {
+    return (
+      <span className="inline-flex items-center gap-0.5" aria-hidden>
+        <Hotel className={className} />
+        <UtensilsCrossed className={className} />
+      </span>
+    );
+  }
+  const Icon = waIndustryIcon(name, slug);
+  return <Icon className={className} aria-hidden />;
 }

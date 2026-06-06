@@ -7,7 +7,8 @@ import { ChannelPicker } from "@/components/create-wizard";
 import { SurveyPhoneWizard } from "@/components/create-wizard/survey-phone-wizard";
 import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
 import { pageCountFromSelectedTypes } from "@/components/create-wizard/survey-wa-template-step";
-import { apiFetch, ApiError, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
+import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
+import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
 import {
   useCreateServiceOrder,
   useGenerateWaSurvey,
@@ -22,6 +23,11 @@ import {
 
 export const Route = createFileRoute("/_app/surveys/new")({
   head: () => ({ meta: [{ title: "Create survey — VoxBulk" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    channel:
+      search.channel === "whatsapp" ? ("whatsapp" as const) : search.channel === "phone" ? ("phone" as const) : undefined,
+    industry_slug: typeof search.industry_slug === "string" ? search.industry_slug.trim() : undefined,
+  }),
   component: CreateSurvey,
 });
 
@@ -32,25 +38,10 @@ const PAGE_COUNT_TO_LENGTH: Record<3 | 4 | 5 | 6, "short" | "standard" | "detail
   6: "detailed",
 };
 
-function formatGenerateError(e: unknown): string {
-  if (e instanceof ApiError) {
-    const root = e.data && typeof e.data === "object" ? (e.data as Record<string, unknown>) : null;
-    const detail = root?.detail;
-    if (detail && typeof detail === "object" && detail !== null) {
-      const errors = (detail as { errors?: unknown }).errors;
-      if (Array.isArray(errors) && errors[0]) return String(errors[0]);
-      const message = (detail as { message?: unknown }).message;
-      if (message) return String(message);
-    }
-    if (typeof detail === "string" && detail.trim()) return detail;
-    if (e.message && !/^\d{3}\s/.test(e.message)) return e.message;
-  }
-  return e instanceof Error ? e.message : "Could not generate survey";
-}
-
 type Channel = "whatsapp" | "phone" | null;
 
 function CreateSurvey() {
+  const { channel: channelSearch, industry_slug: industrySlugSearch } = Route.useSearch();
   const packagesQ = useSurveyPackages();
   const createM = useCreateServiceOrder();
   const patchM = usePatchServiceOrder();
@@ -70,6 +61,7 @@ function CreateSurvey() {
   const [autoSelectSteps, setAutoSelectSteps] = React.useState(true);
   const [manualMiddleRoles, setManualMiddleRoles] = React.useState<string[]>([]);
   const [generating, setGenerating] = React.useState(false);
+  const [generateErrors, setGenerateErrors] = React.useState<string[]>([]);
   const waIndustriesQ = useWaSurveyIndustries();
   const waTypesQ = useWaSurveyTypes(industryId || null);
   const systemTemplatesQ = useWaSurveySystemTemplates();
@@ -126,9 +118,26 @@ function CreateSurvey() {
   };
 
   React.useEffect(() => {
+    if (channelSearch === "whatsapp" || channelSearch === "phone") setChannel(channelSearch);
+  }, [channelSearch]);
+
+  React.useEffect(() => {
     const industries = (waIndustriesQ.data?.industries || []) as Array<Record<string, unknown>>;
+    if (!industrySlugSearch || !industries.length) return;
+    const needle = industrySlugSearch.toLowerCase();
+    const match = industries.find((ind) => {
+      const slug = String(ind.slug || ind.industry_slug || "").toLowerCase();
+      const name = String(ind.name || ind.label || "").toLowerCase();
+      return slug === needle || name === needle || name.includes(needle.replace(/_/g, " "));
+    });
+    if (match) setIndustryId(String(match.id));
+  }, [waIndustriesQ.data, industrySlugSearch]);
+
+  React.useEffect(() => {
+    const industries = (waIndustriesQ.data?.industries || []) as Array<Record<string, unknown>>;
+    if (industrySlugSearch) return;
     if (industries[0] && !industryId) setIndustryId(String(industries[0].id));
-  }, [waIndustriesQ.data, industryId]);
+  }, [waIndustriesQ.data, industryId, industrySlugSearch]);
 
   React.useEffect(() => {
     setSelectedServiceTagIds([]);
@@ -137,6 +146,7 @@ function CreateSurvey() {
     setThankYouTemplateId("");
     setSelectedServiceTemplateIds({});
     setApproved(false);
+    setGenerateErrors([]);
   }, [industryId]);
 
   React.useEffect(() => {
@@ -309,10 +319,12 @@ function CreateSurvey() {
 
   const onGenerateWaSurvey = async (): Promise<boolean> => {
     if (serviceTagErrors.length) {
-      toast.error(serviceTagErrors[0]);
+      setGenerateErrors(serviceTagErrors);
+      toast.error(serviceTagErrors[0], { duration: 12000 });
       return false;
     }
     setGenerating(true);
+    setGenerateErrors([]);
     try {
       const typeOrder = orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds;
       const selectedServiceTemplates = Object.fromEntries(
@@ -370,10 +382,13 @@ function CreateSurvey() {
         },
       });
       setApproved(true);
+      setGenerateErrors([]);
       toast.success("Survey generated from approved WhatsApp template library");
       return true;
     } catch (e) {
-      toast.error(formatGenerateError(e));
+      const lines = parseWaSurveyGenerateErrors(e);
+      setGenerateErrors(lines);
+      toast.error(formatWaSurveyGenerateError(e), { duration: 12000 });
       return false;
     } finally {
       setGenerating(false);
@@ -508,6 +523,7 @@ function CreateSurvey() {
           approved={approved}
           setApproved={setApproved}
           generating={generating}
+          generateErrors={generateErrors}
           onGenerateWaSurvey={onGenerateWaSurvey}
           waPreview={waPreview}
           startAt={startAt}

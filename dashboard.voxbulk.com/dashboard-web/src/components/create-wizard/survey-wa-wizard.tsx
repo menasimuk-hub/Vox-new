@@ -1,5 +1,6 @@
 import * as React from "react";
 import {
+  AlertCircle,
   Briefcase,
   Check,
   Download,
@@ -22,6 +23,7 @@ import {
   WaDraggableTypeGroup,
   WaTemplatePickerSection,
 } from "@/components/create-wizard/survey-wa-template-step";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,7 +32,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { waIndustryIcon } from "@/lib/wa-industry-icon";
+import { WaIndustryIcon } from "@/lib/wa-industry-icon";
 
 const WA_STEPS: WizardStepDef[] = [
   { id: 1, title: "Industry", subtitle: "Your sector", icon: Briefcase },
@@ -87,6 +89,7 @@ export type SurveyWaWizardProps = {
   approved: boolean;
   setApproved: (v: boolean) => void;
   generating: boolean;
+  generateErrors: string[];
   onGenerateWaSurvey: () => Promise<boolean>;
   waPreview: Record<string, unknown> | null;
   startAt: string;
@@ -112,8 +115,14 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const [draggedServiceIndex, setDraggedServiceIndex] = React.useState<number | null>(null);
   const [dragOverServiceIndex, setDragOverServiceIndex] = React.useState<number | null>(null);
   const [contactsSkipped, setContactsSkipped] = React.useState(false);
+  const generateErrorRef = React.useRef<HTMLDivElement>(null);
 
   const selectedIndustry = props.industries.find((i) => String(i.id) === props.industryId);
+
+  React.useEffect(() => {
+    if (!props.generateErrors.length) return;
+    generateErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [props.generateErrors]);
   const welcomeTemplateRows = React.useMemo(
     () => mapSystemTemplates(props.welcomeTemplates),
     [props.welcomeTemplates],
@@ -203,7 +212,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                     const id = String(ind.id);
                     const active = props.industryId === id;
                     const industryName = String(ind.name || ind.label || "");
-                    const IndustryIcon = waIndustryIcon(industryName, String(ind.slug || ind.industry_slug || ""));
+                    const industrySlug = String(ind.slug || ind.industry_slug || "");
                     return (
                       <button
                         key={id}
@@ -220,7 +229,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                             active ? "bg-primary text-primary-foreground ring-primary/40" : "bg-primary/10 text-primary ring-primary/20",
                           )}
                         >
-                          <IndustryIcon className="size-5" />
+                          <WaIndustryIcon name={industryName} slug={industrySlug} className="size-5" />
                         </div>
                         <p className="text-sm font-semibold leading-tight">{industryName || "Industry"}</p>
                         {active ? (
@@ -323,7 +332,17 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 </div>
               )}
               {props.serviceTagErrors.length ? (
-                <p className="text-xs text-destructive">{props.serviceTagErrors[0]}</p>
+                <Alert variant="destructive">
+                  <AlertCircle className="size-4" />
+                  <AlertTitle>Fix survey types before continuing</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc space-y-1 pl-4">
+                      {props.serviceTagErrors.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
               ) : (
                 <p className="text-xs text-muted-foreground">{props.selectedServiceTagIds.length} of 4 selected</p>
               )}
@@ -340,6 +359,20 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               <CardDescription>Pick welcome & thanks templates, then one survey template per type. Drag to reorder the flow.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {props.generateErrors.length ? (
+                <Alert ref={generateErrorRef} variant="destructive" className="border-2 bg-destructive/10">
+                  <AlertCircle className="size-4" />
+                  <AlertTitle>Survey could not be generated</AlertTitle>
+                  <AlertDescription>
+                    <p className="mb-2 font-medium">Fix the issues below, then click Next again:</p>
+                    <ul className="list-disc space-y-1.5 pl-4">
+                      {props.generateErrors.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
                   Selected:{" "}
