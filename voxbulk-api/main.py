@@ -220,10 +220,12 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("local demo bootstrap failed — create users manually")
     logger.info("app_starting", extra={"env": settings.env, "app_name": settings.app_name})
+    # TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250 — boot instrumentation (see runtime_build_info)
     try:
-        from app.core.runtime_build_info import log_startup_build_info
+        from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_startup_build_info
 
         log_startup_build_info(logger)
+        logger.info("%s main_lifespan_startup_complete", WEBHOOK_BUILD_MARKER)
     except Exception:
         logger.exception("runtime_build_info_failed")
     try:
@@ -369,13 +371,33 @@ def health():
 
 @app.get("/health/build", tags=["health"])
 def health_build():
-    """Deploy verification — git SHA, markers on disk/in memory, webhook handler chain."""
-    from app.core.runtime_build_info import get_deploy_verification
+    """Deploy verification — explicit marker flags on disk and in the running process."""
+    from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, get_deploy_verification
 
     data = get_deploy_verification()
     return {
         "status": "ok" if data.get("deploy_ok") else "stale_or_partial",
-        **data,
+        "webhook_build_marker": WEBHOOK_BUILD_MARKER,
+        "git_sha": data.get("git_sha"),
+        "git_branch": data.get("git_branch"),
+        "built_at": data.get("built_at"),
+        "hostname": data.get("hostname"),
+        "pid": data.get("pid"),
+        "api_root": data.get("api_root"),
+        "boot_marker_present_on_disk": data.get("boot_marker_present_on_disk"),
+        "router_marker_present_on_disk": data.get("router_marker_present_on_disk"),
+        "service_marker_present_on_disk": data.get("service_marker_present_on_disk"),
+        "canonical_marker_present_on_disk": data.get("canonical_marker_present_on_disk"),
+        "boot_marker_loaded": data.get("boot_marker_loaded"),
+        "router_marker_loaded": data.get("router_marker_loaded"),
+        "service_marker_loaded": data.get("service_marker_loaded"),
+        "boot_marker_executed_in_process": data.get("boot_marker_executed_in_process"),
+        "webhook_marker_logged_count": data.get("webhook_marker_logged_count"),
+        "session_code_present_on_disk": data.get("session_code_present_on_disk"),
+        "session_code_loaded": data.get("session_code_loaded"),
+        "deploy_ok": data.get("deploy_ok"),
+        "handler_chain": data.get("handler_chain"),
+        "marker_site_paths": data.get("marker_site_paths"),
     }
 
 

@@ -238,6 +238,7 @@ def _message_channel(msg_type: str) -> str:
 class TelnyxInboundMessagingService:
     @staticmethod
     def handle_webhook(db: Session, payload: dict[str, Any], *, header_org_id: str | None = None) -> dict[str, Any]:
+        # TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250 — service inbound instrumentation
         from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_webhook_entry
 
         data = payload.get("data") if isinstance(payload.get("data"), dict) else payload

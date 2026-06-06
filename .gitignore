@@ -21,4 +21,5 @@ venv/
 delet-me/
 voxbulk-api/data/cv_intake/
 voxbulk-api/data/org_logos/
+voxbulk-api/build_info.json
 dashboard.voxbulk.com/dashboard-web/.lovable/

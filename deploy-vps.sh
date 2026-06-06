@@ -284,9 +284,15 @@ import json
 from pathlib import Path
 p = Path("/tmp/voxbulk-health-build.json")
 data = json.loads(p.read_text())
-print("health/build:", json.dumps({k: data.get(k) for k in (
-    "status", "git_sha", "git_branch", "built_at", "deploy_ok", "disk_markers_ok", "memory_markers_ok", "webhook_build_marker"
-)}, indent=2))
+keys = (
+    "status", "git_sha", "git_branch", "built_at", "deploy_ok",
+    "boot_marker_present_on_disk", "router_marker_present_on_disk", "service_marker_present_on_disk",
+    "boot_marker_loaded", "router_marker_loaded", "service_marker_loaded",
+    "boot_marker_executed_in_process", "webhook_build_marker",
+)
+print("health/build:", json.dumps({k: data.get(k) for k in keys}, indent=2))
+if data.get("wa_survey_debug_markers") is not None:
+    raise SystemExit("stale /health/build handler — wa_survey_debug_markers should not exist")
 if not data.get("deploy_ok"):
     raise SystemExit(1)
 PY
