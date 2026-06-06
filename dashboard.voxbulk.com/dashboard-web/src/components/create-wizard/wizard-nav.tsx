@@ -16,7 +16,6 @@ type WizardNavProps = {
   onSkip?: () => void;
   skipLabel?: string;
   leftActions?: React.ReactNode;
-  hideFinishOnLastStep?: boolean;
 };
 
 export function WizardNav({
@@ -34,7 +33,6 @@ export function WizardNav({
   onSkip,
   skipLabel = "Skip for now",
   leftActions,
-  hideFinishOnLastStep,
 }: WizardNavProps) {
   return (
     <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -59,7 +57,7 @@ export function WizardNav({
           <Button className="gap-1.5" onClick={onNext} disabled={nextDisabled}>
             Next <ChevronRight className="size-4" />
           </Button>
-        ) : hideFinishOnLastStep ? null : (
+        ) : (
           <Button className="gap-1.5" onClick={onFinish} disabled={finishDisabled}>
             <Rocket className="size-4" /> {finalLabel}
           </Button>

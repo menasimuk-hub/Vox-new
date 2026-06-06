@@ -75,10 +75,19 @@ import {
 
 export const Route = createFileRoute("/_app/interviews/new")({
   head: () => ({ meta: [{ title: "Create interview — VoxBulk" }] }),
-  validateSearch: (search: Record<string, unknown>) => ({
-    new: search.new === "1" || search.new === 1 || search.new === true,
-    order_id: typeof search.order_id === "string" ? search.order_id : undefined,
-  }),
+  validateSearch: (search: Record<string, unknown>) => {
+    const orderId = typeof search.order_id === "string" ? search.order_id.trim() : "";
+    const rawNew = search.new;
+    const explicitNew =
+      rawNew === "1" ||
+      rawNew === 1 ||
+      rawNew === true ||
+      rawNew === "true";
+    return {
+      new: orderId ? false : rawNew === undefined ? true : explicitNew,
+      order_id: orderId || undefined,
+    };
+  },
   component: CreateInterview,
 });
 
@@ -402,14 +411,18 @@ function CreateInterview() {
   const createStartedRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (draftOrderId || !wantNew) return;
+    if (draftOrderId) return;
+    if (!wantNew) return;
     if (createStartedRef.current || createDraftM.isPending || createDraftM.isSuccess) return;
     createStartedRef.current = true;
     void createDraftM
       .mutateAsync()
       .then((payload) => {
         const id = payload?.order?.id;
-        if (!id) return;
+        if (!id) {
+          createStartedRef.current = false;
+          return;
+        }
         qc.setQueryData([...queryKeys.interviewDraft, id], payload);
         void navigate({
           to: "/interviews/new",
@@ -420,7 +433,7 @@ function CreateInterview() {
       .catch(() => {
         createStartedRef.current = false;
       });
-  }, [createDraftM, createDraftM.isPending, createDraftM.isSuccess, draftOrderId, navigate, qc, wantNew]);
+  }, [createDraftM, draftOrderId, navigate, qc, wantNew]);
 
   const orderStatus = String(order?.status || "").toLowerCase();
   const campaignReadOnly = isInterviewCampaignReadOnly(orderStatus);
@@ -1581,14 +1594,16 @@ function CreateInterview() {
         </div>
       );
     }
-    if (!wantNew) {
+    if (!wantNew && !draftOrderId) {
       return (
         <div className="flex w-full flex-col gap-6">
           <PageHeader eyebrow="Interviews" title="Create new interview" description="Start a fresh AI phone screening campaign." />
           <Card>
             <CardContent className="flex flex-col gap-4 p-6">
               <p className="text-sm text-muted-foreground">No draft in progress. Create a new interview when you are ready.</p>
-              <Button asChild className="w-fit"><Link to="/interviews/new" search={{ new: true }}>Create new interview</Link></Button>
+              <Button asChild className="w-fit">
+                <Link to="/interviews/new" search={{ new: true }}>Create new interview</Link>
+              </Button>
             </CardContent>
           </Card>
         </div>
