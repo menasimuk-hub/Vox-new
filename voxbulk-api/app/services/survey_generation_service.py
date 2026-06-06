@@ -61,7 +61,6 @@ class SurveyGenerationService:
             raise ValueError("Anonymous surveys are not enabled for this survey type")
 
         length_key = str(length or survey_type.default_length or "standard").strip().lower()
-        count = page_count_from_length(page_count if page_count is not None else length_key)
 
         welcome_template_id = None
         thank_you_template_id = None
@@ -76,9 +75,12 @@ class SurveyGenerationService:
             ordered_middle_template_ids = [
                 int(x) for x in (builder_config.get("ordered_middle_template_ids") or []) if x is not None
             ]
-            if ordered_middle_template_ids:
-                count = builder_page_count(len(ordered_middle_template_ids))
-            elif builder_config.get("builder_page_count"):
+
+        if ordered_middle_template_ids:
+            count = builder_page_count(len(ordered_middle_template_ids))
+        else:
+            count = page_count_from_length(page_count if page_count is not None else length_key)
+            if builder_config and selected_survey_type_ids:
                 count = builder_page_count(len(selected_survey_type_ids))
 
         try:

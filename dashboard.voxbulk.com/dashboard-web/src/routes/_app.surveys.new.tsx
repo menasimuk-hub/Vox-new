@@ -320,12 +320,16 @@ function CreateSurvey() {
           .filter((typeId) => selectedServiceTemplateIds[typeId])
           .map((typeId) => [typeId, Number(selectedServiceTemplateIds[typeId])]),
       );
+      const selectedMiddleTemplateIds = typeOrder
+        .map((typeId) => Number(selectedServiceTemplateIds[typeId]))
+        .filter((id) => Number.isFinite(id) && id > 0);
       const effectivePageCount = pageCountFromSelectedTypes(typeOrder.length);
       const generated = await generateWaM.mutateAsync({
         industry_id: industryId,
         survey_type_id: primarySurveyTypeId,
         selected_survey_type_ids: typeOrder,
         selected_service_template_ids: selectedServiceTemplates,
+        selected_middle_template_ids: selectedMiddleTemplateIds,
         welcome_template_id: Number(welcomeTemplateId),
         thank_you_template_id: Number(thankYouTemplateId),
         variant: surveyVariant,

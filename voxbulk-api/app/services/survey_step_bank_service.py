@@ -271,7 +271,11 @@ def build_page_roles(
         middle = auto_select_middle_roles(count, bank_by_role)
     need = count - 2
     if len(middle) < need:
-        raise ValueError(f"Not enough middle steps in bank — need {need}, have {len(middle)}")
+        raise ValueError(
+            f"Survey needs {need} question template(s) in the flow but only {len(middle)} could be loaded. "
+            f"Pick one library template for each survey type in Step 3 (you need {need} question step(s) for a "
+            f"{count}-page survey). If you already did, restart or redeploy the API — an outdated server causes this."
+        )
     middle = middle[:need]
     return ["start", *middle, "completion"]
 

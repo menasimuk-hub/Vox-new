@@ -100,6 +100,25 @@ def test_validate_ok_with_templates(db):
     db.add(tpl)
     db.flush()
     db.add(SurveyTypeTemplate(survey_type_id=st.id, template_id=tpl.id, industry_id=industry.id))
+    middle_tpl = TelnyxWhatsappTemplate(
+        telnyx_record_id=f"local-{uuid.uuid4().hex}",
+        template_id=f"local-{uuid.uuid4().hex}",
+        name=f"voxbulk_survey_{st.slug}_rating",
+        language="en_US",
+        category="MARKETING",
+        status="APPROVED",
+        survey_type_id=st.id,
+        industry_id=industry.id,
+        step_role="rating",
+        active_for_survey=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(middle_tpl)
+    db.flush()
+    db.add(
+        SurveyTypeTemplate(survey_type_id=st.id, template_id=middle_tpl.id, industry_id=industry.id)
+    )
     welcome_types = db.execute(
         select(SurveyType).where(SurveyType.system_template_kind == "welcome")
     ).scalars().all()
@@ -176,6 +195,7 @@ def test_validate_ok_with_templates(db):
         selected_survey_type_ids=[st.id],
         welcome_template_id=welcome_tpl.id,
         thank_you_template_id=thank_tpl.id,
+        selected_service_template_ids={st.id: middle_tpl.id},
         require_approved=True,
     )
     assert result["ok"] is True

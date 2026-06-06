@@ -51,8 +51,11 @@ class SurveyBuilderValidationService:
                     if item.get("template_id") is not None
                 }
                 return [(type_id, by_type[type_id]) for type_id in ids if type_id in by_type]
-            if len(raw) == len(ids):
-                return [(type_id, int(template_id)) for type_id, template_id in zip(ids, raw)]
+            ints = [int(x) for x in raw if x is not None and str(x).strip()]
+            if ints and not ids:
+                return [(str(i), tid) for i, tid in enumerate(ints)]
+            if len(ints) == len(ids):
+                return [(type_id, template_id) for type_id, template_id in zip(ids, ints)]
         return []
 
     @staticmethod
@@ -137,36 +140,42 @@ class SurveyBuilderValidationService:
                 continue
             if require_approved and str(tpl.status or "").upper() not in {"APPROVED", "LOCAL_DRAFT"}:
                 errors.append(f"{label} template is not ready yet (status: {tpl.status}).")
-        middle_pairs = SurveyBuilderValidationService.parse_middle_template_pairs(ids, selected_service_template_ids)
-        if selected_service_template_ids is not None:
-            if len(middle_pairs) < len(ids):
-                missing = [tid for tid in ids if tid not in {pair[0] for pair in middle_pairs}]
-                for type_id in missing:
+        middle_pairs: list[tuple[str, int]] = []
+        if welcome_template_id and thank_you_template_id and ids:
+            if selected_service_template_ids is None:
+                errors.append("Select a library template for each survey type in Step 3.")
+            else:
+                middle_pairs = SurveyBuilderValidationService.parse_middle_template_pairs(
+                    ids, selected_service_template_ids
+                )
+                if len(middle_pairs) < len(ids):
+                    missing = [tid for tid in ids if tid not in {pair[0] for pair in middle_pairs}]
+                    for type_id in missing:
+                        st = db.get(SurveyType, type_id)
+                        label = st.name if st is not None else type_id
+                        errors.append(f"Select a template for \"{label}\".")
+                for type_id, tpl_id in middle_pairs:
                     st = db.get(SurveyType, type_id)
-                    label = st.name if st is not None else type_id
-                    errors.append(f"Select a template for \"{label}\".")
-            for type_id, tpl_id in middle_pairs:
-                st = db.get(SurveyType, type_id)
-                tpl = db.get(TelnyxWhatsappTemplate, tpl_id)
-                if tpl is None or not tpl.active_for_survey:
-                    errors.append(f"Template not found for \"{st.name if st else type_id}\".")
-                    continue
-                linked = db.execute(
-                    select(SurveyTypeTemplate).where(
-                        SurveyTypeTemplate.survey_type_id == type_id,
-                        SurveyTypeTemplate.template_id == tpl_id,
-                    )
-                ).scalar_one_or_none()
-                if linked is None:
-                    errors.append(f"Template for \"{st.name if st else type_id}\" is not linked to that survey type.")
-                    continue
-                role = str(tpl.step_role or "").strip().lower()
-                if role in {"start", "completion", "intro", "closing"}:
-                    errors.append(
-                        f"\"{st.name if st else type_id}\" template must be a survey question, not welcome/thank-you."
-                    )
-        else:
-            middle_pairs = []
+                    tpl = db.get(TelnyxWhatsappTemplate, tpl_id)
+                    if tpl is None or not tpl.active_for_survey:
+                        errors.append(f"Template not found for \"{st.name if st else type_id}\".")
+                        continue
+                    linked = db.execute(
+                        select(SurveyTypeTemplate).where(
+                            SurveyTypeTemplate.survey_type_id == type_id,
+                            SurveyTypeTemplate.template_id == tpl_id,
+                        )
+                    ).scalar_one_or_none()
+                    if linked is None:
+                        errors.append(
+                            f"Template for \"{st.name if st else type_id}\" is not linked to that survey type."
+                        )
+                        continue
+                    role = str(tpl.step_role or "").strip().lower()
+                    if role in {"start", "completion", "intro", "closing"}:
+                        errors.append(
+                            f"\"{st.name if st else type_id}\" template must be a survey question, not welcome/thank-you."
+                        )
         tell_us_more_id = None
         if not errors:
             tell_us_more_id = SurveySystemTemplateService.resolve_tell_us_more_template_id(db)

@@ -273,6 +273,23 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 require_approved=False,
             )
             primary_survey_type_id = str(builder_config.get("primary_survey_type_id") or primary_survey_type_id)
+            type_ids = list(builder_config.get("selected_survey_type_ids") or [])
+            if body.get("selected_middle_template_ids"):
+                pairs = SurveyBuilderValidationService.parse_middle_template_pairs(
+                    type_ids,
+                    body.get("selected_middle_template_ids"),
+                )
+                if pairs:
+                    builder_config["ordered_middle_template_ids"] = [tpl_id for _, tpl_id in pairs]
+                    builder_config["builder_page_count"] = len(pairs) + 2
+            elif body.get("selected_service_template_ids") and not builder_config.get("ordered_middle_template_ids"):
+                pairs = SurveyBuilderValidationService.parse_middle_template_pairs(
+                    type_ids,
+                    body.get("selected_service_template_ids"),
+                )
+                if pairs:
+                    builder_config["ordered_middle_template_ids"] = [tpl_id for _, tpl_id in pairs]
+                    builder_config["builder_page_count"] = len(pairs) + 2
         except SurveyBuilderValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
