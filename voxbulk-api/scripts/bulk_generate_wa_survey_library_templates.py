@@ -9,11 +9,15 @@ Saved templates are LOCAL_DRAFT in the DB under the correct survey type. No Teln
 
 Usage:
   cd voxbulk-api
-  python scripts/bulk_generate_wa_survey_library_templates.py --dry-run
-  python scripts/bulk_generate_wa_survey_library_templates.py --limit 3
-  python scripts/bulk_generate_wa_survey_library_templates.py --industry-slug hospitality_food
-  python scripts/bulk_generate_wa_survey_library_templates.py --survey-type-slug food_quality
-  python scripts/bulk_generate_wa_survey_library_templates.py --step-role yes_no --overwrite
+  source .venv/bin/activate   # VPS: required — plain python3 may miss dependencies
+  python3 scripts/bulk_generate_wa_survey_library_templates.py --dry-run
+  python3 scripts/bulk_generate_wa_survey_library_templates.py --limit 3
+  python3 scripts/bulk_generate_wa_survey_library_templates.py --industry-slug hospitality_food
+  python3 scripts/bulk_generate_wa_survey_library_templates.py --survey-type-slug food_quality
+  python3 scripts/bulk_generate_wa_survey_library_templates.py --step-role yes_no --overwrite
+
+  VPS one-liner (after git pull):
+  cd /www/voxbulk/voxbulk-api && .venv/bin/python3 scripts/bulk_generate_wa_survey_library_templates.py --dry-run
 """
 
 from __future__ import annotations
