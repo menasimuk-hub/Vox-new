@@ -8500,6 +8500,14 @@ input[type="radio"] {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--grn, #16a34a) 35%, transparent);
 }
 
+.waSurveySystemTemplateCardMuted {
+  opacity: 0.72;
+}
+
+.waSurveySystemTemplateCardMuted .waSurveySystemTemplateTitle {
+  color: var(--muted);
+}
+
 .waSurveySystemTemplateViewMeta {
   display: flex;
   flex-wrap: wrap;

@@ -517,6 +517,37 @@ def save_template_draft(
     }
 
 
+@router.post("/templates/{template_id}/set-active")
+def set_template_active_for_survey(
+    template_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Hide/show template in survey flows. Hidden templates can still sync to Telnyx."""
+    row = SurveyWhatsappTemplateService.get_template(db, template_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    body = payload or {}
+    if "active" in body:
+        active = bool(body.get("active"))
+    elif "active_for_survey" in body:
+        active = bool(body.get("active_for_survey"))
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "Provide active or active_for_survey (boolean)."},
+        )
+    updated = SurveyWhatsappTemplateService.save_draft(db, row, {"active_for_survey": active})
+    tpl = survey_template_to_dict(updated)
+    message = (
+        "Template enabled for surveys."
+        if active
+        else "Template hidden from surveys — you can still sync it to Telnyx."
+    )
+    return {"ok": True, "message": message, "template": tpl}
+
+
 @router.post("/templates/{template_id}/refresh-telnyx-status")
 def refresh_template_telnyx_status(
     template_id: int,

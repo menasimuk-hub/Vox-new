@@ -142,6 +142,7 @@ function applyTemplateDraft(setDraft, tpl) {
   setDraft({
     display_name: tpl?.display_name || tpl?.name,
     category: tpl?.category || 'MARKETING',
+    active_for_survey: tpl?.active_for_survey !== false,
     body: bodyTextFromComponents(components),
     footer: footerTextFromComponents(components) || tpl?.footer || '',
     components,
@@ -321,6 +322,7 @@ export default function WaSurveyTemplateModal({
         body: JSON.stringify({
           display_name: draft.display_name,
           category: draft.category,
+          active_for_survey: draft.active_for_survey !== false,
           components,
           example_values: ensureExampleValues(draft.body, '', draft.example_values),
         }),
@@ -359,6 +361,28 @@ export default function WaSurveyTemplateModal({
       onSaved?.()
     } catch (e) {
       showError(e, 'Could not save mappings')
+    } finally {
+      setWorking('')
+    }
+  }
+
+  const toggleActiveForSurvey = async () => {
+    if (!templateId || !template) return
+    const nextActive = template.active_for_survey === false
+    setWorking('active')
+    clearFeedback()
+    try {
+      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/set-active`, {
+        method: 'POST',
+        body: JSON.stringify({ active: nextActive }),
+      })
+      setTemplate(data.template)
+      setDraft((current) => (current ? { ...current, active_for_survey: nextActive } : current))
+      setIsDirty(false)
+      showToast(data.message || (nextActive ? 'Template enabled.' : 'Template hidden from surveys.'))
+      onSaved?.(data.template || data)
+    } catch (e) {
+      showError(e, 'Could not update template visibility')
     } finally {
       setWorking('')
     }
@@ -487,6 +511,20 @@ export default function WaSurveyTemplateModal({
             </div>
           </div>
           <div className="waTplEd-topbar-actions">
+            <button
+              type="button"
+              className={`waTplEd-tb-btn${template?.active_for_survey === false ? ' muted-btn' : ''}`}
+              onClick={() => void toggleActiveForSurvey()}
+              disabled={working === 'active' || loading}
+              title={template?.active_for_survey === false ? 'Show in survey flows again' : 'Hide from surveys — Telnyx sync still works'}
+            >
+              <i className={template?.active_for_survey === false ? 'ti ti-eye' : 'ti ti-eye-off'} />
+              {working === 'active'
+                ? 'Updating…'
+                : template?.active_for_survey === false
+                  ? 'Enable for surveys'
+                  : 'Hide from surveys'}
+            </button>
             <button
               type="button"
               className={`waTplEd-tb-btn sync-btn${syncing ? ' syncing' : ''}`}

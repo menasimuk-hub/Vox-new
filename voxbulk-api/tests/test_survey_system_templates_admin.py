@@ -167,3 +167,18 @@ def test_generate_with_openai_repairs_sparse_openai_rows(db, monkeypatch):
     assert first["valid"] is True
     assert first["template"]["body"]
     assert first["template"]["example_values"]
+
+
+def test_hide_template_sets_active_for_survey_false(db):
+    SurveySystemTemplateService.ensure_system_survey_types(db)
+    result = SurveySystemTemplateService.create_draft(db, kind="welcome", payload={"display_name": "Warm welcome"})
+    tpl_id = result["template"]["id"]
+    row = SurveyWhatsappTemplateService.get_template(db, tpl_id)
+    assert row is not None
+    assert row.active_for_survey is True
+
+    updated = SurveyWhatsappTemplateService.save_draft(db, row, {"active_for_survey": False})
+    assert updated.active_for_survey is False
+
+    restored = SurveyWhatsappTemplateService.save_draft(db, updated, {"active_for_survey": True})
+    assert restored.active_for_survey is True

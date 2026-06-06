@@ -196,6 +196,24 @@ export default function WaSurveySystemTemplates() {
     }
   }
 
+  const toggleTemplateActive = async (tpl) => {
+    const nextActive = tpl.active_for_survey === false
+    setWorking(`active-${tpl.id}`)
+    clearFeedback()
+    try {
+      const result = await apiFetch(`/admin/wa-survey/templates/${encodeURIComponent(tpl.id)}/set-active`, {
+        method: 'POST',
+        body: JSON.stringify({ active: nextActive }),
+      })
+      showOk(result, nextActive ? 'Template enabled.' : 'Template hidden from surveys.')
+      await load()
+    } catch (e) {
+      showError(e, 'Could not update template visibility')
+    } finally {
+      setWorking('')
+    }
+  }
+
   const pushOne = async (tpl) => {
     const catErr = validateCategoryBeforeSync(tpl)
     if (catErr) {
@@ -336,7 +354,7 @@ export default function WaSurveySystemTemplates() {
   const renderSavedCard = (tpl, section) => (
     <article
       key={tpl.id}
-      className={`waSurveySystemTemplateCard${highlightId === tpl.id ? ' waSurveySystemTemplateCardHighlight' : ''}`}
+      className={`waSurveySystemTemplateCard${highlightId === tpl.id ? ' waSurveySystemTemplateCardHighlight' : ''}${tpl.active_for_survey === false ? ' waSurveySystemTemplateCardMuted' : ''}`}
     >
       <div className="waSurveySystemTemplateMain">
         <div className="waSurveySystemTemplateTitleRow">
@@ -351,13 +369,28 @@ export default function WaSurveySystemTemplates() {
           <span className={`pill ${telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}`}>
             {resolveTelnyxSyncLabel(tpl)}
           </span>
-          <span>{tpl.active_for_survey ? 'Active' : 'Inactive'}</span>
+          <span className={`pill ${tpl.active_for_survey === false ? 'muted' : 'ok'}`}>
+            {tpl.active_for_survey === false ? 'Hidden' : 'Active'}
+          </span>
           <span>Updated {formatWhen(tpl.updated_at || tpl.created_at)}</span>
         </div>
       </div>
       <div className="waSurveySystemTemplateActions">
         <button type="button" className="btn sm soft" onClick={() => openView(tpl, section)}>View</button>
         <button type="button" className="btn sm" onClick={() => openEdit(tpl, section)}>Edit</button>
+        <button
+          type="button"
+          className="btn sm soft"
+          disabled={working === `active-${tpl.id}`}
+          onClick={() => void toggleTemplateActive(tpl)}
+          title={tpl.active_for_survey === false ? 'Show in survey flows again' : 'Hide from surveys — Telnyx sync still works'}
+        >
+          {working === `active-${tpl.id}`
+            ? 'Updating…'
+            : tpl.active_for_survey === false
+              ? 'Enable'
+              : 'Hide'}
+        </button>
         <button
           type="button"
           className="btn sm soft"

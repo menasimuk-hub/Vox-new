@@ -224,6 +224,27 @@ export default function WaSurveyTypeEdit() {
     }
   }
 
+  const toggleTemplateActive = async (tpl) => {
+    const templateId = tpl?.id
+    if (templateId == null || templateId === '') return
+    const nextActive = tpl.active_for_survey === false
+    setWorking(`active-${templateId}`)
+    clearFeedback()
+    try {
+      const result = await apiFetch(`/admin/wa-survey/templates/${encodeURIComponent(templateId)}/set-active`, {
+        method: 'POST',
+        body: JSON.stringify({ active: nextActive }),
+      })
+      showOk(result, nextActive ? 'Template enabled.' : 'Template hidden from surveys.')
+      await load()
+      await loadReadiness()
+    } catch (e) {
+      showError(e, 'Could not update template visibility')
+    } finally {
+      setWorking('')
+    }
+  }
+
   const pushOneToTelnyx = async (tpl) => {
     const templateId = tpl?.id
     if (templateId == null || templateId === '') return
@@ -620,6 +641,7 @@ export default function WaSurveyTypeEdit() {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Status</th>
                   <th>Category</th>
                   <th>Mapping</th>
                   <th>Shared by</th>
@@ -631,8 +653,13 @@ export default function WaSurveyTypeEdit() {
               </thead>
               <tbody>
                 {filteredTemplates.length ? filteredTemplates.map((tpl) => (
-                  <tr key={tpl.id}>
+                  <tr key={tpl.id} className={tpl.active_for_survey === false ? 'waIndustryRowMuted' : ''}>
                     <td>{tpl.display_name || tpl.name}</td>
+                    <td>
+                      <span className={`pill ${tpl.active_for_survey === false ? 'muted' : 'ok'}`}>
+                        {tpl.active_for_survey === false ? 'Hidden' : 'Active'}
+                      </span>
+                    </td>
                     <td>{tpl.category || '—'}</td>
                     <td>{mappingLabel(tpl)}</td>
                     <td>{tpl.linked_survey_type_count || 1} type(s)</td>
@@ -658,6 +685,19 @@ export default function WaSurveyTypeEdit() {
                         <button
                           type="button"
                           className="btn sm soft"
+                          disabled={working === `active-${tpl.id}`}
+                          onClick={() => void toggleTemplateActive(tpl)}
+                          title={tpl.active_for_survey === false ? 'Show in survey flows again' : 'Hide from surveys — Telnyx sync still works'}
+                        >
+                          {working === `active-${tpl.id}`
+                            ? 'Updating…'
+                            : tpl.active_for_survey === false
+                              ? 'Enable'
+                              : 'Hide'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm soft"
                           disabled={working === `push-${tpl.id}`}
                           onClick={() => pushOneToTelnyx(tpl)}
                           title="Push only this template to Telnyx"
@@ -677,7 +717,7 @@ export default function WaSurveyTypeEdit() {
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={8} className="muted">
+                    <td colSpan={9} className="muted">
                       {templates.length
                         ? 'No templates match your search.'
                         : 'No templates linked yet — add a standard draft or sync from Telnyx.'}
