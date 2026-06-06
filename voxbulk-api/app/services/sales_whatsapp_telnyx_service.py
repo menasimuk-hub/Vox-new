@@ -168,7 +168,8 @@ def build_telnyx_components(
     if template_key == "interview_email_sent":
         role = str(variables.get("role") or "Interview").strip()
         company = str(variables.get("company_name") or "VOXBULK").strip()
-        return [_body_params([first, role, company])]
+        email = str(variables.get("careers_email") or variables.get("email") or "careers@voxbulk.com").strip()
+        return [_body_params([first, role, company, email])]
 
     if template_key == "interview_booking_confirm":
         role = str(variables.get("role") or variables.get("offer_line") or "Interview").strip()

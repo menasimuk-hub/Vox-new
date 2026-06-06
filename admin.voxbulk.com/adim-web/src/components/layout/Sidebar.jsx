@@ -191,6 +191,7 @@ const NAV = [
     'Platform Settings',
     [
       ['Email / notification settings', '/settings/email'],
+      ['WA Interview', '/settings/wa-interview'],
       ['WA Survey', '/settings/wa-survey'],
       ['Global System Templates', '/settings/wa-survey/system-templates'],
       ['WA Survey flow simulator', '/settings/wa-survey/simulator'],

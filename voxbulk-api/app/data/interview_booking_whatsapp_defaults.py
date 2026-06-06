@@ -24,10 +24,10 @@ INTERVIEW_JOB_CLOSED_BODY = (
     "Thank you for your interest."
 )
 
-# Launch notice (no booking link on WA): {{1}} name, {{2}} role, {{3}} company
+# Launch notice (no booking link on WA): {{1}} name, {{2}} role, {{3}} company, {{4}} careers email
 INTERVIEW_EMAIL_SENT_BODY = """Dear {{1}} 👋
 
-We have sent you an email from 📧 careers@voxbulk.com regarding your interview for the position of {{2}} at {{3}}
+We have sent you an email from 📧 {{4}} regarding your interview for the position of {{2}} at {{3}}
 
 Please check your Spam / Junk folder in case it landed there 📁
 
@@ -46,7 +46,7 @@ Tap *Book My Interview* below to choose a time that works for you 🗓️
 
 # Confirmation: {{1}} name, {{2}} job title, {{3}} date, {{4}} time
 INTERVIEW_BOOKING_CONFIRMATION_BODY = (
-    "👋Hi {{1}}, your *{{2}}* interview is 📆booked for {{3}} at {{4}} ✅\n\n"
+    "👋 Hi {{1}}, your *{{2}}* interview is 📆 booked for {{3}} at {{4}} ✅\n\n"
     "Use the buttons below if you need to change or cancel."
 )
 INTERVIEW_BOOKING_INVITE_BUTTONS: list[dict[str, str]] = [

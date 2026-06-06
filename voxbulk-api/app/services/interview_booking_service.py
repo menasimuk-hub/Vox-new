@@ -766,17 +766,21 @@ class InterviewBookingService:
         company_name: str | None = None,
         interview_date: str | None = None,
         interview_time: str | None = None,
+        careers_email: str | None = None,
     ) -> str:
         text = str(body or "").strip() or INTERVIEW_BOOKING_BODY
         variables: dict[int, str] = {
             1: _first_name(candidate_name),
             2: str(role or "interview").strip(),
         }
-        # Confirmation templates: {{3}} date, {{4}} time. Invite templates: {{3}} company.
+        # Confirmation templates: {{3}} date, {{4}} time. Email-sent: {{3}} company, {{4}} careers inbox.
         if interview_date is not None:
             variables[3] = str(interview_date).strip()
             if interview_time is not None:
                 variables[4] = str(interview_time).strip()
+        elif careers_email is not None:
+            variables[3] = str(company_name or "VOXBULK").strip() or "VOXBULK"
+            variables[4] = str(careers_email or "careers@voxbulk.com").strip() or "careers@voxbulk.com"
         elif company_name is not None:
             variables[3] = str(company_name or "VOXBULK").strip() or "VOXBULK"
         return _render_template_body(text, variables)
@@ -856,16 +860,19 @@ class InterviewBookingService:
         candidate_name: str,
         role: str,
         company_name: str,
+        careers_email: str = "careers@voxbulk.com",
     ) -> list[dict[str, Any]] | None:
         first = _first_name(candidate_name)
         role_line = str(role or "Interview").strip() or "Interview"
         company_line = str(company_name or "VOXBULK").strip() or "VOXBULK"
+        email_line = str(careers_email or "careers@voxbulk.com").strip() or "careers@voxbulk.com"
         built = build_telnyx_components(
             "interview_email_sent",
             {
                 "first_name": first,
                 "role": role_line,
                 "company_name": company_line,
+                "careers_email": email_line,
             },
             include_url_button=False,
         )
@@ -878,6 +885,7 @@ class InterviewBookingService:
                     {"type": "text", "text": first[:1024]},
                     {"type": "text", "text": role_line[:1024]},
                     {"type": "text", "text": company_line[:1024]},
+                    {"type": "text", "text": email_line[:1024]},
                 ],
             }
         ]
@@ -996,6 +1004,7 @@ class InterviewBookingService:
             candidate_name="Alex",
             role=role,
             company_name=company_name,
+            careers_email="careers@voxbulk.com",
         )
         enriched["buttons"] = []
         enriched["confirmation_template_name"] = (
@@ -2244,6 +2253,7 @@ class InterviewBookingService:
                             candidate_name=recipient.name or "Candidate",
                             role=role,
                             company_name=company_name,
+                            careers_email=careers_from,
                         )
                         fallback_body = (
                             f"Dear {first}, we sent you an email from careers@voxbulk.com "

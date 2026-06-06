@@ -353,10 +353,27 @@ class TelnyxWhatsappTemplateSyncService:
                 .order_by(TelnyxWhatsappTemplate.updated_at.desc())
             ).scalars().all()
         )
+        interview_keys = {
+            "interview_email_sent",
+            "interview_booking_confirm",
+            "interview_booking_cancel",
+            "interview_job_closed",
+        }
+
+        def _interview_active(row: TelnyxWhatsappTemplate) -> bool:
+            if key not in interview_keys:
+                return True
+            return bool(getattr(row, "active_for_interview", True))
+
         for row in rows:
+            if not _interview_active(row):
+                continue
             if str(row.status or "").upper() == "APPROVED":
                 return row
-        return rows[0] if rows else None
+        for row in rows:
+            if _interview_active(row):
+                return row
+        return None
 
     @staticmethod
     def resolve_for_send(

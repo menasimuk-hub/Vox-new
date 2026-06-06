@@ -40,6 +40,7 @@ class TelnyxWhatsappTemplate(Base):
     example_values_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     local_sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     active_for_survey: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    active_for_interview: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_pushed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_push_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     remote_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
