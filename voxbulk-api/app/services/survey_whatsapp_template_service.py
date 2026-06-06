@@ -18,8 +18,13 @@ from app.core.http_ssl import httpx_ssl_verify
 from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
-from app.services.survey_type_service import SurveyTypeService
+from app.services.sales_whatsapp_telnyx_service import (
+    canonical_telnyx_name_for_sales_key,
+    legacy_telnyx_names_for_sales_key,
+    resolve_whatsapp_template_languages,
+)
 from app.services.survey_industry_scope import apply_industry_to_template, template_matches_survey_industry
+from app.services.survey_type_service import SurveyTypeService
 from app.services.survey_type_template_service import (
     SurveyTypeTemplateError,
     SurveyTypeTemplateService,
@@ -44,9 +49,11 @@ from app.services.telnyx_voice_service import (
     TelnyxConfigError,
 )
 from app.services.wa_template_meta_sync import (
+    META_SUBCODE_CONTENT_ALREADY_EXISTS,
     default_wa_template_language,
     enrich_template_push_error_payload,
     normalize_wa_template_language,
+    parse_meta_error_from_provider_detail,
     validate_wa_template_name,
 )
 from app.services.wa_template_privacy import (
@@ -554,13 +561,130 @@ def template_workflow_state(row: TelnyxWhatsappTemplate, *, syncing: bool = Fals
     }
 
 
-def telnyx_sync_action_message(row: TelnyxWhatsappTemplate, *, ok: bool) -> str:
+def telnyx_sync_action_message(row: TelnyxWhatsappTemplate, *, ok: bool, linked: bool = False) -> str:
     if not ok:
         return TELNYX_SYNC_FAILED
     status = str(row.status or "").upper()
+    if linked:
+        if status == "APPROVED":
+            return "Linked to existing Telnyx template — Approved on Meta."
+        if status == "PENDING":
+            return "Linked to existing Telnyx template — Pending Meta approval."
+        if status == "REJECTED":
+            return "Linked to existing Telnyx template — Rejected by Meta."
+        return "Linked to existing Telnyx template — status refreshed."
     if status == "PENDING":
         return TELNYX_SYNC_PENDING
+    if status == "APPROVED":
+        return TELNYX_SYNC_APPROVED
     return TELNYX_SYNC_SYNCED
+
+
+def _remote_name_candidates_for_row(row: TelnyxWhatsappTemplate) -> list[str]:
+    names: list[str] = []
+    for candidate in (row.name,):
+        text = str(candidate or "").strip()
+        if text:
+            names.append(text)
+    key = str(row.sales_template_key or "").strip()
+    if key:
+        canonical = canonical_telnyx_name_for_sales_key(key)
+        if canonical:
+            names.append(canonical)
+        names.extend(legacy_telnyx_names_for_sales_key(key))
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        lowered = name.strip().lower()
+        if lowered and lowered not in seen:
+            seen.add(lowered)
+            deduped.append(name.strip())
+    return deduped
+
+
+def _push_success_response(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    telnyx_request_mode: str,
+    linked: bool = False,
+) -> dict[str, Any]:
+    row.last_pushed_at = _now()
+    row.last_push_error = None
+    row.local_sync_status = _refresh_local_sync_status(row)
+    row.synced_at = _now()
+    row.updated_at = _now()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    sync_message = telnyx_sync_action_message(row, ok=True, linked=linked)
+    tpl = survey_template_to_dict(row)
+    return {
+        "ok": True,
+        "success": True,
+        "message": sync_message,
+        "sync_message": sync_message,
+        "telnyx_sync_label": telnyx_sync_ui_label(row),
+        "template": tpl,
+        "template_name": row.name,
+        "approval_status": str(row.status or "").upper(),
+        "telnyx_request_mode": telnyx_request_mode,
+        "telnyx_template_id": row.telnyx_record_id,
+        "category": row.category,
+        "rejection_reason": row.rejection_reason,
+        "linked_existing_remote": linked,
+    }
+
+
+def _try_link_existing_remote_template(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    language: str,
+    remote_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Link a local/unlinked row to an already-existing Telnyx/Meta template."""
+    remote_item = TelnyxWhatsappTemplateSyncService.find_remote_template(
+        db,
+        names=_remote_name_candidates_for_row(row),
+        language=language,
+        sales_template_key=row.sales_template_key,
+        remote_items=remote_items,
+    )
+    if remote_item is None:
+        for fallback_lang in resolve_whatsapp_template_languages(db):
+            if fallback_lang == language:
+                continue
+            remote_item = TelnyxWhatsappTemplateSyncService.find_remote_template(
+                db,
+                names=_remote_name_candidates_for_row(row),
+                language=fallback_lang,
+                sales_template_key=row.sales_template_key,
+                remote_items=remote_items,
+            )
+            if remote_item is not None:
+                break
+    if remote_item is None:
+        return None
+
+    _apply_remote_telnyx_item(row, remote_item)
+    remote_lang = str(remote_item.get("language") or "").strip()
+    if remote_lang:
+        row.language = remote_lang
+    if not row.sales_template_key:
+        from app.services.sales_whatsapp_telnyx_service import template_key_for_telnyx_name
+
+        row.sales_template_key = template_key_for_telnyx_name(str(remote_item.get("name") or row.name))
+    logger.info(
+        "survey_wa_template_linked_existing_remote",
+        extra={
+            "template_id": row.id,
+            "template_name": row.name,
+            "telnyx_record_id": row.telnyx_record_id,
+            "status": row.status,
+        },
+    )
+    return _push_success_response(db, row, telnyx_request_mode="link_existing_remote_template", linked=True)
 
 
 def _apply_remote_telnyx_item(row: TelnyxWhatsappTemplate, item: dict[str, Any]) -> None:
@@ -570,6 +694,9 @@ def _apply_remote_telnyx_item(row: TelnyxWhatsappTemplate, item: dict[str, Any])
         row.telnyx_record_id = record_id
     if send_id:
         row.template_id = send_id
+    remote_lang = str(item.get("language") or "").strip()
+    if remote_lang:
+        row.language = remote_lang
     row.status = str(item.get("status") or row.status or "PENDING").upper()
     remote_category = normalize_wa_template_category(item.get("category"), required=False)
     if remote_category:
@@ -980,10 +1107,50 @@ class SurveyWhatsappTemplateService:
             db.add(row)
             db.flush()
 
+        lang_code = lang_code or default_wa_template_language(db)
+
+        if not _is_local_row(row):
+            draft_hash = _content_hash(components)
+            remote_hash = row.remote_content_hash or _content_hash(_loads(row.components_json))
+            if remote_hash and draft_hash and remote_hash == draft_hash:
+                record_id = str(row.telnyx_record_id or "").strip()
+                if record_id:
+                    try:
+                        remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)
+                        _apply_remote_telnyx_item(row, remote_item)
+                        return _push_success_response(
+                            db,
+                            row,
+                            telnyx_request_mode="refresh_remote_status",
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "survey_wa_template_refresh_before_push_failed",
+                            extra={"template_id": row.id, "error": str(exc)},
+                        )
+
+        if _is_local_row(row):
+            try:
+                remote_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+            except Exception as exc:
+                logger.warning(
+                    "survey_wa_template_prefetch_remote_failed",
+                    extra={"template_id": row.id, "error": str(exc)},
+                )
+                remote_items = None
+            linked = _try_link_existing_remote_template(
+                db,
+                row,
+                language=lang_code,
+                remote_items=remote_items,
+            )
+            if linked is not None:
+                return linked
+
         payload = {
             "name": str(row.name or "").strip(),
             "category": category,
-            "language": lang_code or default_wa_template_language(db),
+            "language": lang_code,
             "waba_id": waba_id,
             "components": components,
         }
@@ -1002,6 +1169,11 @@ class SurveyWhatsappTemplateService:
                 body = response.json()
         except httpx.HTTPStatusError as e:
             detail = _telnyx_http_error_detail(e)
+            meta = parse_meta_error_from_provider_detail(detail)
+            if meta.get("subcode") == META_SUBCODE_CONTENT_ALREADY_EXISTS or meta.get("kind") == "content_already_exists":
+                linked = _try_link_existing_remote_template(db, row, language=lang_code)
+                if linked is not None:
+                    return linked
             row.last_push_error = detail
             row.local_sync_status = SYNC_ERROR
             row.updated_at = _now()
@@ -1044,34 +1216,7 @@ class SurveyWhatsappTemplateService:
                     extra={"template_id": row.id, "telnyx_record_id": record_id, "error": str(exc)},
                 )
 
-        row.last_pushed_at = _now()
-        row.last_push_error = None
-        row.local_sync_status = SYNC_IN_SYNC
-        row.synced_at = _now()
-        row.updated_at = _now()
-        db.add(row)
-        db.commit()
-        db.refresh(row)
-        logger.info(
-            "survey_wa_template_push_ok",
-            extra={"template_id": row.id, "telnyx_record_id": row.telnyx_record_id, "status": row.status},
-        )
-        tpl = survey_template_to_dict(row)
-        sync_message = telnyx_sync_action_message(row, ok=True)
-        return {
-            "ok": True,
-            "success": True,
-            "message": sync_message,
-            "sync_message": sync_message,
-            "telnyx_sync_label": telnyx_sync_ui_label(row),
-            "template": tpl,
-            "template_name": row.name,
-            "approval_status": str(row.status or "").upper(),
-            "telnyx_request_mode": "create_or_update_template",
-            "telnyx_template_id": row.telnyx_record_id,
-            "category": row.category,
-            "rejection_reason": row.rejection_reason,
-        }
+        return _push_success_response(db, row, telnyx_request_mode="create_or_update_template")
 
     @staticmethod
     def refresh_telnyx_status(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:

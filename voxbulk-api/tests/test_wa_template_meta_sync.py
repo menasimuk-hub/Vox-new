@@ -12,6 +12,8 @@ from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplate
 from app.services.wa_template_meta_sync import (
     META_ERROR_LANGUAGE_DELETION_LOCK,
     META_ERROR_LANGUAGE_UNSUPPORTED,
+    META_ERROR_CONTENT_ALREADY_EXISTS,
+    META_SUBCODE_CONTENT_ALREADY_EXISTS,
     admin_guidance_for_meta_error,
     enrich_template_push_error_payload,
     http_status_for_template_sync_error,
@@ -177,3 +179,75 @@ def test_push_blocks_invalid_language_before_provider(db, monkeypatch):
         SurveyWhatsappTemplateService.push_to_telnyx(db, row)
     assert called["post"] is False
     assert exc.value.payload.get("requires_language_fix") or exc.value.payload.get("language")
+
+
+def test_parse_meta_content_already_exists_error():
+    detail = (
+        'meta api error: {"error":{"message":"Invalid parameter","error_subcode":2388024,'
+        '"error_user_title":"Content in This Language Already Exists"}}'
+    )
+    parsed = parse_meta_error_from_provider_detail(detail)
+    assert parsed["kind"] == META_ERROR_CONTENT_ALREADY_EXISTS
+    assert parsed["subcode"] == META_SUBCODE_CONTENT_ALREADY_EXISTS
+
+
+def test_push_links_existing_remote_template_instead_of_create(monkeypatch):
+    from app.core.database import get_sessionmaker
+    from app.services.interview_whatsapp_template_service import InterviewWhatsappTemplateService
+
+    remote = [
+        {
+            "id": "019job-closed-remote",
+            "template_id": "777",
+            "name": "voxbulk_interview_job_closed",
+            "language": "en_US",
+            "category": "UTILITY",
+            "status": "APPROVED",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": "Hi {{1}}, the {{2}} role at {{3}} has closed.",
+                    "example": {"body_text": [["James", "accountant", "menasim"]]},
+                }
+            ],
+        }
+    ]
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, *a, **k):
+            raise AssertionError("create should not run when remote template already exists")
+
+    monkeypatch.setattr("app.services.survey_whatsapp_template_service.httpx.Client", lambda *a, **k: FakeClient())
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+        lambda db: remote,
+    )
+    monkeypatch.setattr(
+        "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",
+        lambda db: {"api_key": "test-key", "whatsapp_waba_id": "waba-123"},
+    )
+
+    with get_sessionmaker()() as db:
+        InterviewWhatsappTemplateService.ensure_catalog_seeded(db)
+        listed = InterviewWhatsappTemplateService.list_templates(db)
+        row_data = next(item for item in listed if item["sales_template_key"] == "interview_job_closed")
+        row = db.get(TelnyxWhatsappTemplate, row_data["id"])
+        assert row is not None
+        assert str(row.telnyx_record_id).startswith("local-")
+
+        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+        assert result["ok"] is True
+        assert result["linked_existing_remote"] is True
+        assert result["telnyx_request_mode"] == "link_existing_remote_template"
+        assert row.telnyx_record_id == "019job-closed-remote"
+        assert row.status == "APPROVED"
+        assert "Linked to existing Telnyx template" in result["message"]

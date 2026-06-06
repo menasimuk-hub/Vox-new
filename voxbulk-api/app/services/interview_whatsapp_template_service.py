@@ -32,6 +32,7 @@ from app.services.survey_whatsapp_template_service import (
     _loads,
     _now,
     _refresh_local_sync_status,
+    _try_link_existing_remote_template,
     normalize_wa_template_category,
     template_workflow_state,
     validate_meta_variable_order,
@@ -313,6 +314,26 @@ class InterviewWhatsappTemplateService:
         try:
             summary = TelnyxWhatsappTemplateSyncService.sync(db)
             InterviewWhatsappTemplateService.ensure_catalog_seeded(db)
+            linked = 0
+            for key in INTERVIEW_WA_TEMPLATE_KEYS:
+                spec = interview_spec_by_key(key)
+                if not spec:
+                    continue
+                row = InterviewWhatsappTemplateService._find_row_for_spec(
+                    db,
+                    key,
+                    str(spec.get("telnyx_name") or ""),
+                )
+                if row is None or not _is_local_row(row):
+                    continue
+                lang_code, _ = normalize_wa_template_language(row.language, db=db)
+                result = _try_link_existing_remote_template(
+                    db,
+                    row,
+                    language=lang_code or default_wa_template_language(db),
+                )
+                if result is not None:
+                    linked += 1
             interview_names = interview_catalog_telnyx_names()
             matched = list(
                 db.execute(
@@ -324,8 +345,10 @@ class InterviewWhatsappTemplateService:
             return {
                 **summary,
                 "ok": True,
-                "message": f"Synced {summary.get('synced', 0)} Telnyx templates; {len(matched)} interview templates in library.",
+                "message": f"Synced {summary.get('synced', 0)} Telnyx templates; {len(matched)} interview templates in library."
+                + (f" Linked {linked} existing remote template(s)." if linked else ""),
                 "interview_templates": len(matched),
+                "interview_linked": linked,
                 "interview_names": sorted(interview_names),
             }
         except TelnyxWhatsappTemplateSyncError as exc:

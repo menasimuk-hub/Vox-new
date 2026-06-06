@@ -47,6 +47,46 @@ def test_sync_maps_legacy_interview_confirm_name_to_canonical(app_client, monkey
         assert confirm["name"] == "interview_confirm_book"
 
 
+def test_sync_merges_local_interview_catalog_row(app_client, monkeypatch):
+    from app.core.database import get_sessionmaker
+    from app.services.interview_whatsapp_template_service import InterviewWhatsappTemplateService
+
+    remote = [
+        {
+            "id": "019job-closed-remote",
+            "template_id": "777",
+            "name": "voxbulk_interview_job_closed",
+            "language": "en_US",
+            "category": "UTILITY",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Hi {{1}}", "example": {"body_text": [["James"]]}}],
+        }
+    ]
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+        lambda db: remote,
+    )
+
+    with get_sessionmaker()() as db:
+        InterviewWhatsappTemplateService.ensure_catalog_seeded(db)
+        before = next(
+            item for item in InterviewWhatsappTemplateService.list_templates(db)
+            if item["sales_template_key"] == "interview_job_closed"
+        )
+        assert str(before["telnyx_record_id"]).startswith("local-")
+
+        result = InterviewWhatsappTemplateService.sync_from_telnyx(db)
+        assert result["ok"] is True
+
+        after = next(
+            item for item in InterviewWhatsappTemplateService.list_templates(db)
+            if item["sales_template_key"] == "interview_job_closed"
+        )
+        assert after["telnyx_record_id"] == "019job-closed-remote"
+        assert after["approval_status"] == "APPROVED"
+        assert after["telnyx_record_id"] != before["telnyx_record_id"]
+
+
 def test_sync_upserts_templates(app_client, monkeypatch):
     remote = [
         {

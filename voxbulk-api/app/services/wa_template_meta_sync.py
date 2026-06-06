@@ -103,9 +103,11 @@ _META_TEMPLATE_LANGUAGES = frozenset(
 
 META_ERROR_LANGUAGE_DELETION_LOCK = "language_deletion_lock"
 META_ERROR_LANGUAGE_UNSUPPORTED = "language_not_supported"
+META_ERROR_CONTENT_ALREADY_EXISTS = "content_already_exists"
 
 META_SUBCODE_LANGUAGE_DELETION_LOCK = 2388023
 META_SUBCODE_LANGUAGE_UNSUPPORTED = 2388049
+META_SUBCODE_CONTENT_ALREADY_EXISTS = 2388024
 
 
 def default_wa_template_language(db: Session | None = None) -> str:
@@ -231,10 +233,14 @@ def parse_meta_error_from_provider_detail(detail: str | None) -> dict[str, Any]:
         out["kind"] = META_ERROR_LANGUAGE_DELETION_LOCK
     elif subcode == META_SUBCODE_LANGUAGE_UNSUPPORTED:
         out["kind"] = META_ERROR_LANGUAGE_UNSUPPORTED
+    elif subcode == META_SUBCODE_CONTENT_ALREADY_EXISTS:
+        out["kind"] = META_ERROR_CONTENT_ALREADY_EXISTS
     elif "language is being deleted" in text.lower():
         out["kind"] = META_ERROR_LANGUAGE_DELETION_LOCK
     elif "language is not supported" in text.lower():
         out["kind"] = META_ERROR_LANGUAGE_UNSUPPORTED
+    elif "content in this language already exists" in text.lower() or "already exists" in text.lower():
+        out["kind"] = META_ERROR_CONTENT_ALREADY_EXISTS
 
     return out
 
@@ -261,6 +267,12 @@ def admin_guidance_for_meta_error(
             f"Meta rejected language “{language}” for template “{template_name}”. "
             "Use a supported locale code (UK accounts usually need en_GB, not en_US or display text). "
             "Save the corrected language, then sync again."
+        )
+    if kind == META_ERROR_CONTENT_ALREADY_EXISTS:
+        return (
+            f"Template “{template_name}” already exists on Telnyx/Meta for this language. "
+            "The system should link to the existing remote template instead of creating a duplicate — "
+            "try Sync again or use Sync from Telnyx to refresh approval status."
         )
     if meta_user_message:
         return str(meta_user_message)

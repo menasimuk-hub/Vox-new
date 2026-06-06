@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -20,6 +21,7 @@ from app.services.sales_whatsapp_telnyx_service import (
     build_telnyx_components,
     build_test_components_for_template_name,
     canonical_telnyx_name_for_sales_key,
+    legacy_telnyx_names_for_sales_key,
     template_key_for_telnyx_name,
     url_button_has_dynamic_suffix,
     url_button_index_from_components,
@@ -41,6 +43,65 @@ _VAR_RE = re.compile(r"\{\{(\d+)\}\}")
 # Meta/Telnyx statuses — do not keep locally (removed from portal or rejected).
 _SKIP_REMOTE_STATUSES = frozenset({"DELETED", "DISABLED", "PENDING_DELETION"})
 _LOCAL_ID_PREFIX = "local-"
+_REMOTE_STATUS_RANK = {"APPROVED": 0, "PENDING": 1, "REJECTED": 2, "PAUSED": 3}
+
+
+def _remote_language_code(raw: str | None) -> str:
+    text = str(raw or "en_US").strip() or "en_US"
+    normalized = text.replace("-", "_")
+    if "_" in normalized:
+        parts = normalized.split("_", 1)
+        return f"{parts[0].lower()}_{parts[1].upper()}"
+    return normalized.lower()
+
+
+def _remote_item_matches_names(item: dict[str, Any], names: set[str]) -> bool:
+    remote_name = str(item.get("name") or "").strip().lower()
+    if not remote_name:
+        return False
+    if remote_name in names:
+        return True
+    sales_key = template_key_for_telnyx_name(remote_name)
+    if not sales_key:
+        return False
+    canonical = canonical_telnyx_name_for_sales_key(sales_key)
+    if canonical and canonical.lower() in names:
+        return True
+    for legacy in legacy_telnyx_names_for_sales_key(sales_key):
+        if legacy.lower() in names:
+            return True
+    return False
+
+
+def _remote_item_matches_sales_key(item: dict[str, Any], sales_key: str | None) -> bool:
+    key = str(sales_key or "").strip().lower()
+    if not key:
+        return False
+    remote_name = str(item.get("name") or "").strip().lower()
+    if template_key_for_telnyx_name(remote_name) == key:
+        return True
+    canonical = canonical_telnyx_name_for_sales_key(key)
+    if canonical and canonical.lower() == remote_name:
+        return True
+    return remote_name in {n.lower() for n in legacy_telnyx_names_for_sales_key(key)}
+
+
+def _components_content_hash(components: list[Any] | None) -> str | None:
+    if not isinstance(components, list):
+        return None
+    raw = json.dumps(components, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:64]
+
+
+def _pick_best_remote_item(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not items:
+        return None
+
+    def _rank(item: dict[str, Any]) -> tuple[int, str]:
+        status = str(item.get("status") or "").upper()
+        return (_REMOTE_STATUS_RANK.get(status, 99), str(item.get("name") or ""))
+
+    return sorted(items, key=_rank)[0]
 
 
 class TelnyxWhatsappTemplateSyncError(RuntimeError):
@@ -263,6 +324,103 @@ class TelnyxWhatsappTemplateSyncService:
         return item
 
     @staticmethod
+    def find_remote_template(
+        db: Session,
+        *,
+        names: list[str],
+        language: str | None = None,
+        sales_template_key: str | None = None,
+        remote_items: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        """Find an existing Telnyx/Meta template by name (+ optional language)."""
+        items = remote_items if remote_items is not None else TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+        name_set = {str(n or "").strip().lower() for n in names if str(n or "").strip()}
+        if sales_template_key:
+            canonical = canonical_telnyx_name_for_sales_key(sales_template_key)
+            if canonical:
+                name_set.add(canonical.lower())
+            for legacy in legacy_telnyx_names_for_sales_key(sales_template_key):
+                name_set.add(legacy.lower())
+
+        matches: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status") or "").upper()
+            if status in _SKIP_REMOTE_STATUSES:
+                continue
+            if sales_template_key and _remote_item_matches_sales_key(item, sales_template_key):
+                matches.append(item)
+                continue
+            if name_set and _remote_item_matches_names(item, name_set):
+                matches.append(item)
+
+        if not matches:
+            return None
+
+        lang = _remote_language_code(language) if language else None
+        if lang:
+            exact = [
+                item
+                for item in matches
+                if _remote_language_code(str(item.get("language") or "")) == lang
+            ]
+            if exact:
+                return _pick_best_remote_item(exact)
+
+        return _pick_best_remote_item(matches)
+
+    @staticmethod
+    def _find_local_row_to_merge(
+        db: Session,
+        *,
+        local_name: str,
+        language: str,
+        sales_key: str | None,
+        record_id: str,
+    ) -> TelnyxWhatsappTemplate | None:
+        by_record = db.execute(
+            select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == record_id)
+        ).scalar_one_or_none()
+        if by_record is not None:
+            return by_record
+
+        if sales_key:
+            by_key = db.execute(
+                select(TelnyxWhatsappTemplate)
+                .where(
+                    TelnyxWhatsappTemplate.sales_template_key == sales_key,
+                    TelnyxWhatsappTemplate.telnyx_record_id.like(f"{_LOCAL_ID_PREFIX}%"),
+                )
+                .order_by(TelnyxWhatsappTemplate.updated_at.desc())
+            ).scalars().first()
+            if by_key is not None:
+                return by_key
+
+        candidates = {local_name.strip().lower()}
+        if sales_key:
+            canonical = canonical_telnyx_name_for_sales_key(sales_key)
+            if canonical:
+                candidates.add(canonical.lower())
+            for legacy in legacy_telnyx_names_for_sales_key(sales_key):
+                candidates.add(legacy.lower())
+
+        for name_lower in candidates:
+            if not name_lower:
+                continue
+            row = db.execute(
+                select(TelnyxWhatsappTemplate)
+                .where(
+                    func.lower(TelnyxWhatsappTemplate.name) == name_lower,
+                    TelnyxWhatsappTemplate.telnyx_record_id.like(f"{_LOCAL_ID_PREFIX}%"),
+                )
+                .order_by(TelnyxWhatsappTemplate.updated_at.desc())
+            ).scalars().first()
+            if row is not None:
+                return row
+        return None
+
+    @staticmethod
     def delete_remote_template(db: Session, record_id: str) -> None:
         """Delete a WhatsApp template from Telnyx. Not-found (404) is treated as success."""
         rid = str(record_id or "").strip()
@@ -326,23 +484,54 @@ class TelnyxWhatsappTemplateSyncService:
                 select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == record_id)
             ).scalar_one_or_none()
             if existing is None:
-                existing = TelnyxWhatsappTemplate(
-                    telnyx_record_id=record_id,
-                    template_id=send_template_id,
-                    name=local_name,
+                merged = TelnyxWhatsappTemplateSyncService._find_local_row_to_merge(
+                    db,
+                    local_name=local_name,
                     language=language,
-                    created_at=now,
+                    sales_key=sales_key,
+                    record_id=record_id,
                 )
-                db.add(existing)
+                if merged is not None:
+                    existing = merged
+                else:
+                    existing = TelnyxWhatsappTemplate(
+                        telnyx_record_id=record_id,
+                        template_id=send_template_id,
+                        name=local_name,
+                        language=language,
+                        created_at=now,
+                    )
+                    db.add(existing)
+
+            duplicate_rows = list(
+                db.execute(
+                    select(TelnyxWhatsappTemplate).where(
+                        TelnyxWhatsappTemplate.telnyx_record_id == record_id,
+                        TelnyxWhatsappTemplate.id != existing.id,
+                    )
+                ).scalars().all()
+            )
+            for duplicate in duplicate_rows:
+                _detach_template_references(db, int(duplicate.id))
+                db.delete(duplicate)
 
             existing.template_id = send_template_id
+            existing.telnyx_record_id = record_id
             existing.name = local_name
             existing.language = language
             existing.category = category
             existing.status = status
-            existing.sales_template_key = sales_key
+            existing.sales_template_key = sales_key or existing.sales_template_key
             existing.body_preview = _body_preview(components if isinstance(components, list) else None)
             existing.components_json = components_json
+            if components_json and not existing.draft_components_json:
+                existing.draft_components_json = components_json
+            if components_json:
+                existing.remote_content_hash = _components_content_hash(
+                    components if isinstance(components, list) else None
+                )
+            existing.local_sync_status = "in_sync"
+            existing.last_push_error = None
             existing.waba_id = waba_id
             existing.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
             existing.synced_at = now
