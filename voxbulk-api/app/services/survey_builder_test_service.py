@@ -122,9 +122,11 @@ class SurveyBuilderTestService:
             raise SurveyWhatsappTemplateError(
                 "Survey is not generated yet. Complete Step 3 (Generate) before sending a test."
             )
-        questions = wa_flow.get("questions")
+        questions = config.get("builder_step_sequence") or wa_flow.get("questions")
         if not isinstance(questions, list) or not questions:
-            raise SurveyWhatsappTemplateError("Survey has no WhatsApp questions — regenerate in Step 3.")
+            raise SurveyWhatsappTemplateError(
+                "Survey has no frozen builder step sequence — click Generate again in Step 3."
+            )
         if not config.get("wa_template_id"):
             raise SurveyWhatsappTemplateError("Welcome template is missing — regenerate in Step 3.")
 

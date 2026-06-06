@@ -51,16 +51,38 @@ def _seed_org_user(db) -> tuple[str, str]:
 
 
 def _draft_order(db, *, org_id: str, user_id: str) -> ServiceOrder:
+    q1 = {
+        "sequence": 0,
+        "node_key": "builder_step_0",
+        "template_id": 201,
+        "template_name": "test_q1",
+        "step_role": "rating",
+        "text": "Rate us 0-10",
+        "reply_type": "choice",
+        "options": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+        "source": "builder_template_row",
+    }
+    q2 = {
+        "sequence": 1,
+        "node_key": "builder_step_1",
+        "template_id": 202,
+        "template_name": "test_q2",
+        "step_role": "yes_no",
+        "text": "Recommend?",
+        "reply_type": "choice",
+        "options": ["Yes", "No"],
+        "source": "builder_template_row",
+    }
     config = {
         "delivery": "whatsapp",
+        "survey_channel": "whatsapp",
         "wa_template_id": 101,
+        "wa_builder_test": True,
+        "builder_step_sequence": [q1, q2],
         "whatsapp_flow": {
             "intro": "Welcome",
             "closing": "Thanks",
-            "questions": [
-                {"text": "Rate us 0-10", "reply_type": "rating", "options": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]},
-                {"text": "Recommend?", "reply_type": "yes_no", "options": ["Yes", "No"]},
-            ],
+            "questions": [q1, q2],
         },
     }
     order = ServiceOrder(
@@ -127,9 +149,11 @@ def test_start_wa_test_session_sends_welcome_only(mock_opening, db):
     assert recipient is not None
 
 
+@patch("app.services.survey_whatsapp_conversation_service._resolve_question_template")
 @patch("app.services.survey_whatsapp_conversation_service._send_message")
-def test_builder_test_reply_advances_sequentially(mock_send, db):
+def test_builder_test_reply_advances_sequentially(mock_send, mock_resolve_tpl, db):
     mock_send.return_value = True
+    mock_resolve_tpl.return_value = MagicMock(status="APPROVED", name="test_tpl", id=201)
     org_id, user_id = _seed_org_user(db)
     order = _draft_order(db, org_id=org_id, user_id=user_id)
 

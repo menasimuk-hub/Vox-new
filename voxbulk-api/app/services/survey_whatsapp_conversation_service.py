@@ -22,6 +22,12 @@ from app.services.telnyx_whatsapp_template_sync_service import (
     send_template_id_for_row,
 )
 from app.services.survey_flow_config_service import is_graph_flow, is_simulator_dry_run
+from app.services.survey_builder_flow_service import (
+    SurveyBuilderFlowError,
+    log_inbound_step_context,
+    resolve_conversation_step,
+    survey_questions_from_config,
+)
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
@@ -512,6 +518,47 @@ def _resolve_template_row(db: Session, template_id: Any) -> Any | None:
     return row
 
 
+def _resolve_question_template(
+    db: Session,
+    config: dict[str, Any],
+    question: dict[str, Any] | None,
+    *,
+    order_id: str | None = None,
+    session_id: str | None = None,
+    step: int | None = None,
+) -> Any:
+    """Strict template lookup for builder flows — no step-bank fallback."""
+    strict = bool(config.get("builder_step_sequence") or config.get("wa_builder_test"))
+    tid = question.get("template_id") if isinstance(question, dict) else None
+    if strict:
+        if not tid:
+            msg = (
+                f"No template_id for step {step} (order={order_id}, session={session_id}); refusing fallback."
+            )
+            logger.error("%s %s", LOG_PREFIX, msg)
+            raise SurveyBuilderFlowError(msg)
+        row = _resolve_template_row(db, tid)
+        if row is None:
+            msg = f"Template {tid} missing or not APPROVED (order={order_id}, step={step}); refusing fallback."
+            logger.error("%s %s", LOG_PREFIX, msg)
+            raise SurveyBuilderFlowError(msg)
+        logger.info(
+            "%s send_template order=%s session=%s step=%s template_id=%s template_name=%s source=builder_sequence",
+            LOG_PREFIX,
+            order_id,
+            session_id,
+            step,
+            row.id,
+            row.name,
+        )
+        return row
+    if tid:
+        row = _resolve_template_row(db, tid)
+        if row is not None:
+            return row
+    return None
+
+
 def _send_whatsapp_template(
     db: Session,
     *,
@@ -593,7 +640,13 @@ def _send_message(
     variables = _survey_variables(config, recipient)
     template_row = None
     if question and question.get("template_id"):
-        template_row = _resolve_template_row(db, question.get("template_id"))
+        template_row = _resolve_question_template(
+            db,
+            config,
+            question,
+            order_id=order.id,
+            step=int(question.get("sequence", 0)) + 1 if question.get("sequence") is not None else None,
+        )
     if template_row is None and question is None:
         wa_template_id = config.get("wa_template_id")
         if wa_template_id:
@@ -722,40 +775,56 @@ def send_first_question(
         return
 
     flow = _whatsapp_flow(config)
-    questions = flow.get("questions") or []
-    if not isinstance(questions, list) or not questions:
+    questions = survey_questions_from_config(config)
+    if not questions:
         return
 
     if is_graph_flow(config):
         _send_first_question_graph(db, order=order, recipient=recipient, config=config, questions=questions)
         return
 
+    session_existing = SurveySessionService.get_by_recipient(db, recipient.id)
+    q0 = resolve_conversation_step(
+        config,
+        1,
+        order_id=order.id,
+        session_id=session_existing.id if session_existing else None,
+    )
     variables = _survey_variables(config, recipient)
-    q0 = questions[0] if isinstance(questions[0], dict) else {"text": str(questions[0])}
-    body = format_question_message(q0, index=1, total=len(questions), variables=variables)
+    total = len(questions)
+    body = format_question_message(q0, index=1, total=total, variables=variables)
 
     payload = _recipient_result(recipient)
     payload["channel"] = "whatsapp"
     payload["wa_conversation"] = {
         "step": 1,
-        "total": len(questions),
+        "total": total,
         "answers": [],
         "started_at": datetime.utcnow().isoformat(),
         "intro_sent_at": conv.get("intro_sent_at"),
+        "current_template_id": q0.get("template_id"),
+        "current_node_key": q0.get("node_key"),
     }
     session = SurveySessionService.start_linear_session(
         db,
         order=order,
         recipient=recipient,
         config=config,
-        question_count=len(questions),
+        question_count=total,
     )
     payload = SurveySessionService.attach_session_to_result(payload, session)
     recipient.status = "in_progress"
     _save_recipient_result(db, recipient, payload)
 
     if _send_message(db, order=order, recipient=recipient, body=body, config=config, question=q0):
-        logger.info("%s first_question_sent order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
+        logger.info(
+            "%s first_question_sent order=%s recipient=%s template_id=%s template_name=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+            q0.get("template_id"),
+            q0.get("template_name"),
+        )
 
 
 def _send_first_question_graph(
@@ -856,10 +925,20 @@ def handle_inbound_reply(
         }
 
     config = _order_config(order)
-    flow = _whatsapp_flow(config)
-    questions = [q for q in (flow.get("questions") or []) if isinstance(q, dict)]
+    questions = survey_questions_from_config(config)
     if not questions:
+        logger.error("%s no_questions order=%s — refusing fallback", LOG_PREFIX, order.id)
         return {"handled": False, "reason": "no_questions"}
+
+    session_row = SurveySessionService.get_active_by_recipient(db, recipient.id)
+    log_inbound_step_context(
+        order_id=order.id,
+        session_id=session_row.id if session_row else None,
+        recipient_id=recipient.id,
+        step=int(_wa_conversation(payload).get("step") or 0),
+        body=body,
+        survey_type_id=str(config.get("survey_type_id") or "") or None,
+    )
 
     conv = _wa_conversation(payload)
     step = int(conv.get("step") or 0)
@@ -875,6 +954,7 @@ def handle_inbound_reply(
             "inbound_message_id": inbound_message_id,
         }
 
+    flow = _whatsapp_flow(config)
     if is_graph_flow(config):
         return _handle_inbound_reply_graph(
             db,
@@ -900,8 +980,17 @@ def handle_inbound_reply(
     if step < 1 or step > total:
         return {"handled": False, "reason": "invalid_step"}
 
-    q_index = step - 1
-    question = questions[q_index]
+    try:
+        question = resolve_conversation_step(
+            config,
+            step,
+            order_id=order.id,
+            session_id=session_row.id if session_row else None,
+        )
+    except SurveyBuilderFlowError as exc:
+        logger.error("%s linear_step_resolve_failed order=%s step=%s err=%s", LOG_PREFIX, order.id, step, exc)
+        return {"handled": False, "reason": "step_resolve_failed", "detail": str(exc)}
+
     answer = match_answer(body, question)
     q_display = survey_question_display(
         db,
@@ -946,9 +1035,26 @@ def handle_inbound_reply(
     payload = SurveySessionService.attach_session_to_result(payload, session)
 
     if step < total:
-        next_q = questions[step]
+        try:
+            next_q = resolve_conversation_step(
+                config,
+                step + 1,
+                order_id=order.id,
+                session_id=session_row.id if session_row else None,
+            )
+        except SurveyBuilderFlowError as exc:
+            logger.error(
+                "%s linear_next_step_failed order=%s step=%s err=%s",
+                LOG_PREFIX,
+                order.id,
+                step + 1,
+                exc,
+            )
+            return {"handled": False, "reason": "next_step_resolve_failed", "detail": str(exc)}
         next_body = format_question_message(next_q, index=step + 1, total=total, variables=variables)
         conv["step"] = step + 1
+        conv["current_template_id"] = next_q.get("template_id")
+        conv["current_node_key"] = next_q.get("node_key")
         payload["wa_conversation"] = conv
         payload = mark_inbound_processed(
             payload, log_id=log_id, inbound_message_id=inbound_message_id

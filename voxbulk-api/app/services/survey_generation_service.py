@@ -18,6 +18,11 @@ from app.services.survey_tell_us_more_flow_service import (
     attach_tell_us_more_graph,
     inject_reason_step_into_composed,
 )
+from app.services.survey_builder_flow_service import (
+    build_builder_step_sequence,
+    build_builder_template_ids,
+    compile_builder_sequence_graph,
+)
 from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH
 from app.services.survey_flow_definition_service import SurveyFlowDefinitionService
 from app.services.survey_type_service import SurveyTypeService
@@ -129,12 +134,24 @@ class SurveyGenerationService:
             start_row,
             business_name=client_name or organisation_name,
         )
-        if tell_us_more_template_id:
+        if tell_us_more_template_id and not ordered_middle_template_ids:
             composed = inject_reason_step_into_composed(
                 composed,
                 tell_us_more_template_id=tell_us_more_template_id,
                 db=db,
             )
+
+        builder_step_sequence: list[dict[str, Any]] = []
+        if ordered_middle_template_ids:
+            builder_step_sequence = build_builder_step_sequence(
+                db,
+                middle_template_ids=ordered_middle_template_ids,
+                business_name=client_name or organisation_name,
+            )
+            whatsapp_flow_seed = dict(composed.get("whatsapp_flow") or {})
+            whatsapp_flow_seed["questions"] = builder_step_sequence
+            composed = {**composed, "whatsapp_flow": whatsapp_flow_seed}
+
         middle_questions = composed["whatsapp_flow"]["questions"]
         question_texts = [
             str(q.get("text") or q) if isinstance(q, dict) else str(q) for q in middle_questions
@@ -198,17 +215,34 @@ class SurveyGenerationService:
         flow_snapshot = None
         resolved_flow_definition_id = None
         order_config_extras: dict[str, Any] = {}
-        if tell_us_more_template_id:
+        mq = max_question_visits(
+            {"page_count": count},
+            survey_type_max_length=survey_type.max_length,
+        )
+        if ordered_middle_template_ids:
+            order_config_extras = compile_builder_sequence_graph(
+                db,
+                step_sequence=builder_step_sequence,
+                page_roles=composed.get("page_roles") or [],
+                closing_body=closing,
+                max_question_visits=mq,
+                tell_us_more_template_id=tell_us_more_template_id,
+                flow_definition_id=flow_definition_id,
+                survey_type_id=survey_type.id,
+                privacy_mode=resolved_privacy,
+                page_count=count,
+            )
+            engine_key = FLOW_ENGINE_GRAPH
+            flow_snapshot = order_config_extras.get("flow_snapshot")
+            resolved_flow_definition_id = order_config_extras.get("flow_definition_id")
+        elif tell_us_more_template_id:
             order_config_extras = attach_tell_us_more_graph(
                 composed=composed,
                 survey_type_id=survey_type.id,
                 privacy_mode=resolved_privacy,
                 page_count=count,
                 closing_body=closing,
-                max_question_visits=max_question_visits(
-                    {"page_count": count},
-                    survey_type_max_length=survey_type.max_length,
-                ),
+                max_question_visits=mq,
                 flow_definition_id=flow_definition_id,
             )
             flow_snapshot = order_config_extras.get("flow_snapshot")
@@ -280,6 +314,14 @@ class SurveyGenerationService:
             "flow_engine": engine_key,
             "flow_definition_id": resolved_flow_definition_id,
             "flow_snapshot": flow_snapshot,
+            "builder_step_sequence": builder_step_sequence or None,
+            "builder_template_ids": build_builder_template_ids(
+                welcome_template_id=welcome_template_id or start_row.id,
+                middle_template_ids=ordered_middle_template_ids,
+                thank_you_template_id=thank_you_template_id,
+                tell_us_more_template_id=tell_us_more_template_id,
+            )
+            or None,
         }
         if order_config_extras:
             result_payload["order_config_flow"] = {
@@ -287,6 +329,7 @@ class SurveyGenerationService:
                 "flow_definition_id": order_config_extras.get("flow_definition_id"),
                 "flow_snapshot": order_config_extras.get("flow_snapshot"),
                 "flow_snapshot_json": order_config_extras.get("flow_snapshot_json"),
+                "builder_step_sequence": builder_step_sequence or None,
             }
         return result_payload
 
