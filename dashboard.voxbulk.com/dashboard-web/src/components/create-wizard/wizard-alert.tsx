@@ -1,16 +1,26 @@
 import * as React from "react";
 import { AlertCircle } from "lucide-react";
 
+import { dashboardAlertClassName } from "@/lib/dashboard-theme";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 
-/** Wizard validation / notice colour — amber, not red. */
+export {
+  DASHBOARD_AMBER,
+  dashboardAlertClassName,
+  dashboardFieldErrorClassName,
+  dashboardSummaryNoticeClassName,
+  dashboardTextNoticeClassName,
+} from "@/lib/dashboard-theme";
+
+/** @deprecated Use DASHBOARD_AMBER */
 export const WIZARD_AMBER = "#B45309";
 
-export const wizardAlertClassName =
-  "border-[#B45309]/40 bg-[#B45309]/10 text-[#B45309] [&>svg]:text-[#B45309]";
+/** @deprecated Use dashboardAlertClassName */
+export const wizardAlertClassName = dashboardAlertClassName;
 
-export const wizardFieldErrorClassName = "border-[#B45309]/50 text-[#B45309]";
+/** @deprecated Use dashboardFieldErrorClassName */
+export const wizardFieldErrorClassName = "border-destructive/50 text-destructive";
 
 type WizardAlertProps = {
   title: string;
@@ -23,7 +33,7 @@ export const WizardAlert = React.forwardRef<HTMLDivElement, WizardAlertProps>(fu
   ref,
 ) {
   return (
-    <Alert ref={ref} className={cn(wizardAlertClassName, className)}>
+    <Alert ref={ref} className={cn(dashboardAlertClassName, className)}>
       <AlertCircle className="size-4" />
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>{children}</AlertDescription>

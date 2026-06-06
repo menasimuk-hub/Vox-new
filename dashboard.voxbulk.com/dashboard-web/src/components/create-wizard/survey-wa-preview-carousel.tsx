@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { WizardAlert } from "@/components/create-wizard/wizard-alert";
 import { Summary } from "@/components/create-wizard/summary";
+import { dashboardSummaryNoticeClassName, dashboardTextNoticeClassName } from "@/lib/dashboard-theme";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -332,8 +333,8 @@ export function SurveyWaPreviewCarousel({
               <Summary
                 label="Contacts"
                 value={`${contactsCount}`}
-                className={contactsCount === 0 ? "border-[#B45309]/40 bg-[#B45309]/10" : undefined}
-                valueClassName={contactsCount === 0 ? "text-[#B45309]" : undefined}
+                className={contactsCount === 0 ? dashboardSummaryNoticeClassName : undefined}
+                valueClassName={contactsCount === 0 ? dashboardTextNoticeClassName : undefined}
               />
               <Summary label="Channel" value="WhatsApp" />
               <Summary
@@ -373,7 +374,7 @@ export function SurveyWaPreviewCarousel({
                               Pre-filled from your account — edit if you want a different test number.
                             </p>
                           ) : (
-                            <p className="text-[11px] text-[#B45309]">
+                            <p className={cn("text-[11px]", dashboardTextNoticeClassName)}>
                               Add your mobile in Profile settings, or enter a number below.
                             </p>
                           )}

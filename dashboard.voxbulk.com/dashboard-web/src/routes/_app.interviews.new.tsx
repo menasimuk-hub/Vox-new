@@ -1659,18 +1659,6 @@ function CreateInterview() {
             {missingCriteria ? <p className="text-[11px] text-destructive">Add screening criteria before generating questions</p> : null}
           </div>
           <div className="md:col-span-2 space-y-1.5">
-            <Label className="text-xs">Additional report notes (optional)</Label>
-            <p className="text-[11px] text-muted-foreground">
-              Extra context for your hiring team — not asked on the call. Shown in the launch preview and on each candidate PDF report, next to screening criteria and questions.
-            </p>
-            <Textarea
-              rows={3}
-              value={reportNotes}
-              onChange={(e) => setReportNotes(e.target.value)}
-              placeholder="e.g. Must start within 4 weeks · hybrid 2 days in office · no agencies · priority: bedside manner with anxious patients"
-            />
-          </div>
-          <div className="md:col-span-2 space-y-1.5">
             <Label className={`text-xs ${missingScript || missingScriptApproval ? "text-destructive" : ""}`}>Interview questions</Label>
             <Textarea
               rows={8}

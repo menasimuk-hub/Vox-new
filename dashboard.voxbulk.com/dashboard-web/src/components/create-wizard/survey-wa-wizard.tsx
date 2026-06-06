@@ -17,7 +17,8 @@ import { PreviewQuoteModal } from "@/components/modals";
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
-import { WizardAlert, wizardFieldErrorClassName } from "@/components/create-wizard/wizard-alert";
+import { dashboardFieldErrorClassName } from "@/lib/dashboard-theme";
+import { WizardAlert } from "@/components/create-wizard/wizard-alert";
 import { Button } from "@/components/ui/button";
 import {
   mapSystemTemplates,
@@ -369,7 +370,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                           "rounded-full border px-3.5 py-1.5 text-sm transition-all",
                           active && "border-primary bg-primary text-primary-foreground shadow",
                           !active && !disabled && !missingTemplate && "border-border bg-background hover:border-primary/40 hover:bg-primary/5",
-                          missingTemplate && !active && wizardFieldErrorClassName,
+                          missingTemplate && !active && dashboardFieldErrorClassName,
                           disabled && "cursor-not-allowed border-border bg-muted/40 text-muted-foreground/50",
                         )}
                       >
