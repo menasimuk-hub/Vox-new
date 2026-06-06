@@ -238,9 +238,22 @@ def _message_channel(msg_type: str) -> str:
 class TelnyxInboundMessagingService:
     @staticmethod
     def handle_webhook(db: Session, payload: dict[str, Any], *, header_org_id: str | None = None) -> dict[str, Any]:
+        from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_webhook_entry
+
         data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
         event_type = str(data.get("event_type") or payload.get("event_type") or "").strip().lower()
         record = data.get("payload") if isinstance(data.get("payload"), dict) else data
+        from_number_early = _phone_from(record.get("from"))
+        log_webhook_entry(
+            event_type=event_type,
+            from_phone=from_number_early,
+            org_id=header_org_id,
+            handler="app.services.telnyx_inbound_messaging_service.TelnyxInboundMessagingService.handle_webhook",
+        )
+        logger.info(
+            "%s service_handle_webhook file=app/services/telnyx_inbound_messaging_service.py",
+            WEBHOOK_BUILD_MARKER,
+        )
 
         if event_type and event_type not in {"message.received", "message.sent", "message.finalized"}:
             return {"ok": True, "ignored": True, "event_type": event_type}

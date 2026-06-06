@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import base64
+import logging
 
 from fastapi import APIRouter, Depends, Header, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
@@ -16,6 +17,7 @@ from app.services.telnyx_voice_service import TelnyxCallerIdService, TelnyxExecu
 from app.services.voice_agent_service import AzureSpeechService
 
 router = APIRouter(prefix="/telnyx", tags=["telnyx"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/webhooks/voice")
@@ -89,7 +91,29 @@ async def telnyx_messages_webhook(
     db: Session = Depends(get_db),
     x_retover_org_id: str | None = Header(default=None, alias="X-Retover-Org-Id"),
 ):
+    from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_webhook_entry
+
     payload = await request.json()
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    record = data.get("payload") if isinstance(data.get("payload"), dict) else data
+    event_type = str(data.get("event_type") or payload.get("event_type") or "").strip()
+    from_block = record.get("from") if isinstance(record, dict) else None
+    from_phone = ""
+    if isinstance(from_block, dict):
+        from_phone = str(from_block.get("phone_number") or from_block.get("number") or "").strip()
+    elif isinstance(from_block, str):
+        from_phone = from_block.strip()
+
+    log_webhook_entry(
+        event_type=event_type,
+        from_phone=from_phone,
+        org_id=x_retover_org_id,
+        handler="app.routers.telnyx.telnyx_messages_webhook",
+    )
+    logger.info(
+        "%s router_dispatch file=app/routers/telnyx.py endpoint=telnyx_messages_webhook",
+        WEBHOOK_BUILD_MARKER,
+    )
     result = TelnyxInboundMessagingService.handle_webhook(db, payload, header_org_id=x_retover_org_id)
     return result
 

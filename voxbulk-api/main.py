@@ -221,6 +221,12 @@ async def lifespan(app: FastAPI):
             logger.exception("local demo bootstrap failed — create users manually")
     logger.info("app_starting", extra={"env": settings.env, "app_name": settings.app_name})
     try:
+        from app.core.runtime_build_info import log_startup_build_info
+
+        log_startup_build_info(logger)
+    except Exception:
+        logger.exception("runtime_build_info_failed")
+    try:
         ensure_schema_hotfixes()
     except Exception:
         logger.exception("schema_hotfixes failed — run: alembic upgrade head")
@@ -363,30 +369,13 @@ def health():
 
 @app.get("/health/build", tags=["health"])
 def health_build():
-    """Deploy verification — git SHA and whether key debug markers exist in this process."""
-    import pathlib
+    """Deploy verification — git SHA, markers on disk/in memory, webhook handler chain."""
+    from app.core.runtime_build_info import get_deploy_verification
 
-    root = pathlib.Path(__file__).resolve().parent
-    build_file = root / "build_info.json"
-    info: dict[str, str] = {}
-    if build_file.is_file():
-        try:
-            import json
-
-            info = json.loads(build_file.read_text(encoding="utf-8"))
-        except Exception:
-            info = {}
-    marker = root / "routers" / "dashboard_scripts.py"
-    has_wa_debug = False
-    if marker.is_file():
-        text = marker.read_text(encoding="utf-8", errors="ignore")
-        has_wa_debug = "generate_wa_survey entry" in text
+    data = get_deploy_verification()
     return {
-        "status": "ok",
-        "git_sha": info.get("git_sha") or info.get("sha") or "unknown",
-        "git_branch": info.get("git_branch") or info.get("branch") or "unknown",
-        "built_at": info.get("built_at") or "",
-        "wa_survey_debug_markers": has_wa_debug,
+        "status": "ok" if data.get("deploy_ok") else "stale_or_partial",
+        **data,
     }
 
 

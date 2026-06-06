@@ -276,6 +276,28 @@ post_checks() {
   sleep 2
   bash "$VOX_SH" status || warn "Status check reported issues — see $DEPLOY_LOG"
 
+  info "Verifying /health/build …"
+  if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null \
+    || curl -sf http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null; then
+    python3 - <<'PY' || warn "health/build deploy_ok=false — running process may be stale"
+import json
+from pathlib import Path
+p = Path("/tmp/voxbulk-health-build.json")
+data = json.loads(p.read_text())
+print("health/build:", json.dumps({k: data.get(k) for k in (
+    "status", "git_sha", "git_branch", "built_at", "deploy_ok", "disk_markers_ok", "memory_markers_ok", "webhook_build_marker"
+)}, indent=2))
+if not data.get("deploy_ok"):
+    raise SystemExit(1)
+PY
+  else
+    warn "Could not curl /health/build — API may not be running"
+  fi
+
+  if [[ -x "$ROOT/scripts/vps-verify-deploy.sh" ]]; then
+    bash "$ROOT/scripts/vps-verify-deploy.sh" || warn "vps-verify-deploy.sh reported issues"
+  fi
+
   if [[ -d "${VOX_DASH_DIST:-}" ]]; then
     local dash_js
     dash_js=$(grep -oE '/assets/[^"]+\.js' "$VOX_DASH_DIST/index.html" 2>/dev/null | head -1 || true)
