@@ -247,7 +247,9 @@ def normalize_system_generated_item(
         merged["outcome_key"] = "neutral"
         merged["button_type"] = merged.get("button_type") or "none"
         merged["buttons"] = merged.get("buttons") if isinstance(merged.get("buttons"), list) else []
-    elif kind == "welcome" and str(merged.get("button_type") or "none").strip().lower() == "none":
+    else:
+        merged.pop("outcome_key", None)
+    if kind == "welcome" and str(merged.get("button_type") or "none").strip().lower() == "none":
         merged["button_type"] = "quick_reply"
         if not merged.get("buttons"):
             merged["buttons"] = seed["buttons"]
@@ -783,15 +785,17 @@ class SurveySystemTemplateService:
             tpl = item.get("template") if isinstance(item.get("template"), dict) else item
             if not isinstance(tpl, dict):
                 continue
-            prepared.append(
-                {
-                    **tpl,
-                    "step_role": _step_role_for_kind(kind),
-                    "variant_type": "standard",
-                    "privacy_mode": PRIVACY_MODE_OFF,
-                    **({"outcome_key": "neutral"} if kind == "thank_you" else {}),
-                }
-            )
+            prepared_item = {
+                **tpl,
+                "step_role": _step_role_for_kind(kind),
+                "variant_type": "standard",
+                "privacy_mode": PRIVACY_MODE_OFF,
+            }
+            if kind == "thank_you":
+                prepared_item["outcome_key"] = str(prepared_item.get("outcome_key") or "neutral").strip().lower() or "neutral"
+            else:
+                prepared_item.pop("outcome_key", None)
+            prepared.append(prepared_item)
         if not prepared:
             raise SurveySystemTemplateError("No valid templates to save.")
         try:

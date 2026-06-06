@@ -66,6 +66,25 @@ def test_validate_generated_accepts_tell_us_more_purpose(db):
     assert normalized["step_role"] == "reason"
 
 
+def test_save_generated_tell_us_more_strips_outcome_key(db):
+    payload = {
+        "template_name": "tell_us_more_variant_2",
+        "title": "Tell us more",
+        "body": "Sorry to hear that. What could we improve?",
+        "footer": "Reply STOP to opt out",
+        "button_type": "none",
+        "buttons": [],
+        "example_values": ["there"],
+        "language": "en_US",
+        "category": "UTILITY",
+        "purpose": "tell_us_more",
+        "variant_type": "standard",
+        "outcome_key": "neutral",
+    }
+    result = SurveySystemTemplateService.save_generated(db, kind="tell_us_more", templates=[payload])
+    assert result.get("saved_count", 0) >= 1
+
+
 def test_save_generated_tell_us_more_appears_in_grouped_list(db):
     payload = {
         "template_name": "tell_us_more_variant_1",
