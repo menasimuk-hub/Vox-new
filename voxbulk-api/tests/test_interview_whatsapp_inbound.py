@@ -311,7 +311,7 @@ def test_resolve_intent_from_template_button_id():
             TelnyxWhatsappTemplate(
                 telnyx_record_id="rec-" + uuid.uuid4().hex[:8],
                 template_id="tpl-" + uuid.uuid4().hex[:8],
-                name="voxbulk_interview_confirm",
+                name="interview_confirm_book",
                 language="en_US",
                 status="APPROVED",
                 components_json=json.dumps(components),

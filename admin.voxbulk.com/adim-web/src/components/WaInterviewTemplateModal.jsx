@@ -98,6 +98,7 @@ function applyTemplateDraft(setDraft, tpl) {
   setDraft({
     display_name: tpl?.display_name || tpl?.name,
     category: tpl?.category || 'UTILITY',
+    language: tpl?.language || 'en_GB',
     active_for_interview: tpl?.active_for_interview !== false,
     body: bodyTextFromComponents(components),
     components,
@@ -111,6 +112,8 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
   const [loading, setLoading] = useState(false)
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
+  const [errorDetail, setErrorDetail] = useState('')
+  const [syncFix, setSyncFix] = useState(null)
   const [template, setTemplate] = useState(null)
   const [draft, setDraft] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -124,6 +127,82 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
   const needsResync = templateNeedsResync(template) || isDirty
   const varLabels = interviewVarLabels(template?.sales_template_key)
 
+  const showSyncError = (err, fallback) => {
+    const formatted = formatWaSurveyError(err, fallback)
+    setError(formatted.message)
+    setErrorDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
+    setSyncFix(
+      formatted.requiresRename || formatted.requiresLanguageFix
+        ? {
+            suggestedTemplateName: formatted.suggestedTemplateName,
+            suggestedLanguage: formatted.suggestedLanguage,
+            requiresRename: formatted.requiresRename,
+            requiresLanguageFix: formatted.requiresLanguageFix,
+          }
+        : null,
+    )
+  }
+
+  const clearSyncError = () => {
+    setError('')
+    setErrorDetail('')
+    setSyncFix(null)
+  }
+
+  const applySuggestedRename = async () => {
+    if (!templateId || !syncFix?.suggestedTemplateName) return
+    setWorking('rename')
+    clearSyncError()
+    try {
+      const data = await apiFetch(`/admin/wa-interview/templates/${templateId}/rename-for-sync`, {
+        method: 'POST',
+        body: JSON.stringify({ new_name: syncFix.suggestedTemplateName }),
+      })
+      setTemplate(data?.template || template)
+      applyTemplateDraft(setDraft, data?.template || template)
+      setIsDirty(false)
+      setToast(data?.message || `Renamed to ${data?.template_name}`)
+      onSaved?.(data?.template)
+    } catch (e) {
+      showSyncError(e, 'Rename failed')
+    } finally {
+      setWorking('')
+    }
+  }
+
+  const applySuggestedLanguage = async () => {
+    if (!draft || !templateId || !syncFix?.suggestedLanguage) return
+    setWorking('save')
+    clearSyncError()
+    try {
+      const components = updateButtonsInComponents(
+        updateBodyInComponents(parseComponents(draft.components), draft.body),
+        draft.button_type,
+        draft.buttons,
+      )
+      const data = await apiFetch(`/admin/wa-interview/templates/${templateId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          display_name: draft.display_name,
+          category: draft.category,
+          language: syncFix.suggestedLanguage,
+          active_for_interview: draft.active_for_interview,
+          components,
+          example_values: ensureExampleValues(draft.body, '', draft.example_values),
+        }),
+      })
+      setTemplate(data?.template || template)
+      applyTemplateDraft(setDraft, data?.template || template)
+      setIsDirty(false)
+      setToast(`Language set to ${syncFix.suggestedLanguage}. Sync again when ready.`)
+      onSaved?.(data?.template)
+    } catch (e) {
+      showSyncError(e, 'Could not save language')
+    } finally {
+      setWorking('')
+    }
+  }
+
   const patchDraft = (updater) => {
     setIsDirty(true)
     setDraft((current) => (typeof updater === 'function' ? updater(current) : { ...current, ...updater }))
@@ -132,7 +211,7 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
   const loadTemplate = useCallback(async () => {
     if (!templateId) return
     setLoading(true)
-    setError('')
+    clearSyncError()
     try {
       const data = await apiFetch(`/admin/wa-interview/templates/${templateId}`)
       const tpl = data?.template
@@ -142,7 +221,7 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
       const previewData = await apiFetch(`/admin/wa-interview/templates/${templateId}/preview`)
       setPreview(previewData?.preview || null)
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Could not load template').message)
+      showSyncError(e, 'Could not load template')
     } finally {
       setLoading(false)
     }
@@ -158,7 +237,7 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
   const saveDraft = async () => {
     if (!draft || !templateId) return
     setWorking('save')
-    setError('')
+    clearSyncError()
     try {
       const components = updateButtonsInComponents(
         updateBodyInComponents(parseComponents(draft.components), draft.body),
@@ -171,6 +250,7 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
         body: JSON.stringify({
           display_name: draft.display_name,
           category: draft.category,
+          language: draft.language || 'en_GB',
           active_for_interview: draft.active_for_interview,
           components,
           example_values,
@@ -182,7 +262,7 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
       setToast(formatActionSuccess(data, 'Template saved').message)
       onSaved?.(data?.template)
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Could not save template').message)
+      showSyncError(e, 'Could not save template')
     } finally {
       setWorking('')
     }
@@ -193,11 +273,13 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
     const categoryErr = validateCategoryBeforeSync(draft?.category || template?.category)
     if (categoryErr) {
       setError(categoryErr)
+      setErrorDetail('')
+      setSyncFix(null)
       return
     }
     setWorking('push')
     setSyncing(true)
-    setError('')
+    clearSyncError()
     try {
       if (isDirty) await saveDraft()
       const data = await apiFetch(`/admin/wa-interview/templates/${templateId}/push`, { method: 'POST', body: '{}' })
@@ -207,7 +289,7 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
       setToast(formatActionSuccess(data, 'Pushed to Telnyx').message)
       onSaved?.(data?.template)
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Telnyx push failed').message)
+      showSyncError(e, 'Telnyx push failed')
     } finally {
       setWorking('')
       setSyncing(false)
@@ -227,7 +309,7 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
       setToast(data?.message || 'Updated visibility')
       onSaved?.(data?.template)
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Could not update visibility').message)
+      showSyncError(e, 'Could not update visibility')
     } finally {
       setWorking('')
     }
@@ -249,7 +331,34 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
         </div>
 
         {toast ? <div className="alert ok">{toast}</div> : null}
-        {error ? <div className="alert err">{error}</div> : null}
+        {error ? (
+          <div className="alert err">
+            <strong>{error}</strong>
+            {errorDetail ? <pre style={{ marginTop: 8, whiteSpace: 'pre-wrap', fontSize: 12 }}>{errorDetail}</pre> : null}
+            {syncFix?.requiresRename && syncFix.suggestedTemplateName ? (
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ marginTop: 10 }}
+                onClick={() => void applySuggestedRename()}
+                disabled={working === 'rename'}
+              >
+                {working === 'rename' ? 'Renaming…' : `Rename to ${syncFix.suggestedTemplateName}`}
+              </button>
+            ) : null}
+            {syncFix?.requiresLanguageFix && syncFix.suggestedLanguage ? (
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ marginTop: 10 }}
+                onClick={() => void applySuggestedLanguage()}
+                disabled={working === 'save'}
+              >
+                {working === 'save' ? 'Saving…' : `Use language ${syncFix.suggestedLanguage}`}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {loading || !draft ? (
           <p className="text-muted">Loading template…</p>
@@ -273,6 +382,21 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
+
+              <label className="field-label">Telnyx template name</label>
+              <input className="input" value={template?.name || ''} readOnly spellCheck={false} />
+
+              <label className="field-label">Template language</label>
+              <input
+                className="input"
+                value={draft.language || 'en_GB'}
+                onChange={(e) => patchDraft({ language: e.target.value.trim() })}
+                placeholder="en_GB"
+                spellCheck={false}
+              />
+              <p className="text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                Meta locale code — UK WhatsApp accounts usually need <code>en_GB</code>, not <code>en_US</code>.
+              </p>
 
               <label className="field-label">Body</label>
               <textarea

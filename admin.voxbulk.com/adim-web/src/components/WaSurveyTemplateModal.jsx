@@ -149,6 +149,7 @@ function applyTemplateDraft(setDraft, tpl) {
   setDraft({
     display_name: tpl?.display_name || tpl?.name,
     category: tpl?.category || 'MARKETING',
+    language: tpl?.language || 'en_GB',
     active_for_survey: tpl?.active_for_survey !== false,
     body: bodyTextFromComponents(components),
     footer: footerTextFromComponents(components) || tpl?.footer || '',
@@ -173,6 +174,7 @@ export default function WaSurveyTemplateModal({
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
+  const [syncFix, setSyncFix] = useState(null)
   const [template, setTemplate] = useState(null)
   const [draft, setDraft] = useState(null)
   const [surveyTypes, setSurveyTypes] = useState([])
@@ -207,12 +209,77 @@ export default function WaSurveyTemplateModal({
   const clearFeedback = () => {
     setError('')
     setErrorDetail('')
+    setSyncFix(null)
   }
 
   const showError = (err, fallback = 'Request failed') => {
     const formatted = formatWaSurveyError(err, fallback)
     setError(formatted.message)
     setErrorDetail(formatted.detailText !== formatted.message ? formatted.detailText : '')
+    setSyncFix(
+      formatted.requiresRename || formatted.requiresLanguageFix
+        ? {
+            suggestedTemplateName: formatted.suggestedTemplateName,
+            suggestedLanguage: formatted.suggestedLanguage,
+            requiresRename: formatted.requiresRename,
+            requiresLanguageFix: formatted.requiresLanguageFix,
+          }
+        : null,
+    )
+  }
+
+  const applySuggestedRename = async () => {
+    if (!templateId || !syncFix?.suggestedTemplateName) return
+    setWorking('rename')
+    clearFeedback()
+    try {
+      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/rename-for-sync`, {
+        method: 'POST',
+        body: JSON.stringify({ new_name: syncFix.suggestedTemplateName }),
+      })
+      setTemplate(data.template)
+      applyTemplateDraft(setDraft, data.template)
+      setIsDirty(false)
+      showToast(data.message || `Renamed to ${data.template_name}`)
+      onSaved?.(data.template)
+    } catch (e) {
+      showError(e, 'Rename failed')
+    } finally {
+      setWorking('')
+    }
+  }
+
+  const applySuggestedLanguage = async () => {
+    if (!draft || !syncFix?.suggestedLanguage) return
+    patchDraft({ language: syncFix.suggestedLanguage })
+    setWorking('save')
+    clearFeedback()
+    try {
+      let components = draft.components?.length ? [...draft.components] : []
+      components = updateBodyInComponents(components, draft.body, draft.example_values)
+      components = updateFooterInComponents(components, draft.footer)
+      components = updateButtonsInComponents(components, draft.button_type, draft.buttons)
+      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          display_name: draft.display_name,
+          category: draft.category,
+          language: syncFix.suggestedLanguage,
+          active_for_survey: draft.active_for_survey !== false,
+          components,
+          example_values: ensureExampleValues(draft.body, '', draft.example_values),
+        }),
+      })
+      setTemplate(data.template)
+      applyTemplateDraft(setDraft, data.template)
+      setIsDirty(false)
+      showToast(`Language set to ${syncFix.suggestedLanguage}. Sync again when ready.`)
+      onSaved?.(data.template)
+    } catch (e) {
+      showError(e, 'Could not save language')
+    } finally {
+      setWorking('')
+    }
   }
 
   const loadPreview = async (id) => {
@@ -329,6 +396,7 @@ export default function WaSurveyTemplateModal({
         body: JSON.stringify({
           display_name: draft.display_name,
           category: draft.category,
+          language: draft.language || 'en_GB',
           active_for_survey: draft.active_for_survey !== false,
           components,
           example_values: ensureExampleValues(draft.body, '', draft.example_values),
@@ -415,6 +483,7 @@ export default function WaSurveyTemplateModal({
           body: JSON.stringify({
             display_name: draft.display_name,
             category: draft.category,
+            language: draft.language || 'en_GB',
             components,
             example_values: ensureExampleValues(draft.body, '', draft.example_values),
           }),
@@ -563,6 +632,28 @@ export default function WaSurveyTemplateModal({
           <div className="waTplEd-alert error">
             <strong>{error}</strong>
             {errorDetail ? <pre style={{ marginTop: 8, whiteSpace: 'pre-wrap', fontSize: 12 }}>{errorDetail}</pre> : null}
+            {syncFix?.requiresRename && syncFix.suggestedTemplateName ? (
+              <button
+                type="button"
+                className="waTplEd-tb-btn primary"
+                style={{ marginTop: 10 }}
+                onClick={() => void applySuggestedRename()}
+                disabled={working === 'rename'}
+              >
+                {working === 'rename' ? 'Renaming…' : `Rename to ${syncFix.suggestedTemplateName}`}
+              </button>
+            ) : null}
+            {syncFix?.requiresLanguageFix && syncFix.suggestedLanguage ? (
+              <button
+                type="button"
+                className="waTplEd-tb-btn primary"
+                style={{ marginTop: 10 }}
+                onClick={() => void applySuggestedLanguage()}
+                disabled={working === 'save'}
+              >
+                {working === 'save' ? 'Saving…' : `Use language ${syncFix.suggestedLanguage}`}
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -641,6 +732,26 @@ export default function WaSurveyTemplateModal({
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
+                  </div>
+                </div>
+
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-language" /></div>
+                    <span className="waTplEd-ftitle">Template language</span>
+                    <span className="waTplEd-fbadge">Meta locale</span>
+                  </div>
+                  <div className="waTplEd-field-body">
+                    <input
+                      className="waTplEd-input"
+                      value={draft.language || 'en_GB'}
+                      onChange={(e) => patchDraft({ language: e.target.value.trim() })}
+                      placeholder="en_GB"
+                      spellCheck={false}
+                    />
+                    <p className="waTplEd-hint" style={{ marginTop: 8 }}>
+                      UK WhatsApp accounts usually need <code>en_GB</code>, not <code>en_US</code>.
+                    </p>
                   </div>
                 </div>
 

@@ -13,16 +13,19 @@ from app.services.interview_whatsapp_template_service import (
     interview_template_to_dict,
 )
 
+from app.services.wa_template_meta_sync import http_status_for_template_sync_error
+
 router = APIRouter(prefix="/admin/wa-interview", tags=["admin-wa-interview"])
 
 
 def _raise_interview_error(exc: InterviewWhatsappTemplateError, *, status_code: int = status.HTTP_400_BAD_REQUEST) -> None:
     payload = exc.payload or {"message": str(exc)}
-    code = (
-        status.HTTP_502_BAD_GATEWAY
-        if payload.get("provider_error") and status_code == status.HTTP_400_BAD_REQUEST
-        else status_code
-    )
+    if payload.get("meta_error_kind") or payload.get("requires_language_fix") or payload.get("requires_rename"):
+        code = http_status_for_template_sync_error(payload)
+    elif payload.get("provider_error") and status_code == status.HTTP_400_BAD_REQUEST:
+        code = http_status_for_template_sync_error(payload)
+    else:
+        code = status_code
     raise HTTPException(status_code=code, detail=payload) from exc
 
 
@@ -113,6 +116,35 @@ def push_interview_template(
         return {**result, "template": tpl}
     except InterviewWhatsappTemplateError as exc:
         _raise_interview_error(exc)
+
+
+@router.post("/templates/{template_id}/rename-for-sync")
+def rename_interview_template_for_sync(
+    template_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = InterviewWhatsappTemplateService.get_template(db, template_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    new_name = str((payload or {}).get("new_name") or (payload or {}).get("name") or "").strip()
+    if not new_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "Provide new_name (lowercase Meta template name)."},
+        )
+    try:
+        updated = InterviewWhatsappTemplateService.rename_for_meta_sync(db, row, new_name)
+    except InterviewWhatsappTemplateError as exc:
+        _raise_interview_error(exc)
+    tpl = interview_template_to_dict(updated)
+    return {
+        "ok": True,
+        "message": f"Template renamed to {updated.name}. Save any edits, then sync to Telnyx.",
+        "template": tpl,
+        "template_name": updated.name,
+    }
 
 
 @router.post("/templates/{template_id}/refresh-telnyx-status")

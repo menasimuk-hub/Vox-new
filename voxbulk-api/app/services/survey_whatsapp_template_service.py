@@ -43,6 +43,12 @@ from app.services.telnyx_voice_service import (
     resolve_telnyx_whatsapp_waba_id,
     TelnyxConfigError,
 )
+from app.services.wa_template_meta_sync import (
+    default_wa_template_language,
+    enrich_template_push_error_payload,
+    normalize_wa_template_language,
+    validate_wa_template_name,
+)
 from app.services.wa_template_privacy import (
     PRIVACY_MODE_OFF,
     PRIVACY_MODE_ON,
@@ -734,18 +740,22 @@ class SurveyWhatsappTemplateService:
         db: Session,
         *,
         survey_type: SurveyType,
-        language: str = "en_US",
+        language: str | None = None,
         category: str = "UTILITY",
     ) -> TelnyxWhatsappTemplate:
         now = _now()
         local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"
         components = _default_standard_components()
+        lang_raw = str(language or default_wa_template_language(db)).strip()
+        lang_code, lang_error = normalize_wa_template_language(lang_raw, db=db)
+        if lang_error:
+            raise SurveyWhatsappTemplateError(lang_error)
         row = TelnyxWhatsappTemplate(
             telnyx_record_id=local_id,
             template_id=local_id,
             name=_telnyx_name_for(survey_type.slug, VARIANT_STANDARD),
             display_name=f"{survey_type.name} — Standard",
-            language=str(language or "en_US"),
+            language=lang_code or default_wa_template_language(db),
             category=category,
             status="LOCAL_DRAFT",
             variant_type=VARIANT_STANDARD,
@@ -782,7 +792,13 @@ class SurveyWhatsappTemplateService:
         if "display_name" in payload:
             row.display_name = str(payload.get("display_name") or row.display_name or row.name).strip() or row.name
         if "language" in payload and str(payload.get("language") or "").strip():
-            row.language = str(payload["language"]).strip()
+            lang_code, lang_error = normalize_wa_template_language(str(payload.get("language")), db=db)
+            if lang_error:
+                raise SurveyWhatsappTemplateError(
+                    lang_error,
+                    payload={"message": lang_error, "template_name": row.name, "requires_language_fix": True},
+                )
+            row.language = lang_code or default_wa_template_language(db)
         if "category" in payload:
             row.category = normalize_wa_template_category(payload.get("category"), required=False)
         if "active_for_survey" in payload:
@@ -880,6 +896,34 @@ class SurveyWhatsappTemplateService:
             raise SurveyWhatsappTemplateError(str(e)) from e
 
     @staticmethod
+    def rename_for_meta_sync(db: Session, row: TelnyxWhatsappTemplate, new_name: str) -> TelnyxWhatsappTemplate:
+        clean, name_error = validate_wa_template_name(new_name)
+        if name_error:
+            raise SurveyWhatsappTemplateError(name_error)
+        assert clean is not None
+        if clean == str(row.name or "").strip().lower():
+            raise SurveyWhatsappTemplateError("Choose a different template name before syncing again.")
+
+        record_id = str(row.telnyx_record_id or "").strip()
+        if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
+            local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"
+            row.telnyx_record_id = local_id
+            row.template_id = local_id
+            row.status = "LOCAL_DRAFT"
+            row.remote_content_hash = None
+            row.components_json = None
+            row.rejection_reason = None
+
+        row.name = clean
+        row.local_sync_status = SYNC_DRAFT
+        row.last_push_error = None
+        row.updated_at = _now()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+
+    @staticmethod
     def push_to_telnyx(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:
         raw_components = _effective_components(row)
         if not raw_components:
@@ -918,10 +962,28 @@ class SurveyWhatsappTemplateService:
                     "clone this template or create a new variant, then Push to Telnyx."
                 )
 
+        lang_code, lang_error = normalize_wa_template_language(row.language, db=db)
+        if lang_error:
+            raise SurveyWhatsappTemplateError(
+                lang_error,
+                payload=enrich_template_push_error_payload(
+                    message=lang_error,
+                    template_name=row.name,
+                    language=str(row.language or ""),
+                    provider_error=None,
+                    status_code=422,
+                    telnyx_request_mode="create_or_update_template",
+                ),
+            )
+        if lang_code and lang_code != row.language:
+            row.language = lang_code
+            db.add(row)
+            db.flush()
+
         payload = {
             "name": str(row.name or "").strip(),
             "category": category,
-            "language": str(row.language or "en_US"),
+            "language": lang_code or default_wa_template_language(db),
             "waba_id": waba_id,
             "components": components,
         }
@@ -946,15 +1008,17 @@ class SurveyWhatsappTemplateService:
             db.add(row)
             db.commit()
             logger.warning("survey_wa_template_push_failed", extra={"template_id": row.id, "error": detail})
+            error_payload = enrich_template_push_error_payload(
+                message=f"Push to Telnyx failed for “{row.display_name or row.name}”.",
+                template_name=row.name,
+                language=row.language,
+                provider_error=detail,
+                status_code=e.response.status_code if e.response is not None else None,
+                telnyx_request_mode="create_or_update_template",
+            )
             raise SurveyWhatsappTemplateError(
-                f"Push to Telnyx failed for “{row.display_name or row.name}”.",
-                payload=_provider_error_payload(
-                    message=f"Push to Telnyx failed for “{row.display_name or row.name}”.",
-                    template_name=row.name,
-                    provider_error=detail,
-                    status_code=e.response.status_code if e.response is not None else None,
-                    telnyx_request_mode="create_or_update_template",
-                ),
+                str(error_payload.get("admin_guidance") or error_payload.get("message")),
+                payload=error_payload,
             ) from e
         except Exception as e:
             row.last_push_error = str(e)

@@ -34,11 +34,11 @@ export const SYSTEM_WHATSAPP_META = {
   },
   interview_email_sent: {
     title: 'Interview email notice',
-    description: 'Launch notice — tells candidate to check careers@voxbulk.com email. Telnyx: interview_email_sent',
+    description: 'Launch notice — tells candidate to check careers@voxbulk.com email. Telnyx: voxbulk_interview_email_sent',
   },
   interview_booking_confirm: {
     title: 'Interview slot confirmed',
-    description: 'After candidate books slot. Telnyx: voxbulk_interview_confirm — Reschedule / Cancel buttons',
+    description: 'After candidate books slot. Telnyx: interview_confirm_book — Reschedule / Cancel buttons',
   },
 }
 
@@ -47,8 +47,8 @@ export const WHATSAPP_TELNYX_TEMPLATE_NAMES = {
   sales_offer: 'voxbulk_sales_offer',
   sales_offer_followup: 'voxbulk_sales_followup',
   sales_offer_keyword_confirm: 'voxbulk_sales_keyword_confirm',
-  interview_email_sent: 'interview_email_sent',
-  interview_booking_confirm: 'voxbulk_interview_confirm',
+  interview_email_sent: 'voxbulk_interview_email_sent',
+  interview_booking_confirm: 'interview_confirm_book',
 }
 
 export const DEFAULT_WA_BODY_BY_KEY = {

@@ -43,6 +43,7 @@ from app.services.telnyx_whatsapp_template_sync_service import (
     send_template_id_for_row,
     template_to_dict,
 )
+from app.services.wa_template_meta_sync import default_wa_template_language, normalize_wa_template_language
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ class InterviewWhatsappTemplateService:
                     template_id=local_id,
                     name=telnyx_name,
                     display_name=str(spec.get("display_name") or telnyx_name),
-                    language="en_US",
+                    language=default_wa_template_language(db),
                     category=str(spec.get("category") or "UTILITY"),
                     status="LOCAL_DRAFT",
                     sales_template_key=key,
@@ -148,6 +149,12 @@ class InterviewWhatsappTemplateService:
             changed = False
             if not existing.sales_template_key:
                 existing.sales_template_key = key
+                changed = True
+            if str(existing.name or "").strip().lower() != telnyx_name.strip().lower():
+                existing.name = telnyx_name
+                if _is_local_row(existing) and not existing.last_pushed_at:
+                    existing.local_sync_status = "draft"
+                    existing.last_push_error = None
                 changed = True
             if not existing.display_name:
                 existing.display_name = str(spec.get("display_name") or telnyx_name)
@@ -232,7 +239,13 @@ class InterviewWhatsappTemplateService:
         if "display_name" in payload:
             row.display_name = str(payload.get("display_name") or row.display_name or row.name).strip() or row.name
         if "language" in payload and str(payload.get("language") or "").strip():
-            row.language = str(payload["language"]).strip()
+            lang_code, lang_error = normalize_wa_template_language(str(payload.get("language")), db=db)
+            if lang_error:
+                raise InterviewWhatsappTemplateError(
+                    lang_error,
+                    payload={"message": lang_error, "template_name": row.name, "requires_language_fix": True},
+                )
+            row.language = lang_code or default_wa_template_language(db)
         if "category" in payload:
             row.category = normalize_wa_template_category(payload.get("category"), required=False)
         if "active_for_interview" in payload:
@@ -257,6 +270,13 @@ class InterviewWhatsappTemplateService:
         db.commit()
         db.refresh(row)
         return row
+
+    @staticmethod
+    def rename_for_meta_sync(db: Session, row: TelnyxWhatsappTemplate, new_name: str) -> TelnyxWhatsappTemplate:
+        try:
+            return SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, new_name)
+        except SurveyWhatsappTemplateError as exc:
+            raise InterviewWhatsappTemplateError(str(exc), payload=exc.payload) from exc
 
     @staticmethod
     def push_to_telnyx(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:

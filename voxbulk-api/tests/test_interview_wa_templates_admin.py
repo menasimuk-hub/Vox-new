@@ -81,7 +81,7 @@ def test_admin_wa_interview_sync_api(app_client, monkeypatch):
         {
             "id": "019interview-email-sent",
             "template_id": "111",
-            "name": "interview_email_sent",
+            "name": "voxbulk_interview_email_sent",
             "language": "en_US",
             "status": "APPROVED",
             "components": [{"type": "BODY", "text": "Dear {{1}}", "example": {"body_text": [["James"]]}}],
