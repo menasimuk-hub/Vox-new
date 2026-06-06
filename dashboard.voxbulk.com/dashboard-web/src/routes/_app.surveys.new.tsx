@@ -40,6 +40,23 @@ const PAGE_COUNT_TO_LENGTH: Record<3 | 4 | 5 | 6, "short" | "standard" | "detail
 
 type Channel = "whatsapp" | "phone" | null;
 
+function industryMatchesSlugSearch(ind: Record<string, unknown>, needle: string): boolean {
+  const slug = String(ind.slug || ind.industry_slug || "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  const name = String(ind.name || ind.label || "").trim().toLowerCase();
+  const nameNorm = name.replace(/&/g, "and").replace(/[^a-z0-9]+/g, " ").trim();
+  const needleNorm = needle.replace(/_/g, " ").trim();
+
+  if (slug === needle) return true;
+  if (slug.replace(/_/g, "") === needle.replace(/_/g, "")) return true;
+  if (name === needle) return true;
+  if (nameNorm.includes(needleNorm)) return true;
+  if (needle === "hospitality_food" && nameNorm.includes("hospitality") && nameNorm.includes("food")) return true;
+  return false;
+}
+
 function CreateSurvey() {
   const { channel: channelSearch, industry_slug: industrySlugSearch } = Route.useSearch();
   const packagesQ = useSurveyPackages();
@@ -125,11 +142,7 @@ function CreateSurvey() {
     const industries = (waIndustriesQ.data?.industries || []) as Array<Record<string, unknown>>;
     if (!industrySlugSearch || !industries.length) return;
     const needle = industrySlugSearch.toLowerCase();
-    const match = industries.find((ind) => {
-      const slug = String(ind.slug || ind.industry_slug || "").toLowerCase();
-      const name = String(ind.name || ind.label || "").toLowerCase();
-      return slug === needle || name === needle || name.includes(needle.replace(/_/g, " "));
-    });
+    const match = industries.find((ind) => industryMatchesSlugSearch(ind, needle));
     if (match) setIndustryId(String(match.id));
   }, [waIndustriesQ.data, industrySlugSearch]);
 

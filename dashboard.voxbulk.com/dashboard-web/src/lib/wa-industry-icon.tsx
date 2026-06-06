@@ -45,6 +45,19 @@ function includesAny(key: string, ...needles: string[]): boolean {
 }
 
 export function isHospitalityFoodIndustry(name?: string, slug?: string): boolean {
+  const slugKey = String(slug || "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  if (slugKey === "hospitality_food") return true;
+
+  const nameKey = String(name || "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (nameKey.includes("hospitality") && nameKey.includes("food")) return true;
+
   const key = normalizeIndustryKey(name, slug);
   const tokens = industryTokens(key);
   return (
@@ -84,6 +97,7 @@ export function waIndustryIcon(name?: string, slug?: string): LucideIcon {
     return UtensilsCrossed;
   }
 
+  // Never substring-match bare "health" — "hospitality" used to wrongly match and show Stethoscope.
   if (
     hasToken(tokens, "healthcare", "health", "medical", "clinic", "hospital", "gp", "pharmacy", "nhs") ||
     includesAny(key, "healthcare", "medical", "clinical", "hospital", "pharmacy", "nhs")

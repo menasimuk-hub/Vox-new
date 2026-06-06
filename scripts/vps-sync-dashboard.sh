@@ -69,5 +69,16 @@ if grep -q 'tabler-icons' "$VOX_DASH_DIST/index.html" 2>/dev/null; then
   echo "FAIL: still OLD dashboard theme (tabler-icons) — check nginx root points to $VOX_DASH_DIST"
   exit 1
 fi
+
+SURVEY_JS=$(grep -oE '/assets/_app\.surveys\.new-[^"]+\.js' "$VOX_DASH_DIST/index.html" | head -1 || true)
+if [[ -n "$SURVEY_JS" && -f "$VOX_DASH_DIST$SURVEY_JS" ]]; then
+  if grep -q 'hospitality_food' "$VOX_DASH_DIST$SURVEY_JS"; then
+    echo "OK — Create Survey bundle includes hospitality_food icon fix"
+  else
+    echo "FAIL: Create Survey JS missing hospitality_food — rebuild did not deploy new wizard code"
+    exit 1
+  fi
+fi
+
 echo "OK — hard refresh: Ctrl+Shift+R on https://dashboard.voxbulk.com/"
 echo "    Create survey: /surveys/new"

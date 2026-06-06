@@ -26,6 +26,19 @@ fi
 echo "[OK] index.html looks like NEW dashboard (no tabler-icons)"
 grep -oE '/assets/[^"]+\.(js|css)' "$WWWROOT/index.html" | head -3
 
+SURVEY_JS=$(grep -oE '/assets/_app\.surveys\.new-[^"]+\.js' "$WWWROOT/index.html" | head -1 || true)
+if [[ -n "$SURVEY_JS" && -f "$WWWROOT$SURVEY_JS" ]]; then
+  if grep -q 'hospitality_food' "$WWWROOT$SURVEY_JS"; then
+    echo "[OK] Create Survey bundle includes hospitality_food icon fix"
+  else
+    echo "[FAIL] Create Survey JS is OLD (no hospitality_food) — live site still has stethoscope bug"
+    echo "Fix: VOX_GIT_BRANCH=feat/wa-survey-template-library bash scripts/vps-sync-dashboard.sh"
+    exit 1
+  fi
+else
+  echo "[WARN] Could not find _app.surveys.new-*.js in wwwroot"
+fi
+
 if [[ -f "$DASH_DIR/dist/client/index.html" ]]; then
   if grep -q 'tabler-icons' "$DASH_DIR/dist/client/index.html" 2>/dev/null; then
     echo "[WARN] Repo build is old — git pull && npm run build"
