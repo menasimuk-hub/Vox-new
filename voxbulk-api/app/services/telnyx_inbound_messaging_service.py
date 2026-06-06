@@ -447,6 +447,13 @@ class TelnyxInboundMessagingService:
                         from_norm or from_number,
                     )
             if not handled_interview and not handled_survey:
+                logger.warning(
+                    "inbound_fallback_after_survey_miss org=%s from=%r body=%r — "
+                    "no active survey session; routing to sales/generic handlers",
+                    org_id,
+                    from_norm or from_number,
+                    (body or "")[:80],
+                )
                 try:
                     from app.services.sales_automation_service import SalesAutomationService
 

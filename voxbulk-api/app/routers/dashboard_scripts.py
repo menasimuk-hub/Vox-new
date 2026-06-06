@@ -421,29 +421,29 @@ def send_wa_survey_test(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    """Send ordered survey WhatsApp templates to a test mobile number (Step 5 verification)."""
+    """Start a stateful WA survey test session — welcome only; replies drive the workflow."""
     from sqlalchemy import select
 
     from app.models.user import User
     from app.services.recovery_service import OrganisationService
-    from app.services.survey_whatsapp_template_service import (
-        SurveyWhatsappTemplateError,
-        SurveyWhatsappTemplateService,
-    )
+    from app.services.survey_builder_test_service import SurveyBuilderTestService
+    from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateError
 
     body = payload or {}
+    order_id = str(body.get("order_id") or "").strip()
     template_ids = _parse_wa_survey_test_template_ids(body)
     logger.info(
-        "send_wa_survey_test entry org=%s test_phone=%s template_ids=%s keys=%s",
+        "send_wa_survey_test entry org=%s order_id=%s test_phone=%s template_ids=%s keys=%s",
         principal.org_id,
+        order_id or None,
         body.get("test_phone"),
         template_ids,
         sorted(body.keys()),
     )
-    if not template_ids:
+    if not order_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="template_ids or welcome/middle/thank-you template ids are required",
+            detail="order_id is required — complete Step 3 (Generate) so the survey draft is saved before testing.",
         )
 
     user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
@@ -467,17 +467,20 @@ def send_wa_survey_test(
     business_name = str(branding.get("client_name") or branding.get("organisation_name") or "Your business")
 
     try:
-        result = SurveyWhatsappTemplateService.send_builder_flow_test(
+        result = SurveyBuilderTestService.start_wa_test_session(
             db,
-            template_ids=template_ids,
-            to_number=to_number,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            order_id=order_id,
+            test_phone=to_number,
             first_name=first_name,
             business_name=business_name,
         )
         logger.info(
-            "send_wa_survey_test ok to=%s sent=%s",
+            "send_wa_survey_test session_started order_id=%s recipient_id=%s to=%s",
+            result.get("order_id"),
+            result.get("recipient_id"),
             result.get("to_number"),
-            result.get("sent"),
         )
         return {"ok": True, **result}
     except SurveyWhatsappTemplateError as e:

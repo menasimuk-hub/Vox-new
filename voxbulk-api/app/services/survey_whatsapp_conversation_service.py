@@ -313,14 +313,17 @@ def find_active_recipient(
         db.execute(
             select(ServiceOrder).where(
                 ServiceOrder.service_code == "survey",
-                ServiceOrder.status == "running",
                 ServiceOrder.org_id == scoped_org,
+                ServiceOrder.status.in_(("running", "draft")),
             )
         ).scalars()
     )
 
     for order in orders:
         if not is_whatsapp_survey_order(order):
+            continue
+        order_config = _order_config(order)
+        if str(order.status or "").lower() == "draft" and not order_config.get("wa_builder_test"):
             continue
         for recipient in ServiceOrderService.get_recipients(db, order.id):
             if str(recipient.status or "").lower() not in {"sent", "in_progress"}:
@@ -814,7 +817,23 @@ def handle_inbound_reply(
     """Advance an active WhatsApp survey when a contact replies."""
     order, recipient = find_active_recipient(db, from_phone=from_phone, org_id=org_id)
     if not order or not recipient:
+        logger.info(
+            "%s inbound_no_active_session from=%r org=%s body=%r",
+            LOG_PREFIX,
+            from_phone,
+            org_id,
+            str(body or "")[:80],
+        )
         return {"handled": False, "reason": "no_active_survey"}
+
+    logger.info(
+        "%s inbound_matched order=%s recipient=%s step=%s body=%r",
+        LOG_PREFIX,
+        order.id,
+        recipient.id,
+        int(_wa_conversation(_recipient_result(recipient)).get("step") or 0),
+        str(body or "")[:80],
+    )
 
     payload = _recipient_result(recipient)
     if is_duplicate_inbound(payload, log_id=log_id, inbound_message_id=inbound_message_id):

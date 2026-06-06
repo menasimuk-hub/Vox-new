@@ -1730,51 +1730,31 @@ class SurveyWhatsappTemplateService:
         first_name: str = "Alex",
         business_name: str = "Your business",
         delay_seconds: float = 0.75,
+        order_id: str | None = None,
+        org_id: str | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
-        """Send each survey template in order as a WhatsApp template message."""
-        import time
+        """Deprecated bulk send — use SurveyBuilderTestService.start_wa_test_session instead."""
+        if order_id and org_id and user_id:
+            from app.services.survey_builder_test_service import SurveyBuilderTestService
 
-        cleaned_ids: list[int] = []
-        for raw_id in template_ids:
-            try:
-                tid = int(raw_id)
-            except (TypeError, ValueError):
-                continue
-            if tid > 0 and tid not in cleaned_ids:
-                cleaned_ids.append(tid)
-        if not cleaned_ids:
-            raise SurveyWhatsappTemplateError("At least one template id is required for test send.")
-
-        logger.info(
-            "send_builder_flow_test start to=%s template_ids=%s",
-            to_number,
-            cleaned_ids,
-        )
-        messages: list[dict[str, Any]] = []
-        for index, tpl_id in enumerate(cleaned_ids):
-            row = SurveyWhatsappTemplateService.get_template(db, tpl_id)
-            if row is None:
-                raise SurveyWhatsappTemplateError(f"Template {tpl_id} not found.")
-            one = SurveyWhatsappTemplateService.send_test_template(
+            logger.warning(
+                "send_builder_flow_test redirected to session flow order_id=%s (template_ids ignored)",
+                order_id,
+            )
+            return SurveyBuilderTestService.start_wa_test_session(
                 db,
-                row,
-                to_number=to_number,
+                org_id=org_id,
+                user_id=user_id,
+                order_id=order_id,
+                test_phone=to_number,
                 first_name=first_name,
                 business_name=business_name,
             )
-            messages.append(one)
-            if index < len(cleaned_ids) - 1 and delay_seconds > 0:
-                time.sleep(delay_seconds)
-
-        recipient = str(messages[0].get("to_number") or to_number)
-        return {
-            "ok": True,
-            "success": True,
-            "sent": len(messages),
-            "to_number": recipient,
-            "messages": messages,
-            "message": f"Sent {len(messages)} WhatsApp template message(s) to {recipient}.",
-        }
+        raise SurveyWhatsappTemplateError(
+            "Bulk template test send is disabled. Start a survey test session with order_id "
+            "so replies follow the wizard workflow step by step."
+        )
 
     @staticmethod
     def update_template_mappings(db: Session, template_id: int, mappings: list[dict[str, Any]]) -> dict[str, Any]:

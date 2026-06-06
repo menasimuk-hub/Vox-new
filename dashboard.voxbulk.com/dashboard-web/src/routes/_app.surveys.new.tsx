@@ -421,19 +421,25 @@ function CreateSurvey() {
       toast.error("Enter a test mobile number in E.164 format (e.g. +447700900123).");
       return;
     }
+    if (!approved) {
+      toast.error("Complete Step 3 (Generate) before sending a test.");
+      return;
+    }
     const templateIds = buildTestTemplateIds();
     if (templateIds.length < 2) {
       toast.error("Complete Step 3 template selection before sending a test.");
       return;
     }
+    const id = await ensureOrder();
     const sendBody = {
+      order_id: id,
       test_phone: phone,
       template_ids: templateIds,
       welcome_template_id: Number(input.welcomeTemplateId || welcomeTemplateId),
       thank_you_template_id: Number(thankYouTemplateId),
       middle_template_ids: orderedServiceTagIds
         .map((typeId) => Number(selectedServiceTemplateIds[typeId]))
-        .filter((id) => Number.isFinite(id) && id > 0),
+        .filter((tid) => Number.isFinite(tid) && tid > 0),
       first_name: input.firstName || "Alex",
       client_context: { organisation_name: businessName || goal.slice(0, 80) || undefined },
     };
@@ -441,8 +447,12 @@ function CreateSurvey() {
     try {
       const result = await sendTestWaM.mutateAsync(sendBody);
       console.info("[wa-survey] send-test ok", result);
-      const sent = Number(result.sent ?? result.messages?.length ?? templateIds.length);
-      toast.success(String(result.message || `Sent ${sent} WhatsApp test message(s) to ${phone}.`));
+      toast.success(
+        String(
+          result.message ||
+            "Survey test started — check WhatsApp and reply to continue the survey step by step.",
+        ),
+      );
     } catch (e) {
       console.error("[wa-survey] send-test failed", e);
       toast.error(e instanceof Error ? e.message : "WhatsApp test send failed");
@@ -499,10 +509,13 @@ function CreateSurvey() {
 
       try {
         const id = await ensureOrder();
+        const flowExtras = (generated.order_config_flow || {}) as Record<string, unknown>;
         const patchBody = {
           config: {
             goal,
             delivery: "whatsapp",
+            survey_channel: "whatsapp",
+            channels: ["whatsapp"],
             anonymous_responses: Boolean(generated.anonymous_responses),
             allow_follow_up: generated.allow_follow_up !== false,
             script: String(generated.approved_script || script),
@@ -519,6 +532,10 @@ function CreateSurvey() {
             privacy_mode: privacyMode,
             wa_template_id: generated.wa_template_id,
             whatsapp_flow: generated.whatsapp_flow,
+            flow_engine: generated.flow_engine,
+            flow_definition_id: generated.flow_definition_id,
+            flow_snapshot: generated.flow_snapshot,
+            ...flowExtras,
           },
         };
         console.info("[wa-survey] PATCH /service-orders/" + id, patchBody);
