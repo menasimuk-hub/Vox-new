@@ -23,7 +23,12 @@ from app.services.survey_industry_scope import (
     resolve_survey_type_industry_id,
 )
 from app.services.providers.openai_service import OpenAIProviderService
-from app.services.survey_step_bank_service import ALL_STEP_ROLES, PACK_STEP_ROLES, normalize_step_role
+from app.services.survey_step_bank_service import (
+    ALL_STEP_ROLES,
+    MIDDLE_STEP_ROLES,
+    PACK_STEP_ROLES,
+    normalize_step_role,
+)
 from app.services.wa_template_privacy import (
     PRIVACY_MODE_OFF,
     PRIVACY_MODE_ON,
@@ -1071,6 +1076,85 @@ def _single_template_system_prompt(
     )
 
 
+def _library_template_system_prompt(
+    *,
+    step_role: str,
+    privacy_mode: str = PRIVACY_MODE_OFF,
+    instruction: str = "",
+    purpose: str = "",
+) -> str:
+    role = normalize_step_role(step_role)
+    if role not in MIDDLE_STEP_ROLES:
+        raise SurveyWaTemplatePackError(
+            f"Library templates must use a middle step_role ({', '.join(MIDDLE_STEP_ROLES)}), not {role!r}"
+        )
+    role_rules = {
+        "rating": (
+            "rating — ask for a score or overall rating on the survey topic; button_type none "
+            "(recipient replies in chat with a number or short rating)."
+        ),
+        "yes_no": "yes_no — quick_reply with exactly 2 text-only buttons (e.g. Yes / No).",
+        "helpfulness": "helpfulness — button_type none or quick_reply with 2–3 helpfulness options.",
+        "abc_choice": "abc_choice — quick_reply with 2 or 3 text-only option buttons.",
+        "reason": "reason — open follow-up asking why or what stood out; button_type none.",
+        "feeling_word": "feeling_word — quick_reply with 2–3 feeling options or button_type none.",
+        "follow_up": "follow_up — short follow-up nudge; button_type none.",
+        "improvement": "improvement — ask what could be improved; button_type none.",
+    }
+    return (
+        "You are an expert WhatsApp Business template copywriter for VoxBulk customer satisfaction surveys. "
+        "Write exactly ONE reusable Meta/Telnyx-compatible middle-step template for the WA Survey template library. "
+        "British English. Warm, professional, mobile-first. Light tasteful emojis allowed in the body (max 2). "
+        "No URLs in body unless using {{3}} as a survey link placeholder — prefer no link variables for library questions. "
+        "No reference numbers, promo spam, or misleading claims.\n\n"
+        f"{_meta_compliance_rules_block(privacy_mode=privacy_mode)}"
+        "LIBRARY TEMPLATE RULES (mandatory):\n"
+        f"• step_role MUST be exactly “{role}”.\n"
+        "• DO NOT generate welcome, thank_you, tell_us_more, start, or completion templates.\n"
+        "• DO NOT use outcome_key — set outcome_key to null.\n"
+        "• variant_type standard (Privacy Mode Off) unless instruction says anonymous.\n"
+        "• category MARKETING.\n"
+        "• Copy must be clearly specific to the given industry AND survey type topic.\n"
+        "• One focused question — not a multi-topic survey pack.\n"
+        f"• Role behaviour: {role_rules.get(role, role_rules['rating'])}\n\n"
+        f"{_reference_copy_rules_block(instruction=instruction, purpose=purpose)}"
+        f"{_emoji_rules_block(template_count=1)}"
+        "Return JSON with a single `template` object."
+    )
+
+
+def _library_template_user_prompt(
+    *,
+    survey_type: SurveyType,
+    industry: Industry,
+    step_role: str,
+    purpose: str,
+    instruction: str,
+) -> str:
+    role = normalize_step_role(step_role)
+    topic = str(survey_type.name or survey_type.slug).strip()
+    parts = [
+        f"Industry: {industry.name}",
+        f"Industry slug: {industry.slug}",
+        f"Survey type: {survey_type.name}",
+        f"Survey type slug: {survey_type.slug}",
+        f"Survey topic to ask about: {topic}",
+        f"Required step_role: {role}",
+        f"Description: {survey_type.description or survey_type.name}",
+        (
+            f"Write one WhatsApp template that asks about “{topic}” in the context of {industry.name}. "
+            "Examples: Hospitality & food + Food quality → asks about food quality; "
+            "Automotive + Explanation of work → asks whether work was explained clearly."
+        ),
+    ]
+    if purpose.strip():
+        parts.append(f"Purpose focus: {purpose.strip()}")
+    if instruction.strip():
+        parts.append(f"Admin instruction: {instruction.strip()}")
+    parts.append("Return one improved template as JSON.")
+    return "\n".join(parts)
+
+
 def _single_template_user_prompt(
     *,
     survey_type: SurveyType,
@@ -1276,6 +1360,116 @@ class SurveyWaTemplatePackService:
             "composition_errors": composition_errors,
             "composition_ok": not composition_errors,
             "openai": meta,
+        }
+
+    @staticmethod
+    def generate_library_template(
+        db: Session,
+        *,
+        survey_type: SurveyType,
+        step_role: str = "rating",
+        purpose: str = "",
+        instruction: str = "",
+        privacy_mode: str = PRIVACY_MODE_OFF,
+        industry_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate one industry+survey-type library template (middle step only, not system templates)."""
+        privacy_mode = normalize_privacy_mode(privacy_mode)
+        role = normalize_step_role(step_role)
+        if role not in MIDDLE_STEP_ROLES:
+            raise SurveyWaTemplatePackError(
+                f"step_role must be a middle library role ({', '.join(MIDDLE_STEP_ROLES)}), not {role!r}"
+            )
+        try:
+            industry = load_industry_for_prompt(db, survey_type)
+        except SurveyIndustryScopeError as e:
+            raise SurveyWaTemplatePackError(str(e)) from e
+        if survey_type.system_template_kind:
+            raise SurveyWaTemplatePackError(
+                "Cannot generate library templates for system survey types (welcome/thank_you/tell_us_more)"
+            )
+        if industry_id and str(industry_id).strip() != industry.id:
+            raise SurveyWaTemplatePackError("Industry does not match survey type")
+        if getattr(industry, "is_hidden", False):
+            raise SurveyWaTemplatePackError("Cannot generate library templates for hidden/system industries")
+
+        purpose = purpose.strip() or str(survey_type.name or "").strip()
+        library_instruction = (
+            "Generate one normal WA Survey library template for admin review. "
+            "Text-focused, WhatsApp-native, concise. "
+            "Text-only quick reply buttons when the step_role supports buttons. "
+            "No URLs, reference numbers, or promotional spam. "
+            f"Must use step_role={role} only."
+        )
+        if instruction.strip():
+            library_instruction = f"{library_instruction}\n{instruction.strip()}"
+
+        try:
+            raw, meta = OpenAIProviderService.responses_json(
+                db,
+                system_prompt=_library_template_system_prompt(
+                    step_role=role,
+                    privacy_mode=privacy_mode,
+                    instruction=library_instruction,
+                    purpose=purpose,
+                ),
+                user_prompt=_library_template_user_prompt(
+                    survey_type=survey_type,
+                    industry=industry,
+                    step_role=role,
+                    purpose=purpose,
+                    instruction=library_instruction,
+                ),
+                json_schema=WA_SINGLE_TEMPLATE_JSON_SCHEMA,
+                schema_name="wa_survey_library_template",
+                max_output_tokens=4000,
+                temperature=0.65,
+            )
+        except ValueError as e:
+            raise SurveyWaTemplatePackError(str(e)) from e
+        except httpx.TimeoutException as e:
+            raise SurveyWaTemplatePackError("OpenAI timed out generating the library template.") from e
+
+        item = raw.get("template")
+        if not isinstance(item, dict):
+            raise SurveyWaTemplatePackError("OpenAI response missing template object")
+
+        coerced = coerce_meta_template_fields({**item, "step_role": role, "outcome_key": None}, privacy_mode=privacy_mode)
+        row = _build_pack_item_row(
+            db,
+            survey_type=survey_type,
+            idx=0,
+            item=coerced,
+            seen_names=set(),
+            privacy_mode=privacy_mode,
+            instruction=library_instruction,
+            purpose=purpose,
+            company_name=None,
+        )
+        if not row.get("valid") or not row.get("template"):
+            errors = row.get("errors") or ["validation failed"]
+            raise SurveyWaTemplatePackError("; ".join(str(e) for e in errors))
+
+        generated_role = normalize_step_role(str(row["template"].get("step_role") or ""))
+        if generated_role != role:
+            raise SurveyWaTemplatePackError(
+                f"OpenAI returned step_role={generated_role!r}, expected {role!r}"
+            )
+        if generated_role in {"start", "completion"} or str(row["template"].get("outcome_key") or "").strip():
+            raise SurveyWaTemplatePackError("Generated template must not be a start/completion/system template")
+
+        return {
+            "ok": True,
+            "industry_id": industry.id,
+            "industry_slug": industry.slug,
+            "industry_name": industry.name,
+            "survey_type_id": survey_type.id,
+            "survey_type_slug": survey_type.slug,
+            "survey_type_name": survey_type.name,
+            "step_role": role,
+            "template": row["template"],
+            "openai": meta,
+            "privacy_mode": privacy_mode,
         }
 
     @staticmethod
