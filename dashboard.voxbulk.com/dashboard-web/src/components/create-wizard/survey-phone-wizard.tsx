@@ -68,6 +68,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
     if (step === 1) {
       return props.goal.trim().length > 0 && props.script.trim().length > 0 && props.approved;
     }
+    if (step === 2) return true;
     return true;
   }, [step, props.goal, props.script, props.approved]);
 
@@ -210,6 +211,9 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                     <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void props.onDownloadTemplate()}>
                       <Download className="size-3.5" /> Sample template
                     </Button>
+                    <Button size="sm" type="button" variant="ghost" className="gap-1.5 text-muted-foreground" onClick={goNext}>
+                      Skip for now
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -313,6 +317,9 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
         onPrev={() => setStep((s) => Math.max(1, s - 1))}
         onNext={goNext}
         nextDisabled={!canNext}
+        skippable={step === 2}
+        onSkip={goNext}
+        skipLabel="Skip for now"
         finalLabel="Preview & launch"
         onFinish={() => setQuote(true)}
         finishDisabled={!props.approved}

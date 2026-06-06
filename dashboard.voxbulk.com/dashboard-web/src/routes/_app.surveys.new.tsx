@@ -41,6 +41,7 @@ function CreateSurvey() {
   const [waPreview, setWaPreview] = React.useState<Record<string, unknown> | null>(null);
   const [industryId, setIndustryId] = React.useState("");
   const [selectedServiceTagIds, setSelectedServiceTagIds] = React.useState<string[]>([]);
+  const [orderedServiceTagIds, setOrderedServiceTagIds] = React.useState<string[]>([]);
   const [welcomeTemplateId, setWelcomeTemplateId] = React.useState("");
   const [thankYouTemplateId, setThankYouTemplateId] = React.useState("");
   const [privacyMode, setPrivacyMode] = React.useState<"off" | "on">("off");
@@ -52,7 +53,7 @@ function CreateSurvey() {
   const waIndustriesQ = useWaSurveyIndustries();
   const waTypesQ = useWaSurveyTypes(industryId || null);
   const systemTemplatesQ = useWaSurveySystemTemplates();
-  const primarySurveyTypeId = selectedServiceTagIds[0] || "";
+  const primarySurveyTypeId = orderedServiceTagIds[0] || selectedServiceTagIds[0] || "";
   const stepBankQ = useWaSurveyStepBank(channel === "whatsapp" ? primarySurveyTypeId : null, privacyMode);
   const [approved, setApproved] = React.useState(false);
   const [anonymous, setAnonymous] = React.useState(false);
@@ -106,10 +107,21 @@ function CreateSurvey() {
 
   React.useEffect(() => {
     setSelectedServiceTagIds([]);
+    setOrderedServiceTagIds([]);
     setWelcomeTemplateId("");
     setThankYouTemplateId("");
     setApproved(false);
   }, [industryId]);
+
+  React.useEffect(() => {
+    setOrderedServiceTagIds((prev) => {
+      const next = prev.filter((id) => selectedServiceTagIds.includes(id));
+      for (const id of selectedServiceTagIds) {
+        if (!next.includes(id)) next.push(id);
+      }
+      return next;
+    });
+  }, [selectedServiceTagIds]);
 
   const serviceTypes = React.useMemo(
     () => (waTypesQ.data?.types || []) as Array<Record<string, unknown>>,
@@ -227,7 +239,7 @@ function CreateSurvey() {
       const generated = await generateWaM.mutateAsync({
         industry_id: industryId,
         survey_type_id: primarySurveyTypeId,
-        selected_survey_type_ids: selectedServiceTagIds,
+        selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
         welcome_template_id: Number(welcomeTemplateId),
         thank_you_template_id: Number(thankYouTemplateId),
         variant: surveyVariant,
@@ -253,7 +265,7 @@ function CreateSurvey() {
             script: String(generated.approved_script || script),
             industry_id: industryId,
             survey_type_id: primarySurveyTypeId,
-            selected_survey_type_ids: selectedServiceTagIds,
+            selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
             welcome_template_id: generated.welcome_template_id ?? Number(welcomeTemplateId),
             thank_you_template_id: generated.thank_you_template_id ?? Number(thankYouTemplateId),
             tell_us_more_template_id: generated.tell_us_more_template_id,
@@ -289,7 +301,7 @@ function CreateSurvey() {
               package_id: packageId || undefined,
               industry_id: industryId,
               survey_type_id: primarySurveyTypeId || undefined,
-              selected_survey_type_ids: selectedServiceTagIds,
+              selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
               welcome_template_id: welcomeTemplateId ? Number(welcomeTemplateId) : undefined,
               thank_you_template_id: thankYouTemplateId ? Number(thankYouTemplateId) : undefined,
               survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
@@ -366,6 +378,8 @@ function CreateSurvey() {
           industries={industries}
           industriesLoading={waIndustriesQ.isLoading}
           selectedServiceTagIds={selectedServiceTagIds}
+          orderedServiceTagIds={orderedServiceTagIds}
+          setOrderedServiceTagIds={setOrderedServiceTagIds}
           toggleServiceTag={toggleServiceTag}
           serviceTypes={serviceTypes}
           serviceTypesLoading={waTypesQ.isLoading}

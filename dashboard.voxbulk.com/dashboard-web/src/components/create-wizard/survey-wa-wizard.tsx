@@ -2,26 +2,27 @@ import * as React from "react";
 import {
   Briefcase,
   Check,
-  ChevronDown,
-  ChevronUp,
   Download,
   Eye,
   FileText,
   Lock,
-  Plus,
   Rocket,
   Sparkles,
   Target,
   Upload,
   Users,
   Wand2,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { StatusBadge } from "@/components/status-badge";
 import { WhatsAppPreviewModal, PreviewQuoteModal } from "@/components/modals";
 import { Stepper, Summary, WizardNav, type WizardStepDef } from "@/components/create-wizard";
+import {
+  mapSystemTemplates,
+  WaServiceFlowGroup,
+  WaTemplatePickerSection,
+} from "@/components/create-wizard/survey-wa-template-step";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,10 +36,10 @@ import { waIndustryIcon } from "@/lib/wa-industry-icon";
 
 const WA_STEPS: WizardStepDef[] = [
   { id: 1, title: "Industry", subtitle: "Your sector", icon: Briefcase },
-  { id: 2, title: "Services", subtitle: "1–4 topics", icon: Target },
-  { id: 3, title: "Configure", subtitle: "Templates & pages", icon: FileText },
+  { id: 2, title: "Survey type", subtitle: "1–4 topics", icon: Target },
+  { id: 3, title: "Template", subtitle: "Welcome & flow", icon: FileText },
   { id: 4, title: "Contacts", subtitle: "Upload list", icon: Users },
-  { id: 5, title: "Preview", subtitle: "Script & WA", icon: Eye },
+  { id: 5, title: "Preview", subtitle: "Review flow", icon: Eye },
   { id: 6, title: "Launch", subtitle: "Schedule & go", icon: Rocket },
 ];
 
@@ -63,6 +64,8 @@ export type SurveyWaWizardProps = {
   industries: Array<Record<string, unknown>>;
   industriesLoading: boolean;
   selectedServiceTagIds: string[];
+  orderedServiceTagIds: string[];
+  setOrderedServiceTagIds: React.Dispatch<React.SetStateAction<string[]>>;
   toggleServiceTag: (id: string) => void;
   serviceTypes: Array<Record<string, unknown>>;
   serviceTypesLoading: boolean;
@@ -117,8 +120,44 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const [step, setStep] = React.useState(1);
   const [quote, setQuote] = React.useState(false);
   const [waOpen, setWaOpen] = React.useState(false);
+  const [draggedServiceIndex, setDraggedServiceIndex] = React.useState<number | null>(null);
+  const [dragOverServiceIndex, setDragOverServiceIndex] = React.useState<number | null>(null);
+  const [contactsSkipped, setContactsSkipped] = React.useState(false);
 
   const selectedIndustry = props.industries.find((i) => String(i.id) === props.industryId);
+  const welcomeTemplateRows = React.useMemo(
+    () => mapSystemTemplates(props.welcomeTemplates),
+    [props.welcomeTemplates],
+  );
+  const thankYouTemplateRows = React.useMemo(
+    () => mapSystemTemplates(props.thankYouTemplates),
+    [props.thankYouTemplates],
+  );
+
+  const templatePickCount =
+    (props.welcomeTemplateId ? 1 : 0) +
+    (props.thankYouTemplateId ? 1 : 0) +
+    props.orderedServiceTagIds.filter((id) => {
+      const row = props.serviceTypes.find((t) => String(t.id) === id);
+      return row?.has_wa_template;
+    }).length;
+  const templatePickTotal = props.selectedServiceTagIds.length + 2;
+
+  const reorderServices = (from: number, to: number) => {
+    if (from === to) return;
+    props.setOrderedServiceTagIds((prev) => {
+      const next = [...prev];
+      const [removed] = next.splice(from, 1);
+      next.splice(to, 0, removed);
+      return next;
+    });
+  };
+
+  const moveService = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= props.orderedServiceTagIds.length) return;
+    reorderServices(index, target);
+  };
 
   const canNext = React.useMemo(() => {
     if (step === 1) return !!props.industryId;
@@ -135,10 +174,13 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         props.goal.trim().length > 0 &&
         !!props.welcomeTemplateId &&
         !!props.thankYouTemplateId &&
+        props.selectedServiceTagIds.length >= 1 &&
         props.pageOrderValid &&
+        templatePickCount >= templatePickTotal &&
         props.approved
       );
     }
+    if (step === 4) return true;
     if (step === 5) return props.approved;
     return true;
   }, [step, props]);
@@ -169,7 +211,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               {props.industriesLoading ? (
                 <Skeleton className="h-32 w-full" />
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                   {props.industries.map((ind) => {
                     const id = String(ind.id);
                     const active = props.industryId === id;
@@ -254,6 +296,20 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   </span>{" "}
                   / 4
                 </p>
+                {props.selectedServiceTagIds.length >= 1 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground"
+                    type="button"
+                    onClick={() => {
+                      for (const id of [...props.selectedServiceTagIds]) props.toggleServiceTag(id);
+                      props.setOrderedServiceTagIds([]);
+                    }}
+                  >
+                    Clear all
+                  </Button>
+                )}
               </div>
               {props.serviceTypesLoading ? (
                 <Skeleton className="h-10 w-full" />
@@ -298,185 +354,185 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
           <Card className="animate-scale-in">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FileText className="size-4 text-primary" /> Step 3 · Configure & generate
+                <FileText className="size-4 text-primary" /> Step 3 · Select & arrange templates
               </CardTitle>
               <CardDescription>
-                Pick shared opening/closing templates, then configure survey pages. Service question templates come from your
-                selected industry and services above.
+                Pick welcome and thank-you templates, then review library templates for each survey type. Drag to reorder the
+                question flow.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-5 md:grid-cols-2">
-              <div className="md:col-span-2 space-y-1.5">
-                <Label className="text-xs">Survey goal</Label>
-                <Textarea rows={3} value={props.goal} onChange={(e) => props.setGoal(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Welcome template (required)</Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Shared global opening message — not tied to your industry.
-                </p>
-                <Select value={props.welcomeTemplateId} onValueChange={props.setWelcomeTemplateId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select welcome template" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {props.welcomeTemplates.map((t) => (
-                      <SelectItem key={String(t.id)} value={String(t.id)}>
-                        {String(t.display_name || t.name || t.id)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Thank-you template (required)</Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Shared global closing message — applied after survey questions complete.
-                </p>
-                <Select value={props.thankYouTemplateId} onValueChange={props.setThankYouTemplateId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select thank-you template" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {props.thankYouTemplates.map((t) => (
-                      <SelectItem key={String(t.id)} value={String(t.id)}>
-                        {String(t.display_name || t.name || t.id)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Field label="Privacy mode">
-                <Select value={props.privacyMode} onValueChange={(v) => props.setPrivacyMode(v as "off" | "on")}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="off">Off — identified / normal templates</SelectItem>
-                    <SelectItem value="on">On — anonymous templates only</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Survey length (pages)">
-                <Select value={String(props.pageCount)} onValueChange={(v) => props.setPageCount(Number(v) as 4 | 5 | 6)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="4">4 pages — start + 2 steps + completion</SelectItem>
-                    <SelectItem value="5">5 pages — start + 3 steps + completion</SelectItem>
-                    <SelectItem value="6">6 pages — start + 4 steps + completion</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <div className="md:col-span-2 space-y-4 rounded-lg border border-border bg-background/40 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">Survey pages</p>
-                    <p className="text-xs text-muted-foreground">Pick 4–6 pages from the step bank. Start and completion are always included.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="auto-steps" className="text-xs text-muted-foreground">
-                      Auto-select best steps
-                    </Label>
-                    <Switch id="auto-steps" checked={props.autoSelectSteps} onCheckedChange={props.setAutoSelectSteps} />
-                  </div>
-                </div>
-                {props.stepBankLoading ? (
-                  <Skeleton className="h-24 w-full" />
-                ) : (
-                  <>
-                    {!props.autoSelectSteps && (
-                      <div className="space-y-3">
-                        <p className="text-xs font-medium text-muted-foreground">Middle steps (reorder or swap)</p>
-                        <ol className="space-y-2">
-                          <li className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                            <span className="text-muted-foreground">1.</span>
-                            <span className="font-medium">{STEP_ROLE_LABELS.start}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">Required</span>
-                          </li>
-                          {props.manualMiddleRoles.map((role, idx) => (
-                            <li key={`${role}-${idx}`} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                              <span className="text-muted-foreground">{idx + 2}.</span>
-                              <span className="font-medium">{STEP_ROLE_LABELS[role] || role}</span>
-                              <div className="ml-auto flex items-center gap-1">
-                                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => props.moveMiddleRole(idx, -1)} disabled={idx === 0}>
-                                  <ChevronUp className="size-4" />
-                                </Button>
-                                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => props.moveMiddleRole(idx, 1)} disabled={idx === props.manualMiddleRoles.length - 1}>
-                                  <ChevronDown className="size-4" />
-                                </Button>
-                                <Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => props.removeMiddleRole(idx)}>
-                                  <X className="size-4" />
-                                </Button>
-                              </div>
-                            </li>
-                          ))}
-                          <li className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                            <span className="text-muted-foreground">{props.pageCount}.</span>
-                            <span className="font-medium">{STEP_ROLE_LABELS.completion}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">Required</span>
-                          </li>
-                        </ol>
-                        {props.manualMiddleRoles.length < props.pageCount - 2 && (
-                          <div className="flex flex-wrap gap-2">
-                            {props.availableMiddleRoles
-                              .filter((r) => !props.manualMiddleRoles.includes(r))
-                              .map((role) => (
-                                <Button key={role} type="button" size="sm" variant="outline" className="gap-1" onClick={() => props.addMiddleRole(role)}>
-                                  <Plus className="size-3.5" /> {STEP_ROLE_LABELS[role] || role}
-                                </Button>
-                              ))}
-                          </div>
-                        )}
-                      </div>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Selected:{" "}
+                  <span
+                    className={cn(
+                      "font-semibold",
+                      templatePickCount >= templatePickTotal ? "text-success" : "text-primary",
                     )}
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground">Final page order preview</p>
-                      <ol className="space-y-1.5">
-                        {props.resolvedPageRoles.map((role, idx) => (
-                          <li key={`preview-${role}-${idx}`} className="rounded-md border border-dashed border-border px-3 py-2 text-sm">
-                            <span className="text-muted-foreground">{idx + 1}. </span>
-                            <span className="font-medium">{STEP_ROLE_LABELS[role] || role}</span>
-                            {props.stepBankByRole[role]?.title ? (
-                              <span className="ml-2 text-xs text-muted-foreground">— {String(props.stepBankByRole[role].title)}</span>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ol>
-                      {!props.pageOrderValid && (
-                        <p className="text-xs text-destructive">
-                          Need exactly {props.pageCount} pages with unique middle steps between start and completion.
-                        </p>
-                      )}
-                    </div>
-                  </>
+                  >
+                    {templatePickCount}
+                  </span>{" "}
+                  / {templatePickTotal}
+                </p>
+              </div>
+
+              <WaTemplatePickerSection
+                label="Welcome message"
+                badge="Opening"
+                templates={welcomeTemplateRows}
+                selectedId={props.welcomeTemplateId}
+                onSelect={props.setWelcomeTemplateId}
+              />
+
+              <div className="space-y-3">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Survey questions — drag to reorder
+                </p>
+                {props.orderedServiceTagIds.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+                    Select at least one survey type in step 2 to configure templates here.
+                  </p>
+                ) : (
+                  props.orderedServiceTagIds.map((typeId, idx) => {
+                    const row = props.serviceTypes.find((t) => String(t.id) === typeId);
+                    if (!row) return null;
+                    const isPrimary = typeId === props.orderedServiceTagIds[0];
+                    const bankEntry =
+                      isPrimary && props.stepBankByRole.rating
+                        ? props.stepBankByRole.rating
+                        : props.stepBankByRole[props.resolvedPageRoles[1] || "rating"];
+                    return (
+                      <WaServiceFlowGroup
+                        key={typeId}
+                        serviceName={String(row.name)}
+                        index={idx}
+                        total={props.orderedServiceTagIds.length}
+                        ready={Boolean(row.has_wa_template)}
+                        templateTitle={String(bankEntry?.display_name || bankEntry?.title || row.name)}
+                        templateBody={String(bankEntry?.body || "").slice(0, 160)}
+                        onMoveUp={idx > 0 ? () => moveService(idx, -1) : undefined}
+                        onMoveDown={idx < props.orderedServiceTagIds.length - 1 ? () => moveService(idx, 1) : undefined}
+                        onDragStart={() => setDraggedServiceIndex(idx)}
+                        onDragEnd={() => {
+                          setDraggedServiceIndex(null);
+                          setDragOverServiceIndex(null);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setDragOverServiceIndex(idx);
+                        }}
+                        onDrop={() => {
+                          if (draggedServiceIndex !== null) reorderServices(draggedServiceIndex, idx);
+                          setDraggedServiceIndex(null);
+                          setDragOverServiceIndex(null);
+                        }}
+                        isDragging={draggedServiceIndex === idx}
+                        isDragOver={dragOverServiceIndex === idx && draggedServiceIndex !== idx}
+                      />
+                    );
+                  })
                 )}
               </div>
-              <div className="md:col-span-2 flex flex-wrap items-center gap-2">
-                <Button
-                  className="gap-1.5"
-                  onClick={() => void props.onGenerateWaSurvey()}
-                  disabled={
-                    props.generating ||
-                    props.selectedServiceTagIds.length === 0 ||
-                    !props.pageOrderValid ||
-                    props.serviceTagErrors.length > 0
-                  }
-                >
-                  <Wand2 className="size-4" /> {props.generating ? "Generating…" : "Generate survey"}
-                </Button>
-                {props.approved ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-success">
-                    <Check className="size-3.5" /> Generated & saved
-                  </span>
-                ) : null}
+
+              <WaTemplatePickerSection
+                label="Thank-you message"
+                badge="Closing"
+                templates={thankYouTemplateRows}
+                selectedId={props.thankYouTemplateId}
+                onSelect={props.setThankYouTemplateId}
+              />
+
+              <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
+                <div>
+                  <p className="text-sm font-semibold">Survey settings & generate</p>
+                  <p className="text-xs text-muted-foreground">
+                    Set your goal and page flow, then generate the survey from your template library.
+                  </p>
+                </div>
+                <Field label="Survey goal">
+                  <Textarea rows={3} value={props.goal} onChange={(e) => props.setGoal(e.target.value)} />
+                </Field>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Privacy mode">
+                    <Select value={props.privacyMode} onValueChange={(v) => props.setPrivacyMode(v as "off" | "on")}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="off">Off — identified / normal templates</SelectItem>
+                        <SelectItem value="on">On — anonymous templates only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Survey length (pages)">
+                    <Select value={String(props.pageCount)} onValueChange={(v) => props.setPageCount(Number(v) as 4 | 5 | 6)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="4">4 pages — start + 2 steps + completion</SelectItem>
+                        <SelectItem value="5">5 pages — start + 3 steps + completion</SelectItem>
+                        <SelectItem value="6">6 pages — start + 4 steps + completion</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+                <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">Survey pages</p>
+                      <p className="text-xs text-muted-foreground">Start and completion are always included.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="auto-steps" className="text-xs text-muted-foreground">
+                        Auto-select best steps
+                      </Label>
+                      <Switch id="auto-steps" checked={props.autoSelectSteps} onCheckedChange={props.setAutoSelectSteps} />
+                    </div>
+                  </div>
+                  {props.stepBankLoading ? (
+                    <Skeleton className="h-16 w-full" />
+                  ) : (
+                    <ol className="space-y-1.5">
+                      {props.resolvedPageRoles.map((role, idx) => (
+                        <li key={`preview-${role}-${idx}`} className="rounded-md border border-dashed border-border px-3 py-2 text-sm">
+                          <span className="text-muted-foreground">{idx + 1}. </span>
+                          <span className="font-medium">{STEP_ROLE_LABELS[role] || role}</span>
+                          {props.stepBankByRole[role]?.title ? (
+                            <span className="ml-2 text-xs text-muted-foreground">— {String(props.stepBankByRole[role].title)}</span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                  {!props.pageOrderValid ? (
+                    <p className="text-xs text-destructive">
+                      Need exactly {props.pageCount} pages with unique middle steps between start and completion.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    className="gap-1.5"
+                    type="button"
+                    onClick={() => void props.onGenerateWaSurvey()}
+                    disabled={
+                      props.generating ||
+                      props.selectedServiceTagIds.length === 0 ||
+                      !props.pageOrderValid ||
+                      props.serviceTagErrors.length > 0
+                    }
+                  >
+                    <Wand2 className="size-4" /> {props.generating ? "Generating…" : "Generate survey"}
+                  </Button>
+                  {props.approved ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-success">
+                      <Check className="size-3.5" /> Generated & saved
+                    </span>
+                  ) : null}
+                </div>
               </div>
-              {props.anonymous ? (
-                <p className="md:col-span-2 text-[11px] text-muted-foreground">
-                  Anonymous responses on — WhatsApp replies are recorded without name or phone.
-                </p>
-              ) : null}
             </CardContent>
           </Card>
         )}
@@ -487,24 +543,40 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               <CardTitle className="flex items-center gap-2">
                 <Users className="size-4 text-primary" /> Step 4 · Upload contacts
               </CardTitle>
-              <CardDescription>CSV or Excel with at least name and phone columns.</CardDescription>
+              <CardDescription>CSV or Excel with at least name and phone columns. You can upload later.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <input ref={props.fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => void props.onUpload(e.target.files)} />
-              <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border bg-background/50 px-4 py-10 text-center">
+              <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border bg-background/50 px-4 py-10 text-center transition hover:border-primary/40 hover:bg-primary/5">
                 <div className="rounded-full bg-primary/10 p-3 ring-1 ring-primary/20">
                   <Upload className="size-6 text-primary" />
                 </div>
-                <p className="text-sm font-medium">Upload CSV or Excel</p>
+                <p className="text-sm font-medium">Click to upload CSV or Excel</p>
+                <p className="text-xs text-muted-foreground">Columns: name, phone, language (optional)</p>
                 <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                  <Button size="sm" onClick={() => props.fileRef.current?.click()} disabled={props.uploading}>
+                  <Button size="sm" type="button" onClick={() => props.fileRef.current?.click()} disabled={props.uploading}>
                     {props.uploading ? "Uploading…" : "Choose file"}
                   </Button>
-                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void props.onDownloadTemplate()}>
+                  <Button size="sm" type="button" variant="outline" className="gap-1.5" onClick={() => void props.onDownloadTemplate()}>
                     <Download className="size-3.5" /> Sample template
                   </Button>
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                    className="gap-1.5 text-muted-foreground"
+                    onClick={() => {
+                      setContactsSkipped(true);
+                      goNext();
+                    }}
+                  >
+                    Skip for now
+                  </Button>
                 </div>
-              </div>
+              </label>
+              {contactsSkipped ? (
+                <p className="text-xs text-muted-foreground">Contacts skipped — you can upload a list later from the survey order.</p>
+              ) : null}
             </CardContent>
           </Card>
         )}
@@ -592,6 +664,12 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         onPrev={() => setStep((s) => Math.max(1, s - 1))}
         onNext={goNext}
         nextDisabled={!canNext}
+        skippable={step === 4}
+        onSkip={() => {
+          setContactsSkipped(true);
+          goNext();
+        }}
+        skipLabel="Skip for now"
         onFinish={() => setQuote(true)}
         finishDisabled={!props.approved}
         leftActions={

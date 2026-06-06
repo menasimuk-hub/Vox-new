@@ -14,6 +14,7 @@ type WizardNavProps = {
   finishDisabled?: boolean;
   skippable?: boolean;
   onSkip?: () => void;
+  skipLabel?: string;
   leftActions?: React.ReactNode;
 };
 
@@ -30,6 +31,7 @@ export function WizardNav({
   finishDisabled,
   skippable,
   onSkip,
+  skipLabel = "Skip for now",
   leftActions,
 }: WizardNavProps) {
   return (
@@ -48,7 +50,7 @@ export function WizardNav({
         </Button>
         {skippable && onSkip && step < total ? (
           <Button variant="ghost" className="gap-1.5" onClick={onSkip}>
-            <SkipForward className="size-4" /> Skip this step
+            <SkipForward className="size-4" /> {skipLabel}
           </Button>
         ) : null}
         {step < total ? (
