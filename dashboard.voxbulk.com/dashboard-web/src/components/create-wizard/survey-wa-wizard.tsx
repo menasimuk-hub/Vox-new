@@ -11,7 +11,6 @@ import {
   Target,
   Upload,
   Users,
-  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -19,8 +18,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { WhatsAppPreviewModal, PreviewQuoteModal } from "@/components/modals";
 import { Stepper, Summary, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import {
+  buildSurveyTypeTemplateOptions,
   mapSystemTemplates,
-  WaServiceFlowGroup,
+  WaDraggableTypeGroup,
   WaTemplatePickerSection,
 } from "@/components/create-wizard/survey-wa-template-step";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { waIndustryIcon } from "@/lib/wa-industry-icon";
@@ -42,19 +41,6 @@ const WA_STEPS: WizardStepDef[] = [
   { id: 5, title: "Preview", subtitle: "Review flow", icon: Eye },
   { id: 6, title: "Launch", subtitle: "Schedule & go", icon: Rocket },
 ];
-
-const STEP_ROLE_LABELS: Record<string, string> = {
-  start: "Start",
-  completion: "Completion",
-  rating: "Rating",
-  yes_no: "Yes / No",
-  helpfulness: "Helpfulness",
-  abc_choice: "A / B / C choice",
-  reason: "Reason",
-  feeling_word: "Feeling word",
-  follow_up: "Follow-up",
-  improvement: "Improvement",
-};
 
 export type SurveyWaWizardProps = {
   onBack: () => void;
@@ -76,6 +62,8 @@ export type SurveyWaWizardProps = {
   setThankYouTemplateId: (v: string) => void;
   welcomeTemplates: Array<Record<string, unknown>>;
   thankYouTemplates: Array<Record<string, unknown>>;
+  selectedServiceTemplateIds: Record<string, string>;
+  onSelectServiceTemplate: (typeId: string, templateId: string) => void;
   privacyMode: "off" | "on";
   setPrivacyMode: (v: "off" | "on") => void;
   pageCount: 4 | 5 | 6;
@@ -98,7 +86,7 @@ export type SurveyWaWizardProps = {
   approved: boolean;
   setApproved: (v: boolean) => void;
   generating: boolean;
-  onGenerateWaSurvey: () => Promise<void>;
+  onGenerateWaSurvey: () => Promise<boolean>;
   waPreview: Record<string, unknown> | null;
   startAt: string;
   setStartAt: (v: string) => void;
@@ -137,11 +125,8 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const templatePickCount =
     (props.welcomeTemplateId ? 1 : 0) +
     (props.thankYouTemplateId ? 1 : 0) +
-    props.orderedServiceTagIds.filter((id) => {
-      const row = props.serviceTypes.find((t) => String(t.id) === id);
-      return row?.has_wa_template;
-    }).length;
-  const templatePickTotal = props.selectedServiceTagIds.length + 2;
+    props.orderedServiceTagIds.filter((id) => Boolean(props.selectedServiceTemplateIds[id])).length;
+  const templatePickTotal = props.orderedServiceTagIds.length + 2;
 
   const reorderServices = (from: number, to: number) => {
     if (from === to) return;
@@ -171,13 +156,10 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
     }
     if (step === 3) {
       return (
-        props.goal.trim().length > 0 &&
         !!props.welcomeTemplateId &&
         !!props.thankYouTemplateId &&
-        props.selectedServiceTagIds.length >= 1 &&
-        props.pageOrderValid &&
-        templatePickCount >= templatePickTotal &&
-        props.approved
+        props.orderedServiceTagIds.length >= 1 &&
+        props.orderedServiceTagIds.every((id) => Boolean(props.selectedServiceTemplateIds[id]))
       );
     }
     if (step === 4) return true;
@@ -185,11 +167,15 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
     return true;
   }, [step, props]);
 
-  const goNext = () => {
+  const goNext = async () => {
     if (!canNext) {
       if (step === 2 && props.serviceTagErrors[0]) toast.error(props.serviceTagErrors[0]);
-      else if (step === 3 && !props.approved) toast.error("Generate and approve your survey before continuing");
+      else if (step === 3) toast.error("Pick welcome, thank-you, and one template for each survey type");
       return;
+    }
+    if (step === 3 && !props.approved) {
+      const ok = await props.onGenerateWaSurvey();
+      if (!ok) return;
     }
     setStep((s) => Math.min(WA_STEPS.length, s + 1));
   };
@@ -216,35 +202,29 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                     const id = String(ind.id);
                     const active = props.industryId === id;
                     const industryName = String(ind.name || ind.label || "");
-                    const industrySlug = String(ind.slug || ind.industry_slug || "");
-                    const IndustryIcon = waIndustryIcon(industryName, industrySlug);
+                    const IndustryIcon = waIndustryIcon(industryName, String(ind.slug || ind.industry_slug || ""));
                     return (
                       <button
                         key={id}
                         type="button"
                         onClick={() => props.setIndustryId(id)}
                         className={cn(
-                          "group flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
+                          "group flex flex-col items-start gap-2 rounded-xl border p-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
                           active ? "border-primary bg-primary/5 shadow-md ring-1 ring-primary/30" : "border-border bg-background/40",
                         )}
                       >
                         <div
                           className={cn(
-                            "grid size-10 shrink-0 place-items-center rounded-lg ring-1 transition-transform group-hover:scale-105",
+                            "grid size-10 place-items-center rounded-lg ring-1 transition-transform group-hover:scale-105",
                             active ? "bg-primary text-primary-foreground ring-primary/40" : "bg-primary/10 text-primary ring-primary/20",
                           )}
                         >
-                          <IndustryIcon className="size-5 shrink-0" />
+                          <IndustryIcon className="size-5" />
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold leading-tight">{industryName || "Industry"}</p>
-                          {industrySlug ? (
-                            <p className="truncate text-[11px] text-muted-foreground">{industrySlug.replace(/_/g, " ")}</p>
-                          ) : null}
-                        </div>
+                        <p className="text-sm font-semibold leading-tight">{industryName || "Industry"}</p>
                         {active ? (
-                          <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-primary">
-                            <Check className="size-3 shrink-0" /> Selected
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                            <Check className="size-3" /> Selected
                           </span>
                         ) : null}
                       </button>
@@ -273,9 +253,9 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   <Sparkles className="size-3.5" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-primary">Select 1–4 services</p>
+                  <p className="text-sm font-medium text-primary">Quick tip — keep it short</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Each service needs an approved WhatsApp template. Shorter surveys get more responses.
+                    Most surveys perform best with just 3 questions. Short surveys get up to 3x more responses than long ones.
                   </p>
                 </div>
               </div>
@@ -356,10 +336,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               <CardTitle className="flex items-center gap-2">
                 <FileText className="size-4 text-primary" /> Step 3 · Select & arrange templates
               </CardTitle>
-              <CardDescription>
-                Pick welcome and thank-you templates, then review library templates for each survey type. Drag to reorder the
-                question flow.
-              </CardDescription>
+              <CardDescription>Pick welcome & thanks templates, then one survey template per type. Drag to reorder the flow.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center justify-between">
@@ -397,39 +374,46 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   props.orderedServiceTagIds.map((typeId, idx) => {
                     const row = props.serviceTypes.find((t) => String(t.id) === typeId);
                     if (!row) return null;
-                    const isPrimary = typeId === props.orderedServiceTagIds[0];
-                    const bankEntry =
-                      isPrimary && props.stepBankByRole.rating
-                        ? props.stepBankByRole.rating
-                        : props.stepBankByRole[props.resolvedPageRoles[1] || "rating"];
+                    const serviceName = String(row.name);
                     return (
-                      <WaServiceFlowGroup
+                      <div
                         key={typeId}
-                        serviceName={String(row.name)}
-                        index={idx}
-                        total={props.orderedServiceTagIds.length}
-                        ready={Boolean(row.has_wa_template)}
-                        templateTitle={String(bankEntry?.display_name || bankEntry?.title || row.name)}
-                        templateBody={String(bankEntry?.body || "").slice(0, 160)}
-                        onMoveUp={idx > 0 ? () => moveService(idx, -1) : undefined}
-                        onMoveDown={idx < props.orderedServiceTagIds.length - 1 ? () => moveService(idx, 1) : undefined}
-                        onDragStart={() => setDraggedServiceIndex(idx)}
-                        onDragEnd={() => {
-                          setDraggedServiceIndex(null);
-                          setDragOverServiceIndex(null);
-                        }}
+                        className={cn(
+                          "overflow-hidden rounded-xl border border-transparent transition-all duration-200",
+                          draggedServiceIndex === idx && "scale-[0.98] border-dashed border-primary/50 opacity-40 shadow-inner",
+                          dragOverServiceIndex === idx &&
+                            draggedServiceIndex !== idx &&
+                            "translate-y-0.5 border-primary bg-primary/5 shadow-md",
+                        )}
                         onDragOver={(e) => {
                           e.preventDefault();
                           setDragOverServiceIndex(idx);
                         }}
+                        onDragLeave={() => setDragOverServiceIndex(null)}
                         onDrop={() => {
                           if (draggedServiceIndex !== null) reorderServices(draggedServiceIndex, idx);
                           setDraggedServiceIndex(null);
                           setDragOverServiceIndex(null);
                         }}
-                        isDragging={draggedServiceIndex === idx}
-                        isDragOver={dragOverServiceIndex === idx && draggedServiceIndex !== idx}
-                      />
+                      >
+                        <WaDraggableTypeGroup
+                          serviceName={serviceName}
+                          index={idx}
+                          total={props.orderedServiceTagIds.length}
+                          templates={buildSurveyTypeTemplateOptions(serviceName, typeId)}
+                          selectedId={props.selectedServiceTemplateIds[typeId] || ""}
+                          onSelect={(id) => props.onSelectServiceTemplate(typeId, id)}
+                          onMoveUp={idx > 0 ? () => moveService(idx, -1) : undefined}
+                          onMoveDown={idx < props.orderedServiceTagIds.length - 1 ? () => moveService(idx, 1) : undefined}
+                          onDragStart={() => setDraggedServiceIndex(idx)}
+                          onDragEnd={() => {
+                            setDraggedServiceIndex(null);
+                            setDragOverServiceIndex(null);
+                          }}
+                          isDragging={draggedServiceIndex === idx}
+                          isDragOver={dragOverServiceIndex === idx && draggedServiceIndex !== idx}
+                        />
+                      </div>
                     );
                   })
                 )}
@@ -442,97 +426,6 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 selectedId={props.thankYouTemplateId}
                 onSelect={props.setThankYouTemplateId}
               />
-
-              <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
-                <div>
-                  <p className="text-sm font-semibold">Survey settings & generate</p>
-                  <p className="text-xs text-muted-foreground">
-                    Set your goal and page flow, then generate the survey from your template library.
-                  </p>
-                </div>
-                <Field label="Survey goal">
-                  <Textarea rows={3} value={props.goal} onChange={(e) => props.setGoal(e.target.value)} />
-                </Field>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="Privacy mode">
-                    <Select value={props.privacyMode} onValueChange={(v) => props.setPrivacyMode(v as "off" | "on")}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="off">Off — identified / normal templates</SelectItem>
-                        <SelectItem value="on">On — anonymous templates only</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Survey length (pages)">
-                    <Select value={String(props.pageCount)} onValueChange={(v) => props.setPageCount(Number(v) as 4 | 5 | 6)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="4">4 pages — start + 2 steps + completion</SelectItem>
-                        <SelectItem value="5">5 pages — start + 3 steps + completion</SelectItem>
-                        <SelectItem value="6">6 pages — start + 4 steps + completion</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">Survey pages</p>
-                      <p className="text-xs text-muted-foreground">Start and completion are always included.</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="auto-steps" className="text-xs text-muted-foreground">
-                        Auto-select best steps
-                      </Label>
-                      <Switch id="auto-steps" checked={props.autoSelectSteps} onCheckedChange={props.setAutoSelectSteps} />
-                    </div>
-                  </div>
-                  {props.stepBankLoading ? (
-                    <Skeleton className="h-16 w-full" />
-                  ) : (
-                    <ol className="space-y-1.5">
-                      {props.resolvedPageRoles.map((role, idx) => (
-                        <li key={`preview-${role}-${idx}`} className="rounded-md border border-dashed border-border px-3 py-2 text-sm">
-                          <span className="text-muted-foreground">{idx + 1}. </span>
-                          <span className="font-medium">{STEP_ROLE_LABELS[role] || role}</span>
-                          {props.stepBankByRole[role]?.title ? (
-                            <span className="ml-2 text-xs text-muted-foreground">— {String(props.stepBankByRole[role].title)}</span>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                  {!props.pageOrderValid ? (
-                    <p className="text-xs text-destructive">
-                      Need exactly {props.pageCount} pages with unique middle steps between start and completion.
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    className="gap-1.5"
-                    type="button"
-                    onClick={() => void props.onGenerateWaSurvey()}
-                    disabled={
-                      props.generating ||
-                      props.selectedServiceTagIds.length === 0 ||
-                      !props.pageOrderValid ||
-                      props.serviceTagErrors.length > 0
-                    }
-                  >
-                    <Wand2 className="size-4" /> {props.generating ? "Generating…" : "Generate survey"}
-                  </Button>
-                  {props.approved ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-success">
-                      <Check className="size-3.5" /> Generated & saved
-                    </span>
-                  ) : null}
-                </div>
-              </div>
             </CardContent>
           </Card>
         )}
@@ -662,8 +555,8 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         total={WA_STEPS.length}
         onBack={props.onBack}
         onPrev={() => setStep((s) => Math.max(1, s - 1))}
-        onNext={goNext}
-        nextDisabled={!canNext}
+        onNext={() => void goNext()}
+        nextDisabled={!canNext || (step === 3 && props.generating)}
         skippable={step === 4}
         onSkip={() => {
           setContactsSkipped(true);

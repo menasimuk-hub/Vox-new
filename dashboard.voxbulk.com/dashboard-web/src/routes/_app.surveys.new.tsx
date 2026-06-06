@@ -44,6 +44,7 @@ function CreateSurvey() {
   const [orderedServiceTagIds, setOrderedServiceTagIds] = React.useState<string[]>([]);
   const [welcomeTemplateId, setWelcomeTemplateId] = React.useState("");
   const [thankYouTemplateId, setThankYouTemplateId] = React.useState("");
+  const [selectedServiceTemplateIds, setSelectedServiceTemplateIds] = React.useState<Record<string, string>>({});
   const [privacyMode, setPrivacyMode] = React.useState<"off" | "on">("off");
   const surveyVariant = privacyMode === "on" ? "anonymous" : "standard";
   const [pageCount, setPageCount] = React.useState<4 | 5 | 6>(5);
@@ -110,8 +111,19 @@ function CreateSurvey() {
     setOrderedServiceTagIds([]);
     setWelcomeTemplateId("");
     setThankYouTemplateId("");
+    setSelectedServiceTemplateIds({});
     setApproved(false);
   }, [industryId]);
+
+  React.useEffect(() => {
+    setSelectedServiceTemplateIds((prev) => {
+      const next: Record<string, string> = {};
+      for (const id of selectedServiceTagIds) {
+        if (prev[id]) next[id] = prev[id];
+      }
+      return next;
+    });
+  }, [selectedServiceTagIds]);
 
   React.useEffect(() => {
     setOrderedServiceTagIds((prev) => {
@@ -225,14 +237,23 @@ function CreateSurvey() {
     setAutoSelectSteps(false);
   };
 
-  const onGenerateWaSurvey = async () => {
+  const onSelectServiceTemplate = (typeId: string, templateId: string) => {
+    setSelectedServiceTemplateIds((prev) => ({ ...prev, [typeId]: templateId }));
+    if (typeId === primarySurveyTypeId) {
+      if (templateId.endsWith("-short")) setPageCount(4);
+      else if (templateId.endsWith("-standard")) setPageCount(5);
+      else if (templateId.endsWith("-detailed")) setPageCount(6);
+    }
+  };
+
+  const onGenerateWaSurvey = async (): Promise<boolean> => {
     if (serviceTagErrors.length) {
       toast.error(serviceTagErrors[0]);
-      return;
+      return false;
     }
     if (!pageOrderValid) {
       toast.error(`Choose ${pageCount - 2} unique middle steps between start and completion`);
-      return;
+      return false;
     }
     setGenerating(true);
     try {
@@ -281,8 +302,10 @@ function CreateSurvey() {
       });
       setApproved(true);
       toast.success("Survey generated from approved WhatsApp template library");
+      return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not generate survey");
+      return false;
     } finally {
       setGenerating(false);
     }
@@ -390,6 +413,8 @@ function CreateSurvey() {
           setThankYouTemplateId={setThankYouTemplateId}
           welcomeTemplates={welcomeTemplates}
           thankYouTemplates={thankYouTemplates}
+          selectedServiceTemplateIds={selectedServiceTemplateIds}
+          onSelectServiceTemplate={onSelectServiceTemplate}
           privacyMode={privacyMode}
           setPrivacyMode={setPrivacyMode}
           pageCount={pageCount}
