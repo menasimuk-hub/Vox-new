@@ -1288,7 +1288,12 @@ class ServiceOrderService:
         title: str,
         config: dict[str, Any] | None = None,
     ) -> ServiceOrder:
-        if order.service_code not in {"survey", "interview"}:
+        import logging
+
+        logger = logging.getLogger(__name__)
+        code = str(service_code or "").strip().lower()
+        logger.info("create_order entry org=%s user=%s service_code=%s", org_id, user_id, code)
+        if code not in {"survey", "interview"}:
             raise ValueError("service_code must be survey or interview")
         from app.services.uk_compliance_service import UkComplianceService
 
@@ -1296,8 +1301,8 @@ class ServiceOrderService:
         order = ServiceOrder(
             org_id=org_id,
             user_id=user_id,
-            service_code=service_code,
-            title=title.strip() or ("Survey order" if service_code == "survey" else "Interview order"),
+            service_code=code,
+            title=title.strip() or ("Survey order" if code == "survey" else "Interview order"),
             status="draft",
             payment_status="unpaid",
             config_json=json.dumps(base_config, ensure_ascii=False),
@@ -1305,13 +1310,15 @@ class ServiceOrderService:
         db.add(order)
         db.commit()
         db.refresh(order)
+        logger.info("create_order persisted order_id=%s", order.id)
         order = UkComplianceService.seed_order_compliance_config(db, order, commit=True)
-        if service_code == "interview":
+        if code == "interview":
             from app.services.interview_campaign_service import ensure_campaign_id
             from app.services.interview_reference_service import ensure_order_reference_id
 
             order = ensure_campaign_id(db, order)
             order = ensure_order_reference_id(db, order)
+        logger.info("create_order ok order_id=%s service_code=%s", order.id, order.service_code)
         return order
 
     @staticmethod

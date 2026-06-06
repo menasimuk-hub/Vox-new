@@ -208,3 +208,28 @@ def test_delete_intake_recipient_blocked_after_invites_sent(db_session: Session,
 
     with pytest.raises(ValueError, match="booking invites"):
         delete_intake_recipient(db_session, interview_order, recipient)
+
+
+def test_create_order_survey_and_interview_do_not_raise_unbound_local(db_session: Session):
+    """Regression: create_order must validate service_code param, not order before assignment."""
+    org = Organisation(name="Create Order Org")
+    user = User(email=f"create-order-{uuid.uuid4().hex[:8]}@test.com", password_hash="x", is_active=True)
+    db_session.add(org)
+    db_session.add(user)
+    db_session.flush()
+
+    survey = ServiceOrderService.create_order(
+        db_session,
+        org_id=org.id,
+        user_id=user.id,
+        service_code="survey",
+        title="Survey draft",
+        config={"delivery": "whatsapp"},
+    )
+    assert survey.service_code == "survey"
+    assert survey.id
+
+    interview = create_new_interview_draft(db_session, org_id=org.id, user_id=user.id)
+    assert interview.service_code == "interview"
+    assert interview.id
+    assert interview.reference_id
