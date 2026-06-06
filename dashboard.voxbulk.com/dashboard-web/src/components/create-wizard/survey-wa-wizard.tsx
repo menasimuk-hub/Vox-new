@@ -67,8 +67,8 @@ export type SurveyWaWizardProps = {
   libraryTemplatesLoading: boolean;
   privacyMode: "off" | "on";
   setPrivacyMode: (v: "off" | "on") => void;
-  pageCount: 4 | 5 | 6;
-  setPageCount: (v: 4 | 5 | 6) => void;
+  pageCount: 3 | 4 | 5 | 6;
+  setPageCount: (v: 3 | 4 | 5 | 6) => void;
   autoSelectSteps: boolean;
   setAutoSelectSteps: (v: boolean) => void;
   manualMiddleRoles: string[];

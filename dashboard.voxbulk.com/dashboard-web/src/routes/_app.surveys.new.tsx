@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { ChannelPicker } from "@/components/create-wizard";
 import { SurveyPhoneWizard } from "@/components/create-wizard/survey-phone-wizard";
 import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
-import { pageCountFromServiceType } from "@/components/create-wizard/survey-wa-template-step";
+import { pageCountFromSelectedTypes } from "@/components/create-wizard/survey-wa-template-step";
 import { apiFetch, ApiError, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
 import {
   useCreateServiceOrder,
@@ -25,7 +25,8 @@ export const Route = createFileRoute("/_app/surveys/new")({
   component: CreateSurvey,
 });
 
-const PAGE_COUNT_TO_LENGTH: Record<4 | 5 | 6, "short" | "standard" | "detailed"> = {
+const PAGE_COUNT_TO_LENGTH: Record<3 | 4 | 5 | 6, "short" | "standard" | "detailed"> = {
+  3: "short",
   4: "short",
   5: "standard",
   6: "detailed",
@@ -65,7 +66,7 @@ function CreateSurvey() {
   const [selectedServiceTemplateIds, setSelectedServiceTemplateIds] = React.useState<Record<string, string>>({});
   const [privacyMode, setPrivacyMode] = React.useState<"off" | "on">("off");
   const surveyVariant = privacyMode === "on" ? "anonymous" : "standard";
-  const [pageCount, setPageCount] = React.useState<4 | 5 | 6>(5);
+  const [pageCount, setPageCount] = React.useState<3 | 4 | 5 | 6>(5);
   const [autoSelectSteps, setAutoSelectSteps] = React.useState(true);
   const [manualMiddleRoles, setManualMiddleRoles] = React.useState<string[]>([]);
   const [generating, setGenerating] = React.useState(false);
@@ -184,11 +185,9 @@ function CreateSurvey() {
   }, [orderedServiceTagIds, libraryTemplatesByTypeId]);
 
   React.useEffect(() => {
-    const primary = orderedServiceTagIds[0] || selectedServiceTagIds[0] || "";
-    if (!primary) return;
-    const row = serviceTypes.find((t) => String(t.id) === primary);
-    setPageCount(pageCountFromServiceType(row));
-  }, [orderedServiceTagIds, selectedServiceTagIds, serviceTypes]);
+    if (orderedServiceTagIds.length < 1) return;
+    setPageCount(pageCountFromSelectedTypes(orderedServiceTagIds.length));
+  }, [orderedServiceTagIds]);
 
   React.useEffect(() => {
     setOrderedServiceTagIds((prev) => {
@@ -315,16 +314,24 @@ function CreateSurvey() {
     }
     setGenerating(true);
     try {
+      const typeOrder = orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds;
+      const selectedServiceTemplates = Object.fromEntries(
+        typeOrder
+          .filter((typeId) => selectedServiceTemplateIds[typeId])
+          .map((typeId) => [typeId, Number(selectedServiceTemplateIds[typeId])]),
+      );
+      const effectivePageCount = pageCountFromSelectedTypes(typeOrder.length);
       const generated = await generateWaM.mutateAsync({
         industry_id: industryId,
         survey_type_id: primarySurveyTypeId,
-        selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
+        selected_survey_type_ids: typeOrder,
+        selected_service_template_ids: selectedServiceTemplates,
         welcome_template_id: Number(welcomeTemplateId),
         thank_you_template_id: Number(thankYouTemplateId),
         variant: surveyVariant,
         privacy_mode: privacyMode,
-        length: PAGE_COUNT_TO_LENGTH[pageCount],
-        page_count: pageCount,
+        length: PAGE_COUNT_TO_LENGTH[effectivePageCount],
+        page_count: effectivePageCount,
         auto_select_steps: true,
         selected_step_roles: undefined,
         goal,
@@ -348,8 +355,8 @@ function CreateSurvey() {
             welcome_template_id: generated.welcome_template_id ?? Number(welcomeTemplateId),
             thank_you_template_id: generated.thank_you_template_id ?? Number(thankYouTemplateId),
             tell_us_more_template_id: generated.tell_us_more_template_id,
-            survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
-            page_count: pageCount,
+            survey_length: PAGE_COUNT_TO_LENGTH[effectivePageCount],
+            page_count: effectivePageCount,
             page_roles: generated.page_roles,
             survey_variant: surveyVariant,
             privacy_mode: privacyMode,

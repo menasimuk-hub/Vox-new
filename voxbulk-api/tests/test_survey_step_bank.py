@@ -226,3 +226,83 @@ def test_compose_survey_uses_builder_welcome_and_thank_you_when_pack_missing_boo
         assert composed["page_roles"][0] == "start"
         assert composed["page_roles"][-1] == "completion"
         assert composed["start_template_id"] == welcome.id
+
+
+def test_compose_survey_uses_builder_middle_templates_for_page_count():
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        rating = _template_for_role(db, survey_type, "rating", status="LOCAL_DRAFT")
+        welcome = _template_for_role(db, survey_type, "start", status="LOCAL_DRAFT")
+        thank_you = _template_for_role(db, survey_type, "completion", status="LOCAL_DRAFT")
+        from app.models.survey_type_template import SurveyTypeTemplate
+
+        db.query(SurveyTypeTemplate).filter(
+            SurveyTypeTemplate.survey_type_id == survey_type.id,
+            SurveyTypeTemplate.template_id.in_([welcome.id, thank_you.id, rating.id]),
+        ).delete(synchronize_session=False)
+        db.flush()
+        db.add(
+            SurveyTypeTemplate(
+                survey_type_id=survey_type.id,
+                template_id=rating.id,
+                industry_id=survey_type.industry_id,
+                usable_as_standard=True,
+            )
+        )
+        db.flush()
+
+        composed = SurveyStepBankService.compose_survey(
+            db,
+            survey_type=survey_type,
+            page_count=5,
+            auto_select=True,
+            welcome_template_id=welcome.id,
+            thank_you_template_id=thank_you.id,
+            ordered_middle_template_ids=[rating.id],
+        )
+        assert composed["page_count"] == 3
+        assert composed["page_roles"] == ["start", "rating", "completion"]
+        assert len(composed["whatsapp_flow"]["questions"]) == 1
+
+
+def test_generation_builder_one_selected_middle_template(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.survey_generation_service.generate_survey_script",
+        lambda *a, **k: {"whatsapp_questions": [], "script_text": "INTRO", "system_prompt": ""},
+    )
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        rating = _template_for_role(db, survey_type, "rating", status="LOCAL_DRAFT")
+        welcome = _template_for_role(db, survey_type, "start", status="LOCAL_DRAFT")
+        thank_you = _template_for_role(db, survey_type, "completion", status="LOCAL_DRAFT")
+        from app.models.survey_type_template import SurveyTypeTemplate
+
+        db.query(SurveyTypeTemplate).filter(
+            SurveyTypeTemplate.survey_type_id == survey_type.id,
+        ).delete(synchronize_session=False)
+        db.flush()
+        db.add(
+            SurveyTypeTemplate(
+                survey_type_id=survey_type.id,
+                template_id=rating.id,
+                industry_id=survey_type.industry_id,
+                usable_as_standard=True,
+            )
+        )
+        db.flush()
+        builder_config = {
+            "selected_survey_type_ids": [survey_type.id],
+            "welcome_template_id": welcome.id,
+            "thank_you_template_id": thank_you.id,
+            "ordered_middle_template_ids": [rating.id],
+        }
+        result = SurveyGenerationService.generate(
+            db,
+            survey_type_id=survey_type.id,
+            page_count=5,
+            auto_select_steps=True,
+            builder_config=builder_config,
+            allow_unapproved_templates=True,
+        )
+        assert result["page_count"] == 3
+        assert result["page_roles"] == ["start", "rating", "completion"]

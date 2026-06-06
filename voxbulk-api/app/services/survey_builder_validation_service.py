@@ -27,6 +27,35 @@ class SurveyBuilderValidationError(ValueError):
 
 class SurveyBuilderValidationService:
     @staticmethod
+    def parse_middle_template_pairs(
+        selected_survey_type_ids: list[str],
+        raw: Any,
+    ) -> list[tuple[str, int]]:
+        ids = [str(x).strip() for x in (selected_survey_type_ids or []) if str(x).strip()]
+        if not raw:
+            return []
+        if isinstance(raw, dict):
+            pairs: list[tuple[str, int]] = []
+            for type_id in ids:
+                value = raw.get(type_id)
+                if value is None:
+                    value = raw.get(str(type_id))
+                if value is not None and str(value).strip():
+                    pairs.append((type_id, int(value)))
+            return pairs
+        if isinstance(raw, list):
+            if raw and isinstance(raw[0], dict):
+                by_type = {
+                    str(item.get("survey_type_id") or item.get("type_id") or "").strip(): int(item.get("template_id"))
+                    for item in raw
+                    if item.get("template_id") is not None
+                }
+                return [(type_id, by_type[type_id]) for type_id in ids if type_id in by_type]
+            if len(raw) == len(ids):
+                return [(type_id, int(template_id)) for type_id, template_id in zip(ids, raw)]
+        return []
+
+    @staticmethod
     def clamp_template_count(raw: int | str | None) -> int:
         if raw is None or raw == "":
             value = 5
@@ -61,6 +90,7 @@ class SurveyBuilderValidationService:
         selected_survey_type_ids: list[str],
         welcome_template_id: int | str | None,
         thank_you_template_id: int | str | None,
+        selected_service_template_ids: Any = None,
         require_approved: bool = False,
     ) -> dict[str, Any]:
         errors: list[str] = []
@@ -107,6 +137,36 @@ class SurveyBuilderValidationService:
                 continue
             if require_approved and str(tpl.status or "").upper() not in {"APPROVED", "LOCAL_DRAFT"}:
                 errors.append(f"{label} template is not ready yet (status: {tpl.status}).")
+        middle_pairs = SurveyBuilderValidationService.parse_middle_template_pairs(ids, selected_service_template_ids)
+        if selected_service_template_ids is not None:
+            if len(middle_pairs) < len(ids):
+                missing = [tid for tid in ids if tid not in {pair[0] for pair in middle_pairs}]
+                for type_id in missing:
+                    st = db.get(SurveyType, type_id)
+                    label = st.name if st is not None else type_id
+                    errors.append(f"Select a template for \"{label}\".")
+            for type_id, tpl_id in middle_pairs:
+                st = db.get(SurveyType, type_id)
+                tpl = db.get(TelnyxWhatsappTemplate, tpl_id)
+                if tpl is None or not tpl.active_for_survey:
+                    errors.append(f"Template not found for \"{st.name if st else type_id}\".")
+                    continue
+                linked = db.execute(
+                    select(SurveyTypeTemplate).where(
+                        SurveyTypeTemplate.survey_type_id == type_id,
+                        SurveyTypeTemplate.template_id == tpl_id,
+                    )
+                ).scalar_one_or_none()
+                if linked is None:
+                    errors.append(f"Template for \"{st.name if st else type_id}\" is not linked to that survey type.")
+                    continue
+                role = str(tpl.step_role or "").strip().lower()
+                if role in {"start", "completion", "intro", "closing"}:
+                    errors.append(
+                        f"\"{st.name if st else type_id}\" template must be a survey question, not welcome/thank-you."
+                    )
+        else:
+            middle_pairs = []
         tell_us_more_id = None
         if not errors:
             tell_us_more_id = SurveySystemTemplateService.resolve_tell_us_more_template_id(db)
@@ -120,4 +180,6 @@ class SurveyBuilderValidationService:
             "welcome_template_id": int(welcome_template_id) if welcome_template_id else None,
             "thank_you_template_id": int(thank_you_template_id) if thank_you_template_id else None,
             "tell_us_more_template_id": tell_us_more_id,
+            "ordered_middle_template_ids": [tpl_id for _, tpl_id in middle_pairs],
+            "builder_page_count": len(middle_pairs) + 2 if middle_pairs else None,
         }

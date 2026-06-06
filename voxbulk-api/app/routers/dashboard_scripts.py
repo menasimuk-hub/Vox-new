@@ -180,6 +180,7 @@ def validate_wa_survey_builder(
             selected_survey_type_ids=body.get("selected_survey_type_ids") or body.get("service_tag_ids") or [],
             welcome_template_id=body.get("welcome_template_id"),
             thank_you_template_id=body.get("thank_you_template_id"),
+            selected_service_template_ids=body.get("selected_service_template_ids"),
             require_approved=bool(body.get("require_approved")),
         )
     except SurveyBuilderValidationError as e:
@@ -268,6 +269,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 selected_survey_type_ids=selected_type_ids or ([primary_survey_type_id] if primary_survey_type_id else []),
                 welcome_template_id=welcome_template_id,
                 thank_you_template_id=thank_you_template_id,
+                selected_service_template_ids=body.get("selected_service_template_ids"),
                 require_approved=False,
             )
             primary_survey_type_id = str(builder_config.get("primary_survey_type_id") or primary_survey_type_id)

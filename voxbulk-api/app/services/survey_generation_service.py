@@ -10,6 +10,7 @@ from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.service_script_generator import generate_survey_script
 from app.services.survey_step_bank_service import (
     SurveyStepBankService,
+    builder_page_count,
     page_count_from_length,
 )
 from app.services.survey_flow_config_service import attach_flow_to_config, flow_engine as resolve_flow_engine
@@ -66,11 +67,19 @@ class SurveyGenerationService:
         thank_you_template_id = None
         tell_us_more_template_id = None
         selected_survey_type_ids: list[str] = []
+        ordered_middle_template_ids: list[int] = []
         if builder_config:
             welcome_template_id = builder_config.get("welcome_template_id")
             thank_you_template_id = builder_config.get("thank_you_template_id")
             tell_us_more_template_id = builder_config.get("tell_us_more_template_id")
             selected_survey_type_ids = list(builder_config.get("selected_survey_type_ids") or [])
+            ordered_middle_template_ids = [
+                int(x) for x in (builder_config.get("ordered_middle_template_ids") or []) if x is not None
+            ]
+            if ordered_middle_template_ids:
+                count = builder_page_count(len(ordered_middle_template_ids))
+            elif builder_config.get("builder_page_count"):
+                count = builder_page_count(len(selected_survey_type_ids))
 
         try:
             composed = SurveyStepBankService.compose_survey(
@@ -83,6 +92,7 @@ class SurveyGenerationService:
                 selected_step_roles=selected_step_roles,
                 welcome_template_id=welcome_template_id,
                 thank_you_template_id=thank_you_template_id,
+                ordered_middle_template_ids=ordered_middle_template_ids or None,
             )
         except ValueError as e:
             raise ValueError(str(e)) from e

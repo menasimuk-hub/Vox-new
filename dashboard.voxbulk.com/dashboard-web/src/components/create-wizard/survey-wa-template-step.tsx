@@ -51,6 +51,11 @@ export function pageCountFromServiceType(row: Record<string, unknown> | undefine
   return 5;
 }
 
+/** One middle page per selected survey type → start + N middles + completion (3–6 pages). */
+export function pageCountFromSelectedTypes(typeCount: number): 3 | 4 | 5 | 6 {
+  return Math.min(6, Math.max(3, typeCount + 2)) as 3 | 4 | 5 | 6;
+}
+
 type WaTemplatePickerSectionProps = {
   label: string;
   badge: "Opening" | "Closing";

@@ -54,6 +54,7 @@ PACK_STEP_ROLES: tuple[str, ...] = (
 )
 AUTO_MIDDLE_PRIORITY: tuple[str, ...] = MIDDLE_STEP_ROLES
 MIN_SURVEY_PAGES = 4
+BUILDER_MIN_SURVEY_PAGES = 3
 MAX_SURVEY_PAGES = 6
 
 STEP_REPLY_CONFIG: dict[str, dict[str, Any]] = {
@@ -260,12 +261,13 @@ def build_page_roles(
     bank_by_role: dict[str, dict[str, Any]],
     selected_middle: list[str] | None = None,
     auto_select: bool = True,
+    min_pages: int = MIN_SURVEY_PAGES,
 ) -> list[str]:
-    count = max(MIN_SURVEY_PAGES, min(MAX_SURVEY_PAGES, int(page_count)))
+    count = max(min_pages, min(MAX_SURVEY_PAGES, int(page_count)))
     if "start" not in bank_by_role or "completion" not in bank_by_role:
         raise ValueError("Step bank must include start and completion templates")
     middle = list(selected_middle or [])
-    if auto_select or not middle:
+    if not middle and auto_select:
         middle = auto_select_middle_roles(count, bank_by_role)
     need = count - 2
     if len(middle) < need:
@@ -416,6 +418,47 @@ def inject_builder_bookends(
     return next_bank
 
 
+def inject_builder_middle_templates(
+    db: Session,
+    by_role: dict[str, dict[str, Any]],
+    ordered_template_ids: list[int | str],
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Map dashboard-selected library templates (one per survey type) onto middle page slots."""
+    next_bank = dict(by_role)
+    middle_roles: list[str] = []
+    used_roles: set[str] = set()
+
+    for raw_id in ordered_template_ids:
+        tpl_id = int(raw_id)
+        row = db.get(TelnyxWhatsappTemplate, tpl_id)
+        if row is None or not row.active_for_survey:
+            raise ValueError(f"Middle template not found: {tpl_id}")
+
+        preferred = normalize_step_role(str(row.step_role or ""))
+        slot_role: str | None = None
+        if preferred in MIDDLE_STEP_ROLES and preferred not in used_roles:
+            slot_role = preferred
+        if slot_role is None:
+            for candidate in AUTO_MIDDLE_PRIORITY:
+                if candidate not in used_roles:
+                    slot_role = candidate
+                    break
+        if slot_role is None:
+            raise ValueError("Too many middle templates selected for the 4–6 page survey limit.")
+
+        item = step_bank_item_from_template(row)
+        item["step_role"] = slot_role
+        next_bank[slot_role] = item
+        middle_roles.append(slot_role)
+        used_roles.add(slot_role)
+
+    return next_bank, middle_roles
+
+
+def builder_page_count(middle_template_count: int) -> int:
+    return max(BUILDER_MIN_SURVEY_PAGES, min(MAX_SURVEY_PAGES, int(middle_template_count) + 2))
+
+
 class SurveyStepBankService:
     @staticmethod
     def get_bank(
@@ -453,6 +496,7 @@ class SurveyStepBankService:
         selected_step_roles: list[str] | None = None,
         welcome_template_id: int | str | None = None,
         thank_you_template_id: int | str | None = None,
+        ordered_middle_template_ids: list[int | str] | None = None,
     ) -> dict[str, Any]:
         bank = load_step_bank(
             db,
@@ -466,11 +510,23 @@ class SurveyStepBankService:
             welcome_template_id=welcome_template_id,
             thank_you_template_id=thank_you_template_id,
         )
+        builder_middle: list[str] = []
+        if ordered_middle_template_ids:
+            by_role, builder_middle = inject_builder_middle_templates(db, by_role, ordered_middle_template_ids)
+            page_count = builder_page_count(len(builder_middle))
         if selected_step_roles:
             roles = [normalize_step_role(r) for r in selected_step_roles]
             errors = validate_survey_pages(roles, page_count=page_count)
             if errors:
                 raise ValueError("; ".join(errors))
+        elif builder_middle:
+            roles = build_page_roles(
+                page_count=page_count,
+                bank_by_role=by_role,
+                selected_middle=builder_middle,
+                auto_select=False,
+                min_pages=BUILDER_MIN_SURVEY_PAGES,
+            )
         else:
             roles = build_page_roles(
                 page_count=page_count,
