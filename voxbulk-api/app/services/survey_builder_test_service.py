@@ -14,6 +14,7 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.survey_session_service import SurveySessionService
+from app.services.survey_wa_test_mode_service import log_wa_test_mode
 from app.services.survey_whatsapp_conversation_service import (
     _order_config,
     _recipient_result,
@@ -237,6 +238,13 @@ class SurveyBuilderTestService:
             order.id,
             recipient.id,
             recipient_e164,
+        )
+        log_wa_test_mode(
+            "started",
+            order=order,
+            recipient=recipient,
+            config=config,
+            current_step=0,
         )
         sent = send_survey_opening(db, order=order, recipient=recipient, config=config)
         db.refresh(recipient)

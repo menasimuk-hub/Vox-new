@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import ServiceOrderService
+from app.services.survey_builder_runtime_service import has_builder_runtime
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 
@@ -137,33 +138,6 @@ class SurveyDispatchService:
         telnyx_ready: dict[str, bool],
     ) -> dict[str, Any]:
         first = _first_name(recipient.name)
-        body = _personalize(intro_template, first_name=first, org_name=org_name, organiser=organiser)
-        from app.services.uk_compliance_service import UkComplianceService
-
-        footer = UkComplianceService.privacy_footer_text(UkComplianceService.merged_compliance(db, order))
-        if footer and footer not in body:
-            body = f"{body}\n\n{footer}"
-
-        wa_template_id = config.get("wa_template_id") if isinstance(config, dict) else None
-        template_row = None
-        template_components = None
-        if prefer_whatsapp and wa_template_id:
-            try:
-                from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
-                from app.services.telnyx_whatsapp_template_sync_service import (
-                    TelnyxWhatsappTemplateSyncService,
-                    send_template_id_for_row,
-                )
-
-                template_row = SurveyWhatsappTemplateService.get_template(db, int(wa_template_id))
-                if template_row is not None and str(template_row.status or "").upper() == "APPROVED":
-                    template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
-                        template_row,
-                        variables={"first_name": first, "clinic_name": org_name, "organisation_name": org_name},
-                    )
-            except Exception:
-                template_row = None
-                template_components = None
 
         if not recipient.phone:
             recipient.status = "skipped"
@@ -173,8 +147,8 @@ class SurveyDispatchService:
             return {"recipient_id": recipient.id, "name": recipient.name, "status": "skipped", "error": "missing_phone"}
 
         from app.services.uk_compliance_opt_out import should_block_outbound_phone
-        from app.services.uk_compliance_service import UkComplianceService
         from app.services.uk_compliance_audit_service import UkComplianceAuditService
+        from app.services.uk_compliance_service import UkComplianceService
 
         compliance_errors = UkComplianceService.validate_order_for_send(db, order)
         if compliance_errors:
@@ -245,6 +219,67 @@ class SurveyDispatchService:
                 "status": "skipped",
                 "error": "sender_not_approved",
             }
+
+        if prefer_whatsapp and has_builder_runtime(config) and config.get("wa_template_id"):
+            from app.services.survey_whatsapp_conversation_service import send_survey_opening
+
+            sent = send_survey_opening(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+            )
+            db.refresh(recipient)
+            if sent:
+                return {
+                    "recipient_id": recipient.id,
+                    "name": recipient.name,
+                    "phone": recipient.phone,
+                    "status": "sent",
+                    "channel": "whatsapp",
+                    "detail": "builder_runtime_welcome",
+                    "awaiting_start": True,
+                }
+            detail = ""
+            try:
+                fail_payload = json.loads(recipient.result_json or "{}")
+                detail = str(fail_payload.get("error") or fail_payload.get("detail") or "")
+            except Exception:
+                pass
+            return {
+                "recipient_id": recipient.id,
+                "name": recipient.name,
+                "phone": recipient.phone,
+                "status": "failed",
+                "channel": "whatsapp",
+                "detail": detail or "welcome_send_failed",
+            }
+
+        body = _personalize(intro_template, first_name=first, org_name=org_name, organiser=organiser)
+        footer = UkComplianceService.privacy_footer_text(UkComplianceService.merged_compliance(db, order))
+        if footer and footer not in body:
+            body = f"{body}\n\n{footer}"
+
+        wa_template_id = config.get("wa_template_id") if isinstance(config, dict) else None
+        template_row = None
+        template_components = None
+        if prefer_whatsapp and wa_template_id:
+            try:
+                from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+                from app.services.telnyx_whatsapp_template_sync_service import (
+                    TelnyxWhatsappTemplateSyncService,
+                    send_template_id_for_row,
+                )
+
+                template_row = SurveyWhatsappTemplateService.get_template(db, int(wa_template_id))
+                if template_row is not None and str(template_row.status or "").upper() == "APPROVED":
+                    template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
+                        template_row,
+                        variables={"first_name": first, "clinic_name": org_name, "organisation_name": org_name},
+                    )
+            except Exception:
+                template_row = None
+                template_components = None
 
         if (
             prefer_whatsapp

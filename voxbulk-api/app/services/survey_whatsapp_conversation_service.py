@@ -55,6 +55,7 @@ from app.services.survey_wa_inbound_parse_service import (
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
+from app.services.survey_wa_test_mode_service import log_wa_test_mode
 from app.services.survey_whatsapp_inbound_guard import is_duplicate_inbound, mark_inbound_processed
 from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMessagingService
 
@@ -1061,6 +1062,14 @@ def send_survey_opening(
         recipient.id,
         recipient.phone,
     )
+    log_wa_test_mode(
+        "session_created",
+        order=order,
+        recipient=recipient,
+        config=config,
+        session=session,
+        current_step=0,
+    )
 
     variables = _survey_variables(config, recipient)
     template_row = _resolve_template_row(db, config.get("wa_template_id"))
@@ -1104,6 +1113,17 @@ def send_survey_opening(
         order.id,
         recipient.id,
         session.id,
+    )
+    welcome_name = str(template_row.name or template_row.display_name or "") if template_row else None
+    log_wa_test_mode(
+        "welcome_sent",
+        order=order,
+        recipient=recipient,
+        config=config,
+        session=session,
+        current_step=0,
+        next_template_id=config.get("wa_template_id"),
+        next_template_name=welcome_name,
     )
     return True
 
@@ -1420,6 +1440,18 @@ def handle_inbound_reply(
                 "inbound_message_id": inbound_message_id,
                 "send_result": send_result,
             }
+        session_after_start = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        log_wa_test_mode(
+            "start_transition",
+            order=order,
+            recipient=recipient,
+            config=config,
+            session=session_after_start,
+            current_step=0,
+            next_template_id=send_result.get("template_id"),
+            next_template_name=str(send_result.get("template_name") or ""),
+            branch=START_ACTION,
+        )
         payload = mark_inbound_processed(
             _recipient_result(recipient),
             log_id=log_id,
@@ -1569,6 +1601,18 @@ def handle_inbound_reply(
                 payload_source = "builder_tell_us_more_template"
                 conv["tell_us_more_asked"] = True
                 conv["tell_us_more_pending"] = True
+                log_wa_test_mode(
+                    "branch_taken",
+                    order=order,
+                    recipient=recipient,
+                    config=config,
+                    session=session_row,
+                    current_step=step,
+                    next_template_id=next_q.get("template_id"),
+                    next_template_name=str(next_q.get("template_name") or ""),
+                    branch="tell_us_more",
+                    extra={"answer": answer, "threshold": runtime_low_rating_threshold(config)},
+                )
             else:
                 next_step, next_q, payload_source = resolve_next_conversation_step(
                     db,
@@ -1625,6 +1669,18 @@ def handle_inbound_reply(
         sent = _send_message(
             db, order=order, recipient=recipient, body=next_body, config=config, question=next_q
         )
+        if sent:
+            log_wa_test_mode(
+                "step_sent",
+                order=order,
+                recipient=recipient,
+                config=config,
+                session=session,
+                current_step=next_step,
+                next_template_id=next_q.get("template_id"),
+                next_template_name=str(next_q.get("template_name") or ""),
+                branch=payload_source if payload_source != "builder_step_sequence" else None,
+            )
         return {
             "handled": True,
             "order_id": order.id,
@@ -1714,6 +1770,24 @@ def handle_inbound_reply(
 
     _maybe_complete_order(db, order)
     logger.info("%s completed order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
+    thank_template_id = None
+    thank_template_name = None
+    if has_builder_runtime(config):
+        runtime = load_builder_runtime(config) or {}
+        thank_template_id = runtime.get("thank_you_template_id")
+        thank_row = _resolve_template_row(db, thank_template_id) if thank_template_id else None
+        if thank_row is not None:
+            thank_template_name = str(thank_row.display_name or thank_row.name or "")
+    log_wa_test_mode(
+        "completed",
+        order=order,
+        recipient=recipient,
+        config=config,
+        session=session,
+        current_step=step,
+        next_template_id=thank_template_id,
+        next_template_name=thank_template_name,
+    )
     return {
         "handled": True,
         "order_id": order.id,
