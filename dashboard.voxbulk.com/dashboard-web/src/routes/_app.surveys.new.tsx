@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { ChannelPicker } from "@/components/create-wizard";
 import { SurveyPhoneWizard } from "@/components/create-wizard/survey-phone-wizard";
 import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
+import { pageCountFromServiceTemplateId } from "@/components/create-wizard/survey-wa-template-step";
 import { apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
 import {
   useCreateServiceOrder,
@@ -126,6 +127,13 @@ function CreateSurvey() {
   }, [selectedServiceTagIds]);
 
   React.useEffect(() => {
+    const primary = orderedServiceTagIds[0] || selectedServiceTagIds[0] || "";
+    const templateId = primary ? selectedServiceTemplateIds[primary] : "";
+    const pc = templateId ? pageCountFromServiceTemplateId(templateId) : null;
+    if (pc) setPageCount(pc);
+  }, [orderedServiceTagIds, selectedServiceTagIds, selectedServiceTemplateIds]);
+
+  React.useEffect(() => {
     setOrderedServiceTagIds((prev) => {
       const next = prev.filter((id) => selectedServiceTagIds.includes(id));
       for (const id of selectedServiceTagIds) {
@@ -239,20 +247,15 @@ function CreateSurvey() {
 
   const onSelectServiceTemplate = (typeId: string, templateId: string) => {
     setSelectedServiceTemplateIds((prev) => ({ ...prev, [typeId]: templateId }));
-    if (typeId === primarySurveyTypeId) {
-      if (templateId.endsWith("-short")) setPageCount(4);
-      else if (templateId.endsWith("-standard")) setPageCount(5);
-      else if (templateId.endsWith("-detailed")) setPageCount(6);
-    }
+    setAutoSelectSteps(true);
+    const pc = pageCountFromServiceTemplateId(templateId);
+    const primary = orderedServiceTagIds[0] || selectedServiceTagIds[0] || "";
+    if (pc && typeId === primary) setPageCount(pc);
   };
 
   const onGenerateWaSurvey = async (): Promise<boolean> => {
     if (serviceTagErrors.length) {
       toast.error(serviceTagErrors[0]);
-      return false;
-    }
-    if (!pageOrderValid) {
-      toast.error(`Choose ${pageCount - 2} unique middle steps between start and completion`);
       return false;
     }
     setGenerating(true);
@@ -267,8 +270,8 @@ function CreateSurvey() {
         privacy_mode: privacyMode,
         length: PAGE_COUNT_TO_LENGTH[pageCount],
         page_count: pageCount,
-        auto_select_steps: autoSelectSteps,
-        selected_step_roles: autoSelectSteps ? undefined : resolvedPageRoles,
+        auto_select_steps: true,
+        selected_step_roles: undefined,
         goal,
       });
       setWaPreview(generated);

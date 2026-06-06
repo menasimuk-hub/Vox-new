@@ -1,8 +1,9 @@
 import * as React from "react";
 import { Check, ChevronDown, ChevronUp, Eye, GripVertical } from "lucide-react";
 
+import { WaSurveyPhonePreview } from "@/components/wa-survey-phone-preview";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 export type WaBuilderTemplateRow = {
@@ -10,15 +11,32 @@ export type WaBuilderTemplateRow = {
   title: string;
   description: string;
   bodyPreview?: string;
+  footer?: string;
+  buttons?: Array<{ label: string; type?: string }>;
 };
 
+function buttonsFromApiRow(row: Record<string, unknown>): Array<{ label: string; type?: string }> {
+  const raw = row.buttons;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((btn) => {
+      if (!btn || typeof btn !== "object") return null;
+      const label = String((btn as Record<string, unknown>).text || (btn as Record<string, unknown>).label || "").trim();
+      if (!label) return null;
+      return { label, type: String((btn as Record<string, unknown>).type || "QUICK_REPLY") };
+    })
+    .filter(Boolean) as Array<{ label: string; type?: string }>;
+}
+
 function templateFromApiRow(row: Record<string, unknown>): WaBuilderTemplateRow {
-  const body = String(row.body_preview || row.body || "").trim();
+  const body = String(row.body_preview || row.body || row.body_text || "").trim();
   return {
     id: String(row.id),
     title: String(row.display_name || row.title || row.name || row.id),
     description: body ? body.slice(0, 120) + (body.length > 120 ? "…" : "") : "WhatsApp template",
     bodyPreview: body || undefined,
+    footer: String(row.footer || "Reply STOP to opt out").trim() || undefined,
+    buttons: buttonsFromApiRow(row),
   };
 }
 
@@ -26,24 +44,45 @@ export function mapSystemTemplates(rows: Array<Record<string, unknown>>): WaBuil
   return rows.map(templateFromApiRow);
 }
 
+const LENGTH_PREVIEW_COPY: Record<string, string> = {
+  short: "On a scale of 0–10, how would you rate your recent experience?",
+  standard: "How satisfied are you with your recent visit? What stood out the most?",
+  detailed: "We would love a detailed take on your experience — a few short questions about what went well and what could improve.",
+};
+
 /** Lovable-style 3 template variants per survey type (maps to survey length on generate). */
-export function buildSurveyTypeTemplateOptions(serviceName: string, typeId: string): WaBuilderTemplateRow[] {
+export function buildSurveyTypeTemplateOptions(
+  serviceName: string,
+  typeId: string,
+  libraryBody?: string,
+): WaBuilderTemplateRow[] {
   const label = serviceName.trim() || "Survey";
+  const fallbackBody =
+    libraryBody?.trim() ||
+    `How would you rate your ${label.toLowerCase()} experience? Tap a button or reply with your score.`;
   return [
     {
       id: `${typeId}-short`,
       title: `${label} — Quick 3 questions`,
       description: "Fast pulse check. ~30 seconds. Best response rates.",
+      bodyPreview: LENGTH_PREVIEW_COPY.short.includes("experience")
+        ? LENGTH_PREVIEW_COPY.short.replace("your recent experience", `your ${label.toLowerCase()} experience`)
+        : fallbackBody,
+      footer: "Reply STOP to opt out",
     },
     {
       id: `${typeId}-standard`,
       title: `${label} — Standard 5 questions`,
       description: "Balanced survey with rating + open feedback.",
+      bodyPreview: libraryBody?.trim() || LENGTH_PREVIEW_COPY.standard,
+      footer: "Reply STOP to opt out",
     },
     {
       id: `${typeId}-detailed`,
       title: `${label} — In-depth 8 questions`,
       description: "Detailed survey for deeper insight. ~2 minutes.",
+      bodyPreview: libraryBody?.trim() || LENGTH_PREVIEW_COPY.detailed,
+      footer: "Reply STOP to opt out",
     },
   ];
 }
@@ -259,15 +298,20 @@ function TemplatePreviewDialog({
   preview: WaBuilderTemplateRow | null;
   onClose: () => void;
 }) {
+  const body = preview?.bodyPreview || preview?.description || "";
   return (
     <Dialog open={!!preview} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{preview?.title}</DialogTitle>
-          <DialogDescription>{preview?.description}</DialogDescription>
+      <DialogContent className="max-w-sm gap-0 p-0">
+        <DialogHeader className="px-5 pb-2 pt-5">
+          <DialogTitle>WhatsApp preview</DialogTitle>
         </DialogHeader>
-        <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm leading-relaxed whitespace-pre-wrap">
-          {preview?.bodyPreview || preview?.description}
+        <div className="px-5 pb-5">
+          <WaSurveyPhonePreview
+            businessName="Your business"
+            renderedBody={body.replace(/\{\{1\}\}/g, "Alex").replace(/\{\{2\}\}/g, "Your business")}
+            footer={preview?.footer || "Reply STOP to opt out"}
+            buttons={preview?.buttons || []}
+          />
         </div>
       </DialogContent>
     </Dialog>

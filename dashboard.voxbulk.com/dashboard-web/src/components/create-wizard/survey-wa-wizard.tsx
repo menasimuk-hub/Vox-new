@@ -375,6 +375,12 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                     const row = props.serviceTypes.find((t) => String(t.id) === typeId);
                     if (!row) return null;
                     const serviceName = String(row.name);
+                    const isPrimary = typeId === props.orderedServiceTagIds[0];
+                    const bankEntry =
+                      isPrimary && props.stepBankByRole.rating
+                        ? props.stepBankByRole.rating
+                        : props.stepBankByRole[props.resolvedPageRoles[1] || "rating"];
+                    const libraryBody = String(bankEntry?.body || bankEntry?.display_name || "").trim();
                     return (
                       <div
                         key={typeId}
@@ -400,7 +406,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                           serviceName={serviceName}
                           index={idx}
                           total={props.orderedServiceTagIds.length}
-                          templates={buildSurveyTypeTemplateOptions(serviceName, typeId)}
+                          templates={buildSurveyTypeTemplateOptions(serviceName, typeId, libraryBody)}
                           selectedId={props.selectedServiceTemplateIds[typeId] || ""}
                           onSelect={(id) => props.onSelectServiceTemplate(typeId, id)}
                           onMoveUp={idx > 0 ? () => moveService(idx, -1) : undefined}
