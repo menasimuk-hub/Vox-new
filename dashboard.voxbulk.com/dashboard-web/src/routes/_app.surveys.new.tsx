@@ -12,6 +12,8 @@ import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/
 import {
   useCreateServiceOrder,
   useGenerateWaSurvey,
+  useOrderRecipients,
+  useOrganisation,
   usePatchServiceOrder,
   useSendWaSurveyTest,
   useSurveyPackages,
@@ -23,6 +25,7 @@ import {
 } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries/index";
+import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/surveys/new")({
   head: () => ({ meta: [{ title: "Create survey — VoxBulk" }] }),
@@ -66,6 +69,8 @@ function industryMatchesSlugSearch(ind: Record<string, unknown>, needle: string)
 
 function CreateSurvey() {
   const { channel: channelSearch, industry_slug: industrySlugSearch } = Route.useSearch();
+  const { session } = useSession();
+  const orgQ = useOrganisation();
   const packagesQ = useSurveyPackages();
   const createM = useCreateServiceOrder();
   const patchM = usePatchServiceOrder();
@@ -111,8 +116,30 @@ function CreateSurvey() {
   const [orderId, setOrderId] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
-  const [testPhone, setTestPhone] = React.useState("");
   const qc = useQueryClient();
+  const recipientsQ = useOrderRecipients(orderId);
+  const uploadedContacts = React.useMemo(() => {
+    const rows = recipientsQ.data?.recipients || [];
+    return rows.map((row) => ({
+      name: String(row.name || "").trim(),
+      phone: String(row.phone || "").trim(),
+      language: String(row.language || row.locale || "").trim(),
+    }));
+  }, [recipientsQ.data?.recipients]);
+  const contactsCount = uploadedContacts.filter((c) => c.phone).length;
+
+  const userTestPhone = React.useMemo(() => {
+    const profile = session?.profile as Record<string, unknown> | undefined;
+    const phone = profile?.phone as Record<string, unknown> | undefined;
+    const fromUser = String(phone?.phone_e164 || phone?.phone_number || "").trim();
+    if (fromUser) return fromUser;
+    return String(orgQ.data?.contact_phone || "").trim();
+  }, [session?.profile, orgQ.data?.contact_phone]);
+
+  const businessName = React.useMemo(() => {
+    const org = orgQ.data;
+    return String(org?.display_name || org?.name || "").trim();
+  }, [orgQ.data]);
 
   const delivery = channel === "whatsapp" ? "whatsapp" : "ai_call";
 
@@ -388,8 +415,8 @@ function CreateSurvey() {
     return ids;
   };
 
-  const onSendWaTest = async () => {
-    const phone = testPhone.trim();
+  const onSendWaTest = async (input: { testPhone: string; welcomeTemplateId: string; firstName: string }) => {
+    const phone = input.testPhone.trim();
     if (!phone) {
       toast.error("Enter a test mobile number in E.164 format (e.g. +447700900123).");
       return;
@@ -402,13 +429,13 @@ function CreateSurvey() {
     const sendBody = {
       test_phone: phone,
       template_ids: templateIds,
-      welcome_template_id: Number(welcomeTemplateId),
+      welcome_template_id: Number(input.welcomeTemplateId || welcomeTemplateId),
       thank_you_template_id: Number(thankYouTemplateId),
       middle_template_ids: orderedServiceTagIds
         .map((typeId) => Number(selectedServiceTemplateIds[typeId]))
         .filter((id) => Number.isFinite(id) && id > 0),
-      first_name: "Alex",
-      client_context: { organisation_name: goal.slice(0, 80) || undefined },
+      first_name: input.firstName || "Alex",
+      client_context: { organisation_name: businessName || goal.slice(0, 80) || undefined },
     };
     console.info("[wa-survey] POST /dashboard/service-scripts/wa-survey/send-test", sendBody);
     try {
@@ -419,6 +446,7 @@ function CreateSurvey() {
     } catch (e) {
       console.error("[wa-survey] send-test failed", e);
       toast.error(e instanceof Error ? e.message : "WhatsApp test send failed");
+      throw e;
     }
   };
 
@@ -658,9 +686,11 @@ function CreateSurvey() {
           onDownloadTemplate={onDownloadTemplate}
           onSaveDraft={onSaveDraft}
           savePending={savePending}
-          testPhone={testPhone}
-          setTestPhone={setTestPhone}
-          onSendTest={() => void onSendWaTest()}
+          contactsCount={contactsCount}
+          uploadedContacts={uploadedContacts}
+          userTestPhone={userTestPhone}
+          businessName={businessName}
+          onSendWaTest={onSendWaTest}
           sendTestPending={sendTestWaM.isPending}
         />
       )}

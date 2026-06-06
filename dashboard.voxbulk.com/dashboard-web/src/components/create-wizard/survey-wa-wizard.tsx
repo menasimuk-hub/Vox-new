@@ -1,14 +1,11 @@
 import * as React from "react";
 import {
-  AlertCircle,
   Briefcase,
   Check,
   Download,
   Eye,
   FileText,
-  Lock,
   Rocket,
-  Send,
   Sparkles,
   Target,
   Upload,
@@ -16,32 +13,30 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { StatusBadge } from "@/components/status-badge";
-import { WhatsAppPreviewModal, PreviewQuoteModal } from "@/components/modals";
-import { Stepper, Summary, WizardNav, type WizardStepDef } from "@/components/create-wizard";
+import { PreviewQuoteModal } from "@/components/modals";
+import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
+import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
+import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
+import { WizardAlert, wizardFieldErrorClassName } from "@/components/create-wizard/wizard-alert";
+import { Button } from "@/components/ui/button";
 import {
   mapSystemTemplates,
   WaDraggableTypeGroup,
   WaTemplatePickerSection,
 } from "@/components/create-wizard/survey-wa-template-step";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { WaIndustryIcon } from "@/lib/wa-industry-icon";
 
 const WA_STEPS: WizardStepDef[] = [
-  { id: 1, title: "Industry", subtitle: "Your sector", icon: Briefcase },
-  { id: 2, title: "Survey type", subtitle: "1–4 topics", icon: Target },
-  { id: 3, title: "Template", subtitle: "Welcome & flow", icon: FileText },
-  { id: 4, title: "Contacts", subtitle: "Upload list", icon: Users },
-  { id: 5, title: "Preview", subtitle: "Review flow", icon: Eye },
-  { id: 6, title: "Launch", subtitle: "Schedule & go", icon: Rocket },
+  { id: 1, title: "Industry", icon: Briefcase },
+  { id: 2, title: "Survey type", icon: Target },
+  { id: 3, title: "Template", icon: FileText },
+  { id: 4, title: "Contacts", icon: Users },
+  { id: 5, title: "Preview", icon: Eye },
+  { id: 6, title: "Launch", icon: Rocket },
 ];
 
 export type SurveyWaWizardProps = {
@@ -108,22 +103,69 @@ export type SurveyWaWizardProps = {
   onDownloadTemplate: () => void;
   onSaveDraft: () => void;
   savePending: boolean;
-  testPhone: string;
-  setTestPhone: (v: string) => void;
-  onSendTest: () => void;
-  sendTestPending: boolean;
+  contactsCount: number;
+  uploadedContacts: Array<{ name: string; phone: string; language?: string }>;
+  userTestPhone?: string;
+  businessName?: string;
+  onSendWaTest: (input: { testPhone: string; welcomeTemplateId: string; firstName: string }) => Promise<void>;
+  sendTestPending?: boolean;
 };
 
 export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const [step, setStep] = React.useState(1);
   const [quote, setQuote] = React.useState(false);
-  const [waOpen, setWaOpen] = React.useState(false);
   const [draggedServiceIndex, setDraggedServiceIndex] = React.useState<number | null>(null);
   const [dragOverServiceIndex, setDragOverServiceIndex] = React.useState<number | null>(null);
   const [contactsSkipped, setContactsSkipped] = React.useState(false);
+  const [sendMode, setSendMode] = React.useState<"all" | "test">("all");
+  const [testPhone, setTestPhone] = React.useState("");
+  const [launchMode, setLaunchMode] = React.useState<"now" | "schedule" | "recurring">("now");
+  const [consent, setConsent] = React.useState(false);
+  const [recurringInterval, setRecurringInterval] = React.useState("1-week");
+  const [firstDeliveryAt, setFirstDeliveryAt] = React.useState("");
   const generateErrorRef = React.useRef<HTMLDivElement>(null);
 
   const selectedIndustry = props.industries.find((i) => String(i.id) === props.industryId);
+  const industryLabel = selectedIndustry ? String(selectedIndustry.name || selectedIndustry.label || "") : "";
+  const surveyTypeLabel = props.orderedServiceTagIds
+    .map((id) => props.serviceTypes.find((t) => String(t.id) === id)?.name)
+    .filter(Boolean)
+    .join(" + ");
+  const welcomeTemplateRow = props.welcomeTemplates.find((t) => String(t.id) === props.welcomeTemplateId);
+  const thankYouTemplateRow = props.thankYouTemplates.find((t) => String(t.id) === props.thankYouTemplateId);
+  const previewFirstName = (props.uploadedContacts[0]?.name || "there").split(/\s+/)[0] || "there";
+  const previewSlides = React.useMemo(
+    () =>
+      buildWaPreviewSlides({
+        welcomeTemplate: welcomeTemplateRow,
+        thankYouTemplate: thankYouTemplateRow,
+        orderedTypeIds: props.orderedServiceTagIds,
+        serviceTypes: props.serviceTypes,
+        selectedServiceTemplateIds: props.selectedServiceTemplateIds,
+        libraryTemplatesByTypeId: props.libraryTemplatesByTypeId,
+        firstName: previewFirstName,
+        businessName: props.businessName,
+      }),
+    [
+      previewFirstName,
+      welcomeTemplateRow,
+      thankYouTemplateRow,
+      props.orderedServiceTagIds,
+      props.serviceTypes,
+      props.selectedServiceTemplateIds,
+      props.libraryTemplatesByTypeId,
+      props.businessName,
+    ],
+  );
+  const templateSummary = props.orderedServiceTagIds
+    .map((typeId) => {
+      const typeName = String(props.serviceTypes.find((t) => String(t.id) === typeId)?.name || typeId);
+      const templateId = props.selectedServiceTemplateIds[typeId];
+      const row = (props.libraryTemplatesByTypeId[typeId] || []).find((t) => String(t.id) === templateId);
+      const title = row ? String(row.display_name || row.title || row.name || typeName) : typeName;
+      return title.split(" — ")[0];
+    })
+    .join(", ");
 
   React.useEffect(() => {
     if (!props.generateErrors.length) return;
@@ -179,7 +221,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       );
     }
     if (step === 4) return true;
-    if (step === 5) return props.approved;
+    if (step === 5) return previewSlides.length > 0;
     return true;
   }, [step, props]);
 
@@ -208,7 +250,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               <CardTitle className="flex items-center gap-2">
                 <Briefcase className="size-4 text-primary" /> Step 1 · Choose your industry
               </CardTitle>
-              <CardDescription>This tailors survey types and WhatsApp templates to your business.</CardDescription>
+              <CardDescription>This tailors the survey types and templates to your business.</CardDescription>
             </CardHeader>
             <CardContent>
               {props.industriesLoading ? (
@@ -260,8 +302,8 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 <Target className="size-4 text-primary" /> Step 2 · What do you want to measure?
               </CardTitle>
               <CardDescription>
-                Pick 1–4 services for this survey
-                {selectedIndustry ? ` — ${String(selectedIndustry.name)}` : ""}.
+                Pick 1–4 topics for this survey
+                {selectedIndustry ? ` — based on ${String(selectedIndustry.name || selectedIndustry.label)}` : ""}.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -327,7 +369,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                           "rounded-full border px-3.5 py-1.5 text-sm transition-all",
                           active && "border-primary bg-primary text-primary-foreground shadow",
                           !active && !disabled && !missingTemplate && "border-border bg-background hover:border-primary/40 hover:bg-primary/5",
-                          missingTemplate && !active && "border-destructive/50 text-destructive/80",
+                          missingTemplate && !active && wizardFieldErrorClassName,
                           disabled && "cursor-not-allowed border-border bg-muted/40 text-muted-foreground/50",
                         )}
                       >
@@ -339,20 +381,14 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 </div>
               )}
               {props.serviceTagErrors.length ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>Fix survey types before continuing</AlertTitle>
-                  <AlertDescription>
-                    <ul className="list-disc space-y-1 pl-4">
-                      {props.serviceTagErrors.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
-              ) : (
-                <p className="text-xs text-muted-foreground">{props.selectedServiceTagIds.length} of 4 selected</p>
-              )}
+                <WizardAlert title="Fix survey types before continuing">
+                  <ul className="list-disc space-y-1 pl-4">
+                    {props.serviceTagErrors.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </WizardAlert>
+              ) : null}
             </CardContent>
           </Card>
         )}
@@ -367,31 +403,23 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
             </CardHeader>
             <CardContent className="space-y-6">
               {props.step3SelectionErrors.length && !props.generateErrors.length ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>Complete template selections</AlertTitle>
-                  <AlertDescription>
-                    <ul className="list-disc space-y-1 pl-4">
-                      {props.step3SelectionErrors.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
+                <WizardAlert title="Complete template selections">
+                  <ul className="list-disc space-y-1 pl-4">
+                    {props.step3SelectionErrors.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </WizardAlert>
               ) : null}
               {props.generateErrors.length ? (
-                <Alert ref={generateErrorRef} variant="destructive" className="border-2 bg-destructive/10">
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>Survey could not be generated</AlertTitle>
-                  <AlertDescription>
-                    <p className="mb-2 font-medium">Fix the issues below, then click Next again:</p>
-                    <ul className="list-disc space-y-1.5 pl-4">
-                      {props.generateErrors.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
+                <WizardAlert ref={generateErrorRef} title="Survey could not be generated" className="border-2">
+                  <p className="mb-2 font-medium">Fix the issues below, then click Next again:</p>
+                  <ul className="list-disc space-y-1.5 pl-4">
+                    {props.generateErrors.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </WizardAlert>
               ) : null}
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
@@ -498,7 +526,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               <CardTitle className="flex items-center gap-2">
                 <Users className="size-4 text-primary" /> Step 4 · Upload contacts
               </CardTitle>
-              <CardDescription>CSV or Excel with at least name and phone columns. You can upload later.</CardDescription>
+              <CardDescription>CSV or Excel with at least name and phone columns.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <input ref={props.fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => void props.onUpload(e.target.files)} />
@@ -515,20 +543,38 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   <Button size="sm" type="button" variant="outline" className="gap-1.5" onClick={() => void props.onDownloadTemplate()}>
                     <Download className="size-3.5" /> Sample template
                   </Button>
-                  <Button
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                    className="gap-1.5 text-muted-foreground"
-                    onClick={() => {
-                      setContactsSkipped(true);
-                      goNext();
-                    }}
-                  >
-                    Skip for now
-                  </Button>
                 </div>
               </label>
+              {props.contactsCount > 0 ? (
+                <div className="space-y-2 animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold">{props.contactsCount} valid contacts</p>
+                  </div>
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Language</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {props.uploadedContacts.slice(0, 5).map((c, i) => (
+                          <TableRow key={`${c.phone}-${i}`}>
+                            <TableCell className="font-medium">{c.name || "—"}</TableCell>
+                            <TableCell className="tabular-nums">{c.phone}</TableCell>
+                            <TableCell className="text-muted-foreground">{c.language || "—"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {props.contactsCount > 5 ? (
+                    <p className="text-xs text-muted-foreground">Showing first 5 of {props.contactsCount} rows.</p>
+                  ) : null}
+                </div>
+              ) : null}
               {contactsSkipped ? (
                 <p className="text-xs text-muted-foreground">Contacts skipped — you can upload a list later from the survey order.</p>
               ) : null}
@@ -537,108 +583,46 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         )}
 
         {step === 5 && (
-          <Card className="animate-scale-in">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Eye className="size-4 text-primary" /> Step 5 · Script & WhatsApp preview
-              </CardTitle>
-              <CardDescription>Review the generated script and preview the WhatsApp flow.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Textarea rows={6} value={props.script} onChange={(e) => props.setScript(e.target.value)} />
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" className="gap-1.5" onClick={() => setWaOpen(true)} disabled={!props.waPreview}>
-                  <Eye className="size-4" /> Preview WhatsApp
-                </Button>
-                <Button variant="outline" className="gap-1.5" onClick={() => props.setApproved(true)} disabled={props.approved}>
-                  <Lock className="size-4" /> Approve script
-                </Button>
-                <div className="ml-auto">
-                  <StatusBadge tone={props.approved ? "approved-script" : "draft-script"} />
-                </div>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Summary label="Industry" value={selectedIndustry ? String(selectedIndustry.name) : "—"} />
-                <Summary label="Services" value={String(props.selectedServiceTagIds.length)} />
-                <Summary label="Pages" value={String(props.pageCount)} />
-                <Summary label="Anonymous" value={props.anonymous ? "On" : "Off"} />
-              </div>
-              <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-3">
-                <div>
-                  <p className="text-sm font-semibold">Send test to WhatsApp</p>
-                  <p className="text-xs text-muted-foreground">
-                    Sends every survey step in order (welcome → questions → thank-you) as WhatsApp template messages.
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <div className="grid flex-1 gap-1.5">
-                    <Label htmlFor="wa-test-phone">Test mobile (E.164)</Label>
-                    <Input
-                      id="wa-test-phone"
-                      placeholder="+447700900123"
-                      value={props.testPhone}
-                      onChange={(e) => props.setTestPhone(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <Button
-                      type="button"
-                      className="gap-1.5"
-                      disabled={!props.testPhone.trim() || props.sendTestPending}
-                      onClick={() => props.onSendTest()}
-                    >
-                      <Send className="size-4" />
-                      {props.sendTestPending ? "Sending…" : "Send test"}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <SurveyWaPreviewCarousel
+            slides={previewSlides}
+            industryLabel={industryLabel}
+            surveyTypeLabel={surveyTypeLabel}
+            templateSummary={templateSummary}
+            contactsCount={props.contactsCount}
+            anonymous={props.anonymous}
+            sendMode={sendMode}
+            setSendMode={setSendMode}
+            testPhone={testPhone}
+            setTestPhone={setTestPhone}
+            typeCount={props.orderedServiceTagIds.length}
+            defaultTestPhone={props.userTestPhone}
+            welcomeTemplateId={props.welcomeTemplateId}
+            previewFirstName={previewFirstName}
+            onSendTest={props.onSendWaTest}
+            sendTestPending={props.sendTestPending}
+          />
         )}
 
         {step === 6 && (
-          <Card className="animate-scale-in">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Rocket className="size-4 text-primary" /> Step 6 · Schedule & launch
-              </CardTitle>
-              <CardDescription>Set your calling window and package, then preview and approve.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <Field label="Start">
-                  <Input type="datetime-local" value={props.startAt} onChange={(e) => props.setStartAt(e.target.value)} />
-                </Field>
-                <Field label="End">
-                  <Input type="datetime-local" value={props.endAt} onChange={(e) => props.setEndAt(e.target.value)} />
-                </Field>
-                <Field label="Package">
-                  {props.packagesLoading ? (
-                    <Skeleton className="h-10 w-full" />
-                  ) : (
-                    <Select value={props.packageId} onValueChange={props.setPackageId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select package" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {props.packages.map((p) => (
-                          <SelectItem key={String(p.id || p.rule_id)} value={String(p.id || p.rule_id)}>
-                            {String(p.label || p.name || p.bundle_size || "Package")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </Field>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <Summary label="Channel" value="WhatsApp" />
-                <Summary label="Script" value={props.approved ? "Approved" : "Draft"} />
-                <Summary label="Privacy" value={props.privacyMode === "on" ? "Anonymous" : "Standard"} />
-              </div>
-            </CardContent>
-          </Card>
+          <SurveyWaLaunchStep
+            launchMode={launchMode}
+            setLaunchMode={setLaunchMode}
+            scheduleAt={props.startAt}
+            setScheduleAt={props.setStartAt}
+            recurringInterval={recurringInterval}
+            setRecurringInterval={setRecurringInterval}
+            firstDeliveryAt={firstDeliveryAt || props.endAt}
+            setFirstDeliveryAt={(v) => {
+              setFirstDeliveryAt(v);
+              props.setEndAt(v);
+            }}
+            consent={consent}
+            setConsent={setConsent}
+            contactsCount={props.contactsCount}
+            typeCount={props.orderedServiceTagIds.length}
+            onLaunch={() => setQuote(true)}
+            launchPending={props.savePending}
+          />
         )}
       </div>
 
@@ -655,8 +639,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
           goNext();
         }}
         skipLabel="Skip for now"
-        onFinish={() => setQuote(true)}
-        finishDisabled={!props.approved}
+        hideFinishOnLastStep
         leftActions={
           <Button variant="outline" className="gap-1.5" onClick={() => void props.onSaveDraft()} disabled={props.savePending}>
             {props.savePending ? "Saving…" : "Save draft"}
@@ -664,17 +647,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         }
       />
 
-      <WhatsAppPreviewModal open={waOpen} onOpenChange={setWaOpen} preview={props.waPreview} />
       <PreviewQuoteModal open={quote} onOpenChange={setQuote} kind="survey" />
     </>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
-      {children}
-    </div>
   );
 }
