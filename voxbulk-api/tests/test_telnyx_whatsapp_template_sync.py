@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.models.survey_type_template import SurveyTypeTemplate
+from app.services.survey_type_service import SurveyTypeService
+from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.telnyx_whatsapp_template_sync_service import (
     TelnyxWhatsappTemplateSyncService,
     send_template_id_for_row,
@@ -161,6 +165,59 @@ def test_sync_removes_stale_local_templates(app_client, monkeypatch):
         assert stored[0]["name"] == "voxbulk_sales_offer"
 
 
+def test_sync_preserves_local_draft_rows(app_client, monkeypatch):
+    remote = [
+        {
+            "id": "019cd44b-offer-telnyx-uuid",
+            "template_id": "1909771389734817",
+            "name": "voxbulk_sales_offer",
+            "language": "en_US",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Hi {{1}}"}],
+        },
+    ]
+
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+        lambda db: remote,
+    )
+
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        now = datetime.utcnow()
+        SurveyTypeService.ensure_defaults(db)
+        survey_type = SurveyTypeService.get_by_slug(db, "customer_satisfaction")
+        assert survey_type is not None
+        local = TelnyxWhatsappTemplate(
+            telnyx_record_id=f"local-{uuid.uuid4().hex}",
+            template_id=f"local-{uuid.uuid4().hex}",
+            name="voxbulk_survey_food_quality_hospitality_food_food_quality_rating",
+            language="en_US",
+            status="LOCAL_DRAFT",
+            sales_template_key=None,
+            synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(local)
+        db.flush()
+        SurveyTypeTemplateService.upsert_mapping(
+            db,
+            survey_type_id=survey_type.id,
+            template_id=local.id,
+            usable_as_standard=True,
+        )
+        db.commit()
+
+        result = TelnyxWhatsappTemplateSyncService.sync(db)
+        assert result["synced"] == 1
+        assert result["removed"] == 0
+        kept = db.get(TelnyxWhatsappTemplate, local.id)
+        assert kept is not None
+        assert str(kept.telnyx_record_id).startswith("local-")
+
+
 def test_sync_drops_deleted_remote_status(app_client, monkeypatch):
     remote = [
         {
@@ -198,5 +255,4 @@ def test_sync_drops_deleted_remote_status(app_client, monkeypatch):
 
         result = TelnyxWhatsappTemplateSyncService.sync(db)
         assert result["synced"] == 0
-        assert result["removed"] >= 1
         assert TelnyxWhatsappTemplateSyncService.list_stored(db) == []

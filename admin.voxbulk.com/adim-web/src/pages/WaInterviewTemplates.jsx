@@ -45,10 +45,13 @@ export default function WaInterviewTemplates() {
     setMsg('')
     try {
       const result = await apiFetch('/admin/wa-interview/sync', { method: 'POST', body: '{}' })
+      if (result?.ok === false) {
+        throw Object.assign(new Error(result.message || 'Telnyx sync failed'), { data: { detail: result } })
+      }
       setMsg(formatActionSuccess(result, 'Synced from Telnyx').message)
       await load()
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Telnyx sync failed').message)
+      setError(formatWaSurveyError(e, 'Telnyx sync failed').detailText)
     } finally {
       setWorking('')
     }

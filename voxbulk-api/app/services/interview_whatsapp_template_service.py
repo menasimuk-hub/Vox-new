@@ -35,6 +35,7 @@ from app.services.survey_whatsapp_template_service import (
     normalize_wa_template_category,
     template_workflow_state,
     validate_meta_variable_order,
+    ensure_meta_examples_on_components,
 )
 from app.services.telnyx_whatsapp_template_sync_service import (
     TelnyxWhatsappTemplateSyncError,
@@ -238,6 +239,12 @@ class InterviewWhatsappTemplateService:
             row.active_for_interview = bool(payload["active_for_interview"])
         components = payload.get("components")
         if isinstance(components, list):
+            examples = payload.get("example_values")
+            example_list = [str(v) for v in examples] if isinstance(examples, list) else None
+            if example_list is None:
+                loaded = _loads(row.example_values_json)
+                example_list = [str(v) for v in loaded] if isinstance(loaded, list) else None
+            components = ensure_meta_examples_on_components(components, example_list, row=row)
             row.draft_components_json = _dumps(components)
             row.body_preview = _body_preview(components)
             row.example_values_json = _dumps(_extract_example_values(components))
@@ -270,6 +277,22 @@ class InterviewWhatsappTemplateService:
         logger.info("interview_wa_template_sync_start")
         try:
             summary = TelnyxWhatsappTemplateSyncService.sync(db)
+            InterviewWhatsappTemplateService.ensure_catalog_seeded(db)
+            interview_names = interview_catalog_telnyx_names()
+            matched = list(
+                db.execute(
+                    select(TelnyxWhatsappTemplate).where(
+                        TelnyxWhatsappTemplate.sales_template_key.in_(list(INTERVIEW_WA_TEMPLATE_KEYS))
+                    )
+                ).scalars().all()
+            )
+            return {
+                **summary,
+                "ok": True,
+                "message": f"Synced {summary.get('synced', 0)} Telnyx templates; {len(matched)} interview templates in library.",
+                "interview_templates": len(matched),
+                "interview_names": sorted(interview_names),
+            }
         except TelnyxWhatsappTemplateSyncError as exc:
             return {
                 "ok": False,
@@ -277,22 +300,13 @@ class InterviewWhatsappTemplateService:
                 "provider_error": str(exc),
                 "errors": [str(exc)],
             }
-        InterviewWhatsappTemplateService.ensure_catalog_seeded(db)
-        interview_names = interview_catalog_telnyx_names()
-        matched = list(
-            db.execute(
-                select(TelnyxWhatsappTemplate).where(
-                    TelnyxWhatsappTemplate.sales_template_key.in_(list(INTERVIEW_WA_TEMPLATE_KEYS))
-                )
-            ).scalars().all()
-        )
-        return {
-            **summary,
-            "ok": True,
-            "message": f"Synced {summary.get('synced', 0)} Telnyx templates; {len(matched)} interview templates in library.",
-            "interview_templates": len(matched),
-            "interview_names": sorted(interview_names),
-        }
+        except Exception as exc:
+            logger.exception("interview_wa_template_sync_failed")
+            return {
+                "ok": False,
+                "message": f"WA Interview sync failed: {exc}",
+                "errors": [str(exc)],
+            }
 
     @staticmethod
     def delete_template(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:

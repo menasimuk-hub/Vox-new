@@ -39,6 +39,7 @@ TELNYX_WHATSAPP_TEMPLATES_URL = "https://api.telnyx.com/v2/whatsapp/message_temp
 _VAR_RE = re.compile(r"\{\{(\d+)\}\}")
 # Meta/Telnyx statuses — do not keep locally (removed from portal or rejected).
 _SKIP_REMOTE_STATUSES = frozenset({"DELETED", "DISABLED", "PENDING_DELETION"})
+_LOCAL_ID_PREFIX = "local-"
 
 
 class TelnyxWhatsappTemplateSyncError(RuntimeError):
@@ -115,6 +116,46 @@ def send_template_id_for_row(row: TelnyxWhatsappTemplate) -> str:
     if record:
         return record
     return str(row.template_id or "").strip()
+
+
+def _is_local_draft_row(row: TelnyxWhatsappTemplate) -> bool:
+    rid = str(row.telnyx_record_id or "").strip()
+    if rid.startswith(_LOCAL_ID_PREFIX):
+        return True
+    return str(row.status or "").upper() == "LOCAL_DRAFT"
+
+
+def _detach_template_references(db: Session, template_id: int) -> None:
+    from app.models.survey_flow import SurveyFlowNode, SurveyFlowOutcome
+    from app.models.survey_type_template import SurveyTypeTemplate
+
+    for mapping in db.execute(
+        select(SurveyTypeTemplate).where(SurveyTypeTemplate.template_id == template_id)
+    ).scalars().all():
+        db.delete(mapping)
+
+    for node in db.execute(
+        select(SurveyFlowNode).where(SurveyFlowNode.template_id == template_id)
+    ).scalars().all():
+        node.template_id = None
+
+    for outcome in db.execute(
+        select(SurveyFlowOutcome).where(SurveyFlowOutcome.template_id == template_id)
+    ).scalars().all():
+        outcome.template_id = None
+
+    for child in db.execute(
+        select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.parent_template_id == template_id)
+    ).scalars().all():
+        child.parent_template_id = None
+
+
+def _delete_stale_template_row(db: Session, row: TelnyxWhatsappTemplate) -> bool:
+    if _is_local_draft_row(row):
+        return False
+    _detach_template_references(db, int(row.id))
+    db.delete(row)
+    return True
 
 
 def template_to_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
@@ -316,11 +357,9 @@ class TelnyxWhatsappTemplateSyncService:
                     )
                 ).scalars().all()
             )
-        else:
-            stale_rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars().all())
-        for row in stale_rows:
-            db.delete(row)
-            removed += 1
+            for row in stale_rows:
+                if _delete_stale_template_row(db, row):
+                    removed += 1
 
         db.commit()
         stored = list(db.execute(select(TelnyxWhatsappTemplate).order_by(TelnyxWhatsappTemplate.name.asc())).scalars().all())

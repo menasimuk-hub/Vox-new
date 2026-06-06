@@ -74,6 +74,32 @@ def test_interview_template_hide_and_unhide(db):
     assert visible["active_for_interview"] is True
 
 
+def test_admin_wa_interview_sync_api(app_client, monkeypatch):
+    from tests.test_agent_architecture import _headers
+
+    remote = [
+        {
+            "id": "019interview-email-sent",
+            "template_id": "111",
+            "name": "interview_email_sent",
+            "language": "en_US",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Dear {{1}}", "example": {"body_text": [["James"]]}}],
+        },
+    ]
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+        lambda db: remote,
+    )
+
+    headers, _org_id, _category_id = _headers(app_client)
+    res = app_client.post("/admin/wa-interview/sync", headers=headers, json={})
+    assert res.status_code == 200
+    body = res.json()
+    assert body.get("ok") is True
+    assert body.get("interview_templates") == 4
+
+
 def test_admin_wa_interview_list_api(app_client):
     from tests.test_agent_architecture import _headers
 
