@@ -13,6 +13,40 @@ from app.services.telnyx_whatsapp_template_sync_service import (
 )
 
 
+def test_sync_maps_legacy_interview_confirm_name_to_canonical(app_client, monkeypatch):
+    remote = [
+        {
+            "id": "019confirm-legacy",
+            "template_id": "555",
+            "name": "voxbulk_interview_confirm",
+            "language": "en_GB",
+            "category": "UTILITY",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Hi {{1}}", "example": {"body_text": [["James"]]}}],
+        },
+    ]
+
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+        lambda db: remote,
+    )
+
+    from app.core.database import get_sessionmaker
+    from app.services.interview_whatsapp_template_service import InterviewWhatsappTemplateService
+
+    with get_sessionmaker()() as db:
+        result = TelnyxWhatsappTemplateSyncService.sync(db)
+        assert result["synced"] == 1
+        row = TelnyxWhatsappTemplateSyncService.get_for_sales_key(db, "interview_booking_confirm")
+        assert row is not None
+        assert row.name == "interview_confirm_book"
+        assert row.sales_template_key == "interview_booking_confirm"
+
+        listed = InterviewWhatsappTemplateService.list_templates(db)
+        confirm = next(item for item in listed if item["sales_template_key"] == "interview_booking_confirm")
+        assert confirm["name"] == "interview_confirm_book"
+
+
 def test_sync_upserts_templates(app_client, monkeypatch):
     remote = [
         {

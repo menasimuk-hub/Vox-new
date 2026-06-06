@@ -43,6 +43,7 @@ from app.services.telnyx_whatsapp_template_sync_service import (
     send_template_id_for_row,
     template_to_dict,
 )
+from app.services.sales_whatsapp_telnyx_service import legacy_telnyx_names_for_sales_key
 from app.services.wa_template_meta_sync import default_wa_template_language, normalize_wa_template_language
 
 logger = logging.getLogger(__name__)
@@ -202,12 +203,26 @@ class InterviewWhatsappTemplateService:
         ).scalars().first()
         if by_key is not None:
             return by_key
-        name_lower = telnyx_name.strip().lower()
-        return db.execute(
-            select(TelnyxWhatsappTemplate)
-            .where(func.lower(TelnyxWhatsappTemplate.name) == name_lower)
-            .order_by(TelnyxWhatsappTemplate.updated_at.desc())
-        ).scalars().first()
+
+        candidates: list[str] = [telnyx_name.strip().lower()]
+        for legacy in legacy_telnyx_names_for_sales_key(sales_key):
+            legacy_lower = legacy.strip().lower()
+            if legacy_lower and legacy_lower not in candidates:
+                candidates.append(legacy_lower)
+
+        for name_lower in candidates:
+            if not name_lower:
+                continue
+            row = db.execute(
+                select(TelnyxWhatsappTemplate)
+                .where(func.lower(TelnyxWhatsappTemplate.name) == name_lower)
+                .order_by(TelnyxWhatsappTemplate.updated_at.desc())
+            ).scalars().first()
+            if row is not None:
+                if not row.sales_template_key:
+                    row.sales_template_key = sales_key
+                return row
+        return None
 
     @staticmethod
     def list_templates(db: Session) -> list[dict[str, Any]]:

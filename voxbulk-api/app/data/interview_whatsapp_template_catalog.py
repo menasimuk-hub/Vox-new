@@ -15,7 +15,10 @@ from app.data.interview_booking_whatsapp_defaults import (
     INTERVIEW_JOB_CLOSED_BODY,
     INTERVIEW_JOB_CLOSED_TEMPLATE_NAME,
 )
-from app.services.sales_whatsapp_telnyx_service import TELNYX_SALES_TEMPLATE_NAMES
+from app.services.sales_whatsapp_telnyx_service import (
+    TELNYX_SALES_TEMPLATE_NAMES,
+    legacy_telnyx_names_for_sales_key,
+)
 
 INTERVIEW_WA_TEMPLATE_KEYS: tuple[str, ...] = (
     "interview_email_sent",
@@ -123,4 +126,6 @@ def interview_catalog_telnyx_names() -> set[str]:
         mapped = TELNYX_SALES_TEMPLATE_NAMES.get(key)
         if mapped:
             names.add(str(mapped).strip().lower())
+        for legacy in legacy_telnyx_names_for_sales_key(key):
+            names.add(str(legacy).strip().lower())
     return names

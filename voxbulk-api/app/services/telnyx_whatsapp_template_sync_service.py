@@ -19,6 +19,7 @@ from app.services.sales_whatsapp_telnyx_service import (
     TEST_TEMPLATE_VARIABLES,
     build_telnyx_components,
     build_test_components_for_template_name,
+    canonical_telnyx_name_for_sales_key,
     template_key_for_telnyx_name,
     url_button_has_dynamic_suffix,
     url_button_index_from_components,
@@ -318,6 +319,8 @@ class TelnyxWhatsappTemplateSyncService:
             waba = item.get("whatsapp_business_account")
             waba_id = str(waba.get("id") or "").strip() if isinstance(waba, dict) else None
             sales_key = _sales_key_for_name(name)
+            canonical_name = canonical_telnyx_name_for_sales_key(sales_key)
+            local_name = canonical_name or name
 
             existing = db.execute(
                 select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == record_id)
@@ -326,14 +329,14 @@ class TelnyxWhatsappTemplateSyncService:
                 existing = TelnyxWhatsappTemplate(
                     telnyx_record_id=record_id,
                     template_id=send_template_id,
-                    name=name,
+                    name=local_name,
                     language=language,
                     created_at=now,
                 )
                 db.add(existing)
 
             existing.template_id = send_template_id
-            existing.name = name
+            existing.name = local_name
             existing.language = language
             existing.category = category
             existing.status = status

@@ -22,6 +22,12 @@ TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
 
 TELNYX_SALES_TEMPLATE_LANGUAGE = "en_GB"
 
+# Previous Telnyx/Meta template names still present remotely after renames.
+TELNYX_SALES_TEMPLATE_LEGACY_NAMES: dict[str, str] = {
+    "interview_email_sent": "interview_email_sent",
+    "voxbulk_interview_confirm": "interview_booking_confirm",
+}
+
 # Sample values for Integrations → test WhatsApp (and Telnyx portal parity checks).
 TEST_TEMPLATE_VARIABLES: dict[str, str] = {
     "first_name": "Alex",
@@ -61,10 +67,27 @@ def template_key_for_telnyx_name(template_name: str | None) -> str | None:
     name = str(template_name or "").strip().lower()
     if not name:
         return None
+    legacy_key = TELNYX_SALES_TEMPLATE_LEGACY_NAMES.get(name)
+    if legacy_key:
+        return legacy_key
     for key, meta_name in TELNYX_SALES_TEMPLATE_NAMES.items():
         if meta_name.lower() == name:
             return key
     return None
+
+
+def canonical_telnyx_name_for_sales_key(sales_template_key: str | None) -> str | None:
+    key = str(sales_template_key or "").strip().lower()
+    if not key:
+        return None
+    return TELNYX_SALES_TEMPLATE_NAMES.get(key)
+
+
+def legacy_telnyx_names_for_sales_key(sales_template_key: str | None) -> list[str]:
+    key = str(sales_template_key or "").strip().lower()
+    if not key:
+        return []
+    return [legacy for legacy, mapped in TELNYX_SALES_TEMPLATE_LEGACY_NAMES.items() if mapped == key]
 
 
 def build_test_components_for_template_name(template_name: str | None) -> list[dict[str, Any]] | None:
