@@ -109,6 +109,49 @@ def test_delete_industry_with_survey_session():
         assert IndustryService.get_industry(db, industry.id) is None
 
 
+def test_wa_survey_overview_counts():
+    from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+    from datetime import datetime
+    import uuid
+
+    Session = get_sessionmaker()
+    with Session() as db:
+        IndustryService.ensure_defaults(db)
+        healthcare = IndustryService.get_by_slug(db, "healthcare")
+        SurveyTypeService.create_type(
+            db,
+            {"name": "HC Overview", "slug": "hc_overview_type", "industry_id": healthcare.id},
+        )
+        now = datetime.utcnow()
+        local_id = f"local-{uuid.uuid4().hex}"
+        tpl = TelnyxWhatsappTemplate(
+            telnyx_record_id=local_id,
+            template_id=local_id,
+            name="voxbulk_survey_hc_overview_test",
+            language="en_US",
+            category="MARKETING",
+            status="APPROVED",
+            industry_id=healthcare.id,
+            body_preview="Hi",
+            draft_components_json='[{"type":"BODY","text":"Hi {{1}}"}]',
+            local_sync_status="draft",
+            active_for_survey=True,
+            created_at=now,
+            updated_at=now,
+            synced_at=now,
+        )
+        db.add(tpl)
+        db.commit()
+
+        overview = IndustryService.wa_survey_overview(db)
+        assert overview["kpis"]["total_templates"] >= 1
+        assert overview["kpis"]["approved_templates"] >= 1
+        hc_row = next(row for row in overview["industries"] if row["slug"] == "healthcare")
+        assert hc_row["survey_type_count"] >= 1
+        assert hc_row["template_count"] >= 1
+        assert hc_row["approved_template_count"] >= 1
+
+
 def test_duplicate_slug_rejected():
     Session = get_sessionmaker()
     with Session() as db:

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
+import WaSurveyIndustrySection from '../components/WaSurveyIndustrySection'
 
 function statusTone(label) {
   if (label === 'Ready') return 'ok'
@@ -64,13 +65,14 @@ export default function WaSurveyTypes() {
 
   const loadIndustries = useCallback(async () => {
     try {
-      const data = await apiFetch('/admin/wa-survey/industries')
+      const data = await apiFetch('/admin/wa-survey/overview')
       const list = Array.isArray(data?.industries) ? data.industries : []
-      setIndustries(list)
-      setIndustryFilter((prev) => (prev && list.some((row) => String(row.id) === String(prev)) ? prev : ''))
+      const selectable = list.filter((row) => row.is_active && !row.is_hidden)
+      setIndustries(selectable)
+      setIndustryFilter((prev) => (prev && selectable.some((row) => String(row.id) === String(prev)) ? prev : ''))
       setNewIndustryId((prev) => {
-        if (prev && list.some((row) => String(row.id) === String(prev))) return prev
-        return String(list[0]?.id || '')
+        if (prev && selectable.some((row) => String(row.id) === String(prev))) return prev
+        return String(selectable[0]?.id || '')
       })
     } catch (e) {
       showError(e, 'Could not load industries')
@@ -122,9 +124,8 @@ export default function WaSurveyTypes() {
   }
 
   useEffect(() => {
-    loadIndustries()
     loadPickerSettings()
-  }, [loadIndustries, loadPickerSettings])
+  }, [loadPickerSettings])
 
   useEffect(() => {
     const refreshIndustries = () => {
@@ -198,12 +199,12 @@ export default function WaSurveyTypes() {
           </div>
           <h1>WA Survey</h1>
           <p className="pageLead">
-            Manage reusable survey types and their approved WhatsApp templates. Push drafts to Telnyx, sync approval status, and preview the first template message plus simulated survey flow.
+            Operational overview of industries and WhatsApp templates. Manage industries, survey types, Telnyx sync, and launch safety from here.
           </p>
         </div>
         <div className="pageTopActions">
-          <Link className="btn" to="/settings/wa-survey/industries">
-            <i className="ti ti-building" /> Manage industries
+          <Link className="btn" to="/settings/wa-survey/system-templates">
+            <i className="ti ti-template" /> System templates
           </Link>
           <Link className="btn" to="/settings/wa-survey/simulator">
             <i className="ti ti-flask" /> Flow simulator
@@ -216,6 +217,8 @@ export default function WaSurveyTypes() {
           </button>
         </div>
       </div>
+
+      <WaSurveyIndustrySection onIndustriesChange={(list) => setIndustries(list)} />
 
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="cardHead"><h2>Launch &amp; safety</h2></div>

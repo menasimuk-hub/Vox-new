@@ -48,6 +48,14 @@ def _raise_wa_survey_error(exc: SurveyWhatsappTemplateError, *, status_code: int
     raise HTTPException(status_code=code, detail=payload) from exc
 
 
+@router.get("/overview")
+def wa_survey_overview(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return IndustryService.wa_survey_overview(db)
+
+
 @router.get("/industries")
 def list_industries(
     include_inactive: bool = False,

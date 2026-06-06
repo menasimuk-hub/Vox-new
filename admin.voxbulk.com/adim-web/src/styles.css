@@ -2014,6 +2014,27 @@ textarea.input{
   margin-top:3px;
 }
 
+.waSurveyKpis{
+  grid-template-columns:repeat(4,1fr);
+}
+
+@media (max-width:900px){
+  .waSurveyKpis{
+    grid-template-columns:repeat(2,1fr);
+  }
+}
+
+@media (max-width:520px){
+  .waSurveyKpis{
+    grid-template-columns:1fr;
+  }
+}
+
+.waSurveyApprovedCount{
+  color:#15803d;
+  font-weight:700;
+}
+
 .agentsPanel{
   background:var(--s1);
   border:1px solid var(--line);

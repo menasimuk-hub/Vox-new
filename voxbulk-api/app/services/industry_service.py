@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.models.industry import Industry
 from app.models.industry_deletion_tombstone import IndustryDeletionTombstone
 from app.models.survey_type import SurveyType
+from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 
 DEFAULT_INDUSTRIES: list[dict[str, Any]] = [
@@ -37,7 +38,14 @@ def _normalize_slug(raw: str) -> str:
     return token
 
 
-def industry_to_dict(row: Industry, *, survey_type_count: int | None = None) -> dict[str, Any]:
+def industry_to_dict(
+    row: Industry,
+    *,
+    survey_type_count: int | None = None,
+    template_count: int | None = None,
+    approved_template_count: int | None = None,
+    pending_template_count: int | None = None,
+) -> dict[str, Any]:
     payload = {
         "id": row.id,
         "slug": row.slug,
@@ -51,7 +59,61 @@ def industry_to_dict(row: Industry, *, survey_type_count: int | None = None) -> 
     }
     if survey_type_count is not None:
         payload["survey_type_count"] = int(survey_type_count)
+    if template_count is not None:
+        payload["template_count"] = int(template_count)
+    if approved_template_count is not None:
+        payload["approved_template_count"] = int(approved_template_count)
+    if pending_template_count is not None:
+        payload["pending_template_count"] = int(pending_template_count)
     return payload
+
+
+def _is_template_approved(row: TelnyxWhatsappTemplate) -> bool:
+    return str(row.status or "").strip().upper() == "APPROVED"
+
+
+def _template_ids_for_industry(db: Session, industry_id: str) -> set[int]:
+    ids: set[int] = set()
+    for tid in db.execute(
+        select(TelnyxWhatsappTemplate.id).where(TelnyxWhatsappTemplate.industry_id == industry_id)
+    ).scalars():
+        ids.add(int(tid))
+    for tid in db.execute(
+        select(SurveyTypeTemplate.template_id).where(SurveyTypeTemplate.industry_id == industry_id)
+    ).scalars():
+        ids.add(int(tid))
+    survey_type_ids = list(
+        db.execute(select(SurveyType.id).where(SurveyType.industry_id == industry_id)).scalars()
+    )
+    if survey_type_ids:
+        for tid in db.execute(
+            select(TelnyxWhatsappTemplate.id).where(
+                TelnyxWhatsappTemplate.survey_type_id.in_(survey_type_ids)
+            )
+        ).scalars():
+            ids.add(int(tid))
+    return ids
+
+
+def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, int]:
+    if not template_ids:
+        return {
+            "template_count": 0,
+            "approved_template_count": 0,
+            "pending_template_count": 0,
+        }
+    rows = list(
+        db.execute(
+            select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.id.in_(template_ids))
+        ).scalars()
+    )
+    approved = sum(1 for row in rows if _is_template_approved(row))
+    total = len(rows)
+    return {
+        "template_count": total,
+        "approved_template_count": approved,
+        "pending_template_count": total - approved,
+    }
 
 
 class IndustryService:
@@ -159,6 +221,50 @@ class IndustryService:
             if industry_id:
                 counts[str(industry_id)] = int(cnt or 0)
         return [industry_to_dict(r, survey_type_count=counts.get(r.id, 0)) for r in rows]
+
+    @staticmethod
+    def wa_survey_overview(db: Session) -> dict[str, Any]:
+        """KPI totals and per-industry template counts for the WA Survey admin landing page."""
+        IndustryService.ensure_defaults(db)
+        rows = list(
+            db.execute(select(Industry).order_by(Industry.sort_order.asc(), Industry.name.asc())).scalars()
+        )
+        type_counts: dict[str, int] = {}
+        for industry_id, cnt in db.execute(
+            select(SurveyType.industry_id, func.count()).group_by(SurveyType.industry_id)
+        ):
+            if industry_id:
+                type_counts[str(industry_id)] = int(cnt or 0)
+
+        industries: list[dict[str, Any]] = []
+        for row in rows:
+            template_ids = _template_ids_for_industry(db, row.id)
+            counts = _template_count_payload(db, template_ids)
+            industries.append(
+                industry_to_dict(
+                    row,
+                    survey_type_count=type_counts.get(row.id, 0),
+                    template_count=counts["template_count"],
+                    approved_template_count=counts["approved_template_count"],
+                    pending_template_count=counts["pending_template_count"],
+                )
+            )
+
+        all_templates = list(db.execute(select(TelnyxWhatsappTemplate)).scalars())
+        total_templates = len(all_templates)
+        approved_templates = sum(1 for tpl in all_templates if _is_template_approved(tpl))
+        visible_industries = [row for row in rows if not bool(getattr(row, "is_hidden", False))]
+
+        return {
+            "ok": True,
+            "kpis": {
+                "total_industries": len(visible_industries),
+                "total_templates": total_templates,
+                "approved_templates": approved_templates,
+                "pending_templates": max(0, total_templates - approved_templates),
+            },
+            "industries": industries,
+        }
 
     @staticmethod
     def list_industries_selectable(db: Session) -> list[dict[str, Any]]:
