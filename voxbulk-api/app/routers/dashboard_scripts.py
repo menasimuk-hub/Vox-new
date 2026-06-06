@@ -208,6 +208,41 @@ def get_wa_survey_step_bank(
     )
 
 
+@router.get("/wa-survey/types/{survey_type_id}/library-templates")
+def list_wa_survey_library_templates(
+    survey_type_id: str,
+    privacy_mode: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Middle-step library templates linked to a survey type (dashboard builder Step 3)."""
+    from app.services.survey_step_bank_service import MIDDLE_STEP_ROLES, normalize_step_role
+    from app.services.survey_type_service import SurveyTypeService
+    from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+
+    survey_type = SurveyTypeService.get_type(db, survey_type_id)
+    if survey_type is None or not survey_type.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    rows = SurveyWhatsappTemplateService.list_for_survey_type(
+        db,
+        survey_type_id,
+        privacy_mode=privacy_mode,
+    )
+    middle_roles = set(MIDDLE_STEP_ROLES)
+    templates = [
+        row
+        for row in rows
+        if normalize_step_role(str(row.get("step_role") or "")) in middle_roles
+    ]
+    if not templates:
+        templates = [
+            row
+            for row in rows
+            if normalize_step_role(str(row.get("step_role") or "")) not in {"start", "completion"}
+        ]
+    return {"ok": True, "survey_type_id": survey_type_id, "templates": templates}
+
+
 @router.post("/wa-survey/generate")
 def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.survey_builder_validation_service import (
@@ -233,7 +268,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 selected_survey_type_ids=selected_type_ids or ([primary_survey_type_id] if primary_survey_type_id else []),
                 welcome_template_id=welcome_template_id,
                 thank_you_template_id=thank_you_template_id,
-                require_approved=True,
+                require_approved=False,
             )
             primary_survey_type_id = str(builder_config.get("primary_survey_type_id") or primary_survey_type_id)
         except SurveyBuilderValidationError as e:
@@ -257,6 +292,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
             assistant_name=branding.get("assistant_name") or "",
             organiser_name=branding.get("organiser_name") or "",
             builder_config=builder_config,
+            allow_unapproved_templates=True,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

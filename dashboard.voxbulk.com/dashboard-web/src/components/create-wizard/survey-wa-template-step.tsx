@@ -44,54 +44,11 @@ export function mapSystemTemplates(rows: Array<Record<string, unknown>>): WaBuil
   return rows.map(templateFromApiRow);
 }
 
-const LENGTH_PREVIEW_COPY: Record<string, string> = {
-  short: "On a scale of 0–10, how would you rate your recent experience?",
-  standard: "How satisfied are you with your recent visit? What stood out the most?",
-  detailed: "We would love a detailed take on your experience — a few short questions about what went well and what could improve.",
-};
-
-/** Lovable-style 3 template variants per survey type (maps to survey length on generate). */
-export function buildSurveyTypeTemplateOptions(
-  serviceName: string,
-  typeId: string,
-  libraryBody?: string,
-): WaBuilderTemplateRow[] {
-  const label = serviceName.trim() || "Survey";
-  const fallbackBody =
-    libraryBody?.trim() ||
-    `How would you rate your ${label.toLowerCase()} experience? Tap a button or reply with your score.`;
-  return [
-    {
-      id: `${typeId}-short`,
-      title: `${label} — Quick 3 questions`,
-      description: "Fast pulse check. ~30 seconds. Best response rates.",
-      bodyPreview: LENGTH_PREVIEW_COPY.short.includes("experience")
-        ? LENGTH_PREVIEW_COPY.short.replace("your recent experience", `your ${label.toLowerCase()} experience`)
-        : fallbackBody,
-      footer: "Reply STOP to opt out",
-    },
-    {
-      id: `${typeId}-standard`,
-      title: `${label} — Standard 5 questions`,
-      description: "Balanced survey with rating + open feedback.",
-      bodyPreview: libraryBody?.trim() || LENGTH_PREVIEW_COPY.standard,
-      footer: "Reply STOP to opt out",
-    },
-    {
-      id: `${typeId}-detailed`,
-      title: `${label} — In-depth 8 questions`,
-      description: "Detailed survey for deeper insight. ~2 minutes.",
-      bodyPreview: libraryBody?.trim() || LENGTH_PREVIEW_COPY.detailed,
-      footer: "Reply STOP to opt out",
-    },
-  ];
-}
-
-export function pageCountFromServiceTemplateId(templateId: string): 4 | 5 | 6 | null {
-  if (templateId.endsWith("-short")) return 4;
-  if (templateId.endsWith("-standard")) return 5;
-  if (templateId.endsWith("-detailed")) return 6;
-  return null;
+export function pageCountFromServiceType(row: Record<string, unknown> | undefined): 4 | 5 | 6 {
+  const length = String(row?.default_length || "standard").toLowerCase();
+  if (length === "short") return 4;
+  if (length === "detailed") return 6;
+  return 5;
 }
 
 type WaTemplatePickerSectionProps = {
@@ -228,18 +185,24 @@ export function WaDraggableTypeGroup({
             </Button>
           </div>
         </div>
-        <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-          {templates.map((tpl) => (
-            <TemplateCard
-              key={tpl.id}
-              tpl={tpl}
-              active={selectedId === tpl.id}
-              dimOthers={Boolean(selectedId && selectedId !== tpl.id)}
-              onPreview={() => setPreview(tpl)}
-              onSelect={() => onSelect(tpl.id)}
-            />
-          ))}
-        </div>
+        {templates.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+            No library templates for this survey type yet. Add one in Admin → WA Survey.
+          </p>
+        ) : (
+          <div className={cn("grid gap-3 p-4", templates.length === 1 ? "grid-cols-1" : "sm:grid-cols-2 lg:grid-cols-3")}>
+            {templates.map((tpl) => (
+              <TemplateCard
+                key={tpl.id}
+                tpl={tpl}
+                active={selectedId === tpl.id}
+                dimOthers={Boolean(selectedId && selectedId !== tpl.id)}
+                onPreview={() => setPreview(tpl)}
+                onSelect={() => onSelect(tpl.id)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <TemplatePreviewDialog preview={preview} onClose={() => setPreview(null)} />

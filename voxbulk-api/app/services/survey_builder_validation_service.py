@@ -105,14 +105,11 @@ class SurveyBuilderValidationService:
             if st is None or st.system_template_kind != kind:
                 errors.append(f"{label} template must be from system {kind} templates.")
                 continue
-            if require_approved and str(tpl.status or "").upper() != "APPROVED":
-                errors.append(f"{label} template is not APPROVED yet.")
+            if require_approved and str(tpl.status or "").upper() not in {"APPROVED", "LOCAL_DRAFT"}:
+                errors.append(f"{label} template is not ready yet (status: {tpl.status}).")
+        tell_us_more_id = None
         if not errors:
             tell_us_more_id = SurveySystemTemplateService.resolve_tell_us_more_template_id(db)
-            if tell_us_more_id is None:
-                errors.append("Tell-us-more system template is not configured in Admin.")
-        else:
-            tell_us_more_id = None
         if errors:
             raise SurveyBuilderValidationError(errors[0], errors=errors)
         return {

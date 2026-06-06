@@ -6,14 +6,15 @@ import { PageHeader } from "@/components/page-header";
 import { ChannelPicker } from "@/components/create-wizard";
 import { SurveyPhoneWizard } from "@/components/create-wizard/survey-phone-wizard";
 import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
-import { pageCountFromServiceTemplateId } from "@/components/create-wizard/survey-wa-template-step";
-import { apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
+import { pageCountFromServiceType } from "@/components/create-wizard/survey-wa-template-step";
+import { apiFetch, ApiError, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
 import {
   useCreateServiceOrder,
   useGenerateWaSurvey,
   usePatchServiceOrder,
   useSurveyPackages,
   useWaSurveyIndustries,
+  useWaSurveyLibraryTemplates,
   useWaSurveyStepBank,
   useWaSurveySystemTemplates,
   useWaSurveyTypes,
@@ -29,6 +30,22 @@ const PAGE_COUNT_TO_LENGTH: Record<4 | 5 | 6, "short" | "standard" | "detailed">
   5: "standard",
   6: "detailed",
 };
+
+function formatGenerateError(e: unknown): string {
+  if (e instanceof ApiError) {
+    const root = e.data && typeof e.data === "object" ? (e.data as Record<string, unknown>) : null;
+    const detail = root?.detail;
+    if (detail && typeof detail === "object" && detail !== null) {
+      const errors = (detail as { errors?: unknown }).errors;
+      if (Array.isArray(errors) && errors[0]) return String(errors[0]);
+      const message = (detail as { message?: unknown }).message;
+      if (message) return String(message);
+    }
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (e.message && !/^\d{3}\s/.test(e.message)) return e.message;
+  }
+  return e instanceof Error ? e.message : "Could not generate survey";
+}
 
 type Channel = "whatsapp" | "phone" | null;
 
@@ -57,6 +74,11 @@ function CreateSurvey() {
   const systemTemplatesQ = useWaSurveySystemTemplates();
   const primarySurveyTypeId = orderedServiceTagIds[0] || selectedServiceTagIds[0] || "";
   const stepBankQ = useWaSurveyStepBank(channel === "whatsapp" ? primarySurveyTypeId : null, privacyMode);
+  const libraryTemplateQueries = useWaSurveyLibraryTemplates(
+    orderedServiceTagIds,
+    privacyMode,
+    channel === "whatsapp",
+  );
   const [approved, setApproved] = React.useState(false);
   const [anonymous, setAnonymous] = React.useState(false);
   const [goal, setGoal] = React.useState(
@@ -126,12 +148,47 @@ function CreateSurvey() {
     });
   }, [selectedServiceTagIds]);
 
+  const serviceTypes = React.useMemo(
+    () => (waTypesQ.data?.types || []) as Array<Record<string, unknown>>,
+    [waTypesQ.data],
+  );
+
+  const libraryTemplatesByTypeId = React.useMemo(() => {
+    const map: Record<string, Array<Record<string, unknown>>> = {};
+    orderedServiceTagIds.forEach((typeId, index) => {
+      map[typeId] = (libraryTemplateQueries[index]?.data?.templates || []) as Array<Record<string, unknown>>;
+    });
+    return map;
+  }, [orderedServiceTagIds, libraryTemplateQueries]);
+
+  const libraryTemplatesLoading = libraryTemplateQueries.some((q) => q.isLoading);
+
+  React.useEffect(() => {
+    setSelectedServiceTemplateIds((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const typeId of orderedServiceTagIds) {
+        const rows = libraryTemplatesByTypeId[typeId] || [];
+        const validIds = new Set(rows.map((row) => String(row.id)));
+        if (next[typeId] && !validIds.has(next[typeId])) {
+          delete next[typeId];
+          changed = true;
+        }
+        if (rows.length === 1 && !next[typeId]) {
+          next[typeId] = String(rows[0].id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [orderedServiceTagIds, libraryTemplatesByTypeId]);
+
   React.useEffect(() => {
     const primary = orderedServiceTagIds[0] || selectedServiceTagIds[0] || "";
-    const templateId = primary ? selectedServiceTemplateIds[primary] : "";
-    const pc = templateId ? pageCountFromServiceTemplateId(templateId) : null;
-    if (pc) setPageCount(pc);
-  }, [orderedServiceTagIds, selectedServiceTagIds, selectedServiceTemplateIds]);
+    if (!primary) return;
+    const row = serviceTypes.find((t) => String(t.id) === primary);
+    setPageCount(pageCountFromServiceType(row));
+  }, [orderedServiceTagIds, selectedServiceTagIds, serviceTypes]);
 
   React.useEffect(() => {
     setOrderedServiceTagIds((prev) => {
@@ -142,11 +199,6 @@ function CreateSurvey() {
       return next;
     });
   }, [selectedServiceTagIds]);
-
-  const serviceTypes = React.useMemo(
-    () => (waTypesQ.data?.types || []) as Array<Record<string, unknown>>,
-    [waTypesQ.data],
-  );
 
   const welcomeTemplates = React.useMemo(
     () => (systemTemplatesQ.data?.templates?.welcome || []) as Array<Record<string, unknown>>,
@@ -181,8 +233,14 @@ function CreateSurvey() {
     }
     if (!welcomeTemplateId) errors.push("Select a welcome template.");
     if (!thankYouTemplateId) errors.push("Select a thank-you template.");
+    for (const id of selectedServiceTagIds) {
+      const row = serviceTypes.find((t) => String(t.id) === id);
+      if (!row || !selectedServiceTemplateIds[id]) {
+        if (row) errors.push(`Select a template for "${String(row.name)}".`);
+      }
+    }
     return errors;
-  }, [selectedServiceTagIds, serviceTypes, welcomeTemplateId, thankYouTemplateId]);
+  }, [selectedServiceTagIds, serviceTypes, welcomeTemplateId, thankYouTemplateId, selectedServiceTemplateIds]);
 
   React.useEffect(() => {
     if (privacyMode === "on") setAnonymous(true);
@@ -248,9 +306,6 @@ function CreateSurvey() {
   const onSelectServiceTemplate = (typeId: string, templateId: string) => {
     setSelectedServiceTemplateIds((prev) => ({ ...prev, [typeId]: templateId }));
     setAutoSelectSteps(true);
-    const pc = pageCountFromServiceTemplateId(templateId);
-    const primary = orderedServiceTagIds[0] || selectedServiceTagIds[0] || "";
-    if (pc && typeId === primary) setPageCount(pc);
   };
 
   const onGenerateWaSurvey = async (): Promise<boolean> => {
@@ -307,7 +362,7 @@ function CreateSurvey() {
       toast.success("Survey generated from approved WhatsApp template library");
       return true;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not generate survey");
+      toast.error(formatGenerateError(e));
       return false;
     } finally {
       setGenerating(false);
@@ -418,6 +473,8 @@ function CreateSurvey() {
           thankYouTemplates={thankYouTemplates}
           selectedServiceTemplateIds={selectedServiceTemplateIds}
           onSelectServiceTemplate={onSelectServiceTemplate}
+          libraryTemplatesByTypeId={libraryTemplatesByTypeId}
+          libraryTemplatesLoading={libraryTemplatesLoading}
           privacyMode={privacyMode}
           setPrivacyMode={setPrivacyMode}
           pageCount={pageCount}

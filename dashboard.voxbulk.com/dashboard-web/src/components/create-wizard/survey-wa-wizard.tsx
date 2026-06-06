@@ -18,7 +18,6 @@ import { StatusBadge } from "@/components/status-badge";
 import { WhatsAppPreviewModal, PreviewQuoteModal } from "@/components/modals";
 import { Stepper, Summary, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import {
-  buildSurveyTypeTemplateOptions,
   mapSystemTemplates,
   WaDraggableTypeGroup,
   WaTemplatePickerSection,
@@ -64,6 +63,8 @@ export type SurveyWaWizardProps = {
   thankYouTemplates: Array<Record<string, unknown>>;
   selectedServiceTemplateIds: Record<string, string>;
   onSelectServiceTemplate: (typeId: string, templateId: string) => void;
+  libraryTemplatesByTypeId: Record<string, Array<Record<string, unknown>>>;
+  libraryTemplatesLoading: boolean;
   privacyMode: "off" | "on";
   setPrivacyMode: (v: "off" | "on") => void;
   pageCount: 4 | 5 | 6;
@@ -375,12 +376,8 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                     const row = props.serviceTypes.find((t) => String(t.id) === typeId);
                     if (!row) return null;
                     const serviceName = String(row.name);
-                    const isPrimary = typeId === props.orderedServiceTagIds[0];
-                    const bankEntry =
-                      isPrimary && props.stepBankByRole.rating
-                        ? props.stepBankByRole.rating
-                        : props.stepBankByRole[props.resolvedPageRoles[1] || "rating"];
-                    const libraryBody = String(bankEntry?.body || bankEntry?.display_name || "").trim();
+                    const libraryRows = props.libraryTemplatesByTypeId[typeId] || [];
+                    const templateRows = mapSystemTemplates(libraryRows);
                     return (
                       <div
                         key={typeId}
@@ -402,23 +399,29 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                           setDragOverServiceIndex(null);
                         }}
                       >
-                        <WaDraggableTypeGroup
-                          serviceName={serviceName}
-                          index={idx}
-                          total={props.orderedServiceTagIds.length}
-                          templates={buildSurveyTypeTemplateOptions(serviceName, typeId, libraryBody)}
-                          selectedId={props.selectedServiceTemplateIds[typeId] || ""}
-                          onSelect={(id) => props.onSelectServiceTemplate(typeId, id)}
-                          onMoveUp={idx > 0 ? () => moveService(idx, -1) : undefined}
-                          onMoveDown={idx < props.orderedServiceTagIds.length - 1 ? () => moveService(idx, 1) : undefined}
-                          onDragStart={() => setDraggedServiceIndex(idx)}
-                          onDragEnd={() => {
-                            setDraggedServiceIndex(null);
-                            setDragOverServiceIndex(null);
-                          }}
-                          isDragging={draggedServiceIndex === idx}
-                          isDragOver={dragOverServiceIndex === idx && draggedServiceIndex !== idx}
-                        />
+                        {props.libraryTemplatesLoading && templateRows.length === 0 ? (
+                          <div className="rounded-xl border border-border bg-background/40 p-4">
+                            <Skeleton className="h-24 w-full" />
+                          </div>
+                        ) : (
+                          <WaDraggableTypeGroup
+                            serviceName={serviceName}
+                            index={idx}
+                            total={props.orderedServiceTagIds.length}
+                            templates={templateRows}
+                            selectedId={props.selectedServiceTemplateIds[typeId] || ""}
+                            onSelect={(id) => props.onSelectServiceTemplate(typeId, id)}
+                            onMoveUp={idx > 0 ? () => moveService(idx, -1) : undefined}
+                            onMoveDown={idx < props.orderedServiceTagIds.length - 1 ? () => moveService(idx, 1) : undefined}
+                            onDragStart={() => setDraggedServiceIndex(idx)}
+                            onDragEnd={() => {
+                              setDraggedServiceIndex(null);
+                              setDragOverServiceIndex(null);
+                            }}
+                            isDragging={draggedServiceIndex === idx}
+                            isDragOver={dragOverServiceIndex === idx && draggedServiceIndex !== idx}
+                          />
+                        )}
                       </div>
                     );
                   })

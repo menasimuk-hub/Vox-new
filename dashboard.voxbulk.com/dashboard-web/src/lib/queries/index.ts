@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch, apiUploadFiles } from "@/lib/api";
 import { showRecoveryModules } from "@/lib/feature-flags";
@@ -776,6 +776,19 @@ export function useWaSurveyStepBank(surveyTypeId: string | null, privacyMode: "o
       apiFetch<Record<string, unknown>>(
         `/dashboard/service-scripts/wa-survey/types/${encodeURIComponent(surveyTypeId!)}/step-bank?variant=${encodeURIComponent(variant)}&privacy_mode=${encodeURIComponent(privacyMode)}`,
       ),
+  });
+}
+
+export function useWaSurveyLibraryTemplates(typeIds: string[], privacyMode: "off" | "on", enabled = true) {
+  return useQueries({
+    queries: typeIds.map((surveyTypeId) => ({
+      queryKey: ["dashboard", "wa-survey-library-templates", surveyTypeId, privacyMode],
+      enabled: enabled && Boolean(surveyTypeId),
+      queryFn: () =>
+        apiFetch<{ ok?: boolean; templates?: Array<Record<string, unknown>> }>(
+          `/dashboard/service-scripts/wa-survey/types/${encodeURIComponent(surveyTypeId)}/library-templates?privacy_mode=${encodeURIComponent(privacyMode)}`,
+        ),
+    })),
   });
 }
 

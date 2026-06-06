@@ -16,6 +16,7 @@ from app.services.survey_flow_config_service import attach_flow_to_config, flow_
 from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH
 from app.services.survey_flow_definition_service import SurveyFlowDefinitionService
 from app.services.survey_type_service import SurveyTypeService
+from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
 from app.services.wa_template_privacy import (
     VARIANT_ANONYMOUS,
     VARIANT_STANDARD,
