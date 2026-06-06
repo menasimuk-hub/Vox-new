@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.core.database import get_sessionmaker
+from app.data.interview_booking_whatsapp_defaults import INTERVIEW_EMAIL_SENT_BODY
 from app.services.interview_whatsapp_template_service import InterviewWhatsappTemplateService
+from app.services.survey_whatsapp_template_service import validate_meta_variable_order
 
 
 @pytest.fixture
@@ -16,6 +20,24 @@ def db():
         yield session
     finally:
         session.close()
+
+
+def test_interview_email_sent_body_variables_are_sequential_in_text():
+    var_ids = [int(m.group(1)) for m in re.finditer(r"\{\{(\d+)\}\}", INTERVIEW_EMAIL_SENT_BODY)]
+    assert var_ids == [1, 2, 3, 4]
+
+
+def test_validate_meta_variable_order_rejects_out_of_order_body():
+    components = [
+        {
+            "type": "BODY",
+            "text": "Dear {{1}}, email from {{4}} about {{2}} at {{3}}",
+            "example": {"body_text": [["James", "accountant", "menasim", "careers@voxbulk.com"]]},
+        }
+    ]
+    err = validate_meta_variable_order(components)
+    assert err is not None
+    assert "ascending order" in err.lower()
 
 
 def test_interview_template_catalog_seeds_four_templates(db):

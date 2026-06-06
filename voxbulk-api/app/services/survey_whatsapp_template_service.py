@@ -259,6 +259,46 @@ def _extract_example_values(components: list[Any] | None) -> list[str]:
     return []
 
 
+def _meta_var_ids_in_text(text: str) -> list[int]:
+    return [int(m.group(1)) for m in re.finditer(r"\{\{(\d+)\}\}", str(text or ""))]
+
+
+def _meta_var_ids_in_components(components: list[Any] | None) -> list[int]:
+    if not isinstance(components, list):
+        return []
+    chunks: list[str] = []
+    for comp in components:
+        if not isinstance(comp, dict):
+            continue
+        comp_type = str(comp.get("type") or "").upper()
+        if comp_type in {"BODY", "HEADER"}:
+            chunks.append(str(comp.get("text") or ""))
+    return _meta_var_ids_in_text(" ".join(chunks))
+
+
+def validate_meta_variable_order(components: list[Any] | None) -> str | None:
+    """Return an error message when Meta/Telnyx variable numbering rules are violated."""
+    var_ids = _meta_var_ids_in_components(components)
+    if not var_ids:
+        return None
+    expected = list(range(1, max(var_ids) + 1))
+    unique_sorted = sorted(set(var_ids))
+    if unique_sorted != expected:
+        return (
+            f"WhatsApp variables must be sequential from {{{{1}}}} to {{{{{max(expected)}}}}} "
+            f"with no gaps — found {unique_sorted}."
+        )
+    if var_ids != expected:
+        return (
+            f"WhatsApp variables must appear in ascending order in the template body "
+            f"(expected {expected}, found {var_ids}). Move {{{{4}}}} after {{{{3}}}}, etc."
+        )
+    examples = _extract_example_values(components)
+    if len(examples) < max(var_ids):
+        return f"Add at least {max(var_ids)} sample value(s) for the template variables."
+    return None
+
+
 def _default_standard_components(*, org_label: str = "Northgate Dental", first_name: str = "Alex") -> list[dict[str, Any]]:
     return [
         {
@@ -760,6 +800,13 @@ class SurveyWhatsappTemplateService:
             raise SurveyWhatsappTemplateError("Template has no components to push")
 
         category = normalize_wa_template_category(row.category, required=True)
+
+        var_error = validate_meta_variable_order(components)
+        if var_error:
+            raise SurveyWhatsappTemplateError(
+                var_error,
+                payload={"message": var_error, "template_name": row.name},
+            )
 
         config = SurveyWhatsappTemplateService._telnyx_config(db)
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))

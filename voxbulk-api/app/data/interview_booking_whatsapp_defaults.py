@@ -25,9 +25,10 @@ INTERVIEW_JOB_CLOSED_BODY = (
 )
 
 # Launch notice (no booking link on WA): {{1}} name, {{2}} role, {{3}} company, {{4}} careers email
+# Meta requires variables in ascending order in the body text ({{1}} before {{2}}, etc.).
 INTERVIEW_EMAIL_SENT_BODY = """Dear {{1}} 👋
 
-We have sent you an email from 📧 {{4}} regarding your interview for the position of {{2}} at {{3}}
+We have sent you an email regarding your interview for the position of {{2}} at {{3}} from 📧 {{4}}
 
 Please check your Spam / Junk folder in case it landed there 📁
 

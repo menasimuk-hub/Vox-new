@@ -24,6 +24,7 @@ from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateService,
     _body_preview,
     _buttons_from_components,
+    _content_hash,
     _dumps,
     _effective_components,
     _extract_example_values,
@@ -33,6 +34,7 @@ from app.services.survey_whatsapp_template_service import (
     _refresh_local_sync_status,
     normalize_wa_template_category,
     template_workflow_state,
+    validate_meta_variable_order,
 )
 from app.services.telnyx_whatsapp_template_sync_service import (
     TelnyxWhatsappTemplateSyncError,
@@ -158,6 +160,24 @@ class InterviewWhatsappTemplateService:
                 existing.example_values_json = _dumps(examples)
                 existing.local_sync_status = "draft"
                 changed = True
+            elif _is_local_row(existing) and not existing.last_pushed_at:
+                draft_components = _loads(existing.draft_components_json)
+                catalog_hash = _content_hash(components)
+                draft_hash = _content_hash(draft_components if isinstance(draft_components, list) else None)
+                needs_refresh = (
+                    validate_meta_variable_order(
+                        draft_components if isinstance(draft_components, list) else None
+                    )
+                    is not None
+                    or (catalog_hash and catalog_hash != draft_hash)
+                )
+                if needs_refresh:
+                    existing.draft_components_json = _dumps(components)
+                    existing.body_preview = _body_preview(components)
+                    existing.example_values_json = _dumps(examples)
+                    existing.local_sync_status = "draft"
+                    existing.last_push_error = None
+                    changed = True
             if changed:
                 existing.updated_at = now
                 db.add(existing)

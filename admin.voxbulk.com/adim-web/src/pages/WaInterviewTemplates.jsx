@@ -90,7 +90,7 @@ export default function WaInterviewTemplates() {
       setMsg(formatActionSuccess(result, 'Synced to Telnyx').message)
       await load()
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Telnyx push failed').message)
+      setError(formatWaSurveyError(e, 'Telnyx push failed').detailText)
     } finally {
       setWorking('')
     }
