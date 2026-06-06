@@ -294,13 +294,31 @@ def get_interview_draft(
 
 @router.post("/interview/draft/new")
 def create_new_interview_draft_route(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    import logging
+
     from app.services.interview_intake_service import create_new_interview_draft, intake_summary
     from app.services.interview_billing_context import org_interview_billing_context
 
-    org = _require_org_service(db, principal.org_id, "interview")
-    order = create_new_interview_draft(db, org_id=principal.org_id, user_id=principal.user_id)
-    billing = org_interview_billing_context(db, org)
-    return _interview_draft_payload(db, order=order, recipients=[], summary=intake_summary([]), billing=billing)
+    log = logging.getLogger(__name__)
+    log.info("interview_draft_new entry org=%s user=%s", principal.org_id, principal.user_id)
+    try:
+        org = _require_org_service(db, principal.org_id, "interview")
+        order = create_new_interview_draft(db, org_id=principal.org_id, user_id=principal.user_id)
+        billing = org_interview_billing_context(db, org)
+        payload = _interview_draft_payload(db, order=order, recipients=[], summary=intake_summary([]), billing=billing)
+        log.info("interview_draft_new ok order_id=%s", order.id)
+        return payload
+    except HTTPException:
+        raise
+    except ValueError as e:
+        log.warning("interview_draft_new value_error: %s", e)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        log.exception("interview_draft_new failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not create interview draft: {type(e).__name__}: {e}",
+        ) from e
 
 
 @router.post("/interview/draft/abandon")

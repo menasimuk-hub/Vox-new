@@ -399,21 +399,25 @@ function CreateSurvey() {
       toast.error("Complete Step 3 template selection before sending a test.");
       return;
     }
+    const sendBody = {
+      test_phone: phone,
+      template_ids: templateIds,
+      welcome_template_id: Number(welcomeTemplateId),
+      thank_you_template_id: Number(thankYouTemplateId),
+      middle_template_ids: orderedServiceTagIds
+        .map((typeId) => Number(selectedServiceTemplateIds[typeId]))
+        .filter((id) => Number.isFinite(id) && id > 0),
+      first_name: "Alex",
+      client_context: { organisation_name: goal.slice(0, 80) || undefined },
+    };
+    console.info("[wa-survey] POST /dashboard/service-scripts/wa-survey/send-test", sendBody);
     try {
-      const result = await sendTestWaM.mutateAsync({
-        test_phone: phone,
-        template_ids: templateIds,
-        welcome_template_id: Number(welcomeTemplateId),
-        thank_you_template_id: Number(thankYouTemplateId),
-        middle_template_ids: orderedServiceTagIds
-          .map((typeId) => Number(selectedServiceTemplateIds[typeId]))
-          .filter((id) => Number.isFinite(id) && id > 0),
-        first_name: "Alex",
-        client_context: { organisation_name: goal.slice(0, 80) || undefined },
-      });
+      const result = await sendTestWaM.mutateAsync(sendBody);
+      console.info("[wa-survey] send-test ok", result);
       const sent = Number(result.sent ?? result.messages?.length ?? templateIds.length);
       toast.success(String(result.message || `Sent ${sent} WhatsApp test message(s) to ${phone}.`));
     } catch (e) {
+      console.error("[wa-survey] send-test failed", e);
       toast.error(e instanceof Error ? e.message : "WhatsApp test send failed");
     }
   };
@@ -429,7 +433,7 @@ function CreateSurvey() {
     try {
       const { typeOrder, selectedServiceTemplates, selectedMiddleTemplateIds, effectivePageCount } =
         buildStep3GeneratePayload();
-      const generated = await generateWaM.mutateAsync({
+      const generateBody = {
         industry_id: industryId,
         survey_type_id: typeOrder[0] || primarySurveyTypeId,
         selected_survey_type_ids: typeOrder,
@@ -444,14 +448,30 @@ function CreateSurvey() {
         auto_select_steps: autoSelectSteps,
         selected_step_roles: autoSelectSteps ? undefined : resolvedPageRoles,
         goal,
-      });
+      };
+      console.info("[wa-survey] POST /dashboard/service-scripts/wa-survey/generate", generateBody);
+
+      let generated: Record<string, unknown>;
+      try {
+        generated = await generateWaM.mutateAsync(generateBody);
+        console.info("[wa-survey] generate ok", {
+          page_count: generated.page_count,
+          wa_template_id: generated.wa_template_id,
+        });
+      } catch (e) {
+        const lines = parseWaSurveyGenerateErrors(e);
+        setGenerateErrors(lines);
+        toast.error(formatWaSurveyGenerateError(e), { duration: 12000 });
+        return false;
+      }
+
       setWaPreview(generated);
       setScript(String(generated.approved_script || script));
       setAnonymous(Boolean(generated.anonymous_responses));
-      const id = await ensureOrder();
-      await patchM.mutateAsync({
-        orderId: id,
-        body: {
+
+      try {
+        const id = await ensureOrder();
+        const patchBody = {
           config: {
             goal,
             delivery: "whatsapp",
@@ -472,17 +492,20 @@ function CreateSurvey() {
             wa_template_id: generated.wa_template_id,
             whatsapp_flow: generated.whatsapp_flow,
           },
-        },
-      });
+        };
+        console.info("[wa-survey] PATCH /service-orders/" + id, patchBody);
+        await patchM.mutateAsync({ orderId: id, body: patchBody });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Could not save survey draft";
+        setGenerateErrors([`Generated OK but draft save failed: ${msg}`]);
+        toast.error(`Survey generated but draft save failed: ${msg}`, { duration: 12000 });
+        return false;
+      }
+
       setApproved(true);
       setGenerateErrors([]);
       toast.success("Survey generated from approved WhatsApp template library");
       return true;
-    } catch (e) {
-      const lines = parseWaSurveyGenerateErrors(e);
-      setGenerateErrors(lines);
-      toast.error(formatWaSurveyGenerateError(e), { duration: 12000 });
-      return false;
     } finally {
       setGenerating(false);
     }

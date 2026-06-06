@@ -230,16 +230,28 @@ class SurveyBuilderValidationService:
                         )
         tell_us_more_id = None
         if not errors:
-            tell_us_more_id = SurveySystemTemplateService.resolve_tell_us_more_template_id(db)
+            try:
+                tell_us_more_id = SurveySystemTemplateService.resolve_tell_us_more_template_id(db)
+            except Exception:
+                tell_us_more_id = None
         if errors:
             raise SurveyBuilderValidationError(errors[0], errors=errors)
+
+        def _tpl_int(raw: Any, label: str) -> int | None:
+            if raw is None or raw == "":
+                return None
+            try:
+                return int(raw)
+            except (TypeError, ValueError) as exc:
+                raise SurveyBuilderValidationError(f"{label} template id is invalid.") from exc
+
         return {
             "ok": True,
             "industry_id": industry.id if industry else None,
             "selected_survey_type_ids": ids,
             "primary_survey_type_id": ids[0] if ids else None,
-            "welcome_template_id": int(welcome_template_id) if welcome_template_id else None,
-            "thank_you_template_id": int(thank_you_template_id) if thank_you_template_id else None,
+            "welcome_template_id": _tpl_int(welcome_template_id, "Welcome"),
+            "thank_you_template_id": _tpl_int(thank_you_template_id, "Thank-you"),
             "tell_us_more_template_id": tell_us_more_id,
             "ordered_middle_template_ids": [tpl_id for _, tpl_id in middle_pairs],
             "builder_page_count": len(middle_pairs) + 2 if middle_pairs else None,

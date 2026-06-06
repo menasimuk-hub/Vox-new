@@ -84,7 +84,11 @@ start_public() {
 
 start_dashboard() {
   cd "$DASH_DIR"
-  if [[ ! -d dist/client ]]; then
+  if [[ "${VOX_SKIP_DASHBOARD_BUILD:-0}" != "1" ]]; then
+    echo "Building dashboard (npm run build) …"
+    npm install --silent 2>/dev/null || npm install
+    npm run build
+  elif [[ ! -d dist/client ]]; then
     echo "Building dashboard (first run)…"
     npm install
     npm run build

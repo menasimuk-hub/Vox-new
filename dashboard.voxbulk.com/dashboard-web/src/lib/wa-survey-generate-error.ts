@@ -14,6 +14,10 @@ export function parseWaSurveyGenerateErrors(e: unknown): string[] {
       if (message) return [String(message)];
     }
     if (typeof detail === "string" && detail.trim()) return [detail];
+    if (detail && typeof detail === "object" && detail !== null) {
+      const nested = (detail as { detail?: unknown }).detail;
+      if (typeof nested === "string" && nested.trim()) return [nested];
+    }
     if (e.message && !/^\d{3}\s/.test(e.message)) return [e.message];
   }
   if (e instanceof Error && e.message) return [e.message];

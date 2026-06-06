@@ -313,9 +313,20 @@ async def ensure_cors_on_all_responses(request: Request, call_next):
     settings = get_settings()
     try:
         response = await call_next(request)
-    except Exception:
-        get_logger(__name__).exception("unhandled_exception", extra={"path": request.url.path})
-        response = JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    except Exception as exc:
+        get_logger(__name__).exception(
+            "unhandled_exception",
+            extra={"path": request.url.path, "error_type": type(exc).__name__},
+        )
+        detail = str(exc).strip() or type(exc).__name__
+        response = JSONResponse(
+            status_code=500,
+            content={
+                "detail": detail,
+                "error_type": type(exc).__name__,
+                "path": request.url.path,
+            },
+        )
     return apply_cors_headers(request, response, settings)
 
 
@@ -350,6 +361,35 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/health/build", tags=["health"])
+def health_build():
+    """Deploy verification — git SHA and whether key debug markers exist in this process."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent
+    build_file = root / "build_info.json"
+    info: dict[str, str] = {}
+    if build_file.is_file():
+        try:
+            import json
+
+            info = json.loads(build_file.read_text(encoding="utf-8"))
+        except Exception:
+            info = {}
+    marker = root / "routers" / "dashboard_scripts.py"
+    has_wa_debug = False
+    if marker.is_file():
+        text = marker.read_text(encoding="utf-8", errors="ignore")
+        has_wa_debug = "generate_wa_survey entry" in text
+    return {
+        "status": "ok",
+        "git_sha": info.get("git_sha") or info.get("sha") or "unknown",
+        "git_branch": info.get("git_branch") or info.get("branch") or "unknown",
+        "built_at": info.get("built_at") or "",
+        "wa_survey_debug_markers": has_wa_debug,
+    }
+
+
 @app.get("/health/db", tags=["health"])
 def health_db():
     """Quick schema probe — fails with 503 if migrations were not applied."""
@@ -361,6 +401,8 @@ def health_db():
         db.execute(text("SELECT sales_automation_enabled FROM lead_sales_settings LIMIT 0"))
         db.execute(text("SELECT telnyx_greeting FROM frontpage_call_settings LIMIT 0"))
         db.execute(text("SELECT telnyx_greeting FROM lead_sales_settings LIMIT 0"))
+        db.execute(text("SELECT reference_id FROM service_orders LIMIT 0"))
+        db.execute(text("SELECT active_for_interview FROM telnyx_whatsapp_templates LIMIT 0"))
     return {"status": "ok", "schema": "current"}
 
 

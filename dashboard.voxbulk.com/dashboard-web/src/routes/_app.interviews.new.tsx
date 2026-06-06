@@ -421,6 +421,7 @@ function CreateInterview() {
     if (createFailedRef.current) return;
     if (createStartedRef.current || createDraftM.isPending || createDraftM.isSuccess) return;
     createStartedRef.current = true;
+    console.info("[interview] POST /service-orders/interview/draft/new");
     void createDraftM
       .mutateAsync()
       .then((payload) => {

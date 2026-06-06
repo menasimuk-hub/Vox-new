@@ -257,18 +257,28 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
         SurveyBuilderValidationService,
     )
     from app.services.survey_generation_service import SurveyGenerationService
+    from app.utils.json_safe import json_safe
 
-    branding = _client_branding(db, principal.org_id, payload)
-    page_count = payload.get("page_count")
-    selected = payload.get("selected_step_roles")
     body = payload or {}
-    selected_type_ids = body.get("selected_survey_type_ids") or body.get("service_tag_ids")
-    welcome_template_id = body.get("welcome_template_id")
-    thank_you_template_id = body.get("thank_you_template_id")
-    primary_survey_type_id = str(body.get("survey_type_id") or "")
-    builder_config: dict | None = None
-    if selected_type_ids or welcome_template_id or thank_you_template_id:
-        try:
+    logger.info(
+        "generate_wa_survey entry org=%s user=%s keys=%s survey_type_id=%s welcome=%s thank_you=%s",
+        principal.org_id,
+        principal.user_id,
+        sorted(body.keys()),
+        body.get("survey_type_id"),
+        body.get("welcome_template_id"),
+        body.get("thank_you_template_id"),
+    )
+    try:
+        branding = _client_branding(db, principal.org_id, body)
+        page_count = body.get("page_count")
+        selected = body.get("selected_step_roles")
+        selected_type_ids = body.get("selected_survey_type_ids") or body.get("service_tag_ids")
+        welcome_template_id = body.get("welcome_template_id")
+        thank_you_template_id = body.get("thank_you_template_id")
+        primary_survey_type_id = str(body.get("survey_type_id") or "")
+        builder_config: dict | None = None
+        if selected_type_ids or welcome_template_id or thank_you_template_id:
             builder_config = SurveyBuilderValidationService.validate_builder_selection(
                 db,
                 industry_id=str(body.get("industry_id") or ""),
@@ -297,31 +307,31 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 if pairs:
                     builder_config["ordered_middle_template_ids"] = [tpl_id for _, tpl_id in pairs]
                     builder_config["builder_page_count"] = len(pairs) + 2
-        except SurveyBuilderValidationError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"message": str(e), "errors": e.errors},
-            ) from e
-    parsed_page_count: int | None = None
-    if page_count is not None:
-        try:
-            parsed_page_count = int(page_count)
-        except (TypeError, ValueError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="page_count must be an integer",
-            ) from e
-    try:
-        return SurveyGenerationService.generate(
+        parsed_page_count: int | None = None
+        if page_count is not None:
+            try:
+                parsed_page_count = int(page_count)
+            except (TypeError, ValueError) as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="page_count must be an integer",
+                ) from e
+        logger.info(
+            "generate_wa_survey service_call survey_type=%s page_count=%s middle_ids=%s",
+            primary_survey_type_id,
+            parsed_page_count,
+            (builder_config or {}).get("ordered_middle_template_ids"),
+        )
+        result = SurveyGenerationService.generate(
             db,
             survey_type_id=primary_survey_type_id,
-            variant=str(payload.get("variant") or "standard"),
-            privacy_mode=str(payload.get("privacy_mode") or "").strip() or None,
-            length=str(payload.get("length") or "standard"),
+            variant=str(body.get("variant") or "standard"),
+            privacy_mode=str(body.get("privacy_mode") or "").strip() or None,
+            length=str(body.get("length") or "standard"),
             page_count=parsed_page_count,
-            auto_select_steps=bool(payload.get("auto_select_steps", True)),
+            auto_select_steps=bool(body.get("auto_select_steps", True)),
             selected_step_roles=[str(r) for r in selected] if isinstance(selected, list) else None,
-            goal=str(payload.get("goal") or ""),
+            goal=str(body.get("goal") or ""),
             organisation_name=branding["organisation_name"],
             client_name=branding.get("client_name") or branding["organisation_name"],
             assistant_name=branding.get("assistant_name") or "",
@@ -329,14 +339,26 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
             builder_config=builder_config,
             allow_unapproved_templates=True,
         )
+        safe = json_safe(result)
+        logger.info("generate_wa_survey ok page_count=%s wa_template_id=%s", safe.get("page_count"), safe.get("wa_template_id"))
+        return safe
+    except SurveyBuilderValidationError as e:
+        logger.warning("generate_wa_survey validation failed: %s", e.errors)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": str(e), "errors": e.errors},
+        ) from e
     except ValueError as e:
+        logger.warning("generate_wa_survey value_error: %s", e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("generate_wa_survey failed")
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Survey generation failed: {e}",
+            detail=f"Survey generation failed: {type(e).__name__}: {e}",
         ) from e
 
 
@@ -411,6 +433,13 @@ def send_wa_survey_test(
 
     body = payload or {}
     template_ids = _parse_wa_survey_test_template_ids(body)
+    logger.info(
+        "send_wa_survey_test entry org=%s test_phone=%s template_ids=%s keys=%s",
+        principal.org_id,
+        body.get("test_phone"),
+        template_ids,
+        sorted(body.keys()),
+    )
     if not template_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -445,9 +474,17 @@ def send_wa_survey_test(
             first_name=first_name,
             business_name=business_name,
         )
+        logger.info(
+            "send_wa_survey_test ok to=%s sent=%s",
+            result.get("to_number"),
+            result.get("sent"),
+        )
         return {"ok": True, **result}
     except SurveyWhatsappTemplateError as e:
+        logger.warning("send_wa_survey_test rejected: %s", e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("send_wa_survey_test failed")
         traceback.print_exc()

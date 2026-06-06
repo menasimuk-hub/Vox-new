@@ -1745,6 +1745,11 @@ class SurveyWhatsappTemplateService:
         if not cleaned_ids:
             raise SurveyWhatsappTemplateError("At least one template id is required for test send.")
 
+        logger.info(
+            "send_builder_flow_test start to=%s template_ids=%s",
+            to_number,
+            cleaned_ids,
+        )
         messages: list[dict[str, Any]] = []
         for index, tpl_id in enumerate(cleaned_ids):
             row = SurveyWhatsappTemplateService.get_template(db, tpl_id)

@@ -394,6 +394,14 @@ class TelnyxMessagingService:
         except ValueError as e:
             return TelnyxMessageResult(ok=False, status="invalid_payload", detail=str(e), channel="whatsapp")
 
+        if (template_name or template_id) and whatsapp_message.get("type") != "template":
+            return TelnyxMessageResult(
+                ok=False,
+                status="invalid_payload",
+                detail="WhatsApp template reference required; plain-text fallback is not allowed for survey sends.",
+                channel="whatsapp",
+            )
+
         payload: dict[str, Any] = {
             "from": sender,
             "to": recipient,

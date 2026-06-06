@@ -8,7 +8,7 @@
 #
 # Optional env overrides:
 #   VOX_GIT_REMOTE=origin           git remote name (default: origin → menasimuk-hub/Vox-new)
-#   VOX_GIT_BRANCH=main            branch to pull
+#   VOX_GIT_BRANCH=main            branch to pull (use fix/wa-interview-platform-templates for feature deploys)
 #   VOX_SKIP_GIT=1                 skip git pull (deploy current tree only)
 #   VOX_SKIP_BUILD=1               skip npm build (API + migrate only — UI will stay stale!)
 #   VOX_SKIP_MIGRATE=1             skip alembic upgrade
@@ -364,12 +364,24 @@ Known problems to watch:
 NOTES
 }
 
+write_build_info() {
+  cd "$ROOT"
+  local sha branch
+  sha=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+  cat > "$API_DIR/build_info.json" <<EOF
+{"git_sha":"$sha","git_branch":"$branch","built_at":"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"}
+EOF
+  info "Wrote build_info.json ($branch @ $sha)"
+}
+
 main() {
   exec > >(tee -a "$DEPLOY_LOG") 2>&1
   info "VOXBULK deploy started $(date -Iseconds)"
   info "Log: $DEPLOY_LOG"
   preflight
   git_pull
+  write_build_info
   api_deps_and_migrate
   verify_api_import
   build_all_frontends
