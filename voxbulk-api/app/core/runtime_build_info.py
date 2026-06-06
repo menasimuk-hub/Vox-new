@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 # TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250
 WEBHOOK_BUILD_MARKER = "TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250"
 
+# Step 5 session-persistence fix — grep for this on VPS to prove new code is live.
+WA_TEST_SESSION_PERSISTENCE_FIX_MARKER = "WA_TEST_SESSION_PERSISTENCE_FIX_ACTIVE"
+
 API_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = API_ROOT.parent
 BUILD_INFO_FILE = API_ROOT / "build_info.json"
@@ -53,7 +56,8 @@ SESSION_DISK_FILES: dict[str, list[str]] = {
         "welcome_sent_but_no_active_session",
     ],
     "app/services/survey_builder_test_service.py": [
-        "Could not start WA survey test session: session was not created",
+        "verify_active_awaiting_start",
+        WA_TEST_SESSION_PERSISTENCE_FIX_MARKER,
     ],
 }
 
@@ -145,6 +149,34 @@ def get_runtime_build_info() -> dict[str, Any]:
     return info
 
 
+def get_wa_test_session_handler_info() -> dict[str, Any]:
+    """Runtime location of Step 5 send-test entrypoint (loaded module, not disk guess)."""
+    import inspect
+
+    try:
+        from app.services.survey_builder_test_service import SurveyBuilderTestService
+
+        fn = SurveyBuilderTestService.start_wa_test_session
+        sourcefile = inspect.getsourcefile(fn) or "unknown"
+        line_no = inspect.getsourcelines(fn)[1]
+    except Exception:
+        sourcefile = "unknown"
+        line_no = 0
+
+    rel_path = sourcefile
+    try:
+        rel_path = str(Path(sourcefile).resolve().relative_to(API_ROOT.resolve()))
+    except (ValueError, OSError):
+        pass
+
+    return {
+        "handler": "SurveyBuilderTestService.start_wa_test_session",
+        "sourcefile": sourcefile,
+        "rel_path": rel_path,
+        "line": line_no,
+    }
+
+
 def get_deploy_verification() -> dict[str, Any]:
     build = get_runtime_build_info()
 
@@ -169,6 +201,16 @@ def get_deploy_verification() -> dict[str, Any]:
     }
     session_disk_ok = all(session_disk.values()) if session_disk else True
 
+    session_persistence_fix_on_disk = _file_has_needles(
+        "app/services/survey_builder_test_service.py",
+        ["verify_active_awaiting_start", WA_TEST_SESSION_PERSISTENCE_FIX_MARKER],
+    )
+    wa_test_handler = get_wa_test_session_handler_info()
+    session_persistence_fix_loaded = _module_source_has_needles(
+        "app.services.survey_builder_test_service",
+        ["verify_active_awaiting_start", WA_TEST_SESSION_PERSISTENCE_FIX_MARKER],
+    )
+
     try:
         from app.services.survey_session_service import SurveySessionService
 
@@ -178,12 +220,24 @@ def get_deploy_verification() -> dict[str, Any]:
 
     markers_ok = boot_disk and router_disk and service_disk and canonical_disk
     loaded_ok = boot_loaded and router_loaded and service_loaded
-    deploy_ok = markers_ok and loaded_ok and session_disk_ok and session_memory_ok
+    deploy_ok = (
+        markers_ok
+        and loaded_ok
+        and session_disk_ok
+        and session_memory_ok
+        and session_persistence_fix_on_disk
+        and session_persistence_fix_loaded
+    )
 
     return {
         **build,
         "git_sha": build.get("git_sha"),
         "git_branch": build.get("git_branch"),
+        "app_version": build.get("git_log_one_line") or build.get("git_sha"),
+        "wa_test_session_persistence_fix_marker": WA_TEST_SESSION_PERSISTENCE_FIX_MARKER,
+        "session_persistence_fix_on_disk": session_persistence_fix_on_disk,
+        "session_persistence_fix_loaded": session_persistence_fix_loaded,
+        "wa_test_session_handler": wa_test_handler,
         "boot_marker_present_on_disk": boot_disk,
         "router_marker_present_on_disk": router_disk,
         "service_marker_present_on_disk": service_disk,
@@ -213,7 +267,8 @@ def log_startup_build_info(app_logger: logging.Logger | None = None) -> dict[str
     log.info(
         "%s app_boot git_sha=%s git_branch=%s built_at=%s hostname=%s pid=%s "
         "api_root=%s repo_root=%s deploy_ok=%s boot_disk=%s router_disk=%s service_disk=%s "
-        "boot_loaded=%s router_loaded=%s service_loaded=%s log=%s",
+        "boot_loaded=%s router_loaded=%s service_loaded=%s session_persistence_fix_disk=%s "
+        "session_persistence_fix_loaded=%s wa_test_handler=%s log=%s",
         WEBHOOK_BUILD_MARKER,
         data.get("git_sha"),
         data.get("git_branch"),
@@ -229,6 +284,9 @@ def log_startup_build_info(app_logger: logging.Logger | None = None) -> dict[str
         data.get("boot_marker_loaded"),
         data.get("router_marker_loaded"),
         data.get("service_marker_loaded"),
+        data.get("session_persistence_fix_on_disk"),
+        data.get("session_persistence_fix_loaded"),
+        data.get("wa_test_session_handler"),
         data.get("git_log_one_line"),
     )
     if not data.get("deploy_ok"):
@@ -250,6 +308,33 @@ def log_startup_build_info(app_logger: logging.Logger | None = None) -> dict[str
             },
         )
     return data
+
+
+def log_wa_test_session_persistence_fix_active(
+    *,
+    order_id: str,
+    recipient_id: str,
+    session_id: str,
+    trace_id: str,
+) -> dict[str, Any]:
+    """Unmistakable marker — only emitted by the fixed Step 5 session-first path."""
+    data = get_runtime_build_info()
+    handler = get_wa_test_session_handler_info()
+    logger.info(
+        "%s git_sha=%s branch=%s order_id=%s recipient_id=%s session_id=%s trace_id=%s "
+        "handler_sourcefile=%s handler_line=%s pid=%s",
+        WA_TEST_SESSION_PERSISTENCE_FIX_MARKER,
+        data.get("git_sha"),
+        data.get("git_branch"),
+        order_id,
+        recipient_id,
+        session_id,
+        trace_id,
+        handler.get("sourcefile"),
+        handler.get("line"),
+        data.get("pid"),
+    )
+    return {**data, **handler}
 
 
 def log_webhook_entry(

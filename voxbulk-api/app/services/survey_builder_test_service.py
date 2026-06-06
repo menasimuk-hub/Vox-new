@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+from app.core.runtime_build_info import log_wa_test_session_persistence_fix_active
 from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.survey_session_service import SurveySessionPersistenceError, SurveySessionService
@@ -35,6 +36,7 @@ from app.services.survey_whatsapp_template_service import (
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[wa-builder-test]"
+# WA_TEST_SESSION_PERSISTENCE_FIX_ACTIVE — fixed Step 5 path: session before welcome (deploy marker)
 
 
 class SurveyBuilderTestService:
@@ -319,6 +321,12 @@ class SurveyBuilderTestService:
             result="ok",
             current_step=0,
             extra={"phase": "before_welcome_send"},
+        )
+        log_wa_test_session_persistence_fix_active(
+            order_id=str(order.id),
+            recipient_id=str(recipient.id),
+            session_id=str(session.id),
+            trace_id=trace_id,
         )
 
         logger.info(

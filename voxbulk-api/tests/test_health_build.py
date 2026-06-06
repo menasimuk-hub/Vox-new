@@ -17,5 +17,10 @@ def test_health_build_returns_explicit_marker_flags(app_client):
     assert data.get("service_marker_loaded") is True
     assert data.get("session_code_present_on_disk") is True
     assert data.get("session_code_loaded") is True
+    assert data.get("session_persistence_fix_on_disk") is True
+    assert data.get("session_persistence_fix_loaded") is True
+    assert data.get("wa_test_session_handler", {}).get("handler") == (
+        "SurveyBuilderTestService.start_wa_test_session"
+    )
     assert data.get("deploy_ok") is True
     assert "wa_survey_debug_markers" not in data
