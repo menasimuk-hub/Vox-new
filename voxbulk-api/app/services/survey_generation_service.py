@@ -62,19 +62,6 @@ class SurveyGenerationService:
         length_key = str(length or survey_type.default_length or "standard").strip().lower()
         count = page_count_from_length(page_count if page_count is not None else length_key)
 
-        try:
-            composed = SurveyStepBankService.compose_survey(
-                db,
-                survey_type=survey_type,
-                variant=variant_key,
-                privacy_mode=resolved_privacy,
-                page_count=count,
-                auto_select=auto_select_steps,
-                selected_step_roles=selected_step_roles,
-            )
-        except ValueError as e:
-            raise ValueError(str(e)) from e
-
         welcome_template_id = None
         thank_you_template_id = None
         tell_us_more_template_id = None
@@ -84,6 +71,21 @@ class SurveyGenerationService:
             thank_you_template_id = builder_config.get("thank_you_template_id")
             tell_us_more_template_id = builder_config.get("tell_us_more_template_id")
             selected_survey_type_ids = list(builder_config.get("selected_survey_type_ids") or [])
+
+        try:
+            composed = SurveyStepBankService.compose_survey(
+                db,
+                survey_type=survey_type,
+                variant=variant_key,
+                privacy_mode=resolved_privacy,
+                page_count=count,
+                auto_select=auto_select_steps,
+                selected_step_roles=selected_step_roles,
+                welcome_template_id=welcome_template_id,
+                thank_you_template_id=thank_you_template_id,
+            )
+        except ValueError as e:
+            raise ValueError(str(e)) from e
 
         start_id = welcome_template_id or composed.get("start_template_id")
         if not start_id:

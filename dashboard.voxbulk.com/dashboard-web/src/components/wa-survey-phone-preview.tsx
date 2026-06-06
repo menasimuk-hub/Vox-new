@@ -58,60 +58,60 @@ export function WaSurveyPhonePreview({
         </p>
       )}
       <div
-        className="relative mx-auto rounded-[2.4rem] border-[3px] border-zinc-800 bg-zinc-900 p-[7px] shadow-xl dark:border-zinc-600"
+        className="relative mx-auto rounded-[2.4rem] border-[3px] border-zinc-300 bg-zinc-100 p-[7px] shadow-lg"
         style={{ aspectRatio: "9 / 19.5" }}
       >
-        <div className="absolute -left-[4px] top-[18%] h-8 w-[3px] rounded-l bg-zinc-700" />
-        <div className="absolute -left-[4px] top-[28%] h-12 w-[3px] rounded-l bg-zinc-700" />
-        <div className="absolute -right-[4px] top-[24%] h-16 w-[3px] rounded-r bg-zinc-700" />
-        <div className="relative flex h-full flex-col overflow-hidden rounded-[2rem] bg-[#0b141a]">
-          <div className="relative shrink-0 bg-[#1f2c34] px-3 pb-2 pt-2">
-            <div className="mx-auto mb-2 h-[22px] w-[78px] rounded-full bg-black" />
-            <div className="flex items-center justify-between text-[9px] text-white/80">
+        <div className="absolute -left-[4px] top-[18%] h-8 w-[3px] rounded-l bg-zinc-400" />
+        <div className="absolute -left-[4px] top-[28%] h-12 w-[3px] rounded-l bg-zinc-400" />
+        <div className="absolute -right-[4px] top-[24%] h-16 w-[3px] rounded-r bg-zinc-400" />
+        <div className="relative flex h-full flex-col overflow-hidden rounded-[2rem] bg-[#ece5dd]">
+          <div className="relative shrink-0 border-b border-[#d1d7db] bg-[#f0f2f5] px-3 pb-2 pt-2">
+            <div className="mx-auto mb-2 h-[22px] w-[78px] rounded-full bg-zinc-900" />
+            <div className="flex items-center justify-between text-[9px] text-[#111b21]">
               <span>9:41</span>
-              <span className="truncate px-2 font-medium">{businessName}</span>
-              <span>5G</span>
+              <span className="truncate px-2 font-semibold text-[#111b21]">{businessName}</span>
+              <span className="text-[#667781]">5G</span>
             </div>
           </div>
           <div
             className="flex-1 space-y-2 overflow-y-auto px-2 py-3"
             style={{
-              backgroundColor: "#0b141a",
+              backgroundColor: "#ece5dd",
               backgroundImage:
-                "radial-gradient(circle at 20% 20%, rgba(37,211,102,0.06) 0%, transparent 40%), radial-gradient(circle at 80% 80%, rgba(37,211,102,0.04) 0%, transparent 35%)",
+                "radial-gradient(circle at 25% 25%, rgba(0,0,0,0.02) 0%, transparent 45%), radial-gradient(circle at 75% 75%, rgba(0,0,0,0.02) 0%, transparent 40%)",
             }}
           >
-            <div className="ml-auto max-w-[92%] rounded-lg rounded-tr-sm bg-[#005c4b] px-2.5 py-2 text-[10px] leading-relaxed text-[#e9edef] shadow-sm">
+            <div className="mr-auto max-w-[92%] rounded-lg rounded-tl-sm bg-white px-2.5 py-2 text-[10px] leading-relaxed text-[#111b21] shadow-sm">
               <p className="whitespace-pre-wrap">{substituteVars(bubbleBody)}</p>
-              {footer ? <p className="mt-1.5 text-[9px] text-[#8696a0]">{footer}</p> : null}
+              {footer ? <p className="mt-1.5 text-[9px] text-[#667781]">{footer}</p> : null}
               {bubbleButtons.length > 0 && (
                 <div className="mt-2 space-y-1">
                   {bubbleButtons.map((btn, i) => (
                     <div
                       key={`${btn.label}-${i}`}
-                      className="overflow-hidden rounded-md border border-white/10 bg-[#1f2c34] px-2 py-1.5 text-center text-[10px] font-medium text-[#e9edef]"
+                      className="overflow-hidden rounded-md border border-[#e9edef] bg-[#f0f2f5] px-2 py-1.5 text-center text-[10px] font-medium text-[#008069]"
                     >
                       {btn.label}
                     </div>
                   ))}
                 </div>
               )}
-              <p className="mt-1 text-right text-[8px] text-[#8696a0]">9:41 ✓✓</p>
+              <p className="mt-1 text-right text-[8px] text-[#667781]">9:41</p>
             </div>
             {!showTemplateBubble && current?.kind === "user_action" ? (
-              <div className="mr-auto max-w-[80%] rounded-lg rounded-tl-sm bg-[#202c33] px-2.5 py-2 text-[10px] text-[#e9edef]">
+              <div className="ml-auto max-w-[80%] rounded-lg rounded-tr-sm bg-[#d9fdd3] px-2.5 py-2 text-[10px] text-[#111b21]">
                 {current.description || "Recipient tapped a button"}
               </div>
             ) : null}
             {!showTemplateBubble && current?.kind === "survey_question" ? (
-              <div className="ml-auto max-w-[92%] rounded-lg rounded-tr-sm bg-[#005c4b] px-2.5 py-2 text-[10px] text-[#e9edef]">
+              <div className="mr-auto max-w-[92%] rounded-lg rounded-tl-sm bg-white px-2.5 py-2 text-[10px] text-[#111b21] shadow-sm">
                 <p className="whitespace-pre-wrap">{current.body}</p>
-                <p className="mt-1 text-right text-[8px] text-[#8696a0]">9:42</p>
+                <p className="mt-1 text-right text-[8px] text-[#667781]">9:42</p>
               </div>
             ) : null}
           </div>
-          <div className="shrink-0 border-t border-white/5 bg-[#1f2c34] px-2 py-1.5">
-            <div className="h-6 rounded-full bg-[#2a3942]" />
+          <div className="shrink-0 border-t border-[#d1d7db] bg-[#f0f2f5] px-2 py-1.5">
+            <div className="h-6 rounded-full border border-[#d1d7db] bg-white" />
           </div>
         </div>
       </div>

@@ -194,3 +194,35 @@ def test_start_default_mapping_preferred():
         bank = load_step_bank(db, survey_type_id=survey_type.id)
         assert bank["by_role"]["start"]["template_id"] == default_start.id
         assert bank["by_role"]["start"]["template_id"] != alt_start.id
+
+
+def test_compose_survey_uses_builder_welcome_and_thank_you_when_pack_missing_bookends():
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        for role in MIDDLE_STEP_ROLES:
+            _template_for_role(db, survey_type, role)
+        welcome = _template_for_role(db, survey_type, "start", status="LOCAL_DRAFT")
+        thank_you = _template_for_role(db, survey_type, "completion", status="LOCAL_DRAFT")
+        # Remove start/completion from the type pack mappings (simulate middle-only pack).
+        from app.models.survey_type_template import SurveyTypeTemplate
+
+        db.query(SurveyTypeTemplate).filter(
+            SurveyTypeTemplate.survey_type_id == survey_type.id,
+            SurveyTypeTemplate.template_id.in_([welcome.id, thank_you.id]),
+        ).delete(synchronize_session=False)
+        db.flush()
+        bank = load_step_bank(db, survey_type_id=survey_type.id)
+        assert "start" not in bank["by_role"]
+        assert "completion" not in bank["by_role"]
+
+        composed = SurveyStepBankService.compose_survey(
+            db,
+            survey_type=survey_type,
+            page_count=5,
+            auto_select=True,
+            welcome_template_id=welcome.id,
+            thank_you_template_id=thank_you.id,
+        )
+        assert composed["page_roles"][0] == "start"
+        assert composed["page_roles"][-1] == "completion"
+        assert composed["start_template_id"] == welcome.id

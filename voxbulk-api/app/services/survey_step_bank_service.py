@@ -392,6 +392,30 @@ def resolve_start_template(db: Session, bank_by_role: dict[str, dict[str, Any]])
     return db.get(TelnyxWhatsappTemplate, int(start["template_id"]))
 
 
+def inject_builder_bookends(
+    db: Session,
+    by_role: dict[str, dict[str, Any]],
+    *,
+    welcome_template_id: int | str | None = None,
+    thank_you_template_id: int | str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Use dashboard-selected welcome/thank-you when the survey type pack lacks start/completion."""
+    next_bank = dict(by_role)
+    if welcome_template_id:
+        row = db.get(TelnyxWhatsappTemplate, int(welcome_template_id))
+        if row is not None and row.active_for_survey:
+            item = step_bank_item_from_template(row)
+            item["step_role"] = "start"
+            next_bank["start"] = item
+    if thank_you_template_id:
+        row = db.get(TelnyxWhatsappTemplate, int(thank_you_template_id))
+        if row is not None and row.active_for_survey:
+            item = step_bank_item_from_template(row)
+            item["step_role"] = "completion"
+            next_bank["completion"] = item
+    return next_bank
+
+
 class SurveyStepBankService:
     @staticmethod
     def get_bank(
@@ -427,6 +451,8 @@ class SurveyStepBankService:
         page_count: int = 5,
         auto_select: bool = True,
         selected_step_roles: list[str] | None = None,
+        welcome_template_id: int | str | None = None,
+        thank_you_template_id: int | str | None = None,
     ) -> dict[str, Any]:
         bank = load_step_bank(
             db,
@@ -434,7 +460,12 @@ class SurveyStepBankService:
             variant=variant,
             privacy_mode=privacy_mode,
         )
-        by_role = bank["by_role"]
+        by_role = inject_builder_bookends(
+            db,
+            bank["by_role"],
+            welcome_template_id=welcome_template_id,
+            thank_you_template_id=thank_you_template_id,
+        )
         if selected_step_roles:
             roles = [normalize_step_role(r) for r in selected_step_roles]
             errors = validate_survey_pages(roles, page_count=page_count)
