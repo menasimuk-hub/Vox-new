@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Rebuild + publish admin + dashboard only (no git pull, no migrations).
-# Run ON THE VPS after git pull, or when static sites are stale.
-set -euo pipefail
+# Rebuild + publish admin + dashboard (+ build public preview bundle).
+# No git pull, no migrations. Run ON THE VPS after git pull when UI is stale.
+#
+# Full deploy (git + migrate + all builds): ./deploy-vps.sh
+# Public marketing site is served via vite preview (vox.sh), not static wwwroot.set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ADMIN_DIR="$ROOT/admin.voxbulk.com/adim-web"
 DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"
+PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
 VOX_ADMIN_DIST="${VOX_ADMIN_DIST:-/www/wwwroot/admin.voxbulk.com}"
 VOX_DASH_DIST="${VOX_DASH_DIST:-/www/wwwroot/dashboard.voxbulk.com}"
 
@@ -40,6 +43,11 @@ rsync_dist() {
 
 build "$ADMIN_DIR" "admin"
 build "$DASH_DIR" "dashboard"
+if [[ -d "$PUBLIC_DIR" ]]; then
+  build "$PUBLIC_DIR" "public site"
+else
+  echo ">>> Skip public site (not found at $PUBLIC_DIR)"
+fi
 
 rsync_dist "$ADMIN_DIR/dist" "$VOX_ADMIN_DIST" "admin dist"
 rsync_dist "$DASH_DIR/dist/client" "$VOX_DASH_DIST" "dashboard dist/client"
