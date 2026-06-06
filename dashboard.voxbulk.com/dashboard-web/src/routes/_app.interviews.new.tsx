@@ -202,9 +202,16 @@ function collectInterviewSetupErrors(opts: {
   scriptIsApproved: boolean;
   callingStart: string;
   callingEnd: string;
+  agentId: string;
+  agentsCount: number;
 }): string[] {
   const errors: string[] = [];
   if (!opts.position.trim() && !opts.role.trim()) errors.push("Add position and role in Step 1");
+  if (opts.agentsCount <= 0) {
+    errors.push("No voice agents configured — ask your admin to enable interview agents");
+  } else if (!opts.agentId.trim()) {
+    errors.push("Select an AI voice agent in Step 1");
+  }
   if (!opts.criteria.trim()) errors.push("Add screening criteria in Step 1");
   if (!opts.script.trim()) errors.push("Generate or write interview questions in Step 1");
   if (!opts.scriptIsApproved) errors.push("Approve your script in Step 1");
@@ -309,7 +316,6 @@ function CreateInterview() {
   const [expectedDurationMinutes, setExpectedDurationMinutes] = React.useState<number | undefined>();
   const [scriptApproved, setScriptApproved] = React.useState(false);
   const [agentId, setAgentId] = React.useState("");
-  const [delivery, setDelivery] = React.useState("ai_call");
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [maxCvCount, setMaxCvCount] = React.useState<number | "">("");
   const [autoCloseOnLimit, setAutoCloseOnLimit] = React.useState(true);
@@ -350,11 +356,6 @@ function CreateInterview() {
   const hasPackageSub = billing.hasPackageSub;
   const cvLimitsQ = useInterviewCvCollectionLimits(orderId || null, Boolean(orderId));
   const cvLimits = cvLimitsQ.data;
-  const interviewDeliveryOptions = draftQ.data?.interview_delivery_options?.length
-    ? draftQ.data.interview_delivery_options
-    : ["ai_call"];
-  const zoomInterviewEnabled = interviewDeliveryOptions.includes("zoom");
-
   const orderHydrationKey = React.useMemo(() => {
     if (!order) return "";
     const cfg = (order.config || {}) as Record<string, unknown>;
@@ -373,7 +374,6 @@ function CreateInterview() {
       cfg.expected_duration_minutes,
       cfg.script_approved,
       cfg.agent_id,
-      cfg.delivery,
       cfg.cv_collection_start_at,
       cfg.cv_email_start_at,
       cfg.cv_collection_end_at,
@@ -396,7 +396,9 @@ function CreateInterview() {
   }, [draftOrderId]);
 
   const agents = agentsQ.data || [];
-  const selectedAgent = agents.find((a) => a.id === agentId) || pickDefaultInterviewAgent(agents);
+  const defaultAgent = pickDefaultInterviewAgent(agents);
+  const resolvedAgentId = agentId || defaultAgent?.id || "";
+  const selectedAgent = agents.find((a) => a.id === resolvedAgentId) || defaultAgent;
   const createStartedRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -455,9 +457,8 @@ function CreateInterview() {
         : undefined,
     );
     setScriptApproved(Boolean(config.script_approved));
-    setAgentId(String(config.agent_id || ""));
-    const savedDelivery = String(config.delivery || "ai_call");
-    setDelivery(savedDelivery === "zoom" && !zoomInterviewEnabled ? "ai_call" : savedDelivery);
+    const savedAgentId = String(config.agent_id || "").trim();
+    setAgentId(savedAgentId || pickDefaultInterviewAgent(agents)?.id || "");
     setCollectionStartAt(toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || "")));
     setCollectionCloseAt(toLocalInput(String(config.cv_collection_close_at || config.cv_collection_end_at || config.cv_email_end_at || "")));
     setMaxCvCount(config.cv_max_count != null && config.cv_max_count !== "" ? Number(config.cv_max_count) : "");
@@ -485,7 +486,7 @@ function CreateInterview() {
     if (config.ats_skipped === true) {
       setAtsSkipped(true);
     }
-  }, [order, orderHydrationKey, config, zoomInterviewEnabled]);
+  }, [order, orderHydrationKey, config, agents]);
 
   React.useEffect(() => {
     setAppliedMinAtsScore(configAppliedMinAts);
@@ -545,11 +546,9 @@ function CreateInterview() {
   }, [orderId, preview, role, loadWaPreview]);
 
   React.useEffect(() => {
-    if (!agentId && agents.length) {
-      const def = pickDefaultInterviewAgent(agents);
-      if (def) setAgentId(def.id);
-    }
-  }, [agents, agentId]);
+    if (agentId || !defaultAgent?.id) return;
+    setAgentId(defaultAgent.id);
+  }, [agentId, defaultAgent?.id]);
 
   const candidates = React.useMemo<CandidateRow[]>(() => {
     const rows = draftQ.data?.recipients || [];
@@ -831,8 +830,8 @@ function CreateInterview() {
       criteria,
       screening_criteria: criteria,
       report_notes: reportNotes.trim() || undefined,
-      agent_id: agentId,
-      delivery,
+      agent_id: resolvedAgentId,
+      delivery: "ai_call",
       cv_email_enabled: cvEmailOn,
       cv_collection_start_at: cvEmailOn ? collectionStartIso || null : null,
       cv_email_start_at: cvEmailOn ? collectionStartIso || null : null,
@@ -930,7 +929,7 @@ function CreateInterview() {
       toast.error("Enter the position and role before generating");
       return;
     }
-    if (!agentId) {
+    if (!resolvedAgentId) {
       toast.error("Select an AI voice agent");
       return;
     }
@@ -939,9 +938,9 @@ function CreateInterview() {
         role: role || position,
         position,
         criteria,
-        delivery,
-        agent_id: agentId,
-        client_context: { agent_id: agentId },
+        delivery: "ai_call",
+        agent_id: resolvedAgentId,
+        client_context: { agent_id: resolvedAgentId },
       });
       const materialised = scriptFromGenerate(res);
       if (!materialised.script_text) {
@@ -1282,6 +1281,8 @@ function CreateInterview() {
     scriptIsApproved,
     callingStart,
     callingEnd,
+    agentId: resolvedAgentId,
+    agentsCount: agents.length,
   });
   const launchErrors = collectInterviewLaunchErrors({
     cvEmailActive,
@@ -1304,12 +1305,42 @@ function CreateInterview() {
     return true;
   }, [wizardStep, setupErrors]);
 
+  const persistStep1Setup = React.useCallback(async () => {
+    if (!orderId || campaignReadOnly) return;
+    await onSaveDraft(true);
+  }, [orderId, campaignReadOnly, onSaveDraft]);
+
   const onWizardNext = () => {
     if (wizardStep === 1 && setupErrors.length > 0) {
       toast.error(setupErrors.length === 1 ? setupErrors[0] : `Complete Step 1 first: ${setupErrors[0]}`);
       return;
     }
+    if (wizardStep === 1) {
+      void persistStep1Setup()
+        .then(() => goWizardNext())
+        .catch(() => {
+          /* toast handled in onSaveDraft */
+        });
+      return;
+    }
     goWizardNext();
+  };
+
+  const onWizardStepClick = (step: number) => {
+    if (step === wizardStep) return;
+    if (step > 1 && wizardStep === 1 && setupErrors.length > 0) {
+      toast.error(setupErrors.length === 1 ? setupErrors[0] : `Complete Step 1 first: ${setupErrors[0]}`);
+      return;
+    }
+    if (step > 1 && wizardStep === 1) {
+      void persistStep1Setup()
+        .then(() => goWizardTo(step))
+        .catch(() => {
+          /* toast handled in onSaveDraft */
+        });
+      return;
+    }
+    goWizardTo(step);
   };
 
   React.useEffect(() => {
@@ -1587,7 +1618,7 @@ function CreateInterview() {
       ) : null}
 
       {!campaignReadOnly ? (
-        <Stepper steps={INTERVIEW_WIZARD_STEPS} current={wizardStep} onStepClick={goWizardTo} />
+        <Stepper steps={INTERVIEW_WIZARD_STEPS} current={wizardStep} onStepClick={onWizardStepClick} />
       ) : null}
 
       {(setupErrors.length > 0 || launchErrors.length > 0) && !campaignReadOnly && wizardStep === 1 && (
@@ -1624,7 +1655,7 @@ function CreateInterview() {
             {agents.length === 0 ? (
               <p className="text-xs text-muted-foreground">No voice agents configured yet. Ask your admin to enable interview agents.</p>
             ) : (
-              <Select value={agentId || pickDefaultInterviewAgent(agents)?.id || ""} onValueChange={setAgentId}>
+              <Select value={resolvedAgentId} onValueChange={setAgentId}>
                 <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
                 <SelectContent>
                   {agents.map((a) => (
@@ -1637,19 +1668,6 @@ function CreateInterview() {
               </Select>
             )}
           </Field>
-          {interviewDeliveryOptions.length > 1 ? (
-            <Field label="Interview format">
-              <Select value={delivery} onValueChange={setDelivery}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ai_call">Phone call</SelectItem>
-                  {zoomInterviewEnabled ? (
-                    <SelectItem value="zoom">Zoom video meeting</SelectItem>
-                  ) : null}
-                </SelectContent>
-              </Select>
-            </Field>
-          ) : null}
           <div className="md:col-span-2 space-y-1.5">
             <Label className={`text-xs ${missingCriteria ? "text-destructive" : ""}`}>Screening criteria</Label>
             <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration, 3+ years experience, willing to travel…" className={inputErrorClass(missingCriteria)} />
