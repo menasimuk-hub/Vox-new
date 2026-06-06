@@ -369,10 +369,14 @@ def reject_stale_graph_session(
     from app.models.survey_session import SurveySession
     from app.services.survey_session_service import SurveySessionService
 
+    from app.services.survey_flow_constants import FLOW_MODE_GRAPH
+
     session = SurveySessionService.get_active_by_recipient(db, recipient_id)
     if session is None:
         return
-    contaminated = bool(session.flow_snapshot_json) or str(session.flow_mode or "") != "linear"
+    mode = str(session.flow_mode or "").strip().lower()
+    # Linear sessions store awaiting_start metadata in flow_snapshot_json — that is not graph contamination.
+    contaminated = mode in {FLOW_MODE_GRAPH, "graph"}
     if not contaminated:
         return
     now = datetime.utcnow()

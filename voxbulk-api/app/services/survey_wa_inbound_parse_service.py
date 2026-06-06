@@ -103,18 +103,77 @@ def detect_start_action(
     *,
     extra_triggers: list[str] | None = None,
 ) -> str | None:
-    candidates = [
-        reply.button_title,
-        reply.button_text,
-        reply.button_payload,
-        reply.button_id,
-        reply.raw_text,
-        reply.normalized_answer,
-    ]
-    for raw in candidates:
-        if matches_start_trigger(raw, extra_triggers):
-            return START_ACTION
-    return None
+    matcher, _ = detect_start_matcher(reply, extra_triggers=extra_triggers)
+    return START_ACTION if matcher else None
+
+
+def detect_start_matcher(
+    reply: NormalizedWaInboundReply,
+    *,
+    extra_triggers: list[str] | None = None,
+) -> tuple[str | None, str | None]:
+    """
+    Return (START_ACTION or None, matcher_name).
+    matcher_name is one of: button_title, button_id, plain_text_exact, plain_text_fuzzy,
+    runtime_start_trigger, structured_button.
+    """
+    if _clean(reply.button_title) and matches_start_trigger(reply.button_title, extra_triggers):
+        return START_ACTION, "button_title"
+    if _clean(reply.button_text) and reply.button_text != reply.raw_text:
+        if matches_start_trigger(reply.button_text, extra_triggers):
+            return START_ACTION, "button_title"
+
+    for field, matcher in (
+        (reply.button_id, "button_id"),
+        (reply.button_payload, "button_id"),
+    ):
+        if _clean(field) and matches_start_trigger(field, extra_triggers):
+            return START_ACTION, matcher
+
+    if reply.message_type in {"button", "interactive", "quick_reply"} and (
+        _clean(reply.button_title) or _clean(reply.button_id) or _clean(reply.button_payload)
+    ):
+        for raw in (reply.button_title, reply.button_id, reply.button_payload, reply.raw_text):
+            if _clean(raw) and matches_start_trigger(raw, extra_triggers):
+                return START_ACTION, "structured_button"
+
+    for raw, matcher in (
+        (reply.raw_text, "plain_text_exact"),
+        (reply.normalized_answer, "plain_text_exact"),
+    ):
+        text = _clean(raw)
+        if not text:
+            continue
+        norm = _normalize_key(text)
+        if norm in {
+            "start",
+            "start_survey",
+            "begin",
+            "begin_survey",
+            "continue",
+            "lets_begin",
+            "get_started",
+            "open_survey",
+        }:
+            return START_ACTION, "plain_text_exact"
+        if _START_LABEL_RE.match(text):
+            return START_ACTION, "plain_text_fuzzy"
+
+    if extra_triggers:
+        for raw in (reply.raw_text, reply.normalized_answer, reply.button_title):
+            text = _clean(raw)
+            if not text:
+                continue
+            norm = _normalize_key(text)
+            lowered = text.lower()
+            for trigger in extra_triggers:
+                t = _clean(trigger)
+                if not t:
+                    continue
+                if lowered == t.lower() or norm == _normalize_key(t):
+                    return START_ACTION, "runtime_start_trigger"
+
+    return None, None
 
 
 def parse_telnyx_wa_inbound_record(

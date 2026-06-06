@@ -239,7 +239,9 @@ class TelnyxInboundMessagingService:
     @staticmethod
     def handle_webhook(db: Session, payload: dict[str, Any], *, header_org_id: str | None = None) -> dict[str, Any]:
         # TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250 — service inbound instrumentation
-        from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_webhook_entry
+        from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_live_handle_webhook, log_webhook_entry
+
+        log_live_handle_webhook(handler=TelnyxInboundMessagingService.handle_webhook)
 
         data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
         event_type = str(data.get("event_type") or payload.get("event_type") or "").strip().lower()
@@ -399,6 +401,7 @@ class TelnyxInboundMessagingService:
                 log_raw_telnyx_inbound,
                 parse_telnyx_wa_inbound_record,
             )
+            from app.services.survey_wa_test_mode_service import log_survey_test, resolve_trace_id
 
             log_raw_telnyx_inbound(
                 record=record,
@@ -459,52 +462,92 @@ class TelnyxInboundMessagingService:
                 )
 
             if not handled_survey:
-                try:
-                    from app.services.interview_whatsapp_inbound_service import (
-                        find_active_booking_context,
-                        handle_inbound_reply as handle_interview_booking_reply,
-                        resolve_interview_booking_intent,
-                    )
+                from app.services.survey_whatsapp_conversation_service import (
+                    find_awaiting_welcome_recipient,
+                    phone_in_recent_survey_welcome_flow,
+                )
 
-                    booking_ctx = find_active_booking_context(
+                recent_survey_welcome = phone_in_recent_survey_welcome_flow(
+                    db,
+                    from_phone=from_norm or from_number or "",
+                    org_id=org_id,
+                )
+                if recent_survey_welcome:
+                    welcome_order, welcome_recipient = find_awaiting_welcome_recipient(
                         db,
-                        from_phone=from_norm or from_number,
+                        from_phone=from_norm or from_number or "",
                         org_id=org_id,
                     )
-                    intent = resolve_interview_booking_intent(
-                        db,
-                        body=inbound_text,
-                        button_id=button_id,
-                        button_title=button_reply.get("title") or "",
+                    cfg = {}
+                    if welcome_order:
+                        try:
+                            cfg = json.loads(welcome_order.config_json or "{}")
+                            if not isinstance(cfg, dict):
+                                cfg = {}
+                        except Exception:
+                            cfg = {}
+                    log_survey_test(
+                        "fallback_blocked",
+                        trace_id=resolve_trace_id(config=cfg, recipient=welcome_recipient),
+                        order=welcome_order,
+                        recipient=welcome_recipient,
+                        config=cfg,
+                        phone=from_norm or from_number,
                         org_id=org_id,
-                        order=booking_ctx[1] if booking_ctx else None,
+                        handler="telnyx_inbound_messaging_service.handle_webhook",
+                        result="blocked",
+                        reason="recent_survey_welcome",
+                        extra={"body": inbound_text[:120], "survey_handled": handled_survey},
                     )
-                    if intent or (booking_ctx is not None and (inbound_text or button_id)):
-                        interview_result = handle_interview_booking_reply(
+                    survey_session_bug = True
+
+                if not survey_session_bug:
+                    try:
+                        from app.services.interview_whatsapp_inbound_service import (
+                            find_active_booking_context,
+                            handle_inbound_reply as handle_interview_booking_reply,
+                            resolve_interview_booking_intent,
+                        )
+
+                        booking_ctx = find_active_booking_context(
                             db,
                             from_phone=from_norm or from_number,
+                            org_id=org_id,
+                        )
+                        intent = resolve_interview_booking_intent(
+                            db,
                             body=inbound_text,
                             button_id=button_id,
                             button_title=button_reply.get("title") or "",
                             org_id=org_id,
-                            log_id=row.id if direction == "inbound" else None,
+                            order=booking_ctx[1] if booking_ctx else None,
                         )
-                        handled_interview = bool(interview_result.get("handled"))
-                        if not handled_interview:
-                            logger.warning(
-                                "interview_wa_inbound_not_handled body=%r button_id=%r button_title=%r intent=%s reason=%s",
-                                inbound_text[:120],
-                                button_id[:80] if button_id else "",
-                                (button_reply.get("title") or "")[:80],
-                                intent,
-                                interview_result.get("reason"),
+                        if intent or (booking_ctx is not None and (inbound_text or button_id)):
+                            interview_result = handle_interview_booking_reply(
+                                db,
+                                from_phone=from_norm or from_number,
+                                body=inbound_text,
+                                button_id=button_id,
+                                button_title=button_reply.get("title") or "",
+                                org_id=org_id,
+                                log_id=row.id if direction == "inbound" else None,
                             )
-                except Exception:
-                    logger.exception(
-                        "interview_wa_inbound_handler_failed body=%r from=%r",
-                        (body or "")[:120],
-                        from_norm or from_number,
-                    )
+                            handled_interview = bool(interview_result.get("handled"))
+                            if not handled_interview and not recent_survey_welcome:
+                                logger.warning(
+                                    "interview_wa_inbound_not_handled body=%r button_id=%r button_title=%r intent=%s reason=%s",
+                                    inbound_text[:120],
+                                    button_id[:80] if button_id else "",
+                                    (button_reply.get("title") or "")[:80],
+                                    intent,
+                                    interview_result.get("reason"),
+                                )
+                    except Exception:
+                        logger.exception(
+                            "interview_wa_inbound_handler_failed body=%r from=%r",
+                            (body or "")[:120],
+                            from_norm or from_number,
+                        )
             if not handled_interview and not handled_survey and not survey_session_bug:
                 logger.warning(
                     "inbound_fallback_after_survey_miss org=%s from=%r body=%r — "
@@ -512,6 +555,15 @@ class TelnyxInboundMessagingService:
                     org_id,
                     from_norm or from_number,
                     (body or "")[:80],
+                )
+                log_survey_test(
+                    "fallback_taken",
+                    phone=from_norm or from_number,
+                    org_id=org_id,
+                    handler="telnyx_inbound_messaging_service.handle_webhook",
+                    result="ok",
+                    reason="no_survey_handler",
+                    extra={"body": inbound_text[:120]},
                 )
                 try:
                     from app.services.sales_automation_service import SalesAutomationService

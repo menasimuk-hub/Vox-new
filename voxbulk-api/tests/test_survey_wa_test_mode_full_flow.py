@@ -128,25 +128,25 @@ def test_step5_full_workflow_logs_and_completes(mock_send, db, org, caplog):
         )
 
     assert start["session_id"]
-    phases = [rec.message for rec in caplog.records if "wa_test_mode_" in rec.message]
-    assert any("wa_test_mode_started" in msg for msg in phases)
-    assert any("wa_test_mode_session_created" in msg for msg in phases)
-    assert any("wa_test_mode_welcome_sent" in msg for msg in phases)
+    phases = [rec.message for rec in caplog.records if "survey_test_" in rec.message]
+    assert any("survey_test_trace_started" in msg for msg in phases)
+    assert any("survey_test_session_created" in msg for msg in phases)
+    assert any("survey_test_welcome_sent" in msg for msg in phases)
 
     caplog.clear()
     with caplog.at_level(logging.INFO):
         start_reply = handle_inbound_reply(db, from_phone=phone, body="Start", org_id=org_id)
     assert start_reply.get("started") is True
     assert start_reply.get("next_template_id") == rating.id
-    assert any("wa_test_mode_start_transition" in rec.message for rec in caplog.records)
+    assert any("survey_test_start_detected" in rec.message for rec in caplog.records)
 
     caplog.clear()
     with caplog.at_level(logging.INFO):
         low_rating = handle_inbound_reply(db, from_phone=phone, body="2", org_id=org_id)
     assert low_rating.get("handled") is True
     assert low_rating.get("payload_source") == "builder_tell_us_more_template"
-    assert any("wa_test_mode_branch_taken" in rec.message for rec in caplog.records)
-    assert any("wa_test_mode_step_sent" in rec.message for rec in caplog.records)
+    assert any("survey_test_branch_taken" in rec.message for rec in caplog.records)
+    assert any("survey_test_step_sent" in rec.message for rec in caplog.records)
 
     caplog.clear()
     with caplog.at_level(logging.INFO):
@@ -159,7 +159,7 @@ def test_step5_full_workflow_logs_and_completes(mock_send, db, org, caplog):
     with caplog.at_level(logging.INFO):
         final = handle_inbound_reply(db, from_phone=phone, body="Yes", org_id=org_id)
     assert final.get("completed") is True
-    assert any("wa_test_mode_completed" in rec.message for rec in caplog.records)
+    assert any("survey_test_completed" in rec.message for rec in caplog.records)
 
     db.refresh(order)
     recipient = db.get(ServiceOrderRecipient, start["recipient_id"])

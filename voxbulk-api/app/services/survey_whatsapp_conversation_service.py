@@ -47,6 +47,7 @@ from app.services.survey_wa_inbound_parse_service import (
     NormalizedWaInboundReply,
     START_ACTION,
     detect_start_action,
+    detect_start_matcher,
     log_normalized_inbound,
     matches_start_trigger,
     parse_telnyx_wa_inbound_record,
@@ -55,7 +56,15 @@ from app.services.survey_wa_inbound_parse_service import (
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
-from app.services.survey_wa_test_mode_service import log_wa_test_mode
+from app.services.survey_wa_test_mode_service import (
+    log_first_question_resolution,
+    log_inbound_normalized,
+    log_lookup_result,
+    log_start_detection,
+    log_survey_test,
+    log_wa_test_mode,
+    resolve_trace_id,
+)
 from app.services.survey_whatsapp_inbound_guard import is_duplicate_inbound, mark_inbound_processed
 from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMessagingService
 
@@ -385,7 +394,8 @@ def _is_valid_start_action(
     if not awaiting_start:
         return False
     extra = welcome_start_triggers_from_config(config)
-    if detect_start_action(reply, extra_triggers=extra) == START_ACTION:
+    action, _matcher = detect_start_matcher(reply, extra_triggers=extra)
+    if action == START_ACTION:
         return True
     # Welcome template only exposes Start/quick-reply — structured button tap on step 0 counts.
     if reply.button_title or reply.button_id or reply.button_payload:
@@ -585,6 +595,155 @@ def log_welcome_sent_without_active_session(
     return False
 
 
+def find_awaiting_welcome_recipient(
+    db: Session,
+    *,
+    from_phone: str,
+    org_id: str | None = None,
+) -> tuple[ServiceOrder | None, ServiceOrderRecipient | None]:
+    """Latest running survey recipient with welcome sent, step 0, matching phone."""
+    needles = _phone_candidates(from_phone)
+    if not needles:
+        return None, None
+    scoped_org = str(org_id or "").strip()
+    rows = db.execute(
+        select(ServiceOrder, ServiceOrderRecipient)
+        .join(ServiceOrderRecipient, ServiceOrderRecipient.order_id == ServiceOrder.id)
+        .where(
+            ServiceOrder.service_code == "survey",
+            ServiceOrder.status.in_(("running", "draft")),
+        )
+        .order_by(ServiceOrder.updated_at.desc())
+    ).all()
+    for order, recipient in rows:
+        if scoped_org and str(order.org_id) != scoped_org:
+            continue
+        if not is_whatsapp_survey_order(order):
+            continue
+        order_config = _order_config(order)
+        if str(order.status or "").lower() == "draft" and not order_config.get("wa_builder_test"):
+            continue
+        rec_phones = _phone_candidates(recipient.phone or "")
+        if not needles.intersection(rec_phones):
+            continue
+        conv = _wa_conversation(_recipient_result(recipient))
+        if not conv.get("intro_sent_at"):
+            continue
+        if int(conv.get("step") or 0) != 0:
+            continue
+        if str(recipient.status or "").lower() not in {"sent", "in_progress", "pending"}:
+            continue
+        return order, recipient
+    return None, None
+
+
+def phone_in_recent_survey_welcome_flow(
+    db: Session,
+    *,
+    from_phone: str,
+    org_id: str | None = None,
+) -> bool:
+    order, recipient = find_awaiting_welcome_recipient(db, from_phone=from_phone, org_id=org_id)
+    return order is not None and recipient is not None
+
+
+def recover_survey_session_from_welcome(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+) -> SurveySession | None:
+    """Recreate awaiting-start session when welcome exists but session row is missing/broken."""
+    if not has_builder_runtime(config):
+        log_survey_test(
+            "error",
+            order=order,
+            recipient=recipient,
+            config=config,
+            handler="survey_whatsapp_conversation_service.recover_survey_session_from_welcome",
+            result="fail",
+            reason="builder_runtime_missing",
+        )
+        return None
+    try:
+        session = SurveySessionService.ensure_awaiting_start_session(
+            db,
+            order=order,
+            recipient=recipient,
+            config=config,
+        )
+    except Exception as exc:
+        log_survey_test(
+            "error",
+            order=order,
+            recipient=recipient,
+            config=config,
+            handler="survey_whatsapp_conversation_service.recover_survey_session_from_welcome",
+            result="fail",
+            reason="session_recovery_failed",
+            extra={"error": str(exc)},
+        )
+        return None
+    logger.info(
+        "%s survey_session_recovered_from_welcome order=%s recipient=%s session_id=%s",
+        LOG_PREFIX,
+        order.id,
+        recipient.id,
+        session.id,
+    )
+    log_survey_test(
+        "session_created",
+        order=order,
+        recipient=recipient,
+        session=session,
+        config=config,
+        handler="survey_whatsapp_conversation_service.recover_survey_session_from_welcome",
+        result="ok",
+        reason="survey_session_recovered_from_welcome",
+        current_step=0,
+    )
+    return session
+
+
+def _diagnose_inbound_lookup(
+    db: Session,
+    *,
+    from_phone: str,
+    org_id: str | None,
+    order: ServiceOrder | None,
+    recipient: ServiceOrderRecipient | None,
+    match_via: str | None,
+) -> str:
+    if not order or not recipient:
+        if not _phone_candidates(from_phone):
+            return "phone_mismatch"
+        welcome_order, welcome_recipient = find_awaiting_welcome_recipient(
+            db, from_phone=from_phone, org_id=org_id
+        )
+        if welcome_order and welcome_recipient:
+            session = SurveySessionService.get_active_by_recipient(db, welcome_recipient.id)
+            if session is None:
+                return "recipient_found_no_session"
+            if str(session.status or "").lower() != "active":
+                return "session_found_wrong_status"
+        return "no_recipient_for_phone"
+    config = _order_config(order)
+    if not load_builder_runtime(config):
+        return "builder_runtime_missing"
+    session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+    if session is None:
+        return "recipient_found_no_session"
+    if str(session.status or "").lower() != "active":
+        return "session_found_wrong_status"
+    conv = _wa_conversation(_recipient_result(recipient))
+    if int(conv.get("step") or 0) == 0 and not conv.get("intro_sent_at"):
+        return "awaiting_start_missing"
+    if org_id and str(order.org_id) != str(org_id) and match_via == "session_phone_cross_org":
+        return "org_mismatch"
+    return "session_found_ok"
+
+
 def find_active_recipient_for_inbound(
     db: Session,
     *,
@@ -611,6 +770,14 @@ def find_active_recipient_for_inbound(
         scoped_org or None,
         sorted(needles)[:5],
     )
+    log_survey_test(
+        "lookup_started",
+        phone=from_phone,
+        org_id=scoped_org or None,
+        handler="survey_whatsapp_conversation_service.find_active_recipient_for_inbound",
+        result="pending",
+        extra={"needles": sorted(needles)[:5]},
+    )
 
     if scoped_org:
         order, recipient = _find_active_recipient_in_org(db, org_id=scoped_org, needles=needles)
@@ -622,6 +789,26 @@ def find_active_recipient_for_inbound(
                 order.id,
                 recipient.id,
                 session.id if session else None,
+            )
+            cfg = _order_config(order)
+            log_lookup_result(
+                trace_id=resolve_trace_id(config=cfg, recipient=recipient),
+                order=order,
+                recipient=recipient,
+                session=session,
+                config=cfg,
+                reason=_diagnose_inbound_lookup(
+                    db,
+                    from_phone=from_phone,
+                    org_id=scoped_org,
+                    order=order,
+                    recipient=recipient,
+                    match_via="org_recipient",
+                ),
+                handler="survey_whatsapp_conversation_service.find_active_recipient_for_inbound",
+                phone=from_phone,
+                org_id=scoped_org,
+                extra={"match_via": "org_recipient"},
             )
             return order, recipient, "org_recipient"
 
@@ -657,6 +844,31 @@ def find_active_recipient_for_inbound(
 
     log_welcome_sent_without_active_session(db, from_phone=from_phone, org_id=scoped_org or None)
     _log_active_recipient_miss(from_phone=from_phone, org_id=scoped_org or None, needles=needles)
+    reason = _diagnose_inbound_lookup(
+        db,
+        from_phone=from_phone,
+        org_id=scoped_org or None,
+        order=None,
+        recipient=None,
+        match_via=None,
+    )
+    welcome_order, welcome_recipient = find_awaiting_welcome_recipient(
+        db, from_phone=from_phone, org_id=scoped_org or None
+    )
+    cfg = _order_config(welcome_order) if welcome_order else None
+    log_lookup_result(
+        trace_id=resolve_trace_id(config=cfg, recipient=welcome_recipient),
+        order=welcome_order,
+        recipient=welcome_recipient,
+        session=SurveySessionService.get_active_by_recipient(db, welcome_recipient.id)
+        if welcome_recipient
+        else None,
+        config=cfg,
+        reason=reason,
+        handler="survey_whatsapp_conversation_service.find_active_recipient_for_inbound",
+        phone=from_phone,
+        org_id=scoped_org or None,
+    )
     return None, None, None
 
 
@@ -812,7 +1024,71 @@ def try_handle_survey_whatsapp_inbound(
         db, from_phone=from_phone, org_id=scoped_org
     )
     if not order or not recipient:
-        if log_welcome_sent_without_active_session(db, from_phone=from_phone, org_id=scoped_org):
+        welcome_order, welcome_recipient = find_awaiting_welcome_recipient(
+            db, from_phone=from_phone, org_id=scoped_org
+        )
+        if welcome_order and welcome_recipient:
+            config = _order_config(welcome_order)
+            trace_id = resolve_trace_id(config=config, recipient=welcome_recipient)
+            log_survey_test(
+                "inbound_received",
+                trace_id=trace_id,
+                order=welcome_order,
+                recipient=welcome_recipient,
+                config=config,
+                phone=from_phone,
+                org_id=scoped_org,
+                handler="survey_whatsapp_conversation_service.try_handle_survey_whatsapp_inbound",
+                result="recover",
+                reason="recipient_found_no_session",
+                extra={"body": str(body or "")[:120]},
+            )
+            if inbound_reply is not None:
+                log_inbound_normalized(
+                    trace_id=trace_id,
+                    config=config,
+                    order=welcome_order,
+                    recipient=welcome_recipient,
+                    session=None,
+                    raw_body=str(body or ""),
+                    message_type=inbound_reply.message_type,
+                    button_title=inbound_reply.button_title,
+                    button_id=inbound_reply.button_id,
+                    normalized_text=inbound_reply.normalized_answer,
+                    normalized_action=inbound_reply.normalized_action,
+                    handler="survey_whatsapp_conversation_service.try_handle_survey_whatsapp_inbound",
+                )
+            session = SurveySessionService.get_active_by_recipient(db, welcome_recipient.id)
+            if session is None:
+                session = recover_survey_session_from_welcome(
+                    db,
+                    order=welcome_order,
+                    recipient=welcome_recipient,
+                    config=config,
+                )
+            if session is not None:
+                order, recipient = welcome_order, welcome_recipient
+            elif log_welcome_sent_without_active_session(db, from_phone=from_phone, org_id=scoped_org):
+                log_survey_test(
+                    "fallback_blocked",
+                    trace_id=trace_id,
+                    order=welcome_order,
+                    recipient=welcome_recipient,
+                    config=config,
+                    phone=from_phone,
+                    org_id=scoped_org,
+                    handler="survey_whatsapp_conversation_service.try_handle_survey_whatsapp_inbound",
+                    result="fail",
+                    reason="welcome_sent_but_no_active_session",
+                )
+                return {
+                    "handled": False,
+                    "reason": "welcome_sent_but_no_active_session",
+                    "org_id": scoped_org,
+                    "from_phone": from_phone,
+                    "trace_id": trace_id,
+                }
+        elif log_welcome_sent_without_active_session(db, from_phone=from_phone, org_id=scoped_org):
             return {
                 "handled": False,
                 "reason": "welcome_sent_but_no_active_session",
@@ -820,6 +1096,37 @@ def try_handle_survey_whatsapp_inbound(
                 "from_phone": from_phone,
             }
         return None
+
+    config = _order_config(order)
+    trace_id = resolve_trace_id(config=config, recipient=recipient)
+    log_survey_test(
+        "inbound_received",
+        trace_id=trace_id,
+        order=order,
+        recipient=recipient,
+        config=config,
+        phone=from_phone,
+        org_id=scoped_org,
+        handler="survey_whatsapp_conversation_service.try_handle_survey_whatsapp_inbound",
+        result="ok",
+        extra={"body": str(body or "")[:120]},
+    )
+    if inbound_reply is not None:
+        session_row = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        log_inbound_normalized(
+            trace_id=trace_id,
+            config=config,
+            order=order,
+            recipient=recipient,
+            session=session_row,
+            raw_body=str(body or ""),
+            message_type=inbound_reply.message_type,
+            button_title=inbound_reply.button_title,
+            button_id=inbound_reply.button_id,
+            normalized_text=inbound_reply.normalized_answer,
+            normalized_action=inbound_reply.normalized_action,
+            handler="survey_whatsapp_conversation_service.try_handle_survey_whatsapp_inbound",
+        )
 
     return handle_inbound_reply(
         db,
@@ -1070,6 +1377,16 @@ def send_survey_opening(
         session=session,
         current_step=0,
     )
+    log_survey_test(
+        "session_committed",
+        order=order,
+        recipient=recipient,
+        session=session,
+        config=config,
+        handler="survey_whatsapp_conversation_service.send_survey_opening",
+        result="ok",
+        current_step=0,
+    )
 
     variables = _survey_variables(config, recipient)
     template_row = _resolve_template_row(db, config.get("wa_template_id"))
@@ -1203,6 +1520,42 @@ def send_first_question(
         index=1,
         total=total,
     )
+    template_row = None
+    try:
+        template_row = _resolve_question_template(
+            db,
+            config,
+            q0,
+            order_id=order.id,
+            session_id=session_existing.id if session_existing else None,
+            step=1,
+        )
+    except SurveyBuilderFlowError as exc:
+        log_first_question_resolution(
+            trace_id=resolve_trace_id(config=config, recipient=recipient),
+            order=order,
+            recipient=recipient,
+            config=config,
+            session=session_existing,
+            question=q0,
+            template_row=None,
+            handler="survey_whatsapp_conversation_service.send_first_question",
+            phase="first_question_send_attempt",
+            failure_reason=str(exc),
+        )
+        return {"sent": False, "reason": "template_resolve_failed", "detail": str(exc)}
+
+    log_first_question_resolution(
+        trace_id=resolve_trace_id(config=config, recipient=recipient),
+        order=order,
+        recipient=recipient,
+        config=config,
+        session=session_existing,
+        question=q0,
+        template_row=template_row,
+        handler="survey_whatsapp_conversation_service.send_first_question",
+        phase="first_question_send_attempt",
+    )
 
     payload = _recipient_result(recipient)
     payload["channel"] = "whatsapp"
@@ -1237,12 +1590,35 @@ def send_first_question(
             q0.get("template_id"),
             q0.get("template_name"),
         )
+        log_first_question_resolution(
+            trace_id=resolve_trace_id(config=config, recipient=recipient),
+            order=order,
+            recipient=recipient,
+            config=config,
+            session=session,
+            question=q0,
+            template_row=template_row,
+            handler="survey_whatsapp_conversation_service.send_first_question",
+            phase="first_question_sent",
+        )
         return {
             "sent": True,
             "template_id": q0.get("template_id"),
             "template_name": q0.get("template_name"),
             "step": 1,
         }
+    log_first_question_resolution(
+        trace_id=resolve_trace_id(config=config, recipient=recipient),
+        order=order,
+        recipient=recipient,
+        config=config,
+        session=session,
+        question=q0,
+        template_row=template_row,
+        handler="survey_whatsapp_conversation_service.send_first_question",
+        phase="first_question_send_attempt",
+        failure_reason="send_failed",
+    )
     logger.error(
         "%s first_question_send_failed order=%s recipient=%s template_id=%s",
         LOG_PREFIX,
@@ -1399,7 +1775,26 @@ def handle_inbound_reply(
             conv_step=step,
             awaiting_start=True,
         )
+        extra_triggers = welcome_start_triggers_from_config(config)
+        _action, start_matcher = detect_start_matcher(reply, extra_triggers=extra_triggers)
         if not _is_valid_start_action(reply, config, awaiting_start=True):
+            log_start_detection(
+                trace_id=resolve_trace_id(config=config, recipient=recipient),
+                config=config,
+                order=order,
+                recipient=recipient,
+                session=session_row,
+                detected=False,
+                matcher=None,
+                handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+                reply_summary={
+                    "raw_body": str(body or "")[:120],
+                    "button_title": reply.button_title,
+                    "button_id": reply.button_id,
+                    "normalized_text": reply.normalized_answer,
+                    "normalized_action": reply.normalized_action,
+                },
+            )
             _log_start_transition_failure(
                 order=order,
                 recipient=recipient,
@@ -1416,6 +1811,44 @@ def handle_inbound_reply(
                 "inbound_message_id": inbound_message_id,
                 "extracted_fields": reply.extracted_fields,
             }
+        effective_matcher = start_matcher or (
+            "structured_button"
+            if reply.button_title or reply.button_id or reply.button_payload
+            else "plain_text_fuzzy"
+        )
+        log_start_detection(
+            trace_id=resolve_trace_id(config=config, recipient=recipient),
+            config=config,
+            order=order,
+            recipient=recipient,
+            session=session_row,
+            detected=True,
+            matcher=effective_matcher,
+            handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+            reply_summary={
+                "raw_body": str(body or "")[:120],
+                "button_title": reply.button_title,
+                "button_id": reply.button_id,
+                "normalized_text": reply.normalized_answer,
+            },
+        )
+        if session_row is None:
+            session_row = recover_survey_session_from_welcome(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+            )
+        log_survey_test(
+            "first_question_send_attempt",
+            order=order,
+            recipient=recipient,
+            session=session_row,
+            config=config,
+            handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+            result="pending",
+            current_step=0,
+        )
         send_result = send_first_question(db, order=order, recipient=recipient, config=config)
         db.refresh(recipient)
         log_normalized_inbound(

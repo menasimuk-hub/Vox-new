@@ -14,7 +14,12 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.survey_session_service import SurveySessionService
-from app.services.survey_wa_test_mode_service import log_wa_test_mode
+from app.services.survey_wa_test_mode_service import (
+    attach_trace_id_to_config,
+    log_survey_test,
+    new_trace_id,
+    persist_trace_id_on_recipient,
+)
 from app.services.survey_whatsapp_conversation_service import (
     _order_config,
     _recipient_result,
@@ -169,6 +174,8 @@ class SurveyBuilderTestService:
             first_name=first_name,
             business_name=business_name,
         )
+        trace_id = new_trace_id()
+        config = attach_trace_id_to_config(config, trace_id)
 
         SurveyBuilderTestService._supersede_other_active_surveys(
             db,
@@ -224,6 +231,21 @@ class SurveyBuilderTestService:
             db.refresh(recipient)
             logger.info("%s reset recipient_id=%s", LOG_PREFIX, recipient.id)
 
+        persist_trace_id_on_recipient(recipient, trace_id)
+        db.add(recipient)
+        db.commit()
+        db.refresh(recipient)
+        log_survey_test(
+            "recipient_resolved",
+            trace_id=trace_id,
+            order=order,
+            recipient=recipient,
+            config=config,
+            handler="survey_builder_test_service.start_wa_test_session",
+            result="ok",
+            current_step=0,
+        )
+
         existing_session = SurveySessionService.get_active_by_recipient(db, recipient.id)
         if existing_session is not None:
             existing_session.status = "completed"
@@ -239,12 +261,16 @@ class SurveyBuilderTestService:
             recipient.id,
             recipient_e164,
         )
-        log_wa_test_mode(
-            "started",
+        log_survey_test(
+            "trace_started",
+            trace_id=trace_id,
             order=order,
             recipient=recipient,
             config=config,
+            handler="survey_builder_test_service.start_wa_test_session",
+            result="ok",
             current_step=0,
+            extra={"phone": recipient_e164, "user_id": user_id},
         )
         sent = send_survey_opening(db, order=order, recipient=recipient, config=config)
         db.refresh(recipient)
@@ -291,6 +317,7 @@ class SurveyBuilderTestService:
             "order_id": order.id,
             "recipient_id": recipient.id,
             "session_id": session.id,
+            "trace_id": trace_id,
             "to_number": recipient_e164,
             "awaiting_start": True,
             "current_step": int(session.current_step or 0),

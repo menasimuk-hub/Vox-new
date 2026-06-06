@@ -278,3 +278,35 @@ def log_webhook_entry(
         _webhook_marker_count,
     )
     return data
+
+
+def log_live_handle_webhook(*, handler: Any | None = None) -> dict[str, Any]:
+    """Prove exact in-memory handler at webhook entry (file, line, git sha, pid)."""
+    import inspect
+    import os
+
+    fn = handler
+    if fn is None:
+        from app.services.telnyx_inbound_messaging_service import TelnyxInboundMessagingService
+
+        fn = TelnyxInboundMessagingService.handle_webhook
+
+    try:
+        sourcefile = inspect.getsourcefile(fn) or "unknown"
+        line_no = inspect.getsourcelines(fn)[1]
+    except (OSError, TypeError):
+        sourcefile = "unknown"
+        line_no = 0
+
+    data = get_runtime_build_info()
+    logger.info(
+        "LIVE_HANDLE_WEBHOOK file=%s sourcefile=%s line=%s git_sha=%s pid=%s marker=%s hostname=%s",
+        os.path.abspath(__file__),
+        sourcefile,
+        line_no,
+        data.get("git_sha"),
+        os.getpid(),
+        WEBHOOK_BUILD_MARKER,
+        data.get("hostname"),
+    )
+    return data
