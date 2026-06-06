@@ -200,3 +200,66 @@ def test_validate_ok_with_templates(db):
     )
     assert result["ok"] is True
     assert result["tell_us_more_template_id"] == tell_tpl.id
+
+
+def test_validate_accepts_middle_template_list_without_service_map(db):
+    """Dashboard may send selected_middle_template_ids when the type→template map is omitted."""
+    industry, st = _regular_type(db)
+    now = datetime.utcnow()
+    middle_tpl = TelnyxWhatsappTemplate(
+        telnyx_record_id=f"local-{uuid.uuid4().hex}",
+        template_id=f"local-{uuid.uuid4().hex}",
+        name=f"voxbulk_survey_{st.slug}_rating",
+        language="en_US",
+        category="MARKETING",
+        status="APPROVED",
+        survey_type_id=st.id,
+        industry_id=industry.id,
+        step_role="rating",
+        active_for_survey=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(middle_tpl)
+    db.flush()
+    db.add(SurveyTypeTemplate(survey_type_id=st.id, template_id=middle_tpl.id, industry_id=industry.id))
+    welcome_types = db.execute(select(SurveyType).where(SurveyType.system_template_kind == "welcome")).scalars().all()
+    thank_types = db.execute(select(SurveyType).where(SurveyType.system_template_kind == "thank_you")).scalars().all()
+    welcome_tpl = TelnyxWhatsappTemplate(
+        telnyx_record_id=f"local-{uuid.uuid4().hex}",
+        template_id=f"local-{uuid.uuid4().hex}",
+        name="voxbulk_survey_welcome_a",
+        language="en_US",
+        category="MARKETING",
+        status="APPROVED",
+        survey_type_id=welcome_types[0].id,
+        active_for_survey=True,
+        created_at=now,
+        updated_at=now,
+    )
+    thank_tpl = TelnyxWhatsappTemplate(
+        telnyx_record_id=f"local-{uuid.uuid4().hex}",
+        template_id=f"local-{uuid.uuid4().hex}",
+        name="voxbulk_survey_thank_a",
+        language="en_US",
+        category="MARKETING",
+        status="APPROVED",
+        survey_type_id=thank_types[0].id,
+        active_for_survey=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add_all([welcome_tpl, thank_tpl])
+    db.commit()
+
+    result = SurveyBuilderValidationService.validate_builder_selection(
+        db,
+        industry_id=industry.id,
+        selected_survey_type_ids=[st.id],
+        welcome_template_id=welcome_tpl.id,
+        thank_you_template_id=thank_tpl.id,
+        selected_service_template_ids=None,
+        selected_middle_template_ids=[middle_tpl.id],
+    )
+    assert result["ok"] is True
+    assert result["ordered_middle_template_ids"] == [middle_tpl.id]

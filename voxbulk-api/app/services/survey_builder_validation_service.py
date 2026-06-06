@@ -27,6 +27,35 @@ class SurveyBuilderValidationError(ValueError):
 
 class SurveyBuilderValidationService:
     @staticmethod
+    def resolve_middle_template_source(
+        selected_survey_type_ids: list[str],
+        *,
+        selected_service_template_ids: Any = None,
+        selected_middle_template_ids: Any = None,
+    ) -> Any | None:
+        """Prefer type→template map; fall back to ordered middle template id list."""
+        ids = [str(x).strip() for x in (selected_survey_type_ids or []) if str(x).strip()]
+        if isinstance(selected_service_template_ids, dict) and selected_service_template_ids:
+            return selected_service_template_ids
+        if isinstance(selected_service_template_ids, list) and selected_service_template_ids:
+            return selected_service_template_ids
+        if selected_middle_template_ids is not None:
+            if isinstance(selected_middle_template_ids, dict) and selected_middle_template_ids:
+                return selected_middle_template_ids
+            if isinstance(selected_middle_template_ids, list) and selected_middle_template_ids:
+                if ids and len(selected_middle_template_ids) == len(ids):
+                    return selected_middle_template_ids
+                pairs = SurveyBuilderValidationService.parse_middle_template_pairs(
+                    ids, selected_middle_template_ids
+                )
+                if pairs:
+                    return selected_middle_template_ids
+                return selected_middle_template_ids
+        if selected_service_template_ids is not None:
+            return selected_service_template_ids
+        return None
+
+    @staticmethod
     def parse_middle_template_pairs(
         selected_survey_type_ids: list[str],
         raw: Any,
@@ -94,6 +123,7 @@ class SurveyBuilderValidationService:
         welcome_template_id: int | str | None,
         thank_you_template_id: int | str | None,
         selected_service_template_ids: Any = None,
+        selected_middle_template_ids: Any = None,
         require_approved: bool = False,
     ) -> dict[str, Any]:
         errors: list[str] = []
@@ -142,12 +172,15 @@ class SurveyBuilderValidationService:
                 errors.append(f"{label} template is not ready yet (status: {tpl.status}).")
         middle_pairs: list[tuple[str, int]] = []
         if welcome_template_id and thank_you_template_id and ids:
-            if selected_service_template_ids is None:
+            middle_source = SurveyBuilderValidationService.resolve_middle_template_source(
+                ids,
+                selected_service_template_ids=selected_service_template_ids,
+                selected_middle_template_ids=selected_middle_template_ids,
+            )
+            if middle_source is None:
                 errors.append("Select a library template for each survey type in Step 3.")
             else:
-                middle_pairs = SurveyBuilderValidationService.parse_middle_template_pairs(
-                    ids, selected_service_template_ids
-                )
+                middle_pairs = SurveyBuilderValidationService.parse_middle_template_pairs(ids, middle_source)
                 if len(middle_pairs) < len(ids):
                     missing = [tid for tid in ids if tid not in {pair[0] for pair in middle_pairs}]
                     for type_id in missing:

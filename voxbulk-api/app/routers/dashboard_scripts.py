@@ -181,6 +181,7 @@ def validate_wa_survey_builder(
             welcome_template_id=body.get("welcome_template_id"),
             thank_you_template_id=body.get("thank_you_template_id"),
             selected_service_template_ids=body.get("selected_service_template_ids"),
+            selected_middle_template_ids=body.get("selected_middle_template_ids"),
             require_approved=bool(body.get("require_approved")),
         )
     except SurveyBuilderValidationError as e:
@@ -270,6 +271,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 welcome_template_id=welcome_template_id,
                 thank_you_template_id=thank_you_template_id,
                 selected_service_template_ids=body.get("selected_service_template_ids"),
+                selected_middle_template_ids=body.get("selected_middle_template_ids"),
                 require_approved=False,
             )
             primary_survey_type_id = str(builder_config.get("primary_survey_type_id") or primary_survey_type_id)

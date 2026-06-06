@@ -44,11 +44,35 @@ function includesAny(key: string, ...needles: string[]): boolean {
   return needles.some((needle) => key.includes(needle));
 }
 
-export function isHospitalityFoodIndustry(name?: string, slug?: string): boolean {
-  const slugKey = String(slug || "")
+export function normalizeIndustrySlug(slug?: string): string {
+  return String(slug || "")
     .trim()
     .toLowerCase()
-    .replace(/-/g, "_");
+    .replace(/&/g, "and")
+    .replace(/-/g, "_")
+    .replace(/[\s/]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
+/** Slug-first icon map — checked before fuzzy name matching. */
+const SLUG_ICON: Record<string, LucideIcon> = {
+  hospitality_food: Hotel,
+  hospitality: Hotel,
+  hotel_accommodation: Hotel,
+  healthcare_dental: Smile,
+  healthcare: Stethoscope,
+  recruitment_staffing: Briefcase,
+  ecommerce: ShoppingBag,
+  finance: Landmark,
+  education: GraduationCap,
+  saas: Sparkles,
+  services: Briefcase,
+  general: Briefcase,
+};
+
+export function isHospitalityFoodIndustry(name?: string, slug?: string): boolean {
+  const slugKey = normalizeIndustrySlug(slug);
   if (slugKey === "hospitality_food") return true;
 
   const nameKey = String(name || "")
@@ -68,13 +92,18 @@ export function isHospitalityFoodIndustry(name?: string, slug?: string): boolean
 
 /** Map industry slug/name to a Lucide icon for the WA survey wizard. */
 export function waIndustryIcon(name?: string, slug?: string): LucideIcon {
-  const key = normalizeIndustryKey(name, slug);
-  const tokens = industryTokens(key);
-  if (!key) return Briefcase;
+  const slugKey = normalizeIndustrySlug(slug);
+  if (slugKey && SLUG_ICON[slugKey]) {
+    return SLUG_ICON[slugKey];
+  }
 
   if (isHospitalityFoodIndustry(name, slug)) {
     return Hotel;
   }
+
+  const key = normalizeIndustryKey(name, slug);
+  const tokens = industryTokens(key);
+  if (!key) return Briefcase;
 
   if (
     includesAny(key, "dental", "dentist", "orthodont") ||

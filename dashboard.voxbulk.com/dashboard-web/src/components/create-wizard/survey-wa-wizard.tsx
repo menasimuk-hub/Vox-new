@@ -57,6 +57,7 @@ export type SurveyWaWizardProps = {
   serviceTypes: Array<Record<string, unknown>>;
   serviceTypesLoading: boolean;
   serviceTagErrors: string[];
+  step3SelectionErrors: string[];
   welcomeTemplateId: string;
   setWelcomeTemplateId: (v: string) => void;
   thankYouTemplateId: string;
@@ -169,7 +170,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         !!props.welcomeTemplateId &&
         !!props.thankYouTemplateId &&
         props.orderedServiceTagIds.length >= 1 &&
-        props.orderedServiceTagIds.every((id) => Boolean(props.selectedServiceTemplateIds[id]))
+        props.orderedServiceTagIds.every((id) => Boolean(props.selectedServiceTemplateIds[String(id).trim()]))
       );
     }
     if (step === 4) return true;
@@ -180,6 +181,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const goNext = async () => {
     if (!canNext) {
       if (step === 2 && props.serviceTagErrors[0]) toast.error(props.serviceTagErrors[0]);
+      else if (step === 3 && props.step3SelectionErrors[0]) toast.error(props.step3SelectionErrors[0]);
       else if (step === 3) toast.error("Pick welcome, thank-you, and one template for each survey type");
       return;
     }
@@ -359,6 +361,19 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               <CardDescription>Pick welcome & thanks templates, then one survey template per type. Drag to reorder the flow.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {props.step3SelectionErrors.length && !props.generateErrors.length ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="size-4" />
+                  <AlertTitle>Complete template selections</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc space-y-1 pl-4">
+                      {props.step3SelectionErrors.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               {props.generateErrors.length ? (
                 <Alert ref={generateErrorRef} variant="destructive" className="border-2 bg-destructive/10">
                   <AlertCircle className="size-4" />

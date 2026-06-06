@@ -40,6 +40,10 @@ const PAGE_COUNT_TO_LENGTH: Record<3 | 4 | 5 | 6, "short" | "standard" | "detail
 
 type Channel = "whatsapp" | "phone" | null;
 
+function normalizeSurveyTypeId(id: unknown): string {
+  return String(id ?? "").trim();
+}
+
 function industryMatchesSlugSearch(ind: Record<string, unknown>, needle: string): boolean {
   const slug = String(ind.slug || ind.industry_slug || "")
     .trim()
@@ -242,27 +246,43 @@ function CreateSurvey() {
     });
   };
 
+  const orderedTypeIds = React.useMemo(
+    () => (orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds).map(normalizeSurveyTypeId),
+    [orderedServiceTagIds, selectedServiceTagIds],
+  );
+
   const serviceTagErrors = React.useMemo(() => {
     const errors: string[] = [];
     if (selectedServiceTagIds.length < 1) errors.push("Select at least 1 service (max 4).");
     if (selectedServiceTagIds.length > 4) errors.push("Select at most 4 services.");
     for (const id of selectedServiceTagIds) {
-      const row = serviceTypes.find((t) => String(t.id) === id);
+      const row = serviceTypes.find((t) => normalizeSurveyTypeId(t.id) === normalizeSurveyTypeId(id));
       if (!row) continue;
       if (!row.has_wa_template) {
         errors.push(`"${String(row.name)}" has no WhatsApp template yet.`);
       }
     }
+    return errors;
+  }, [selectedServiceTagIds, serviceTypes]);
+
+  const step3SelectionErrors = React.useMemo(() => {
+    const errors: string[] = [];
     if (!welcomeTemplateId) errors.push("Select a welcome template.");
     if (!thankYouTemplateId) errors.push("Select a thank-you template.");
-    for (const id of selectedServiceTagIds) {
-      const row = serviceTypes.find((t) => String(t.id) === id);
-      if (!row || !selectedServiceTemplateIds[id]) {
-        if (row) errors.push(`Select a template for "${String(row.name)}".`);
-      }
+    for (const id of orderedTypeIds) {
+      const row = serviceTypes.find((t) => normalizeSurveyTypeId(t.id) === id);
+      const templateId = selectedServiceTemplateIds[id];
+      if (!row) continue;
+      if (!templateId) errors.push(`Select a template for "${String(row.name)}".`);
     }
     return errors;
-  }, [selectedServiceTagIds, serviceTypes, welcomeTemplateId, thankYouTemplateId, selectedServiceTemplateIds]);
+  }, [orderedTypeIds, serviceTypes, welcomeTemplateId, thankYouTemplateId, selectedServiceTemplateIds]);
+
+  React.useEffect(() => {
+    if (generateErrors.length && step3SelectionErrors.length === 0) {
+      setGenerateErrors([]);
+    }
+  }, [generateErrors.length, step3SelectionErrors.length]);
 
   React.useEffect(() => {
     if (privacyMode === "on") setAnonymous(true);
@@ -326,32 +346,42 @@ function CreateSurvey() {
   };
 
   const onSelectServiceTemplate = (typeId: string, templateId: string) => {
-    setSelectedServiceTemplateIds((prev) => ({ ...prev, [typeId]: templateId }));
+    const key = normalizeSurveyTypeId(typeId);
+    setSelectedServiceTemplateIds((prev) => ({ ...prev, [key]: normalizeSurveyTypeId(templateId) }));
     setAutoSelectSteps(true);
+    setGenerateErrors([]);
+  };
+
+  const buildStep3GeneratePayload = () => {
+    const typeOrder = orderedTypeIds;
+    const selectedServiceTemplates: Record<string, number> = {};
+    const selectedMiddleTemplateIds: number[] = [];
+    for (const typeId of typeOrder) {
+      const raw = selectedServiceTemplateIds[typeId];
+      if (!raw) continue;
+      const num = Number(raw);
+      if (!Number.isFinite(num) || num <= 0) continue;
+      selectedServiceTemplates[typeId] = num;
+      selectedMiddleTemplateIds.push(num);
+    }
+    const effectivePageCount = pageCountFromSelectedTypes(typeOrder.length);
+    return { typeOrder, selectedServiceTemplates, selectedMiddleTemplateIds, effectivePageCount };
   };
 
   const onGenerateWaSurvey = async (): Promise<boolean> => {
-    if (serviceTagErrors.length) {
-      setGenerateErrors(serviceTagErrors);
-      toast.error(serviceTagErrors[0], { duration: 12000 });
+    if (step3SelectionErrors.length) {
+      setGenerateErrors(step3SelectionErrors);
+      toast.error(step3SelectionErrors[0], { duration: 12000 });
       return false;
     }
     setGenerating(true);
     setGenerateErrors([]);
     try {
-      const typeOrder = orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds;
-      const selectedServiceTemplates = Object.fromEntries(
-        typeOrder
-          .filter((typeId) => selectedServiceTemplateIds[typeId])
-          .map((typeId) => [typeId, Number(selectedServiceTemplateIds[typeId])]),
-      );
-      const selectedMiddleTemplateIds = typeOrder
-        .map((typeId) => Number(selectedServiceTemplateIds[typeId]))
-        .filter((id) => Number.isFinite(id) && id > 0);
-      const effectivePageCount = pageCountFromSelectedTypes(typeOrder.length);
+      const { typeOrder, selectedServiceTemplates, selectedMiddleTemplateIds, effectivePageCount } =
+        buildStep3GeneratePayload();
       const generated = await generateWaM.mutateAsync({
         industry_id: industryId,
-        survey_type_id: primarySurveyTypeId,
+        survey_type_id: typeOrder[0] || primarySurveyTypeId,
         selected_survey_type_ids: typeOrder,
         selected_service_template_ids: selectedServiceTemplates,
         selected_middle_template_ids: selectedMiddleTemplateIds,
@@ -504,6 +534,7 @@ function CreateSurvey() {
           serviceTypes={serviceTypes}
           serviceTypesLoading={waTypesQ.isLoading}
           serviceTagErrors={serviceTagErrors}
+          step3SelectionErrors={step3SelectionErrors}
           welcomeTemplateId={welcomeTemplateId}
           setWelcomeTemplateId={setWelcomeTemplateId}
           thankYouTemplateId={thankYouTemplateId}
