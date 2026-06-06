@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import ServiceOrderService
-from app.services.survey_session_service import SurveySessionService
+from app.services.survey_session_service import SurveySessionPersistenceError, SurveySessionService
 from app.services.survey_wa_test_mode_service import (
     attach_trace_id_to_config,
     log_survey_test,
@@ -254,12 +254,80 @@ class SurveyBuilderTestService:
             db.add(existing_session)
             db.commit()
 
+        from app.services.survey_builder_flow_service import survey_questions_from_config
+
+        questions = survey_questions_from_config(config)
+        if not questions:
+            raise SurveyWhatsappTemplateError(
+                "Survey has no builder step sequence — click Generate again in Step 3."
+            )
+
         logger.info(
-            "%s send_survey_opening order_id=%s recipient_id=%s phone=%s",
+            "%s ensure_awaiting_start_session order_id=%s recipient_id=%s phone=%s trace_id=%s",
             LOG_PREFIX,
             order.id,
             recipient.id,
             recipient_e164,
+            trace_id,
+        )
+        try:
+            pre_session = SurveySessionService.ensure_awaiting_start_session(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                question_count=len(questions),
+            )
+        except Exception as exc:
+            log_survey_test(
+                "error",
+                trace_id=trace_id,
+                order=order,
+                recipient=recipient,
+                config=config,
+                handler="survey_builder_test_service.start_wa_test_session",
+                result="fail",
+                reason="session_ensure_failed",
+                extra={"error": str(exc)},
+            )
+            raise SurveyWhatsappTemplateError(
+                f"Could not create awaiting-start session before welcome: {exc}"
+            ) from exc
+
+        db.refresh(pre_session)
+        try:
+            session = SurveySessionService.verify_active_awaiting_start(
+                db,
+                recipient.id,
+                order_id=order.id,
+                trace_id=trace_id,
+            )
+        except SurveySessionPersistenceError as exc:
+            raise SurveyWhatsappTemplateError(str(exc)) from exc
+
+        payload_pre = SurveySessionService.attach_session_to_result(_recipient_result(recipient), session)
+        _save_recipient_result(db, recipient, payload_pre)
+        db.refresh(session)
+        log_survey_test(
+            "session_created",
+            trace_id=trace_id,
+            order=order,
+            recipient=recipient,
+            session=session,
+            config=config,
+            handler="survey_builder_test_service.start_wa_test_session",
+            result="ok",
+            current_step=0,
+            extra={"phase": "before_welcome_send"},
+        )
+
+        logger.info(
+            "%s send_survey_opening order_id=%s recipient_id=%s phone=%s session_id=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+            recipient_e164,
+            session.id,
         )
         log_survey_test(
             "trace_started",
@@ -275,15 +343,15 @@ class SurveyBuilderTestService:
         sent = send_survey_opening(db, order=order, recipient=recipient, config=config)
         db.refresh(recipient)
 
-        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
-        if session is None or not session.id:
-            raise SurveyWhatsappTemplateError(
-                "Could not start WA survey test session: session was not created"
+        try:
+            session = SurveySessionService.verify_active_awaiting_start(
+                db,
+                recipient.id,
+                order_id=order.id,
+                trace_id=trace_id,
             )
-        if str(session.status or "").lower() != "active":
-            raise SurveyWhatsappTemplateError(
-                f"Could not start WA survey test session: session status is {session.status!r}, expected active"
-            )
+        except SurveySessionPersistenceError as exc:
+            raise SurveyWhatsappTemplateError(str(exc)) from exc
 
         if not sent:
             detail = ""
@@ -296,10 +364,21 @@ class SurveyBuilderTestService:
                 detail or "Could not send the welcome message. Check Telnyx settings and template approval."
             )
 
-        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        db.refresh(session)
+        log_survey_test(
+            "welcome_sent",
+            trace_id=trace_id,
+            order=order,
+            recipient=recipient,
+            session=session,
+            config=config,
+            handler="survey_builder_test_service.start_wa_test_session",
+            result="ok",
+            current_step=0,
+        )
         logger.info(
             "%s welcome_sent order_id=%s recipient_id=%s session_id=%s status=%s phone=%s "
-            "current_step=%s awaiting_start=true",
+            "current_step=%s awaiting_start=true trace_id=%s",
             LOG_PREFIX,
             order.id,
             recipient.id,
@@ -307,6 +386,7 @@ class SurveyBuilderTestService:
             session.status,
             recipient_e164,
             int(session.current_step or 0),
+            trace_id,
         )
 
         return {
@@ -318,6 +398,7 @@ class SurveyBuilderTestService:
             "recipient_id": recipient.id,
             "session_id": session.id,
             "trace_id": trace_id,
+            "status": str(session.status or "active"),
             "to_number": recipient_e164,
             "awaiting_start": True,
             "current_step": int(session.current_step or 0),

@@ -16,14 +16,16 @@ logger = logging.getLogger(__name__)
 TRACE_ID_CONFIG_KEY = "survey_test_trace_id"
 TRACE_ID_RESULT_KEY = "survey_test_trace_id"
 
-# Run on VPS after Step 5 send-test and after tapping Start (replace phone suffix):
+# Run on VPS immediately after Step 5 send-test (replace phone suffix, e.g. 7954823445):
 SURVEY_TEST_DEBUG_SQL = """
 SELECT
   o.id AS order_id,
   r.id AS recipient_id,
   r.phone,
   r.status AS recipient_status,
-  r.result_json,
+  LEFT(r.result_json, 500) AS result_json_preview,
+  JSON_UNQUOTE(JSON_EXTRACT(r.result_json, '$.survey_test_trace_id')) AS trace_id,
+  JSON_UNQUOTE(JSON_EXTRACT(r.result_json, '$.survey_session_id')) AS result_session_id,
   s.id AS session_id,
   s.status AS session_status,
   s.current_step,
@@ -33,7 +35,7 @@ SELECT
 FROM service_order_recipients r
 JOIN service_orders o ON o.id = r.order_id
 LEFT JOIN survey_sessions s ON s.recipient_id = r.id
-WHERE REPLACE(REPLACE(r.phone, '+', ''), ' ', '') LIKE CONCAT('%', REPLACE(:phone_digits, '+', ''), '%')
+WHERE REPLACE(REPLACE(r.phone, '+', ''), ' ', '') LIKE CONCAT('%', :phone_digits, '%')
 ORDER BY s.updated_at DESC, r.updated_at DESC
 LIMIT 10;
 """.strip()

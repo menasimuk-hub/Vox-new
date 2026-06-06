@@ -1317,6 +1317,34 @@ def _send_message(
     return bool(result.ok)
 
 
+def _log_opening_session(
+    event: str,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+    session: SurveySession | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    awaiting = (
+        SurveySessionService.flow_snapshot_awaiting_start(session) if session is not None else None
+    )
+    logger.info(
+        "survey_opening_session_%s order_id=%s recipient_id=%s session_id=%s session_status=%s "
+        "current_step=%s flow_mode=%s awaiting_start=%s trace_id=%s extra=%s",
+        event,
+        order.id,
+        recipient.id,
+        session.id if session else None,
+        session.status if session else None,
+        int(session.current_step or 0) if session else None,
+        session.flow_mode if session else None,
+        awaiting,
+        resolve_trace_id(config=config, recipient=recipient),
+        extra or {},
+    )
+
+
 def send_survey_opening(
     db: Session,
     *,
@@ -1341,13 +1369,38 @@ def send_survey_opening(
     if builder_questions:
         total = len(builder_questions)
 
+    question_count = total or len(builder_questions)
+    if question_count < 1:
+        logger.error(
+            "%s opening_no_questions order=%s recipient=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+        )
+        _log_opening_session(
+            "missing",
+            order=order,
+            recipient=recipient,
+            config=config,
+            extra={"reason": "no_questions"},
+        )
+        return False
+
+    _log_opening_session(
+        "ensure_begin",
+        order=order,
+        recipient=recipient,
+        config=config,
+        extra={"question_count": question_count},
+    )
+
     try:
         session = SurveySessionService.ensure_awaiting_start_session(
             db,
             order=order,
             recipient=recipient,
             config=config,
-            question_count=total or len(builder_questions),
+            question_count=question_count,
         )
     except Exception as exc:
         logger.error(
@@ -1357,10 +1410,53 @@ def send_survey_opening(
             recipient.id,
             exc,
         )
+        _log_opening_session(
+            "missing",
+            order=order,
+            recipient=recipient,
+            config=config,
+            extra={"reason": "ensure_failed", "error": str(exc)},
+        )
         return False
+
+    db.refresh(session)
+    _log_opening_session(
+        "ensure_result",
+        order=order,
+        recipient=recipient,
+        config=config,
+        session=session,
+        extra={"ensure_called": True},
+    )
+
+    verified = SurveySessionService.get_active_by_recipient(db, recipient.id)
+    if verified is None or not verified.id:
+        _log_opening_session(
+            "missing",
+            order=order,
+            recipient=recipient,
+            config=config,
+            session=session,
+            extra={"reason": "not_active_after_ensure"},
+        )
+        return False
+
+    session = verified
+    db.refresh(session)
 
     payload_pre = SurveySessionService.attach_session_to_result(_recipient_result(recipient), session)
     _save_recipient_result(db, recipient, payload_pre)
+    db.refresh(session)
+
+    _log_opening_session(
+        "commit_ok",
+        order=order,
+        recipient=recipient,
+        config=config,
+        session=session,
+        extra={"recipient_status_before_welcome": recipient.status},
+    )
+
     logger.info(
         "%s awaiting_start_session_committed session_id=%s order=%s recipient=%s phone=%s step=0",
         LOG_PREFIX,
@@ -1410,6 +1506,25 @@ def send_survey_opening(
         config=config,
     )
     if not sent:
+        _log_opening_session(
+            "missing",
+            order=order,
+            recipient=recipient,
+            config=config,
+            session=session,
+            extra={"reason": "welcome_send_failed"},
+        )
+        return False
+
+    session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+    if session is None or not session.id:
+        _log_opening_session(
+            "missing",
+            order=order,
+            recipient=recipient,
+            config=config,
+            extra={"reason": "session_lost_after_welcome_send"},
+        )
         return False
 
     payload = _recipient_result(recipient)

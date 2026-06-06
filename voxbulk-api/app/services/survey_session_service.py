@@ -22,6 +22,19 @@ PICKER_DETERMINISTIC = "deterministic"
 SESSION_ACTIVE = "active"
 SESSION_COMPLETED = "completed"
 
+
+class SurveySessionPersistenceError(ValueError):
+    """Raised when an awaiting-start session row is missing or invalid after Step 5 opening."""
+
+
+def _parse_flow_snapshot(session: SurveySession) -> dict[str, Any]:
+    try:
+        raw = json.loads(session.flow_snapshot_json or "{}")
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
 DECISION_START = "start_session"
 DECISION_AWAITING_START = "awaiting_start"
 DECISION_SEND_QUESTION = "send_question"
@@ -84,9 +97,74 @@ def build_node_key(step_role: str, step_index: int) -> str:
 class SurveySessionService:
     @staticmethod
     def get_by_recipient(db: Session, recipient_id: str) -> SurveySession | None:
-        return db.execute(
-            select(SurveySession).where(SurveySession.recipient_id == recipient_id)
-        ).scalar_one_or_none()
+        rows = list(
+            db.execute(
+                select(SurveySession)
+                .where(SurveySession.recipient_id == recipient_id)
+                .order_by(SurveySession.updated_at.desc())
+            ).scalars()
+        )
+        if len(rows) > 1:
+            logger.error(
+                "duplicate survey_sessions recipient_id=%s session_ids=%s — using newest",
+                recipient_id,
+                [row.id for row in rows],
+            )
+        return rows[0] if rows else None
+
+    @staticmethod
+    def flow_snapshot_awaiting_start(session: SurveySession) -> bool:
+        return bool(_parse_flow_snapshot(session).get("awaiting_start"))
+
+    @staticmethod
+    def verify_active_awaiting_start(
+        db: Session,
+        recipient_id: str,
+        *,
+        order_id: str | None = None,
+        trace_id: str | None = None,
+    ) -> SurveySession:
+        """Hard check that DB has an active step-0 awaiting-start session for this recipient."""
+        db.expire_all()
+        session = SurveySessionService.get_active_by_recipient(db, recipient_id)
+        if session is None:
+            row = SurveySessionService.get_by_recipient(db, recipient_id)
+            reason = "no_session_row"
+            if row is not None:
+                reason = f"session_status={row.status!r}"
+            logger.error(
+                "survey_test_session_missing_after_opening order_id=%s recipient_id=%s "
+                "reason=%s trace_id=%s",
+                order_id,
+                recipient_id,
+                reason,
+                trace_id,
+            )
+            raise SurveySessionPersistenceError(
+                f"Survey test session missing after opening send (recipient={recipient_id}, {reason})"
+            )
+        if int(session.current_step or 0) != 0:
+            logger.error(
+                "survey_test_session_missing_after_opening order_id=%s recipient_id=%s "
+                "reason=wrong_step current_step=%s trace_id=%s",
+                order_id,
+                recipient_id,
+                session.current_step,
+                trace_id,
+            )
+            raise SurveySessionPersistenceError(
+                f"Survey test session not at step 0 (current_step={session.current_step})"
+            )
+        if not SurveySessionService.flow_snapshot_awaiting_start(session):
+            logger.error(
+                "survey_test_session_missing_after_opening order_id=%s recipient_id=%s "
+                "reason=awaiting_start_false trace_id=%s",
+                order_id,
+                recipient_id,
+                trace_id,
+            )
+            raise SurveySessionPersistenceError("Survey test session is not awaiting_start")
+        return session
 
     @staticmethod
     def get_active_by_recipient(db: Session, recipient_id: str) -> SurveySession | None:

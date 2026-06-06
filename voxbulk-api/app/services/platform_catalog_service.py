@@ -251,10 +251,30 @@ class PlatformCatalogService:
     @staticmethod
     def ensure_defaults(db: Session) -> None:
         for svc in PlatformCatalogService.DEFAULT_SERVICES:
-            row = db.execute(select(PlatformService).where(PlatformService.code == svc["code"])).scalar_one_or_none()
-            if row is None:
+            code = str(svc["code"])
+            rows = list(
+                db.execute(
+                    select(PlatformService)
+                    .where(PlatformService.code == code)
+                    .order_by(PlatformService.created_at.asc(), PlatformService.id.asc())
+                ).scalars()
+            )
+            if len(rows) > 1:
+                logger.error(
+                    "duplicate PlatformService code=%s ids=%s — deactivating extras, keeping id=%s",
+                    code,
+                    [row.id for row in rows],
+                    rows[0].id,
+                )
+                row = rows[0]
+                for dup in rows[1:]:
+                    dup.is_active = False
+                    db.add(dup)
+            elif len(rows) == 1:
+                row = rows[0]
+            else:
                 row = PlatformService(
-                    code=svc["code"],
+                    code=code,
                     name=svc["name"],
                     description=svc["description"],
                     service_kind=svc["service_kind"],
@@ -280,7 +300,7 @@ class PlatformCatalogService:
                 else:
                     stmt = stmt.where(ServicePricingRule.label == label)
 
-                existing = db.execute(stmt).scalar_one_or_none()
+                existing = db.execute(stmt.limit(1)).scalars().first()
                 if existing is not None:
                     continue
 
