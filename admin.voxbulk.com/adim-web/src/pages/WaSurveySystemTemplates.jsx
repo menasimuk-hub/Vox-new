@@ -29,8 +29,9 @@ function formatWhen(iso) {
   }
 }
 
-function draftBody(tpl) {
-  return String(tpl?.body || tpl?.body_text || tpl?.body_preview || '').trim() || 'No body text yet'
+function draftBody(tpl, raw) {
+  const source = tpl && typeof tpl === 'object' ? tpl : raw
+  return String(source?.body || source?.body_text || source?.body_preview || '').trim() || 'No body text yet'
 }
 
 function draftFooter(tpl) {
@@ -122,12 +123,14 @@ export default function WaSurveySystemTemplates() {
   const mergedGenTemplates = useMemo(() => {
     if (!genResult?.templates) return []
     return genResult.templates.map((row, idx) => {
-      const base = row?.template && typeof row.template === 'object' ? row.template : {}
+      const raw = row?.raw && typeof row.raw === 'object' ? row.raw : {}
+      const base = row?.template && typeof row.template === 'object' ? row.template : raw
       const edits = genDraftEdits[idx] || {}
       return {
         idx,
         valid: Boolean(row.valid),
         errors: row.errors || [],
+        raw,
         template: { ...base, ...edits },
       }
     })
@@ -451,7 +454,7 @@ export default function WaSurveySystemTemplates() {
           <div className="cardBody waSurveyGenDraftArea" style={{ borderTop: '1px solid var(--line)' }}>
             <p className="formSectionTitle">Generated drafts — not saved until you click Save template</p>
             <div className="waSurveyGenDraftList">
-              {mergedGenTemplates.map(({ idx, valid, errors, template }) => (
+              {mergedGenTemplates.map(({ idx, valid, errors, raw, template }) => (
                 <article key={idx} className={`waSurveyGenDraftCard${valid ? '' : ' waSurveyGenDraftCardInvalid'}`}>
                   <div className="waSurveyGenDraftHead">
                     <strong>{template.title || template.template_name || `Draft ${idx + 1}`}</strong>
@@ -463,7 +466,7 @@ export default function WaSurveySystemTemplates() {
                   </div>
                   <label className="field" style={{ marginBottom: 8 }}>
                     <span>Body</span>
-                    <textarea className="input waSurveyGenDraftBody" readOnly value={draftBody(template)} />
+                    <textarea className="input waSurveyGenDraftBody" readOnly value={draftBody(template, raw)} />
                   </label>
                   {draftFooter(template) ? (
                     <p className="fieldHint">Footer: {draftFooter(template)}</p>
@@ -482,7 +485,7 @@ export default function WaSurveySystemTemplates() {
                       Select
                     </label>
                     <button type="button" className="btn sm soft" onClick={() => openViewGenerated(idx)}>View</button>
-                    <button type="button" className="btn sm" disabled={!valid} onClick={() => openEditGenerated(idx)}>Edit</button>
+                    <button type="button" className="btn sm" onClick={() => openEditGenerated(idx)}>Edit</button>
                     <button
                       type="button"
                       className="btn sm primary"

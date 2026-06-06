@@ -28,6 +28,10 @@ from app.services.survey_wa_template_pack_service import (
     SurveyWaTemplatePackService,
     _build_pack_item_row,
     _meta_compliance_rules_block,
+    _NAME_RE,
+    _normalize_button_type,
+    _normalize_category,
+    _slug_token,
     assert_openai_strict_json_schema,
     build_system_template_json_schema,
 )
@@ -140,6 +144,115 @@ def _default_components_for_kind(kind: str) -> list[dict[str, Any]]:
         },
         {"type": "FOOTER", "text": "Reply STOP to opt out"},
     ]
+
+
+def _system_template_seed(*, kind: str, idx: int) -> dict[str, Any]:
+    """Sensible defaults when OpenAI returns incomplete system-template drafts."""
+    step_role = _step_role_for_kind(kind)
+    if kind == "welcome":
+        body = (
+            "Hi {{1}}, we'd love your feedback. "
+            "Tap below to start a short survey — it only takes a minute."
+        )
+        seed = {
+            "template_name": f"welcome_variant_{idx + 1}",
+            "title": f"Welcome variant {idx + 1}",
+            "body": body,
+            "button_type": "quick_reply",
+            "buttons": [{"text": "Start survey", "url": "", "phone_number": ""}],
+            "example_values": ["Alex"],
+            "step_role": step_role,
+            "purpose": "welcome",
+            "outcome_key": None,
+        }
+    elif kind == "thank_you":
+        body = "Thank you {{1}} for sharing your feedback. We really appreciate your time."
+        seed = {
+            "template_name": f"thank_you_variant_{idx + 1}",
+            "title": f"Thank you variant {idx + 1}",
+            "body": body,
+            "button_type": "none",
+            "buttons": [],
+            "example_values": ["Alex"],
+            "step_role": step_role,
+            "purpose": "thank_you",
+            "outcome_key": "neutral",
+        }
+    else:
+        body = (
+            "We're sorry to hear that. Could you tell us a bit more about what went wrong? "
+            "Your reply helps us improve."
+        )
+        seed = {
+            "template_name": f"tell_us_more_variant_{idx + 1}",
+            "title": f"Tell us more variant {idx + 1}",
+            "body": body,
+            "button_type": "none",
+            "buttons": [],
+            "example_values": ["there"],
+            "step_role": step_role,
+            "purpose": "tell_us_more",
+            "outcome_key": None,
+        }
+
+    seed["header"] = ""
+    seed["footer"] = "Reply STOP to opt out"
+    seed["language"] = "en_US"
+    seed["category"] = "MARKETING"
+    seed["variant_type"] = "standard"
+    seed["privacy_mode"] = PRIVACY_MODE_OFF
+
+    name = _slug_token(seed["template_name"], fallback="")
+    if not name or not _NAME_RE.match(name):
+        seed["template_name"] = _slug_token(f"{kind}_{idx + 1}", fallback=f"{kind}_tpl")
+    if _normalize_button_type(seed.get("button_type")) == "none" and kind == "welcome":
+        seed["button_type"] = "quick_reply"
+        seed["buttons"] = [{"text": "Start survey", "url": "", "phone_number": ""}]
+    seed["category"] = _normalize_category(seed.get("category"))
+    return seed
+
+
+def normalize_system_generated_item(
+    item: dict[str, Any],
+    *,
+    kind: str,
+    idx: int,
+) -> dict[str, Any]:
+    """Merge OpenAI output with Meta-safe defaults so admin drafts are viewable and savable."""
+    kind = normalize_system_template_kind(kind)
+    seed = _system_template_seed(kind=kind, idx=idx)
+    merged: dict[str, Any] = {**seed}
+    for key, value in item.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip() and key not in {"header", "outcome_key"}:
+            continue
+        merged[key] = value
+
+    body = str(merged.get("body") or "").strip()
+    if not body:
+        merged["body"] = seed["body"]
+
+    name = _slug_token(merged.get("template_name"), fallback="")
+    if not name or not _NAME_RE.match(name):
+        merged["template_name"] = seed["template_name"]
+
+    if not str(merged.get("title") or "").strip():
+        merged["title"] = seed["title"]
+
+    merged["step_role"] = _step_role_for_kind(kind)
+    merged["variant_type"] = "standard"
+    merged["privacy_mode"] = PRIVACY_MODE_OFF
+    if kind == "thank_you":
+        merged["outcome_key"] = "neutral"
+        merged["button_type"] = merged.get("button_type") or "none"
+        merged["buttons"] = merged.get("buttons") if isinstance(merged.get("buttons"), list) else []
+    elif kind == "welcome" and str(merged.get("button_type") or "none").strip().lower() == "none":
+        merged["button_type"] = "quick_reply"
+        if not merged.get("buttons"):
+            merged["buttons"] = seed["buttons"]
+
+    return merged
 
 
 class SurveySystemTemplateService:
@@ -612,6 +725,7 @@ class SurveySystemTemplateService:
         for idx, item in enumerate(items):
             if not isinstance(item, dict):
                 continue
+            item = normalize_system_generated_item(item, kind=kind, idx=idx)
             item = {
                 **item,
                 "step_role": _step_role_for_kind(kind),

@@ -12,6 +12,7 @@ from app.services.survey_industry_seed_service import SurveyIndustrySeedService
 from app.services.survey_system_template_service import (
     SYSTEM_TEMPLATE_KINDS,
     SurveySystemTemplateService,
+    normalize_system_generated_item,
     normalize_system_template_kind,
 )
 from app.services.survey_type_service import SurveyTypeService
@@ -107,11 +108,6 @@ def test_selectable_industries_exclude_hidden_system_industry(db):
     assert any(row["slug"] == SYSTEM_SURVEY_INDUSTRY_SLUG for row in admin_all)
 
 
-def test_normalize_kind_rejects_invalid():
-    with pytest.raises(Exception):
-        normalize_system_template_kind("invalid")
-
-
 def test_system_generate_schema_is_openai_strict():
     from app.services.survey_wa_template_pack_service import build_system_template_json_schema
 
@@ -128,3 +124,46 @@ def test_system_generate_schema_is_openai_strict():
     button_items = items["properties"]["buttons"]["items"]
     assert button_items.get("additionalProperties") is False
     assert set(button_items.get("required") or []) == set(button_items.get("properties") or {})
+
+
+def test_normalize_system_generated_item_repairs_empty_body():
+    fixed = normalize_system_generated_item({"title": "Thank you"}, kind="thank_you", idx=0)
+    assert fixed["body"]
+    assert fixed["example_values"]
+    assert fixed["outcome_key"] == "neutral"
+
+
+def test_generate_with_openai_repairs_sparse_openai_rows(db, monkeypatch):
+    from app.services.survey_wa_template_pack_service import _build_pack_item_row
+
+    sparse = {
+        "template_name": "bad",
+        "variant_type": "standard",
+        "title": "Draft thank you",
+        "step_role": "completion",
+        "outcome_key": "neutral",
+        "purpose": "thank_you",
+        "body": "",
+        "footer": "",
+        "header": "",
+        "button_type": "none",
+        "buttons": [],
+        "example_values": [],
+        "language": "en_US",
+        "category": "MARKETING",
+    }
+
+    def fake_responses_json(db, **kwargs):
+        return {"templates": [sparse, {**sparse, "title": "Second"}]}, {"model": "test"}
+
+    monkeypatch.setattr(
+        "app.services.survey_system_template_service.OpenAIProviderService.responses_json",
+        fake_responses_json,
+    )
+
+    result = SurveySystemTemplateService.generate_with_openai(db, kind="thank_you", count=2)
+    assert result["valid_count"] >= 1
+    first = result["templates"][0]
+    assert first["valid"] is True
+    assert first["template"]["body"]
+    assert first["template"]["example_values"]

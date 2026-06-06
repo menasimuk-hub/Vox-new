@@ -360,7 +360,27 @@ def coerce_meta_template_fields(
         cleaned_buttons = []
     out["buttons"] = cleaned_buttons
     out["button_type"] = button_type
+    _fill_example_values(out)
     return out
+
+
+def _fill_example_values(out: dict[str, Any]) -> None:
+    """Ensure Meta sample values exist for validation and preview."""
+    examples = [str(v) for v in (out.get("example_values") or []) if str(v).strip()]
+    header = str(out.get("header") or "").strip()
+    body = str(out.get("body") or "").strip()
+    var_ids = _var_re_from_text(f"{header} {body}")
+    if not examples:
+        if var_ids:
+            examples = ["Alex" if vid == 1 else "Sample" for vid in range(1, max(var_ids) + 1)]
+        else:
+            examples = ["Alex"]
+    elif var_ids and len(examples) < max(var_ids):
+        padded = list(examples)
+        while len(padded) < max(var_ids):
+            padded.append("Sample")
+        examples = padded
+    out["example_values"] = examples
 
 
 OUTCOME_COMPLETION_KEYS = ("happy", "neutral", "unhappy")
