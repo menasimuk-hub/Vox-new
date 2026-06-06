@@ -1,6 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatWaSurveyError } from '../lib/waSurveyFeedback'
+
+function statusTone(label) {
+  if (label === 'Ready') return 'ok'
+  if (label === 'Pending approval') return 'warn'
+  return 'muted'
+}
+
+function formatWhen(iso) {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleString()
+  } catch {
+    return iso
+  }
+}
 
 export default function WaSurveyIndustrySection() {
   const [kpis, setKpis] = useState(null)
@@ -11,6 +27,12 @@ export default function WaSurveyIndustrySection() {
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
   const [modal, setModal] = useState(null)
+  const [modalSurveyTypes, setModalSurveyTypes] = useState([])
+  const [modalTypesLoading, setModalTypesLoading] = useState(false)
+  const [modalTypesError, setModalTypesError] = useState('')
+  const [newTypeName, setNewTypeName] = useState('')
+  const [newTypeDescription, setNewTypeDescription] = useState('')
+  const [creatingType, setCreatingType] = useState(false)
   const [deleteModal, setDeleteModal] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
 
@@ -35,7 +57,38 @@ export default function WaSurveyIndustrySection() {
     void load()
   }, [load])
 
+  const loadModalSurveyTypes = useCallback(async (industryId) => {
+    const id = String(industryId || '').trim()
+    if (!id) {
+      setModalSurveyTypes([])
+      return
+    }
+    setModalTypesLoading(true)
+    setModalTypesError('')
+    try {
+      const data = await apiFetch(`/admin/wa-survey/types?industry_id=${encodeURIComponent(id)}`)
+      setModalSurveyTypes(Array.isArray(data?.types) ? data.types : [])
+    } catch (e) {
+      setModalSurveyTypes([])
+      setModalTypesError(formatWaSurveyError(e, 'Could not load survey types').message)
+    } finally {
+      setModalTypesLoading(false)
+    }
+  }, [])
+
+  const closeModal = () => {
+    setModal(null)
+    setModalSurveyTypes([])
+    setModalTypesError('')
+    setNewTypeName('')
+    setNewTypeDescription('')
+  }
+
   const openCreate = () => {
+    setModalSurveyTypes([])
+    setModalTypesError('')
+    setNewTypeName('')
+    setNewTypeDescription('')
     setModal({
       mode: 'create',
       name: '',
@@ -47,6 +100,10 @@ export default function WaSurveyIndustrySection() {
   }
 
   const openEdit = (row) => {
+    setModalSurveyTypes([])
+    setModalTypesError('')
+    setNewTypeName('')
+    setNewTypeDescription('')
     setModal({
       mode: 'edit',
       id: row.id,
@@ -59,6 +116,32 @@ export default function WaSurveyIndustrySection() {
       survey_type_count: row.survey_type_count || 0,
       template_count: row.template_count || 0,
     })
+    void loadModalSurveyTypes(row.id)
+  }
+
+  const createSurveyType = async (e) => {
+    e.preventDefault()
+    if (!modal?.id || !newTypeName.trim()) return
+    setCreatingType(true)
+    setModalTypesError('')
+    try {
+      await apiFetch('/admin/wa-survey/types', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newTypeName.trim(),
+          description: newTypeDescription.trim() || undefined,
+          industry_id: modal.id,
+        }),
+      })
+      setNewTypeName('')
+      setNewTypeDescription('')
+      await loadModalSurveyTypes(modal.id)
+      await load()
+    } catch (err) {
+      setModalTypesError(formatWaSurveyError(err, 'Could not create survey type').message)
+    } finally {
+      setCreatingType(false)
+    }
   }
 
   const saveModal = async (e) => {
@@ -88,7 +171,7 @@ export default function WaSurveyIndustrySection() {
         })
         setMsg('Industry updated.')
       }
-      setModal(null)
+      closeModal()
       await load()
     } catch (err) {
       setError(formatWaSurveyError(err, 'Could not save industry').message)
@@ -122,7 +205,7 @@ export default function WaSurveyIndustrySection() {
           : `Industry “${row.name}” deleted permanently.${telnyxNote}`,
       )
       setDeleteModal(null)
-      if (modal?.id === row.id) setModal(null)
+      if (modal?.id === row.id) closeModal()
       await load()
     } catch (err) {
       setError(formatWaSurveyError(err, 'Could not delete industry').message)
@@ -264,9 +347,9 @@ export default function WaSurveyIndustrySection() {
       </section>
 
       {modal ? (
-        <div className="modalOverlay" role="presentation" onClick={() => setModal(null)}>
+        <div className="modalOverlay" role="presentation" onClick={closeModal}>
           <form
-            className="leadModal"
+            className={`leadModal${modal.mode === 'edit' ? ' waIndustryEditModal' : ''}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="waIndustryModalTitle"
@@ -274,59 +357,148 @@ export default function WaSurveyIndustrySection() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="leadModalHead">
-              <h3 id="waIndustryModalTitle">{modal.mode === 'create' ? 'Add industry' : 'Edit industry'}</h3>
-              <button type="button" className="btn soft" onClick={() => setModal(null)} aria-label="Close">×</button>
+              <h3 id="waIndustryModalTitle">{modal.mode === 'create' ? 'Add industry' : `Edit industry — ${modal.name}`}</h3>
+              <button type="button" className="btn soft" onClick={closeModal} aria-label="Close">×</button>
             </div>
-            <div className="leadModalBody grid2">
-              <label className="field">
-                <span>Name</span>
-                <input className="input" value={modal.name} onChange={(e) => setModal({ ...modal, name: e.target.value })} required />
-              </label>
-              <label className="field">
-                <span>Slug</span>
-                <input
-                  className="input"
-                  value={modal.slug}
-                  onChange={(e) => setModal({ ...modal, slug: e.target.value })}
-                  placeholder="Auto-generated from name if empty"
-                />
-              </label>
-              <label className="field">
-                <span>Sort order</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  max={9999}
-                  value={modal.sort_order}
-                  onChange={(e) => setModal({ ...modal, sort_order: e.target.value })}
-                />
-              </label>
-              <label className="field">
-                <span>Status</span>
-                <select
-                  className="input"
-                  value={modal.is_active ? 'active' : 'inactive'}
-                  onChange={(e) => setModal({ ...modal, is_active: e.target.value === 'active' })}
-                  disabled={modal.is_hidden}
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </label>
-              <label className="field" style={{ gridColumn: '1 / -1' }}>
-                <span>Description</span>
-                <input
-                  className="input"
-                  value={modal.description}
-                  onChange={(e) => setModal({ ...modal, description: e.target.value })}
-                  placeholder="Optional"
-                />
-              </label>
+            <div className="leadModalBody">
+              <div className="grid2">
+                <label className="field">
+                  <span>Name</span>
+                  <input className="input" value={modal.name} onChange={(e) => setModal({ ...modal, name: e.target.value })} required />
+                </label>
+                <label className="field">
+                  <span>Slug</span>
+                  <input
+                    className="input"
+                    value={modal.slug}
+                    onChange={(e) => setModal({ ...modal, slug: e.target.value })}
+                    placeholder="Auto-generated from name if empty"
+                  />
+                </label>
+                <label className="field">
+                  <span>Sort order</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={9999}
+                    value={modal.sort_order}
+                    onChange={(e) => setModal({ ...modal, sort_order: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>Status</span>
+                  <select
+                    className="input"
+                    value={modal.is_active ? 'active' : 'inactive'}
+                    onChange={(e) => setModal({ ...modal, is_active: e.target.value === 'active' })}
+                    disabled={modal.is_hidden}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </label>
+                <label className="field" style={{ gridColumn: '1 / -1' }}>
+                  <span>Description</span>
+                  <input
+                    className="input"
+                    value={modal.description}
+                    onChange={(e) => setModal({ ...modal, description: e.target.value })}
+                    placeholder="Optional"
+                  />
+                </label>
+              </div>
+
               {modal.mode === 'edit' ? (
-                <p className="muted" style={{ gridColumn: '1 / -1', margin: 0 }}>
-                  {modal.survey_type_count ?? 0} survey type(s) · {modal.template_count ?? 0} template(s) linked.
-                </p>
+                <section className="waIndustrySurveyTypesSection">
+                  <div className="waIndustrySurveyTypesHead">
+                    <h4>Survey types in this industry</h4>
+                    <span className="muted">
+                      {modalTypesLoading ? 'Loading…' : `${modalSurveyTypes.length} type(s)`}
+                    </span>
+                  </div>
+
+                  {modalTypesError ? (
+                    <div className="alert error" style={{ marginBottom: 12 }}>
+                      <strong>{modalTypesError}</strong>
+                    </div>
+                  ) : null}
+
+                  <div className="tableWrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Survey type</th>
+                          <th>Active</th>
+                          <th>Standard</th>
+                          <th>Anonymous</th>
+                          <th>Last synced</th>
+                          <th>Status</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {modalTypesLoading ? (
+                          <tr>
+                            <td colSpan={7} className="muted">Loading survey types…</td>
+                          </tr>
+                        ) : modalSurveyTypes.length ? modalSurveyTypes.map((type) => (
+                          <tr key={type.id}>
+                            <td>
+                              <strong>{type.name}</strong>
+                              {type.description ? <div className="muted">{type.description}</div> : null}
+                              <div className="muted"><code>{type.slug}</code></div>
+                            </td>
+                            <td>{type.is_active ? 'Yes' : 'No'}</td>
+                            <td>{type.standard_template_count || 0}</td>
+                            <td>{type.anonymous_template_count || 0}</td>
+                            <td>{formatWhen(type.last_synced_at)}</td>
+                            <td>
+                              <span className={`pill ${statusTone(type.status_label)}`}>
+                                {type.status_label || '—'}
+                              </span>
+                            </td>
+                            <td>
+                              <Link className="btn sm" to={`/settings/wa-survey/${type.id}`} onClick={closeModal}>
+                                Open
+                              </Link>
+                            </td>
+                          </tr>
+                        )) : (
+                          <tr>
+                            <td colSpan={7} className="muted">No survey types in this industry yet.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {!modal.is_hidden ? (
+                    <form className="waIndustryAddTypeForm" onSubmit={createSurveyType}>
+                      <label className="field">
+                        <span>Add survey type</span>
+                        <input
+                          className="input"
+                          value={newTypeName}
+                          onChange={(e) => setNewTypeName(e.target.value)}
+                          placeholder="e.g. Post-visit feedback"
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Description</span>
+                        <input
+                          className="input"
+                          value={newTypeDescription}
+                          onChange={(e) => setNewTypeDescription(e.target.value)}
+                          placeholder="Optional"
+                        />
+                      </label>
+                      <button type="submit" className="btn sm primary" disabled={creatingType || !newTypeName.trim()}>
+                        {creatingType ? 'Creating…' : 'Add survey type'}
+                      </button>
+                    </form>
+                  ) : null}
+                </section>
               ) : null}
             </div>
             <div className="leadModalFoot" style={{ display: 'flex', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
@@ -348,9 +520,9 @@ export default function WaSurveyIndustrySection() {
                 <span />
               )}
               <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
-                <button type="button" className="btn ghost" onClick={() => setModal(null)}>Cancel</button>
+                <button type="button" className="btn ghost" onClick={closeModal}>Cancel</button>
                 <button type="submit" className="btn primary" disabled={saving}>
-                  {saving ? 'Saving…' : 'Save'}
+                  {saving ? 'Saving…' : 'Save industry'}
                 </button>
               </div>
             </div>

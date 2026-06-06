@@ -2035,6 +2035,43 @@ textarea.input{
   font-weight:700;
 }
 
+.waIndustryEditModal{
+  width:min(980px,96vw);
+}
+
+.waIndustrySurveyTypesSection{
+  margin-top:18px;
+  padding-top:18px;
+  border-top:1px solid var(--line);
+}
+
+.waIndustrySurveyTypesHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:12px;
+}
+
+.waIndustrySurveyTypesHead h4{
+  margin:0;
+  font-size:15px;
+}
+
+.waIndustryAddTypeForm{
+  display:grid;
+  grid-template-columns:1fr 1fr auto;
+  gap:10px;
+  align-items:end;
+  margin-top:14px;
+}
+
+@media (max-width:760px){
+  .waIndustryAddTypeForm{
+    grid-template-columns:1fr;
+  }
+}
+
 .agentsPanel{
   background:var(--s1);
   border:1px solid var(--line);
