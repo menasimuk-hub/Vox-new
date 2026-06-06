@@ -13,7 +13,11 @@ from app.services.survey_wa_bulk_library_template_service import (
     DEFAULT_LIBRARY_STEP_ROLE,
     SurveyWaBulkLibraryTemplateService,
 )
-from app.services.survey_wa_template_pack_service import SurveyWaTemplatePackService
+from app.services.survey_wa_template_pack_service import (
+    SurveyWaTemplatePackService,
+    normalize_library_middle_template,
+    validate_library_middle_step_copy,
+)
 from app.services.survey_whatsapp_template_service import VARIANT_STANDARD
 
 
@@ -56,12 +60,16 @@ def _rating_template_payload(*, name: str = "food_quality_rating"):
         "step_role": "rating",
         "outcome_key": None,
         "purpose": "food quality",
-        "body": "Hi {{1}} 👋 How would you rate the food quality from your recent visit?",
+        "body": "How was the food quality on your visit? ⭐",
         "footer": "Reply STOP to opt out",
         "header": "",
-        "button_type": "none",
-        "buttons": [],
-        "example_values": ["Alex"],
+        "button_type": "quick_reply",
+        "buttons": [
+            {"text": "Poor", "url": "", "phone_number": ""},
+            {"text": "Okay", "url": "", "phone_number": ""},
+            {"text": "Excellent", "url": "", "phone_number": ""},
+        ],
+        "example_values": ["Sample"],
         "language": "en_US",
         "category": "MARKETING",
     }
@@ -126,8 +134,34 @@ def test_bulk_creates_local_draft(mock_openai, db):
     assert str(tpl.status).upper() == "LOCAL_DRAFT"
     assert tpl.survey_type_id == target.survey_type.id
     assert tpl.industry_id == target.industry.id
+    assert tpl.step_role == "rating"
+    body = str(tpl.body_preview or "")
+    assert "{{1}}" not in body
+    assert "thanks for booking" not in body.lower()
     mappings = SurveyTypeTemplateService.list_for_survey_type(db, target.survey_type.id)
     assert any(m.template_id == tpl.id for m in mappings)
+
+
+def test_normalize_library_middle_strips_greeting_and_forces_rating_buttons():
+    raw = _rating_template_payload()
+    raw["body"] = "Hi {{1}}, thanks for booking with us. How would you rate your booking experience, from 1 to 5?"
+    normalized = normalize_library_middle_template(raw, step_role="rating")
+    assert "{{1}}" not in normalized["body"]
+    assert "thanks for booking" not in normalized["body"].lower()
+    assert normalized["button_type"] == "quick_reply"
+    assert len(normalized["buttons"]) == 3
+    assert not validate_library_middle_step_copy(
+        body=normalized["body"],
+        step_role="rating",
+    )
+
+
+def test_validate_library_middle_rejects_opening_copy():
+    errors = validate_library_middle_step_copy(
+        body="Hi {{1}}, thanks for booking with us. Rate your visit from 1 to 5?",
+        step_role="rating",
+    )
+    assert errors
 
 
 @patch("app.services.survey_wa_template_pack_service.OpenAIProviderService.responses_json")

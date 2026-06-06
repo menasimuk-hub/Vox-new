@@ -179,7 +179,7 @@ class SurveyWaBulkLibraryTemplateService:
             survey_type=survey_type,
             step_role=role,
             purpose=str(survey_type.name or "").strip(),
-            instruction=instruction,
+            instruction=instruction.strip(),
             privacy_mode=PRIVACY_MODE_OFF,
             industry_id=industry.id,
         )

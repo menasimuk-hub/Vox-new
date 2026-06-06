@@ -3,7 +3,8 @@
 
 Generates middle-step templates only (default step_role=rating). Does NOT generate
 welcome, thank_you, tell_us_more, start, or completion templates — those belong to
-Global System Templates.
+Global System Templates. Middle steps must not greet or say "thanks for booking".
+Rating uses 3 quick_reply buttons (Meta max 3), not free-text 1–5 replies.
 
 Saved templates are LOCAL_DRAFT in the DB under the correct survey type. No Telnyx sync.
 

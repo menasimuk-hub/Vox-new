@@ -63,6 +63,164 @@ from app.services.survey_whatsapp_template_service import (
 _FOOTER_URL_RE = re.compile(r"https?://", re.I)
 _FOOTER_VAR_RE = re.compile(r"\{\{\d+\}\}")
 
+# Middle library templates — welcome is sent separately via Global System Templates.
+_LIBRARY_MIDDLE_VAR_RE = re.compile(r"\{\{\d+\}\}")
+_LIBRARY_GREETING_PREFIX_RE = re.compile(
+    r"^(?:\s*(?:hi|hello|hey|dear)\s*(?:\{\{1\}\}|there|customer)?\s*[,!.:-]?\s*)+",
+    re.IGNORECASE,
+)
+_LIBRARY_OPENING_PHRASE_RE = re.compile(
+    r"\b("
+    r"thanks for booking|"
+    r"thank you for booking|"
+    r"thanks for (?:visiting|choosing|dining|contacting|your visit)|"
+    r"welcome to|"
+    r"we(?:'|’)d love (?:your|to hear)|"
+    r"before we (?:start|begin)|"
+    r"(?:this|a) (?:short|quick) survey|"
+    r"let(?:'|’)s (?:start|begin)"
+    r")\b",
+    re.IGNORECASE,
+)
+_LIBRARY_BUTTON_STEP_ROLES = frozenset({"rating", "yes_no", "helpfulness", "abc_choice", "feeling_word"})
+_LIBRARY_TEXT_ONLY_STEP_ROLES = frozenset({"reason", "follow_up", "improvement"})
+
+BULK_LIBRARY_MIDDLE_INSTRUCTION = (
+    "MIDDLE SURVEY STEP ONLY — the welcome/opening message was already sent from Global System Templates. "
+    "Do NOT greet again. Do NOT use Hi {{1}} or any name variable. Do NOT say thanks for booking/visiting. "
+    "Do NOT welcome the user or explain that a survey is starting. Ask one in-flow question only."
+)
+
+
+def library_template_button_defaults(step_role: str) -> tuple[str, list[dict[str, Any]]]:
+    """Meta-safe quick_reply defaults for bulk library middle steps (max 3 buttons)."""
+    role = normalize_step_role(step_role)
+    empty = {"url": "", "phone_number": ""}
+    if role == "rating":
+        return "quick_reply", [
+            {"text": "Poor", **empty},
+            {"text": "Okay", **empty},
+            {"text": "Excellent", **empty},
+        ]
+    if role == "yes_no":
+        return "quick_reply", [{"text": "Yes", **empty}, {"text": "No", **empty}]
+    if role == "helpfulness":
+        return "quick_reply", [
+            {"text": "Very helpful", **empty},
+            {"text": "Partly helpful", **empty},
+            {"text": "Not helpful", **empty},
+        ]
+    if role == "abc_choice":
+        return "quick_reply", [
+            {"text": "Option A", **empty},
+            {"text": "Option B", **empty},
+            {"text": "Option C", **empty},
+        ]
+    if role == "feeling_word":
+        return "quick_reply", [
+            {"text": "Great", **empty},
+            {"text": "Okay", **empty},
+            {"text": "Poor", **empty},
+        ]
+    return "none", []
+
+
+def validate_library_middle_step_copy(*, body: str, header: str = "", step_role: str = "") -> list[str]:
+    """Reject opening/welcome phrasing in bulk library middle-step templates."""
+    errors: list[str] = []
+    combined = f"{header} {body}".strip()
+    if not combined:
+        errors.append("body is required")
+        return errors
+    if _LIBRARY_MIDDLE_VAR_RE.search(combined):
+        errors.append("middle library templates must not use {{variables}} — welcome already personalises separately")
+    if _LIBRARY_GREETING_PREFIX_RE.match(body.strip()):
+        errors.append("middle library templates must not start with a greeting (Hi/Hello/Hey)")
+    if _LIBRARY_OPENING_PHRASE_RE.search(combined):
+        errors.append(
+            "middle library templates must not use opening/outreach copy (thanks for booking, welcome, survey intro)"
+        )
+    if re.search(r"\breply with (?:a )?(?:number|score|1)\b", combined, re.I):
+        errors.append("do not ask users to reply with a number — use quick_reply buttons when supported")
+    role = normalize_step_role(step_role)
+    if role in _LIBRARY_BUTTON_STEP_ROLES and re.search(r"\bfrom 1 to 5\b", combined, re.I):
+        errors.append("rating questions must use quick_reply buttons, not a 1–5 free-text prompt")
+    return errors
+
+
+def normalize_library_middle_template(item: dict[str, Any], *, step_role: str) -> dict[str, Any]:
+    """Coerce OpenAI output toward middle-step library shape (no greeting vars, role-aware buttons)."""
+    out = dict(item)
+    role = normalize_step_role(step_role or out.get("step_role") or "")
+    body = str(out.get("body") or "").strip()
+    header = str(out.get("header") or "").strip()
+
+    body = _LIBRARY_GREETING_PREFIX_RE.sub("", body).strip()
+    body = re.sub(
+        r"thanks for (?:booking|visiting|choosing|dining|contacting)[^.!?]*[.!?]\s*",
+        "",
+        body,
+        flags=re.IGNORECASE,
+    ).strip()
+    body = re.sub(r",?\s*from 1 to 5\??", "?", body, flags=re.IGNORECASE).strip()
+    body = re.sub(r"\breply with (?:a )?(?:number|score|rating)\b[^.?!]*[.?!]?\s*", "", body, flags=re.IGNORECASE).strip()
+    body = _LIBRARY_MIDDLE_VAR_RE.sub("", body)
+    body = re.sub(r"\s{2,}", " ", body).strip(" ,.;:-")
+
+    out["header"] = ""
+    out["body"] = body
+    out["example_values"] = ["Sample"]  # no variables in middle library copy
+
+    if role in _LIBRARY_BUTTON_STEP_ROLES:
+        button_type, buttons = library_template_button_defaults(role)
+        out["button_type"] = button_type
+        existing = out.get("buttons") if isinstance(out.get("buttons"), list) else []
+        labels = [
+            str(b.get("text") or "").strip()
+            for b in existing
+            if isinstance(b, dict) and str(b.get("text") or "").strip()
+        ]
+        if len(labels) >= 2:
+            out["buttons"] = existing[:META_QUICK_REPLY_MAX_BUTTONS]
+        else:
+            out["buttons"] = buttons
+    elif role in _LIBRARY_TEXT_ONLY_STEP_ROLES:
+        out["button_type"] = "none"
+        out["buttons"] = []
+
+    out["step_role"] = role
+    out["outcome_key"] = None
+    return out
+
+
+def _library_middle_step_copy_rules_block() -> str:
+    max_btn = META_QUICK_REPLY_MAX_BUTTONS
+    return (
+        "MIDDLE-STEP COPY (mandatory — NOT an opening template):\n"
+        "• The welcome/opening message is sent separately from Global System Templates.\n"
+        "• Do NOT start with Hi/Hello/Hey or use {{1}} / {{2}} / {{3}} anywhere.\n"
+        "• Do NOT say thanks for booking/visiting, welcome, or that a survey is starting.\n"
+        "• Do NOT repeat outreach/intro context — ask one in-flow question only.\n"
+        "• Keep the body short (often one sentence), professional, industry-specific.\n"
+        "• Light emoji allowed (0–2), e.g. ⭐ — never more than 2.\n\n"
+        "BUTTONS (Meta max 3 quick_reply buttons — never 4+):\n"
+        f"• rating — quick_reply with exactly 3 scale labels (e.g. Poor / Okay / Excellent). "
+        "Do NOT ask to reply with a number or use a 1–5 free-text prompt.\n"
+        "• yes_no — quick_reply: Yes / No (2 buttons).\n"
+        "• helpfulness — quick_reply: Very helpful / Partly helpful / Not helpful (3 buttons).\n"
+        "• abc_choice — quick_reply: 2–3 meaningful text labels (not A/B/C unless industry-appropriate).\n"
+        "• feeling_word — quick_reply: 2–3 feeling labels (e.g. Great / Okay / Poor).\n"
+        "• reason, follow_up, improvement — button_type none; short neutral question, no greeting.\n\n"
+        f"All quick_reply templates: 1–{max_btn} text-only buttons. Body invites a tap below.\n\n"
+        "GOOD middle-step examples:\n"
+        "• “How would you rate your booking experience? ⭐”\n"
+        "• “How was the food quality on your visit? ⭐”\n"
+        "• “Was the work explained clearly?” (yes_no with Yes/No buttons)\n\n"
+        "BAD (never generate):\n"
+        "• “Hi {{1}}, thanks for booking with us. How would you rate… from 1 to 5?”\n"
+    )
+
+
 PACK_SIZE = 12
 DEFAULT_PACK_COUNT = 5
 MIN_PACK_COUNT = 1
@@ -1090,24 +1248,29 @@ def _library_template_system_prompt(
         )
     role_rules = {
         "rating": (
-            "rating — ask for a score or overall rating on the survey topic; button_type none "
-            "(recipient replies in chat with a number or short rating)."
+            f"rating — quick_reply with exactly 3 text-only scale buttons (max {META_QUICK_REPLY_MAX_BUTTONS}; "
+            "e.g. Poor / Okay / Excellent). Body is one short question only — no greeting, no {{variables}}, "
+            "no 'reply with a number' or 1–5 scale in prose."
         ),
-        "yes_no": "yes_no — quick_reply with exactly 2 text-only buttons (e.g. Yes / No).",
-        "helpfulness": "helpfulness — button_type none or quick_reply with 2–3 helpfulness options.",
-        "abc_choice": "abc_choice — quick_reply with 2 or 3 text-only option buttons.",
-        "reason": "reason — open follow-up asking why or what stood out; button_type none.",
-        "feeling_word": "feeling_word — quick_reply with 2–3 feeling options or button_type none.",
-        "follow_up": "follow_up — short follow-up nudge; button_type none.",
-        "improvement": "improvement — ask what could be improved; button_type none.",
+        "yes_no": "yes_no — quick_reply with exactly 2 text-only buttons (Yes / No). No greeting.",
+        "helpfulness": (
+            "helpfulness — quick_reply with 3 text-only buttons "
+            "(Very helpful / Partly helpful / Not helpful). No greeting."
+        ),
+        "abc_choice": "abc_choice — quick_reply with 2 or 3 meaningful text-only option buttons. No greeting.",
+        "reason": "reason — button_type none; one short why/follow-up question. No greeting or intro.",
+        "feeling_word": "feeling_word — quick_reply with 2–3 feeling labels. No greeting.",
+        "follow_up": "follow_up — button_type none; short in-flow follow-up. No greeting.",
+        "improvement": "improvement — button_type none; ask what could improve. No greeting.",
     }
     return (
         "You are an expert WhatsApp Business template copywriter for VoxBulk customer satisfaction surveys. "
-        "Write exactly ONE reusable Meta/Telnyx-compatible middle-step template for the WA Survey template library. "
-        "British English. Warm, professional, mobile-first. Light tasteful emojis allowed in the body (max 2). "
-        "No URLs in body unless using {{3}} as a survey link placeholder — prefer no link variables for library questions. "
-        "No reference numbers, promo spam, or misleading claims.\n\n"
+        "Write exactly ONE reusable Meta/Telnyx-compatible MIDDLE-STEP template for the WA Survey template library. "
+        "This is NOT the welcome message — that is sent separately. "
+        "British English. Professional, natural, mobile-first. "
+        "No URLs in body. No reference numbers, promo spam, or misleading claims.\n\n"
         f"{_meta_compliance_rules_block(privacy_mode=privacy_mode)}"
+        f"{_library_middle_step_copy_rules_block()}"
         "LIBRARY TEMPLATE RULES (mandatory):\n"
         f"• step_role MUST be exactly “{role}”.\n"
         "• DO NOT generate welcome, thank_you, tell_us_more, start, or completion templates.\n"
@@ -1115,7 +1278,7 @@ def _library_template_system_prompt(
         "• variant_type standard (Privacy Mode Off) unless instruction says anonymous.\n"
         "• category MARKETING.\n"
         "• Copy must be clearly specific to the given industry AND survey type topic.\n"
-        "• One focused question — not a multi-topic survey pack.\n"
+        "• One focused in-flow question — not a multi-topic survey pack.\n"
         f"• Role behaviour: {role_rules.get(role, role_rules['rating'])}\n\n"
         f"{_reference_copy_rules_block(instruction=instruction, purpose=purpose)}"
         f"{_emoji_rules_block(template_count=1)}"
@@ -1142,9 +1305,10 @@ def _library_template_user_prompt(
         f"Required step_role: {role}",
         f"Description: {survey_type.description or survey_type.name}",
         (
-            f"Write one WhatsApp template that asks about “{topic}” in the context of {industry.name}. "
-            "Examples: Hospitality & food + Food quality → asks about food quality; "
-            "Automotive + Explanation of work → asks whether work was explained clearly."
+            f"Write one MIDDLE-STEP WhatsApp question about “{topic}” for {industry.name}. "
+            "No greeting and no welcome — the customer already received the opening template. "
+            "Examples: Hospitality & food + Food quality → “How was the food quality on your visit? ⭐”; "
+            "Automotive + Explanation of work → “Was the work explained clearly?” with Yes/No buttons."
         ),
     ]
     if purpose.strip():
@@ -1208,6 +1372,7 @@ def _build_pack_item_row(
     instruction: str = "",
     purpose: str = "",
     company_name: str | None = None,
+    apply_company_name_rules: bool = True,
 ) -> dict[str, Any]:
     coerced = coerce_meta_template_fields(item, privacy_mode=privacy_mode)
     normalized, errors = validate_generated_template(
@@ -1217,7 +1382,7 @@ def _build_pack_item_row(
         instruction=instruction,
         purpose=purpose,
         company_name=company_name,
-        apply_company_name_rules=True,
+        apply_company_name_rules=apply_company_name_rules,
     )
     row: dict[str, Any] = {
         "index": idx,
@@ -1394,13 +1559,7 @@ class SurveyWaTemplatePackService:
             raise SurveyWaTemplatePackError("Cannot generate library templates for hidden/system industries")
 
         purpose = purpose.strip() or str(survey_type.name or "").strip()
-        library_instruction = (
-            "Generate one normal WA Survey library template for admin review. "
-            "Text-focused, WhatsApp-native, concise. "
-            "Text-only quick reply buttons when the step_role supports buttons. "
-            "No URLs, reference numbers, or promotional spam. "
-            f"Must use step_role={role} only."
-        )
+        library_instruction = BULK_LIBRARY_MIDDLE_INSTRUCTION
         if instruction.strip():
             library_instruction = f"{library_instruction}\n{instruction.strip()}"
 
@@ -1435,6 +1594,15 @@ class SurveyWaTemplatePackService:
             raise SurveyWaTemplatePackError("OpenAI response missing template object")
 
         coerced = coerce_meta_template_fields({**item, "step_role": role, "outcome_key": None}, privacy_mode=privacy_mode)
+        coerced = normalize_library_middle_template(coerced, step_role=role)
+        middle_errors = validate_library_middle_step_copy(
+            body=str(coerced.get("body") or ""),
+            header=str(coerced.get("header") or ""),
+            step_role=role,
+        )
+        if middle_errors:
+            raise SurveyWaTemplatePackError("; ".join(middle_errors))
+
         row = _build_pack_item_row(
             db,
             survey_type=survey_type,
@@ -1445,6 +1613,7 @@ class SurveyWaTemplatePackService:
             instruction=library_instruction,
             purpose=purpose,
             company_name=None,
+            apply_company_name_rules=False,
         )
         if not row.get("valid") or not row.get("template"):
             errors = row.get("errors") or ["validation failed"]
