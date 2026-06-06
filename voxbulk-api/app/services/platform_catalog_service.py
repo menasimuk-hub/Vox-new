@@ -1360,7 +1360,37 @@ class ServiceOrderService:
         except Exception:
             config = {}
         if "config" in payload and isinstance(payload["config"], dict):
-            config.update(payload["config"])
+            patch = dict(payload["config"])
+            if patch.get("builder_template_ids") or patch.get("builder_step_sequence"):
+                from app.services.survey_builder_flow_service import (
+                    builder_generation_config,
+                    is_builder_bound_flow,
+                )
+
+                for stale_key in (
+                    "flow_snapshot",
+                    "flow_snapshot_json",
+                    "flow_definition_id",
+                    "flow_branches",
+                    "order_config_flow",
+                ):
+                    config.pop(stale_key, None)
+                merged = {**config, **patch}
+                seq = merged.get("builder_step_sequence") or []
+                ids = merged.get("builder_template_ids") or []
+                if isinstance(seq, list) and isinstance(ids, list) and seq and ids:
+                    builder_core = builder_generation_config(
+                        builder_step_sequence=seq,
+                        builder_template_ids=[int(x) for x in ids],
+                    )
+                    merged = {**merged, **builder_core}
+                elif is_builder_bound_flow(merged):
+                    from app.services.survey_builder_flow_service import sanitize_builder_config
+
+                    merged = sanitize_builder_config(merged)
+                config = merged
+            else:
+                config.update(patch)
             order.config_json = json.dumps(config, ensure_ascii=False)
         from app.services.uk_compliance_service import UkComplianceService
 

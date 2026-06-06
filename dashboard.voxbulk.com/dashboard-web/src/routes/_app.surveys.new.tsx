@@ -510,6 +510,8 @@ function CreateSurvey() {
       try {
         const id = await ensureOrder();
         const flowExtras = (generated.order_config_flow || {}) as Record<string, unknown>;
+        const builderSequence = generated.builder_step_sequence;
+        const isBuilderFlow = Array.isArray(builderSequence) && builderSequence.length > 0;
         const patchBody = {
           config: {
             goal,
@@ -534,10 +536,19 @@ function CreateSurvey() {
             whatsapp_flow: generated.whatsapp_flow,
             builder_step_sequence: generated.builder_step_sequence,
             builder_template_ids: generated.builder_template_ids,
-            flow_engine: generated.flow_engine,
-            flow_definition_id: generated.flow_definition_id,
-            flow_snapshot: generated.flow_snapshot,
-            ...flowExtras,
+            ...(isBuilderFlow
+              ? {
+                  flow_engine: "linear",
+                  flow_definition_id: null,
+                  flow_snapshot: null,
+                  flow_snapshot_json: null,
+                }
+              : {
+                  flow_engine: generated.flow_engine,
+                  flow_definition_id: generated.flow_definition_id,
+                  flow_snapshot: generated.flow_snapshot,
+                  ...flowExtras,
+                }),
           },
         };
         console.info("[wa-survey] PATCH /service-orders/" + id, patchBody);

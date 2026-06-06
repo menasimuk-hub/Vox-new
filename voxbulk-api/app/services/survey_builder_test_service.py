@@ -97,7 +97,9 @@ class SurveyBuilderTestService:
         first_name: str,
         business_name: str,
     ) -> dict[str, Any]:
-        merged = dict(config)
+        from app.services.survey_builder_flow_service import effective_order_config
+
+        merged = effective_order_config(dict(config))
         merged["delivery"] = "whatsapp"
         merged["survey_channel"] = "whatsapp"
         merged.setdefault("channels", ["whatsapp"])
@@ -108,11 +110,6 @@ class SurveyBuilderTestService:
             merged.setdefault("client_name", business_name)
         if first_name:
             merged["test_first_name"] = first_name
-        flow_extras = merged.get("order_config_flow")
-        if isinstance(flow_extras, dict):
-            for key in ("flow_engine", "flow_definition_id", "flow_snapshot", "flow_snapshot_json"):
-                if flow_extras.get(key) is not None and merged.get(key) is None:
-                    merged[key] = flow_extras[key]
         return merged
 
     @staticmethod

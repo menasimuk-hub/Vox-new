@@ -21,9 +21,9 @@ from app.services.survey_tell_us_more_flow_service import (
 from app.services.survey_builder_flow_service import (
     build_builder_step_sequence,
     build_builder_template_ids,
-    compile_builder_sequence_graph,
+    builder_generation_config,
 )
-from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH
+from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH, FLOW_ENGINE_LINEAR
 from app.services.survey_flow_definition_service import SurveyFlowDefinitionService
 from app.services.survey_type_service import SurveyTypeService
 from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
@@ -220,21 +220,20 @@ class SurveyGenerationService:
             survey_type_max_length=survey_type.max_length,
         )
         if ordered_middle_template_ids:
-            order_config_extras = compile_builder_sequence_graph(
-                db,
-                step_sequence=builder_step_sequence,
-                page_roles=composed.get("page_roles") or [],
-                closing_body=closing,
-                max_question_visits=mq,
+            builder_ids = build_builder_template_ids(
+                welcome_template_id=welcome_template_id or start_row.id,
+                middle_template_ids=ordered_middle_template_ids,
+                thank_you_template_id=thank_you_template_id,
                 tell_us_more_template_id=tell_us_more_template_id,
-                flow_definition_id=flow_definition_id,
-                survey_type_id=survey_type.id,
-                privacy_mode=resolved_privacy,
-                page_count=count,
             )
-            engine_key = FLOW_ENGINE_GRAPH
-            flow_snapshot = order_config_extras.get("flow_snapshot")
-            resolved_flow_definition_id = order_config_extras.get("flow_definition_id")
+            order_config_extras = builder_generation_config(
+                builder_step_sequence=builder_step_sequence,
+                builder_template_ids=builder_ids,
+            )
+            engine_key = FLOW_ENGINE_LINEAR
+            flow_snapshot = None
+            resolved_flow_definition_id = None
+            whatsapp_flow["questions"] = builder_step_sequence
         elif tell_us_more_template_id:
             order_config_extras = attach_tell_us_more_graph(
                 composed=composed,
@@ -325,11 +324,9 @@ class SurveyGenerationService:
         }
         if order_config_extras:
             result_payload["order_config_flow"] = {
-                "flow_engine": order_config_extras.get("flow_engine"),
-                "flow_definition_id": order_config_extras.get("flow_definition_id"),
-                "flow_snapshot": order_config_extras.get("flow_snapshot"),
-                "flow_snapshot_json": order_config_extras.get("flow_snapshot_json"),
+                **order_config_extras,
                 "builder_step_sequence": builder_step_sequence or None,
+                "builder_template_ids": result_payload.get("builder_template_ids"),
             }
         return result_payload
 

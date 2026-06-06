@@ -21,6 +21,10 @@ def flow_engine(config: dict[str, Any]) -> str:
 
 
 def is_graph_flow(config: dict[str, Any]) -> bool:
+    from app.services.survey_builder_flow_service import should_use_builder_linear_runtime
+
+    if should_use_builder_linear_runtime(config):
+        return False
     if flow_engine(config) != FLOW_ENGINE_GRAPH:
         return False
     snap = config.get("flow_snapshot")

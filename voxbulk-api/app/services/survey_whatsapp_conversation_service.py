@@ -24,8 +24,14 @@ from app.services.telnyx_whatsapp_template_sync_service import (
 from app.services.survey_flow_config_service import is_graph_flow, is_simulator_dry_run
 from app.services.survey_builder_flow_service import (
     SurveyBuilderFlowError,
+    _rating_answer_is_low,
+    effective_order_config,
+    log_builder_step_resolution,
     log_inbound_step_context,
+    question_from_tell_us_more_template,
     resolve_conversation_step,
+    resolve_next_conversation_step,
+    should_use_builder_linear_runtime,
     survey_questions_from_config,
 )
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
@@ -53,9 +59,38 @@ def is_whatsapp_survey_order(order: ServiceOrder) -> bool:
 def _order_config(order: ServiceOrder) -> dict[str, Any]:
     try:
         data = json.loads(order.config_json or "{}")
-        return data if isinstance(data, dict) else {}
+        raw = data if isinstance(data, dict) else {}
     except Exception:
-        return {}
+        raw = {}
+    return effective_order_config(raw)
+
+
+def _question_outbound_body(
+    db: Session,
+    *,
+    config: dict[str, Any],
+    question: dict[str, Any],
+    recipient: ServiceOrderRecipient,
+    index: int,
+    total: int,
+) -> str:
+    """Prefer approved WhatsApp template body — never append generic Option A/B/C for builder flows."""
+    variables = _survey_variables(config, recipient)
+    if question.get("template_id"):
+        preview = survey_template_preview(
+            db,
+            config=config,
+            template_id=question["template_id"],
+            recipient=recipient,
+        )
+        body = str(preview.get("preview_body") or "").strip()
+        if body:
+            return body
+    if should_use_builder_linear_runtime(config):
+        raise SurveyBuilderFlowError(
+            f"Builder step {index} template_id={question.get('template_id')} has no renderable body"
+        )
+    return format_question_message(question, index=index, total=total, variables=variables)
 
 
 def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
@@ -528,7 +563,7 @@ def _resolve_question_template(
     step: int | None = None,
 ) -> Any:
     """Strict template lookup for builder flows — no step-bank fallback."""
-    strict = bool(config.get("builder_step_sequence") or config.get("wa_builder_test"))
+    strict = should_use_builder_linear_runtime(config)
     tid = question.get("template_id") if isinstance(question, dict) else None
     if strict:
         if not tid:
@@ -774,25 +809,49 @@ def send_first_question(
         send_survey_opening(db, order=order, recipient=recipient, config=config)
         return
 
-    flow = _whatsapp_flow(config)
+    config = _order_config(order)
     questions = survey_questions_from_config(config)
     if not questions:
         return
 
-    if is_graph_flow(config):
+    session_existing = SurveySessionService.get_by_recipient(db, recipient.id)
+    if is_graph_flow(config) and not should_use_builder_linear_runtime(config):
         _send_first_question_graph(db, order=order, recipient=recipient, config=config, questions=questions)
         return
 
-    session_existing = SurveySessionService.get_by_recipient(db, recipient.id)
+    if is_graph_flow(config) and should_use_builder_linear_runtime(config):
+        logger.error(
+            "%s builder_graph_blocked order=%s — stale graph fields were stripped; using builder linear",
+            LOG_PREFIX,
+            order.id,
+        )
+
     q0 = resolve_conversation_step(
         config,
         1,
         order_id=order.id,
         session_id=session_existing.id if session_existing else None,
     )
-    variables = _survey_variables(config, recipient)
+    log_builder_step_resolution(
+        phase="send_first_question",
+        order_id=order.id,
+        session_id=session_existing.id if session_existing else None,
+        config=config,
+        current_step=0,
+        next_step=1,
+        current_question=None,
+        next_question=q0,
+        payload_source="builder_step_sequence",
+    )
     total = len(questions)
-    body = format_question_message(q0, index=1, total=total, variables=variables)
+    body = _question_outbound_body(
+        db,
+        config=config,
+        question=q0,
+        recipient=recipient,
+        index=1,
+        total=total,
+    )
 
     payload = _recipient_result(recipient)
     payload["channel"] = "whatsapp"
@@ -804,6 +863,7 @@ def send_first_question(
         "intro_sent_at": conv.get("intro_sent_at"),
         "current_template_id": q0.get("template_id"),
         "current_node_key": q0.get("node_key"),
+        "builder_template_ids": config.get("builder_template_ids"),
     }
     session = SurveySessionService.start_linear_session(
         db,
@@ -818,7 +878,7 @@ def send_first_question(
 
     if _send_message(db, order=order, recipient=recipient, body=body, config=config, question=q0):
         logger.info(
-            "%s first_question_sent order=%s recipient=%s template_id=%s template_name=%s",
+            "%s first_question_sent order=%s recipient=%s template_id=%s template_name=%s source=builder_step_sequence",
             LOG_PREFIX,
             order.id,
             recipient.id,
@@ -955,7 +1015,7 @@ def handle_inbound_reply(
         }
 
     flow = _whatsapp_flow(config)
-    if is_graph_flow(config):
+    if is_graph_flow(config) and not should_use_builder_linear_runtime(config):
         return _handle_inbound_reply_graph(
             db,
             order=order,
@@ -966,6 +1026,13 @@ def handle_inbound_reply(
             body=body,
             log_id=log_id,
             inbound_message_id=inbound_message_id,
+        )
+    if is_graph_flow(config) and should_use_builder_linear_runtime(config):
+        logger.error(
+            "%s builder_graph_blocked_inbound order=%s session=%s — refusing stale graph path",
+            LOG_PREFIX,
+            order.id,
+            session_row.id if session_row else None,
         )
 
     org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
@@ -981,12 +1048,23 @@ def handle_inbound_reply(
         return {"handled": False, "reason": "invalid_step"}
 
     try:
-        question = resolve_conversation_step(
-            config,
-            step,
-            order_id=order.id,
-            session_id=session_row.id if session_row else None,
-        )
+        if conv.get("tell_us_more_pending"):
+            variables = _survey_variables(config, recipient)
+            question = question_from_tell_us_more_template(
+                db,
+                config,
+                business_name=variables.get("organisation_name") or "Your business",
+                first_name=variables.get("first_name") or "Alex",
+            )
+            if question is None:
+                raise SurveyBuilderFlowError("tell_us_more_pending but template missing")
+        else:
+            question = resolve_conversation_step(
+                config,
+                step,
+                order_id=order.id,
+                session_id=session_row.id if session_row else None,
+            )
     except SurveyBuilderFlowError as exc:
         logger.error("%s linear_step_resolve_failed order=%s step=%s err=%s", LOG_PREFIX, order.id, step, exc)
         return {"handled": False, "reason": "step_resolve_failed", "detail": str(exc)}
@@ -1034,14 +1112,50 @@ def handle_inbound_reply(
     conv["answers"] = answers
     payload = SurveySessionService.attach_session_to_result(payload, session)
 
-    if step < total:
+    if step < total or conv.get("tell_us_more_pending"):
         try:
-            next_q = resolve_conversation_step(
-                config,
-                step + 1,
-                order_id=order.id,
-                session_id=session_row.id if session_row else None,
-            )
+            if conv.get("tell_us_more_pending"):
+                next_step = step + 1
+                next_q = resolve_conversation_step(
+                    config,
+                    next_step,
+                    order_id=order.id,
+                    session_id=session_row.id if session_row else None,
+                )
+                payload_source = "builder_step_sequence"
+                conv.pop("tell_us_more_pending", None)
+            elif (
+                should_use_builder_linear_runtime(config)
+                and not conv.get("tell_us_more_asked")
+                and normalize_step_role(str(question.get("step_role") or "")) == "rating"
+                and config.get("tell_us_more_template_id")
+                and _rating_answer_is_low(answer)
+            ):
+                variables = _survey_variables(config, recipient)
+                next_q = question_from_tell_us_more_template(
+                    db,
+                    config,
+                    business_name=variables.get("organisation_name") or "Your business",
+                    first_name=variables.get("first_name") or "Alex",
+                )
+                if next_q is None:
+                    raise SurveyBuilderFlowError("tell_us_more_template configured but could not resolve")
+                next_step = step
+                payload_source = "builder_tell_us_more_template"
+                conv["tell_us_more_asked"] = True
+                conv["tell_us_more_pending"] = True
+            else:
+                next_step, next_q, payload_source = resolve_next_conversation_step(
+                    db,
+                    config,
+                    current_step=step,
+                    answers=answers,
+                    conv=conv,
+                    order_id=order.id,
+                    session_id=session_row.id if session_row else None,
+                    business_name=variables.get("organisation_name") or "Your business",
+                    first_name=variables.get("first_name") or "Alex",
+                )
         except SurveyBuilderFlowError as exc:
             logger.error(
                 "%s linear_next_step_failed order=%s step=%s err=%s",
@@ -1051,17 +1165,36 @@ def handle_inbound_reply(
                 exc,
             )
             return {"handled": False, "reason": "next_step_resolve_failed", "detail": str(exc)}
-        next_body = format_question_message(next_q, index=step + 1, total=total, variables=variables)
-        conv["step"] = step + 1
+        log_builder_step_resolution(
+            phase="send_next_question",
+            order_id=order.id,
+            session_id=session_row.id if session_row else None,
+            config=config,
+            current_step=step,
+            next_step=next_step,
+            current_question=question,
+            next_question=next_q,
+            payload_source=payload_source,
+        )
+        next_body = _question_outbound_body(
+            db,
+            config=config,
+            question=next_q,
+            recipient=recipient,
+            index=next_step,
+            total=total,
+        )
+        conv["step"] = next_step
         conv["current_template_id"] = next_q.get("template_id")
         conv["current_node_key"] = next_q.get("node_key")
         payload["wa_conversation"] = conv
         payload = mark_inbound_processed(
             payload, log_id=log_id, inbound_message_id=inbound_message_id
         )
-        SurveySessionService.advance_linear(
-            db, session, config=config, from_step=step, to_step=step + 1
-        )
+        if next_step != step:
+            SurveySessionService.advance_linear(
+                db, session, config=config, from_step=step, to_step=next_step
+            )
         recipient.status = "in_progress"
         _save_recipient_result(db, recipient, payload)
         sent = _send_message(
@@ -1072,8 +1205,9 @@ def handle_inbound_reply(
             "order_id": order.id,
             "recipient_id": recipient.id,
             "step": step,
-            "next_step": step + 1,
+            "next_step": next_step,
             "sent": sent,
+            "payload_source": payload_source,
             "log_id": log_id,
         }
 

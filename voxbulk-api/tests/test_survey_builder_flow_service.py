@@ -9,7 +9,15 @@ import pytest
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.industry_service import IndustryService
 from app.services.platform_catalog_service import PlatformCatalogService
-from app.services.survey_builder_flow_service import build_builder_step_sequence
+from app.services.survey_builder_flow_service import (
+    SurveyBuilderFlowError,
+    assert_builder_template_allowed,
+    build_builder_step_sequence,
+    effective_order_config,
+    is_builder_bound_flow,
+    sanitize_builder_config,
+)
+from app.services.survey_flow_config_service import is_graph_flow
 from app.services.survey_step_bank_service import STEP_REPLY_CONFIG
 
 
@@ -76,3 +84,38 @@ def test_builder_step_sequence_uses_exact_template_rows_not_step_bank(db):
     assert "value for money" in steps[0]["text"].lower()
     assert steps[0]["options"] != STEP_REPLY_CONFIG["helpfulness"]["options"]
     assert legacy_helpfulness.id not in [s["template_id"] for s in steps]
+
+
+def test_sanitize_builder_config_strips_stale_graph(db):
+    hospitality = _tpl(
+        db,
+        name="voxbulk_hospitality_rating",
+        body="Rate your meal from 0 to 10.",
+        step_role="rating",
+    )
+    seq = build_builder_step_sequence(db, middle_template_ids=[hospitality.id])
+    raw = {
+        "flow_engine": "graph",
+        "flow_snapshot": {"nodes": {"abc": {"step_role": "abc_choice", "question": {"text": "legacy"}}}},
+        "flow_snapshot_json": '{"nodes":{"abc":{}}}',
+        "builder_step_sequence": seq,
+        "builder_template_ids": [hospitality.id],
+        "whatsapp_flow": {"questions": seq},
+    }
+    cleaned = effective_order_config(raw)
+    assert is_builder_bound_flow(cleaned)
+    assert cleaned.get("flow_snapshot") is None
+    assert cleaned.get("flow_snapshot_json") is None
+    assert cleaned["flow_engine"] == "linear"
+    assert is_graph_flow(cleaned) is False
+
+
+def test_assert_builder_template_allowed_hard_fails(db):
+    allowed = _tpl(db, name="allowed_tpl", body="Allowed question?", step_role="yes_no")
+    config = {
+        "builder_step_sequence": [{"template_id": allowed.id, "step_role": "yes_no", "text": "Allowed?"}],
+        "builder_template_ids": [allowed.id],
+    }
+    assert assert_builder_template_allowed(config, allowed.id, context="test") == allowed.id
+    with pytest.raises(SurveyBuilderFlowError, match="builder flow violation"):
+        assert_builder_template_allowed(config, 99999, context="test")

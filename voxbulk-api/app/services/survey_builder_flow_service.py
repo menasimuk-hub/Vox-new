@@ -8,9 +8,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
-from app.services.survey_flow_compiler_service import compile_linear_graph
-from app.services.survey_flow_config_service import attach_flow_to_config
-from app.services.survey_flow_constants import NODE_TYPE_QUESTION
 from app.services.survey_step_bank_service import (
     STEP_REPLY_CONFIG,
     _body_text,
@@ -18,7 +15,6 @@ from app.services.survey_step_bank_service import (
     _effective_components,
     normalize_step_role,
 )
-from app.services.survey_tell_us_more_flow_service import tell_us_more_flow_branches
 from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
 
 logger = logging.getLogger(__name__)
@@ -29,7 +25,122 @@ class SurveyBuilderFlowError(ValueError):
     """Next survey step cannot be resolved from the active builder sequence."""
 
 
-def _options_from_template(row: TelnyxWhatsappTemplate, role: str) -> list[str]:
+# Legacy graph/role fields must not coexist with builder-bound runtime config.
+_STALE_GRAPH_KEYS = (
+    "flow_snapshot",
+    "flow_snapshot_json",
+    "flow_definition_id",
+    "flow_branches",
+    "order_config_flow",
+)
+
+
+def is_builder_bound_flow(config: dict[str, Any]) -> bool:
+    seq = config.get("builder_step_sequence")
+    ids = config.get("builder_template_ids")
+    return (
+        isinstance(seq, list)
+        and len(seq) > 0
+        and isinstance(ids, list)
+        and len(ids) > 0
+    )
+
+
+def assert_builder_template_allowed(
+    config: dict[str, Any],
+    template_id: Any,
+    *,
+    context: str,
+    order_id: str | None = None,
+    session_id: str | None = None,
+) -> int:
+    """Hard fail if runtime tries to send a template outside the wizard selection."""
+    if not is_builder_bound_flow(config):
+        try:
+            return int(template_id)
+        except (TypeError, ValueError):
+            raise SurveyBuilderFlowError(f"Invalid template_id in {context}") from None
+    allow = {int(x) for x in config.get("builder_template_ids") or []}
+    try:
+        tid = int(template_id)
+    except (TypeError, ValueError):
+        msg = f"builder flow violation: missing template_id in {context} order={order_id}"
+        logger.error("%s %s", LOG_PREFIX, msg)
+        raise SurveyBuilderFlowError(msg)
+    if tid not in allow:
+        msg = (
+            f"builder flow violation: attempted template {tid} not in selected builder_template_ids "
+            f"{sorted(allow)} context={context} order={order_id} session={session_id}"
+        )
+        logger.error("%s %s", LOG_PREFIX, msg)
+        raise SurveyBuilderFlowError(msg)
+    return tid
+
+
+def sanitize_builder_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Remove stale graph/role artifacts so runtime cannot read old snapshots."""
+    out = dict(config)
+    if not is_builder_bound_flow(out):
+        return out
+    for key in _STALE_GRAPH_KEYS:
+        out.pop(key, None)
+    out["flow_engine"] = "linear"
+    seq = [q for q in (out.get("builder_step_sequence") or []) if isinstance(q, dict)]
+    out["builder_step_sequence"] = seq
+    wa = dict(out.get("whatsapp_flow") or {})
+    wa["questions"] = seq
+    out["whatsapp_flow"] = wa
+    logger.info(
+        "%s sanitized builder config template_ids=%s step_count=%s",
+        LOG_PREFIX,
+        out.get("builder_template_ids"),
+        len(seq),
+    )
+    return out
+
+
+def log_builder_step_resolution(
+    *,
+    phase: str,
+    order_id: str | None,
+    session_id: str | None,
+    config: dict[str, Any],
+    current_step: int | None = None,
+    next_step: int | None = None,
+    current_question: dict[str, Any] | None = None,
+    next_question: dict[str, Any] | None = None,
+    payload_source: str,
+) -> None:
+    def _summarize(q: dict[str, Any] | None) -> dict[str, Any]:
+        if not q:
+            return {}
+        return {
+            "template_id": q.get("template_id"),
+            "template_name": q.get("template_name"),
+            "node_key": q.get("node_key"),
+            "step_role": q.get("step_role"),
+            "text_preview": str(q.get("text") or "")[:120],
+            "source": q.get("source"),
+        }
+
+    logger.info(
+        "%s %s order=%s session=%s current_step=%s next_step=%s payload_source=%s "
+        "builder_template_ids=%s builder_step_sequence_ids=%s current=%s next=%s",
+        LOG_PREFIX,
+        phase,
+        order_id,
+        session_id,
+        current_step,
+        next_step,
+        payload_source,
+        config.get("builder_template_ids"),
+        [q.get("template_id") for q in survey_questions_from_config(config)],
+        _summarize(current_question),
+        _summarize(next_question),
+    )
+
+
+def _options_from_template(row: TelnyxWhatsappTemplate, role: str, *, strict: bool = False) -> list[str]:
     components = _effective_components(row)
     buttons = _buttons_from_components(components)
     labels: list[str] = []
@@ -41,6 +152,8 @@ def _options_from_template(row: TelnyxWhatsappTemplate, role: str) -> list[str]:
             labels.append(label)
     if labels:
         return labels[:12]
+    if strict:
+        return []
     return list(STEP_REPLY_CONFIG.get(role, {}).get("options") or [])
 
 
@@ -60,7 +173,7 @@ def question_from_template_row(
     first_name: str = "Alex",
 ) -> dict[str, Any]:
     role = normalize_step_role(row.step_role or f"step_{sequence}")
-    options = _options_from_template(row, role)
+    options = _options_from_template(row, role, strict=True)
     preview = SurveyWhatsappTemplateService.build_preview(
         db,
         row,
@@ -142,67 +255,162 @@ def build_builder_template_ids(
     return ordered
 
 
-def compile_builder_sequence_graph(
-    db: Session,
+def builder_generation_config(
     *,
-    step_sequence: list[dict[str, Any]],
-    page_roles: list[str],
-    closing_body: str,
-    max_question_visits: int,
-    tell_us_more_template_id: int | str | None = None,
-    flow_definition_id: str | None = None,
-    survey_type_id: str | None = None,
-    privacy_mode: str = "off",
-    page_count: int = 5,
+    builder_step_sequence: list[dict[str, Any]],
+    builder_template_ids: list[int],
 ) -> dict[str, Any]:
-    """Graph snapshot whose nodes mirror builder_step_sequence order (not step-bank defaults)."""
-    questions = [{**q, "step_role": q.get("node_key") or q.get("step_role")} for q in step_sequence]
-    middle_roles = [str(q.get("node_key") or f"builder_step_{q.get('sequence', i)}") for i, q in enumerate(step_sequence)]
-
-    branches = []
-    has_rating = any(normalize_step_role(str(q.get("step_role") or "")) == "rating" for q in step_sequence)
-    tell_node_key: str | None = None
-    if tell_us_more_template_id and has_rating:
-        tell_row = db.get(TelnyxWhatsappTemplate, int(tell_us_more_template_id))
-        if tell_row is not None:
-            tell_node_key = f"builder_tell_{int(tell_us_more_template_id)}"
-            tell_q = question_from_template_row(db, tell_row, sequence=len(step_sequence))
-            tell_q["node_key"] = tell_node_key
-            tell_q["step_role"] = "reason"
-            questions.append({**tell_q, "step_role": tell_node_key})
-            middle_roles_for_compile = middle_roles + [tell_node_key]
-            branches = []
-            for q in step_sequence:
-                if normalize_step_role(str(q.get("step_role") or "")) == "rating":
-                    from_key = str(q.get("node_key") or "")
-                    for br in tell_us_more_flow_branches():
-                        branches.append({**br, "from_step_role": from_key, "to_step_role": tell_node_key})
-                    break
-            page_roles_for_compile = ["start", *middle_roles_for_compile, "completion"]
-        else:
-            page_roles_for_compile = ["start", *middle_roles, "completion"]
-    else:
-        page_roles_for_compile = ["start", *middle_roles, "completion"]
-
-    snapshot = compile_linear_graph(
-        page_roles=page_roles_for_compile,
-        questions=questions,
-        max_question_visits=max_question_visits,
-        closing_body=closing_body,
-        flow_definition_id=flow_definition_id,
-        branches=branches or None,
+    """Persist only builder-linear fields — no graph snapshot that can override runtime."""
+    seq = [q for q in builder_step_sequence if isinstance(q, dict)]
+    wa = {"questions": seq}
+    return sanitize_builder_config(
+        {
+            "flow_engine": "linear",
+            "builder_step_sequence": seq,
+            "builder_template_ids": builder_template_ids,
+            "whatsapp_flow": wa,
+        }
     )
-    snapshot["builder_step_sequence"] = step_sequence
-    snapshot["entry_node_key"] = middle_roles[0] if middle_roles else snapshot.get("entry_node_key")
-    draft_config = {
-        "survey_type_id": survey_type_id,
-        "privacy_mode": privacy_mode,
-        "page_count": page_count,
-        "page_roles": page_roles,
-        "flow_branches": branches,
-        "builder_step_sequence": step_sequence,
-    }
-    return attach_flow_to_config(draft_config, snapshot=snapshot, flow_definition_id=flow_definition_id)
+
+
+def effective_order_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Runtime view of order config — strips stale graph when builder sequence is present."""
+    if not isinstance(config, dict):
+        return {}
+    return sanitize_builder_config(dict(config))
+
+
+def should_use_builder_linear_runtime(config: dict[str, Any]) -> bool:
+    return is_builder_bound_flow(effective_order_config(config))
+
+
+def question_from_tell_us_more_template(
+    db: Session,
+    config: dict[str, Any],
+    *,
+    business_name: str = "Your business",
+    first_name: str = "Alex",
+) -> dict[str, Any] | None:
+    raw = config.get("tell_us_more_template_id")
+    if not raw:
+        return None
+    tid = assert_builder_template_allowed(
+        config,
+        raw,
+        context="tell_us_more_template",
+    )
+    row = db.get(TelnyxWhatsappTemplate, tid)
+    if row is None or not row.active_for_survey:
+        raise SurveyBuilderFlowError(f"Tell-us-more template {tid} not found or inactive.")
+    q = question_from_template_row(
+        db,
+        row,
+        sequence=-1,
+        business_name=business_name,
+        first_name=first_name,
+    )
+    q["node_key"] = f"builder_tell_{tid}"
+    q["step_role"] = "reason"
+    q["source"] = "builder_tell_us_more_template"
+    return q
+
+
+def _rating_answer_is_low(answer: str, *, threshold: int = 6) -> bool:
+    """True when numeric rating is below threshold (default: below 7)."""
+    raw = str(answer or "").strip()
+    if not raw:
+        return False
+    try:
+        return int(raw) < threshold + 1
+    except ValueError:
+        return False
+
+
+def resolve_next_conversation_step(
+    db: Session,
+    config: dict[str, Any],
+    *,
+    current_step: int,
+    answers: list[dict[str, Any]] | None = None,
+    conv: dict[str, Any] | None = None,
+    order_id: str | None = None,
+    session_id: str | None = None,
+    business_name: str = "Your business",
+    first_name: str = "Alex",
+) -> tuple[int, dict[str, Any], str]:
+    """
+    Resolve the next 1-based step index and question dict.
+    Returns (next_step_index, question, payload_source).
+    """
+    questions = survey_questions_from_config(config)
+    conv = conv or {}
+    answers = answers or []
+
+    if current_step < 1 or current_step > len(questions):
+        raise SurveyBuilderFlowError(f"Invalid current_step {current_step}")
+
+    current_q = resolve_conversation_step(
+        config,
+        current_step,
+        order_id=order_id,
+        session_id=session_id,
+    )
+    next_linear = current_step + 1
+
+    payload_source = "builder_step_sequence"
+    tell_tid = config.get("tell_us_more_template_id")
+    tell_already = bool(conv.get("tell_us_more_asked"))
+    role = normalize_step_role(str(current_q.get("step_role") or ""))
+    last_answer = str(answers[-1].get("answer") or "") if answers else ""
+
+    if (
+        is_builder_bound_flow(config)
+        and tell_tid
+        and not tell_already
+        and role == "rating"
+        and _rating_answer_is_low(last_answer)
+    ):
+        tell_q = question_from_tell_us_more_template(
+            db,
+            config,
+            business_name=business_name,
+            first_name=first_name,
+        )
+        if tell_q is not None:
+            log_builder_step_resolution(
+                phase="resolve_next_tell_us_more",
+                order_id=order_id,
+                session_id=session_id,
+                config=config,
+                current_step=current_step,
+                next_step=current_step,
+                current_question=current_q,
+                next_question=tell_q,
+                payload_source="builder_tell_us_more_template",
+            )
+            return current_step, tell_q, "builder_tell_us_more_template"
+
+    if next_linear > len(questions):
+        raise SurveyBuilderFlowError(f"No next step after {current_step}")
+
+    next_q = resolve_conversation_step(
+        config,
+        next_linear,
+        order_id=order_id,
+        session_id=session_id,
+    )
+    log_builder_step_resolution(
+        phase="resolve_next_linear",
+        order_id=order_id,
+        session_id=session_id,
+        config=config,
+        current_step=current_step,
+        next_step=next_linear,
+        current_question=current_q,
+        next_question=next_q,
+        payload_source=payload_source,
+    )
+    return next_linear, next_q, payload_source
 
 
 def survey_questions_from_config(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -231,6 +439,8 @@ def resolve_conversation_step(
         logger.error("%s %s", LOG_PREFIX, msg)
         raise SurveyBuilderFlowError(msg)
     q = questions[step - 1]
+    if not is_builder_bound_flow(config):
+        return q
     tid = q.get("template_id")
     if not tid:
         msg = (
@@ -239,6 +449,13 @@ def resolve_conversation_step(
         )
         logger.error("%s %s", LOG_PREFIX, msg)
         raise SurveyBuilderFlowError(msg)
+    assert_builder_template_allowed(
+        config,
+        tid,
+        context=f"resolve_conversation_step step={step}",
+        order_id=order_id,
+        session_id=session_id,
+    )
     logger.info(
         "%s resolve step=%s template_id=%s template_name=%s node_key=%s source=%s order=%s session=%s",
         LOG_PREFIX,
