@@ -152,18 +152,22 @@ class InterviewWhatsappTemplateService:
             if not existing.sales_template_key:
                 existing.sales_template_key = key
                 changed = True
-            if str(existing.name or "").strip().lower() != telnyx_name.strip().lower():
-                existing.name = telnyx_name
-                if _is_local_row(existing) and not existing.last_pushed_at:
-                    existing.local_sync_status = "draft"
-                    existing.last_push_error = None
-                changed = True
             if not existing.display_name:
                 existing.display_name = str(spec.get("display_name") or telnyx_name)
                 changed = True
             if not existing.category:
                 existing.category = str(spec.get("category") or "UTILITY")
                 changed = True
+            current_name = str(existing.name or "").strip().lower()
+            canonical_lower = telnyx_name.strip().lower()
+            if current_name != canonical_lower:
+                legacy_names = {n.lower() for n in legacy_telnyx_names_for_sales_key(key)}
+                if current_name in legacy_names:
+                    existing.name = telnyx_name
+                    if _is_local_row(existing) and not existing.last_pushed_at:
+                        existing.local_sync_status = "draft"
+                        existing.last_push_error = None
+                    changed = True
             if not existing.draft_components_json and _is_local_row(existing):
                 existing.draft_components_json = _dumps(components)
                 existing.body_preview = _body_preview(components)
@@ -172,16 +176,10 @@ class InterviewWhatsappTemplateService:
                 changed = True
             elif _is_local_row(existing) and not existing.last_pushed_at:
                 draft_components = _loads(existing.draft_components_json)
-                catalog_hash = _content_hash(components)
-                draft_hash = _content_hash(draft_components if isinstance(draft_components, list) else None)
-                needs_refresh = (
-                    validate_meta_variable_order(
-                        draft_components if isinstance(draft_components, list) else None
-                    )
-                    is not None
-                    or (catalog_hash and catalog_hash != draft_hash)
+                var_order_error = validate_meta_variable_order(
+                    draft_components if isinstance(draft_components, list) else None
                 )
-                if needs_refresh:
+                if var_order_error is not None:
                     existing.draft_components_json = _dumps(components)
                     existing.body_preview = _body_preview(components)
                     existing.example_values_json = _dumps(examples)
@@ -273,6 +271,12 @@ class InterviewWhatsappTemplateService:
             if example_list is None:
                 loaded = _loads(row.example_values_json)
                 example_list = [str(v) for v in loaded] if isinstance(loaded, list) else None
+            var_order_error = validate_meta_variable_order(components)
+            if var_order_error:
+                raise InterviewWhatsappTemplateError(
+                    var_order_error,
+                    payload={"message": var_order_error, "template_name": row.name},
+                )
             components = ensure_meta_examples_on_components(components, example_list, row=row)
             row.draft_components_json = _dumps(components)
             row.body_preview = _body_preview(components)

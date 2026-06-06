@@ -54,6 +54,32 @@ def test_interview_template_catalog_seeds_four_templates(db):
     }
 
 
+def test_interview_template_save_persists_after_list(db):
+    InterviewWhatsappTemplateService.ensure_catalog_seeded(db)
+    listed = InterviewWhatsappTemplateService.list_templates(db)
+    row_id = listed[0]["id"]
+    row = InterviewWhatsappTemplateService.get_template(db, row_id)
+    assert row is not None
+
+    custom_components = [
+        {
+            "type": "BODY",
+            "text": "Saved custom interview body for {{1}}",
+            "example": {"body_text": [["James"]]},
+        }
+    ]
+    InterviewWhatsappTemplateService.save_draft(
+        db,
+        row,
+        {"components": custom_components, "example_values": ["James"], "display_name": "Custom display"},
+    )
+    InterviewWhatsappTemplateService.list_templates(db)
+    detail = InterviewWhatsappTemplateService.get_template_detail(db, row_id)
+    assert detail is not None
+    assert detail["display_name"] == "Custom display"
+    assert detail["draft_components"][0]["text"] == "Saved custom interview body for {{1}}"
+
+
 def test_interview_template_hide_and_unhide(db):
     InterviewWhatsappTemplateService.ensure_catalog_seeded(db)
     listed = InterviewWhatsappTemplateService.list_templates(db)
