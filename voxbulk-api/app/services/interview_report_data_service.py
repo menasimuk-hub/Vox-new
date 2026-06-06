@@ -252,6 +252,7 @@ class InterviewCandidateReportService:
                 "recommendation_verdict": rec_verdict,
                 "recommendation_description": analysis.get("recommendation_summary") or analysis.get("short_summary") or "",
                 "recommendation_points": _recommendation_points(analysis),
+                "additional_candidate_details": analysis.get("additional_candidate_details") or [],
             },
             "transcript": str(parsed.get("transcript") or "").strip(),
             "activity": activity,

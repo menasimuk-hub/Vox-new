@@ -360,8 +360,17 @@ export default function WaSurveyTypeEdit() {
           <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
             <Link to="/settings/wa-survey" style={{ color: 'var(--grn)' }}>
               WA Survey
-            </Link>{' '}
-            / {surveyType?.name}
+            </Link>
+            {surveyType?.industry_id ? (
+              <>
+                {' / '}
+                <Link to={`/settings/wa-survey/industries/${surveyType.industry_id}`} style={{ color: 'var(--grn)' }}>
+                  {surveyType.industry_name || 'Industry'}
+                </Link>
+              </>
+            ) : null}
+            {' / '}
+            {surveyType?.name}
           </div>
           <h1>{surveyType?.name}</h1>
           <p className="pageLead">

@@ -27,6 +27,7 @@ import WaSurveySystemTemplates from './pages/WaSurveySystemTemplates'
 import WaSurveyTypes from './pages/WaSurveyTypes'
 import WaSurveyTypeEdit from './pages/WaSurveyTypeEdit'
 import WaSurveyIndustries from './pages/WaSurveyIndustries'
+import WaSurveyIndustryEdit from './pages/WaSurveyIndustryEdit'
 import WaSurveyFlowSimulator from './pages/WaSurveyFlowSimulator'
 import WaSurveyFlows from './pages/WaSurveyFlows'
 import WaSurveyInsights from './pages/WaSurveyInsights'
@@ -244,6 +245,7 @@ export default function App() {
         <Route path='/settings/wa-survey' element={<WaSurveyTypes />} />
         <Route path='/settings/wa-survey/system-templates' element={<WaSurveySystemTemplates />} />
         <Route path='/settings/wa-survey/simulator' element={<WaSurveyFlowSimulator />} />
+        <Route path='/settings/wa-survey/industries/:industryId' element={<WaSurveyIndustryEdit />} />
         <Route path='/settings/wa-survey/industries' element={<WaSurveyIndustries />} />
         <Route path='/settings/wa-survey/:typeId/flows' element={<WaSurveyFlows />} />
         <Route path='/settings/wa-survey/:typeId' element={<WaSurveyTypeEdit />} />

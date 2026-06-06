@@ -27,7 +27,7 @@ from app.services.survey_analysis_service import (
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[interview-analysis]"
-INTERVIEW_ANALYSIS_VERSION = "2"
+INTERVIEW_ANALYSIS_VERSION = "3"
 
 
 def _log(event: str, **detail: Any) -> None:
@@ -78,6 +78,7 @@ Return ONLY valid JSON with this exact shape:
   ],
   "standout_quote": "best direct quote from candidate or empty string",
   "skill_gap": "main unverified skill gap for final round or empty string",
+  "additional_candidate_details": ["brief bullet — useful facts volunteered outside formal Q&A, e.g. languages, licences, availability, transport, tools/skills"],
   "completion_quality": one of "complete", "partial", "declined", "unclear"
 }
 
@@ -85,7 +86,8 @@ Rules:
 - British English.
 - Base score and recommendation on role fit and screening criteria in the prompt.
 - Do not invent facts not in the transcript.
-- Provide 4-6 competency objects covering communication, problem solving, technical knowledge, leadership, culture, judgement."""
+- Provide 4-6 competency objects covering communication, problem solving, technical knowledge, leadership, culture, judgement.
+- additional_candidate_details: include only materially useful facts the candidate volunteered outside the formal script questions (skills, certifications, availability, languages, transport, work permits if mentioned). Do not repeat items already captured in key_answers, strengths, or concerns. Return [] if none."""
 
 
 def _parse_analysis_json(text: str) -> dict[str, Any]:
@@ -122,6 +124,40 @@ def _normalize_sentiment(value: str | None) -> str:
     return "Neutral"
 
 
+def _dedupe_additional_details(
+    items: list[str],
+    *,
+    strengths: list[str],
+    concerns: list[str],
+    key_answers: list[dict[str, str]],
+) -> list[str]:
+    haystack: list[str] = []
+    for value in strengths + concerns:
+        clean = str(value or "").strip().lower()
+        if clean:
+            haystack.append(clean)
+    for item in key_answers:
+        for key in ("question", "answer"):
+            clean = str(item.get(key) or "").strip().lower()
+            if clean:
+                haystack.append(clean)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for raw in items:
+        clean = str(raw or "").strip()
+        if not clean:
+            continue
+        key = clean.lower()
+        if key in seen:
+            continue
+        if any(key in existing or existing in key for existing in haystack if len(existing) >= 8):
+            continue
+        seen.add(key)
+        deduped.append(clean)
+    return deduped[:8]
+
+
 def _normalize_analysis(data: dict[str, Any]) -> dict[str, Any]:
     try:
         score = int(float(data.get("score")))
@@ -145,6 +181,16 @@ def _normalize_analysis(data: dict[str, Any]) -> dict[str, Any]:
 
     strengths = data.get("strengths") if isinstance(data.get("strengths"), list) else []
     concerns = data.get("concerns") if isinstance(data.get("concerns"), list) else []
+    additional_raw = data.get("additional_candidate_details")
+    if additional_raw is None:
+        additional_raw = data.get("additional_observations") or data.get("extra_candidate_information")
+    additional_items = additional_raw if isinstance(additional_raw, list) else []
+    additional_candidate_details = _dedupe_additional_details(
+        [str(x).strip() for x in additional_items if str(x).strip()],
+        strengths=[str(x).strip() for x in strengths if str(x).strip()],
+        concerns=[str(x).strip() for x in concerns if str(x).strip()],
+        key_answers=key_answers,
+    )
 
     return {
         "short_summary": str(data.get("short_summary") or "").strip(),
@@ -159,6 +205,7 @@ def _normalize_analysis(data: dict[str, Any]) -> dict[str, Any]:
         "competencies": data.get("competencies") if isinstance(data.get("competencies"), list) else [],
         "standout_quote": str(data.get("standout_quote") or data.get("standout_moment") or "").strip(),
         "skill_gap": str(data.get("skill_gap") or "").strip(),
+        "additional_candidate_details": additional_candidate_details,
         "completion_quality": str(data.get("completion_quality") or "unclear").strip().lower(),
         "analysis_version": INTERVIEW_ANALYSIS_VERSION,
     }

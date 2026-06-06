@@ -415,6 +415,15 @@ def _pdf_qa_section(items: list[dict[str, Any]]) -> str:
     <div class="qa-list">{"".join(cards)}</div></div>"""
 
 
+def _pdf_additional_details_section(items: list[Any]) -> str:
+    bullets = [str(item or "").strip() for item in (items or []) if str(item or "").strip()]
+    if not bullets:
+        return ""
+    rows = "".join(f"<li>{_e(item)}</li>" for item in bullets)
+    return f"""<div class="section"><div class="section-title">Additional candidate details</div>
+    <ul style="margin:0;padding-left:18px;line-height:1.6">{rows}</ul></div>"""
+
+
 def _build_pdf_html(payload: dict[str, Any], *, cv_text: str | None = None) -> str:
     cand = payload.get("candidate") or {}
     scores = payload.get("scores") or {}
@@ -473,6 +482,7 @@ def _build_pdf_html(payload: dict[str, Any], *, cv_text: str | None = None) -> s
     {highlight}{concern}
   </div>
   {_pdf_qa_section(interview.get('key_answers') or [])}
+  {_pdf_additional_details_section(interview.get('additional_candidate_details') or [])}
   <div class="section"><div class="section-title">Recommendation</div>
     <div class="rec-banner {rec_class}">
       <div class="rec-verdict">{_e(interview.get('recommendation_verdict'))}</div>
@@ -661,6 +671,17 @@ def _screen_qa_section(items: list[dict[str, Any]]) -> str:
     </div>"""
 
 
+def _screen_additional_details_section(items: list[Any]) -> str:
+    bullets = [str(item or "").strip() for item in (items or []) if str(item or "").strip()]
+    if not bullets:
+        return ""
+    rows = "".join(f"<li>{_e(item)}</li>" for item in bullets)
+    return f"""<div class="section">
+      {_section_header("Additional Candidate Details", ICON_QA, "blue")}
+      <ul class="rec-points" style="display:block;padding-left:18px;line-height:1.6">{rows}</ul>
+    </div>"""
+
+
 def _screen_rec_points(interview: dict[str, Any]) -> str:
     parts = []
     for p in interview.get("recommendation_points") or []:
@@ -709,6 +730,8 @@ def _build_screen_html(payload: dict[str, Any], *, cv_text: str | None = None) -
 
     qa_block = _screen_qa_section(interview.get("key_answers") or [])
     qa_divider = '<div class="divider"></div>' if qa_block else ""
+    extra_block = _screen_additional_details_section(interview.get("additional_candidate_details") or [])
+    extra_divider = '<div class="divider"></div>' if extra_block else ""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -755,6 +778,7 @@ def _build_screen_html(payload: dict[str, Any], *, cv_text: str | None = None) -
   </div>
 
   {qa_divider}{qa_block}
+  {extra_divider}{extra_block}
 
   <div class="divider"></div>
 

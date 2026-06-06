@@ -1,8 +1,18 @@
-import React from 'react'
-import { Link } from 'react-router-dom'
+import React, { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import WaSurveyIndustrySection from '../components/WaSurveyIndustrySection'
 
 export default function WaSurveyTypes() {
+  const location = useLocation()
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    if (location.state?.waSurveyMsg) {
+      setMsg(String(location.state.waSurveyMsg))
+      window.history.replaceState({}, document.title)
+    }
+  }, [location.state])
+
   return (
     <>
       <div className="pageTop">
@@ -24,6 +34,8 @@ export default function WaSurveyTypes() {
           </Link>
         </div>
       </div>
+
+      {msg ? <div className="alert ok" style={{ marginBottom: 16 }}><strong>{msg}</strong></div> : null}
 
       <WaSurveyIndustrySection />
     </>
