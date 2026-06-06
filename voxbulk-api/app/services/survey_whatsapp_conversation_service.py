@@ -554,7 +554,7 @@ def log_welcome_sent_without_active_session(
             ServiceOrder.service_code == "survey",
             ServiceOrder.status.in_(("running", "draft")),
         )
-        .order_by(ServiceOrderRecipient.updated_at.desc())
+        .order_by(ServiceOrder.updated_at.desc())
     ).all()
     for order, recipient in rows:
         if not is_whatsapp_survey_order(order):
