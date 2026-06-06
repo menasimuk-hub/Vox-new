@@ -56,6 +56,24 @@ def wa_survey_overview(
     return IndustryService.wa_survey_overview(db)
 
 
+@router.post("/templates/cleanup-retained-scopes")
+def cleanup_wa_survey_templates(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Delete WA Survey templates except Global System Templates + Hospitality & food."""
+    from app.services.survey_wa_template_cleanup_service import cleanup_wa_survey_templates
+
+    body = payload or {}
+    dry_run = bool(body.get("dry_run", True))
+    return cleanup_wa_survey_templates(
+        db,
+        dry_run=dry_run,
+        update_category_to_utility=bool(body.get("update_category_to_utility", True)),
+    )
+
+
 @router.get("/industries")
 def list_industries(
     include_inactive: bool = False,
@@ -370,7 +388,7 @@ def create_standard_template(
         db,
         survey_type=row,
         language=str(body.get("language") or "en_US"),
-        category=str(body.get("category") or "MARKETING"),
+        category=str(body.get("category") or "UTILITY"),
     )
     return {"ok": True, "template": survey_template_to_dict(template)}
 

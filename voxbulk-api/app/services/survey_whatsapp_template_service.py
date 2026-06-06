@@ -615,7 +615,7 @@ class SurveyWhatsappTemplateService:
         *,
         survey_type: SurveyType,
         language: str = "en_US",
-        category: str = "MARKETING",
+        category: str = "UTILITY",
     ) -> TelnyxWhatsappTemplate:
         now = _now()
         local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"

@@ -90,6 +90,7 @@ def normalize_step_role(raw: str) -> str:
         "close": "completion",
         "closing": "completion",
         "thank_you": "completion",
+        "tell_us_more": "reason",
         "nps": "rating",
         "score": "rating",
         "yesno": "yes_no",

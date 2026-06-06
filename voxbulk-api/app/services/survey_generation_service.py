@@ -13,7 +13,11 @@ from app.services.survey_step_bank_service import (
     builder_page_count,
     page_count_from_length,
 )
-from app.services.survey_flow_config_service import attach_flow_to_config, flow_engine as resolve_flow_engine
+from app.services.survey_flow_config_service import attach_flow_to_config, flow_engine as resolve_flow_engine, max_question_visits
+from app.services.survey_tell_us_more_flow_service import (
+    attach_tell_us_more_graph,
+    inject_reason_step_into_composed,
+)
 from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH
 from app.services.survey_flow_definition_service import SurveyFlowDefinitionService
 from app.services.survey_type_service import SurveyTypeService
@@ -120,14 +124,13 @@ class SurveyGenerationService:
             start_row,
             business_name=client_name or organisation_name,
         )
-        middle_questions = composed["whatsapp_flow"]["questions"]
         if tell_us_more_template_id:
-            tell_row = db.get(TelnyxWhatsappTemplate, int(tell_us_more_template_id))
-            for q in middle_questions:
-                if isinstance(q, dict) and str(q.get("step_role") or "") == "reason":
-                    q["template_id"] = int(tell_us_more_template_id)
-                    if tell_row is not None and tell_row.body_preview:
-                        q["text"] = str(tell_row.body_preview)
+            composed = inject_reason_step_into_composed(
+                composed,
+                tell_us_more_template_id=tell_us_more_template_id,
+                db=db,
+            )
+        middle_questions = composed["whatsapp_flow"]["questions"]
         question_texts = [
             str(q.get("text") or q) if isinstance(q, dict) else str(q) for q in middle_questions
         ]
@@ -190,7 +193,23 @@ class SurveyGenerationService:
         flow_snapshot = None
         resolved_flow_definition_id = None
         order_config_extras: dict[str, Any] = {}
-        if engine_key == FLOW_ENGINE_GRAPH:
+        if tell_us_more_template_id:
+            order_config_extras = attach_tell_us_more_graph(
+                composed=composed,
+                survey_type_id=survey_type.id,
+                privacy_mode=resolved_privacy,
+                page_count=count,
+                closing_body=closing,
+                max_question_visits=max_question_visits(
+                    {"page_count": count},
+                    survey_type_max_length=survey_type.max_length,
+                ),
+                flow_definition_id=flow_definition_id,
+            )
+            flow_snapshot = order_config_extras.get("flow_snapshot")
+            resolved_flow_definition_id = order_config_extras.get("flow_definition_id")
+            engine_key = FLOW_ENGINE_GRAPH
+        elif engine_key == FLOW_ENGINE_GRAPH:
             draft_config = {
                 "survey_type_id": survey_type.id,
                 "privacy_mode": resolved_privacy,

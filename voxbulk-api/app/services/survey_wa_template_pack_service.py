@@ -641,8 +641,10 @@ def _ensure_unique_telnyx_name(db: Session, base_name: str) -> str:
 
 
 def _normalize_category(raw: str) -> str:
-    cat = str(raw or "MARKETING").strip().upper()
-    return cat if cat in {"MARKETING", "UTILITY", "AUTHENTICATION"} else "MARKETING"
+    from app.services.survey_wa_template_cleanup_service import WA_TEMPLATE_DEFAULT_CATEGORY
+
+    cat = str(raw or WA_TEMPLATE_DEFAULT_CATEGORY).strip().upper()
+    return cat if cat in {"MARKETING", "UTILITY", "AUTHENTICATION"} else WA_TEMPLATE_DEFAULT_CATEGORY
 
 
 def _normalize_button_type(raw: str) -> str:
@@ -1011,7 +1013,7 @@ def _meta_buttons_rules_block() -> str:
         "• Variables {{1}} in footer, header, or button labels — variables belong in BODY only.\n"
         "• URLs or emails in footer.\n"
         "• ALL CAPS body, spam phrases, false urgency, prizes, or misleading claims.\n"
-        "• AUTHENTICATION category for survey invites — use MARKETING.\n"
+        "• AUTHENTICATION category for survey invites — use UTILITY.\n"
         "• Threatening, abusive, or adult content.\n\n"
     )
 
@@ -1032,7 +1034,7 @@ def _meta_compliance_rules_block(*, privacy_mode: str = PRIVACY_MODE_OFF) -> str
         f"• BODY — max {META_BODY_HARD_MAX_CHARS} chars; target ≤{META_BODY_SOFT_MAX_CHARS} for faster Meta approval.\n"
         "  Variables {{1}}, {{2}}, etc. allowed in BODY only — sequential from {{1}}.\n"
         f"{_meta_buttons_rules_block()}"
-        "• CATEGORY — use MARKETING for survey invitations (not AUTHENTICATION).\n"
+        "• CATEGORY — use UTILITY for survey invitations (not AUTHENTICATION).\n"
         "• TONE — professional UK business English: warm, clear, trustworthy. No spam triggers.\n"
         "  Avoid: ALL CAPS, false urgency, guilt-tripping, ‘ACT NOW’, ‘FREE’, or exaggerated claims.\n"
         "  Do not mention Meta, WhatsApp, OpenAI, or Telnyx in customer-facing copy.\n\n"
@@ -1296,7 +1298,7 @@ def _library_template_system_prompt(
         "• DO NOT generate welcome, thank_you, tell_us_more, start, or completion templates.\n"
         "• DO NOT use outcome_key — set outcome_key to null.\n"
         "• variant_type standard (Privacy Mode Off) unless instruction says anonymous.\n"
-        "• category MARKETING.\n"
+        "• category UTILITY.\n"
         "• Copy must be clearly specific to the given industry AND survey type topic.\n"
         "• One focused in-flow question — not a multi-topic survey pack.\n"
         f"• Role behaviour: {role_rules.get(role, role_rules['rating'])}\n\n"

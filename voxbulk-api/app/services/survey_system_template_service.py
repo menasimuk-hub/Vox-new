@@ -198,7 +198,7 @@ def _system_template_seed(*, kind: str, idx: int) -> dict[str, Any]:
     seed["header"] = ""
     seed["footer"] = "Reply STOP to opt out"
     seed["language"] = "en_US"
-    seed["category"] = "MARKETING"
+    seed["category"] = "UTILITY"
     seed["variant_type"] = "standard"
     seed["privacy_mode"] = PRIVACY_MODE_OFF
 
@@ -572,7 +572,7 @@ class SurveySystemTemplateService:
         body = payload or {}
         survey_type = SurveySystemTemplateService.survey_type_for_kind(db, kind)
         language = str(body.get("language") or "en_US").strip() or "en_US"
-        category = str(body.get("category") or "MARKETING").strip() or "MARKETING"
+        category = str(body.get("category") or "UTILITY").strip() or "UTILITY"
         display_name = str(body.get("display_name") or "").strip() or KIND_LABELS[kind].rstrip("s")
         privacy_mode = normalize_privacy_mode(
             body.get("privacy_mode") or body.get("variant_type") or PRIVACY_MODE_OFF
