@@ -299,6 +299,86 @@ def validate_meta_variable_order(components: list[Any] | None) -> str | None:
     return None
 
 
+_DEFAULT_META_EXAMPLES = ["Alex", "Northgate Dental", "https://example.com/s/abc", "Monday 9am"]
+
+
+def _resolve_example_values(
+    components: list[Any] | None,
+    *,
+    row: TelnyxWhatsappTemplate | None = None,
+    override: list[str] | None = None,
+) -> list[str]:
+    if isinstance(override, list) and override:
+        examples = [str(v) for v in override if str(v).strip()]
+    elif row is not None:
+        loaded = _loads(row.example_values_json)
+        examples = [str(v) for v in loaded] if isinstance(loaded, list) else []
+    else:
+        examples = []
+    if not examples:
+        examples = _extract_example_values(components)
+    if not examples:
+        examples = [_DEFAULT_META_EXAMPLES[0]]
+    return examples
+
+
+def _pad_example_values(examples: list[str], count: int) -> list[str]:
+    values = list(examples)
+    while len(values) < count:
+        fallback = (
+            _DEFAULT_META_EXAMPLES[len(values)]
+            if len(values) < len(_DEFAULT_META_EXAMPLES)
+            else f"Sample {len(values) + 1}"
+        )
+        values.append(fallback)
+    return values[:count]
+
+
+def _meta_example_is_valid(example: Any, *, field: str) -> bool:
+    if not isinstance(example, dict):
+        return False
+    rows = example.get(field)
+    if not isinstance(rows, list) or not rows:
+        return False
+    first = rows[0]
+    if not isinstance(first, list) or not first:
+        return False
+    return any(str(v).strip() for v in first)
+
+
+def ensure_meta_examples_on_components(
+    components: list[Any] | None,
+    example_values: list[str] | None = None,
+    *,
+    row: TelnyxWhatsappTemplate | None = None,
+) -> list[Any]:
+    """Ensure Meta/Telnyx-required example fields exist on BODY/HEADER before push."""
+    if not isinstance(components, list):
+        return []
+    examples = _resolve_example_values(components, row=row, override=example_values)
+    out: list[Any] = []
+    for comp in components:
+        if not isinstance(comp, dict):
+            continue
+        cloned = dict(comp)
+        ctype = str(cloned.get("type") or "").upper()
+        if ctype == "BODY":
+            text = str(cloned.get("text") or "")
+            var_ids = _meta_var_ids_in_text(text)
+            needed = max(var_ids) if var_ids else 1
+            body_example = _pad_example_values(examples, needed)
+            if var_ids or not _meta_example_is_valid(cloned.get("example"), field="body_text"):
+                cloned["example"] = {"body_text": [body_example]}
+        elif ctype == "HEADER":
+            text = str(cloned.get("text") or "")
+            var_ids = _meta_var_ids_in_text(text)
+            if var_ids:
+                header_example = _pad_example_values(examples, max(var_ids))
+                cloned["example"] = {"header_text": [header_example]}
+        out.append(cloned)
+    return out
+
+
 def _default_standard_components(*, org_label: str = "Northgate Dental", first_name: str = "Alex") -> list[dict[str, Any]]:
     return [
         {
@@ -709,6 +789,12 @@ class SurveyWhatsappTemplateService:
             row.active_for_survey = bool(payload["active_for_survey"])
         components = payload.get("components")
         if isinstance(components, list):
+            examples = payload.get("example_values")
+            example_list = [str(v) for v in examples] if isinstance(examples, list) else None
+            if example_list is None:
+                loaded = _loads(row.example_values_json)
+                example_list = [str(v) for v in loaded] if isinstance(loaded, list) else None
+            components = ensure_meta_examples_on_components(components, example_list, row=row)
             row.draft_components_json = _dumps(components)
             row.body_preview = _body_preview(components)
             row.example_values_json = _dumps(_extract_example_values(components))
@@ -795,9 +881,11 @@ class SurveyWhatsappTemplateService:
 
     @staticmethod
     def push_to_telnyx(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:
-        components = _effective_components(row)
-        if not components:
+        raw_components = _effective_components(row)
+        if not raw_components:
             raise SurveyWhatsappTemplateError("Template has no components to push")
+
+        components = ensure_meta_examples_on_components(raw_components, row=row)
 
         category = normalize_wa_template_category(row.category, required=True)
 

@@ -346,6 +346,74 @@ def test_push_to_telnyx_builds_payload(monkeypatch):
         assert captured["payload"]["components"]
 
 
+def test_push_to_telnyx_injects_body_example_when_missing(monkeypatch):
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+        row.draft_components_json = json.dumps(
+            [
+                {"type": "BODY", "text": "How was the food quality on your visit? ⭐"},
+                {"type": "FOOTER", "text": "Reply STOP to opt out"},
+                {
+                    "type": "BUTTONS",
+                    "buttons": [
+                        {"type": "QUICK_REPLY", "text": "Poor"},
+                        {"type": "QUICK_REPLY", "text": "Okay"},
+                        {"type": "QUICK_REPLY", "text": "Excellent"},
+                    ],
+                },
+            ]
+        )
+        row.example_values_json = json.dumps(["Sample"])
+        db.add(row)
+        db.commit()
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "data": {
+                        "id": "telnyx-new-id",
+                        "template_id": "999",
+                        "status": "PENDING",
+                        "components": captured["payload"]["components"],
+                    }
+                }
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, headers=None, json=None):
+                captured["payload"] = json
+                return FakeResponse()
+
+            def get(self, url, headers=None):
+                return FakeResponse()
+
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.httpx.Client",
+            lambda *a, **k: FakeClient(),
+        )
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",
+            lambda db: {"api_key": "test-key", "whatsapp_waba_id": "waba-123"},
+        )
+        SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+        body = captured["payload"]["components"][0]
+        assert body["type"] == "BODY"
+        assert body["example"]["body_text"] == [["Sample"]]
+
+
 def test_preview_renders_placeholders():
     with get_sessionmaker()() as db:
         survey_type = _seed_survey_type(db)

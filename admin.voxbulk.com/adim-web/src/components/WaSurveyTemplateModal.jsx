@@ -13,7 +13,7 @@ import {
   templateNeedsResync,
   validateCategoryBeforeSync,
 } from '../lib/waSurveyTelnyxSync'
-import { VAR_LABELS, ensureExampleValues, substituteTemplateVars } from '../lib/waSurveyTemplateVars'
+import { VAR_LABELS, ensureExampleValues, substituteTemplateVars, varIndexesFromText } from '../lib/waSurveyTemplateVars'
 import '../styles/waTemplateEditor.css'
 
 function parseComponents(raw) {
@@ -39,14 +39,21 @@ function footerTextFromComponents(components) {
   return footer?.text || ''
 }
 
-function updateBodyInComponents(components, text) {
+function updateBodyInComponents(components, text, exampleValues = ['Alex']) {
+  const values = ensureExampleValues(text, '', exampleValues)
+  const varIds = varIndexesFromText(text)
+  const needed = varIds.length ? Math.max(...varIds) : 1
+  const bodyExample = values.slice(0, needed)
+  while (bodyExample.length < needed) {
+    bodyExample.push(`Sample ${bodyExample.length + 1}`)
+  }
   let found = false
   const out = components.map((comp) => {
     if (String(comp?.type || '').toUpperCase() !== 'BODY') return comp
     found = true
-    return { ...comp, text }
+    return { ...comp, text, example: { body_text: [bodyExample] } }
   })
-  if (!found) out.unshift({ type: 'BODY', text, example: { body_text: [['Alex']] } })
+  if (!found) out.unshift({ type: 'BODY', text, example: { body_text: [bodyExample] } })
   return out
 }
 
@@ -314,7 +321,7 @@ export default function WaSurveyTemplateModal({
     clearFeedback()
     try {
       let components = draft.components?.length ? [...draft.components] : []
-      components = updateBodyInComponents(components, draft.body)
+      components = updateBodyInComponents(components, draft.body, draft.example_values)
       components = updateFooterInComponents(components, draft.footer)
       components = updateButtonsInComponents(components, draft.button_type, draft.buttons)
       const data = await apiFetch(`/admin/wa-survey/templates/${templateId}`, {
@@ -400,7 +407,7 @@ export default function WaSurveyTemplateModal({
     try {
       if (isDirty) {
         let components = draft.components?.length ? [...draft.components] : []
-        components = updateBodyInComponents(components, draft.body)
+        components = updateBodyInComponents(components, draft.body, draft.example_values)
         components = updateFooterInComponents(components, draft.footer)
         components = updateButtonsInComponents(components, draft.button_type, draft.buttons)
         const saved = await apiFetch(`/admin/wa-survey/templates/${templateId}`, {
