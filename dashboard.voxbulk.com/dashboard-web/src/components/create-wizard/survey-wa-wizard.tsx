@@ -1,6 +1,5 @@
 import * as React from "react";
 import {
-  AlertCircle,
   Briefcase,
   Check,
   Download,
@@ -16,15 +15,15 @@ import { toast } from "sonner";
 
 import { PreviewQuoteModal } from "@/components/modals";
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
-import { buildWaPreviewSlides, buildWaPreviewSlidesFromGenerated, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
+import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
+import { WizardAlert, wizardFieldErrorClassName } from "@/components/create-wizard/wizard-alert";
+import { Button } from "@/components/ui/button";
 import {
   mapSystemTemplates,
   WaDraggableTypeGroup,
   WaTemplatePickerSection,
 } from "@/components/create-wizard/survey-wa-template-step";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -106,6 +105,10 @@ export type SurveyWaWizardProps = {
   savePending: boolean;
   contactsCount: number;
   uploadedContacts: Array<{ name: string; phone: string; language?: string }>;
+  userTestPhone?: string;
+  businessName?: string;
+  onSendWaTest: (input: { testPhone: string; welcomeTemplateId: string; firstName: string }) => Promise<void>;
+  sendTestPending?: boolean;
 };
 
 export function SurveyWaWizard(props: SurveyWaWizardProps) {
@@ -131,28 +134,29 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const welcomeTemplateRow = props.welcomeTemplates.find((t) => String(t.id) === props.welcomeTemplateId);
   const thankYouTemplateRow = props.thankYouTemplates.find((t) => String(t.id) === props.thankYouTemplateId);
   const previewFirstName = (props.uploadedContacts[0]?.name || "there").split(/\s+/)[0] || "there";
-  const previewSlides = React.useMemo(() => {
-    const fromGenerated = buildWaPreviewSlidesFromGenerated(props.waPreview, previewFirstName);
-    if (fromGenerated?.length) return fromGenerated;
-    return buildWaPreviewSlides({
-      welcomeTemplate: welcomeTemplateRow,
-      thankYouTemplate: thankYouTemplateRow,
-      orderedTypeIds: props.orderedServiceTagIds,
-      serviceTypes: props.serviceTypes,
-      selectedServiceTemplateIds: props.selectedServiceTemplateIds,
-      libraryTemplatesByTypeId: props.libraryTemplatesByTypeId,
-      firstName: previewFirstName,
-    });
-  }, [
-    props.waPreview,
-    previewFirstName,
-    welcomeTemplateRow,
-    thankYouTemplateRow,
-    props.orderedServiceTagIds,
-    props.serviceTypes,
-    props.selectedServiceTemplateIds,
-    props.libraryTemplatesByTypeId,
-  ]);
+  const previewSlides = React.useMemo(
+    () =>
+      buildWaPreviewSlides({
+        welcomeTemplate: welcomeTemplateRow,
+        thankYouTemplate: thankYouTemplateRow,
+        orderedTypeIds: props.orderedServiceTagIds,
+        serviceTypes: props.serviceTypes,
+        selectedServiceTemplateIds: props.selectedServiceTemplateIds,
+        libraryTemplatesByTypeId: props.libraryTemplatesByTypeId,
+        firstName: previewFirstName,
+        businessName: props.businessName,
+      }),
+    [
+      previewFirstName,
+      welcomeTemplateRow,
+      thankYouTemplateRow,
+      props.orderedServiceTagIds,
+      props.serviceTypes,
+      props.selectedServiceTemplateIds,
+      props.libraryTemplatesByTypeId,
+      props.businessName,
+    ],
+  );
   const templateSummary = props.orderedServiceTagIds
     .map((typeId) => {
       const typeName = String(props.serviceTypes.find((t) => String(t.id) === typeId)?.name || typeId);
@@ -217,7 +221,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       );
     }
     if (step === 4) return true;
-    if (step === 5) return Boolean(props.waPreview) && previewSlides.length > 0;
+    if (step === 5) return previewSlides.length > 0;
     return true;
   }, [step, props]);
 
@@ -365,7 +369,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                           "rounded-full border px-3.5 py-1.5 text-sm transition-all",
                           active && "border-primary bg-primary text-primary-foreground shadow",
                           !active && !disabled && !missingTemplate && "border-border bg-background hover:border-primary/40 hover:bg-primary/5",
-                          missingTemplate && !active && "border-destructive/50 text-destructive/80",
+                          missingTemplate && !active && wizardFieldErrorClassName,
                           disabled && "cursor-not-allowed border-border bg-muted/40 text-muted-foreground/50",
                         )}
                       >
@@ -377,17 +381,13 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 </div>
               )}
               {props.serviceTagErrors.length ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>Fix survey types before continuing</AlertTitle>
-                  <AlertDescription>
-                    <ul className="list-disc space-y-1 pl-4">
-                      {props.serviceTagErrors.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
+                <WizardAlert title="Fix survey types before continuing">
+                  <ul className="list-disc space-y-1 pl-4">
+                    {props.serviceTagErrors.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </WizardAlert>
               ) : null}
             </CardContent>
           </Card>
@@ -403,31 +403,23 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
             </CardHeader>
             <CardContent className="space-y-6">
               {props.step3SelectionErrors.length && !props.generateErrors.length ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>Complete template selections</AlertTitle>
-                  <AlertDescription>
-                    <ul className="list-disc space-y-1 pl-4">
-                      {props.step3SelectionErrors.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
+                <WizardAlert title="Complete template selections">
+                  <ul className="list-disc space-y-1 pl-4">
+                    {props.step3SelectionErrors.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </WizardAlert>
               ) : null}
               {props.generateErrors.length ? (
-                <Alert ref={generateErrorRef} variant="destructive" className="border-2 bg-destructive/10">
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>Survey could not be generated</AlertTitle>
-                  <AlertDescription>
-                    <p className="mb-2 font-medium">Fix the issues below, then click Next again:</p>
-                    <ul className="list-disc space-y-1.5 pl-4">
-                      {props.generateErrors.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
+                <WizardAlert ref={generateErrorRef} title="Survey could not be generated" className="border-2">
+                  <p className="mb-2 font-medium">Fix the issues below, then click Next again:</p>
+                  <ul className="list-disc space-y-1.5 pl-4">
+                    {props.generateErrors.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </WizardAlert>
               ) : null}
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
@@ -603,6 +595,11 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
             testPhone={testPhone}
             setTestPhone={setTestPhone}
             typeCount={props.orderedServiceTagIds.length}
+            defaultTestPhone={props.userTestPhone}
+            welcomeTemplateId={props.welcomeTemplateId}
+            previewFirstName={previewFirstName}
+            onSendTest={props.onSendWaTest}
+            sendTestPending={props.sendTestPending}
           />
         )}
 
@@ -622,10 +619,6 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
             consent={consent}
             setConsent={setConsent}
             contactsCount={props.contactsCount}
-            packageId={props.packageId}
-            setPackageId={props.setPackageId}
-            packages={props.packages}
-            packagesLoading={props.packagesLoading}
             typeCount={props.orderedServiceTagIds.length}
             onLaunch={() => setQuote(true)}
             launchPending={props.savePending}

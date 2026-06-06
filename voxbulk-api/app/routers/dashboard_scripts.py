@@ -317,3 +317,66 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/wa-survey/send-test")
+def send_wa_survey_test(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Send the selected welcome template to the dashboard user's mobile for Step 5 verification."""
+    from sqlalchemy import select
+
+    from app.models.user import User
+    from app.services.recovery_service import OrganisationService
+    from app.services.survey_whatsapp_template_service import (
+        SurveyWhatsappTemplateError,
+        SurveyWhatsappTemplateService,
+    )
+
+    body = payload or {}
+    template_raw = body.get("welcome_template_id") or body.get("wa_template_id")
+    if not template_raw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="welcome_template_id is required")
+
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+
+    org = OrganisationService.get_org(db, principal.org_id)
+    to_number = str(body.get("test_phone") or "").strip()
+    if not to_number and user:
+        to_number = str(user.phone_e164 or user.phone_number or "").strip()
+    if not to_number and org:
+        to_number = str(getattr(org, "contact_phone", None) or "").strip()
+    if not to_number:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Add your mobile number in Profile settings or enter a test number.",
+        )
+
+    branding = _client_branding(db, principal.org_id, body)
+    first_name = str(body.get("first_name") or "there").strip() or "there"
+    business_name = str(branding.get("client_name") or branding.get("organisation_name") or "Your business")
+
+    try:
+        template_id = int(template_raw)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid welcome_template_id") from e
+
+    row = SurveyWhatsappTemplateService.get_template(db, template_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+
+    try:
+        result = SurveyWhatsappTemplateService.send_test_template(
+            db,
+            row,
+            to_number=to_number,
+            first_name=first_name,
+            business_name=business_name,
+        )
+        return {"ok": True, **result}
+    except SurveyWhatsappTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

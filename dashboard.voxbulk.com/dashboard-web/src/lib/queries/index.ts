@@ -802,6 +802,16 @@ export function useGenerateWaSurvey() {
   });
 }
 
+export function useSendWaSurveyTest() {
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch<Record<string, unknown>>("/dashboard/service-scripts/wa-survey/send-test", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}
+
 export function useSendInterviewScheduling(orderId: string | null) {
   const qc = useQueryClient();
   return useMutation({

@@ -1,15 +1,17 @@
 import * as React from "react";
-import { ChevronLeft, ChevronRight, Eye, Send } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 
+import { WizardAlert } from "@/components/create-wizard/wizard-alert";
 import { Summary } from "@/components/create-wizard/summary";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 
-type PreviewMessage = { you?: boolean; text: string };
+type PreviewMessage = { you?: boolean; text: string; button?: boolean };
 
 export type WaPreviewSlide = {
   id: string;
@@ -18,8 +20,19 @@ export type WaPreviewSlide = {
   messages: PreviewMessage[];
 };
 
-function personalize(text: string, firstName: string): string {
-  return text.replace(/\{\{name\}\}/gi, firstName).replace(/\{\{1\}\}/g, firstName);
+function personalize(text: string, firstName: string, businessName?: string): string {
+  let out = text
+    .replace(/\{\{name\}\}/gi, firstName)
+    .replace(/\{\{first_name\}\}/gi, firstName)
+    .replace(/\{\{1\}\}/g, firstName);
+  if (businessName) {
+    out = out
+      .replace(/\{\{clinic_name\}\}/gi, businessName)
+      .replace(/\{\{organisation_name\}\}/gi, businessName)
+      .replace(/\{\{company_name\}\}/gi, businessName)
+      .replace(/\{\{2\}\}/g, businessName);
+  }
+  return out;
 }
 
 function templateBody(row: Record<string, unknown>): string {
@@ -30,60 +43,43 @@ function templateTitle(row: Record<string, unknown>, fallback: string): string {
   return String(row.display_name || row.title || row.name || fallback);
 }
 
-export function buildWaPreviewSlidesFromGenerated(
-  waPreview: Record<string, unknown> | null | undefined,
-  firstName: string,
-): WaPreviewSlide[] | null {
-  if (!waPreview) return null;
-  const flow = waPreview.whatsapp_flow;
-  if (!flow || typeof flow !== "object") return null;
-
-  const slides: WaPreviewSlide[] = [];
-  const preview = waPreview.template_preview;
-  const previewBody =
-    preview && typeof preview === "object"
-      ? String((preview as Record<string, unknown>).rendered_body || "").trim()
-      : "";
-  const intro = previewBody || String((flow as Record<string, unknown>).intro || "").trim();
-  if (intro) {
-    slides.push({
-      id: "welcome",
-      title: "Welcome",
-      kind: "welcome",
-      messages: [{ text: personalize(intro, firstName) }],
-    });
-  }
-
-  const questions = (flow as Record<string, unknown>).questions;
-  if (Array.isArray(questions)) {
-    questions.forEach((q, index) => {
-      const text =
-        q && typeof q === "object"
-          ? String((q as Record<string, unknown>).text || "").trim()
-          : String(q || "").trim();
-      if (!text) return;
-      slides.push({
-        id: `survey-${index}`,
-        title: text.length > 48 ? `${text.slice(0, 48)}…` : text,
-        kind: "survey",
-        messages: [{ text: personalize(text, firstName) }],
-      });
-    });
-  }
-
-  const closing = String((flow as Record<string, unknown>).closing || "").trim();
-  if (closing) {
-    slides.push({
-      id: "thanks",
-      title: "Thank-you",
-      kind: "thanks",
-      messages: [{ text: personalize(closing, firstName) }],
-    });
-  }
-
-  return slides.length > 0 ? slides : null;
+function buttonsFromRow(row: Record<string, unknown>): string[] {
+  const raw = row.buttons;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((btn) => {
+      if (!btn || typeof btn !== "object") return "";
+      return String((btn as Record<string, unknown>).text || (btn as Record<string, unknown>).label || "").trim();
+    })
+    .filter(Boolean);
 }
 
+function messagesFromTemplateRow(
+  row: Record<string, unknown>,
+  firstName: string,
+  businessName?: string,
+): PreviewMessage[] {
+  let body = templateBody(row);
+  if (!body) return [];
+
+  const examples = Array.isArray(row.example_values) ? row.example_values : [];
+  examples.forEach((value, index) => {
+    body = body.replace(new RegExp(`\\{\\{${index + 1}\\}\\}`, "g"), String(value ?? ""));
+  });
+  body = personalize(body, firstName, businessName);
+
+  const messages: PreviewMessage[] = [{ text: body }];
+  const footer = String(row.footer || "").trim();
+  if (footer) {
+    messages[0] = { text: `${messages[0].text}\n\n${footer}` };
+  }
+  for (const label of buttonsFromRow(row)) {
+    messages.push({ text: label, button: true });
+  }
+  return messages;
+}
+
+/** Build carousel slides from Step 3 template selections only — no generated/dummy copy. */
 export function buildWaPreviewSlides(input: {
   welcomeTemplate?: Record<string, unknown> | null;
   thankYouTemplate?: Record<string, unknown> | null;
@@ -92,20 +88,21 @@ export function buildWaPreviewSlides(input: {
   selectedServiceTemplateIds: Record<string, string>;
   libraryTemplatesByTypeId: Record<string, Array<Record<string, unknown>>>;
   firstName: string;
+  businessName?: string;
 }): WaPreviewSlide[] {
   const slides: WaPreviewSlide[] = [];
-  const { firstName } = input;
+  const { firstName, businessName } = input;
 
   if (input.welcomeTemplate) {
-    const body = templateBody(input.welcomeTemplate);
-    slides.push({
-      id: "welcome",
-      title: templateTitle(input.welcomeTemplate, "Welcome"),
-      kind: "welcome",
-      messages: body
-        ? [{ text: personalize(body, firstName) }]
-        : [{ text: `Hi ${firstName} 👋 — thanks for your recent visit.` }],
-    });
+    const messages = messagesFromTemplateRow(input.welcomeTemplate, firstName, businessName);
+    if (messages.length) {
+      slides.push({
+        id: "welcome",
+        title: templateTitle(input.welcomeTemplate, "Welcome"),
+        kind: "welcome",
+        messages,
+      });
+    }
   }
 
   for (const typeId of input.orderedTypeIds) {
@@ -114,27 +111,27 @@ export function buildWaPreviewSlides(input: {
     const templateId = input.selectedServiceTemplateIds[typeId];
     const libraryRows = input.libraryTemplatesByTypeId[typeId] || [];
     const tplRow = libraryRows.find((r) => String(r.id) === templateId);
-    const body = tplRow ? templateBody(tplRow) : "";
+    if (!tplRow) continue;
+    const messages = messagesFromTemplateRow(tplRow, firstName, businessName);
+    if (!messages.length) continue;
     slides.push({
       id: typeId,
-      title: typeName,
+      title: templateTitle(tplRow, typeName),
       kind: "survey",
-      messages: body
-        ? [{ text: personalize(body, firstName) }]
-        : [{ text: `How was your experience with ${typeName.toLowerCase()}?` }],
+      messages,
     });
   }
 
   if (input.thankYouTemplate) {
-    const body = templateBody(input.thankYouTemplate);
-    slides.push({
-      id: "thanks",
-      title: templateTitle(input.thankYouTemplate, "Thank-you"),
-      kind: "thanks",
-      messages: body
-        ? [{ text: personalize(body, firstName) }]
-        : [{ text: `Thank you ${firstName}! Your feedback helps us improve.` }],
-    });
+    const messages = messagesFromTemplateRow(input.thankYouTemplate, firstName, businessName);
+    if (messages.length) {
+      slides.push({
+        id: "thanks",
+        title: templateTitle(input.thankYouTemplate, "Thank-you"),
+        kind: "thanks",
+        messages,
+      });
+    }
   }
 
   return slides;
@@ -153,17 +150,26 @@ function PhonePreview({ messages, compact }: { messages: PreviewMessage[]; compa
         <p className="opacity-80">online</p>
       </div>
       <div className={cn("flex flex-col gap-2 overflow-y-auto px-3 py-3 text-[12px]", compact ? "h-[420px]" : "h-[500px]")}>
-        {messages.map((m, idx) => (
-          <div
-            key={idx}
-            className={cn(
-              "max-w-[85%] rounded-xl px-2.5 py-1.5 shadow-sm",
-              m.you ? "ml-auto bg-[#dcf8c6] text-[#111]" : "bg-white text-[#111]",
-            )}
-          >
-            {m.text}
-          </div>
-        ))}
+        {messages.map((m, idx) =>
+          m.button ? (
+            <div
+              key={idx}
+              className="max-w-[85%] rounded-md border border-[#e9edef] bg-[#f0f2f5] px-2.5 py-1.5 text-center text-[11px] font-medium text-[#008069] shadow-sm"
+            >
+              {m.text}
+            </div>
+          ) : (
+            <div
+              key={idx}
+              className={cn(
+                "max-w-[85%] whitespace-pre-wrap rounded-xl px-2.5 py-1.5 shadow-sm",
+                m.you ? "ml-auto bg-[#dcf8c6] text-[#111]" : "bg-white text-[#111]",
+              )}
+            >
+              {m.text}
+            </div>
+          ),
+        )}
       </div>
     </div>
   );
@@ -181,6 +187,11 @@ export type SurveyWaPreviewCarouselProps = {
   testPhone: string;
   setTestPhone: (v: string) => void;
   typeCount: number;
+  defaultTestPhone?: string;
+  welcomeTemplateId: string;
+  previewFirstName?: string;
+  onSendTest: (input: { testPhone: string; welcomeTemplateId: string; firstName: string }) => Promise<void>;
+  sendTestPending?: boolean;
 };
 
 export function SurveyWaPreviewCarousel({
@@ -195,6 +206,11 @@ export function SurveyWaPreviewCarousel({
   testPhone,
   setTestPhone,
   typeCount,
+  defaultTestPhone,
+  welcomeTemplateId,
+  previewFirstName = "there",
+  onSendTest,
+  sendTestPending,
 }: SurveyWaPreviewCarouselProps) {
   const [slide, setSlide] = React.useState(0);
   const total = slides.length;
@@ -204,6 +220,11 @@ export function SurveyWaPreviewCarousel({
     setSlide(0);
   }, [slides.length]);
 
+  React.useEffect(() => {
+    if (testPhone.trim() || !defaultTestPhone) return;
+    setTestPhone(defaultTestPhone);
+  }, [defaultTestPhone, setTestPhone, testPhone]);
+
   if (!current || total === 0) {
     return (
       <Card className="animate-scale-in">
@@ -211,7 +232,7 @@ export function SurveyWaPreviewCarousel({
           <CardTitle className="flex items-center gap-2">
             <Eye className="size-4 text-primary" /> Step 5 · Preview the full conversation
           </CardTitle>
-          <CardDescription>Complete Step 3 to generate the survey flow preview.</CardDescription>
+          <CardDescription>Select templates in Step 3 to preview the real WhatsApp messages here.</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -220,7 +241,29 @@ export function SurveyWaPreviewCarousel({
   const prev = () => setSlide((s) => Math.max(0, s - 1));
   const next = () => setSlide((s) => Math.min(total - 1, s + 1));
   const slideLabel =
-    current.kind === "welcome" ? "Welcome" : current.kind === "thanks" ? "Thank-you" : current.title;
+    current.kind === "welcome" ? "Welcome" : current.kind === "thanks" ? "Thank-you" : current.title.split(" — ")[0];
+
+  const handleSendTest = async () => {
+    const phone = testPhone.trim() || defaultTestPhone || "";
+    if (!phone) {
+      toast.error("Add your mobile number in Profile settings or enter a test number.");
+      return;
+    }
+    if (!welcomeTemplateId) {
+      toast.error("Select a welcome template in Step 3 before sending a test.");
+      return;
+    }
+    try {
+      await onSendTest({
+        testPhone: phone,
+        welcomeTemplateId,
+        firstName: previewFirstName,
+      });
+      toast.success(`Test WhatsApp sent to ${phone}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Test send failed");
+    }
+  };
 
   return (
     <Card className="animate-scale-in">
@@ -228,9 +271,15 @@ export function SurveyWaPreviewCarousel({
         <CardTitle className="flex items-center gap-2">
           <Eye className="size-4 text-primary" /> Step 5 · Preview the full conversation
         </CardTitle>
-        <CardDescription>Personalised with the first contact from your list.</CardDescription>
+        <CardDescription>Showing the exact welcome, survey, and thank-you templates you selected.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {contactsCount === 0 ? (
+          <WizardAlert title="No contacts uploaded yet">
+            Upload contacts in Step 4 before launch, or skip for now and add them later from the survey order.
+          </WizardAlert>
+        ) : null}
+
         <div className="grid gap-5 lg:grid-cols-[auto_1fr]">
           <div className="flex flex-col items-center gap-3">
             <div className="relative flex items-center justify-center">
@@ -280,7 +329,12 @@ export function SurveyWaPreviewCarousel({
               <Summary label="Industry" value={industryLabel || "—"} />
               <Summary label="Survey types" value={surveyTypeLabel || "—"} />
               <Summary label="Templates" value={templateSummary || "—"} />
-              <Summary label="Contacts" value={`${contactsCount}`} />
+              <Summary
+                label="Contacts"
+                value={`${contactsCount}`}
+                className={contactsCount === 0 ? "border-[#B45309]/40 bg-[#B45309]/10" : undefined}
+                valueClassName={contactsCount === 0 ? "text-[#B45309]" : undefined}
+              />
               <Summary label="Channel" value="WhatsApp" />
               <Summary
                 label="Estimated cost"
@@ -302,17 +356,40 @@ export function SurveyWaPreviewCarousel({
                   <RadioGroupItem value="test" id="send-test" className="mt-0.5" />
                   <div className="w-full">
                     <p className="text-sm font-medium">Send a test to my number first</p>
-                    <p className="mb-2 text-xs text-muted-foreground">Receive the survey on WhatsApp before going live.</p>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      Sends your selected welcome template to your mobile via WhatsApp for verification.
+                    </p>
                     {sendMode === "test" && (
-                      <div className="flex gap-2">
-                        <Input placeholder="+44 7700 900000" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
+                      <div className="space-y-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Test mobile number</Label>
+                          <Input
+                            placeholder={defaultTestPhone || "+44 7700 900000"}
+                            value={testPhone}
+                            onChange={(e) => setTestPhone(e.target.value)}
+                          />
+                          {defaultTestPhone ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              Pre-filled from your account — edit if you want a different test number.
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-[#B45309]">
+                              Add your mobile in Profile settings, or enter a number below.
+                            </p>
+                          )}
+                        </div>
                         <Button
                           size="sm"
                           className="gap-1.5"
-                          disabled={!testPhone.trim()}
-                          onClick={() => toast.success(`Test sent to ${testPhone}`)}
+                          disabled={sendTestPending || !(testPhone.trim() || defaultTestPhone)}
+                          onClick={() => void handleSendTest()}
                         >
-                          <Send className="size-3.5" /> Send test
+                          {sendTestPending ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Send className="size-3.5" />
+                          )}
+                          Send test to my number
                         </Button>
                       </div>
                     )}

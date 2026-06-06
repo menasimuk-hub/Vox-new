@@ -23,11 +23,18 @@ export type Organisation = {
   logo_url?: string | null;
 };
 
+export type UserPhoneStatus = {
+  phone_number?: string | null;
+  phone_e164?: string | null;
+  verification_status?: string;
+};
+
 export type UserProfile = {
   id: string;
   email?: string;
   role?: string;
   org_id?: string;
+  phone?: UserPhoneStatus;
 };
 
 export type ServiceOrderReport = {

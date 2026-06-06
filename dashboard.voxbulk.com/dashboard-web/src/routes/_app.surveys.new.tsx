@@ -12,7 +12,9 @@ import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/
 import {
   useCreateServiceOrder,
   useGenerateWaSurvey,
+  useOrganisation,
   usePatchServiceOrder,
+  useSendWaSurveyTest,
   useSurveyPackages,
   useWaSurveyIndustries,
   useWaSurveyLibraryTemplates,
@@ -23,6 +25,7 @@ import {
 } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries/index";
+import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/surveys/new")({
   head: () => ({ meta: [{ title: "Create survey — VoxBulk" }] }),
@@ -66,10 +69,13 @@ function industryMatchesSlugSearch(ind: Record<string, unknown>, needle: string)
 
 function CreateSurvey() {
   const { channel: channelSearch, industry_slug: industrySlugSearch } = Route.useSearch();
+  const { session } = useSession();
+  const orgQ = useOrganisation();
   const packagesQ = useSurveyPackages();
   const createM = useCreateServiceOrder();
   const patchM = usePatchServiceOrder();
   const generateWaM = useGenerateWaSurvey();
+  const sendWaTestM = useSendWaSurveyTest();
 
   const [channel, setChannel] = React.useState<Channel>(null);
   const [waPreview, setWaPreview] = React.useState<Record<string, unknown> | null>(null);
@@ -121,6 +127,27 @@ function CreateSurvey() {
     }));
   }, [recipientsQ.data?.recipients]);
   const contactsCount = uploadedContacts.filter((c) => c.phone).length;
+
+  const userTestPhone = React.useMemo(() => {
+    const profile = session?.profile as Record<string, unknown> | undefined;
+    const phone = profile?.phone as Record<string, unknown> | undefined;
+    const fromUser = String(phone?.phone_e164 || phone?.phone_number || "").trim();
+    if (fromUser) return fromUser;
+    return String(orgQ.data?.contact_phone || "").trim();
+  }, [session?.profile, orgQ.data?.contact_phone]);
+
+  const businessName = React.useMemo(() => {
+    const org = orgQ.data;
+    return String(org?.display_name || org?.name || "").trim();
+  }, [orgQ.data]);
+
+  const onSendWaTest = async (input: { testPhone: string; welcomeTemplateId: string; firstName: string }) => {
+    await sendWaTestM.mutateAsync({
+      welcome_template_id: Number(input.welcomeTemplateId),
+      test_phone: input.testPhone,
+      first_name: input.firstName,
+    });
+  };
 
   const delivery = channel === "whatsapp" ? "whatsapp" : "ai_call";
 
@@ -601,6 +628,10 @@ function CreateSurvey() {
           savePending={savePending}
           contactsCount={contactsCount}
           uploadedContacts={uploadedContacts}
+          userTestPhone={userTestPhone}
+          businessName={businessName}
+          onSendWaTest={onSendWaTest}
+          sendTestPending={sendWaTestM.isPending}
         />
       )}
 

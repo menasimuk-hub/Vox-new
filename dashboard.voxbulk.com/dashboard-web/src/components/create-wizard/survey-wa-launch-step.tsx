@@ -7,8 +7,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export type SurveyWaLaunchStepProps = {
@@ -23,10 +21,6 @@ export type SurveyWaLaunchStepProps = {
   consent: boolean;
   setConsent: (v: boolean) => void;
   contactsCount: number;
-  packageId: string;
-  setPackageId: (v: string) => void;
-  packages: Array<Record<string, unknown>>;
-  packagesLoading: boolean;
   typeCount: number;
   onLaunch: () => void;
   launchPending?: boolean;
@@ -44,10 +38,6 @@ export function SurveyWaLaunchStep({
   consent,
   setConsent,
   contactsCount,
-  packageId,
-  setPackageId,
-  packages,
-  packagesLoading,
   typeCount,
   onLaunch,
   launchPending,
@@ -157,28 +147,6 @@ export function SurveyWaLaunchStep({
             </div>
           </label>
         </RadioGroup>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Package</Label>
-            {packagesLoading ? (
-              <Skeleton className="h-10 w-full" />
-            ) : (
-              <Select value={packageId} onValueChange={setPackageId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select package" />
-                </SelectTrigger>
-                <SelectContent>
-                  {packages.map((p) => (
-                    <SelectItem key={String(p.id || p.rule_id)} value={String(p.id || p.rule_id)}>
-                      {String(p.label || p.name || p.bundle_size || "Package")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-        </div>
 
         <label
           className={cn(
