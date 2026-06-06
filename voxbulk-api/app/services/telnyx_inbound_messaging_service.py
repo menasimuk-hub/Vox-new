@@ -77,14 +77,22 @@ def _deep_find_button_reply(value: Any, *, depth: int = 0) -> dict[str, str] | N
         nested = value.get("button_reply")
         if isinstance(nested, dict):
             reply = {
-                "id": str(nested.get("id") or "").strip(),
+                "id": str(nested.get("id") or nested.get("payload") or "").strip(),
                 "title": str(nested.get("title") or nested.get("text") or "").strip(),
             }
             if reply["id"] or reply["title"]:
                 return reply
-        if str(value.get("type") or "").lower() == "button_reply":
+        quick = value.get("quick_reply")
+        if isinstance(quick, dict):
             reply = {
-                "id": str(value.get("id") or "").strip(),
+                "id": str(quick.get("id") or quick.get("payload") or "").strip(),
+                "title": str(quick.get("title") or quick.get("text") or "").strip(),
+            }
+            if reply["id"] or reply["title"]:
+                return reply
+        if str(value.get("type") or "").lower() in {"button_reply", "quick_reply"}:
+            reply = {
+                "id": str(value.get("id") or value.get("payload") or "").strip(),
                 "title": str(value.get("title") or value.get("text") or "").strip(),
             }
             if reply["id"] or reply["title"]:
@@ -147,8 +155,8 @@ def _extract_message_text(record: dict[str, Any]) -> str:
                 nested = text_obj.get("body")
                 if isinstance(nested, str) and nested.strip():
                     return nested.strip()
-        if str(whatsapp_message.get("type") or "").lower() in {"button", "interactive"}:
-            for key in ("button", "interactive", "button_reply", "list_reply"):
+        if str(whatsapp_message.get("type") or "").lower() in {"button", "interactive", "quick_reply"}:
+            for key in ("button", "interactive", "button_reply", "list_reply", "quick_reply"):
                 block = whatsapp_message.get(key)
                 if isinstance(block, dict):
                     for field in ("text", "title", "description", "id"):
@@ -307,17 +315,28 @@ class TelnyxInboundMessagingService:
                 }
                 if direction == "inbound" and channel == "whatsapp":
                     try:
+                        from app.services.survey_wa_inbound_parse_service import (
+                            parse_telnyx_wa_inbound_record,
+                        )
                         from app.services.survey_whatsapp_conversation_service import (
                             try_handle_survey_whatsapp_inbound,
                         )
 
+                        normalized_dup = parse_telnyx_wa_inbound_record(
+                            record,
+                            sender_phone=from_norm or from_number or "",
+                        )
+                        inbound_dup_text = (
+                            normalized_dup.normalized_answer or body or ""
+                        ).strip()
                         survey_result = try_handle_survey_whatsapp_inbound(
                             db,
                             from_phone=from_norm or from_number,
-                            body=body,
+                            body=inbound_dup_text,
                             org_id=org_id,
                             log_id=existing.id,
                             inbound_message_id=message_id,
+                            inbound_reply=normalized_dup,
                         )
                         if survey_result is not None:
                             result["survey"] = survey_result
@@ -361,9 +380,24 @@ class TelnyxInboundMessagingService:
         if direction == "inbound" and channel == "whatsapp":
             handled_interview = False
             handled_survey = False
+            from app.services.survey_wa_inbound_parse_service import (
+                log_raw_telnyx_inbound,
+                parse_telnyx_wa_inbound_record,
+            )
+
+            log_raw_telnyx_inbound(
+                record=record,
+                org_id=org_id,
+                message_id=message_id,
+                sender_phone=from_norm or from_number,
+            )
+            normalized = parse_telnyx_wa_inbound_record(
+                record,
+                sender_phone=from_norm or from_number or "",
+            )
             button_reply = extract_wa_button_reply(record)
-            inbound_text = (_extract_message_text(record) or body or "").strip()
-            button_id = button_reply.get("id") or (
+            inbound_text = (normalized.normalized_answer or _extract_message_text(record) or body or "").strip()
+            button_id = normalized.button_id or button_reply.get("id") or (
                 inbound_text if _looks_like_uuid(inbound_text) else ""
             )
 
@@ -376,10 +410,11 @@ class TelnyxInboundMessagingService:
                 survey_result = try_handle_survey_whatsapp_inbound(
                     db,
                     from_phone=from_norm or from_number,
-                    body=body,
+                    body=inbound_text,
                     org_id=org_id,
                     log_id=row.id,
                     inbound_message_id=message_id,
+                    inbound_reply=normalized,
                 )
                 if survey_result is not None:
                     handled_survey = bool(survey_result.get("handled"))

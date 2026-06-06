@@ -22,6 +22,39 @@ class SurveyBuilderFlowError(ValueError):
 
 RUNTIME_VERSION = 1
 RUNTIME_SOURCE = "order.config_json.builder_runtime"
+
+
+def _welcome_start_triggers(db: Session, welcome_template_id: int) -> list[str]:
+    """Button labels/ids from welcome template — valid Start actions for this survey."""
+    import json
+
+    row = db.get(TelnyxWhatsappTemplate, int(welcome_template_id))
+    if row is None:
+        return []
+    try:
+        components = json.loads(row.components_json or "[]")
+    except Exception:
+        components = []
+    if not isinstance(components, list):
+        return []
+    triggers: list[str] = []
+    for comp in components:
+        if str(comp.get("type") or "").upper() != "BUTTONS":
+            continue
+        for btn in comp.get("buttons") or []:
+            if not isinstance(btn, dict):
+                continue
+            for key in ("text", "title", "label", "button_text"):
+                label = str(btn.get(key) or "").strip()
+                if label and label not in triggers:
+                    triggers.append(label)
+            for key in ("id", "payload"):
+                val = str(btn.get(key) or "").strip()
+                if val and val not in triggers:
+                    triggers.append(val)
+    return triggers
+
+
 STALE_GRAPH_KEYS = (
     "flow_snapshot",
     "flow_snapshot_json",
@@ -92,6 +125,7 @@ def build_builder_runtime(
     )
     tell_id = int(tell_us_more_template_id) if tell_us_more_template_id else None
     thank_id = int(thank_you_template_id) if thank_you_template_id else None
+    start_triggers = _welcome_start_triggers(db, welcome_id)
 
     runtime: dict[str, Any] = {
         "version": RUNTIME_VERSION,
@@ -106,6 +140,7 @@ def build_builder_runtime(
         "thank_you_template_id": thank_id,
         "selected_template_ids": selected_ids,
         "selected_template_names": selected_names,
+        "start_triggers": start_triggers,
         "step_sequence": step_sequence,
         "branches": {
             "tell_us_more_on_low_rating": {

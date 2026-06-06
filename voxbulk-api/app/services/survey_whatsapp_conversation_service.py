@@ -42,6 +42,15 @@ from app.services.survey_builder_runtime_service import (
     runtime_low_rating_threshold,
     runtime_tell_us_more_enabled,
 )
+from app.services.survey_wa_inbound_parse_service import (
+    NormalizedWaInboundReply,
+    START_ACTION,
+    detect_start_action,
+    log_normalized_inbound,
+    matches_start_trigger,
+    parse_telnyx_wa_inbound_record,
+    welcome_start_triggers_from_config,
+)
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
@@ -343,6 +352,74 @@ def _phone_candidates(phone: str) -> set[str]:
     return {p for p in out if p}
 
 
+def _is_awaiting_start(conv: dict[str, Any], recipient: ServiceOrderRecipient) -> bool:
+    step = int(conv.get("step") or 0)
+    if step != 0:
+        return False
+    if conv.get("intro_sent_at"):
+        return True
+    return str(recipient.status or "").lower() in {"sent", "in_progress"}
+
+
+def _coerce_inbound_reply(body: str, inbound_reply: NormalizedWaInboundReply | None) -> NormalizedWaInboundReply:
+    if inbound_reply is not None:
+        return inbound_reply
+    text = str(body or "").strip()
+    reply = NormalizedWaInboundReply(
+        raw_text=text,
+        normalized_answer=text,
+        button_text=text,
+    )
+    reply.normalized_action = detect_start_action(reply)
+    return reply
+
+
+def _is_valid_start_action(
+    reply: NormalizedWaInboundReply,
+    config: dict[str, Any],
+    *,
+    awaiting_start: bool,
+) -> bool:
+    if not awaiting_start:
+        return False
+    extra = welcome_start_triggers_from_config(config)
+    if detect_start_action(reply, extra_triggers=extra) == START_ACTION:
+        return True
+    # Welcome template only exposes Start/quick-reply — structured button tap on step 0 counts.
+    if reply.button_title or reply.button_id or reply.button_payload:
+        return True
+    if reply.message_type in {"button", "interactive", "quick_reply"} and (
+        reply.button_title or reply.button_id or reply.button_payload
+    ):
+        return True
+    return matches_start_trigger(reply.raw_text or reply.normalized_answer, extra)
+
+
+def _log_start_transition_failure(
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    reply: NormalizedWaInboundReply,
+    conv: dict[str, Any],
+    session_id: str | None,
+) -> None:
+    logger.error(
+        "%s awaiting_start_unparsed order=%s recipient=%s session=%s conv_step=%s "
+        "raw_text=%r button_title=%r button_id=%r button_payload=%r message_type=%s fields=%s",
+        LOG_PREFIX,
+        order.id,
+        recipient.id,
+        session_id,
+        int(conv.get("step") or 0),
+        reply.raw_text[:120],
+        reply.button_title[:80],
+        reply.button_id[:80],
+        reply.button_payload[:80],
+        reply.message_type,
+        reply.extracted_fields,
+    )
+
+
 def find_active_recipient(
     db: Session,
     *,
@@ -383,6 +460,8 @@ def find_active_recipient(
             conv = _wa_conversation(_recipient_result(recipient))
             step = int(conv.get("step") or 0)
             total = int(conv.get("total") or 0)
+            if step == 0 and str(recipient.status or "").lower() in {"sent", "in_progress"}:
+                return order, recipient
             if conv.get("intro_sent_at") and step == 0:
                 return order, recipient
             if step >= 1 and step <= max(total, 1):
@@ -518,6 +597,7 @@ def try_handle_survey_whatsapp_inbound(
     org_id: str,
     log_id: int | None = None,
     inbound_message_id: str | None = None,
+    inbound_reply: NormalizedWaInboundReply | None = None,
 ) -> dict[str, Any] | None:
     """
     Survey-only WA inbound entry. Returns None when the message is not for survey WA
@@ -548,6 +628,7 @@ def try_handle_survey_whatsapp_inbound(
         org_id=scoped_org,
         log_id=log_id,
         inbound_message_id=inbound_message_id,
+        inbound_reply=inbound_reply,
     )
 
 
@@ -794,7 +875,7 @@ def send_first_question(
     order: ServiceOrder,
     recipient: ServiceOrderRecipient,
     config: dict[str, Any],
-) -> None:
+) -> dict[str, Any]:
     conv = _wa_conversation(_recipient_result(recipient))
     awaiting_start = bool(conv.get("intro_sent_at")) and int(conv.get("step") or 0) == 0
 
@@ -805,11 +886,11 @@ def send_first_question(
             order.id,
             recipient.id,
         )
-        return
+        return {"sent": False, "skipped": True, "reason": "already_started"}
 
     if not awaiting_start and not is_simulator_dry_run(config) and config.get("wa_template_id"):
         send_survey_opening(db, order=order, recipient=recipient, config=config)
-        return
+        return {"sent": False, "reason": "opening_sent_first"}
 
     config = _order_config(order)
     runtime = load_builder_runtime(config)
@@ -822,7 +903,8 @@ def send_first_question(
         )
     questions = survey_questions_from_config(config)
     if not questions:
-        return
+        logger.error("%s send_first_question_no_questions order=%s", LOG_PREFIX, order.id)
+        return {"sent": False, "reason": "no_questions"}
 
     session_existing = SurveySessionService.get_by_recipient(db, recipient.id)
     if is_graph_flow(config) and not should_use_builder_linear_runtime(config):
@@ -896,6 +978,25 @@ def send_first_question(
             q0.get("template_id"),
             q0.get("template_name"),
         )
+        return {
+            "sent": True,
+            "template_id": q0.get("template_id"),
+            "template_name": q0.get("template_name"),
+            "step": 1,
+        }
+    logger.error(
+        "%s first_question_send_failed order=%s recipient=%s template_id=%s",
+        LOG_PREFIX,
+        order.id,
+        recipient.id,
+        q0.get("template_id"),
+    )
+    return {
+        "sent": False,
+        "reason": "send_failed",
+        "template_id": q0.get("template_id"),
+        "template_name": q0.get("template_name"),
+    }
 
 
 def _send_first_question_graph(
@@ -953,6 +1054,7 @@ def handle_inbound_reply(
     org_id: str | None = None,
     log_id: int | None = None,
     inbound_message_id: str | None = None,
+    inbound_reply: NormalizedWaInboundReply | None = None,
 ) -> dict[str, Any]:
     """Advance an active WhatsApp survey when a contact replies."""
     order, recipient = find_active_recipient(db, from_phone=from_phone, org_id=org_id)
@@ -966,13 +1068,20 @@ def handle_inbound_reply(
         )
         return {"handled": False, "reason": "no_active_survey"}
 
+    reply = _coerce_inbound_reply(body, inbound_reply)
+    if not reply.sender_phone:
+        reply.sender_phone = str(from_phone or "")
+
     logger.info(
-        "%s inbound_matched order=%s recipient=%s step=%s body=%r",
+        "%s inbound_matched order=%s recipient=%s step=%s body=%r action=%s button_title=%r button_id=%r",
         LOG_PREFIX,
         order.id,
         recipient.id,
         int(_wa_conversation(_recipient_result(recipient)).get("step") or 0),
         str(body or "")[:80],
+        reply.normalized_action,
+        reply.button_title[:80] if reply.button_title else "",
+        reply.button_id[:80] if reply.button_id else "",
     )
 
     payload = _recipient_result(recipient)
@@ -1021,14 +1130,71 @@ def handle_inbound_reply(
 
     conv = _wa_conversation(payload)
     step = int(conv.get("step") or 0)
-    if step == 0 and conv.get("intro_sent_at"):
-        send_first_question(db, order=order, recipient=recipient, config=config)
+    awaiting_start = _is_awaiting_start(conv, recipient)
+    if awaiting_start:
+        log_normalized_inbound(
+            reply,
+            phase="awaiting_start_inbound",
+            order_id=order.id,
+            session_id=session_row.id if session_row else None,
+            conv_step=step,
+            awaiting_start=True,
+        )
+        if not _is_valid_start_action(reply, config, awaiting_start=True):
+            _log_start_transition_failure(
+                order=order,
+                recipient=recipient,
+                reply=reply,
+                conv=conv,
+                session_id=session_row.id if session_row else None,
+            )
+            return {
+                "handled": False,
+                "reason": "awaiting_start_unparsed",
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+                "log_id": log_id,
+                "inbound_message_id": inbound_message_id,
+                "extracted_fields": reply.extracted_fields,
+            }
+        send_result = send_first_question(db, order=order, recipient=recipient, config=config)
         db.refresh(recipient)
+        log_normalized_inbound(
+            reply,
+            phase="start_survey_transition",
+            order_id=order.id,
+            session_id=session_row.id if session_row else None,
+            conv_step=1,
+            awaiting_start=False,
+            send_result=bool(send_result.get("sent")),
+            next_template_id=send_result.get("template_id"),
+            next_template_name=str(send_result.get("template_name") or ""),
+            extra={"detected_action": START_ACTION, "send_result": send_result},
+        )
+        if not send_result.get("sent"):
+            return {
+                "handled": False,
+                "reason": send_result.get("reason") or "first_question_send_failed",
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+                "log_id": log_id,
+                "inbound_message_id": inbound_message_id,
+                "send_result": send_result,
+            }
+        payload = mark_inbound_processed(
+            _recipient_result(recipient),
+            log_id=log_id,
+            inbound_message_id=inbound_message_id,
+        )
+        _save_recipient_result(db, recipient, payload)
         return {
             "handled": True,
             "order_id": order.id,
             "recipient_id": recipient.id,
             "started": True,
+            "action": START_ACTION,
+            "next_template_id": send_result.get("template_id"),
+            "next_template_name": send_result.get("template_name"),
             "log_id": log_id,
             "inbound_message_id": inbound_message_id,
         }
@@ -1088,7 +1254,8 @@ def handle_inbound_reply(
         logger.error("%s linear_step_resolve_failed order=%s step=%s err=%s", LOG_PREFIX, order.id, step, exc)
         return {"handled": False, "reason": "step_resolve_failed", "detail": str(exc)}
 
-    answer = match_answer(body, question)
+    effective_body = reply.normalized_answer or str(body or "").strip()
+    answer = match_answer(effective_body, question)
     q_display = survey_question_display(
         db,
         config=config,
