@@ -19,7 +19,10 @@ import {
   useWaSurveyStepBank,
   useWaSurveySystemTemplates,
   useWaSurveyTypes,
+  useOrderRecipients,
 } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queries/index";
 
 export const Route = createFileRoute("/_app/surveys/new")({
   head: () => ({ meta: [{ title: "Create survey — VoxBulk" }] }),
@@ -107,6 +110,17 @@ function CreateSurvey() {
   const [orderId, setOrderId] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
+  const qc = useQueryClient();
+  const recipientsQ = useOrderRecipients(orderId);
+  const uploadedContacts = React.useMemo(() => {
+    const rows = recipientsQ.data?.recipients || [];
+    return rows.map((row) => ({
+      name: String(row.name || "").trim(),
+      phone: String(row.phone || "").trim(),
+      language: String(row.language || row.locale || "").trim(),
+    }));
+  }, [recipientsQ.data?.recipients]);
+  const contactsCount = uploadedContacts.filter((c) => c.phone).length;
 
   const delivery = channel === "whatsapp" ? "whatsapp" : "ai_call";
 
@@ -487,6 +501,7 @@ function CreateSurvey() {
     try {
       const id = await ensureOrder();
       await apiUploadFiles(`/service-orders/${encodeURIComponent(id)}/recipients/upload`, Array.from(files), "file");
+      await qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(id) });
       toast.success("Contacts uploaded");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
@@ -584,6 +599,8 @@ function CreateSurvey() {
           onDownloadTemplate={onDownloadTemplate}
           onSaveDraft={onSaveDraft}
           savePending={savePending}
+          contactsCount={contactsCount}
+          uploadedContacts={uploadedContacts}
         />
       )}
 
