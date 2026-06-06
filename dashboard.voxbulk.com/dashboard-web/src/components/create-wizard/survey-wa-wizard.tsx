@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { PreviewQuoteModal } from "@/components/modals";
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
+import { SurveyWaFlowSettings } from "@/components/create-wizard/survey-wa-flow-settings";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
 import { dashboardFieldErrorClassName } from "@/lib/dashboard-theme";
 import { WizardAlert } from "@/components/create-wizard/wizard-alert";
@@ -217,6 +218,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       return (
         !!props.welcomeTemplateId &&
         !!props.thankYouTemplateId &&
+        props.pageOrderValid &&
         props.orderedServiceTagIds.length >= 1 &&
         props.orderedServiceTagIds.every((id) => Boolean(props.selectedServiceTemplateIds[String(id).trim()]))
       );
@@ -230,6 +232,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
     if (!canNext) {
       if (step === 2 && props.serviceTagErrors[0]) toast.error(props.serviceTagErrors[0]);
       else if (step === 3 && props.step3SelectionErrors[0]) toast.error(props.step3SelectionErrors[0]);
+      else if (step === 3 && !props.pageOrderValid) toast.error(`Choose ${props.pageCount - 2} unique middle steps between start and completion`);
       else if (step === 3) toast.error("Pick welcome, thank-you, and one template for each survey type");
       return;
     }
@@ -400,7 +403,9 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               <CardTitle className="flex items-center gap-2">
                 <FileText className="size-4 text-primary" /> Step 3 · Select & arrange templates
               </CardTitle>
-              <CardDescription>Pick welcome & thanks templates, then one survey template per type. Drag to reorder the flow.</CardDescription>
+              <CardDescription>
+                Pick welcome & thanks templates, one library template per survey type, then review the message flow below.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {props.step3SelectionErrors.length && !props.generateErrors.length ? (
@@ -516,6 +521,31 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 templates={thankYouTemplateRows}
                 selectedId={props.thankYouTemplateId}
                 onSelect={props.setThankYouTemplateId}
+              />
+
+              <SurveyWaFlowSettings
+                goal={props.goal}
+                setGoal={props.setGoal}
+                privacyMode={props.privacyMode}
+                setPrivacyMode={props.setPrivacyMode}
+                pageCount={props.pageCount}
+                typeCount={props.orderedServiceTagIds.length}
+                autoSelectSteps={props.autoSelectSteps}
+                setAutoSelectSteps={props.setAutoSelectSteps}
+                resolvedPageRoles={props.resolvedPageRoles}
+                pageOrderValid={props.pageOrderValid}
+                stepBankByRole={props.stepBankByRole}
+                stepBankLoading={props.stepBankLoading}
+                approved={props.approved}
+                generating={props.generating}
+                canGenerate={
+                  props.orderedServiceTagIds.length >= 1 &&
+                  props.serviceTagErrors.length === 0 &&
+                  !!props.welcomeTemplateId &&
+                  !!props.thankYouTemplateId &&
+                  props.orderedServiceTagIds.every((id) => Boolean(props.selectedServiceTemplateIds[id]))
+                }
+                onGenerateWaSurvey={props.onGenerateWaSurvey}
               />
             </CardContent>
           </Card>

@@ -432,8 +432,8 @@ function CreateSurvey() {
         privacy_mode: privacyMode,
         length: PAGE_COUNT_TO_LENGTH[effectivePageCount],
         page_count: effectivePageCount,
-        auto_select_steps: true,
-        selected_step_roles: undefined,
+        auto_select_steps: autoSelectSteps,
+        selected_step_roles: autoSelectSteps ? undefined : resolvedPageRoles,
         goal,
       });
       setWaPreview(generated);
