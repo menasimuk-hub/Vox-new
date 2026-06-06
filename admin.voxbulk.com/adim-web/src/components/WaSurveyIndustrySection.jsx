@@ -2,16 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { formatWaSurveyError } from '../lib/waSurveyFeedback'
 
-function formatWhen(iso) {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleString()
-  } catch {
-    return iso
-  }
-}
-
-export default function WaSurveyIndustrySection({ onIndustriesChange }) {
+export default function WaSurveyIndustrySection() {
   const [kpis, setKpis] = useState(null)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -31,7 +22,6 @@ export default function WaSurveyIndustrySection({ onIndustriesChange }) {
       setKpis(data?.kpis || null)
       const list = Array.isArray(data?.industries) ? data.industries : []
       setRows(list)
-      onIndustriesChange?.(list.filter((row) => row.is_active && !row.is_hidden))
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not load WA Survey overview').message)
       setRows([])
@@ -39,7 +29,7 @@ export default function WaSurveyIndustrySection({ onIndustriesChange }) {
     } finally {
       setLoading(false)
     }
-  }, [onIndustriesChange])
+  }, [])
 
   useEffect(() => {
     void load()
