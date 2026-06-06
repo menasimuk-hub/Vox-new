@@ -193,6 +193,9 @@ def create_email_template(
             subject=payload.subject,
             body=payload.body,
             is_enabled=payload.is_enabled,
+            lawful_basis=payload.lawful_basis,
+            privacy_notice_url=payload.privacy_notice_url,
+            contact_email=payload.contact_email,
         )
     except EmailTemplateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -214,6 +217,9 @@ def put_email_template(
             subject=payload.subject,
             body=payload.body,
             is_enabled=payload.is_enabled,
+            lawful_basis=payload.lawful_basis,
+            privacy_notice_url=payload.privacy_notice_url,
+            contact_email=payload.contact_email,
         )
     except EmailTemplateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

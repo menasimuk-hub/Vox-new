@@ -19,6 +19,8 @@ This document describes the **technical baseline** implemented in the VoxBulk co
 
 ### C. Transparency
 - Org fields: `privacy_notice_url`, `contact_email`, `dpo_email`, `privacy_intro_text_default`.
+- Email templates (`email_templates`): `lawful_basis`, `privacy_notice_url`, `contact_email` on every outbound template (Admin → Email → edit template).
+- Launch merge order: order `config.compliance` → org defaults → launch outbound email templates → platform defaults.
 - Survey WA intro appends privacy footer from merged compliance config.
 - Simulator: synthetic phone (`+447700900…`), name `Sim Respondent`, `simulator_synthetic_only` flag.
 
@@ -59,7 +61,7 @@ This document describes the **technical baseline** implemented in the VoxBulk co
 
 ## Migrations
 
-Run: `alembic upgrade head` (revision `0097_uk_compliance_baseline`).
+Run: `alembic upgrade head` (revisions `0097_uk_compliance_baseline`, `0100_email_template_compliance_fields`).
 
 ## Still needs policy / legal review
 

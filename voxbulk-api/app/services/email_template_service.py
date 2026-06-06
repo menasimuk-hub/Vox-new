@@ -9,6 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.models.email_template import EmailTemplate
 from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
+from app.services.uk_compliance_constants import (
+    DEFAULT_COMPLIANCE_CONTACT_EMAIL,
+    DEFAULT_LAWFUL_BASIS,
+    DEFAULT_PRIVACY_NOTICE_URL,
+    LAUNCH_OUTBOUND_EMAIL_TEMPLATE_KEYS,
+    LAWFUL_BASES,
+    PRIMARY_LAUNCH_EMAIL_TEMPLATE_KEY,
+)
 
 EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "new_user",
@@ -42,6 +50,87 @@ class EmailTemplateError(ValueError):
 
 class EmailTemplateService:
     @staticmethod
+    def default_compliance_fields(*, template_key: str | None = None) -> dict[str, str]:
+        basis = DEFAULT_LAWFUL_BASIS
+        key = str(template_key or "").strip().lower()
+        if key == "sales_offer":
+            basis = "consent"
+        return {
+            "lawful_basis": basis,
+            "privacy_notice_url": DEFAULT_PRIVACY_NOTICE_URL,
+            "contact_email": DEFAULT_COMPLIANCE_CONTACT_EMAIL,
+        }
+
+    @staticmethod
+    def _apply_compliance_defaults(row: EmailTemplate, *, template_key: str | None = None) -> None:
+        defaults = EmailTemplateService.default_compliance_fields(template_key=template_key or row.template_key)
+        if not str(row.lawful_basis or "").strip():
+            row.lawful_basis = defaults["lawful_basis"]
+        if not str(row.privacy_notice_url or "").strip():
+            row.privacy_notice_url = defaults["privacy_notice_url"]
+        if not str(row.contact_email or "").strip():
+            row.contact_email = defaults["contact_email"]
+
+    @staticmethod
+    def compliance_dict(row: EmailTemplate | None) -> dict[str, str]:
+        if row is None:
+            return {}
+        out: dict[str, str] = {}
+        basis = str(row.lawful_basis or "").strip().lower()
+        if basis:
+            out["lawful_basis"] = basis
+        url = str(row.privacy_notice_url or "").strip()
+        if url:
+            out["privacy_notice_url"] = url
+        contact = str(row.contact_email or "").strip()
+        if contact:
+            out["contact_email"] = contact
+        return out
+
+    @staticmethod
+    def launch_outbound_compliance_defaults(db: Session, *, service_code: str | None = None) -> dict[str, str]:
+        """Merge compliance from launch-relevant outbound email templates (first non-empty wins)."""
+        EmailTemplateService.ensure_system_templates(db)
+        keys = list(LAUNCH_OUTBOUND_EMAIL_TEMPLATE_KEYS)
+        code = str(service_code or "").strip().lower()
+        if code == "interview":
+            keys = [k for k in keys if k.startswith("interview_")]
+        elif code == "survey":
+            keys = [k for k in keys if not k.startswith("interview_")]
+        primary = PRIMARY_LAUNCH_EMAIL_TEMPLATE_KEY.get(code)
+        if primary and primary in keys:
+            keys = [primary] + [k for k in keys if k != primary]
+
+        merged: dict[str, str] = {}
+        for key in keys:
+            row = EmailTemplateService.get(db, key=key)
+            block = EmailTemplateService.compliance_dict(row)
+            for field, value in block.items():
+                if field not in merged and str(value or "").strip():
+                    merged[field] = str(value).strip()
+        return merged
+
+    @staticmethod
+    def normalize_compliance_payload(
+        *,
+        lawful_basis: str | None = None,
+        privacy_notice_url: str | None = None,
+        contact_email: str | None = None,
+        template_key: str | None = None,
+    ) -> dict[str, str]:
+        defaults = EmailTemplateService.default_compliance_fields(template_key=template_key)
+        basis = str(lawful_basis or defaults["lawful_basis"]).strip().lower()
+        if basis not in LAWFUL_BASES:
+            basis = defaults["lawful_basis"]
+        url = str(privacy_notice_url or defaults["privacy_notice_url"]).strip()
+        contact = str(contact_email or defaults["contact_email"]).strip()
+        return {
+            "lawful_basis": basis,
+            "privacy_notice_url": url,
+            "contact_email": contact,
+        }
+
+    @staticmethod
     def ensure_system_templates(db: Session) -> None:
         """Insert any missing system templates; refresh interview bodies with broken data: logos."""
         changed = False
@@ -58,6 +147,7 @@ class EmailTemplateService:
                     is_enabled=True,
                 )
                 continue
+            EmailTemplateService._apply_compliance_defaults(row, template_key=key)
             body = str(row.body or "")
             default_body = str(defaults.get("body") or "")
             default_subject = str(defaults.get("subject") or "")
@@ -154,6 +244,9 @@ class EmailTemplateService:
             "subject": row.subject or "",
             "body": row.body or "",
             "is_enabled": bool(row.is_enabled),
+            "lawful_basis": row.lawful_basis or "",
+            "privacy_notice_url": row.privacy_notice_url or "",
+            "contact_email": row.contact_email or "",
             "is_system": EmailTemplateService.is_system_key(row.template_key),
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
@@ -167,10 +260,19 @@ class EmailTemplateService:
         subject: str,
         body: str,
         is_enabled: bool,
+        lawful_basis: str | None = None,
+        privacy_notice_url: str | None = None,
+        contact_email: str | None = None,
     ) -> EmailTemplate:
         k = EmailTemplateService.normalize_key(key)
         if EmailTemplateService.get(db, key=k) is not None:
             raise EmailTemplateError(f"Template key already exists: {k}")
+        compliance = EmailTemplateService.normalize_compliance_payload(
+            lawful_basis=lawful_basis,
+            privacy_notice_url=privacy_notice_url,
+            contact_email=contact_email,
+            template_key=k,
+        )
         now = datetime.utcnow()
         row = EmailTemplate(
             template_key=k,
@@ -178,6 +280,9 @@ class EmailTemplateService:
             subject=(subject or "").strip(),
             body=body or "",
             is_enabled=bool(is_enabled),
+            lawful_basis=compliance["lawful_basis"],
+            privacy_notice_url=compliance["privacy_notice_url"],
+            contact_email=compliance["contact_email"],
             created_at=now,
             updated_at=now,
         )
@@ -195,6 +300,9 @@ class EmailTemplateService:
         subject: str,
         body: str,
         is_enabled: bool,
+        lawful_basis: str | None = None,
+        privacy_notice_url: str | None = None,
+        contact_email: str | None = None,
     ) -> EmailTemplate:
         k = EmailTemplateService.normalize_key(key)
         row = EmailTemplateService.get(db, key=k)
@@ -206,12 +314,24 @@ class EmailTemplateService:
                 subject=subject,
                 body=body,
                 is_enabled=is_enabled,
+                lawful_basis=lawful_basis,
+                privacy_notice_url=privacy_notice_url,
+                contact_email=contact_email,
             )
         if title is not None:
             row.title = title.strip()
         row.subject = (subject or "").strip()
         row.body = body or ""
         row.is_enabled = bool(is_enabled)
+        if lawful_basis is not None:
+            row.lawful_basis = EmailTemplateService.normalize_compliance_payload(
+                lawful_basis=lawful_basis, template_key=k
+            )["lawful_basis"]
+        if privacy_notice_url is not None:
+            row.privacy_notice_url = str(privacy_notice_url or "").strip() or None
+        if contact_email is not None:
+            row.contact_email = str(contact_email or "").strip() or None
+        EmailTemplateService._apply_compliance_defaults(row, template_key=k)
         row.updated_at = datetime.utcnow()
         db.add(row)
         db.commit()

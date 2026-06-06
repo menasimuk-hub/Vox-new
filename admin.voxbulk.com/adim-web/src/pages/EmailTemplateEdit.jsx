@@ -6,6 +6,7 @@ import {
   COMMON_PLACEHOLDERS,
   DEFAULT_NEW_EMAIL_HTML,
   DEMO_HTML_BY_KEY,
+  LAWFUL_BASES,
   SYSTEM_EMAIL_META,
   buildEmailTestVariables,
   emailDisplayDescription,
@@ -21,6 +22,9 @@ const EMPTY_NEW = {
   subject: '',
   body: DEFAULT_NEW_EMAIL_HTML,
   is_enabled: true,
+  lawful_basis: 'legitimate_interests',
+  privacy_notice_url: 'https://www.voxbulk.com/privacy',
+  contact_email: 'Data.Pro@voxbulk.com',
 }
 
 export default function EmailTemplateEdit() {
@@ -35,7 +39,16 @@ export default function EmailTemplateEdit() {
   const [testBusy, setTestBusy] = useState(false)
   const [testMsg, setTestMsg] = useState('')
   const [testTo, setTestTo] = useState('')
-  const [draft, setDraft] = useState(isNew ? EMPTY_NEW : { template_key: '', title: '', subject: '', body: '', is_enabled: true })
+  const [draft, setDraft] = useState(isNew ? EMPTY_NEW : {
+    template_key: '',
+    title: '',
+    subject: '',
+    body: '',
+    is_enabled: true,
+    lawful_basis: 'legitimate_interests',
+    privacy_notice_url: 'https://www.voxbulk.com/privacy',
+    contact_email: 'Data.Pro@voxbulk.com',
+  })
   const [isSystem, setIsSystem] = useState(false)
 
   useEffect(() => {
@@ -65,6 +78,9 @@ export default function EmailTemplateEdit() {
               subject: row.subject || '',
               body: row.body || '',
               is_enabled: row.is_enabled !== false,
+              lawful_basis: row.lawful_basis || 'legitimate_interests',
+              privacy_notice_url: row.privacy_notice_url || 'https://www.voxbulk.com/privacy',
+              contact_email: row.contact_email || 'Data.Pro@voxbulk.com',
             },
       )
       setIsSystem(Boolean(row.is_system))
@@ -89,6 +105,9 @@ export default function EmailTemplateEdit() {
         subject: draft.subject,
         body: draft.body,
         is_enabled: draft.is_enabled,
+        lawful_basis: draft.lawful_basis || null,
+        privacy_notice_url: draft.privacy_notice_url || null,
+        contact_email: draft.contact_email || null,
       }
       if (isNew) {
         const key = slugifyTemplateKey(draft.template_key || draft.title)
@@ -233,6 +252,40 @@ export default function EmailTemplateEdit() {
                   ) : null}
                 </>
               )}
+
+              <TemplateMetaGrid className="span2col" style={{ marginBottom: 16 }}>
+                <div className="msgFieldBlock" style={{ marginBottom: 0 }}>
+                  <label className="label">Lawful basis (UK GDPR / PECR)</label>
+                  <select
+                    className="input"
+                    value={draft.lawful_basis || ''}
+                    onChange={(e) => setDraft((d) => ({ ...d, lawful_basis: e.target.value }))}
+                  >
+                    {LAWFUL_BASES.map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="msgFieldBlock" style={{ marginBottom: 0 }}>
+                  <label className="label">Privacy notice URL</label>
+                  <input
+                    className="input"
+                    value={draft.privacy_notice_url || ''}
+                    onChange={(e) => setDraft((d) => ({ ...d, privacy_notice_url: e.target.value }))}
+                    placeholder="https://…"
+                  />
+                </div>
+                <div className="msgFieldBlock" style={{ marginBottom: 0, gridColumn: 'span 2' }}>
+                  <label className="label">Contact email</label>
+                  <input
+                    className="input"
+                    value={draft.contact_email || ''}
+                    onChange={(e) => setDraft((d) => ({ ...d, contact_email: e.target.value }))}
+                    placeholder="dpo@example.com"
+                  />
+                  <p className="fieldHint">Required for UK compliance checks before interview/survey launch.</p>
+                </div>
+              </TemplateMetaGrid>
 
               <div className="emailEditorSplit">
                 <div className="emailEditorFields">

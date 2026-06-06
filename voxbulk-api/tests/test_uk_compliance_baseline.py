@@ -115,16 +115,32 @@ def test_merged_compliance_from_org(db):
     assert summary["compliance"]["privacy_notice_url"] == "https://www.voxbulk.com/privacy"
 
 
-def test_launch_blocked_without_privacy_url(db):
+def test_launch_passes_from_email_templates_when_org_defaults_missing(db):
+    from app.models.email_template import EmailTemplate
+    from app.services.email_template_service import EmailTemplateService
+    from sqlalchemy import select
+
     org, order = _org_with_compliance(db)
     comp = db.execute(
-        __import__("sqlalchemy").select(OrganisationComplianceConfig).where(
-            OrganisationComplianceConfig.org_id == org.id
-        )
+        select(OrganisationComplianceConfig).where(OrganisationComplianceConfig.org_id == org.id)
     ).scalar_one()
     comp.privacy_notice_url = None
     comp.contact_email = None
+    comp.lawful_basis_default = None
     db.add(comp)
+    order.config_json = json.dumps({"compliance": {"message_purpose": "survey"}})
+    db.add(order)
+    EmailTemplateService.ensure_system_templates(db)
+    notice = db.execute(
+        select(EmailTemplate).where(EmailTemplate.template_key == "general_notification")
+    ).scalar_one()
+    notice.lawful_basis = "consent"
+    notice.privacy_notice_url = "https://example.com/privacy"
+    notice.contact_email = "dpo@example.com"
+    db.add(notice)
     db.commit()
-    with pytest.raises(ValueError, match="compliance"):
-        UkComplianceService.assert_order_launch_allowed(db, order)
+
+    summary = UkComplianceService.readiness_summary(db, order)
+    assert summary["ok"] is True
+    assert summary["compliance"]["lawful_basis"] == "consent"
+    assert summary["compliance"]["privacy_notice_url"] == "https://example.com/privacy"

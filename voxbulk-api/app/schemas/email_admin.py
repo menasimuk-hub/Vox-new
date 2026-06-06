@@ -39,6 +39,9 @@ class EmailTemplateUpdate(BaseModel):
     subject: str = Field(default="")
     body: str = Field(default="")
     is_enabled: bool = True
+    lawful_basis: str | None = None
+    privacy_notice_url: str | None = None
+    contact_email: str | None = None
 
 
 class EmailTemplateCreate(BaseModel):
@@ -47,6 +50,9 @@ class EmailTemplateCreate(BaseModel):
     subject: str = Field(default="")
     body: str = Field(default="")
     is_enabled: bool = True
+    lawful_basis: str | None = None
+    privacy_notice_url: str | None = None
+    contact_email: str | None = None
 
 
 class ChannelTemplateCreate(BaseModel):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -13,6 +14,9 @@ from app.models.organisation_ai_config import OrganisationComplianceConfig
 from app.models.service_order import ServiceOrder
 from app.services.uk_compliance_constants import (
     ARTICLE9_CONDITIONS,
+    DEFAULT_COMPLIANCE_CONTACT_EMAIL,
+    DEFAULT_LAWFUL_BASIS,
+    DEFAULT_PRIVACY_NOTICE_URL,
     DEFAULT_RETENTION_DAYS_MESSAGES,
     DEFAULT_RETENTION_DAYS_RECORDINGS,
     DEFAULT_RETENTION_DAYS_RESPONSES,
@@ -41,7 +45,11 @@ def _org_compliance_row(db: Session, org_id: str) -> OrganisationComplianceConfi
 def org_compliance_dict(db: Session, org_id: str) -> dict[str, Any]:
     row = _org_compliance_row(db, org_id)
     if row is None:
-        return {}
+        from app.services.onboarding_service import OrganisationOnboardingService
+
+        row = OrganisationOnboardingService.get_or_create_compliance(db, org_id)
+        db.commit()
+        db.refresh(row)
     return {
         "privacy_notice_url": row.privacy_notice_url,
         "contact_email": row.contact_email,
@@ -71,15 +79,26 @@ def order_compliance_dict(order: ServiceOrder) -> dict[str, Any]:
 def merged_compliance(db: Session, order: ServiceOrder) -> dict[str, Any]:
     org = org_compliance_dict(db, order.org_id)
     order_block = order_compliance_dict(order)
+    from app.services.email_template_service import EmailTemplateService
+
+    template_defaults = EmailTemplateService.launch_outbound_compliance_defaults(
+        db, service_code=order.service_code
+    )
     out: dict[str, Any] = {
-        "lawful_basis": order_block.get("lawful_basis") or org.get("lawful_basis_default"),
+        "lawful_basis": order_block.get("lawful_basis")
+        or org.get("lawful_basis_default")
+        or template_defaults.get("lawful_basis"),
         "message_purpose": order_block.get("message_purpose") or _default_message_purpose(order),
         "special_category_data_present": order_block.get("special_category_data_present")
         if "special_category_data_present" in order_block
         else org.get("special_category_data_present_default", False),
         "article9_condition": order_block.get("article9_condition") or org.get("article9_condition_default"),
-        "privacy_notice_url": order_block.get("privacy_notice_url") or org.get("privacy_notice_url"),
-        "contact_email": order_block.get("contact_email") or org.get("contact_email"),
+        "privacy_notice_url": order_block.get("privacy_notice_url")
+        or org.get("privacy_notice_url")
+        or template_defaults.get("privacy_notice_url"),
+        "contact_email": order_block.get("contact_email")
+        or org.get("contact_email")
+        or template_defaults.get("contact_email"),
         "dpo_email": order_block.get("dpo_email") or org.get("dpo_email"),
         "privacy_intro_text": order_block.get("privacy_intro_text") or org.get("privacy_intro_text_default"),
         "opt_out_enabled": order_block.get("opt_out_enabled")
@@ -101,6 +120,12 @@ def merged_compliance(db: Session, order: ServiceOrder) -> dict[str, Any]:
         or org.get("retention_days_transcripts")
         or DEFAULT_RETENTION_DAYS_TRANSCRIPTS,
     }
+    if not str(out.get("lawful_basis") or "").strip():
+        out["lawful_basis"] = DEFAULT_LAWFUL_BASIS
+    if not str(out.get("privacy_notice_url") or "").strip():
+        out["privacy_notice_url"] = DEFAULT_PRIVACY_NOTICE_URL
+    if not str(out.get("contact_email") or "").strip():
+        out["contact_email"] = DEFAULT_COMPLIANCE_CONTACT_EMAIL
     return out
 
 
@@ -152,7 +177,34 @@ def validate_compliance_block(block: dict[str, Any], *, for_outbound: bool) -> l
 
 class UkComplianceService:
     @staticmethod
+    def seed_order_compliance_config(db: Session, order: ServiceOrder, *, commit: bool = True) -> ServiceOrder:
+        """Persist resolved compliance on the order when missing (org + email template defaults)."""
+        order_block = order_compliance_dict(order)
+        block = merged_compliance(db, order)
+        payload: dict[str, Any] = {}
+        for key in ("lawful_basis", "privacy_notice_url", "contact_email", "message_purpose"):
+            if not str(order_block.get(key) or "").strip() and block.get(key):
+                payload[key] = block[key]
+        if not payload:
+            return order
+        try:
+            cfg = json.loads(order.config_json or "{}")
+        except Exception:
+            cfg = {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        cfg = UkComplianceService.attach_compliance_to_order_config(cfg, payload)
+        order.config_json = json.dumps(cfg, ensure_ascii=False)
+        order.updated_at = datetime.utcnow()
+        db.add(order)
+        if commit:
+            db.commit()
+            db.refresh(order)
+        return order
+
+    @staticmethod
     def validate_order_for_launch(db: Session, order: ServiceOrder) -> list[str]:
+        UkComplianceService.seed_order_compliance_config(db, order, commit=True)
         block = merged_compliance(db, order)
         return validate_compliance_block(block, for_outbound=True)
 

@@ -288,6 +288,8 @@ export const MESSAGING_TABS = [
   { id: 'careers', label: 'Career mailbox', icon: 'ti-inbox' },
 ]
 
+export const LAWFUL_BASES = ['consent', 'contract', 'legitimate_interests', 'legal_obligation']
+
 export const DEFAULT_NEW_EMAIL_HTML = `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;">
   <p>Hello <strong>{{user_name}}</strong>,</p>
   <p>Your message here.</p>
@@ -310,6 +312,9 @@ export function mergeSystemEmailDraft(row) {
     subject: String(row?.subject || defaultSubject || '').trim(),
     body,
     is_enabled: row?.is_enabled !== false,
+    lawful_basis: String(row?.lawful_basis || 'legitimate_interests').trim(),
+    privacy_notice_url: String(row?.privacy_notice_url || 'https://www.voxbulk.com/privacy').trim(),
+    contact_email: String(row?.contact_email || 'Data.Pro@voxbulk.com').trim(),
   }
 }
 

@@ -1288,8 +1288,11 @@ class ServiceOrderService:
         title: str,
         config: dict[str, Any] | None = None,
     ) -> ServiceOrder:
-        if service_code not in {"survey", "interview"}:
+        if order.service_code not in {"survey", "interview"}:
             raise ValueError("service_code must be survey or interview")
+        from app.services.uk_compliance_service import UkComplianceService
+
+        base_config = dict(config or {})
         order = ServiceOrder(
             org_id=org_id,
             user_id=user_id,
@@ -1297,11 +1300,12 @@ class ServiceOrderService:
             title=title.strip() or ("Survey order" if service_code == "survey" else "Interview order"),
             status="draft",
             payment_status="unpaid",
-            config_json=json.dumps(config or {}, ensure_ascii=False),
+            config_json=json.dumps(base_config, ensure_ascii=False),
         )
         db.add(order)
         db.commit()
         db.refresh(order)
+        order = UkComplianceService.seed_order_compliance_config(db, order, commit=True)
         if service_code == "interview":
             from app.services.interview_campaign_service import ensure_campaign_id
             from app.services.interview_reference_service import ensure_order_reference_id
@@ -1351,6 +1355,9 @@ class ServiceOrderService:
         if "config" in payload and isinstance(payload["config"], dict):
             config.update(payload["config"])
             order.config_json = json.dumps(config, ensure_ascii=False)
+        from app.services.uk_compliance_service import UkComplianceService
+
+        order = UkComplianceService.seed_order_compliance_config(db, order, commit=False)
         if payload.get("title"):
             order.title = str(payload["title"]).strip()
         if payload.get("run_mode") in {"manual", "scheduled"}:
