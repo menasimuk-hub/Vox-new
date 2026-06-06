@@ -3,8 +3,9 @@
 # No git pull, no migrations. Run ON THE VPS after git pull when UI is stale.
 #
 # Full deploy (git + migrate + all builds): ./deploy-vps.sh
-# Public marketing site is served via vite preview (vox.sh), not static wwwroot.set -euo pipefail
-
+# Dashboard only (git pull + build + rsync): bash scripts/vps-sync-dashboard.sh
+# Public marketing site is served via vite preview (vox.sh), not static wwwroot.
+set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ADMIN_DIR="$ROOT/admin.voxbulk.com/adim-web"
 DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"

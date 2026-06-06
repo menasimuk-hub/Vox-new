@@ -1,23 +1,45 @@
 # VOXBULK VPS deploy
 
-## One-command update (on the server)
+## Push to GitHub ≠ live site
 
-```bash
-cd /www/voxbulk          # repo root (Baota path)
-git pull origin main
-chmod +x deploy-vps.sh vox.sh scripts/vps-update-ui.sh
-./deploy-vps.sh
-```
+**Pushing from your PC updates GitHub only.** The VPS still serves old built files until you run a deploy script **on the server** (Baota → Terminal).
 
-**UI only** (skip migrations — use when GitHub is already pulled but sites look old):
+## Sync customer dashboard (most common)
+
+Your Create Survey changes are on branch **`feat/wa-survey-template-library`** until merged to `main`.
 
 ```bash
 cd /www/voxbulk
-git pull origin main
-bash scripts/vps-update-ui.sh
+chmod +x scripts/vps-sync-dashboard.sh
+VOX_GIT_BRANCH=feat/wa-survey-template-library bash scripts/vps-sync-dashboard.sh
 ```
 
-**Important:** Pushing to GitHub does **not** update the live sites. You must run one of the commands above on the VPS (Baota → Terminal).
+After `main` has your merge:
+
+```bash
+cd /www/voxbulk
+bash scripts/vps-sync-dashboard.sh
+```
+
+Hard refresh browser: **Ctrl+Shift+R** on https://dashboard.voxbulk.com/surveys/new
+
+## One-command full update (API + admin + dashboard + migrations)
+
+```bash
+cd /www/voxbulk          # repo root (Baota path)
+chmod +x deploy-vps.sh vox.sh scripts/vps-update-ui.sh scripts/vps-sync-dashboard.sh
+VOX_GIT_BRANCH=feat/wa-survey-template-library ./deploy-vps.sh
+```
+
+Default branch is `main`. Override with `VOX_GIT_BRANCH=your-branch`.
+
+**UI only** (all frontends, skip migrations):
+
+```bash
+cd /www/voxbulk
+git pull origin feat/wa-survey-template-library   # or main
+bash scripts/vps-update-ui.sh
+```
 
 ## First-time VPS setup
 

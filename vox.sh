@@ -188,8 +188,16 @@ case "${1:-}" in
     fi
     bash "$DEPLOY_SCRIPT"
     ;;
+  sync-dashboard|dashboard)
+    SYNC_SCRIPT="$ROOT/scripts/vps-sync-dashboard.sh"
+    if [[ ! -f "$SYNC_SCRIPT" ]]; then
+      echo "Missing $SYNC_SCRIPT"
+      exit 1
+    fi
+    bash "$SYNC_SCRIPT"
+    ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status|update|deploy}"
+    echo "Usage: $0 {start|stop|restart|status|update|deploy|sync-dashboard|dashboard}"
     exit 1
     ;;
 esac
