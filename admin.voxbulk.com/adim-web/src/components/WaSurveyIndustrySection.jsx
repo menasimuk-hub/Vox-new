@@ -341,13 +341,17 @@ export default function WaSurveyIndustrySection({ onIndustriesChange }) {
             </div>
             <div className="leadModalFoot" style={{ display: 'flex', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
               {modal.mode === 'edit' && !modal.is_hidden ? (
-                <button type="button" className="btn danger" onClick={() => confirmDelete({
-                  id: modal.id,
-                  name: modal.name,
-                  survey_type_count: modal.survey_type_count,
-                  template_count: modal.template_count,
-                  is_hidden: modal.is_hidden,
-                })}
+                <button
+                  type="button"
+                  className="btn danger"
+                  onClick={() => confirmDelete({
+                    id: modal.id,
+                    name: modal.name,
+                    survey_type_count: modal.survey_type_count,
+                    template_count: modal.template_count,
+                    is_hidden: modal.is_hidden,
+                  })}
+                >
                   Delete industry
                 </button>
               ) : (
