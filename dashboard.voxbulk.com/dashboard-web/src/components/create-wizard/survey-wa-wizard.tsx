@@ -18,12 +18,14 @@ import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/crea
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
 import { WizardAlert, wizardFieldErrorClassName } from "@/components/create-wizard/wizard-alert";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   mapSystemTemplates,
   WaDraggableTypeGroup,
   WaTemplatePickerSection,
 } from "@/components/create-wizard/survey-wa-template-step";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -42,6 +44,8 @@ const WA_STEPS: WizardStepDef[] = [
 
 export type SurveyWaWizardProps = {
   onBack: () => void;
+  surveyName: string;
+  setSurveyName: (v: string) => void;
   anonymous: boolean;
   industryId: string;
   setIndustryId: (v: string) => void;
@@ -210,7 +214,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   };
 
   const canNext = React.useMemo(() => {
-    if (step === 1) return !!props.industryId;
+    if (step === 1) return !!props.surveyName.trim() && !!props.industryId;
     if (step === 2) {
       if (props.selectedServiceTagIds.length < 1) return false;
       for (const id of props.selectedServiceTagIds) {
@@ -234,7 +238,9 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
 
   const goNext = async () => {
     if (!canNext) {
-      if (step === 2 && props.serviceTagErrors[0]) toast.error(props.serviceTagErrors[0]);
+      if (step === 1 && !props.surveyName.trim()) toast.error("Enter a survey name before continuing");
+      else if (step === 1 && !props.industryId) toast.error("Choose an industry before continuing");
+      else if (step === 2 && props.serviceTagErrors[0]) toast.error(props.serviceTagErrors[0]);
       else if (step === 3 && props.step3SelectionErrors[0]) toast.error(props.step3SelectionErrors[0]);
       else if (step === 3) toast.error("Pick welcome, thank-you, and one template for each survey type");
       return;
@@ -259,7 +265,20 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               </CardTitle>
               <CardDescription>This tailors the survey types and templates to your business.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="survey-name">Survey name</Label>
+                <Input
+                  id="survey-name"
+                  value={props.surveyName}
+                  onChange={(e) => props.setSurveyName(e.target.value)}
+                  placeholder="Patient satisfaction follow-up"
+                  maxLength={120}
+                />
+                <p className="text-xs text-muted-foreground">
+                  This is the campaign title shown in saved surveys, launch, and results — not the first survey question.
+                </p>
+              </div>
               {props.industriesLoading ? (
                 <Skeleton className="h-32 w-full" />
               ) : (

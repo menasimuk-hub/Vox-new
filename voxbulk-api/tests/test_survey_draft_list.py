@@ -166,3 +166,67 @@ def test_resolve_step_display_name_priority():
         resolve_step_display_name({"text": goal}, sequence=0, campaign_goal=goal, campaign_title=goal)
         == "Question 1"
     )
+
+
+def test_survey_name_persisted_separate_from_goal(app_client):
+    headers, _org_id = _seed_user(app_client, email="survey_name_field@example.com")
+    survey_name = "Patient satisfaction follow-up"
+    goal = "Measure satisfaction with our new hygienist team and identify the top improvement."
+    create = app_client.post(
+        "/service-orders",
+        headers=headers,
+        json={
+            "service_code": "survey",
+            "title": survey_name,
+            "config": {
+                "delivery": "whatsapp",
+                "survey_name": survey_name,
+                "goal": goal,
+                "builder_step_sequence": [{"step_role": "rating", "text": goal}],
+            },
+        },
+    )
+    assert create.status_code == 200, create.text
+    order_id = create.json()["id"]
+
+    detail = app_client.get(f"/service-orders/{order_id}", headers=headers).json()
+    assert detail.get("survey_name") == survey_name
+    assert detail.get("title") == survey_name
+    assert detail.get("first_step_name") == "Question 1"
+    assert detail.get("first_step_name") != survey_name
+
+    listed = app_client.get("/service-orders?service_code=survey", headers=headers).json()
+    match = next((row for row in listed if row["id"] == order_id), None)
+    assert match is not None
+    assert match.get("survey_name") == survey_name
+
+
+def test_survey_name_updates_on_patch(app_client):
+    headers, _org_id = _seed_user(app_client, email="survey_name_patch@example.com")
+    create = app_client.post(
+        "/service-orders",
+        headers=headers,
+        json={
+            "service_code": "survey",
+            "title": "Initial name",
+            "config": {"delivery": "whatsapp", "survey_name": "Initial name"},
+        },
+    )
+    assert create.status_code == 200
+    order_id = create.json()["id"]
+
+    patched = app_client.patch(
+        f"/service-orders/{order_id}",
+        headers=headers,
+        json={
+            "title": "Renamed campaign",
+            "config": {"survey_name": "Renamed campaign", "delivery": "whatsapp"},
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body.get("survey_name") == "Renamed campaign"
+    assert body.get("title") == "Renamed campaign"
+
+    reload = app_client.get(f"/service-orders/{order_id}", headers=headers).json()
+    assert reload.get("survey_name") == "Renamed campaign"

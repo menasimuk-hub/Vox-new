@@ -58,14 +58,15 @@ export function statusLabelToTone(label: string, order: ServiceOrder): CampaignT
 
 export function orderToCampaign(order: ServiceOrder, type: CampaignType): Campaign {
   const { responses, target, completion } = orderProgress(order);
-  const rejectTitles = [order.title || "", String(order.config?.goal || "")].filter(Boolean);
+  const rejectTitles = [order.survey_name || "", order.title || "", String(order.config?.goal || "")].filter(Boolean);
   const step1 = (
     sanitizeStepLabelFromApi(String(order.first_step_name || ""), rejectTitles) ||
     firstStepLabelFromConfig(order.config, rejectTitles)
   ).trim();
+  const displayName = String(order.survey_name || order.title || "").trim();
   return {
     id: order.id,
-    name: order.title || (type === "interview" ? "Interview task" : "Survey task"),
+    name: displayName || (type === "interview" ? "Interview task" : "Survey task"),
     subtitle: step1 ? step1 : undefined,
     type,
     status: statusLabelToTone(order.status_label || order.status, order),

@@ -50,6 +50,7 @@ export type ServiceOrder = {
   org_id: string;
   service_code: "interview" | "survey" | string;
   title: string;
+  survey_name?: string;
   reference_id?: string | null;
   campaign_id?: string | null;
   status: string;

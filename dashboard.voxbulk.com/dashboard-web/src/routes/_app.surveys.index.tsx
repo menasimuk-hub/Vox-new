@@ -121,7 +121,7 @@ function SavedSurveys() {
                   </TableCell>
                   <TableCell className="pr-6 text-right">
                     <div className="inline-flex gap-1">
-                      <Button size="sm" variant="ghost" asChild><Link to="/surveys/$id" params={{ id: c.id }}>Edit</Link></Button>
+                      <Button size="sm" variant="ghost" asChild><Link to="/surveys/new" search={{ order_id: c.id }}>Edit</Link></Button>
                       {tab === "finished" && (
                         <Button size="sm" variant="ghost" onClick={() => void onArchive(c.id)}>Archive</Button>
                       )}

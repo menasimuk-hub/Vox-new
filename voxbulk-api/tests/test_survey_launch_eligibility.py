@@ -154,6 +154,7 @@ def test_launch_with_promo_credits(app_client):
     assert launch.status_code == 200, launch.text
     body = launch.json()
     assert body["ok"] is True
+    assert body["order_id"] == order_id
     assert str(body.get("campaign_id") or "").startswith("VB-CMP-")
 
     after = app_client.get(f"/service-orders/{order_id}", headers=headers)

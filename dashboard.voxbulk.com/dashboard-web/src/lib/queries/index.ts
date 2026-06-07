@@ -888,26 +888,31 @@ export function useSurveyLaunchEligibility(orderId: string | null, enabled = tru
   });
 }
 
-export function useLaunchSurveyCampaign(orderId: string | null) {
+export function useLaunchSurveyCampaign() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body?: { run_mode?: "now" | "schedule" }) =>
-      apiFetch<{ ok?: boolean; message?: string; status?: string }>(
-        `/service-orders/${encodeURIComponent(orderId!)}/survey/launch`,
+    mutationFn: ({
+      orderId,
+      run_mode = "now",
+    }: {
+      orderId: string;
+      run_mode?: "now" | "schedule";
+    }) =>
+      apiFetch<{ ok?: boolean; message?: string; status?: string; order_id?: string; order?: { id?: string } }>(
+        `/service-orders/${encodeURIComponent(orderId)}/survey/launch`,
         {
           method: "POST",
-          body: JSON.stringify(body || { run_mode: "now" }),
+          body: JSON.stringify({ run_mode }),
         },
       ),
-    onSuccess: () => {
-      if (orderId) {
-        void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(orderId) });
-        void qc.invalidateQueries({ queryKey: queryKeys.surveyLaunchEligibility(orderId) });
-        void qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
-        void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
-        void qc.invalidateQueries({ queryKey: queryKeys.credits });
-        void qc.invalidateQueries({ queryKey: queryKeys.billingUsage });
-      }
+    onSuccess: (_data, variables) => {
+      const launchedId = variables.orderId;
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(launchedId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.surveyLaunchEligibility(launchedId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
+      void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
+      void qc.invalidateQueries({ queryKey: queryKeys.credits });
+      void qc.invalidateQueries({ queryKey: queryKeys.billingUsage });
     },
   });
 }

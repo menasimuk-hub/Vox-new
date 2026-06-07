@@ -837,6 +837,7 @@ class ServiceOrderService:
             "user_id": order.user_id,
             "service_code": order.service_code,
             "title": order.title,
+            "survey_name": str(config.get("survey_name") or order.title or ""),
             "reference_id": order.reference_id,
             "campaign_id": order.campaign_id,
             "status": order.status,
@@ -1426,6 +1427,9 @@ class ServiceOrderService:
         from app.services.uk_compliance_service import UkComplianceService
 
         base_config = dict(config or {})
+        if code == "survey":
+            title_clean = title.strip() or "Survey draft"
+            base_config.setdefault("survey_name", title_clean)
         order = ServiceOrder(
             org_id=org_id,
             user_id=user_id,
@@ -1540,6 +1544,13 @@ class ServiceOrderService:
         order = UkComplianceService.seed_order_compliance_config(db, order, commit=False)
         if payload.get("title"):
             order.title = str(payload["title"]).strip()
+            if order.service_code == "survey":
+                config["survey_name"] = order.title
+                order.config_json = json.dumps(config, ensure_ascii=False)
+        if order.service_code == "survey" and isinstance(config, dict):
+            cfg_name = str(config.get("survey_name") or "").strip()
+            if cfg_name and not payload.get("title"):
+                order.title = cfg_name
         if payload.get("run_mode") in {"manual", "scheduled"}:
             order.run_mode = str(payload["run_mode"])
         if payload.get("scheduled_start_at"):

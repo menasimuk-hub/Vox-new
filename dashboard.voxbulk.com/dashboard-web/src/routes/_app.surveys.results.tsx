@@ -35,8 +35,11 @@ function SurveyResults() {
   React.useEffect(() => {
     if (searchOrderId) {
       setSelectedId(searchOrderId);
-      return;
     }
+  }, [searchOrderId]);
+
+  React.useEffect(() => {
+    if (searchOrderId) return;
     if (!selectedId && campaigns[0]) setSelectedId(campaigns[0].id);
   }, [searchOrderId, campaigns, selectedId]);
 
