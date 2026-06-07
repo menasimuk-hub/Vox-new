@@ -12,6 +12,7 @@ export type CampaignTone =
 export type Campaign = {
   id: string;
   name: string;
+  subtitle?: string;
   type: CampaignType;
   status: CampaignTone;
   responses: number;

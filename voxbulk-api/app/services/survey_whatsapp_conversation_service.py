@@ -56,6 +56,7 @@ from app.services.survey_wa_inbound_parse_service import (
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
+# WA_FINAL_FEEDBACK_DIRECT_OPEN_TEXT_ACTIVE — direct open-text final feedback (no yes/no gate).
 from app.services.survey_wa_final_feedback_service import (
     begin_final_feedback_open_text,
     final_feedback_settings,
@@ -2911,7 +2912,10 @@ def handle_inbound_reply(
             order_id=order.id,
             recipient_id=recipient.id,
             handler="survey_whatsapp_conversation_service.handle_inbound_reply",
-            extra={"settings": settings},
+            extra={
+                "settings": settings,
+                "marker": "WA_FINAL_FEEDBACK_DIRECT_OPEN_TEXT_ACTIVE",
+            },
         )
         begin_final_feedback_open_text(conv)
         payload["wa_conversation"] = conv

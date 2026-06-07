@@ -199,6 +199,9 @@ def list_my_orders(
                 visible.append(row)
         return [ServiceOrderService.order_to_dict(r) for r in visible]
 
+    rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code)
+    return [ServiceOrderService.order_to_dict(r) for r in rows]
+
 
 @router.post("")
 def create_order(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):

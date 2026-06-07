@@ -101,7 +101,12 @@ function SavedSurveys() {
               {s.sorted.map((c) => (
                 <TableRow key={c.id} className="cursor-pointer">
                   <TableCell className="pl-6">
-                    <Link to="/surveys/$id" params={{ id: c.id }} className="font-medium hover:underline">{c.name}</Link>
+                    <Link to="/surveys/$id" params={{ id: c.id }} className="block hover:underline">
+                      <span className="font-medium">{c.name}</span>
+                      {c.subtitle ? (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">Step 1 · {c.subtitle}</span>
+                      ) : null}
+                    </Link>
                   </TableCell>
                   <TableCell><StatusBadge tone={c.status} /></TableCell>
                   <TableCell className="min-w-[180px]">

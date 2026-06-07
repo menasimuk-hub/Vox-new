@@ -800,6 +800,13 @@ class ServiceOrderService:
                 config = json.loads(order.config_json)
         except Exception:
             config = {}
+        if order.service_code == "survey" and isinstance(config, dict):
+            from app.services.survey_builder_flow_service import (
+                normalize_survey_config_step_labels,
+                survey_step_labels_from_config,
+            )
+
+            config = normalize_survey_config_step_labels(config)
         try:
             if order.quote_breakdown_json:
                 parsed = json.loads(order.quote_breakdown_json)
@@ -861,6 +868,11 @@ class ServiceOrderService:
                 out["recipients"] = [ServiceOrderService.recipient_to_dict(r) for r in (recipients or [])]
         out["is_archived"] = ServiceOrderService.is_archived_order(order)
         if order.service_code == "survey":
+            from app.services.survey_builder_flow_service import survey_step_labels_from_config
+
+            step_labels = survey_step_labels_from_config(config)
+            out["step_labels"] = step_labels
+            out["first_step_name"] = step_labels[0] if step_labels else ""
             out["next_action"] = ServiceOrderService.survey_next_action(order)
             out["status_label"] = ServiceOrderService.survey_status_label(order)
             out["is_live"] = ServiceOrderService.is_live_survey(order)

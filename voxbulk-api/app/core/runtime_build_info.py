@@ -21,6 +21,9 @@ WEBHOOK_BUILD_MARKER = "TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250"
 # Step 5 session-persistence fix — grep for this on VPS to prove new code is live.
 WA_TEST_SESSION_PERSISTENCE_FIX_MARKER = "WA_TEST_SESSION_PERSISTENCE_FIX_ACTIVE"
 
+# Final feedback direct open-text (no yes/no gate) — grep live logs for this marker.
+FINAL_FEEDBACK_DIRECT_OPEN_TEXT_MARKER = "WA_FINAL_FEEDBACK_DIRECT_OPEN_TEXT_ACTIVE"
+
 API_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = API_ROOT.parent
 BUILD_INFO_FILE = API_ROOT / "build_info.json"
@@ -210,6 +213,14 @@ def get_deploy_verification() -> dict[str, Any]:
         "app.services.survey_builder_test_service",
         ["verify_active_awaiting_start", WA_TEST_SESSION_PERSISTENCE_FIX_MARKER],
     )
+    final_feedback_direct_on_disk = _file_has_needles(
+        "app/services/survey_whatsapp_conversation_service.py",
+        ["enabled_start_open_text", FINAL_FEEDBACK_DIRECT_OPEN_TEXT_MARKER],
+    )
+    final_feedback_direct_loaded = _module_source_has_needles(
+        "app.services.survey_whatsapp_conversation_service",
+        ["enabled_start_open_text", FINAL_FEEDBACK_DIRECT_OPEN_TEXT_MARKER],
+    )
 
     try:
         from app.services.survey_session_service import SurveySessionService
@@ -227,6 +238,8 @@ def get_deploy_verification() -> dict[str, Any]:
         and session_memory_ok
         and session_persistence_fix_on_disk
         and session_persistence_fix_loaded
+        and final_feedback_direct_on_disk
+        and final_feedback_direct_loaded
     )
 
     return {
@@ -235,6 +248,9 @@ def get_deploy_verification() -> dict[str, Any]:
         "git_branch": build.get("git_branch"),
         "app_version": build.get("git_log_one_line") or build.get("git_sha"),
         "wa_test_session_persistence_fix_marker": WA_TEST_SESSION_PERSISTENCE_FIX_MARKER,
+        "final_feedback_direct_open_text_marker": FINAL_FEEDBACK_DIRECT_OPEN_TEXT_MARKER,
+        "final_feedback_direct_on_disk": final_feedback_direct_on_disk,
+        "final_feedback_direct_loaded": final_feedback_direct_loaded,
         "session_persistence_fix_on_disk": session_persistence_fix_on_disk,
         "session_persistence_fix_loaded": session_persistence_fix_loaded,
         "wa_test_session_handler": wa_test_handler,

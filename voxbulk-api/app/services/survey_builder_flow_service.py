@@ -144,6 +144,38 @@ def _reply_type_for(role: str, options: list[str]) -> str:
     return str(cfg.get("reply_type") or "text")
 
 
+def _shorten_question_text(text: str, *, max_len: int = 60) -> str:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return ""
+    if len(cleaned) <= max_len:
+        return cleaned
+    return f"{cleaned[: max_len - 1].rstrip()}…"
+
+
+def resolve_step_display_name(
+    question: dict[str, Any],
+    *,
+    sequence: int,
+    survey_type_name: str = "",
+) -> str:
+    """Single resolver for Step 1+ labels — used by API serializers and runtime sanitization."""
+    name = str(
+        question.get("display_name")
+        or question.get("template_name")
+        or question.get("name")
+        or ""
+    ).strip()
+    if name:
+        return name.split(" — ")[0].strip()
+    if sequence == 0 and str(survey_type_name or "").strip():
+        return str(survey_type_name).strip()
+    text = _shorten_question_text(str(question.get("text") or question.get("body") or ""))
+    if text:
+        return text
+    return f"Question {sequence + 1}"
+
+
 def ensure_question_display_name(
     question: dict[str, Any],
     *,
@@ -152,16 +184,69 @@ def ensure_question_display_name(
 ) -> dict[str, Any]:
     """Fill missing display_name / template_name so Step 1+ always has a human-readable label."""
     out = dict(question)
-    name = str(out.get("display_name") or out.get("template_name") or "").strip()
-    if not name:
-        if sequence == 0 and str(survey_type_name or "").strip():
-            name = str(survey_type_name).strip()
-        else:
-            name = f"Question {sequence + 1}"
+    name = resolve_step_display_name(out, sequence=sequence, survey_type_name=survey_type_name)
     out["display_name"] = name
     if not str(out.get("template_name") or "").strip():
         out["template_name"] = name
     return out
+
+
+def survey_step_labels_from_config(config: dict[str, Any] | None) -> list[str]:
+    """Resolved middle-step labels for list/detail APIs (includes old drafts with blank names)."""
+    cfg = config if isinstance(config, dict) else {}
+    survey_type_name = str(cfg.get("survey_type_name") or "")
+    runtime = load_builder_runtime(cfg)
+    if isinstance(runtime, dict) and runtime.get("survey_type_name"):
+        survey_type_name = str(runtime.get("survey_type_name") or survey_type_name)
+    steps = runtime_step_sequence(cfg)
+    if not steps:
+        raw_seq = cfg.get("builder_step_sequence") or []
+        if isinstance(raw_seq, list):
+            from app.services.survey_builder_runtime_service import sanitize_runtime_step_sequence
+
+            steps = sanitize_runtime_step_sequence(
+                [q for q in raw_seq if isinstance(q, dict)],
+                survey_type_name=survey_type_name,
+            )
+    labels: list[str] = []
+    for idx, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        labels.append(
+            str(step.get("display_name") or "")
+            or resolve_step_display_name(step, sequence=idx, survey_type_name=survey_type_name)
+        )
+    return labels
+
+
+def normalize_survey_config_step_labels(config: dict[str, Any] | None) -> dict[str, Any]:
+    """Sanitize step names in persisted config when loading old saved drafts / campaigns."""
+    cfg = dict(config) if isinstance(config, dict) else {}
+    survey_type_name = str(cfg.get("survey_type_name") or "")
+    runtime = load_builder_runtime(cfg)
+    if isinstance(runtime, dict):
+        survey_type_name = str(runtime.get("survey_type_name") or survey_type_name)
+        from app.services.survey_builder_runtime_service import sanitize_runtime_step_sequence
+
+        steps = sanitize_runtime_step_sequence(
+            [q for q in (runtime.get("step_sequence") or []) if isinstance(q, dict)],
+            survey_type_name=survey_type_name,
+        )
+        runtime_out = dict(runtime)
+        runtime_out["step_sequence"] = steps
+        cfg["builder_runtime"] = runtime_out
+        cfg["builder_step_sequence"] = steps
+        wa = dict(cfg.get("whatsapp_flow") or {})
+        wa["questions"] = steps
+        cfg["whatsapp_flow"] = wa
+    elif isinstance(cfg.get("builder_step_sequence"), list):
+        from app.services.survey_builder_runtime_service import sanitize_runtime_step_sequence
+
+        cfg["builder_step_sequence"] = sanitize_runtime_step_sequence(
+            [q for q in cfg["builder_step_sequence"] if isinstance(q, dict)],
+            survey_type_name=survey_type_name,
+        )
+    return cfg
 
 
 def question_from_template_row(

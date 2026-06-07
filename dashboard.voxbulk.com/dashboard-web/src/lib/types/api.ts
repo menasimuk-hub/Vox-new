@@ -68,6 +68,8 @@ export type ServiceOrder = {
   created_at?: string | null;
   updated_at?: string | null;
   config?: Record<string, unknown>;
+  first_step_name?: string;
+  step_labels?: string[];
 };
 
 export type HomeSummary = {
