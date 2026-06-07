@@ -9,6 +9,8 @@ import pytest
 from app.services.survey_wa_vague_negative_followup_service import (
     attach_auto_followup_to_template_item,
     build_auto_followup_metadata,
+    evaluate_vague_negative_followup,
+    explain_service_window,
     explain_vague_negative_decision,
     generate_followup_text,
     is_whatsapp_service_window_open,
@@ -137,6 +139,80 @@ def test_service_window_open_with_recent_inbound(db):
         recipient_phone="+447954823445",
         log_id=row.id,
     )
+
+
+def test_service_window_accepts_cross_org_log_when_survey_matched(db):
+    from app.models.whatsapp_log import WhatsAppLog
+    from datetime import datetime
+
+    row = WhatsAppLog(
+        org_id="webhook-org",
+        provider="telnyx",
+        direction="inbound",
+        from_number="+447954823445",
+        to_number="+441234567890",
+        body="Poor",
+        created_at=datetime.utcnow(),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    window = explain_service_window(
+        db,
+        org_id="survey-order-org",
+        recipient_phone="+447954823445",
+        log_id=row.id,
+        webhook_org_id="webhook-org",
+    )
+    assert window["open"] is True
+    assert window["reason"] == "current_inbound_log_survey_matched"
+    assert window["webhook_org_id"] == "webhook-org"
+    assert window["matched_order_org_id"] == "survey-order-org"
+    assert window["effective_org_id"] == "survey-order-org"
+    assert window.get("org_mismatch_accepted") is True
+
+    evaluation = evaluate_vague_negative_followup(
+        db,
+        answer="Poor",
+        question={"step_role": "rating", "text": "How was your visit?"},
+        config={},
+        order_id="order-1",
+        org_id="survey-order-org",
+        recipient_phone="+447954823445",
+        log_id=row.id,
+        webhook_org_id="webhook-org",
+    )
+    assert evaluation["should_ask"] is True
+    assert evaluation["should_send"] is True
+
+
+def test_service_window_rejects_cross_org_log_when_phone_mismatch(db):
+    from app.models.whatsapp_log import WhatsAppLog
+    from datetime import datetime
+
+    row = WhatsAppLog(
+        org_id="webhook-org",
+        provider="telnyx",
+        direction="inbound",
+        from_number="+447900000001",
+        to_number="+441234567890",
+        body="Poor",
+        created_at=datetime.utcnow(),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    window = explain_service_window(
+        db,
+        org_id="survey-order-org",
+        recipient_phone="+447954823445",
+        log_id=row.id,
+        webhook_org_id="webhook-org",
+    )
+    assert window["open"] is False
+    assert window["reason"] == "log_id_phone_mismatch"
 
 
 @pytest.fixture()

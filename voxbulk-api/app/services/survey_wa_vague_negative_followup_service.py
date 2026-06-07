@@ -442,6 +442,29 @@ def should_ask_vague_negative_followup(
     )
 
 
+def _inbound_phone_matches(row: WhatsAppLog, recipient_phone: str) -> bool:
+    digits = re.sub(r"\D", "", str(recipient_phone or ""))
+    from_digits = re.sub(r"\D", "", str(row.from_number or ""))
+    if not digits or not from_digits:
+        return False
+    return digits.endswith(from_digits[-10:]) or from_digits.endswith(digits[-10:])
+
+
+def _service_window_org_context(
+    *,
+    matched_order_org_id: str,
+    webhook_org_id: str | None = None,
+) -> dict[str, str | None]:
+    matched_key = str(matched_order_org_id or "").strip()
+    webhook_key = str(webhook_org_id or "").strip()
+    effective = matched_key or webhook_key or None
+    return {
+        "matched_order_org_id": matched_key or None,
+        "webhook_org_id": webhook_key or None,
+        "effective_org_id": effective,
+    }
+
+
 def explain_service_window(
     db: Session,
     *,
@@ -449,64 +472,134 @@ def explain_service_window(
     recipient_phone: str,
     log_id: int | None = None,
     reference_time: datetime | None = None,
+    webhook_org_id: str | None = None,
 ) -> dict[str, Any]:
     """Explain why the 24h WhatsApp service window is open or closed."""
     now = reference_time or datetime.utcnow()
     window = timedelta(hours=SERVICE_WINDOW_HOURS)
     org_key = str(org_id or "").strip()
+    org_context = _service_window_org_context(
+        matched_order_org_id=org_key,
+        webhook_org_id=webhook_org_id,
+    )
 
     if log_id is not None:
         row = db.get(WhatsAppLog, int(log_id))
         if row is None:
-            return {"open": False, "reason": "log_id_not_found", "log_id": log_id}
+            return {**org_context, "open": False, "reason": "log_id_not_found", "log_id": log_id}
         if str(row.direction or "").lower() != "inbound":
-            return {"open": False, "reason": "log_id_not_inbound", "log_id": log_id, "direction": row.direction}
-        if str(row.org_id) != org_key:
             return {
+                **org_context,
                 "open": False,
-                "reason": "log_id_org_mismatch",
+                "reason": "log_id_not_inbound",
                 "log_id": log_id,
-                "log_org_id": str(row.org_id),
-                "expected_org_id": org_key,
+                "direction": row.direction,
             }
+        log_org = str(row.org_id or "")
         age = now - row.created_at
-        if age <= window:
-            return {"open": True, "reason": "current_inbound_log", "log_id": log_id, "age_seconds": int(age.total_seconds())}
+        age_seconds = int(age.total_seconds())
+        within_window = age <= window
+        phone_matches = _inbound_phone_matches(row, recipient_phone)
+
+        if log_org == org_key:
+            if within_window:
+                return {
+                    **org_context,
+                    "open": True,
+                    "reason": "current_inbound_log",
+                    "log_id": log_id,
+                    "age_seconds": age_seconds,
+                }
+            return {
+                **org_context,
+                "open": False,
+                "reason": "log_id_outside_window",
+                "log_id": log_id,
+                "age_seconds": age_seconds,
+            }
+
+        # Survey recipient matched to order org; webhook log may be scoped to a different org.
+        if within_window and phone_matches:
+            return {
+                **org_context,
+                "open": True,
+                "reason": "current_inbound_log_survey_matched",
+                "log_id": log_id,
+                "log_org_id": log_org,
+                "age_seconds": age_seconds,
+                "org_mismatch_accepted": True,
+            }
+        if not within_window:
+            return {
+                **org_context,
+                "open": False,
+                "reason": "log_id_outside_window",
+                "log_id": log_id,
+                "log_org_id": log_org,
+                "age_seconds": age_seconds,
+            }
+        if not phone_matches:
+            return {
+                **org_context,
+                "open": False,
+                "reason": "log_id_phone_mismatch",
+                "log_id": log_id,
+                "log_org_id": log_org,
+            }
         return {
+            **org_context,
             "open": False,
-            "reason": "log_id_outside_window",
+            "reason": "log_id_org_mismatch",
             "log_id": log_id,
-            "age_seconds": int(age.total_seconds()),
+            "log_org_id": log_org,
+            "expected_org_id": org_key,
         }
 
     from sqlalchemy import select
 
     digits = re.sub(r"\D", "", str(recipient_phone or ""))
-    stmt = (
-        select(WhatsAppLog)
-        .where(WhatsAppLog.org_id == org_key)
-        .where(WhatsAppLog.direction == "inbound")
-        .order_by(WhatsAppLog.created_at.desc())
-        .limit(20)
-    )
-    for row in db.execute(stmt).scalars():
-        from_digits = re.sub(r"\D", "", str(row.from_number or ""))
-        if digits and from_digits and (digits.endswith(from_digits[-10:]) or from_digits.endswith(digits[-10:])):
+    org_keys: list[str] = []
+    for candidate in (org_key, str(webhook_org_id or "").strip()):
+        if candidate and candidate not in org_keys:
+            org_keys.append(candidate)
+
+    for search_org in org_keys:
+        stmt = (
+            select(WhatsAppLog)
+            .where(WhatsAppLog.org_id == search_org)
+            .where(WhatsAppLog.direction == "inbound")
+            .order_by(WhatsAppLog.created_at.desc())
+            .limit(20)
+        )
+        for row in db.execute(stmt).scalars():
+            if not _inbound_phone_matches(row, recipient_phone):
+                continue
             age = now - row.created_at
+            age_seconds = int(age.total_seconds())
             if age <= window:
                 return {
+                    **org_context,
                     "open": True,
                     "reason": "recent_inbound_log",
                     "log_id": row.id,
-                    "age_seconds": int(age.total_seconds()),
+                    "age_seconds": age_seconds,
+                    "searched_org_id": search_org,
                 }
             return {
+                **org_context,
                 "open": False,
                 "reason": "recent_inbound_outside_window",
                 "log_id": row.id,
-                "age_seconds": int(age.total_seconds()),
+                "age_seconds": age_seconds,
+                "searched_org_id": search_org,
             }
-    return {"open": False, "reason": "no_recent_inbound_for_phone", "phone_digits": digits[-4:] if digits else ""}
+    return {
+        **org_context,
+        "open": False,
+        "reason": "no_recent_inbound_for_phone",
+        "phone_digits": digits[-4:] if digits else "",
+        "searched_org_ids": org_keys,
+    }
 
 
 def log_vague_negative_decision(
@@ -547,6 +640,7 @@ def evaluate_vague_negative_followup(
     org_id: str,
     recipient_phone: str,
     log_id: int | None = None,
+    webhook_org_id: str | None = None,
 ) -> dict[str, Any]:
     """Full decision: should ask, why, service window, follow-up text if applicable."""
     meta = parse_auto_followup_from_question(question)
@@ -561,13 +655,31 @@ def evaluate_vague_negative_followup(
         org_id=org_id,
         recipient_phone=recipient_phone,
         log_id=log_id,
+        webhook_org_id=webhook_org_id,
     )
     followup_text = None
     if decision.get("should_ask") and service_window.get("open"):
         followup_text = generate_followup_text(question=question, metadata=meta)
+    should_ask = bool(decision.get("should_ask"))
+    should_send = bool(should_ask and service_window.get("open"))
+    log_vague_negative_decision(
+        "service_window_validation",
+        order_id=order_id,
+        answer=answer,
+        decision=decision,
+        service_window=service_window,
+        extra={
+            "should_ask": should_ask,
+            "should_send": should_send,
+            "webhook_org_id": service_window.get("webhook_org_id") or webhook_org_id,
+            "matched_order_org_id": service_window.get("matched_order_org_id") or org_id,
+            "effective_org_id": service_window.get("effective_org_id"),
+            "log_id": log_id,
+        },
+    )
     return {
-        "should_ask": bool(decision.get("should_ask")),
-        "should_send": bool(decision.get("should_ask") and service_window.get("open")),
+        "should_ask": should_ask,
+        "should_send": should_send,
         "decision": decision,
         "service_window": service_window,
         "followup_text": followup_text,
@@ -583,6 +695,7 @@ def is_whatsapp_service_window_open(
     recipient_phone: str,
     log_id: int | None = None,
     reference_time: datetime | None = None,
+    webhook_org_id: str | None = None,
 ) -> bool:
     """True when a free-form session message is allowed (24h after last user inbound)."""
     return bool(
@@ -592,6 +705,7 @@ def is_whatsapp_service_window_open(
             recipient_phone=recipient_phone,
             log_id=log_id,
             reference_time=reference_time,
+            webhook_org_id=webhook_org_id,
         ).get("open")
     )
 

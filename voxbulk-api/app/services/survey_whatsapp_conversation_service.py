@@ -2234,6 +2234,7 @@ def handle_inbound_reply(
                 org_id=str(order.org_id),
                 recipient_phone=recipient.phone or "",
                 log_id=log_id,
+                webhook_org_id=org_id,
             )
             log_vague_negative_decision(
                 "linear_evaluated",
@@ -2658,6 +2659,7 @@ def _handle_inbound_reply_graph(
                 org_id=str(order.org_id),
                 recipient_phone=recipient.phone or "",
                 log_id=log_id,
+                webhook_org_id=org_id,
             )
             log_vague_negative_decision(
                 "graph_evaluated",
