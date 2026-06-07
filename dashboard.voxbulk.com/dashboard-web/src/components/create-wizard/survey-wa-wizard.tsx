@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { surveyTemplateLabel } from "@/lib/survey-step-labels";
 import { WaIndustryIcon } from "@/lib/wa-industry-icon";
 
 const WA_STEPS: WizardStepDef[] = [
@@ -162,12 +163,11 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
     ],
   );
   const templateSummary = props.orderedServiceTagIds
-    .map((typeId) => {
-      const typeName = String(props.serviceTypes.find((t) => String(t.id) === typeId)?.name || typeId);
+    .map((typeId, idx) => {
+      const typeName = String(props.serviceTypes.find((t) => String(t.id) === typeId)?.name || "");
       const templateId = props.selectedServiceTemplateIds[typeId];
       const row = (props.libraryTemplatesByTypeId[typeId] || []).find((t) => String(t.id) === templateId);
-      const title = row ? String(row.display_name || row.title || row.name || typeName) : typeName;
-      return title.split(" — ")[0];
+      return surveyTemplateLabel(row, typeName, idx + 1);
     })
     .join(", ");
 
@@ -460,8 +460,12 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   props.orderedServiceTagIds.map((typeId, idx) => {
                     const row = props.serviceTypes.find((t) => String(t.id) === typeId);
                     if (!row) return null;
-                    const serviceName = String(row.name);
                     const libraryRows = props.libraryTemplatesByTypeId[typeId] || [];
+                    const serviceName = surveyTemplateLabel(
+                      libraryRows.find((t) => String(t.id) === props.selectedServiceTemplateIds[typeId]),
+                      String(row.name || ""),
+                      idx + 1,
+                    );
                     const templateRows = mapSystemTemplates(libraryRows);
                     return (
                       <div

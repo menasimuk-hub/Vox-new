@@ -232,7 +232,11 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
               try {
                 const launched = await startPaidSurveyOrder(resolvedOrderId, "now");
                 toast.success(launched.message || "Payment approved — survey launched.");
-                void navigate({ to: "/surveys/results", search: { orderId: resolvedOrderId } });
+                void navigate({
+                  to: "/surveys/results",
+                  search: { orderId: resolvedOrderId },
+                  replace: true,
+                });
               } catch (launchErr) {
                 toast.success("Payment approved.");
                 toast.error(
@@ -240,7 +244,11 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
                     ? launchErr.message
                     : "Payment succeeded but launch failed — open your survey and try again.",
                 );
-                void navigate({ to: "/surveys/results", search: { orderId: resolvedOrderId } });
+                void navigate({
+                  to: "/surveys/results",
+                  search: { orderId: resolvedOrderId },
+                  replace: true,
+                });
               }
             } else {
               toast.success("Payment approved — campaign is ready.");

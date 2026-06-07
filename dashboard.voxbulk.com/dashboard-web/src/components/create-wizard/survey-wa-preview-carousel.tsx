@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
+import { surveyTemplateLabel } from "@/lib/survey-step-labels";
 
 type PreviewMessage = { you?: boolean; text: string; button?: boolean };
 
@@ -39,8 +40,8 @@ function templateBody(row: Record<string, unknown>): string {
   return String(row.body_preview || row.body || row.body_text || "").trim();
 }
 
-function templateTitle(row: Record<string, unknown>, fallback: string): string {
-  return String(row.display_name || row.title || row.name || fallback);
+function templateTitle(row: Record<string, unknown>, fallback: string, questionNumber?: number): string {
+  return surveyTemplateLabel(row, fallback, questionNumber);
 }
 
 function buttonsFromRow(row: Record<string, unknown>): string[] {
@@ -105,7 +106,7 @@ export function buildWaPreviewSlides(input: {
     }
   }
 
-  for (const typeId of input.orderedTypeIds) {
+  for (const [qIndex, typeId] of input.orderedTypeIds.entries()) {
     const typeRow = input.serviceTypes.find((t) => String(t.id) === typeId);
     const typeName = String(typeRow?.name || "Survey question");
     const templateId = input.selectedServiceTemplateIds[typeId];
@@ -116,7 +117,7 @@ export function buildWaPreviewSlides(input: {
     if (!messages.length) continue;
     slides.push({
       id: typeId,
-      title: templateTitle(tplRow, typeName),
+      title: templateTitle(tplRow, typeName, qIndex + 1),
       kind: "survey",
       messages,
     });
@@ -240,8 +241,16 @@ export function SurveyWaPreviewCarousel({
 
   const prev = () => setSlide((s) => Math.max(0, s - 1));
   const next = () => setSlide((s) => Math.min(total - 1, s + 1));
+  const surveySlideIndex =
+    current.kind === "survey"
+      ? slides.filter((s, i) => i <= slide && s.kind === "survey").length
+      : 0;
   const slideLabel =
-    current.kind === "welcome" ? "Welcome" : current.kind === "thanks" ? "Thank-you" : current.title.split(" — ")[0];
+    current.kind === "welcome"
+      ? "Welcome"
+      : current.kind === "thanks"
+        ? "Thank-you"
+        : current.title || `Question ${surveySlideIndex || 1}`;
 
   const handleSendTest = async () => {
     const phone = testPhone.trim() || defaultTestPhone || "";

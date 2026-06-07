@@ -1018,6 +1018,7 @@ export function InterviewPreviewQuoteModal({
 
 export type SurveyLaunchModalData = {
   campaignName: string;
+  firstStepName?: string;
   recipientCount: number;
   channelLabel: string;
   launchModeLabel: string;
@@ -1162,6 +1163,7 @@ export function SurveyLaunchQuoteModal({
 
           <Panel title="Campaign" icon={<FileText className="size-4" />}>
             <TimelineLine label="Survey name" value={data.campaignName || "—"} />
+            <TimelineLine label="Step 1" value={data.firstStepName || "—"} />
             <TimelineLine label="Launch timing" value={data.launchModeLabel} />
             <TimelineLine label="Recipients" value={`${data.recipientCount} contacts`} />
           </Panel>

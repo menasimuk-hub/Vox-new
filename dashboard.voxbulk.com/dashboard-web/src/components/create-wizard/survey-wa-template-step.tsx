@@ -5,6 +5,7 @@ import { WaSurveyPhonePreview } from "@/components/wa-survey-phone-preview";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { surveyTemplateLabel } from "@/lib/survey-step-labels";
 
 export type WaBuilderTemplateRow = {
   id: string;
@@ -28,11 +29,12 @@ function buttonsFromApiRow(row: Record<string, unknown>): Array<{ label: string;
     .filter(Boolean) as Array<{ label: string; type?: string }>;
 }
 
-function templateFromApiRow(row: Record<string, unknown>): WaBuilderTemplateRow {
+function templateFromApiRow(row: Record<string, unknown>, questionNumber?: number): WaBuilderTemplateRow {
   const body = String(row.body_preview || row.body || row.body_text || "").trim();
+  const title = surveyTemplateLabel(row, "", questionNumber);
   return {
     id: String(row.id),
-    title: String(row.display_name || row.title || row.name || row.id),
+    title,
     description: body ? body.slice(0, 120) + (body.length > 120 ? "…" : "") : "WhatsApp template",
     bodyPreview: body || undefined,
     footer: String(row.footer || "Reply STOP to opt out").trim() || undefined,
@@ -41,7 +43,7 @@ function templateFromApiRow(row: Record<string, unknown>): WaBuilderTemplateRow 
 }
 
 export function mapSystemTemplates(rows: Array<Record<string, unknown>>): WaBuilderTemplateRow[] {
-  return rows.map(templateFromApiRow);
+  return rows.map((row, index) => templateFromApiRow(row, index + 1));
 }
 
 export function pageCountFromServiceType(row: Record<string, unknown> | undefined): 4 | 5 | 6 {

@@ -11,6 +11,7 @@ import { SurveyLaunchQuoteModal } from "@/components/modals";
 import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
 import { gocardlessAvailable, GC_ORDER_ID_KEY, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
 import { surveyTitleFromGoal } from "@/lib/survey-title";
+import { surveyTemplateLabel } from "@/lib/survey-step-labels";
 import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
 import {
   useCreateServiceOrder,
@@ -224,15 +225,21 @@ function CreateSurvey() {
   };
 
   const onLaunchSurvey = async () => {
-    if (!orderId) throw new Error("Save your draft before launch");
     setPayBusy(true);
     try {
-      await persistDraftForLaunch();
+      const id = await persistDraftForLaunch();
+      if (!id) throw new Error("Save your draft before launch");
       const runMode = launchMode === "now" ? "now" : "schedule";
       const result = await launchM.mutateAsync({ run_mode: runMode });
       toast.success(result.message || (runMode === "now" ? "Survey launched" : "Survey scheduled"));
       setLaunchOpen(false);
-      void navigate({ to: "/surveys/results", search: { orderId } });
+      await qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
+      await qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(id) });
+      void navigate({
+        to: "/surveys/results",
+        search: { orderId: id },
+        replace: true,
+      });
     } finally {
       setPayBusy(false);
     }
@@ -352,6 +359,15 @@ function CreateSurvey() {
   }, [orderedServiceTagIds, libraryTemplateQueries]);
 
   const libraryTemplatesLoading = libraryTemplateQueries.some((q) => q.isLoading);
+
+  const firstSurveyStepName = React.useMemo(() => {
+    const typeId = orderedServiceTagIds[0];
+    if (!typeId) return "";
+    const typeName = String(serviceTypes.find((t) => String(t.id) === typeId)?.name || "");
+    const templateId = selectedServiceTemplateIds[typeId];
+    const row = (libraryTemplatesByTypeId[typeId] || []).find((t) => String(t.id) === templateId);
+    return surveyTemplateLabel(row, typeName, 1);
+  }, [orderedServiceTagIds, serviceTypes, selectedServiceTemplateIds, libraryTemplatesByTypeId]);
 
   React.useEffect(() => {
     setSelectedServiceTemplateIds((prev) => {
@@ -920,6 +936,7 @@ function CreateSurvey() {
         onOpenChange={setLaunchOpen}
         data={{
           campaignName: surveyTitleFromGoal(goal),
+          firstStepName: firstSurveyStepName,
           recipientCount: contactsCount,
           channelLabel,
           launchModeLabel,

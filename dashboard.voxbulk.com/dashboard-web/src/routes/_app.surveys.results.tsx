@@ -33,12 +33,16 @@ function SurveyResults() {
   );
   const [selectedId, setSelectedId] = React.useState<string | undefined>(searchOrderId);
   React.useEffect(() => {
-    if (searchOrderId) setSelectedId(searchOrderId);
-    else if (!selectedId && campaigns[0]) setSelectedId(campaigns[0].id);
+    if (searchOrderId) {
+      setSelectedId(searchOrderId);
+      return;
+    }
+    if (!selectedId && campaigns[0]) setSelectedId(campaigns[0].id);
   }, [searchOrderId, campaigns, selectedId]);
 
-  const selected = campaigns.find((c) => c.id === selectedId);
-  const resultsQ = useSurveyResults(selectedId || null);
+  const activeOrderId = searchOrderId || selectedId;
+  const selected = campaigns.find((c) => c.id === activeOrderId);
+  const resultsQ = useSurveyResults(activeOrderId || null);
   const payload = resultsQ.data || {};
   const summary = (payload.summary || {}) as Record<string, number | string | null | undefined>;
   const orderInfo = (payload.order || {}) as Record<string, string>;
@@ -47,12 +51,13 @@ function SurveyResults() {
   const respondents = (payload.respondents || []) as Array<{ quote?: string; recommend_score?: number; theme?: string }>;
 
   const exportResults = async (kind: "pdf" | "csv") => {
-    if (!selectedId) return;
+    const exportId = searchOrderId || selectedId;
+    if (!exportId) return;
     try {
       const ext = kind === "pdf" ? "pdf" : "csv";
       await downloadAuthenticatedFile(
-        `/service-orders/${encodeURIComponent(selectedId)}/survey-results/export.${ext}`,
-        `survey-results-${selectedId.slice(0, 8)}.${ext}`,
+        `/service-orders/${encodeURIComponent(exportId)}/survey-results/export.${ext}`,
+        `survey-results-${exportId.slice(0, 8)}.${ext}`,
       );
       toast.success(`${kind.toUpperCase()} downloaded`);
     } catch (e) {
@@ -66,19 +71,19 @@ function SurveyResults() {
     <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Surveys · Results"
-        title={orderInfo.title || selected?.name || "Survey results"}
+        title={orderInfo.title || selected?.name || (searchOrderId ? "Survey results" : "Survey results")}
         description="One-survey results: live responses, question analysis, segments, themes, and anonymous response browser."
         actions={
           <>
-            <Button variant="outline" className="gap-1.5" onClick={() => void exportResults("pdf")} disabled={!selectedId}><Download className="size-4" /> Export PDF</Button>
-            <Button variant="outline" className="gap-1.5" onClick={() => void exportResults("csv")} disabled={!selectedId}><Download className="size-4" /> Export CSV</Button>
+            <Button variant="outline" className="gap-1.5" onClick={() => void exportResults("pdf")} disabled={!activeOrderId}><Download className="size-4" /> Export PDF</Button>
+            <Button variant="outline" className="gap-1.5" onClick={() => void exportResults("csv")} disabled={!activeOrderId}><Download className="size-4" /> Export CSV</Button>
           </>
         }
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
         <div className="flex flex-wrap items-center gap-3">
-          <Select value={selectedId} onValueChange={setSelectedId}>
+          <Select value={activeOrderId} onValueChange={setSelectedId}>
             <SelectTrigger className="h-9 w-56"><SelectValue placeholder="Select survey" /></SelectTrigger>
             <SelectContent>
               {campaigns.map((c) => (

@@ -229,19 +229,62 @@ def load_builder_runtime(config: dict[str, Any]) -> dict[str, Any] | None:
         return None
     raw = config.get("builder_runtime")
     if isinstance(raw, dict) and isinstance(raw.get("step_sequence"), list) and raw.get("selected_template_ids"):
+        survey_type_name = str(raw.get("survey_type_name") or config.get("survey_type_name") or "")
+        seq = sanitize_runtime_step_sequence(
+            [q for q in (raw.get("step_sequence") or []) if isinstance(q, dict)],
+            survey_type_name=survey_type_name,
+        )
+        if seq != raw.get("step_sequence"):
+            patched = dict(raw)
+            patched["step_sequence"] = seq
+            return patched
         return raw
-    return _migrate_legacy_runtime(config)
+    migrated = _migrate_legacy_runtime(config)
+    if migrated is None:
+        return None
+    survey_type_name = str(migrated.get("survey_type_name") or config.get("survey_type_name") or "")
+    migrated["step_sequence"] = sanitize_runtime_step_sequence(
+        [q for q in (migrated.get("step_sequence") or []) if isinstance(q, dict)],
+        survey_type_name=survey_type_name,
+    )
+    return migrated
 
 
 def has_builder_runtime(config: dict[str, Any]) -> bool:
     return load_builder_runtime(config) is not None
 
 
+def sanitize_runtime_step_sequence(
+    steps: list[dict[str, Any]],
+    *,
+    survey_type_name: str = "",
+) -> list[dict[str, Any]]:
+    """Ensure every runtime middle step has display_name / template_name (Step 1 = survey type when blank)."""
+    from app.services.survey_builder_flow_service import ensure_question_display_name
+
+    out: list[dict[str, Any]] = []
+    for idx, raw in enumerate(steps):
+        if not isinstance(raw, dict):
+            continue
+        out.append(
+            ensure_question_display_name(
+                dict(raw),
+                sequence=idx,
+                survey_type_name=survey_type_name,
+            )
+        )
+    return out
+
+
 def runtime_step_sequence(config: dict[str, Any]) -> list[dict[str, Any]]:
     runtime = load_builder_runtime(config)
     if runtime is None:
         return []
-    return [q for q in (runtime.get("step_sequence") or []) if isinstance(q, dict)]
+    survey_type_name = str(
+        runtime.get("survey_type_name") or (config.get("survey_type_name") if isinstance(config, dict) else "") or ""
+    )
+    steps = [q for q in (runtime.get("step_sequence") or []) if isinstance(q, dict)]
+    return sanitize_runtime_step_sequence(steps, survey_type_name=survey_type_name)
 
 
 def runtime_allowed_template_ids(config: dict[str, Any]) -> set[int]:

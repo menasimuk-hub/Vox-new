@@ -151,6 +151,7 @@ class SurveyGenerationService:
                 db,
                 middle_template_ids=ordered_middle_template_ids,
                 business_name=client_name or organisation_name,
+                survey_type_name=survey_type.name,
             )
             whatsapp_flow_seed = dict(composed.get("whatsapp_flow") or {})
             whatsapp_flow_seed["questions"] = builder_step_sequence
