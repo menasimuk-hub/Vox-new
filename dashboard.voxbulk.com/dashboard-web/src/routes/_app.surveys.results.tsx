@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
 import { Download, Filter, MessageSquareText, Search, Sparkles, TrendingUp, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { downloadAuthenticatedFile } from "@/lib/api";
+import { logLaunchFlow } from "@/lib/launch-flow-log";
 import { orderToCampaign } from "@/lib/mappers/orders";
 import { useServiceOrders, useSurveyResults } from "@/lib/queries";
 
@@ -32,6 +33,17 @@ function SurveyResults() {
     [ordersQ.data],
   );
   const [selectedId, setSelectedId] = React.useState<string | undefined>(searchOrderId);
+
+  React.useEffect(() => {
+    logLaunchFlow("[results:init]", {
+      component: "SurveyResults",
+      orderId: searchOrderId || null,
+      selectedCampaignId: selectedId || null,
+      survey_name: "",
+      title: "",
+    });
+  }, []);
+
   React.useEffect(() => {
     if (searchOrderId) {
       setSelectedId(searchOrderId);
@@ -40,8 +52,19 @@ function SurveyResults() {
 
   React.useEffect(() => {
     if (searchOrderId) return;
-    if (!selectedId && campaigns[0]) setSelectedId(campaigns[0].id);
-  }, [searchOrderId, campaigns, selectedId]);
+    if (ordersQ.isLoading || ordersQ.isFetching) return;
+    if (!selectedId && campaigns[0]) {
+      logLaunchFlow("[redirect-effect]", {
+        component: "SurveyResults",
+        source: "SurveyResults.fallbackFirstCampaign",
+        orderId: campaigns[0].id,
+        selectedCampaignId: campaigns[0].id,
+        survey_name: campaigns[0].name,
+        title: campaigns[0].name,
+      });
+      setSelectedId(campaigns[0].id);
+    }
+  }, [searchOrderId, campaigns, selectedId, ordersQ.isLoading, ordersQ.isFetching]);
 
   const activeOrderId = searchOrderId || selectedId;
   const selected = campaigns.find((c) => c.id === activeOrderId);
@@ -74,7 +97,7 @@ function SurveyResults() {
     <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Surveys · Results"
-        title={orderInfo.title || selected?.name || (searchOrderId ? "Survey results" : "Survey results")}
+        title={orderInfo.survey_name || orderInfo.title || selected?.name || "Survey results"}
         description="One-survey results: live responses, question analysis, segments, themes, and anonymous response browser."
         actions={
           <>

@@ -230,3 +230,53 @@ def test_survey_name_updates_on_patch(app_client):
 
     reload = app_client.get(f"/service-orders/{order_id}", headers=headers).json()
     assert reload.get("survey_name") == "Renamed campaign"
+
+
+def test_patch_survey_name_only_syncs_legacy_title(app_client):
+    """Dashboard sends config.survey_name only — API mirrors to service_orders.title."""
+    headers, _org_id = _seed_user(app_client, email="survey_name_only_patch@example.com")
+    create = app_client.post(
+        "/service-orders",
+        headers=headers,
+        json={
+            "service_code": "survey",
+            "config": {"delivery": "whatsapp", "survey_name": "Initial name"},
+        },
+    )
+    assert create.status_code == 200, create.text
+    order_id = create.json()["id"]
+
+    patched = app_client.patch(
+        f"/service-orders/{order_id}",
+        headers=headers,
+        json={"config": {"survey_name": "Patient satisfaction follow-up", "delivery": "whatsapp"}},
+    )
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body.get("survey_name") == "Patient satisfaction follow-up"
+    assert body.get("title") == "Patient satisfaction follow-up"
+
+
+def test_survey_name_as_step_text_becomes_question_one(app_client):
+    survey_name = "Test 01"
+    goal = "Measure satisfaction with our new hygienist team and identify the top improvement."
+    headers, _org_id = _seed_user(app_client, email="survey_name_step_reject@example.com")
+    create = app_client.post(
+        "/service-orders",
+        headers=headers,
+        json={
+            "service_code": "survey",
+            "title": survey_name,
+            "config": {
+                "delivery": "whatsapp",
+                "survey_name": survey_name,
+                "goal": goal,
+                "builder_step_sequence": [{"step_role": "rating", "text": survey_name}],
+            },
+        },
+    )
+    assert create.status_code == 200
+    detail = app_client.get(f"/service-orders/{create.json()['id']}", headers=headers).json()
+    assert detail.get("survey_name") == survey_name
+    assert detail.get("first_step_name") == "Question 1"
+    assert detail.get("first_step_name") != survey_name

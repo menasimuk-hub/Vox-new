@@ -90,8 +90,8 @@ export function firstStepLabelFromConfig(
   if (!config) return "";
   const reject = [
     ...rejectTitles,
+    String(config.survey_name || ""),
     String(config.goal || ""),
-    String(config.title || ""),
   ].filter(Boolean);
   const runtime = config.builder_runtime as Record<string, unknown> | undefined;
   const runtimeTypeName = String(runtime?.survey_type_name || config.survey_type_name || "").trim();
@@ -112,6 +112,17 @@ export function firstStepLabelFromConfig(
     });
   }
   return "";
+}
+
+/** Labels that must never be used as step/question names. */
+export function buildCampaignRejectTitles(
+  surveyName: string,
+  goal: string,
+  extras: string[] = [],
+): string[] {
+  const name = String(surveyName || "").trim();
+  const goalText = String(goal || "").trim();
+  return [name, goalText, ...extras].filter(Boolean);
 }
 
 /** Reject API-provided step label when it is actually the campaign title/goal. */

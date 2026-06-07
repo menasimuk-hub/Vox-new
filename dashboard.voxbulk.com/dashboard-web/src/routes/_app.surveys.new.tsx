@@ -11,7 +11,15 @@ import { SurveyLaunchQuoteModal } from "@/components/modals";
 import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
 import { gocardlessAvailable, GC_ORDER_ID_KEY, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
 import { surveyTitleFromGoal, normalizeSurveyName } from "@/lib/survey-title";
-import { surveyTemplateLabel, firstStepLabelFromConfig, resolveSurveyStepLabel, sanitizeStepLabelFromApi } from "@/lib/survey-step-labels";
+import {
+  buildCampaignRejectTitles,
+  surveyTemplateLabel,
+  firstStepLabelFromConfig,
+  resolveSurveyStepLabel,
+  sanitizeStepLabelFromApi,
+} from "@/lib/survey-step-labels";
+import { buildSurveyDraftCreateBody, buildSurveyDraftPatchBody, resolveSurveyNameForSave } from "@/lib/survey-draft-payload";
+import { logLaunchFlow } from "@/lib/launch-flow-log";
 import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
 import {
   useCreateServiceOrder,
@@ -160,9 +168,22 @@ function CreateSurvey() {
   const eligibilityQ = useSurveyLaunchEligibility(activeLaunchOrderId, launchOpen);
   const openingLaunchRef = React.useRef(false);
   const hydratedOrderRef = React.useRef<string | null>(null);
+  const navigatedToResultsRef = React.useRef(false);
   const resolvedSurveyTitle = React.useCallback(
-    () => normalizeSurveyName(surveyName),
+    () => resolveSurveyNameForSave(surveyName),
     [surveyName],
+  );
+
+  const launchLogCtx = React.useCallback(
+    (extra?: Record<string, unknown>) => ({
+      component: "CreateSurvey",
+      survey_name: resolvedSurveyTitle(),
+      title: orderQ.data?.title || "",
+      orderId,
+      launchOrderId,
+      ...extra,
+    }),
+    [resolvedSurveyTitle, orderQ.data?.title, orderId, launchOrderId],
   );
 
   React.useEffect(() => {
@@ -220,61 +241,120 @@ function CreateSurvey() {
         ? `Scheduled · ${startAt || "—"}`
         : `Recurring · starting ${endAt || startAt || "—"}`;
 
-  const persistDraftForLaunch = async () => {
-    const title = resolvedSurveyTitle();
-    const id = await ensureOrder();
-    const baseConfig =
-      channel === "whatsapp"
-        ? {
-            survey_name: title,
-            goal,
-            delivery: "whatsapp" as const,
-            survey_channel: "whatsapp" as const,
-            channels: ["whatsapp"],
-            anonymous_responses: anonymous,
-            script,
-            package_id: packageId || undefined,
-            industry_id: industryId,
-            survey_type_id: primarySurveyTypeId || undefined,
-            selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
-            welcome_template_id: welcomeTemplateId ? Number(welcomeTemplateId) : undefined,
-            thank_you_template_id: thankYouTemplateId ? Number(thankYouTemplateId) : undefined,
-            survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
-            page_count: pageCount,
-            privacy_mode: privacyMode,
-            survey_variant: surveyVariant,
-          }
-        : {
-            survey_name: title,
-            goal,
-            delivery: "ai_call" as const,
-            survey_channel: "ai_call" as const,
-            anonymous_responses: anonymous,
-            script,
-            package_id: packageId || undefined,
-          };
-    await patchM.mutateAsync({
-      orderId: id,
-      body: {
-        title,
+  const ensureOrder = React.useCallback(async () => {
+    if (orderId) return orderId;
+    const deliveryChannel = channel === "whatsapp" ? "whatsapp" : "ai_call";
+    const created = await createM.mutateAsync(
+      buildSurveyDraftCreateBody(surveyName, {
+        goal,
+        delivery: deliveryChannel,
+        anonymous_responses: anonymous,
+        script,
+        package_id: packageId || undefined,
+      }),
+    );
+    setOrderId(created.id);
+    return created.id;
+  }, [orderId, createM, surveyName, goal, channel, anonymous, script, packageId]);
+
+  const buildDraftConfig = React.useCallback(() => {
+    if (channel === "whatsapp") {
+      return {
+        goal,
+        delivery: "whatsapp" as const,
+        survey_channel: "whatsapp" as const,
+        channels: ["whatsapp"],
+        anonymous_responses: anonymous,
+        script,
+        package_id: packageId || undefined,
+        industry_id: industryId,
+        survey_type_id: primarySurveyTypeId || undefined,
+        selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
+        welcome_template_id: welcomeTemplateId ? Number(welcomeTemplateId) : undefined,
+        thank_you_template_id: thankYouTemplateId ? Number(thankYouTemplateId) : undefined,
+        survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
+        page_count: pageCount,
+        privacy_mode: privacyMode,
+        survey_variant: surveyVariant,
+      };
+    }
+    return {
+      goal,
+      delivery: "ai_call" as const,
+      survey_channel: "ai_call" as const,
+      anonymous_responses: anonymous,
+      script,
+      package_id: packageId || undefined,
+    };
+  }, [
+    channel,
+    goal,
+    anonymous,
+    script,
+    packageId,
+    industryId,
+    primarySurveyTypeId,
+    orderedServiceTagIds,
+    selectedServiceTagIds,
+    welcomeTemplateId,
+    thankYouTemplateId,
+    pageCount,
+    privacyMode,
+    surveyVariant,
+  ]);
+
+  const saveSurveyDraft = React.useCallback(
+    async (purpose: "save" | "launch") => {
+      logLaunchFlow("[save-draft:start]", { ...launchLogCtx(), source: `saveSurveyDraft:${purpose}` });
+      const id = await ensureOrder();
+      const patchBody = buildSurveyDraftPatchBody(surveyName, buildDraftConfig(), {
         scheduled_start_at: startAt || null,
         scheduled_end_at: endAt || null,
-        run_mode: launchMode === "now" ? "manual" : "scheduled",
-        config: baseConfig,
-      },
-    });
-    setOrderId(id);
-    setLaunchOrderId(id);
-    return id;
-  };
+        ...(purpose === "launch"
+          ? { run_mode: launchMode === "now" ? ("manual" as const) : ("scheduled" as const) }
+          : {}),
+      });
+      const saved = await patchM.mutateAsync({ orderId: id, body: patchBody });
+      if (!saved?.id) throw new Error("Draft was not persisted");
+      setOrderId(saved.id);
+      if (purpose === "launch") setLaunchOrderId(saved.id);
+      logLaunchFlow("[save-draft:done]", {
+        ...launchLogCtx(),
+        draftId: saved.id,
+        orderId: saved.id,
+        title: saved.title,
+        survey_name: saved.survey_name,
+        source: `saveSurveyDraft:${purpose}`,
+      });
+      return saved;
+    },
+    [
+      buildDraftConfig,
+      ensureOrder,
+      launchLogCtx,
+      launchMode,
+      patchM,
+      startAt,
+      endAt,
+      surveyName,
+    ],
+  );
 
   const onOpenLaunch = async (mode: "now" | "schedule" | "recurring") => {
-    if (openingLaunchRef.current) return;
+    if (openingLaunchRef.current || launchOpen) return;
     openingLaunchRef.current = true;
+    navigatedToResultsRef.current = false;
+    logLaunchFlow("[launch-click]", { ...launchLogCtx(), source: "onOpenLaunch" });
     try {
-      await persistDraftForLaunch();
+      const saved = await saveSurveyDraft("launch");
       setLaunchMode(mode);
       setLaunchOpen(true);
+      logLaunchFlow("[launch-modal:open]", {
+        ...launchLogCtx(),
+        draftId: saved.id,
+        orderId: saved.id,
+        source: "onOpenLaunch",
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save draft before launch");
     } finally {
@@ -282,24 +362,43 @@ function CreateSurvey() {
     }
   };
 
-  const refreshLaunchEligibility = () => {
+  const refreshLaunchEligibility = React.useCallback(() => {
     if (!activeLaunchOrderId) return;
     void eligibilityQ.refetch();
-  };
+  }, [activeLaunchOrderId, eligibilityQ]);
 
   const onLaunchSurvey = async () => {
     setPayBusy(true);
     try {
-      const id = await persistDraftForLaunch();
+      let id = launchOrderId || orderId;
+      if (!id) {
+        const saved = await saveSurveyDraft("launch");
+        id = saved.id;
+      }
       if (!id) throw new Error("Save your draft before launch");
       const runMode = launchMode === "now" ? "now" : "schedule";
+      logLaunchFlow("[launch-api:start]", { ...launchLogCtx(), orderId: id, draftId: id, source: "onLaunchSurvey" });
       const result = await launchM.mutateAsync({ orderId: id, run_mode: runMode });
       const launchedId = String(result.order_id || result.order?.id || id);
+      logLaunchFlow("[launch-api:done]", {
+        ...launchLogCtx(),
+        orderId: launchedId,
+        draftId: id,
+        source: "onLaunchSurvey",
+      });
       toast.success(result.message || (runMode === "now" ? "Survey launched" : "Survey scheduled"));
       setLaunchOpen(false);
       setLaunchOrderId(null);
       await qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
       await qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(launchedId) });
+      if (navigatedToResultsRef.current) return;
+      navigatedToResultsRef.current = true;
+      logLaunchFlow("[navigate]", {
+        ...launchLogCtx(),
+        orderId: launchedId,
+        source: "onLaunchSurvey",
+        extra: { to: "/surveys/results", searchOrderId: launchedId },
+      });
       void navigate({
         to: "/surveys/results",
         search: { orderId: launchedId },
@@ -319,7 +418,7 @@ function CreateSurvey() {
     if (!gcReady) throw new Error("GoCardless checkout is not configured");
     setPayBusy(true);
     try {
-      await persistDraftForLaunch();
+      await saveSurveyDraft("launch");
       await startGoCardlessOrderPayment(payOrderId);
     } catch (e) {
       setPayBusy(false);
@@ -358,25 +457,6 @@ function CreateSurvey() {
       return stillValid ? prev : next;
     });
   }, [channel, packages]);
-
-  const ensureOrder = async () => {
-    if (orderId) return orderId;
-    const title = resolvedSurveyTitle();
-    const created = await createM.mutateAsync({
-      service_code: "survey",
-      title,
-      config: {
-        survey_name: title,
-        goal,
-        delivery,
-        anonymous_responses: anonymous,
-        script,
-        package_id: packageId || undefined,
-      },
-    });
-    setOrderId(created.id);
-    return created.id;
-  };
 
   React.useEffect(() => {
     if (channelSearch === "whatsapp" || channelSearch === "phone") setChannel(channelSearch);
@@ -431,12 +511,15 @@ function CreateSurvey() {
 
   const libraryTemplatesLoading = libraryTemplateQueries.some((q) => q.isLoading);
 
-  const campaignRejectTitles = React.useMemo(() => {
-    const surveyTitle = normalizeSurveyName(surveyName);
-    return [surveyTitle, goal, surveyTitleFromGoal(goal), orderQ.data?.title || "", orderQ.data?.survey_name || ""].filter(
-      Boolean,
-    );
-  }, [surveyName, goal, orderQ.data?.title, orderQ.data?.survey_name]);
+  const campaignRejectTitles = React.useMemo(
+    () =>
+      buildCampaignRejectTitles(surveyName, goal, [
+        surveyTitleFromGoal(goal),
+        orderQ.data?.title || "",
+        orderQ.data?.survey_name || "",
+      ]),
+    [surveyName, goal, orderQ.data?.title, orderQ.data?.survey_name],
+  );
 
   const firstSurveyStepName = React.useMemo(() => {
     const fromApi = sanitizeStepLabelFromApi(String(orderQ.data?.first_step_name || ""), campaignRejectTitles);
@@ -770,53 +853,49 @@ function CreateSurvey() {
         const flowExtras = (generated.order_config_flow || {}) as Record<string, unknown>;
         const builderSequence = generated.builder_step_sequence;
         const isBuilderFlow = Array.isArray(builderSequence) && builderSequence.length > 0;
-        const patchBody = {
-          title: resolvedSurveyTitle(),
-          config: {
-            survey_name: resolvedSurveyTitle(),
-            goal,
-            delivery: "whatsapp",
-            survey_channel: "whatsapp",
-            channels: ["whatsapp"],
-            anonymous_responses: Boolean(generated.anonymous_responses),
-            allow_follow_up: generated.allow_follow_up !== false,
-            script: String(generated.approved_script || script),
-            industry_id: industryId,
-            survey_type_id: primarySurveyTypeId,
-            selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
-            welcome_template_id: generated.welcome_template_id ?? Number(welcomeTemplateId),
-            thank_you_template_id: generated.thank_you_template_id ?? Number(thankYouTemplateId),
-            tell_us_more_template_id: generated.tell_us_more_template_id,
-            survey_length: PAGE_COUNT_TO_LENGTH[effectivePageCount],
-            page_count: effectivePageCount,
-            page_roles: generated.page_roles,
-            survey_variant: surveyVariant,
-            privacy_mode: privacyMode,
-            wa_template_id: generated.wa_template_id,
-            whatsapp_flow: generated.whatsapp_flow,
-            builder_runtime: generated.builder_runtime,
-            builder_runtime_hash: generated.builder_runtime_hash,
-            builder_step_sequence: generated.builder_step_sequence,
-            builder_template_ids: generated.builder_template_ids,
-            allow_final_additional_feedback: Boolean(
-              generated.allow_final_additional_feedback ?? allowFinalAdditionalFeedback,
-            ),
-            package_id: packageId || undefined,
-            ...(isBuilderFlow
-              ? {
-                  flow_engine: "linear",
-                  flow_definition_id: null,
-                  flow_snapshot: null,
-                  flow_snapshot_json: null,
-                }
-              : {
-                  flow_engine: generated.flow_engine,
-                  flow_definition_id: generated.flow_definition_id,
-                  flow_snapshot: generated.flow_snapshot,
-                  ...flowExtras,
-                }),
-          },
-        };
+        const patchBody = buildSurveyDraftPatchBody(surveyName, {
+          goal,
+          delivery: "whatsapp",
+          survey_channel: "whatsapp",
+          channels: ["whatsapp"],
+          anonymous_responses: Boolean(generated.anonymous_responses),
+          allow_follow_up: generated.allow_follow_up !== false,
+          script: String(generated.approved_script || script),
+          industry_id: industryId,
+          survey_type_id: primarySurveyTypeId,
+          selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
+          welcome_template_id: generated.welcome_template_id ?? Number(welcomeTemplateId),
+          thank_you_template_id: generated.thank_you_template_id ?? Number(thankYouTemplateId),
+          tell_us_more_template_id: generated.tell_us_more_template_id,
+          survey_length: PAGE_COUNT_TO_LENGTH[effectivePageCount],
+          page_count: effectivePageCount,
+          page_roles: generated.page_roles,
+          survey_variant: surveyVariant,
+          privacy_mode: privacyMode,
+          wa_template_id: generated.wa_template_id,
+          whatsapp_flow: generated.whatsapp_flow,
+          builder_runtime: generated.builder_runtime,
+          builder_runtime_hash: generated.builder_runtime_hash,
+          builder_step_sequence: generated.builder_step_sequence,
+          builder_template_ids: generated.builder_template_ids,
+          allow_final_additional_feedback: Boolean(
+            generated.allow_final_additional_feedback ?? allowFinalAdditionalFeedback,
+          ),
+          package_id: packageId || undefined,
+          ...(isBuilderFlow
+            ? {
+                flow_engine: "linear",
+                flow_definition_id: null,
+                flow_snapshot: null,
+                flow_snapshot_json: null,
+              }
+            : {
+                flow_engine: generated.flow_engine,
+                flow_definition_id: generated.flow_definition_id,
+                flow_snapshot: generated.flow_snapshot,
+                ...flowExtras,
+              }),
+        });
         console.info("[wa-survey] PATCH /service-orders/" + id, patchBody);
         await patchM.mutateAsync({ orderId: id, body: patchBody });
       } catch (e) {
@@ -837,56 +916,26 @@ function CreateSurvey() {
 
   const onSaveDraft = async () => {
     try {
-      const title = resolvedSurveyTitle();
-      const id = await ensureOrder();
-      const baseConfig =
-        channel === "whatsapp"
-          ? {
-              survey_name: title,
-              goal,
-              delivery: "whatsapp" as const,
-              anonymous_responses: anonymous,
-              script,
-              package_id: packageId || undefined,
-              industry_id: industryId,
-              survey_type_id: primarySurveyTypeId || undefined,
-              selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
-              welcome_template_id: welcomeTemplateId ? Number(welcomeTemplateId) : undefined,
-              thank_you_template_id: thankYouTemplateId ? Number(thankYouTemplateId) : undefined,
-              survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
-              page_count: pageCount,
-              privacy_mode: privacyMode,
-              survey_variant: surveyVariant,
-            }
-          : {
-              survey_name: title,
-              goal,
-              delivery: "ai_call" as const,
-              anonymous_responses: anonymous,
-              script,
-              package_id: packageId || undefined,
-            };
-      const saved = await patchM.mutateAsync({
-        orderId: id,
-        body: {
-          title,
-          scheduled_start_at: startAt || null,
-          scheduled_end_at: endAt || null,
-          config: baseConfig,
-        },
-      });
+      const saved = await saveSurveyDraft("save");
       if (!saved?.id) throw new Error("Draft was not persisted");
-      setOrderId(saved.id);
       await qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
       await qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(saved.id) });
-      void navigate({
-        to: "/surveys/new",
-        search: {
-          channel: channel || undefined,
-          order_id: saved.id,
-        },
-        replace: true,
-      });
+      if (orderIdSearch !== saved.id) {
+        logLaunchFlow("[navigate]", {
+          ...launchLogCtx(),
+          orderId: saved.id,
+          source: "onSaveDraft",
+          extra: { to: "/surveys/new", order_id: saved.id },
+        });
+        void navigate({
+          to: "/surveys/new",
+          search: {
+            channel: channel || undefined,
+            order_id: saved.id,
+          },
+          replace: true,
+        });
+      }
       toast.success("Draft saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save draft");
@@ -951,6 +1000,7 @@ function CreateSurvey() {
           anonymous={anonymous}
           surveyName={surveyName}
           setSurveyName={setSurveyName}
+          campaignRejectTitles={campaignRejectTitles}
           industryId={industryId}
           setIndustryId={setIndustryId}
           industries={industries}
@@ -1066,7 +1116,10 @@ function CreateSurvey() {
         open={launchOpen}
         onOpenChange={(open) => {
           setLaunchOpen(open);
-          if (!open) setLaunchOrderId(null);
+          if (!open) {
+            setLaunchOrderId(null);
+            navigatedToResultsRef.current = false;
+          }
         }}
         data={{
           campaignName: normalizeSurveyName(surveyName),

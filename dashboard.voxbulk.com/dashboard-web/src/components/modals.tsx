@@ -1109,7 +1109,9 @@ export function SurveyLaunchQuoteModal({
       setLaunching(false);
       onRefreshEligibility?.();
     }
-  }, [open, onRefreshEligibility]);
+    // Only refetch eligibility when modal opens — not when callback identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleLaunch = async () => {
     if (!onLaunch || !canLaunch) return;

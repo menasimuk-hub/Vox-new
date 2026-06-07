@@ -46,6 +46,7 @@ export type SurveyWaWizardProps = {
   onBack: () => void;
   surveyName: string;
   setSurveyName: (v: string) => void;
+  campaignRejectTitles: string[];
   anonymous: boolean;
   industryId: string;
   setIndustryId: (v: string) => void;
@@ -143,7 +144,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const welcomeTemplateRow = props.welcomeTemplates.find((t) => String(t.id) === props.welcomeTemplateId);
   const thankYouTemplateRow = props.thankYouTemplates.find((t) => String(t.id) === props.thankYouTemplateId);
   const previewFirstName = (props.uploadedContacts[0]?.name || "there").split(/\s+/)[0] || "there";
-  const rejectTitles = React.useMemo(() => [props.goal].filter(Boolean), [props.goal]);
+  const rejectTitles = React.useMemo(() => props.campaignRejectTitles, [props.campaignRejectTitles]);
   const previewSlides = React.useMemo(
     () =>
       buildWaPreviewSlides({

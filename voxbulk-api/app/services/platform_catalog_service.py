@@ -879,7 +879,7 @@ class ServiceOrderService:
 
             step_labels = survey_step_labels_from_config(
                 config,
-                campaign_title=str(order.title or ""),
+                campaign_title=str(config.get("survey_name") or order.title or ""),
                 campaign_goal=str(config.get("goal") or ""),
                 db=db,
             )
@@ -1428,13 +1428,16 @@ class ServiceOrderService:
 
         base_config = dict(config or {})
         if code == "survey":
-            title_clean = title.strip() or "Survey draft"
-            base_config.setdefault("survey_name", title_clean)
+            cfg_name = str(base_config.get("survey_name") or title or "").strip() or "Survey draft"
+            base_config["survey_name"] = cfg_name
+            order_title = cfg_name
+        else:
+            order_title = title.strip() or "Interview order"
         order = ServiceOrder(
             org_id=org_id,
             user_id=user_id,
             service_code=code,
-            title=title.strip() or ("Survey order" if code == "survey" else "Interview order"),
+            title=order_title,
             status="draft",
             payment_status="unpaid",
             config_json=json.dumps(base_config, ensure_ascii=False),
@@ -1542,15 +1545,14 @@ class ServiceOrderService:
         from app.services.uk_compliance_service import UkComplianceService
 
         order = UkComplianceService.seed_order_compliance_config(db, order, commit=False)
-        if payload.get("title"):
+        if payload.get("title") and order.service_code != "survey":
             order.title = str(payload["title"]).strip()
-            if order.service_code == "survey":
-                config["survey_name"] = order.title
-                order.config_json = json.dumps(config, ensure_ascii=False)
         if order.service_code == "survey" and isinstance(config, dict):
-            cfg_name = str(config.get("survey_name") or "").strip()
-            if cfg_name and not payload.get("title"):
+            cfg_name = str(config.get("survey_name") or payload.get("title") or "").strip()
+            if cfg_name:
+                config["survey_name"] = cfg_name
                 order.title = cfg_name
+                order.config_json = json.dumps(config, ensure_ascii=False)
         if payload.get("run_mode") in {"manual", "scheduled"}:
             order.run_mode = str(payload["run_mode"])
         if payload.get("scheduled_start_at"):
