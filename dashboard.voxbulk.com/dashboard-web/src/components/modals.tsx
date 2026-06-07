@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
 import { WaBookingPhonePreview } from "@/components/wa-booking-phone-preview";
 import { WaSurveyPhonePreview } from "@/components/wa-survey-phone-preview";
-import { parseScriptQuestions } from "@/lib/interview-script";
+import { mapBillingBlockReason } from "@/lib/survey-launch-billing";
 import { ATS_ANALYZING_LABEL } from "@/lib/interview-campaign";
 import {
   AlertCircle,
@@ -1032,6 +1032,8 @@ export type SurveyLaunchEligibilityView = {
   launch_action?: "launch" | "pay_and_launch" | "blocked";
   summary?: string;
   block_reason?: string | null;
+  block_reason_code?: string | null;
+  block_reason_code?: string | null;
   covered_by_allowance?: number;
   covered_by_promo_credits?: number;
   shortfall_units?: number;
@@ -1071,7 +1073,7 @@ export function SurveyLaunchQuoteModal({
   eligibility?: SurveyLaunchEligibilityView | null;
   eligibilityLoading?: boolean;
   eligibilityError?: string | null;
-  billingCheckPhase?: "idle" | "loading" | "ready" | "error" | "timeout";
+  billingCheckPhase?: "idle" | "checking" | "ready" | "error" | "timeout" | "loading";
   launchBlockers?: string[];
   onRefreshEligibility?: () => void;
   onLaunch?: () => void | Promise<void>;
@@ -1081,6 +1083,9 @@ export function SurveyLaunchQuoteModal({
 }) {
   const [launching, setLaunching] = React.useState(false);
   const [launchActionError, setLaunchActionError] = React.useState<string | null>(null);
+  const [showBillingDebug, setShowBillingDebug] = React.useState(false);
+  const billingPhase =
+    billingCheckPhase === "loading" ? "checking" : billingCheckPhase;
 
   const mode = eligibility?.mode || "blocked";
   const launchAction = eligibility?.launch_action || "blocked";
@@ -1088,14 +1093,22 @@ export function SurveyLaunchQuoteModal({
   const canLaunchNow = Boolean(eligibility?.can_launch) && launchAction === "launch";
   const canPayLaunch = paymentRequired && launchAction === "pay_and_launch";
   const amountDue = eligibility?.amount_due_display || null;
-  const actionBusy = Boolean(payBusy || launching || billingCheckPhase === "loading");
+  const actionBusy = Boolean(payBusy || launching || billingPhase === "checking");
   const readinessErrors = [...launchBlockers];
   if (data.recipientCount <= 0) readinessErrors.push("Upload at least one contact before launch.");
-  if (eligibility?.block_reason && launchAction === "blocked") readinessErrors.push(eligibility.block_reason);
+  if (launchAction === "blocked") {
+    const blocked = mapBillingBlockReason(eligibility) || eligibility?.block_reason;
+    if (blocked) readinessErrors.push(blocked);
+  }
 
-  const showBillingLoading = billingCheckPhase === "loading";
-  const showBillingError =
-    billingCheckPhase === "error" || billingCheckPhase === "timeout" || Boolean(eligibilityError);
+  const showBillingLoading = billingPhase === "checking";
+  const billingErrorMessage =
+    billingPhase === "timeout"
+      ? "Billing check timed out."
+      : billingPhase === "error"
+        ? eligibilityError || "Unable to verify package and wallet right now."
+        : eligibilityError || null;
+  const showBillingError = Boolean(billingErrorMessage);
 
   const costLabel = showBillingLoading
     ? "…"
@@ -1109,14 +1122,15 @@ export function SurveyLaunchQuoteModal({
         ? amountDue || "—"
         : eligibility?.estimated_send_cost_display || "—";
 
-  const canLaunch = canLaunchNow && readinessErrors.length === 0 && !actionBusy && billingCheckPhase === "ready";
+  const canLaunch = canLaunchNow && readinessErrors.length === 0 && !actionBusy && billingPhase === "ready";
   const canPay =
-    canPayLaunch && readinessErrors.length === 0 && !actionBusy && billingCheckPhase === "ready" && Boolean(amountDue) && gcAvailable;
+    canPayLaunch && readinessErrors.length === 0 && !actionBusy && billingPhase === "ready" && Boolean(amountDue) && gcAvailable;
 
   React.useEffect(() => {
     if (open) {
       setLaunchActionError(null);
       setLaunching(false);
+      setShowBillingDebug(false);
       onRefreshEligibility?.();
     }
     // Only refetch eligibility when modal opens — not when callback identity changes.
@@ -1151,13 +1165,23 @@ export function SurveyLaunchQuoteModal({
 
   const blockedReason =
     readinessErrors[0] ||
-    (billingCheckPhase === "timeout"
-      ? "Billing check timed out."
-      : billingCheckPhase === "error"
-        ? eligibilityError || "Could not verify billing."
-        : null) ||
-    eligibilityError ||
-    (launchAction === "blocked" ? eligibility?.summary || "Launch is not available for this account." : null);
+    billingErrorMessage ||
+    (launchAction === "blocked" ? mapBillingBlockReason(eligibility) || eligibility?.summary || "Launch is not available for this account." : null);
+
+  const billingDebugDetails = eligibility
+    ? JSON.stringify(
+        {
+          mode: eligibility.mode,
+          launch_action: eligibility.launch_action,
+          block_reason_code: eligibility.block_reason_code,
+          block_reason: eligibility.block_reason,
+          package_id: eligibility.package_id,
+          billing: eligibility.billing,
+        },
+        null,
+        2,
+      )
+    : eligibilityError || null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1214,11 +1238,37 @@ export function SurveyLaunchQuoteModal({
             {showBillingLoading ? (
               <p className="text-sm text-muted-foreground">Checking your package and allowance…</p>
             ) : showBillingError ? (
-              <p className="text-sm text-destructive">
-                {billingCheckPhase === "timeout"
-                  ? "Billing check timed out. Try Refresh or close and open launch again."
-                  : eligibilityError || "Could not load billing state."}
-              </p>
+              <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                <p className="font-medium">{billingErrorMessage}</p>
+                {onRefreshEligibility ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                    disabled={actionBusy}
+                    onClick={() => void onRefreshEligibility()}
+                  >
+                    Retry billing check
+                  </Button>
+                ) : null}
+                {import.meta.env.DEV && billingDebugDetails ? (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      className="text-xs underline"
+                      onClick={() => setShowBillingDebug((v) => !v)}
+                    >
+                      {showBillingDebug ? "Hide debug details" : "Show debug details"}
+                    </button>
+                    {showBillingDebug ? (
+                      <pre className="mt-2 max-h-40 overflow-auto rounded bg-background/80 p-2 text-[10px] text-foreground">
+                        {billingDebugDetails}
+                      </pre>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <>
                 {eligibility?.billing?.has_active_subscription ? (
@@ -1273,8 +1323,9 @@ export function SurveyLaunchQuoteModal({
           ) : null}
 
           {launchActionError ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-              {launchActionError}
+            <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              <p className="font-medium">{launchActionError}</p>
+              <p className="text-xs text-destructive/90">Fix the issue above or retry. You stay on this screen until launch succeeds.</p>
             </div>
           ) : null}
         </div>

@@ -863,6 +863,7 @@ export type SurveyLaunchEligibility = {
   launch_action?: "launch" | "pay_and_launch" | "blocked";
   summary?: string;
   block_reason?: string | null;
+  block_reason_code?: string | null;
   covered_by_allowance?: number;
   covered_by_promo_credits?: number;
   shortfall_units?: number;

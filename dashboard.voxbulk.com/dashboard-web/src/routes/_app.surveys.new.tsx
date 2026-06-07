@@ -19,6 +19,7 @@ import {
   sanitizeStepLabelFromApi,
 } from "@/lib/survey-step-labels";
 import { buildSurveyDraftCreateBody, buildSurveyDraftPatchBody, resolveSurveyNameForSave } from "@/lib/survey-draft-payload";
+import { buildFullSurveyDraftConfig, hydrateSurveyDraftFromOrder } from "@/lib/survey-draft-config";
 import { logLaunchFlow } from "@/lib/launch-flow-log";
 import {
   billingCheckErrorMessage,
@@ -177,6 +178,7 @@ function CreateSurvey() {
     orderId: activeLaunchOrderId,
     launchOpen,
     isLoading: eligibilityQ.isLoading,
+    isFetching: eligibilityQ.isFetching,
     isError: eligibilityQ.isError,
     errorMessage: eligibilityErrorMessage,
     hasData: Boolean(eligibilityQ.data),
@@ -239,32 +241,37 @@ function CreateSurvey() {
     const order = orderQ.data;
     if (!order?.id || hydratedOrderRef.current === order.id) return;
     hydratedOrderRef.current = order.id;
-    const cfg = (order.config || {}) as Record<string, unknown>;
-    setSurveyName(String(order.survey_name || order.title || cfg.survey_name || "").trim());
-    if (cfg.goal) setGoal(String(cfg.goal));
-    if (cfg.script) setScript(String(cfg.script));
-    if (cfg.industry_id) setIndustryId(String(cfg.industry_id));
-    if (Array.isArray(cfg.selected_survey_type_ids)) {
-      const ids = cfg.selected_survey_type_ids.map(String);
-      setSelectedServiceTagIds(ids);
-      setOrderedServiceTagIds(ids);
+    const hydrated = hydrateSurveyDraftFromOrder({
+      survey_name: order.survey_name,
+      title: order.title,
+      scheduled_start_at: order.scheduled_start_at,
+      scheduled_end_at: order.scheduled_end_at,
+      config: (order.config || {}) as Record<string, unknown>,
+    });
+
+    if (hydrated.surveyName) setSurveyName(hydrated.surveyName);
+    if (hydrated.goal) setGoal(hydrated.goal);
+    if (hydrated.script) setScript(hydrated.script);
+    if (hydrated.industryId) setIndustryId(hydrated.industryId);
+    if (hydrated.selectedServiceTagIds) setSelectedServiceTagIds(hydrated.selectedServiceTagIds);
+    if (hydrated.orderedServiceTagIds) setOrderedServiceTagIds(hydrated.orderedServiceTagIds);
+    if (hydrated.welcomeTemplateId) setWelcomeTemplateId(hydrated.welcomeTemplateId);
+    if (hydrated.thankYouTemplateId) setThankYouTemplateId(hydrated.thankYouTemplateId);
+    if (hydrated.selectedServiceTemplateIds) setSelectedServiceTemplateIds(hydrated.selectedServiceTemplateIds);
+    if (hydrated.packageId) setPackageId(hydrated.packageId);
+    if (hydrated.privacyMode) setPrivacyMode(hydrated.privacyMode);
+    if (typeof hydrated.allowFinalAdditionalFeedback === "boolean") {
+      setAllowFinalAdditionalFeedback(hydrated.allowFinalAdditionalFeedback);
     }
-    if (cfg.welcome_template_id) setWelcomeTemplateId(String(cfg.welcome_template_id));
-    if (cfg.thank_you_template_id) setThankYouTemplateId(String(cfg.thank_you_template_id));
-    if (cfg.package_id) setPackageId(String(cfg.package_id));
-    if (cfg.privacy_mode === "on" || cfg.privacy_mode === "off") setPrivacyMode(cfg.privacy_mode);
-    if (typeof cfg.allow_final_additional_feedback === "boolean") {
-      setAllowFinalAdditionalFeedback(cfg.allow_final_additional_feedback);
-    }
-    if (order.scheduled_start_at) setStartAt(toLocalInput(order.scheduled_start_at));
-    if (order.scheduled_end_at) setEndAt(toLocalInput(order.scheduled_end_at));
-    const delivery = String(cfg.delivery || cfg.survey_channel || "");
-    if (delivery === "whatsapp" || delivery === "ai_call") {
-      setChannel(delivery === "whatsapp" ? "whatsapp" : "phone");
-    }
-    if (cfg.builder_runtime || cfg.builder_step_sequence) {
-      setApproved(true);
-    }
+    if (typeof hydrated.anonymous === "boolean") setAnonymous(hydrated.anonymous);
+    if (typeof hydrated.autoSelectSteps === "boolean") setAutoSelectSteps(hydrated.autoSelectSteps);
+    if (hydrated.pageCount) setPageCount(hydrated.pageCount);
+    if (hydrated.manualMiddleRoles) setManualMiddleRoles(hydrated.manualMiddleRoles);
+    if (hydrated.startAt) setStartAt(hydrated.startAt);
+    if (hydrated.endAt) setEndAt(hydrated.endAt);
+    if (hydrated.channel) setChannel(hydrated.channel);
+    if (hydrated.approved) setApproved(true);
+    if (hydrated.waPreview) setWaPreview(hydrated.waPreview);
   }, [orderQ.data]);
 
   const channelLabel = channel === "whatsapp" ? "WhatsApp" : channel === "phone" ? "AI phone call" : "—";
@@ -291,35 +298,35 @@ function CreateSurvey() {
     return created.id;
   }, [orderId, createM, surveyName, goal, channel, anonymous, script, packageId]);
 
+  const resolvedPageRolesRef = React.useRef<string[]>([]);
+
   const buildDraftConfig = React.useCallback(() => {
-    if (channel === "whatsapp") {
-      return {
+    const persisted = (orderQ.data?.config || {}) as Record<string, unknown>;
+    return buildFullSurveyDraftConfig(
+      {
+        channel,
         goal,
-        delivery: "whatsapp" as const,
-        survey_channel: "whatsapp" as const,
-        channels: ["whatsapp"],
-        anonymous_responses: anonymous,
         script,
-        package_id: packageId || undefined,
-        industry_id: industryId,
-        survey_type_id: primarySurveyTypeId || undefined,
-        selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
-        welcome_template_id: welcomeTemplateId ? Number(welcomeTemplateId) : undefined,
-        thank_you_template_id: thankYouTemplateId ? Number(thankYouTemplateId) : undefined,
-        survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
-        page_count: pageCount,
-        privacy_mode: privacyMode,
-        survey_variant: surveyVariant,
-      };
-    }
-    return {
-      goal,
-      delivery: "ai_call" as const,
-      survey_channel: "ai_call" as const,
-      anonymous_responses: anonymous,
-      script,
-      package_id: packageId || undefined,
-    };
+        anonymous,
+        packageId,
+        industryId,
+        primarySurveyTypeId,
+        orderedServiceTagIds,
+        selectedServiceTagIds,
+        selectedServiceTemplateIds,
+        welcomeTemplateId,
+        thankYouTemplateId,
+        pageCount,
+        privacyMode,
+        surveyVariant,
+        allowFinalAdditionalFeedback,
+        autoSelectSteps,
+        resolvedPageRoles: resolvedPageRolesRef.current,
+        waPreview,
+        approved,
+      },
+      persisted,
+    );
   }, [
     channel,
     goal,
@@ -330,11 +337,17 @@ function CreateSurvey() {
     primarySurveyTypeId,
     orderedServiceTagIds,
     selectedServiceTagIds,
+    selectedServiceTemplateIds,
     welcomeTemplateId,
     thankYouTemplateId,
     pageCount,
     privacyMode,
     surveyVariant,
+    allowFinalAdditionalFeedback,
+    autoSelectSteps,
+    waPreview,
+    approved,
+    orderQ.data?.config,
   ]);
 
   const saveSurveyDraft = React.useCallback(
@@ -409,11 +422,8 @@ function CreateSurvey() {
   const onLaunchSurvey = async () => {
     setPayBusy(true);
     try {
-      let id = launchOrderId || orderId;
-      if (!id) {
-        const saved = await saveSurveyDraft("launch");
-        id = saved.id;
-      }
+      const saved = await saveSurveyDraft("launch");
+      const id = saved.id;
       if (!id) throw new Error("Save your draft before launch");
       const runMode = launchMode === "now" ? "now" : "schedule";
       logLaunchFlow("[launch-api:start]", { ...launchLogCtx(), orderId: id, draftId: id, source: "onLaunchSurvey" });
@@ -426,7 +436,6 @@ function CreateSurvey() {
         source: "onLaunchSurvey",
       });
       toast.success(result.message || (runMode === "now" ? "Survey launched" : "Survey scheduled"));
-      setLaunchOpen(false);
       setLaunchOrderId(null);
       await qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
       await qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(launchedId) });
@@ -515,15 +524,21 @@ function CreateSurvey() {
     if (industries[0] && !industryId) setIndustryId(String(industries[0].id));
   }, [waIndustriesQ.data, industryId, industrySlugSearch]);
 
-  React.useEffect(() => {
-    setSelectedServiceTagIds([]);
-    setOrderedServiceTagIds([]);
-    setWelcomeTemplateId("");
-    setThankYouTemplateId("");
-    setSelectedServiceTemplateIds({});
-    setApproved(false);
-    setGenerateErrors([]);
-  }, [industryId]);
+  const handleIndustryChange = React.useCallback(
+    (nextId: string) => {
+      if (nextId === industryId) return;
+      setIndustryId(nextId);
+      setSelectedServiceTagIds([]);
+      setOrderedServiceTagIds([]);
+      setWelcomeTemplateId("");
+      setThankYouTemplateId("");
+      setSelectedServiceTemplateIds({});
+      setApproved(false);
+      setGenerateErrors([]);
+      setWaPreview(null);
+    },
+    [industryId],
+  );
 
   React.useEffect(() => {
     setSelectedServiceTemplateIds((prev) => {
@@ -715,10 +730,11 @@ function CreateSurvey() {
   );
 
   React.useEffect(() => {
+    if (!autoSelectSteps) return;
     const suggested = suggestedRoles[String(pageCount)] || [];
     const middle = suggested.filter((r) => r !== "start" && r !== "completion");
     setManualMiddleRoles(middle.slice(0, Math.max(0, pageCount - 2)));
-  }, [pageCount, primarySurveyTypeId, surveyVariant, suggestedRoles]);
+  }, [pageCount, primarySurveyTypeId, surveyVariant, suggestedRoles, autoSelectSteps]);
 
   const resolvedPageRoles = React.useMemo(() => {
     const auto = suggestedRoles[String(pageCount)];
@@ -726,6 +742,8 @@ function CreateSurvey() {
     const middle = manualMiddleRoles.slice(0, Math.max(0, pageCount - 2));
     return ["start", ...middle, "completion"];
   }, [autoSelectSteps, suggestedRoles, pageCount, manualMiddleRoles]);
+
+  resolvedPageRolesRef.current = resolvedPageRoles;
 
   const pageOrderValid =
     resolvedPageRoles.length === pageCount &&
@@ -1041,7 +1059,7 @@ function CreateSurvey() {
           setSurveyName={setSurveyName}
           campaignRejectTitles={campaignRejectTitles}
           industryId={industryId}
-          setIndustryId={setIndustryId}
+          setIndustryId={handleIndustryChange}
           industries={industries}
           industriesLoading={waIndustriesQ.isLoading}
           selectedServiceTagIds={selectedServiceTagIds}
@@ -1149,10 +1167,7 @@ function CreateSurvey() {
         open={launchOpen}
         onOpenChange={(open) => {
           setLaunchOpen(open);
-          if (!open) {
-            setLaunchOrderId(null);
-            navigatedToResultsRef.current = false;
-          }
+          if (!open) setLaunchOrderId(null);
         }}
         data={{
           campaignName: normalizeSurveyName(surveyName),
@@ -1164,11 +1179,12 @@ function CreateSurvey() {
         }}
         eligibility={eligibilityQ.data || null}
         billingCheckPhase={billingCheckPhase}
-        eligibilityLoading={billingCheckPhase === "loading"}
+        eligibilityLoading={billingCheckPhase === "checking"}
         eligibilityError={billingCheckErrorMessage(
           billingCheckPhase,
           eligibilityErrorMessage,
           activeLaunchOrderId,
+          eligibilityQ.data,
         )}
         launchBlockers={
           contactsCount <= 0 ? ["Upload at least one contact before launch."] : channel === "whatsapp" && !approved ? ["Approve your survey before launch."] : []

@@ -151,22 +151,60 @@ class SurveyLaunchEligibilityService:
         return enriched
 
     @staticmethod
+    def _set_block(base: dict[str, Any], *, code: str, reason: str, summary: str | None = None) -> dict[str, Any]:
+        base["block_reason_code"] = code
+        base["block_reason"] = reason
+        base["summary"] = summary or reason
+        base["launch_action"] = "blocked"
+        logger.info(
+            "survey_launch_billing_blocked order_id=%s code=%s reason=%s",
+            base.get("order_id"),
+            code,
+            reason,
+        )
+        return base
+
+    @staticmethod
     def compute(db: Session, order: ServiceOrder, org: Organisation) -> dict[str, Any]:
         if order.service_code != "survey":
             raise SurveyLaunchEligibilityError("Launch eligibility is only for survey orders")
+
+        logger.info("survey_launch_billing_start order_id=%s org_id=%s", order.id, org.id)
 
         config = SurveyLaunchEligibilityService._order_config(order)
         channel = PlatformCatalogService.resolve_survey_channel(config)
         recipient_count = max(0, int(order.recipient_count or 0))
         estimated_usage = SurveyLaunchEligibilityService.estimated_whatsapp_units(order, channel=channel)
         billing = org_survey_billing_context(db, org)
+        package_id = str(config.get("package_id") or "").strip() or None
+
+        usage = UsageWalletService.get_current(db, org.id)
         logger.info(
-            "survey_launch_billing_context order_id=%s org_id=%s wa_remaining=%s survey_credits=%s has_allowance=%s",
+            "survey_launch_package_lookup order_id=%s package_id=%s channel=%s",
+            order.id,
+            package_id,
+            channel,
+        )
+        logger.info(
+            "survey_launch_wallet_lookup order_id=%s org_id=%s wallet_status=%s wa_included=%s wa_used=%s",
             order.id,
             org.id,
+            getattr(usage, "status", None) if usage else None,
+            billing.get("whatsapp_included"),
+            billing.get("whatsapp_used"),
+        )
+        logger.info(
+            "survey_launch_allowance_result order_id=%s wa_remaining=%s has_allowance=%s survey_credits=%s",
+            order.id,
             billing.get("whatsapp_remaining"),
-            billing.get("survey_credits"),
             billing.get("has_whatsapp_allowance"),
+            billing.get("survey_credits"),
+        )
+        logger.info(
+            "survey_launch_usage_count order_id=%s recipient_count=%s estimated_whatsapp_usage=%s",
+            order.id,
+            recipient_count,
+            estimated_usage,
         )
 
         base: dict[str, Any] = {
@@ -182,6 +220,7 @@ class SurveyLaunchEligibilityService:
             "payment_required": True,
             "mode": "blocked",
             "block_reason": None,
+            "block_reason_code": None,
             "summary": "",
             "covered_by_allowance": 0,
             "covered_by_promo_credits": 0,
@@ -197,9 +236,12 @@ class SurveyLaunchEligibilityService:
         }
 
         if recipient_count <= 0:
-            base["block_reason"] = "Upload at least one contact before launch."
-            base["summary"] = "No recipients on this survey yet."
-            return base
+            return SurveyLaunchEligibilityService._set_block(
+                base,
+                code="no_recipients",
+                reason="Upload at least one contact before launch.",
+                summary="No recipients on this survey yet.",
+            )
 
         if order.payment_status == "approved":
             base.update(
@@ -210,6 +252,10 @@ class SurveyLaunchEligibilityService:
                     "launch_action": "launch",
                     "summary": "Payment is approved — you can launch this campaign.",
                 }
+            )
+            logger.info(
+                "survey_launch_billing_done order_id=%s success=true launch_action=launch mode=already_paid",
+                order.id,
             )
             return base
 
@@ -231,6 +277,10 @@ class SurveyLaunchEligibilityService:
                     ),
                 }
             )
+            logger.info(
+                "survey_launch_billing_done order_id=%s success=true launch_action=launch mode=promo_credits",
+                order.id,
+            )
             return base
 
         if channel == "whatsapp" and billing.get("has_whatsapp_allowance") and wa_remaining >= estimated_usage > 0:
@@ -249,6 +299,10 @@ class SurveyLaunchEligibilityService:
                     ),
                 }
             )
+            logger.info(
+                "survey_launch_billing_done order_id=%s success=true launch_action=launch mode=subscription_whatsapp",
+                order.id,
+            )
             return base
 
         shortfall_units = 0
@@ -266,17 +320,19 @@ class SurveyLaunchEligibilityService:
                 config=config,
             )
         except ValueError as e:
-            base["block_reason"] = str(e)
-            base["summary"] = str(e)
-            return base
+            msg = str(e)
+            code = "package_not_found" if "package" in msg.lower() else "quote_failed"
+            return SurveyLaunchEligibilityService._set_block(base, code=code, reason=msg)
 
         amount_pence = int(amount_quote.get("total_pence") or 0)
         amount_display = str(amount_quote.get("total_gbp") or PlatformCatalogService._money(amount_pence))
 
         if amount_pence <= 0 and not billing["payg_allowed"]:
-            base["block_reason"] = "No active package found for WhatsApp launch."
-            base["summary"] = "No active package found for WhatsApp launch."
-            return base
+            return SurveyLaunchEligibilityService._set_block(
+                base,
+                code="package_not_found",
+                reason="Package not found.",
+            )
 
         if amount_pence <= 0:
             base.update(
@@ -290,12 +346,19 @@ class SurveyLaunchEligibilityService:
                     "summary": "This launch is included — no payment required.",
                 }
             )
+            logger.info(
+                "survey_launch_billing_done order_id=%s success=true launch_action=launch mode=included",
+                order.id,
+            )
             return base
 
         if not billing["payg_allowed"]:
-            base["block_reason"] = "Purchase a package or add survey credits to launch."
-            base["summary"] = "No active package found for WhatsApp launch."
-            return base
+            return SurveyLaunchEligibilityService._set_block(
+                base,
+                code="package_not_found",
+                reason="Package not found.",
+                summary="No active package found for WhatsApp launch.",
+            )
 
         if shortfall_units > 0:
             summary = (
@@ -321,6 +384,25 @@ class SurveyLaunchEligibilityService:
                 else f"Pay-as-you-go amount due: {amount_display}."
             )
             mode = "payg"
+
+        if (
+            channel == "whatsapp"
+            and billing.get("has_whatsapp_allowance")
+            and wa_remaining <= 0
+            and estimated_usage > 0
+        ):
+            logger.info(
+                "survey_launch_billing_done order_id=%s success=false code=whatsapp_usage_limit amount_due=%s",
+                order.id,
+                amount_pence,
+            )
+        else:
+            logger.info(
+                "survey_launch_billing_done order_id=%s success=false launch_action=pay_and_launch mode=%s amount_due=%s",
+                order.id,
+                mode,
+                amount_pence,
+            )
 
         base.update(
             {
