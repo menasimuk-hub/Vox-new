@@ -50,8 +50,8 @@ export function resolveBillingCheckPhase(input: {
   if (!input.orderId) return "error";
   if (input.timedOut) return "timeout";
   if (input.isError) return "error";
-  if ((input.isLoading || input.isFetching) && !input.hasData) return "checking";
   if (input.hasData) return "ready";
+  if (input.isLoading || input.isFetching) return "checking";
   return "checking";
 }
 
@@ -76,10 +76,58 @@ const BLOCK_REASON_MESSAGES: Record<string, string> = {
   payment_required: "Purchase a package or add survey credits to launch.",
 };
 
+export function isWhatsAppAllowanceExhausted(
+  eligibility: Pick<SurveyLaunchEligibility, "block_reason_code" | "billing"> | null | undefined,
+): boolean {
+  if (!eligibility) return false;
+  if (eligibility.block_reason_code === "whatsapp_usage_limit") return true;
+  const billing = eligibility.billing;
+  return Boolean(billing?.has_whatsapp_allowance && (billing.whatsapp_remaining ?? 0) <= 0);
+}
+
+export function buildWhatsAppAllowanceNotice(
+  eligibility: SurveyLaunchEligibility | null | undefined,
+): string | null {
+  if (!eligibility || !isWhatsAppAllowanceExhausted(eligibility)) return null;
+  if (eligibility.block_reason) return eligibility.block_reason;
+  const billing = eligibility.billing;
+  const included = billing?.whatsapp_included ?? 0;
+  const used = billing?.whatsapp_used ?? 0;
+  const remaining = billing?.whatsapp_remaining ?? 0;
+  const due = eligibility.amount_due_display || "—";
+  return `Your WhatsApp allowance has been fully used. Included: ${included}, used: ${used}, remaining: ${remaining}. This launch would require additional billing of ${due}.`;
+}
+
+export type LaunchPricingBreakdown = {
+  estimatedSend: string | null;
+  minimumCharge: string | null;
+  setupFee: string | null;
+  totalDue: string | null;
+  packageLabel: string | null;
+  packageId: string | null;
+};
+
+export function buildLaunchPricingBreakdown(
+  eligibility: SurveyLaunchEligibility | null | undefined,
+): LaunchPricingBreakdown | null {
+  if (!eligibility?.payment_required) return null;
+  return {
+    estimatedSend: eligibility.estimated_send_cost_display || null,
+    minimumCharge: eligibility.minimum_charge_display || null,
+    setupFee: eligibility.setup_fee_display || null,
+    totalDue: eligibility.amount_due_display || null,
+    packageLabel: eligibility.package_label || eligibility.billing?.plan_name || null,
+    packageId: eligibility.package_id || null,
+  };
+}
+
 export function mapBillingBlockReason(
   eligibility: Pick<SurveyLaunchEligibility, "block_reason" | "block_reason_code" | "summary"> | null | undefined,
 ): string | null {
   if (!eligibility) return null;
+  if (eligibility.block_reason_code === "whatsapp_usage_limit" && eligibility.block_reason) {
+    return eligibility.block_reason;
+  }
   const code = String(eligibility.block_reason_code || "").trim();
   if (code && BLOCK_REASON_MESSAGES[code]) return BLOCK_REASON_MESSAGES[code];
   const reason = String(eligibility.block_reason || eligibility.summary || "").trim();

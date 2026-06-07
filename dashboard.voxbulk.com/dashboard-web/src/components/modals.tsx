@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
 import { WaBookingPhonePreview } from "@/components/wa-booking-phone-preview";
 import { WaSurveyPhonePreview } from "@/components/wa-survey-phone-preview";
-import { mapBillingBlockReason } from "@/lib/survey-launch-billing";
+import { mapBillingBlockReason, buildLaunchPricingBreakdown, buildWhatsAppAllowanceNotice, isWhatsAppAllowanceExhausted } from "@/lib/survey-launch-billing";
 import { ATS_ANALYZING_LABEL } from "@/lib/interview-campaign";
 import {
   AlertCircle,
@@ -1033,7 +1033,8 @@ export type SurveyLaunchEligibilityView = {
   summary?: string;
   block_reason?: string | null;
   block_reason_code?: string | null;
-  block_reason_code?: string | null;
+  allowance_exhausted?: boolean;
+  package_id?: string | null;
   covered_by_allowance?: number;
   covered_by_promo_credits?: number;
   shortfall_units?: number;
@@ -1048,7 +1049,10 @@ export type SurveyLaunchEligibilityView = {
     has_active_subscription?: boolean;
     plan_name?: string | null;
     whatsapp_remaining?: number;
+    whatsapp_included?: number;
+    whatsapp_used?: number;
     survey_credits?: number;
+    has_whatsapp_allowance?: boolean;
   };
 };
 
@@ -1093,6 +1097,9 @@ export function SurveyLaunchQuoteModal({
   const canLaunchNow = Boolean(eligibility?.can_launch) && launchAction === "launch";
   const canPayLaunch = paymentRequired && launchAction === "pay_and_launch";
   const amountDue = eligibility?.amount_due_display || null;
+  const allowanceNotice = buildWhatsAppAllowanceNotice(eligibility);
+  const allowanceExhausted = isWhatsAppAllowanceExhausted(eligibility);
+  const pricingBreakdown = buildLaunchPricingBreakdown(eligibility);
   const actionBusy = Boolean(payBusy || launching || billingPhase === "checking");
   const readinessErrors = [...launchBlockers];
   if (data.recipientCount <= 0) readinessErrors.push("Upload at least one contact before launch.");
@@ -1119,7 +1126,7 @@ export function SurveyLaunchQuoteModal({
           ? `Included · ${data.packageName || eligibility?.billing?.plan_name || "your package"}`
           : "£0.00 · included"
       : canPayLaunch
-        ? amountDue || "—"
+        ? pricingBreakdown?.totalDue || amountDue || "—"
         : eligibility?.estimated_send_cost_display || "—";
 
   const canLaunch = canLaunchNow && readinessErrors.length === 0 && !actionBusy && billingPhase === "ready";
@@ -1131,10 +1138,7 @@ export function SurveyLaunchQuoteModal({
       setLaunchActionError(null);
       setLaunching(false);
       setShowBillingDebug(false);
-      onRefreshEligibility?.();
     }
-    // Only refetch eligibility when modal opens — not when callback identity changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const handleLaunch = async () => {
@@ -1202,26 +1206,59 @@ export function SurveyLaunchQuoteModal({
             <PreviewMetric icon={<ReceiptText className="size-4" />} label="Amount due" value={costLabel} />
           </div>
 
-          {canPayLaunch && eligibility?.estimated_send_cost_display ? (
+          {allowanceExhausted && allowanceNotice ? (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-950 dark:text-amber-50">
+              <p className="font-medium">WhatsApp allowance fully used</p>
+              <p className="mt-1">{allowanceNotice}</p>
+              {typeof eligibility?.billing?.whatsapp_included === "number" ? (
+                <div className="mt-3 grid gap-1 text-xs sm:grid-cols-3">
+                  <p>
+                    Included WA: <span className="font-medium">{eligibility.billing.whatsapp_included}</span>
+                  </p>
+                  <p>
+                    Used WA: <span className="font-medium">{eligibility.billing.whatsapp_used ?? 0}</span>
+                  </p>
+                  <p>
+                    Remaining WA: <span className="font-medium">{eligibility.billing.whatsapp_remaining ?? 0}</span>
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {pricingBreakdown ? (
             <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
-              <p>
-                Estimated send cost: <span className="font-medium">{eligibility.estimated_send_cost_display}</span>
-                {data.recipientCount > 0 ? ` · ${data.recipientCount} contact${data.recipientCount === 1 ? "" : "s"}` : ""}
-              </p>
-              {eligibility.minimum_charge_display &&
-              eligibility.minimum_charge_display !== eligibility.estimated_send_cost_display ? (
+              <p className="font-medium text-foreground">Pricing breakdown</p>
+              {pricingBreakdown.packageLabel || pricingBreakdown.packageId ? (
                 <p className="mt-1 text-muted-foreground">
-                  Minimum launch charge: <span className="font-medium text-foreground">{eligibility.minimum_charge_display}</span>
+                  Package:{" "}
+                  <span className="font-medium text-foreground">
+                    {pricingBreakdown.packageLabel || pricingBreakdown.packageId}
+                  </span>
                 </p>
               ) : null}
-              {eligibility.setup_fee_display ? (
-                <p className="mt-1 text-muted-foreground">
-                  Setup fee: <span className="font-medium text-foreground">{eligibility.setup_fee_display}</span>
+              {pricingBreakdown.estimatedSend ? (
+                <p className="mt-1">
+                  Estimated send cost: <span className="font-medium">{pricingBreakdown.estimatedSend}</span>
+                  {data.recipientCount > 0
+                    ? ` · ${data.recipientCount} contact${data.recipientCount === 1 ? "" : "s"}`
+                    : ""}
                 </p>
               ) : null}
-              {amountDue ? (
-                <p className="mt-1 font-medium">
-                  Amount due at checkout: {amountDue}
+              {pricingBreakdown.minimumCharge ? (
+                <p className="mt-1 text-muted-foreground">
+                  Minimum / package charge:{" "}
+                  <span className="font-medium text-foreground">{pricingBreakdown.minimumCharge}</span>
+                </p>
+              ) : null}
+              {pricingBreakdown.setupFee ? (
+                <p className="mt-1 text-muted-foreground">
+                  Setup fee: <span className="font-medium text-foreground">{pricingBreakdown.setupFee}</span>
+                </p>
+              ) : null}
+              {pricingBreakdown.totalDue ? (
+                <p className="mt-2 font-medium">
+                  Total due now: <span className="text-foreground">{pricingBreakdown.totalDue}</span>
                 </p>
               ) : null}
             </div>
@@ -1279,8 +1316,14 @@ export function SurveyLaunchQuoteModal({
                 ) : (
                   <QuoteRow label="Package" value="No active subscription package" />
                 )}
+                {typeof eligibility?.billing?.whatsapp_included === "number" ? (
+                  <QuoteRow label="Included WA" value={`${eligibility.billing.whatsapp_included}`} />
+                ) : null}
+                {typeof eligibility?.billing?.whatsapp_used === "number" ? (
+                  <QuoteRow label="Used WA" value={`${eligibility.billing.whatsapp_used}`} />
+                ) : null}
                 {typeof eligibility?.billing?.whatsapp_remaining === "number" ? (
-                  <QuoteRow label="Remaining WhatsApp allowance" value={`${eligibility.billing.whatsapp_remaining}`} />
+                  <QuoteRow label="Remaining WA" value={`${eligibility.billing.whatsapp_remaining}`} />
                 ) : null}
                 {typeof eligibility?.estimated_whatsapp_usage === "number" && eligibility.estimated_whatsapp_usage > 0 ? (
                   <QuoteRow label="Estimated usage for this launch" value={`${eligibility.estimated_whatsapp_usage}`} />
@@ -1341,7 +1384,7 @@ export function SurveyLaunchQuoteModal({
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
               {onRefreshEligibility ? (
                 <Button type="button" variant="outline" disabled={actionBusy} onClick={() => void onRefreshEligibility()}>
-                  Refresh
+                  Retry billing check
                 </Button>
               ) : null}
               {canLaunchNow ? (

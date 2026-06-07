@@ -385,16 +385,30 @@ class SurveyLaunchEligibilityService:
             )
             mode = "payg"
 
-        if (
+        allowance_exhausted = (
             channel == "whatsapp"
             and billing.get("has_whatsapp_allowance")
             and wa_remaining <= 0
             and estimated_usage > 0
-        ):
+        )
+        block_reason_code = None
+        block_reason = None
+        if allowance_exhausted:
+            wa_included = int(billing.get("whatsapp_included") or 0)
+            wa_used = int(billing.get("whatsapp_used") or 0)
+            block_reason_code = "whatsapp_usage_limit"
+            block_reason = (
+                f"Your WhatsApp allowance has been fully used. "
+                f"Included: {wa_included}, used: {wa_used}, remaining: 0. "
+                f"This launch would require additional billing of {amount_display}."
+            )
+            summary = block_reason
             logger.info(
-                "survey_launch_billing_done order_id=%s success=false code=whatsapp_usage_limit amount_due=%s",
+                "survey_launch_blocked order_id=%s code=whatsapp_usage_limit wa_remaining=%s amount_due=%s recipient_count=%s",
                 order.id,
+                wa_remaining,
                 amount_pence,
+                recipient_count,
             )
         else:
             logger.info(
@@ -410,6 +424,9 @@ class SurveyLaunchEligibilityService:
                 "payment_required": True,
                 "mode": mode,
                 "launch_action": "pay_and_launch",
+                "block_reason_code": block_reason_code,
+                "block_reason": block_reason,
+                "allowance_exhausted": allowance_exhausted,
                 "covered_by_allowance": covered_by_allowance,
                 "shortfall_units": shortfall_units or (estimated_usage if channel == "whatsapp" else recipient_count),
                 "amount_due_pence": amount_pence,

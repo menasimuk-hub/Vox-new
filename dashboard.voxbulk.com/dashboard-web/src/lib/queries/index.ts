@@ -38,7 +38,8 @@ export const queryKeys = {
   interviewAgents: ["service-orders", "interview-agents"] as const,
   interviewBilling: ["service-orders", "interview-billing"] as const,
   orderRecipients: (orderId: string) => ["service-orders", orderId, "recipients"] as const,
-  surveyLaunchEligibility: (orderId: string) => ["service-orders", orderId, "launch-eligibility"] as const,
+  surveyLaunchEligibility: (orderId: string, cacheKey = "") =>
+    ["service-orders", orderId, "launch-eligibility", cacheKey] as const,
   interviewRecipientActivity: (orderId: string, recipientId: string) =>
     ["service-orders", orderId, "recipients", recipientId, "activity"] as const,
   recoveryJobs: ["calls", "recovery", "jobs"] as const,
@@ -864,6 +865,7 @@ export type SurveyLaunchEligibility = {
   summary?: string;
   block_reason?: string | null;
   block_reason_code?: string | null;
+  allowance_exhausted?: boolean;
   covered_by_allowance?: number;
   covered_by_promo_credits?: number;
   shortfall_units?: number;
@@ -903,10 +905,15 @@ export async function fetchSurveyLaunchEligibility(orderId: string, signal?: Abo
     logBillingCheck("done", { orderId, ...launchEligibilityLogPayload(data) });
     if (data.can_launch) {
       logBillingCheck("allowed", { orderId, mode: data.mode, launch_action: data.launch_action });
-    } else if (data.block_reason || data.launch_action === "blocked") {
+    } else if (
+      data.block_reason_code === "whatsapp_usage_limit" ||
+      data.block_reason ||
+      data.launch_action === "blocked"
+    ) {
       logBillingCheck("blocked", {
         orderId,
         mode: data.mode,
+        code: data.block_reason_code,
         reason: data.block_reason || data.summary,
       });
     }
@@ -924,9 +931,9 @@ export async function fetchSurveyLaunchEligibility(orderId: string, signal?: Abo
   }
 }
 
-export function useSurveyLaunchEligibility(orderId: string | null, enabled = true) {
+export function useSurveyLaunchEligibility(orderId: string | null, enabled = true, cacheKey = "") {
   return useQuery({
-    queryKey: queryKeys.surveyLaunchEligibility(orderId || ""),
+    queryKey: queryKeys.surveyLaunchEligibility(orderId || "", cacheKey),
     enabled: Boolean(orderId) && enabled,
     queryFn: async ({ signal }) => {
       const controller = new AbortController();
@@ -940,8 +947,12 @@ export function useSurveyLaunchEligibility(orderId: string | null, enabled = tru
         signal?.removeEventListener("abort", onAbort);
       }
     },
-    staleTime: 0,
-    retry: 1,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
   });
 }
 

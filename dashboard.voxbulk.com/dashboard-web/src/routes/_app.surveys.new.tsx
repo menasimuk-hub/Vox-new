@@ -171,7 +171,11 @@ function CreateSurvey() {
   const gcReady = gocardlessAvailable(session?.subscription as Record<string, unknown> | null);
   const launchM = useLaunchSurveyCampaign();
   const activeLaunchOrderId = launchOrderId || orderId;
-  const eligibilityQ = useSurveyLaunchEligibility(activeLaunchOrderId, launchOpen);
+  const eligibilityCacheKey = React.useMemo(
+    () => `${contactsCount}:${packageId || ""}`,
+    [contactsCount, packageId],
+  );
+  const eligibilityQ = useSurveyLaunchEligibility(activeLaunchOrderId, launchOpen, eligibilityCacheKey);
   const eligibilityErrorMessage =
     eligibilityQ.error instanceof Error ? eligibilityQ.error.message : eligibilityQ.isError ? "Could not load billing state" : null;
   const billingCheckPhase = resolveBillingCheckPhase({
@@ -396,7 +400,7 @@ function CreateSurvey() {
       const saved = await saveSurveyDraft("launch");
       setLaunchOrderId(saved.id);
       await qc.fetchQuery({
-        queryKey: queryKeys.surveyLaunchEligibility(saved.id),
+        queryKey: queryKeys.surveyLaunchEligibility(saved.id, eligibilityCacheKey),
         queryFn: () => fetchSurveyLaunchEligibility(saved.id),
       });
       setLaunchMode(mode);
@@ -416,8 +420,10 @@ function CreateSurvey() {
 
   const refreshLaunchEligibility = React.useCallback(() => {
     if (!activeLaunchOrderId) return;
-    void eligibilityQ.refetch();
-  }, [activeLaunchOrderId, eligibilityQ]);
+    void qc.refetchQueries({
+      queryKey: queryKeys.surveyLaunchEligibility(activeLaunchOrderId, eligibilityCacheKey),
+    });
+  }, [activeLaunchOrderId, eligibilityCacheKey, qc]);
 
   const onLaunchSurvey = async () => {
     setPayBusy(true);
