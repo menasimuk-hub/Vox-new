@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
+LOG_PREFIX = "[wa-vague-followup]"
 
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
@@ -354,33 +358,20 @@ def is_low_score_answer(answer: str, *, threshold: int | None = None) -> bool:
         return False
 
 
-def should_ask_vague_negative_followup(
+def explain_vague_negative_decision(
     *,
     answer: str,
     question: dict[str, Any],
     config: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
-) -> bool:
-    meta = metadata or parse_auto_followup_from_question(question)
-    if meta.get("auto_followup_enabled") is False:
-        return False
+) -> dict[str, Any]:
+    """Return should_ask plus explicit branch reason for tracing (works without template metadata)."""
+    meta = metadata if metadata is not None else parse_auto_followup_from_question(question)
+    metadata_present = bool(meta)
+    heuristic_fallback = not metadata_present
 
     raw = str(answer or "").strip()
     lowered = raw.lower()
-    if not lowered:
-        return False
-
-    overrides = get_followup_overrides(config)
-    for term in overrides["skip_followup_terms"]:
-        if term and term in lowered:
-            return False
-    for term in overrides["force_negative_terms"]:
-        if term and term in lowered:
-            return True
-
-    if is_specific_complaint(raw):
-        return False
-
     answer_kind = str(meta.get("answer_kind") or infer_answer_kind(str(question.get("step_role") or "")))
     threshold = meta.get("low_score_threshold")
     if threshold is not None:
@@ -389,20 +380,200 @@ def should_ask_vague_negative_followup(
         except (TypeError, ValueError):
             threshold = DEFAULT_LOW_SCORE_THRESHOLD
 
+    base = {
+        "should_ask": False,
+        "reason": "unknown",
+        "metadata_present": metadata_present,
+        "heuristic_fallback": heuristic_fallback,
+        "answer_kind": answer_kind,
+        "step_role": str(question.get("step_role") or ""),
+        "question_topic": meta.get("question_topic"),
+        "low_score_threshold": threshold,
+    }
+
+    if meta.get("auto_followup_enabled") is False:
+        return {**base, "reason": "auto_followup_disabled"}
+
+    if not lowered:
+        return {**base, "reason": "empty_answer"}
+
+    overrides = get_followup_overrides(config)
+    for term in overrides["skip_followup_terms"]:
+        if term and term in lowered:
+            return {**base, "reason": "skip_followup_term", "matched_term": term}
+
+    for term in overrides["force_negative_terms"]:
+        if term and term in lowered:
+            return {**base, "should_ask": True, "reason": "force_negative_term", "matched_term": term}
+
+    if is_specific_complaint(raw):
+        return {**base, "reason": "specific_complaint_detected"}
+
     if answer_kind == "rating":
         if is_low_score_answer(raw, threshold=threshold):
-            return True
+            return {**base, "should_ask": True, "reason": "low_score_rating"}
         if is_vague_negative_phrase(raw):
-            return True
-        return False
+            return {**base, "should_ask": True, "reason": "vague_negative_phrase"}
+        return {**base, "reason": "rating_not_negative"}
 
     if answer_kind == "yes_no" and lowered in {"no", "not really", "nah"}:
-        return True
+        return {**base, "should_ask": True, "reason": "yes_no_negative"}
 
     if is_vague_negative_phrase(raw):
-        return True
+        return {**base, "should_ask": True, "reason": "vague_negative_phrase"}
 
-    return False
+    return {**base, "reason": "not_vague_negative"}
+
+
+def should_ask_vague_negative_followup(
+    *,
+    answer: str,
+    question: dict[str, Any],
+    config: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    return bool(
+        explain_vague_negative_decision(
+            answer=answer,
+            question=question,
+            config=config,
+            metadata=metadata,
+        ).get("should_ask")
+    )
+
+
+def explain_service_window(
+    db: Session,
+    *,
+    org_id: str,
+    recipient_phone: str,
+    log_id: int | None = None,
+    reference_time: datetime | None = None,
+) -> dict[str, Any]:
+    """Explain why the 24h WhatsApp service window is open or closed."""
+    now = reference_time or datetime.utcnow()
+    window = timedelta(hours=SERVICE_WINDOW_HOURS)
+    org_key = str(org_id or "").strip()
+
+    if log_id is not None:
+        row = db.get(WhatsAppLog, int(log_id))
+        if row is None:
+            return {"open": False, "reason": "log_id_not_found", "log_id": log_id}
+        if str(row.direction or "").lower() != "inbound":
+            return {"open": False, "reason": "log_id_not_inbound", "log_id": log_id, "direction": row.direction}
+        if str(row.org_id) != org_key:
+            return {
+                "open": False,
+                "reason": "log_id_org_mismatch",
+                "log_id": log_id,
+                "log_org_id": str(row.org_id),
+                "expected_org_id": org_key,
+            }
+        age = now - row.created_at
+        if age <= window:
+            return {"open": True, "reason": "current_inbound_log", "log_id": log_id, "age_seconds": int(age.total_seconds())}
+        return {
+            "open": False,
+            "reason": "log_id_outside_window",
+            "log_id": log_id,
+            "age_seconds": int(age.total_seconds()),
+        }
+
+    from sqlalchemy import select
+
+    digits = re.sub(r"\D", "", str(recipient_phone or ""))
+    stmt = (
+        select(WhatsAppLog)
+        .where(WhatsAppLog.org_id == org_key)
+        .where(WhatsAppLog.direction == "inbound")
+        .order_by(WhatsAppLog.created_at.desc())
+        .limit(20)
+    )
+    for row in db.execute(stmt).scalars():
+        from_digits = re.sub(r"\D", "", str(row.from_number or ""))
+        if digits and from_digits and (digits.endswith(from_digits[-10:]) or from_digits.endswith(digits[-10:])):
+            age = now - row.created_at
+            if age <= window:
+                return {
+                    "open": True,
+                    "reason": "recent_inbound_log",
+                    "log_id": row.id,
+                    "age_seconds": int(age.total_seconds()),
+                }
+            return {
+                "open": False,
+                "reason": "recent_inbound_outside_window",
+                "log_id": row.id,
+                "age_seconds": int(age.total_seconds()),
+            }
+    return {"open": False, "reason": "no_recent_inbound_for_phone", "phone_digits": digits[-4:] if digits else ""}
+
+
+def log_vague_negative_decision(
+    event: str,
+    *,
+    order_id: str | None = None,
+    recipient_id: str | None = None,
+    step: int | None = None,
+    answer: str | None = None,
+    handler: str = "",
+    decision: dict[str, Any] | None = None,
+    service_window: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    logger.info(
+        "%s %s order_id=%s recipient_id=%s step=%s answer=%r handler=%s "
+        "decision=%s service_window=%s extra=%s",
+        LOG_PREFIX,
+        event,
+        order_id,
+        recipient_id,
+        step,
+        (answer or "")[:120],
+        handler,
+        decision or {},
+        service_window or {},
+        extra or {},
+    )
+
+
+def evaluate_vague_negative_followup(
+    db: Session,
+    *,
+    answer: str,
+    question: dict[str, Any],
+    config: dict[str, Any] | None,
+    order_id: str,
+    org_id: str,
+    recipient_phone: str,
+    log_id: int | None = None,
+) -> dict[str, Any]:
+    """Full decision: should ask, why, service window, follow-up text if applicable."""
+    meta = parse_auto_followup_from_question(question)
+    decision = explain_vague_negative_decision(
+        answer=answer,
+        question=question,
+        config=config,
+        metadata=meta,
+    )
+    service_window = explain_service_window(
+        db,
+        org_id=org_id,
+        recipient_phone=recipient_phone,
+        log_id=log_id,
+    )
+    followup_text = None
+    if decision.get("should_ask") and service_window.get("open"):
+        followup_text = generate_followup_text(question=question, metadata=meta)
+    return {
+        "should_ask": bool(decision.get("should_ask")),
+        "should_send": bool(decision.get("should_ask") and service_window.get("open")),
+        "decision": decision,
+        "service_window": service_window,
+        "followup_text": followup_text,
+        "metadata_present": decision.get("metadata_present"),
+        "heuristic_fallback": decision.get("heuristic_fallback"),
+    }
 
 
 def is_whatsapp_service_window_open(
@@ -414,30 +585,15 @@ def is_whatsapp_service_window_open(
     reference_time: datetime | None = None,
 ) -> bool:
     """True when a free-form session message is allowed (24h after last user inbound)."""
-    now = reference_time or datetime.utcnow()
-    window = timedelta(hours=SERVICE_WINDOW_HOURS)
-
-    if log_id is not None:
-        row = db.get(WhatsAppLog, int(log_id))
-        if row is not None and str(row.direction or "").lower() == "inbound":
-            if row.org_id == org_id and (now - row.created_at) <= window:
-                return True
-
-    from sqlalchemy import select
-
-    digits = re.sub(r"\D", "", str(recipient_phone or ""))
-    stmt = (
-        select(WhatsAppLog)
-        .where(WhatsAppLog.org_id == org_id)
-        .where(WhatsAppLog.direction == "inbound")
-        .order_by(WhatsAppLog.created_at.desc())
-        .limit(20)
+    return bool(
+        explain_service_window(
+            db,
+            org_id=org_id,
+            recipient_phone=recipient_phone,
+            log_id=log_id,
+            reference_time=reference_time,
+        ).get("open")
     )
-    for row in db.execute(stmt).scalars():
-        to_digits = re.sub(r"\D", "", str(row.from_number or row.to_number or ""))
-        if digits and to_digits and (digits.endswith(to_digits[-10:]) or to_digits.endswith(digits[-10:])):
-            return (now - row.created_at) <= window
-    return False
 
 
 def merge_elaboration_into_answers(answers: list[dict[str, Any]], elaboration: str) -> None:

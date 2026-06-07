@@ -57,8 +57,10 @@ from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
 from app.services.survey_wa_vague_negative_followup_service import (
+    evaluate_vague_negative_followup,
     generate_followup_text,
     is_whatsapp_service_window_open,
+    log_vague_negative_decision,
     merge_elaboration_into_answers,
     parse_auto_followup_from_question,
     should_ask_vague_negative_followup,
@@ -1096,12 +1098,22 @@ def try_handle_survey_whatsapp_inbound(
                     "trace_id": trace_id,
                 }
         elif log_welcome_sent_without_active_session(db, from_phone=from_phone, org_id=scoped_org):
+            log_vague_negative_decision(
+                "try_handle_no_recipient",
+                handler="survey_whatsapp_conversation_service.try_handle_survey_whatsapp_inbound",
+                extra={"from_phone": from_phone, "body": str(body or "")[:120], "reason": "welcome_sent_but_no_active_session"},
+            )
             return {
                 "handled": False,
                 "reason": "welcome_sent_but_no_active_session",
                 "org_id": scoped_org,
                 "from_phone": from_phone,
             }
+        log_vague_negative_decision(
+            "try_handle_no_recipient",
+            handler="survey_whatsapp_conversation_service.try_handle_survey_whatsapp_inbound",
+            extra={"from_phone": from_phone, "body": str(body or "")[:120], "reason": "no_active_survey_recipient"},
+        )
         return None
 
     config = _order_config(order)
@@ -1135,6 +1147,13 @@ def try_handle_survey_whatsapp_inbound(
             handler="survey_whatsapp_conversation_service.try_handle_survey_whatsapp_inbound",
         )
 
+    log_vague_negative_decision(
+        "try_handle_dispatch",
+        order_id=order.id,
+        recipient_id=recipient.id,
+        handler="survey_whatsapp_conversation_service.try_handle_survey_whatsapp_inbound",
+        extra={"body": str(body or "")[:120], "log_id": log_id},
+    )
     return handle_inbound_reply(
         db,
         from_phone=from_phone,
@@ -2058,6 +2077,15 @@ def handle_inbound_reply(
 
     flow = _whatsapp_flow(config)
     if is_graph_flow(config) and not should_use_builder_linear_runtime(config):
+        log_vague_negative_decision(
+            "inbound_graph_path",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            step=step,
+            answer=str(body or "")[:120],
+            handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+            extra={"reason": "graph_flow_not_linear"},
+        )
         return _handle_inbound_reply_graph(
             db,
             order=order,
@@ -2197,63 +2225,120 @@ def handle_inbound_reply(
         payload = SurveySessionService.attach_session_to_result(payload, session)
 
         if not conv.get("tell_us_more_pending"):
-            meta = parse_auto_followup_from_question(question)
-            if should_ask_vague_negative_followup(
+            evaluation = evaluate_vague_negative_followup(
+                db,
                 answer=answer,
                 question=question,
                 config=config,
-                metadata=meta,
-            ):
-                if is_whatsapp_service_window_open(
+                order_id=order.id,
+                org_id=str(order.org_id),
+                recipient_phone=recipient.phone or "",
+                log_id=log_id,
+            )
+            log_vague_negative_decision(
+                "linear_evaluated",
+                order_id=order.id,
+                recipient_id=recipient.id,
+                step=step,
+                answer=answer,
+                handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+                decision=evaluation.get("decision"),
+                service_window=evaluation.get("service_window"),
+                extra={
+                    "should_send": evaluation.get("should_send"),
+                    "template_id": question.get("template_id"),
+                    "metadata_present": evaluation.get("metadata_present"),
+                    "heuristic_fallback": evaluation.get("heuristic_fallback"),
+                },
+            )
+            if evaluation.get("should_send") and evaluation.get("followup_text"):
+                followup_text = str(evaluation["followup_text"])
+                conv["awaiting_followup"] = True
+                conv["followup_for_step"] = step
+                payload["wa_conversation"] = conv
+                payload = mark_inbound_processed(
+                    payload, log_id=log_id, inbound_message_id=inbound_message_id
+                )
+                recipient.status = "in_progress"
+                _save_recipient_result(db, recipient, payload)
+                sent = _send_freeform_whatsapp(
                     db,
-                    org_id=order.org_id,
-                    recipient_phone=recipient.phone or "",
-                    log_id=log_id,
-                ):
-                    followup_text = generate_followup_text(question=question, metadata=meta)
-                    conv["awaiting_followup"] = True
-                    conv["followup_for_step"] = step
-                    payload["wa_conversation"] = conv
-                    payload = mark_inbound_processed(
-                        payload, log_id=log_id, inbound_message_id=inbound_message_id
-                    )
-                    recipient.status = "in_progress"
-                    _save_recipient_result(db, recipient, payload)
-                    sent = _send_freeform_whatsapp(
-                        db,
-                        order=order,
-                        recipient=recipient,
-                        body=followup_text,
-                    )
-                    logger.info(
-                        "%s vague_negative_followup_sent order=%s recipient=%s step=%s sent=%s text=%r",
-                        LOG_PREFIX,
-                        order.id,
-                        recipient.id,
-                        step,
-                        sent,
-                        followup_text[:120],
-                    )
-                    return {
-                        "handled": True,
-                        "order_id": order.id,
-                        "recipient_id": recipient.id,
-                        "step": step,
-                        "vague_followup": True,
-                        "sent": sent,
-                        "log_id": log_id,
-                    }
+                    order=order,
+                    recipient=recipient,
+                    body=followup_text,
+                )
+                log_vague_negative_decision(
+                    "followup_sent" if sent else "followup_send_failed",
+                    order_id=order.id,
+                    recipient_id=recipient.id,
+                    step=step,
+                    answer=answer,
+                    handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+                    decision=evaluation.get("decision"),
+                    service_window=evaluation.get("service_window"),
+                    extra={"sent": sent, "followup_text": followup_text[:120]},
+                )
                 logger.info(
-                    "%s vague_negative_followup_skipped_window_closed order=%s recipient=%s step=%s",
+                    "%s vague_negative_followup_sent order=%s recipient=%s step=%s sent=%s text=%r",
                     LOG_PREFIX,
                     order.id,
                     recipient.id,
                     step,
+                    sent,
+                    followup_text[:120],
                 )
+                return {
+                    "handled": True,
+                    "order_id": order.id,
+                    "recipient_id": recipient.id,
+                    "step": step,
+                    "vague_followup": True,
+                    "sent": sent,
+                    "log_id": log_id,
+                    "decision_reason": (evaluation.get("decision") or {}).get("reason"),
+                }
+            if evaluation.get("should_ask") and not (evaluation.get("service_window") or {}).get("open"):
+                log_vague_negative_decision(
+                    "followup_skipped_window_closed",
+                    order_id=order.id,
+                    recipient_id=recipient.id,
+                    step=step,
+                    answer=answer,
+                    handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+                    decision=evaluation.get("decision"),
+                    service_window=evaluation.get("service_window"),
+                )
+                logger.info(
+                    "%s vague_negative_followup_skipped_window_closed order=%s recipient=%s step=%s reason=%s",
+                    LOG_PREFIX,
+                    order.id,
+                    recipient.id,
+                    step,
+                    (evaluation.get("service_window") or {}).get("reason"),
+                )
+            elif not evaluation.get("should_ask"):
+                log_vague_negative_decision(
+                    "followup_not_needed",
+                    order_id=order.id,
+                    recipient_id=recipient.id,
+                    step=step,
+                    answer=answer,
+                    handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+                    decision=evaluation.get("decision"),
+                )
+        else:
+            log_vague_negative_decision(
+                "followup_skipped_tell_us_more_pending",
+                order_id=order.id,
+                recipient_id=recipient.id,
+                step=step,
+                answer=answer,
+                handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+            )
 
-    payload["channel"] = "whatsapp"
-    conv["answers"] = answers
-    payload = SurveySessionService.attach_session_to_result(payload, session)
+        payload["channel"] = "whatsapp"
+        conv["answers"] = answers
+        payload = SurveySessionService.attach_session_to_result(payload, session)
 
     if step < total or conv.get("tell_us_more_pending"):
         try:
@@ -2564,13 +2649,28 @@ def _handle_inbound_reply_graph(
         )
 
         if should_ask_vague_negative_followup(answer=answer, question=question, config=config):
-            if is_whatsapp_service_window_open(
+            evaluation = evaluate_vague_negative_followup(
                 db,
-                org_id=order.org_id,
+                answer=answer,
+                question=question,
+                config=config,
+                order_id=order.id,
+                org_id=str(order.org_id),
                 recipient_phone=recipient.phone or "",
                 log_id=log_id,
-            ):
-                followup_text = generate_followup_text(question=question)
+            )
+            log_vague_negative_decision(
+                "graph_evaluated",
+                order_id=order.id,
+                recipient_id=recipient.id,
+                step=step,
+                answer=answer,
+                handler="survey_whatsapp_conversation_service._handle_inbound_reply_graph",
+                decision=evaluation.get("decision"),
+                service_window=evaluation.get("service_window"),
+            )
+            if evaluation.get("should_send") and evaluation.get("followup_text"):
+                followup_text = str(evaluation["followup_text"])
                 conv["awaiting_followup"] = True
                 conv["followup_for_step"] = step
                 conv["current_node_key"] = current_node_key

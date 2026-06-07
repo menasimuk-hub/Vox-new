@@ -9,6 +9,7 @@ import pytest
 from app.services.survey_wa_vague_negative_followup_service import (
     attach_auto_followup_to_template_item,
     build_auto_followup_metadata,
+    explain_vague_negative_decision,
     generate_followup_text,
     is_whatsapp_service_window_open,
     normalize_template_example_values,
@@ -91,7 +92,15 @@ def test_should_ask_vague_negative_followup_cases(answer, expect_followup):
     )
 
 
-def test_should_ask_followup_without_metadata_uses_heuristics():
+def test_explain_poor_without_metadata_uses_heuristic():
+    question = {"step_role": "rating", "text": "How would you rate our service?"}
+    decision = explain_vague_negative_decision(answer="poor", question=question, config={})
+    assert decision["should_ask"] is True
+    assert decision["reason"] in {"vague_negative_phrase", "low_score_rating"}
+    assert decision["heuristic_fallback"] is True
+
+
+def test_explain_decision_reasons():
     question = {"step_role": "rating", "text": "How would you rate our service?"}
     assert should_ask_vague_negative_followup(answer="bad", question=question, config={}) is True
     assert should_ask_vague_negative_followup(answer="price too high", question=question, config={}) is False

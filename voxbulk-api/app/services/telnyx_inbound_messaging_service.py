@@ -434,6 +434,22 @@ class TelnyxInboundMessagingService:
                     inbound_message_id=message_id,
                     inbound_reply=normalized,
                 )
+                logger.info(
+                    "survey_wa_inbound_route event_type=%s message_id=%s inbound_text=%r "
+                    "button_title=%r normalized_answer=%r normalized_action=%s "
+                    "survey_handled=%s survey_reason=%s vague_followup=%s duplicate=%s log_id=%s",
+                    event_type,
+                    message_id,
+                    inbound_text[:120],
+                    (normalized.button_title or "")[:80],
+                    (normalized.normalized_answer or "")[:120],
+                    normalized.normalized_action,
+                    survey_result.get("handled") if isinstance(survey_result, dict) else None,
+                    survey_result.get("reason") if isinstance(survey_result, dict) else "none",
+                    survey_result.get("vague_followup") if isinstance(survey_result, dict) else None,
+                    survey_result.get("duplicate") if isinstance(survey_result, dict) else None,
+                    row.id,
+                )
                 if survey_result is not None:
                     handled_survey = bool(survey_result.get("handled"))
                     if survey_result.get("reason") == "welcome_sent_but_no_active_session":
