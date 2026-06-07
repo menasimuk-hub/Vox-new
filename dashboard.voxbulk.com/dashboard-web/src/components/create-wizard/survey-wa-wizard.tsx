@@ -525,8 +525,8 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Allow final additional feedback</p>
                   <p className="text-xs text-muted-foreground">
-                    Optional closing step after the main questions: ask Yes/No, then collect open text before the
-                    thank-you message. Off by default.
+                    Optional closing step after the main questions: send an open-text prompt, then thank-you.
+                    Off by default.
                   </p>
                 </div>
                 <Switch

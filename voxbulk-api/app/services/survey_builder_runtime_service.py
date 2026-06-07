@@ -109,6 +109,7 @@ def build_builder_runtime(
         middle_template_ids=middles,
         business_name=business_name,
         first_name=first_name,
+        survey_type_name=str(survey_type_name or ""),
     )
     for step in step_sequence:
         step["source"] = RUNTIME_SOURCE
@@ -427,7 +428,11 @@ def resolve_runtime_step(
         raise SurveyBuilderFlowError(msg)
     q = dict(steps[step - 1])
     q["source"] = RUNTIME_SOURCE
-    return q
+    from app.services.survey_builder_flow_service import ensure_question_display_name
+
+    runtime = load_builder_runtime(config)
+    survey_type_name = str((runtime or {}).get("survey_type_name") or config.get("survey_type_name") or "")
+    return ensure_question_display_name(q, sequence=step - 1, survey_type_name=survey_type_name)
 
 
 def question_from_runtime_tell_us_more(

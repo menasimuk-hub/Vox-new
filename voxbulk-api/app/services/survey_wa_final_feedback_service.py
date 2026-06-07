@@ -107,7 +107,14 @@ def parse_final_feedback_yes_no(raw: str) -> str | None:
 
 
 def is_awaiting_final_feedback(conv: dict[str, Any]) -> bool:
-    return bool(conv.get("awaiting_final_feedback_yes_no") or conv.get("awaiting_final_feedback_text"))
+    """True when collecting optional open-text final feedback (legacy yes/no flag included)."""
+    return bool(conv.get("awaiting_final_feedback_text") or conv.get("awaiting_final_feedback_yes_no"))
+
+
+def begin_final_feedback_open_text(conv: dict[str, Any]) -> None:
+    """Enter the single open-text final feedback stage (no yes/no gate)."""
+    conv["awaiting_final_feedback_text"] = True
+    conv.pop("awaiting_final_feedback_yes_no", None)
 
 
 def should_offer_final_feedback(config: dict[str, Any], conv: dict[str, Any]) -> bool:

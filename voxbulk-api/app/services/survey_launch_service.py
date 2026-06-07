@@ -31,6 +31,10 @@ class SurveyLaunchService:
         if order.service_code != "survey":
             raise ValueError("Launch is only for survey orders")
 
+        from app.services.interview_campaign_service import ensure_campaign_id
+
+        order = ensure_campaign_id(db, order)
+
         eligibility = SurveyLaunchEligibilityService.assert_can_launch(db, order, org)
 
         if order.payment_status != "approved":
@@ -69,6 +73,7 @@ class SurveyLaunchService:
         return {
             "ok": True,
             "order_id": order.id,
+            "campaign_id": order.campaign_id,
             "status": order.status,
             "payment_status": order.payment_status,
             "eligibility_mode": eligibility.get("mode"),

@@ -9,7 +9,8 @@ import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
 import { pageCountFromSelectedTypes } from "@/components/create-wizard/survey-wa-template-step";
 import { SurveyLaunchQuoteModal } from "@/components/modals";
 import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
-import { gocardlessAvailable, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
+import { gocardlessAvailable, GC_ORDER_ID_KEY, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
+import { surveyTitleFromGoal } from "@/lib/survey-title";
 import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
 import {
   useCreateServiceOrder,
@@ -37,6 +38,7 @@ export const Route = createFileRoute("/_app/surveys/new")({
     channel:
       search.channel === "whatsapp" ? ("whatsapp" as const) : search.channel === "phone" ? ("phone" as const) : undefined,
     industry_slug: typeof search.industry_slug === "string" ? search.industry_slug.trim() : undefined,
+    order_id: typeof search.order_id === "string" ? search.order_id.trim() : undefined,
   }),
   component: CreateSurvey,
 });
@@ -72,7 +74,7 @@ function industryMatchesSlugSearch(ind: Record<string, unknown>, needle: string)
 }
 
 function CreateSurvey() {
-  const { channel: channelSearch, industry_slug: industrySlugSearch } = Route.useSearch();
+  const { channel: channelSearch, industry_slug: industrySlugSearch, order_id: orderIdSearch } = Route.useSearch();
   const navigate = useNavigate();
   const { session } = useSession();
   const orgQ = useOrganisation();
@@ -111,7 +113,7 @@ function CreateSurvey() {
   const [approved, setApproved] = React.useState(false);
   const [anonymous, setAnonymous] = React.useState(false);
   const [goal, setGoal] = React.useState(
-    "Measure satisfaction with our new hygienist team and identify the top 1 improvement.",
+    "Measure satisfaction with our new hygienist team and identify the top improvement.",
   );
   const [script, setScript] = React.useState(
     "1. On a scale of 0-10, how likely are you to recommend us?\n2. What stood out about your visit?\n3. Anything we could improve?",
@@ -139,6 +141,21 @@ function CreateSurvey() {
   const gcReady = gocardlessAvailable(session?.subscription as Record<string, unknown> | null);
   const launchM = useLaunchSurveyCampaign(orderId);
   const eligibilityQ = useSurveyLaunchEligibility(orderId, launchOpen);
+
+  React.useEffect(() => {
+    const restored = (orderIdSearch || "").trim();
+    if (restored && !orderId) setOrderId(restored);
+  }, [orderIdSearch, orderId]);
+
+  React.useEffect(() => {
+    if (orderId) return;
+    try {
+      const fromStorage = (sessionStorage.getItem(GC_ORDER_ID_KEY) || "").trim();
+      if (fromStorage) setOrderId(fromStorage);
+    } catch {
+      /* ignore */
+    }
+  }, [orderId]);
 
   const channelLabel = channel === "whatsapp" ? "WhatsApp" : channel === "phone" ? "AI phone call" : "—";
   const launchModeLabel =
@@ -181,7 +198,7 @@ function CreateSurvey() {
     await patchM.mutateAsync({
       orderId: id,
       body: {
-        title: goal.slice(0, 80) || "Survey draft",
+        title: surveyTitleFromGoal(goal),
         scheduled_start_at: startAt || null,
         scheduled_end_at: endAt || null,
         run_mode: launchMode === "now" ? "manual" : "scheduled",
@@ -215,7 +232,7 @@ function CreateSurvey() {
       const result = await launchM.mutateAsync({ run_mode: runMode });
       toast.success(result.message || (runMode === "now" ? "Survey launched" : "Survey scheduled"));
       setLaunchOpen(false);
-      void navigate({ to: "/surveys/$id", params: { id: orderId } });
+      void navigate({ to: "/surveys/results", search: { orderId } });
     } finally {
       setPayBusy(false);
     }
@@ -270,7 +287,7 @@ function CreateSurvey() {
     if (orderId) return orderId;
     const created = await createM.mutateAsync({
       service_code: "survey",
-      title: goal.slice(0, 80) || "New survey",
+      title: surveyTitleFromGoal(goal) || "New survey",
       config: {
         goal,
         delivery,
@@ -719,7 +736,7 @@ function CreateSurvey() {
       await patchM.mutateAsync({
         orderId: id,
         body: {
-          title: goal.slice(0, 80) || "Survey draft",
+          title: surveyTitleFromGoal(goal),
           scheduled_start_at: startAt || null,
           scheduled_end_at: endAt || null,
           config: baseConfig,
@@ -902,7 +919,7 @@ function CreateSurvey() {
         open={launchOpen}
         onOpenChange={setLaunchOpen}
         data={{
-          campaignName: goal.slice(0, 80) || "Survey",
+          campaignName: surveyTitleFromGoal(goal),
           recipientCount: contactsCount,
           channelLabel,
           launchModeLabel,

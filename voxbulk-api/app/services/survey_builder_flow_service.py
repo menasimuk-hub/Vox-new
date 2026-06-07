@@ -144,6 +144,26 @@ def _reply_type_for(role: str, options: list[str]) -> str:
     return str(cfg.get("reply_type") or "text")
 
 
+def ensure_question_display_name(
+    question: dict[str, Any],
+    *,
+    sequence: int,
+    survey_type_name: str = "",
+) -> dict[str, Any]:
+    """Fill missing display_name / template_name so Step 1+ always has a human-readable label."""
+    out = dict(question)
+    name = str(out.get("display_name") or out.get("template_name") or "").strip()
+    if not name:
+        if sequence == 0 and str(survey_type_name or "").strip():
+            name = str(survey_type_name).strip()
+        else:
+            name = f"Question {sequence + 1}"
+    out["display_name"] = name
+    if not str(out.get("template_name") or "").strip():
+        out["template_name"] = name
+    return out
+
+
 def question_from_template_row(
     db: Session,
     row: TelnyxWhatsappTemplate,
@@ -186,6 +206,7 @@ def build_builder_step_sequence(
     middle_template_ids: list[int | str],
     business_name: str = "Your business",
     first_name: str = "Alex",
+    survey_type_name: str = "",
 ) -> list[dict[str, Any]]:
     """Ordered middle steps — one dict per wizard-selected template id (no step-bank role pool)."""
     steps: list[dict[str, Any]] = []
@@ -200,12 +221,16 @@ def build_builder_step_sequence(
         if row is None or not row.active_for_survey:
             raise SurveyBuilderFlowError(f"Builder template {tid} not found or inactive.")
         steps.append(
-            question_from_template_row(
-                db,
-                row,
+            ensure_question_display_name(
+                question_from_template_row(
+                    db,
+                    row,
+                    sequence=idx,
+                    business_name=business_name,
+                    first_name=first_name,
+                ),
                 sequence=idx,
-                business_name=business_name,
-                first_name=first_name,
+                survey_type_name=survey_type_name,
             )
         )
     if not steps:

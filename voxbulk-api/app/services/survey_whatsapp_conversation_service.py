@@ -57,13 +57,11 @@ from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
 from app.services.survey_wa_final_feedback_service import (
+    begin_final_feedback_open_text,
     final_feedback_settings,
     is_awaiting_final_feedback,
     log_final_feedback,
-    mark_final_feedback_skipped,
-    parse_final_feedback_yes_no,
     persist_final_feedback_text,
-    persist_final_feedback_yes_no,
     runtime_final_feedback_enabled,
 )
 from app.services.survey_wa_vague_negative_followup_service import (
@@ -2090,76 +2088,14 @@ def _handle_final_feedback_inbound(
     effective_body = reply.normalized_answer or str(body or "").strip()
 
     if conv.get("awaiting_final_feedback_yes_no"):
-        choice = parse_final_feedback_yes_no(effective_body)
-        if not choice:
-            log_final_feedback(
-                "yes_no_unparsed",
-                order_id=order.id,
-                recipient_id=recipient.id,
-                handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
-                extra={"body": effective_body[:120]},
-            )
-            return {"handled": False, "reason": "final_feedback_yes_no_unparsed"}
-
-        persist_final_feedback_yes_no(payload, choice=choice, settings=settings)
-        conv.pop("awaiting_final_feedback_yes_no", None)
-        log_final_feedback(
-            "yes_no_branch",
-            order_id=order.id,
-            recipient_id=recipient.id,
-            handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
-            extra={"choice": choice, "settings": settings},
-        )
-
-        if choice == "No":
-            mark_final_feedback_skipped(payload, reason="declined")
-            conv = payload["wa_conversation"]
-            conv["final_feedback_done"] = True
-            payload["wa_conversation"] = conv
-            _save_recipient_result(db, recipient, payload)
-            return _complete_linear_survey_thank_you(
-                db,
-                order=order,
-                recipient=recipient,
-                config=config,
-                flow=flow,
-                questions=questions,
-                conv=conv,
-                payload=payload,
-                session=session,
-                step=step,
-                total=total,
-                org_name=org_name,
-                organiser=organiser,
-                log_id=log_id,
-                inbound_message_id=inbound_message_id,
-            )
-
-        conv["awaiting_final_feedback_text"] = True
+        begin_final_feedback_open_text(conv)
         payload["wa_conversation"] = conv
-        payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
-        _save_recipient_result(db, recipient, payload)
-        sent = _send_freeform_whatsapp(
-            db,
-            order=order,
-            recipient=recipient,
-            body=str(settings.get("open_text_prompt") or ""),
-        )
         log_final_feedback(
-            "open_text_prompt_sent",
+            "legacy_yes_no_migrated_to_open_text",
             order_id=order.id,
             recipient_id=recipient.id,
             handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
-            extra={"sent": sent},
         )
-        return {
-            "handled": True,
-            "order_id": order.id,
-            "recipient_id": recipient.id,
-            "final_feedback": "awaiting_open_text",
-            "sent": sent,
-            "log_id": log_id,
-        }
 
     if conv.get("awaiting_final_feedback_text"):
         voice = _try_voice_note_reply(
@@ -2177,7 +2113,7 @@ def _handle_final_feedback_inbound(
             step_index=step,
             config=config,
         )
-        if voice and voice.get("handled"):
+        if voice and voice.get("handled") and not voice.get("accepted"):
             return {
                 "handled": True,
                 "order_id": order.id,
@@ -2200,6 +2136,7 @@ def _handle_final_feedback_inbound(
             conv["final_feedback_done"] = True
             conv.pop("awaiting_final_feedback_text", None)
             payload["wa_conversation"] = conv
+            payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
             _save_recipient_result(db, recipient, payload)
             return _complete_linear_survey_thank_you(
                 db,
@@ -2234,6 +2171,7 @@ def _handle_final_feedback_inbound(
             handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
             extra={"text_len": len(text)},
         )
+        payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
         _save_recipient_result(db, recipient, payload)
         return _complete_linear_survey_thank_you(
             db,
@@ -2969,13 +2907,13 @@ def handle_inbound_reply(
     ):
         settings = final_feedback_settings(config)
         log_final_feedback(
-            "enabled_start_yes_no",
+            "enabled_start_open_text",
             order_id=order.id,
             recipient_id=recipient.id,
             handler="survey_whatsapp_conversation_service.handle_inbound_reply",
             extra={"settings": settings},
         )
-        conv["awaiting_final_feedback_yes_no"] = True
+        begin_final_feedback_open_text(conv)
         payload["wa_conversation"] = conv
         session = SurveySessionService.get_active_by_recipient(db, recipient.id)
         payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
@@ -2984,10 +2922,10 @@ def handle_inbound_reply(
             db,
             order=order,
             recipient=recipient,
-            body=str(settings.get("yes_no_question") or ""),
+            body=str(settings.get("open_text_prompt") or ""),
         )
         log_final_feedback(
-            "yes_no_sent",
+            "open_text_prompt_sent",
             order_id=order.id,
             recipient_id=recipient.id,
             handler="survey_whatsapp_conversation_service.handle_inbound_reply",
@@ -2997,7 +2935,7 @@ def handle_inbound_reply(
             "handled": True,
             "order_id": order.id,
             "recipient_id": recipient.id,
-            "final_feedback": "awaiting_yes_no",
+            "final_feedback": "awaiting_open_text",
             "sent": sent,
             "log_id": log_id,
         }

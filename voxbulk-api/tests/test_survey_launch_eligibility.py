@@ -146,9 +146,19 @@ def test_launch_with_promo_credits(app_client):
     headers, _org_id = _seed_user(app_client, email="survey_launch_run@example.com", survey_credits=5)
     order_id = _create_wa_order(app_client, headers)
 
+    detail = app_client.get(f"/service-orders/{order_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert str(detail.json().get("campaign_id") or "").startswith("VB-CMP-")
+
     launch = app_client.post(f"/service-orders/{order_id}/survey/launch", headers=headers, json={"run_mode": "now"})
     assert launch.status_code == 200, launch.text
-    assert launch.json()["ok"] is True
+    body = launch.json()
+    assert body["ok"] is True
+    assert str(body.get("campaign_id") or "").startswith("VB-CMP-")
+
+    after = app_client.get(f"/service-orders/{order_id}", headers=headers)
+    assert after.status_code == 200, after.text
+    assert str(after.json().get("campaign_id") or "").startswith("VB-CMP-")
 
 
 def test_start_order_rejects_unpaid(app_client):

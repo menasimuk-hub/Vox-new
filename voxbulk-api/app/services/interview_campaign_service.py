@@ -1,4 +1,4 @@
-"""Short campaign IDs for interview orders (tracking in reports and UI)."""
+"""Short campaign IDs for interview and survey orders (tracking in reports and UI)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def generate_campaign_id() -> str:
 
 
 def ensure_campaign_id(db: Session, order: ServiceOrder) -> ServiceOrder:
-    if order.service_code != "interview":
+    if str(order.service_code or "").strip().lower() not in {"interview", "survey"}:
         return order
     if str(order.campaign_id or "").strip():
         return order

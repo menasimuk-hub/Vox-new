@@ -1417,11 +1417,13 @@ class ServiceOrderService:
         db.refresh(order)
         logger.info("create_order persisted order_id=%s", order.id)
         order = UkComplianceService.seed_order_compliance_config(db, order, commit=True)
+        from app.services.interview_campaign_service import ensure_campaign_id
+
+        if code in {"interview", "survey"}:
+            order = ensure_campaign_id(db, order)
         if code == "interview":
-            from app.services.interview_campaign_service import ensure_campaign_id
             from app.services.interview_reference_service import ensure_order_reference_id
 
-            order = ensure_campaign_id(db, order)
             order = ensure_order_reference_id(db, order)
         logger.info("create_order ok order_id=%s service_code=%s", order.id, order.service_code)
         return order
