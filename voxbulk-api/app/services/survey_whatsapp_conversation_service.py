@@ -56,6 +56,13 @@ from app.services.survey_wa_inbound_parse_service import (
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
+from app.services.survey_wa_vague_negative_followup_service import (
+    generate_followup_text,
+    is_whatsapp_service_window_open,
+    merge_elaboration_into_answers,
+    parse_auto_followup_from_question,
+    should_ask_vague_negative_followup,
+)
 from app.services.survey_wa_test_mode_service import (
     log_first_question_resolution,
     log_inbound_normalized,
@@ -1796,6 +1803,37 @@ def _maybe_complete_order(db: Session, order: ServiceOrder) -> None:
         db.commit()
 
 
+def _send_freeform_whatsapp(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    body: str,
+) -> bool:
+    """Send a plain WhatsApp session message (requires open 24h customer service window)."""
+    text = str(body or "").strip()
+    if not text:
+        return False
+    result = TelnyxMessagingService.send_whatsapp(
+        db,
+        org_id=order.org_id,
+        to_number=recipient.phone or "",
+        body=text,
+    )
+    try:
+        TelnyxMessagingService.log_outbound(
+            db,
+            org_id=order.org_id,
+            to_number=recipient.phone or "",
+            from_number=None,
+            body=text,
+            result=result,
+        )
+    except Exception:
+        pass
+    return bool(result.ok)
+
+
 def handle_inbound_reply(
     db: Session,
     *,
@@ -2047,72 +2085,172 @@ def handle_inbound_reply(
     total = int(conv.get("total") or len(questions))
     answers: list[dict[str, Any]] = list(conv.get("answers") or [])
     variables = _survey_variables(config, recipient)
+    elaboration_only = False
+
+    if conv.get("awaiting_followup"):
+        elaboration_only = True
+        merge_elaboration_into_answers(answers, reply.normalized_answer or str(body or "").strip())
+        step = int(conv.get("followup_for_step") or step or 0)
+        conv["answers"] = answers
+        conv.pop("awaiting_followup", None)
+        conv.pop("followup_for_step", None)
+        payload["extracted_answers"] = [
+            {"question": a["question"], "answer": a.get("answer_display") or a["answer"]} for a in answers
+        ]
+        payload["wa_conversation"] = conv
 
     if step < 1 or step > total:
         return {"handled": False, "reason": "invalid_step"}
 
-    try:
-        if conv.get("tell_us_more_pending"):
-            variables = _survey_variables(config, recipient)
-            question = question_from_tell_us_more_template(
-                db,
-                config,
-                business_name=variables.get("organisation_name") or "Your business",
-                first_name=variables.get("first_name") or "Alex",
-            )
-            if question is None:
-                raise SurveyBuilderFlowError("tell_us_more_pending but template missing")
-        else:
+    if elaboration_only:
+        try:
             question = resolve_conversation_step(
                 config,
                 step,
                 order_id=order.id,
                 session_id=session_row.id if session_row else None,
             )
-    except SurveyBuilderFlowError as exc:
-        logger.error("%s linear_step_resolve_failed order=%s step=%s err=%s", LOG_PREFIX, order.id, step, exc)
-        return {"handled": False, "reason": "step_resolve_failed", "detail": str(exc)}
+        except SurveyBuilderFlowError as exc:
+            logger.error("%s linear_step_resolve_failed order=%s step=%s err=%s", LOG_PREFIX, order.id, step, exc)
+            return {"handled": False, "reason": "step_resolve_failed", "detail": str(exc)}
+        answer = str(answers[-1].get("answer") or "") if answers else ""
+        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        if session is None:
+            session = SurveySessionService.start_linear_session(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                question_count=total,
+            )
+        payload = SurveySessionService.attach_session_to_result(payload, session)
+        extracted = [{"question": a["question"], "answer": a.get("answer_display") or a["answer"]} for a in answers]
+        payload["extracted_answers"] = extracted
+        payload["channel"] = "whatsapp"
+        conv["answers"] = answers
+        payload["wa_conversation"] = conv
+    else:
+        try:
+            if conv.get("tell_us_more_pending"):
+                variables = _survey_variables(config, recipient)
+                question = question_from_tell_us_more_template(
+                    db,
+                    config,
+                    business_name=variables.get("organisation_name") or "Your business",
+                    first_name=variables.get("first_name") or "Alex",
+                )
+                if question is None:
+                    raise SurveyBuilderFlowError("tell_us_more_pending but template missing")
+            else:
+                question = resolve_conversation_step(
+                    config,
+                    step,
+                    order_id=order.id,
+                    session_id=session_row.id if session_row else None,
+                )
+        except SurveyBuilderFlowError as exc:
+            logger.error("%s linear_step_resolve_failed order=%s step=%s err=%s", LOG_PREFIX, order.id, step, exc)
+            return {"handled": False, "reason": "step_resolve_failed", "detail": str(exc)}
 
-    effective_body = reply.normalized_answer or str(body or "").strip()
-    answer = match_answer(effective_body, question)
-    q_display = survey_question_display(
-        db,
-        config=config,
-        question=question,
-        recipient=recipient,
-        index=step,
-        total=total,
-    )
-    answers.append(
-        {
-            "step_role": str(question.get("step_role") or ""),
-            "question": str(q_display.get("preview_body") or q_display.get("body") or question.get("text") or f"Question {step}"),
-            "answer": answer,
-            "reply_type": question.get("reply_type"),
-        }
-    )
-
-    session = SurveySessionService.get_active_by_recipient(db, recipient.id)
-    if session is None:
-        session = SurveySessionService.start_linear_session(
+        effective_body = reply.normalized_answer or str(body or "").strip()
+        answer = match_answer(effective_body, question)
+        q_display = survey_question_display(
             db,
-            order=order,
-            recipient=recipient,
             config=config,
-            question_count=total,
+            question=question,
+            recipient=recipient,
+            index=step,
+            total=total,
         )
-    SurveySessionService.record_linear_answer(
-        db,
-        session,
-        step_index=step,
-        question=question,
-        raw_value=str(body or "").strip(),
-        normalized_value=answer,
-        config=config,
-    )
+        answers.append(
+            {
+                "step_role": str(question.get("step_role") or ""),
+                "question": str(q_display.get("preview_body") or q_display.get("body") or question.get("text") or f"Question {step}"),
+                "answer": answer,
+                "reply_type": question.get("reply_type"),
+            }
+        )
 
-    extracted = [{"question": a["question"], "answer": a["answer"]} for a in answers]
-    payload["extracted_answers"] = extracted
+        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        if session is None:
+            session = SurveySessionService.start_linear_session(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                question_count=total,
+            )
+        SurveySessionService.record_linear_answer(
+            db,
+            session,
+            step_index=step,
+            question=question,
+            raw_value=str(body or "").strip(),
+            normalized_value=answer,
+            config=config,
+        )
+
+        extracted = [{"question": a["question"], "answer": a["answer"]} for a in answers]
+        payload["extracted_answers"] = extracted
+        payload["channel"] = "whatsapp"
+        conv["answers"] = answers
+        payload = SurveySessionService.attach_session_to_result(payload, session)
+
+        if not conv.get("tell_us_more_pending"):
+            meta = parse_auto_followup_from_question(question)
+            if should_ask_vague_negative_followup(
+                answer=answer,
+                question=question,
+                config=config,
+                metadata=meta,
+            ):
+                if is_whatsapp_service_window_open(
+                    db,
+                    org_id=order.org_id,
+                    recipient_phone=recipient.phone or "",
+                    log_id=log_id,
+                ):
+                    followup_text = generate_followup_text(question=question, metadata=meta)
+                    conv["awaiting_followup"] = True
+                    conv["followup_for_step"] = step
+                    payload["wa_conversation"] = conv
+                    payload = mark_inbound_processed(
+                        payload, log_id=log_id, inbound_message_id=inbound_message_id
+                    )
+                    recipient.status = "in_progress"
+                    _save_recipient_result(db, recipient, payload)
+                    sent = _send_freeform_whatsapp(
+                        db,
+                        order=order,
+                        recipient=recipient,
+                        body=followup_text,
+                    )
+                    logger.info(
+                        "%s vague_negative_followup_sent order=%s recipient=%s step=%s sent=%s text=%r",
+                        LOG_PREFIX,
+                        order.id,
+                        recipient.id,
+                        step,
+                        sent,
+                        followup_text[:120],
+                    )
+                    return {
+                        "handled": True,
+                        "order_id": order.id,
+                        "recipient_id": recipient.id,
+                        "step": step,
+                        "vague_followup": True,
+                        "sent": sent,
+                        "log_id": log_id,
+                    }
+                logger.info(
+                    "%s vague_negative_followup_skipped_window_closed order=%s recipient=%s step=%s",
+                    LOG_PREFIX,
+                    order.id,
+                    recipient.id,
+                    step,
+                )
+
     payload["channel"] = "whatsapp"
     conv["answers"] = answers
     payload = SurveySessionService.attach_session_to_result(payload, session)
@@ -2380,6 +2518,16 @@ def _handle_inbound_reply_graph(
 
     total = int(conv.get("total") or max_question_visits(config))
     answers: list[dict[str, Any]] = list(conv.get("answers") or [])
+    elaboration_only = False
+
+    if conv.get("awaiting_followup"):
+        elaboration_only = True
+        merge_elaboration_into_answers(answers, str(body or "").strip())
+        step = int(conv.get("followup_for_step") or step or 0)
+        conv["answers"] = answers
+        conv.pop("awaiting_followup", None)
+        conv.pop("followup_for_step", None)
+        payload["wa_conversation"] = conv
 
     current_node_key = str(conv.get("current_node_key") or "")
     session = SurveySessionService.get_active_by_recipient(db, recipient.id)
@@ -2405,14 +2553,51 @@ def _handle_inbound_reply_graph(
             pass
 
     answer = match_answer(body, question)
-    answers.append(
-        {
-            "question": str(question.get("text") or f"Question {step}"),
-            "answer": answer,
-            "reply_type": question.get("reply_type"),
-            "node_key": current_node_key,
-        }
-    )
+    if not elaboration_only:
+        answers.append(
+            {
+                "question": str(question.get("text") or f"Question {step}"),
+                "answer": answer,
+                "reply_type": question.get("reply_type"),
+                "node_key": current_node_key,
+            }
+        )
+
+        if should_ask_vague_negative_followup(answer=answer, question=question, config=config):
+            if is_whatsapp_service_window_open(
+                db,
+                org_id=order.org_id,
+                recipient_phone=recipient.phone or "",
+                log_id=log_id,
+            ):
+                followup_text = generate_followup_text(question=question)
+                conv["awaiting_followup"] = True
+                conv["followup_for_step"] = step
+                conv["current_node_key"] = current_node_key
+                conv["answers"] = answers
+                payload["extracted_answers"] = [{"question": a["question"], "answer": a["answer"]} for a in answers]
+                payload["wa_conversation"] = conv
+                payload = mark_inbound_processed(
+                    payload, log_id=log_id, inbound_message_id=inbound_message_id
+                )
+                _save_recipient_result(db, recipient, payload)
+                sent = _send_freeform_whatsapp(
+                    db, order=order, recipient=recipient, body=followup_text
+                )
+                return {
+                    "handled": True,
+                    "order_id": order.id,
+                    "recipient_id": recipient.id,
+                    "step": step,
+                    "vague_followup": True,
+                    "sent": sent,
+                    "log_id": log_id,
+                }
+    else:
+        payload["extracted_answers"] = [
+            {"question": a["question"], "answer": a.get("answer_display") or a["answer"]} for a in answers
+        ]
+        conv["answers"] = answers
 
     if session is None:
         session, _, _ = SurveyFlowEngineService.start_graph_session(

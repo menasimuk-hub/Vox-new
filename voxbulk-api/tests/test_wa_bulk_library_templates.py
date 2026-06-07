@@ -69,7 +69,7 @@ def _rating_template_payload(*, name: str = "food_quality_rating"):
             {"text": "Okay", "url": "", "phone_number": ""},
             {"text": "Excellent", "url": "", "phone_number": ""},
         ],
-        "example_values": ["Sample"],
+        "example_values": [],
         "language": "en_US",
         "category": "MARKETING",
     }
@@ -150,6 +150,7 @@ def test_normalize_library_middle_strips_greeting_and_forces_rating_buttons():
     assert "thanks for booking" not in normalized["body"].lower()
     assert normalized["button_type"] == "quick_reply"
     assert len(normalized["buttons"]) == 3
+    assert normalized["example_values"] == []
     assert not validate_library_middle_step_copy(
         body=normalized["body"],
         step_role="rating",

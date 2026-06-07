@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.survey_wa_vague_negative_followup_service import parse_auto_followup_from_template
 from app.services.survey_step_bank_service import (
     STEP_REPLY_CONFIG,
     _body_text,
@@ -161,7 +162,8 @@ def question_from_template_row(
     )
     body = str(preview.get("rendered_body") or _body_text(row) or row.body_preview or "").strip()
     node_key = f"builder_step_{sequence}"
-    return {
+    auto_followup = parse_auto_followup_from_template(row)
+    question: dict[str, Any] = {
         "sequence": sequence,
         "node_key": node_key,
         "template_id": int(row.id),
@@ -173,6 +175,9 @@ def question_from_template_row(
         "options": options,
         "source": "builder_template_row",
     }
+    if auto_followup:
+        question["auto_followup"] = auto_followup
+    return question
 
 
 def build_builder_step_sequence(

@@ -29,6 +29,10 @@ from app.services.survey_step_bank_service import (
     PACK_STEP_ROLES,
     normalize_step_role,
 )
+from app.services.survey_wa_vague_negative_followup_service import (
+    attach_auto_followup_to_template_item,
+    normalize_template_example_values,
+)
 from app.services.wa_template_privacy import (
     PRIVACY_MODE_OFF,
     PRIVACY_MODE_ON,
@@ -169,7 +173,8 @@ def normalize_library_middle_template(item: dict[str, Any], *, step_role: str) -
 
     out["header"] = ""
     out["body"] = body
-    out["example_values"] = ["Sample"]  # no variables in middle library copy
+    out["example_values"] = []
+    out = normalize_template_example_values(out)
 
     if role in _LIBRARY_BUTTON_STEP_ROLES:
         button_type, buttons = library_template_button_defaults(role)
@@ -365,20 +370,21 @@ def coerce_meta_template_fields(
 
 
 def _fill_example_values(out: dict[str, Any]) -> None:
-    """Ensure Meta sample values exist for validation and preview."""
-    examples = [str(v) for v in (out.get("example_values") or []) if str(v).strip()]
+    """Ensure Meta sample values exist for validation and preview when variables are used."""
     header = str(out.get("header") or "").strip()
     body = str(out.get("body") or "").strip()
     var_ids = _var_re_from_text(f"{header} {body}")
-    if not examples:
-        if var_ids:
-            examples = ["Alex" if vid == 1 else "Sample" for vid in range(1, max(var_ids) + 1)]
-        else:
-            examples = ["Alex"]
-    elif var_ids and len(examples) < max(var_ids):
+    if not var_ids:
+        out["example_values"] = []
+        return
+
+    normalized = normalize_template_example_values(out)
+    examples = [str(v) for v in (normalized.get("example_values") or []) if str(v).strip()]
+    if len(examples) < max(var_ids):
+        defaults = {1: "Alex", 2: "Northgate Dental", 3: "https://example.com/survey"}
         padded = list(examples)
         while len(padded) < max(var_ids):
-            padded.append("Sample")
+            padded.append(defaults.get(len(padded) + 1, "Guest"))
         examples = padded
     out["example_values"] = examples
 
@@ -686,23 +692,21 @@ def build_components_from_generated(item: dict[str, Any]) -> list[dict[str, Any]
     header = str(item.get("header") or "").strip()
     body = str(item.get("body") or "").strip()
     footer = str(item.get("footer") or "").strip()
+    var_ids = _var_re_from_text(f"{header} {body}")
     examples = [str(v) for v in (item.get("example_values") or []) if str(v).strip()]
-    if not examples:
+    if not examples and var_ids:
         examples = ["Alex", "Northgate Dental", "https://example.com/s/abc", "Monday 9am"]
 
     if header:
         components.append({"type": "HEADER", "format": "TEXT", "text": header[:60]})
 
-    body_example = examples[: max(1, len(_var_re_from_text(body + " " + header)))]
-    if not body_example:
-        body_example = [examples[0]]
-    components.append(
-        {
-            "type": "BODY",
-            "text": body,
-            "example": {"body_text": [body_example]},
-        }
-    )
+    body_component: dict[str, Any] = {"type": "BODY", "text": body}
+    if var_ids:
+        body_example = examples[: max(1, len(var_ids))]
+        if not body_example:
+            body_example = ["Alex"]
+        body_component["example"] = {"body_text": [body_example]}
+    components.append(body_component)
     if footer:
         components.append({"type": "FOOTER", "text": footer[:60]})
 
@@ -788,10 +792,13 @@ def validate_generated_template(
             errors.append(f"variables must be sequential from {{{{1}}}} — found {var_ids}")
 
     examples = [str(v) for v in (item.get("example_values") or []) if str(v).strip()]
-    if not examples:
-        errors.append("example_values must include at least one sample value")
-    elif var_ids and len(examples) < max(var_ids):
-        errors.append(f"example_values must include at least {max(var_ids)} value(s) for used variables")
+    if var_ids:
+        if not examples:
+            errors.append("example_values must include at least one value for templates with variables")
+        elif len(examples) < max(var_ids):
+            errors.append(f"example_values must include at least {max(var_ids)} value(s) for used variables")
+    elif examples and any(str(v).lower() == "sample" for v in examples):
+        errors.append('example_values must not use placeholder "sample" when no variables are present')
 
     button_type = _normalize_button_type(item.get("button_type"))
     buttons = item.get("buttons") if isinstance(item.get("buttons"), list) else []
@@ -1617,6 +1624,11 @@ class SurveyWaTemplatePackService:
 
         coerced = coerce_meta_template_fields({**item, "step_role": role, "outcome_key": None}, privacy_mode=privacy_mode)
         coerced = normalize_library_middle_template(coerced, step_role=role)
+        coerced = attach_auto_followup_to_template_item(
+            coerced,
+            survey_type=survey_type,
+            industry_slug=str(industry.slug or ""),
+        )
         middle_errors = validate_library_middle_step_copy(
             body=str(coerced.get("body") or ""),
             header=str(coerced.get("header") or ""),
@@ -1918,8 +1930,11 @@ class SurveyWaTemplatePackService:
         if not isinstance(components, list) or not components:
             components = build_components_from_generated(item)
         examples = item.get("example_values")
-        if not isinstance(examples, list) or not examples:
+        if not isinstance(examples, list):
             examples = _extract_example_values(components)
+        elif not examples:
+            extracted = _extract_example_values(components)
+            examples = extracted if extracted else []
 
         telnyx_name = _ensure_unique_telnyx_name(
             db, _telnyx_pack_name(survey_type.slug, item["template_name"])
@@ -1930,7 +1945,10 @@ class SurveyWaTemplatePackService:
         variant = privacy_mode_to_variant(privacy_mode)
         outcome_key = str(item.get("outcome_key") or "")[:16] or None
         outcome_vars = item.get("outcome_variables")
-        if outcome_key and not outcome_vars:
+        auto_followup = item.get("auto_followup")
+        if isinstance(auto_followup, dict):
+            outcome_vars = {"auto_followup": auto_followup}
+        elif outcome_key and not outcome_vars:
             from app.services.survey_outcome_template_service import default_outcome_variables
 
             outcome_vars = default_outcome_variables(outcome_key)
