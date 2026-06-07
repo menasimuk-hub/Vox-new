@@ -398,8 +398,13 @@ class PlatformCatalogService:
         if selected_rule_id:
             picked = next((r for r in bundle_rules if str(r.id) == str(selected_rule_id)), None)
             if picked is None:
-                raise ValueError("Selected survey package is not available for this channel")
-            return picked
+                logger.warning(
+                    "survey_package_channel_mismatch selected_rule_id=%s channel=%s — auto-picking package",
+                    selected_rule_id,
+                    channel,
+                )
+            else:
+                return picked
 
         count = max(int(recipient_count or 0), 0)
         fitting = [r for r in bundle_rules if int(r.bundle_size or 0) >= count]
@@ -1557,6 +1562,10 @@ class ServiceOrderService:
             recipient_count=order.recipient_count,
             options=config,
         )
+        selected_pkg = quote.get("selected_package_id")
+        if selected_pkg and str(config.get("package_id") or "") != str(selected_pkg):
+            config["package_id"] = selected_pkg
+            order.config_json = json.dumps(config, ensure_ascii=False)
         order.quote_total_pence = int(quote["total_pence"])
         order.quote_breakdown_json = json.dumps(quote, ensure_ascii=False)
         order.status = "quoted"

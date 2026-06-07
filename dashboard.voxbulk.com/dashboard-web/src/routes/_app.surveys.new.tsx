@@ -152,8 +152,14 @@ function CreateSurvey() {
   }, [packagesQ.data, channel]);
 
   React.useEffect(() => {
-    if (packages[0] && !packageId) setPackageId(String(packages[0].id || packages[0].rule_id || ""));
-  }, [packages, packageId]);
+    if (!channel || !packages.length) return;
+    const next = String(packages[0].id || packages[0].rule_id || "");
+    if (!next) return;
+    setPackageId((prev) => {
+      const stillValid = packages.some((pkg) => String(pkg.id || pkg.rule_id || "") === prev);
+      return stillValid ? prev : next;
+    });
+  }, [channel, packages]);
 
   const ensureOrder = async () => {
     if (orderId) return orderId;
@@ -543,6 +549,7 @@ function CreateSurvey() {
             allow_final_additional_feedback: Boolean(
               generated.allow_final_additional_feedback ?? allowFinalAdditionalFeedback,
             ),
+            package_id: packageId || undefined,
             ...(isBuilderFlow
               ? {
                   flow_engine: "linear",
@@ -624,6 +631,19 @@ function CreateSurvey() {
     setUploading(true);
     try {
       const id = await ensureOrder();
+      if (channel === "whatsapp" && packageId) {
+        await patchM.mutateAsync({
+          orderId: id,
+          body: {
+            config: {
+              delivery: "whatsapp",
+              survey_channel: "whatsapp",
+              channels: ["whatsapp"],
+              package_id: packageId,
+            },
+          },
+        });
+      }
       await apiUploadFiles(`/service-orders/${encodeURIComponent(id)}/recipients/upload`, Array.from(files), "file");
       await qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(id) });
       toast.success("Contacts uploaded");
