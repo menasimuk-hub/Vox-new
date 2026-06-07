@@ -94,6 +94,23 @@ def test_allowance_exhausted_returns_whatsapp_usage_limit_code(app_client):
     assert body.get("amount_due_display")
 
 
+def test_compute_cached_dedupes_within_ttl(app_client):
+    headers = _seed_user(app_client, email="wa_cache_dedupe@example.com")
+    order_id, _package_id = _create_wa_order_with_contact(app_client, headers)
+
+    first = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
+    second = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["block_reason_code"] == second.json()["block_reason_code"]
+
+    refreshed = app_client.get(
+        f"/service-orders/{order_id}/launch-eligibility?refresh=1",
+        headers=headers,
+    )
+    assert refreshed.status_code == 200
+
+
 def test_compute_allowance_exhausted_marks_blocked_code(app_client):
     headers = _seed_user(app_client, email="wa_usage_limit_compute@example.com")
     order_id, _package_id = _create_wa_order_with_contact(app_client, headers)

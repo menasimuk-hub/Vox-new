@@ -9,7 +9,7 @@ export type BillingCheckPhase = "idle" | "checking" | "ready" | "error" | "timeo
 export type LaunchModalPhase = BillingCheckPhase | "launching" | "success";
 
 export function logBillingCheck(
-  tag: "start" | "done" | "timeout" | "error" | "blocked" | "allowed" | "package" | "wallet" | "allowance" | "usage",
+  tag: "start" | "done" | "timeout" | "error" | "blocked" | "allowed" | "package" | "wallet" | "allowance" | "usage" | "pay_required",
   ctx: Record<string, unknown>,
 ) {
   console.info(`[billing-check:${tag}]`, ctx);

@@ -863,6 +863,7 @@ def pay_with_promo_credits(order_id: str, db: Session = Depends(get_db), princip
 @router.get("/{order_id}/launch-eligibility")
 def get_survey_launch_eligibility(
     order_id: str,
+    refresh: bool = False,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
@@ -879,7 +880,7 @@ def get_survey_launch_eligibility(
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     try:
-        payload = SurveyLaunchEligibilityService.compute(db, order, org)
+        payload = SurveyLaunchEligibilityService.compute_cached(db, order, org, force=refresh)
         if payload.get("amount_due_pence"):
             payload = PricingMarketService.attach_order_quote_display(
                 db,

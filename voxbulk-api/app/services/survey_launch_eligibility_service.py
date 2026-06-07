@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -16,6 +17,9 @@ from app.services.survey_billing_context import org_survey_billing_context
 from app.services.usage_wallet_service import UsageWalletService
 
 logger = logging.getLogger(__name__)
+
+_LAUNCH_ELIGIBILITY_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_LAUNCH_ELIGIBILITY_CACHE_TTL_SEC = 5.0
 
 
 class SurveyLaunchEligibilityError(ValueError):
@@ -404,7 +408,7 @@ class SurveyLaunchEligibilityService:
             )
             summary = block_reason
             logger.info(
-                "survey_launch_blocked order_id=%s code=whatsapp_usage_limit wa_remaining=%s amount_due=%s recipient_count=%s",
+                "survey_launch_pay_required order_id=%s code=whatsapp_usage_limit wa_remaining=%s amount_due=%s recipient_count=%s launch_action=pay_and_launch",
                 order.id,
                 wa_remaining,
                 amount_pence,
@@ -447,6 +451,34 @@ class SurveyLaunchEligibilityService:
             }
         )
         return base
+
+    @staticmethod
+    def compute_cached(
+        db: Session,
+        order: ServiceOrder,
+        org: Organisation,
+        *,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Return eligibility with short TTL cache to absorb duplicate frontend polls."""
+        cache_key = (
+            f"{order.id}:{org.id}:{int(order.recipient_count or 0)}:"
+            f"{int(order.updated_at.timestamp()) if order.updated_at else 0}"
+        )
+        now = time.time()
+        if not force:
+            cached = _LAUNCH_ELIGIBILITY_CACHE.get(cache_key)
+            if cached and cached[0] > now:
+                logger.info(
+                    "survey_launch_eligibility_cache_hit order_id=%s org_id=%s",
+                    order.id,
+                    org.id,
+                )
+                return dict(cached[1])
+
+        result = SurveyLaunchEligibilityService.compute(db, order, org)
+        _LAUNCH_ELIGIBILITY_CACHE[cache_key] = (now + _LAUNCH_ELIGIBILITY_CACHE_TTL_SEC, dict(result))
+        return result
 
     @staticmethod
     def prepare_order_payment_quote(db: Session, order: ServiceOrder, org: Organisation) -> ServiceOrder:

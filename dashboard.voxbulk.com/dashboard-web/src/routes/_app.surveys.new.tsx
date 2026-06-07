@@ -29,6 +29,7 @@ import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/
 import {
   useCreateServiceOrder,
   fetchSurveyLaunchEligibility,
+  type SurveyLaunchEligibility,
   useGenerateWaSurvey,
   useLaunchSurveyCampaign,
   useOrderRecipients,
@@ -36,7 +37,6 @@ import {
   usePatchServiceOrder,
   useSendWaSurveyTest,
   useServiceOrder,
-  useSurveyLaunchEligibility,
   useSurveyPackages,
   useWaSurveyIndustries,
   useWaSurveyLibraryTemplates,
@@ -155,8 +155,10 @@ function CreateSurvey() {
   const [launchMode, setLaunchMode] = React.useState<"now" | "schedule" | "recurring">("now");
   const [payBusy, setPayBusy] = React.useState(false);
   const [eligibilityLoading, setEligibilityLoading] = React.useState(false);
+  const [launchEligibility, setLaunchEligibility] = React.useState<SurveyLaunchEligibility | null>(null);
+  const [eligibilityError, setEligibilityError] = React.useState<string | null>(null);
   const eligibilityFetchKeyRef = React.useRef("");
-  const eligibilityInFlightRef = React.useRef(false);
+  const eligibilityInFlightRef = React.useRef<Promise<SurveyLaunchEligibility | null> | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
   const qc = useQueryClient();
@@ -178,21 +180,18 @@ function CreateSurvey() {
     () => `${contactsCount}:${packageId || ""}`,
     [contactsCount, packageId],
   );
-  const eligibilityQ = useSurveyLaunchEligibility(activeLaunchOrderId, eligibilityCacheKey);
-  const eligibilityErrorMessage =
-    eligibilityQ.error instanceof Error ? eligibilityQ.error.message : eligibilityQ.isError ? "Could not load billing state" : null;
   const billingCheckPhase = resolveBillingCheckPhase({
     orderId: activeLaunchOrderId,
     launchOpen,
     isLoading: eligibilityLoading,
     isFetching: false,
-    isError: eligibilityQ.isError,
-    errorMessage: eligibilityErrorMessage,
-    hasData: Boolean(eligibilityQ.data),
-    timedOut: Boolean(eligibilityErrorMessage?.toLowerCase().includes("timed out")),
+    isError: Boolean(eligibilityError),
+    errorMessage: eligibilityError,
+    hasData: Boolean(launchEligibility),
+    timedOut: Boolean(eligibilityError?.toLowerCase().includes("timed out")),
   });
   const launchCostHint = React.useMemo(() => {
-    const e = eligibilityQ.data;
+    const e = launchEligibility;
     if (!e) return undefined;
     if (e.can_launch && !e.payment_required) {
       return e.estimated_send_cost_display ? `${e.estimated_send_cost_display} · included` : "Included in allowance";
@@ -208,7 +207,7 @@ function CreateSurvey() {
       return e.amount_due_display || undefined;
     }
     return undefined;
-  }, [eligibilityQ.data]);
+  }, [launchEligibility]);
   const openingLaunchRef = React.useRef(false);
   const hydratedOrderRef = React.useRef<string | null>(null);
   const navigatedToResultsRef = React.useRef(false);
@@ -394,45 +393,45 @@ function CreateSurvey() {
     ],
   );
 
-  const loadLaunchEligibility = React.useCallback(
-    async (force = false) => {
-      if (!activeLaunchOrderId || !launchOpen) return;
-      const dedupeKey = `${activeLaunchOrderId}:${eligibilityCacheKey}`;
-      if (!force && eligibilityFetchKeyRef.current === dedupeKey) return;
-      if (eligibilityInFlightRef.current) return;
+  const runLaunchEligibilityCheck = async (orderId: string, cacheKey: string, force = false) => {
+    const dedupeKey = `${orderId}:${cacheKey}`;
+    if (!force && eligibilityFetchKeyRef.current === dedupeKey && launchEligibility) {
+      return launchEligibility;
+    }
+    if (eligibilityInFlightRef.current) {
+      return eligibilityInFlightRef.current;
+    }
 
-      eligibilityFetchKeyRef.current = dedupeKey;
-      eligibilityInFlightRef.current = true;
-      setEligibilityLoading(true);
+    eligibilityFetchKeyRef.current = dedupeKey;
+    setEligibilityLoading(true);
+    setEligibilityError(null);
+    const promise = (async () => {
       try {
         const controller = new AbortController();
         const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
         try {
-          const data = await fetchSurveyLaunchEligibility(activeLaunchOrderId, controller.signal, { force });
-          qc.setQueryData(queryKeys.surveyLaunchEligibility(activeLaunchOrderId, eligibilityCacheKey), data);
+          const data = await fetchSurveyLaunchEligibility(orderId, controller.signal, { force });
+          setLaunchEligibility(data);
+          return data;
         } finally {
           window.clearTimeout(timeoutId);
         }
       } catch (e) {
         if (!force) eligibilityFetchKeyRef.current = "";
+        const message = e instanceof Error ? e.message : "Could not load billing state";
+        setEligibilityError(message);
         throw e;
       } finally {
-        eligibilityInFlightRef.current = false;
         setEligibilityLoading(false);
       }
-    },
-    [activeLaunchOrderId, eligibilityCacheKey, launchOpen, qc],
-  );
-
-  React.useEffect(() => {
-    if (!launchOpen || !activeLaunchOrderId) {
-      if (!launchOpen) eligibilityFetchKeyRef.current = "";
-      return;
+    })();
+    eligibilityInFlightRef.current = promise;
+    try {
+      return await promise;
+    } finally {
+      eligibilityInFlightRef.current = null;
     }
-    void loadLaunchEligibility(false).catch((e) => {
-      console.error("[billing-check:fetch-error]", e);
-    });
-  }, [launchOpen, activeLaunchOrderId, eligibilityCacheKey, loadLaunchEligibility]);
+  };
 
   const onOpenLaunch = async (mode: "now" | "schedule" | "recurring") => {
     if (openingLaunchRef.current || launchOpen) return;
@@ -441,9 +440,11 @@ function CreateSurvey() {
     logLaunchFlow("[launch-click]", { ...launchLogCtx(), source: "onOpenLaunch" });
     try {
       const saved = await saveSurveyDraft("launch");
+      const cacheKey = `${contactsCount}:${packageId || ""}`;
       setLaunchOrderId(saved.id);
       setLaunchMode(mode);
       setLaunchOpen(true);
+      await runLaunchEligibilityCheck(saved.id, cacheKey, false);
       logLaunchFlow("[launch-modal:open]", {
         ...launchLogCtx(),
         draftId: saved.id,
@@ -451,18 +452,19 @@ function CreateSurvey() {
         source: "onOpenLaunch",
       });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save draft before launch");
+      toast.error(e instanceof Error ? e.message : "Could not open launch");
     } finally {
       openingLaunchRef.current = false;
     }
   };
 
-  const refreshLaunchEligibility = React.useCallback(() => {
+  const refreshLaunchEligibility = () => {
+    if (!activeLaunchOrderId) return;
     eligibilityFetchKeyRef.current = "";
-    void loadLaunchEligibility(true).catch((e) => {
+    void runLaunchEligibilityCheck(activeLaunchOrderId, eligibilityCacheKey, true).catch((e) => {
       toast.error(e instanceof Error ? e.message : "Could not refresh billing state");
     });
-  }, [loadLaunchEligibility]);
+  };
 
   const onLaunchSurvey = async () => {
     setPayBusy(true);
@@ -1212,7 +1214,11 @@ function CreateSurvey() {
         open={launchOpen}
         onOpenChange={(open) => {
           setLaunchOpen(open);
-          if (!open) setLaunchOrderId(null);
+          if (!open) {
+            setLaunchOrderId(null);
+            setLaunchEligibility(null);
+            eligibilityFetchKeyRef.current = "";
+          }
         }}
         data={{
           campaignName: normalizeSurveyName(surveyName),
@@ -1220,16 +1226,16 @@ function CreateSurvey() {
           recipientCount: contactsCount,
           channelLabel,
           launchModeLabel,
-          packageName: eligibilityQ.data?.billing?.plan_name || eligibilityQ.data?.package_label,
+          packageName: launchEligibility?.billing?.plan_name || launchEligibility?.package_label,
         }}
-        eligibility={eligibilityQ.data || null}
+        eligibility={launchEligibility}
         billingCheckPhase={billingCheckPhase}
         eligibilityLoading={billingCheckPhase === "checking"}
         eligibilityError={billingCheckErrorMessage(
           billingCheckPhase,
-          eligibilityErrorMessage,
+          eligibilityError,
           activeLaunchOrderId,
-          eligibilityQ.data,
+          launchEligibility,
         )}
         launchBlockers={
           contactsCount <= 0 ? ["Upload at least one contact before launch."] : channel === "whatsapp" && !approved ? ["Approve your survey before launch."] : []

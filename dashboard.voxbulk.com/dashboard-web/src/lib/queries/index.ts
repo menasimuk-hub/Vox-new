@@ -910,11 +910,12 @@ export async function fetchSurveyLaunchEligibility(
     return existing;
   }
 
+  const refreshParam = options?.force ? "?refresh=1" : "";
   const promise = (async () => {
-    logBillingCheck("start", { orderId, timeoutMs: BILLING_CHECK_TIMEOUT_MS });
+    logBillingCheck("start", { orderId, timeoutMs: BILLING_CHECK_TIMEOUT_MS, force: Boolean(options?.force) });
     try {
       const data = await apiFetch<SurveyLaunchEligibility>(
-        `/service-orders/${encodeURIComponent(orderId)}/launch-eligibility`,
+        `/service-orders/${encodeURIComponent(orderId)}/launch-eligibility${refreshParam}`,
         { signal },
       );
       logBillingCheck("done", { orderId, ...launchEligibilityLogPayload(data) });
@@ -925,7 +926,7 @@ export async function fetchSurveyLaunchEligibility(
         data.block_reason ||
         data.launch_action === "blocked"
       ) {
-        logBillingCheck("blocked", {
+        logBillingCheck(data.launch_action === "pay_and_launch" ? "pay_required" : "blocked", {
           orderId,
           mode: data.mode,
           code: data.block_reason_code,
