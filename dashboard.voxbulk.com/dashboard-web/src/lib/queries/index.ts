@@ -33,6 +33,7 @@ export const queryKeys = {
   interviewAgents: ["service-orders", "interview-agents"] as const,
   interviewBilling: ["service-orders", "interview-billing"] as const,
   orderRecipients: (orderId: string) => ["service-orders", orderId, "recipients"] as const,
+  surveyLaunchEligibility: (orderId: string) => ["service-orders", orderId, "launch-eligibility"] as const,
   interviewRecipientActivity: (orderId: string, recipientId: string) =>
     ["service-orders", orderId, "recipients", recipientId, "activity"] as const,
   recoveryJobs: ["calls", "recovery", "jobs"] as const,
@@ -840,6 +841,90 @@ export function useOrderQuote(orderId: string | null) {
   return useMutation({
     mutationFn: () =>
       apiFetch<ServiceOrder>(`/service-orders/${encodeURIComponent(orderId!)}/quote`, { method: "POST", body: "{}" }),
+  });
+}
+
+export type SurveyLaunchEligibility = {
+  order_id?: string;
+  campaign_name?: string;
+  survey_channel?: string;
+  recipient_count?: number;
+  estimated_whatsapp_usage?: number;
+  can_launch?: boolean;
+  payment_required?: boolean;
+  mode?: string;
+  launch_action?: "launch" | "pay_and_launch" | "blocked";
+  summary?: string;
+  block_reason?: string | null;
+  covered_by_allowance?: number;
+  covered_by_promo_credits?: number;
+  shortfall_units?: number;
+  amount_due_pence?: number;
+  amount_due_display?: string | null;
+  quote_total_display?: string | null;
+  remaining_whatsapp_after_launch?: number;
+  remaining_promo_credits_after_launch?: number;
+  package_label?: string | null;
+  billing?: {
+    has_active_subscription?: boolean;
+    plan_name?: string | null;
+    whatsapp_remaining?: number;
+    whatsapp_included?: number;
+    survey_credits?: number;
+  };
+};
+
+export function useSurveyLaunchEligibility(orderId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.surveyLaunchEligibility(orderId || ""),
+    enabled: Boolean(orderId) && enabled,
+    queryFn: () =>
+      apiFetch<SurveyLaunchEligibility>(
+        `/service-orders/${encodeURIComponent(orderId!)}/launch-eligibility`,
+      ),
+    staleTime: 0,
+  });
+}
+
+export function useLaunchSurveyCampaign(orderId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body?: { run_mode?: "now" | "schedule" }) =>
+      apiFetch<{ ok?: boolean; message?: string; status?: string }>(
+        `/service-orders/${encodeURIComponent(orderId!)}/survey/launch`,
+        {
+          method: "POST",
+          body: JSON.stringify(body || { run_mode: "now" }),
+        },
+      ),
+    onSuccess: () => {
+      if (orderId) {
+        void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(orderId) });
+        void qc.invalidateQueries({ queryKey: queryKeys.surveyLaunchEligibility(orderId) });
+        void qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
+        void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
+        void qc.invalidateQueries({ queryKey: queryKeys.credits });
+        void qc.invalidateQueries({ queryKey: queryKeys.billingUsage });
+      }
+    },
+  });
+}
+
+export function usePaySurveyPromoCredits(orderId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch(`/service-orders/${encodeURIComponent(orderId!)}/pay-promo-credits`, {
+        method: "POST",
+        body: "{}",
+      }),
+    onSuccess: () => {
+      if (orderId) {
+        void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(orderId) });
+        void qc.invalidateQueries({ queryKey: queryKeys.surveyLaunchEligibility(orderId) });
+        void qc.invalidateQueries({ queryKey: queryKeys.credits });
+      }
+    },
   });
 }
 

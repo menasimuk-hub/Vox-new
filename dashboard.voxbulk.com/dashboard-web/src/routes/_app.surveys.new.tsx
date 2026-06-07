@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -7,15 +7,19 @@ import { ChannelPicker } from "@/components/create-wizard";
 import { SurveyPhoneWizard } from "@/components/create-wizard/survey-phone-wizard";
 import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
 import { pageCountFromSelectedTypes } from "@/components/create-wizard/survey-wa-template-step";
+import { SurveyLaunchQuoteModal } from "@/components/modals";
 import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
+import { gocardlessAvailable, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
 import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
 import {
   useCreateServiceOrder,
   useGenerateWaSurvey,
+  useLaunchSurveyCampaign,
   useOrderRecipients,
   useOrganisation,
   usePatchServiceOrder,
   useSendWaSurveyTest,
+  useSurveyLaunchEligibility,
   useSurveyPackages,
   useWaSurveyIndustries,
   useWaSurveyLibraryTemplates,
@@ -69,6 +73,7 @@ function industryMatchesSlugSearch(ind: Record<string, unknown>, needle: string)
 
 function CreateSurvey() {
   const { channel: channelSearch, industry_slug: industrySlugSearch } = Route.useSearch();
+  const navigate = useNavigate();
   const { session } = useSession();
   const orgQ = useOrganisation();
   const packagesQ = useSurveyPackages();
@@ -115,6 +120,9 @@ function CreateSurvey() {
   const [endAt, setEndAt] = React.useState("");
   const [packageId, setPackageId] = React.useState("");
   const [orderId, setOrderId] = React.useState<string | null>(null);
+  const [launchOpen, setLaunchOpen] = React.useState(false);
+  const [launchMode, setLaunchMode] = React.useState<"now" | "schedule" | "recurring">("now");
+  const [payBusy, setPayBusy] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
   const qc = useQueryClient();
@@ -128,6 +136,103 @@ function CreateSurvey() {
     }));
   }, [recipientsQ.data?.recipients]);
   const contactsCount = uploadedContacts.filter((c) => c.phone).length;
+  const gcReady = gocardlessAvailable(session?.subscription as Record<string, unknown> | null);
+  const launchM = useLaunchSurveyCampaign(orderId);
+  const eligibilityQ = useSurveyLaunchEligibility(orderId, launchOpen);
+
+  const channelLabel = channel === "whatsapp" ? "WhatsApp" : channel === "phone" ? "AI phone call" : "—";
+  const launchModeLabel =
+    launchMode === "now"
+      ? "Send now"
+      : launchMode === "schedule"
+        ? `Scheduled · ${startAt || "—"}`
+        : `Recurring · starting ${endAt || startAt || "—"}`;
+
+  const persistDraftForLaunch = async () => {
+    const id = await ensureOrder();
+    const baseConfig =
+      channel === "whatsapp"
+        ? {
+            goal,
+            delivery: "whatsapp" as const,
+            survey_channel: "whatsapp" as const,
+            channels: ["whatsapp"],
+            anonymous_responses: anonymous,
+            script,
+            package_id: packageId || undefined,
+            industry_id: industryId,
+            survey_type_id: primarySurveyTypeId || undefined,
+            selected_survey_type_ids: orderedServiceTagIds.length ? orderedServiceTagIds : selectedServiceTagIds,
+            welcome_template_id: welcomeTemplateId ? Number(welcomeTemplateId) : undefined,
+            thank_you_template_id: thankYouTemplateId ? Number(thankYouTemplateId) : undefined,
+            survey_length: PAGE_COUNT_TO_LENGTH[pageCount],
+            page_count: pageCount,
+            privacy_mode: privacyMode,
+            survey_variant: surveyVariant,
+          }
+        : {
+            goal,
+            delivery: "ai_call" as const,
+            survey_channel: "ai_call" as const,
+            anonymous_responses: anonymous,
+            script,
+            package_id: packageId || undefined,
+          };
+    await patchM.mutateAsync({
+      orderId: id,
+      body: {
+        title: goal.slice(0, 80) || "Survey draft",
+        scheduled_start_at: startAt || null,
+        scheduled_end_at: endAt || null,
+        run_mode: launchMode === "now" ? "manual" : "scheduled",
+        config: baseConfig,
+      },
+    });
+    return id;
+  };
+
+  const onOpenLaunch = async (mode: "now" | "schedule" | "recurring") => {
+    try {
+      await persistDraftForLaunch();
+      setLaunchMode(mode);
+      setLaunchOpen(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save draft before launch");
+    }
+  };
+
+  const refreshLaunchEligibility = () => {
+    if (!orderId) return;
+    void eligibilityQ.refetch();
+  };
+
+  const onLaunchSurvey = async () => {
+    if (!orderId) throw new Error("Save your draft before launch");
+    setPayBusy(true);
+    try {
+      await persistDraftForLaunch();
+      const runMode = launchMode === "now" ? "now" : "schedule";
+      const result = await launchM.mutateAsync({ run_mode: runMode });
+      toast.success(result.message || (runMode === "now" ? "Survey launched" : "Survey scheduled"));
+      setLaunchOpen(false);
+      void navigate({ to: "/surveys/$id", params: { id: orderId } });
+    } finally {
+      setPayBusy(false);
+    }
+  };
+
+  const onPayLaunchSurvey = async () => {
+    if (!orderId) throw new Error("Save your draft before paying");
+    if (!gcReady) throw new Error("GoCardless checkout is not configured");
+    setPayBusy(true);
+    try {
+      await persistDraftForLaunch();
+      await startGoCardlessOrderPayment(orderId);
+    } catch (e) {
+      setPayBusy(false);
+      throw e instanceof Error ? e : new Error("Could not start GoCardless checkout");
+    }
+  };
 
   const userTestPhone = React.useMemo(() => {
     const profile = session?.profile as Record<string, unknown> | undefined;
@@ -751,6 +856,15 @@ function CreateSurvey() {
           businessName={businessName}
           onSendWaTest={onSendWaTest}
           sendTestPending={sendTestWaM.isPending}
+          onOpenLaunch={onOpenLaunch}
+          launchPending={launchM.isPending || payBusy}
+          costHint={
+            eligibilityQ.data?.payment_required
+              ? eligibilityQ.data.amount_due_display || undefined
+              : eligibilityQ.data?.can_launch
+                ? "Included"
+                : undefined
+          }
         />
       )}
 
@@ -778,8 +892,36 @@ function CreateSurvey() {
           onDownloadTemplate={onDownloadTemplate}
           onSaveDraft={onSaveDraft}
           savePending={savePending}
+          contactsCount={contactsCount}
+          onOpenLaunch={() => void onOpenLaunch("now")}
+          launchPending={launchM.isPending || payBusy}
         />
       )}
+
+      <SurveyLaunchQuoteModal
+        open={launchOpen}
+        onOpenChange={setLaunchOpen}
+        data={{
+          campaignName: goal.slice(0, 80) || "Survey",
+          recipientCount: contactsCount,
+          channelLabel,
+          launchModeLabel,
+          packageName: eligibilityQ.data?.billing?.plan_name || eligibilityQ.data?.package_label,
+        }}
+        eligibility={eligibilityQ.data || null}
+        eligibilityLoading={eligibilityQ.isLoading || eligibilityQ.isFetching}
+        eligibilityError={
+          eligibilityQ.error instanceof Error ? eligibilityQ.error.message : eligibilityQ.isError ? "Could not load billing state" : null
+        }
+        launchBlockers={
+          contactsCount <= 0 ? ["Upload at least one contact before launch."] : channel === "whatsapp" && !approved ? ["Approve your survey before launch."] : []
+        }
+        onRefreshEligibility={refreshLaunchEligibility}
+        onLaunch={onLaunchSurvey}
+        onPayLaunch={onPayLaunchSurvey}
+        payBusy={payBusy || launchM.isPending}
+        gcAvailable={gcReady}
+      />
     </div>
   );
 }

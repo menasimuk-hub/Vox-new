@@ -31,6 +31,7 @@ import {
   resolveRedirectFlowId,
   startGoCardlessOrderPayment,
   startPaidInterviewOrder,
+  startPaidSurveyOrder,
 } from "@/lib/billing/gocardless";
 
 import type { BillingSubscription, Organisation, UserProfile } from "@/lib/types/api";
@@ -226,6 +227,20 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
                   to: "/interviews/new",
                   search: { order_id: resolvedOrderId },
                 });
+              }
+            } else if (order?.service_code === "survey") {
+              try {
+                const launched = await startPaidSurveyOrder(resolvedOrderId, "now");
+                toast.success(launched.message || "Payment approved — survey launched.");
+                void navigate({ to: "/surveys/$id", params: { id: resolvedOrderId } });
+              } catch (launchErr) {
+                toast.success("Payment approved.");
+                toast.error(
+                  launchErr instanceof Error
+                    ? launchErr.message
+                    : "Payment succeeded but launch failed — open your survey and try again.",
+                );
+                void navigate({ to: "/surveys/$id", params: { id: resolvedOrderId } });
               }
             } else {
               toast.success("Payment approved — campaign is ready.");

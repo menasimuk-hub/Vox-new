@@ -857,6 +857,77 @@ def pay_with_promo_credits(order_id: str, db: Session = Depends(get_db), princip
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/{order_id}/launch-eligibility")
+def get_survey_launch_eligibility(
+    order_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.pricing_market_service import PricingMarketService
+    from app.services.survey_launch_eligibility_service import SurveyLaunchEligibilityService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "survey":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Launch eligibility is only for survey orders")
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    try:
+        payload = SurveyLaunchEligibilityService.compute(db, order, org)
+        if payload.get("amount_due_pence"):
+            payload = PricingMarketService.attach_order_quote_display(
+                db,
+                {
+                    **payload,
+                    "quote_total_pence": payload.get("amount_due_pence"),
+                    "quote_total_display": payload.get("amount_due_display"),
+                },
+                org,
+            )
+        return payload
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/survey/launch")
+def launch_survey_campaign(
+    order_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    import logging
+
+    from app.models.organisation import Organisation
+    from app.services.survey_launch_eligibility_service import SurveyLaunchEligibilityError
+    from app.services.survey_launch_service import SurveyLaunchService
+
+    logger = logging.getLogger(__name__)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    body = payload if isinstance(payload, dict) else {}
+    run_now = str(body.get("run_mode") or "now").strip().lower() != "schedule"
+    try:
+        return SurveyLaunchService.launch(db, order, org, run_now=run_now)
+    except SurveyLaunchEligibilityError as e:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("survey_launch_failed order_id=%s org_id=%s", order_id, principal.org_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e) or "Could not launch survey campaign",
+        ) from e
+
+
 @router.post("/{order_id}/pay-cash")
 def pay_cash(order_id: str, payload: dict | None = None, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
@@ -875,6 +946,21 @@ def start_gocardless_order_payment(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    from app.models.organisation import Organisation
+    from app.services.survey_launch_eligibility_service import (
+        SurveyLaunchEligibilityError,
+        SurveyLaunchEligibilityService,
+    )
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    org = db.get(Organisation, principal.org_id)
+    if order.service_code == "survey" and org is not None:
+        try:
+            SurveyLaunchEligibilityService.prepare_order_payment_quote(db, order, org)
+        except SurveyLaunchEligibilityError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     try:
         res = BillingService.start_service_order_gocardless_flow(
             db,

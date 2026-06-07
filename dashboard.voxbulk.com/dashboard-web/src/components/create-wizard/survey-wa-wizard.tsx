@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { PreviewQuoteModal } from "@/components/modals";
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
@@ -112,11 +111,13 @@ export type SurveyWaWizardProps = {
   businessName?: string;
   onSendWaTest: (input: { testPhone: string; welcomeTemplateId: string; firstName: string }) => Promise<void>;
   sendTestPending?: boolean;
+  onOpenLaunch: (mode: "now" | "schedule" | "recurring") => void | Promise<void>;
+  launchPending?: boolean;
+  costHint?: string;
 };
 
 export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const [step, setStep] = React.useState(1);
-  const [quote, setQuote] = React.useState(false);
   const [draggedServiceIndex, setDraggedServiceIndex] = React.useState<number | null>(null);
   const [dragOverServiceIndex, setDragOverServiceIndex] = React.useState<number | null>(null);
   const [contactsSkipped, setContactsSkipped] = React.useState(false);
@@ -638,8 +639,9 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
             setConsent={setConsent}
             contactsCount={props.contactsCount}
             typeCount={props.orderedServiceTagIds.length}
-            onLaunch={() => setQuote(true)}
-            launchPending={props.savePending}
+            costHint={props.costHint}
+            onLaunch={() => void props.onOpenLaunch(launchMode)}
+            launchPending={props.launchPending}
           />
         )}
       </div>
@@ -665,7 +667,6 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         }
       />
 
-      <PreviewQuoteModal open={quote} onOpenChange={setQuote} kind="survey" />
     </>
   );
 }

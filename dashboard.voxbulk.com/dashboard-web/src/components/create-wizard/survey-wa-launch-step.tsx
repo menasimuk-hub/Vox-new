@@ -23,6 +23,7 @@ export type SurveyWaLaunchStepProps = {
   setConsent: (v: boolean) => void;
   contactsCount: number;
   typeCount: number;
+  costHint?: string;
   onLaunch: () => void;
   launchPending?: boolean;
 };
@@ -40,6 +41,7 @@ export function SurveyWaLaunchStep({
   setConsent,
   contactsCount,
   typeCount,
+  costHint,
   onLaunch,
   launchPending,
 }: SurveyWaLaunchStepProps) {
@@ -163,9 +165,9 @@ export function SurveyWaLaunchStep({
         </label>
 
         <div className="grid gap-2 sm:grid-cols-3">
-          <Summary label="Contacts" value={`${contactsCount}`} />
+          <Summary label="Recipients" value={`${contactsCount}`} />
           <Summary label="Mode" value={modeSummary} />
-          <Summary label="Estimated cost" value={`£${(contactsCount * 0.18 * Math.max(1, typeCount)).toFixed(2)}`} />
+          <Summary label="Estimated cost" value={costHint || "See launch summary"} />
         </div>
 
         <div className="flex justify-end">

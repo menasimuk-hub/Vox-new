@@ -3,7 +3,6 @@ import { Download, Lock, Phone, Rocket, RotateCcw, Sparkles, Target, Upload, Use
 import { toast } from "sonner";
 
 import { StatusBadge } from "@/components/status-badge";
-import { PreviewQuoteModal } from "@/components/modals";
 import { Stepper, Summary, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +47,9 @@ export type SurveyPhoneWizardProps = {
   onDownloadTemplate: () => void;
   onSaveDraft: () => void;
   savePending: boolean;
+  contactsCount?: number;
+  onOpenLaunch: () => void | Promise<void>;
+  launchPending?: boolean;
 };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -61,7 +63,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
   const [step, setStep] = React.useState(1);
-  const [quote, setQuote] = React.useState(false);
   const [voice, setVoice] = React.useState("amelia");
 
   const canNext = React.useMemo(() => {
@@ -321,16 +322,14 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
         onSkip={goNext}
         skipLabel="Skip for now"
         finalLabel="Preview & launch"
-        onFinish={() => setQuote(true)}
-        finishDisabled={!props.approved}
+        onFinish={() => void props.onOpenLaunch()}
+        finishDisabled={!props.approved || props.launchPending}
         leftActions={
           <Button variant="outline" className="gap-1.5" onClick={() => void props.onSaveDraft()} disabled={props.savePending}>
             {props.savePending ? "Saving…" : "Save draft"}
           </Button>
         }
       />
-
-      <PreviewQuoteModal open={quote} onOpenChange={setQuote} kind="survey" />
     </>
   );
 }

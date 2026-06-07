@@ -21,6 +21,7 @@ import {
   PhoneCall,
   PlayCircle,
   ReceiptText,
+  Rocket,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -1007,6 +1008,255 @@ export function InterviewPreviewQuoteModal({
                 {actionBusy ? "Redirecting…" : `Pay ${quoteTotal || ""} & launch`}
               </Button>
             )}
+            </div>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export type SurveyLaunchModalData = {
+  campaignName: string;
+  recipientCount: number;
+  channelLabel: string;
+  launchModeLabel: string;
+  packageName?: string | null;
+};
+
+export type SurveyLaunchEligibilityView = {
+  can_launch?: boolean;
+  payment_required?: boolean;
+  mode?: string;
+  launch_action?: "launch" | "pay_and_launch" | "blocked";
+  summary?: string;
+  block_reason?: string | null;
+  covered_by_allowance?: number;
+  covered_by_promo_credits?: number;
+  shortfall_units?: number;
+  amount_due_display?: string | null;
+  remaining_whatsapp_after_launch?: number;
+  remaining_promo_credits_after_launch?: number;
+  estimated_whatsapp_usage?: number;
+  billing?: {
+    has_active_subscription?: boolean;
+    plan_name?: string | null;
+    whatsapp_remaining?: number;
+    survey_credits?: number;
+  };
+};
+
+export function SurveyLaunchQuoteModal({
+  open,
+  onOpenChange,
+  data,
+  eligibility,
+  eligibilityLoading,
+  eligibilityError,
+  launchBlockers = [],
+  onRefreshEligibility,
+  onLaunch,
+  onPayLaunch,
+  payBusy,
+  gcAvailable = true,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  data: SurveyLaunchModalData;
+  eligibility?: SurveyLaunchEligibilityView | null;
+  eligibilityLoading?: boolean;
+  eligibilityError?: string | null;
+  launchBlockers?: string[];
+  onRefreshEligibility?: () => void;
+  onLaunch?: () => void | Promise<void>;
+  onPayLaunch?: () => void | Promise<void>;
+  payBusy?: boolean;
+  gcAvailable?: boolean;
+}) {
+  const [launching, setLaunching] = React.useState(false);
+  const [launchActionError, setLaunchActionError] = React.useState<string | null>(null);
+
+  const mode = eligibility?.mode || "blocked";
+  const launchAction = eligibility?.launch_action || "blocked";
+  const paymentRequired = Boolean(eligibility?.payment_required);
+  const canLaunchNow = Boolean(eligibility?.can_launch) && launchAction === "launch";
+  const canPayLaunch = paymentRequired && launchAction === "pay_and_launch";
+  const amountDue = eligibility?.amount_due_display || null;
+  const actionBusy = Boolean(payBusy || launching || eligibilityLoading);
+  const readinessErrors = [...launchBlockers];
+  if (data.recipientCount <= 0) readinessErrors.push("Upload at least one contact before launch.");
+  if (eligibility?.block_reason && launchAction === "blocked") readinessErrors.push(eligibility.block_reason);
+
+  const costLabel = eligibilityLoading
+    ? "…"
+    : canLaunchNow
+      ? mode === "promo_credits"
+        ? "Covered by promo credits"
+        : mode === "subscription_whatsapp"
+          ? `Included in ${data.packageName || eligibility?.billing?.plan_name || "your package"}`
+          : "No payment required"
+      : canPayLaunch
+        ? amountDue || "—"
+        : "—";
+
+  const canLaunch = canLaunchNow && readinessErrors.length === 0 && !actionBusy;
+  const canPay = canPayLaunch && readinessErrors.length === 0 && !actionBusy && Boolean(amountDue) && gcAvailable;
+
+  React.useEffect(() => {
+    if (open) {
+      setLaunchActionError(null);
+      setLaunching(false);
+      onRefreshEligibility?.();
+    }
+  }, [open, onRefreshEligibility]);
+
+  const handleLaunch = async () => {
+    if (!onLaunch || !canLaunch) return;
+    setLaunchActionError(null);
+    setLaunching(true);
+    try {
+      await onLaunch();
+      onOpenChange(false);
+    } catch (e) {
+      setLaunchActionError(e instanceof Error ? e.message : "Could not launch campaign");
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const handlePayLaunch = async () => {
+    if (!onPayLaunch || !canPay) return;
+    setLaunchActionError(null);
+    setLaunching(true);
+    try {
+      await onPayLaunch();
+    } catch (e) {
+      setLaunchActionError(e instanceof Error ? e.message : "Could not start payment");
+      setLaunching(false);
+    }
+  };
+
+  const blockedReason =
+    readinessErrors[0] ||
+    eligibilityError ||
+    (launchAction === "blocked" ? eligibility?.summary || "Launch is not available for this account." : null);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto p-0">
+        <div className="border-b border-border bg-card px-6 py-5">
+          <DialogHeader>
+            <DialogTitle>Launch survey</DialogTitle>
+            <DialogDescription>
+              Review recipients, allowance, and billing before you send.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        <div className="space-y-5 p-6">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <PreviewMetric icon={<Users className="size-4" />} label="Recipients" value={`${data.recipientCount}`} />
+            <PreviewMetric icon={<MessageSquare className="size-4" />} label="Channel" value={data.channelLabel} />
+            <PreviewMetric icon={<ReceiptText className="size-4" />} label="Amount due" value={costLabel} />
+          </div>
+
+          <Panel title="Campaign" icon={<FileText className="size-4" />}>
+            <TimelineLine label="Survey name" value={data.campaignName || "—"} />
+            <TimelineLine label="Launch timing" value={data.launchModeLabel} />
+            <TimelineLine label="Recipients" value={`${data.recipientCount} contacts`} />
+          </Panel>
+
+          <Panel title="Allowance & billing" icon={<Coins className="size-4" />}>
+            {eligibilityLoading ? (
+              <p className="text-sm text-muted-foreground">Checking your package and allowance…</p>
+            ) : eligibilityError ? (
+              <p className="text-sm text-destructive">{eligibilityError}</p>
+            ) : (
+              <>
+                {eligibility?.billing?.has_active_subscription ? (
+                  <QuoteRow
+                    label="Package"
+                    value={`Active${eligibility.billing.plan_name ? ` · ${eligibility.billing.plan_name}` : ""}`}
+                  />
+                ) : (
+                  <QuoteRow label="Package" value="No active subscription package" />
+                )}
+                {typeof eligibility?.billing?.whatsapp_remaining === "number" ? (
+                  <QuoteRow label="Remaining WhatsApp allowance" value={`${eligibility.billing.whatsapp_remaining}`} />
+                ) : null}
+                {typeof eligibility?.estimated_whatsapp_usage === "number" && eligibility.estimated_whatsapp_usage > 0 ? (
+                  <QuoteRow label="Estimated usage for this launch" value={`${eligibility.estimated_whatsapp_usage}`} />
+                ) : null}
+                {typeof eligibility?.covered_by_allowance === "number" && eligibility.covered_by_allowance > 0 ? (
+                  <QuoteRow label="Covered by package" value={`${eligibility.covered_by_allowance}`} />
+                ) : null}
+                {typeof eligibility?.covered_by_promo_credits === "number" && eligibility.covered_by_promo_credits > 0 ? (
+                  <QuoteRow label="Covered by promo credits" value={`${eligibility.covered_by_promo_credits}`} />
+                ) : null}
+                {typeof eligibility?.shortfall_units === "number" && eligibility.shortfall_units > 0 ? (
+                  <QuoteRow label="Additional WhatsApp usage required" value={`${eligibility.shortfall_units}`} />
+                ) : null}
+                {typeof eligibility?.remaining_whatsapp_after_launch === "number" ? (
+                  <QuoteRow label="Remaining after launch" value={`${eligibility.remaining_whatsapp_after_launch}`} />
+                ) : null}
+                {typeof eligibility?.billing?.survey_credits === "number" ? (
+                  <QuoteRow label="Survey promo credits" value={`${eligibility.billing.survey_credits}`} />
+                ) : null}
+                {canPayLaunch && amountDue ? <QuoteRow label="Amount due" value={amountDue} bold /> : null}
+                {eligibility?.summary ? (
+                  <p className="mt-2 text-xs text-muted-foreground">{eligibility.summary}</p>
+                ) : null}
+              </>
+            )}
+          </Panel>
+
+          {readinessErrors.length > 0 ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-900 dark:text-amber-100">
+              <p className="font-medium">Before you can launch:</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-xs">
+                {readinessErrors.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {launchActionError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              {launchActionError}
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter className="sticky bottom-0 flex-col gap-3 border-t border-border bg-background/95 px-6 py-4 backdrop-blur sm:flex-row sm:justify-between">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={actionBusy}>
+            Back
+          </Button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto">
+            {!canLaunch && !canPay && blockedReason ? (
+              <p className="text-center text-xs text-muted-foreground sm:text-right">{blockedReason}</p>
+            ) : null}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              {onRefreshEligibility ? (
+                <Button type="button" variant="outline" disabled={actionBusy} onClick={() => void onRefreshEligibility()}>
+                  Refresh
+                </Button>
+              ) : null}
+              {canLaunchNow ? (
+                <Button type="button" className="gap-1.5" disabled={!canLaunch} onClick={() => void handleLaunch()}>
+                  <Rocket className="size-4" />
+                  {actionBusy ? "Launching…" : "Launch now"}
+                </Button>
+              ) : canPayLaunch ? (
+                <Button type="button" className="gap-1.5" disabled={!canPay} onClick={() => void handlePayLaunch()}>
+                  <CreditCard className="size-4" />
+                  {actionBusy ? "Redirecting…" : `Pay ${amountDue || ""} & launch`}
+                </Button>
+              ) : launchAction === "blocked" ? (
+                <Button type="button" variant="outline" asChild>
+                  <Link to="/account/packages">View packages</Link>
+                </Button>
+              ) : null}
             </div>
           </div>
         </DialogFooter>

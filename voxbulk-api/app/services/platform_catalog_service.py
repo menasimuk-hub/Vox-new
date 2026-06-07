@@ -1620,6 +1620,19 @@ class ServiceOrderService:
         """Mark a paid order as scheduled/ready without dispatching calls."""
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved before scheduling")
+        if order.service_code == "survey":
+            from app.models.organisation import Organisation
+            from app.services.survey_launch_eligibility_service import (
+                SurveyLaunchEligibilityError,
+                SurveyLaunchEligibilityService,
+            )
+
+            org = db.get(Organisation, order.org_id)
+            if org is not None:
+                try:
+                    SurveyLaunchEligibilityService.assert_can_launch(db, order, org)
+                except SurveyLaunchEligibilityError as e:
+                    raise ValueError(str(e)) from e
         if order.status in {"running", "completed"}:
             raise ValueError("Order is already running or completed")
         now = datetime.utcnow()
@@ -1637,6 +1650,19 @@ class ServiceOrderService:
     def start_order(db: Session, order: ServiceOrder) -> ServiceOrder:
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved by admin before starting")
+        if order.service_code == "survey":
+            from app.models.organisation import Organisation
+            from app.services.survey_launch_eligibility_service import (
+                SurveyLaunchEligibilityError,
+                SurveyLaunchEligibilityService,
+            )
+
+            org = db.get(Organisation, order.org_id)
+            if org is not None:
+                try:
+                    SurveyLaunchEligibilityService.assert_can_launch(db, order, org)
+                except SurveyLaunchEligibilityError as e:
+                    raise ValueError(str(e)) from e
         from app.services.uk_compliance_service import UkComplianceService
         from app.services.uk_compliance_audit_service import UkComplianceAuditService
 

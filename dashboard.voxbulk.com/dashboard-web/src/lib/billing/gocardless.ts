@@ -127,6 +127,16 @@ export async function startPaidInterviewOrder(orderId: string) {
   });
 }
 
+export async function startPaidSurveyOrder(orderId: string, runMode: "now" | "schedule" = "now") {
+  return apiFetch<{ ok?: boolean; message?: string; status?: string }>(
+    `/service-orders/${encodeURIComponent(orderId)}/survey/launch`,
+    {
+      method: "POST",
+      body: JSON.stringify({ run_mode: runMode }),
+    },
+  );
+}
+
 export async function sendInterviewBookingInvites(orderId: string, force = false) {
   return apiFetch<{ whatsapp_sent?: number; email_sent?: number; errors?: string[] }>(
     `/service-orders/${encodeURIComponent(orderId)}/interview-booking/send-invites`,

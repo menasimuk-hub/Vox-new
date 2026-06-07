@@ -153,7 +153,7 @@ function SurveyDetail() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <DetailCard title="Setup">
-          <DRow label="Contacts" value={`${c.target.toLocaleString()} patients`} />
+          <DRow label="Contacts" value={`${c.target.toLocaleString()} recipients`} />
           <DRow label="Channel" value={String((order.config as Record<string, unknown> | undefined)?.delivery || "AI call / WhatsApp")} />
           <DRow label="Prompt status" value={<StatusBadge tone="approved-script" /> as unknown as string} />
         </DetailCard>
