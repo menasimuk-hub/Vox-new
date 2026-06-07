@@ -86,6 +86,10 @@ function SavedSurveys() {
       <Card><CardContent className="px-0">
         {ordersQ.isLoading ? (
           <div className="space-y-2 p-6"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div>
+        ) : ordersQ.isError ? (
+          <p className="p-8 text-center text-sm text-destructive">
+            Could not load saved surveys{ordersQ.error instanceof Error ? `: ${ordersQ.error.message}` : ""}.
+          </p>
         ) : s.sorted.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">No {tab} surveys yet.</p>
         ) : (

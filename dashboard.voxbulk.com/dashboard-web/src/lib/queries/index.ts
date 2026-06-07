@@ -410,6 +410,8 @@ export function usePatchServiceOrder() {
       }),
     onSuccess: (order) => {
       void qc.invalidateQueries({ queryKey: ["service-orders"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("interview") });
       void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(order.id) });
       void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
       void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });

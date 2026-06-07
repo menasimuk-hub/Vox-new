@@ -141,7 +141,7 @@ def test_builder_runtime_step_one_display_name(db):
     )
     config = attach_builder_runtime_to_config({"delivery": "whatsapp"}, runtime)
     step1 = resolve_runtime_step(config, 1)
-    assert step1["display_name"] == "Service quality"
+    assert step1["display_name"] == "Rate us"
 
     fallback = ensure_question_display_name({"step_role": "rating", "text": "Any comments?"}, sequence=1, survey_type_name="")
     assert fallback["display_name"] == "Any comments?"

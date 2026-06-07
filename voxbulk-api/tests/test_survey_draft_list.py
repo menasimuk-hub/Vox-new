@@ -12,7 +12,9 @@ from app.models.user import User
 from app.services.platform_catalog_service import PlatformCatalogService
 from app.services.survey_builder_flow_service import (
     ensure_question_display_name,
+    is_campaign_copy_label,
     normalize_survey_config_step_labels,
+    resolve_step_display_name,
     survey_step_labels_from_config,
 )
 
@@ -37,16 +39,23 @@ def _seed_user(app_client, *, email: str = "survey_draft_list@example.com"):
     return {"Authorization": f"Bearer {token}"}, org_id
 
 
-def test_blank_step1_uses_survey_type_name():
-    step = ensure_question_display_name({"step_role": "rating"}, sequence=0, survey_type_name="Service quality")
-    assert step["display_name"] == "Service quality"
+def test_blank_step1_uses_question_number_not_goal():
+    goal = "Measure satisfaction with our new hygienist team and identify the top improvement."
+    step = ensure_question_display_name(
+        {"step_role": "rating", "text": goal},
+        sequence=0,
+        campaign_goal=goal,
+        campaign_title=goal,
+    )
+    assert step["display_name"] == "Question 1"
+    assert not is_campaign_copy_label(step["display_name"], campaign_goal=goal)
 
 
-def test_blank_step_uses_question_text():
+def test_blank_step_uses_real_question_text():
     step = ensure_question_display_name(
         {"step_role": "rating", "text": "How likely are you to recommend us to a friend?"},
         sequence=1,
-        survey_type_name="",
+        campaign_goal="Measure satisfaction with our team",
     )
     assert step["display_name"] == "How likely are you to recommend us to a friend?"
 
@@ -61,6 +70,7 @@ def test_order_to_dict_includes_first_step_name(app_client):
             "title": "Draft with blank step name",
             "config": {
                 "delivery": "whatsapp",
+                "goal": "Measure satisfaction with our new hygienist team",
                 "builder_step_sequence": [{"step_role": "rating", "text": "Rate your visit today"}],
             },
         },
@@ -83,6 +93,28 @@ def test_order_to_dict_includes_first_step_name(app_client):
     assert body.get("first_step_name") == "Rate your visit today"
 
 
+def test_goal_like_step_text_becomes_question_one_in_api(app_client):
+    headers, _org_id = _seed_user(app_client, email="survey_goal_label@example.com")
+    goal = "Measure satisfaction with our new hygienist team and identify the top improvement."
+    create = app_client.post(
+        "/service-orders",
+        headers=headers,
+        json={
+            "service_code": "survey",
+            "title": goal,
+            "config": {
+                "delivery": "whatsapp",
+                "goal": goal,
+                "builder_step_sequence": [{"step_role": "rating", "text": goal}],
+            },
+        },
+    )
+    assert create.status_code == 200
+    order_id = create.json()["id"]
+    detail = app_client.get(f"/service-orders/{order_id}", headers=headers).json()
+    assert detail.get("first_step_name") == "Question 1"
+
+
 def test_normalize_old_draft_step_labels():
     cfg = normalize_survey_config_step_labels(
         {
@@ -91,7 +123,7 @@ def test_normalize_old_draft_step_labels():
         }
     )
     labels = survey_step_labels_from_config(cfg)
-    assert labels == ["Check-in"]
+    assert labels == ["Question 1"]
 
 
 def test_list_survey_orders_returns_non_interview_codes(app_client):
@@ -118,3 +150,19 @@ def test_conversation_service_has_no_legacy_final_feedback_yes_no_logs():
     assert "yes_no_unparsed" not in text
     assert "enabled_start_open_text" in text
     assert "WA_FINAL_FEEDBACK_DIRECT_OPEN_TEXT_ACTIVE" in text
+
+
+def test_resolve_step_display_name_priority():
+    goal = "Campaign goal text"
+    assert (
+        resolve_step_display_name(
+            {"display_name": "Real step", "text": goal},
+            sequence=0,
+            campaign_goal=goal,
+        )
+        == "Real step"
+    )
+    assert (
+        resolve_step_display_name({"text": goal}, sequence=0, campaign_goal=goal, campaign_title=goal)
+        == "Question 1"
+    )

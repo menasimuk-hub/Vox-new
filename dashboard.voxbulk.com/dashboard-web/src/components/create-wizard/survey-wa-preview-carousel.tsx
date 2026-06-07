@@ -40,8 +40,13 @@ function templateBody(row: Record<string, unknown>): string {
   return String(row.body_preview || row.body || row.body_text || "").trim();
 }
 
-function templateTitle(row: Record<string, unknown>, fallback: string, questionNumber?: number): string {
-  return surveyTemplateLabel(row, fallback, questionNumber);
+function templateTitle(
+  row: Record<string, unknown>,
+  fallback: string,
+  questionNumber?: number,
+  rejectTitles: string[] = [],
+): string {
+  return surveyTemplateLabel(row, fallback, questionNumber, rejectTitles);
 }
 
 function buttonsFromRow(row: Record<string, unknown>): string[] {
@@ -90,9 +95,11 @@ export function buildWaPreviewSlides(input: {
   libraryTemplatesByTypeId: Record<string, Array<Record<string, unknown>>>;
   firstName: string;
   businessName?: string;
+  rejectTitles?: string[];
 }): WaPreviewSlide[] {
   const slides: WaPreviewSlide[] = [];
   const { firstName, businessName } = input;
+  const rejectTitles = input.rejectTitles || [];
 
   if (input.welcomeTemplate) {
     const messages = messagesFromTemplateRow(input.welcomeTemplate, firstName, businessName);
@@ -117,7 +124,7 @@ export function buildWaPreviewSlides(input: {
     if (!messages.length) continue;
     slides.push({
       id: typeId,
-      title: templateTitle(tplRow, typeName, qIndex + 1),
+      title: templateTitle(tplRow, typeName, qIndex + 1, rejectTitles),
       kind: "survey",
       messages,
     });

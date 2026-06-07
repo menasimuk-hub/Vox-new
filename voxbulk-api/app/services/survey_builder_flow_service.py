@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.models.survey_type import SurveyType
 from app.services.survey_wa_vague_negative_followup_service import parse_auto_followup_from_template
 from app.services.survey_step_bank_service import (
     STEP_REPLY_CONFIG,
@@ -153,27 +154,80 @@ def _shorten_question_text(text: str, *, max_len: int = 60) -> str:
     return f"{cleaned[: max_len - 1].rstrip()}…"
 
 
+def _normalize_label_compare(value: str) -> str:
+    return " ".join(str(value or "").lower().split())
+
+
+def is_campaign_copy_label(
+    candidate: str,
+    *,
+    campaign_title: str = "",
+    campaign_goal: str = "",
+) -> bool:
+    """True when a label is really the survey title/goal — must not be used as a step name."""
+    c = _normalize_label_compare(candidate)
+    if not c:
+        return False
+    c_short = c[:60]
+    for raw in (campaign_title, campaign_goal):
+        r = _normalize_label_compare(raw)
+        if not r:
+            continue
+        r_short = r[:60]
+        if c == r or c in r or r in c:
+            return True
+        if c_short and (c_short == r_short or c_short in r or r_short in c or c_short in r_short):
+            return True
+    return False
+
+
+def resolve_config_survey_type_name(
+    config: dict[str, Any] | None,
+    db: Session | None = None,
+) -> str:
+    cfg = config if isinstance(config, dict) else {}
+    name = str(cfg.get("survey_type_name") or "")
+    runtime = load_builder_runtime(cfg)
+    if isinstance(runtime, dict) and runtime.get("survey_type_name"):
+        name = str(runtime.get("survey_type_name") or name)
+    if name.strip() or db is None:
+        return name.strip()
+    type_id = str(cfg.get("survey_type_id") or "").strip()
+    if not type_id:
+        selected = cfg.get("selected_survey_type_ids") or []
+        if isinstance(selected, list) and selected:
+            type_id = str(selected[0] or "").strip()
+    if type_id:
+        row = db.get(SurveyType, type_id)
+        if row is not None:
+            return str(row.name or "").strip()
+    return ""
+
+
 def resolve_step_display_name(
     question: dict[str, Any],
     *,
     sequence: int,
     survey_type_name: str = "",
+    campaign_title: str = "",
+    campaign_goal: str = "",
 ) -> str:
-    """Single resolver for Step 1+ labels — used by API serializers and runtime sanitization."""
-    name = str(
-        question.get("display_name")
-        or question.get("template_name")
-        or question.get("name")
-        or ""
-    ).strip()
-    if name:
-        return name.split(" — ")[0].strip()
-    if sequence == 0 and str(survey_type_name or "").strip():
-        return str(survey_type_name).strip()
+    """Single resolver for Step 1+ labels — never use survey title/goal as a step label."""
+    for key in ("display_name", "template_name", "name"):
+        name = str(question.get(key) or "").strip()
+        if name and not is_campaign_copy_label(
+            name, campaign_title=campaign_title, campaign_goal=campaign_goal
+        ):
+            return name.split(" — ")[0].strip()
     text = _shorten_question_text(str(question.get("text") or question.get("body") or ""))
-    if text:
-        return text
-    return f"Question {sequence + 1}"
+    raw_text = str(question.get("text") or question.get("body") or "").strip()
+    if raw_text and not is_campaign_copy_label(
+        raw_text, campaign_title=campaign_title, campaign_goal=campaign_goal
+    ):
+        if text and not is_campaign_copy_label(text, campaign_title=campaign_title, campaign_goal=campaign_goal):
+            return text
+    question_label = f"Question {sequence + 1}"
+    return question_label
 
 
 def ensure_question_display_name(
@@ -181,23 +235,35 @@ def ensure_question_display_name(
     *,
     sequence: int,
     survey_type_name: str = "",
+    campaign_title: str = "",
+    campaign_goal: str = "",
 ) -> dict[str, Any]:
     """Fill missing display_name / template_name so Step 1+ always has a human-readable label."""
     out = dict(question)
-    name = resolve_step_display_name(out, sequence=sequence, survey_type_name=survey_type_name)
+    name = resolve_step_display_name(
+        out,
+        sequence=sequence,
+        survey_type_name=survey_type_name,
+        campaign_title=campaign_title,
+        campaign_goal=campaign_goal,
+    )
     out["display_name"] = name
     if not str(out.get("template_name") or "").strip():
         out["template_name"] = name
     return out
 
 
-def survey_step_labels_from_config(config: dict[str, Any] | None) -> list[str]:
+def survey_step_labels_from_config(
+    config: dict[str, Any] | None,
+    *,
+    campaign_title: str = "",
+    campaign_goal: str = "",
+    db: Session | None = None,
+) -> list[str]:
     """Resolved middle-step labels for list/detail APIs (includes old drafts with blank names)."""
     cfg = config if isinstance(config, dict) else {}
-    survey_type_name = str(cfg.get("survey_type_name") or "")
-    runtime = load_builder_runtime(cfg)
-    if isinstance(runtime, dict) and runtime.get("survey_type_name"):
-        survey_type_name = str(runtime.get("survey_type_name") or survey_type_name)
+    goal = str(campaign_goal or cfg.get("goal") or "")
+    survey_type_name = resolve_config_survey_type_name(cfg, db)
     steps = runtime_step_sequence(cfg)
     if not steps:
         raw_seq = cfg.get("builder_step_sequence") or []
@@ -207,21 +273,39 @@ def survey_step_labels_from_config(config: dict[str, Any] | None) -> list[str]:
             steps = sanitize_runtime_step_sequence(
                 [q for q in raw_seq if isinstance(q, dict)],
                 survey_type_name=survey_type_name,
+                campaign_title=campaign_title,
+                campaign_goal=goal,
             )
     labels: list[str] = []
     for idx, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
+        existing = str(step.get("display_name") or "").strip()
+        if existing and not is_campaign_copy_label(
+            existing, campaign_title=campaign_title, campaign_goal=goal
+        ):
+            labels.append(existing.split(" — ")[0].strip())
+            continue
         labels.append(
-            str(step.get("display_name") or "")
-            or resolve_step_display_name(step, sequence=idx, survey_type_name=survey_type_name)
+            resolve_step_display_name(
+                step,
+                sequence=idx,
+                survey_type_name=survey_type_name,
+                campaign_title=campaign_title,
+                campaign_goal=goal,
+            )
         )
     return labels
 
 
-def normalize_survey_config_step_labels(config: dict[str, Any] | None) -> dict[str, Any]:
+def normalize_survey_config_step_labels(
+    config: dict[str, Any] | None,
+    *,
+    campaign_title: str = "",
+) -> dict[str, Any]:
     """Sanitize step names in persisted config when loading old saved drafts / campaigns."""
     cfg = dict(config) if isinstance(config, dict) else {}
+    campaign_goal = str(cfg.get("goal") or "")
     survey_type_name = str(cfg.get("survey_type_name") or "")
     runtime = load_builder_runtime(cfg)
     if isinstance(runtime, dict):
@@ -231,6 +315,8 @@ def normalize_survey_config_step_labels(config: dict[str, Any] | None) -> dict[s
         steps = sanitize_runtime_step_sequence(
             [q for q in (runtime.get("step_sequence") or []) if isinstance(q, dict)],
             survey_type_name=survey_type_name,
+            campaign_title=campaign_title,
+            campaign_goal=campaign_goal,
         )
         runtime_out = dict(runtime)
         runtime_out["step_sequence"] = steps
@@ -245,6 +331,8 @@ def normalize_survey_config_step_labels(config: dict[str, Any] | None) -> dict[s
         cfg["builder_step_sequence"] = sanitize_runtime_step_sequence(
             [q for q in cfg["builder_step_sequence"] if isinstance(q, dict)],
             survey_type_name=survey_type_name,
+            campaign_title=campaign_title,
+            campaign_goal=campaign_goal,
         )
     return cfg
 

@@ -790,7 +790,13 @@ class ServiceOrderService:
         return {"name": name, "phone": phone, "email": email or None}
 
     @staticmethod
-    def order_to_dict(order: ServiceOrder, *, include_recipients: bool = False, recipients: list[ServiceOrderRecipient] | None = None) -> dict[str, Any]:
+    def order_to_dict(
+        order: ServiceOrder,
+        *,
+        include_recipients: bool = False,
+        recipients: list[ServiceOrderRecipient] | None = None,
+        db: Session | None = None,
+    ) -> dict[str, Any]:
         config = {}
         breakdown = []
         quote_meta: dict[str, Any] = {}
@@ -806,7 +812,7 @@ class ServiceOrderService:
                 survey_step_labels_from_config,
             )
 
-            config = normalize_survey_config_step_labels(config)
+            config = normalize_survey_config_step_labels(config, campaign_title=str(order.title or ""))
         try:
             if order.quote_breakdown_json:
                 parsed = json.loads(order.quote_breakdown_json)
@@ -870,7 +876,12 @@ class ServiceOrderService:
         if order.service_code == "survey":
             from app.services.survey_builder_flow_service import survey_step_labels_from_config
 
-            step_labels = survey_step_labels_from_config(config)
+            step_labels = survey_step_labels_from_config(
+                config,
+                campaign_title=str(order.title or ""),
+                campaign_goal=str(config.get("goal") or ""),
+                db=db,
+            )
             out["step_labels"] = step_labels
             out["first_step_name"] = step_labels[0] if step_labels else ""
             out["next_action"] = ServiceOrderService.survey_next_action(order)

@@ -1,7 +1,7 @@
 import type { BadgeTone } from "@/components/status-badge";
 import type { Campaign, CampaignTone, CampaignType } from "@/lib/types/campaign";
 import type { ServiceOrder } from "@/lib/types/api";
-import { firstStepLabelFromConfig } from "@/lib/survey-step-labels";
+import { firstStepLabelFromConfig, sanitizeStepLabelFromApi } from "@/lib/survey-step-labels";
 
 function formatRelativeTime(iso?: string | null) {
   if (!iso) return "—";
@@ -58,11 +58,15 @@ export function statusLabelToTone(label: string, order: ServiceOrder): CampaignT
 
 export function orderToCampaign(order: ServiceOrder, type: CampaignType): Campaign {
   const { responses, target, completion } = orderProgress(order);
-  const step1 = String(order.first_step_name || firstStepLabelFromConfig(order.config)).trim();
+  const rejectTitles = [order.title || "", String(order.config?.goal || "")].filter(Boolean);
+  const step1 = (
+    sanitizeStepLabelFromApi(String(order.first_step_name || ""), rejectTitles) ||
+    firstStepLabelFromConfig(order.config, rejectTitles)
+  ).trim();
   return {
     id: order.id,
     name: order.title || (type === "interview" ? "Interview task" : "Survey task"),
-    subtitle: step1 || undefined,
+    subtitle: step1 ? step1 : undefined,
     type,
     status: statusLabelToTone(order.status_label || order.status, order),
     responses,

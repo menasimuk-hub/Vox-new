@@ -19,6 +19,9 @@ def test_health_build_returns_explicit_marker_flags(app_client):
     assert data.get("session_code_loaded") is True
     assert data.get("session_persistence_fix_on_disk") is True
     assert data.get("session_persistence_fix_loaded") is True
+    assert data.get("final_feedback_direct_loaded") is True
+    assert data.get("final_feedback_direct_on_disk") is True
+    assert data.get("final_feedback_direct_open_text_marker") == "WA_FINAL_FEEDBACK_DIRECT_OPEN_TEXT_ACTIVE"
     assert data.get("wa_test_session_handler", {}).get("handler") == (
         "SurveyBuilderTestService.start_wa_test_session"
     )

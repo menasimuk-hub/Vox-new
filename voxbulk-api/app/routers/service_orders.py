@@ -197,10 +197,10 @@ def list_my_orders(
             ).scalar_one()
             if interview_draft_visible_in_saved_list(row, recipient_count=int(count or 0)):
                 visible.append(row)
-        return [ServiceOrderService.order_to_dict(r) for r in visible]
+        return [ServiceOrderService.order_to_dict(r, db=db) for r in visible]
 
     rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code)
-    return [ServiceOrderService.order_to_dict(r) for r in rows]
+    return [ServiceOrderService.order_to_dict(r, db=db) for r in rows]
 
 
 @router.post("")
@@ -216,7 +216,7 @@ def create_order(payload: dict, db: Session = Depends(get_db), principal=Depends
             title=str(payload.get("title") or ""),
             config=payload.get("config") or {},
         )
-        return ServiceOrderService.order_to_dict(order)
+        return ServiceOrderService.order_to_dict(order, db=db)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -715,7 +715,7 @@ def download_recipient_cv(
 def get_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _, order = _require_order_service(db, principal.org_id, order_id)
     recipients = ServiceOrderService.get_recipients(db, order.id)
-    return ServiceOrderService.order_to_dict(order, include_recipients=True, recipients=recipients)
+    return ServiceOrderService.order_to_dict(order, include_recipients=True, recipients=recipients, db=db)
 
 
 @router.post("/{order_id}/archive")
@@ -776,7 +776,7 @@ def patch_order(order_id: str, payload: dict, db: Session = Depends(get_db), pri
             except CvCollectionConfigError as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         order = ServiceOrderService.update_order(db, order, payload)
-        return ServiceOrderService.order_to_dict(order)
+        return ServiceOrderService.order_to_dict(order, db=db)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

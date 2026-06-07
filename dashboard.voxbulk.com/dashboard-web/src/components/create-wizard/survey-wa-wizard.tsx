@@ -139,6 +139,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const welcomeTemplateRow = props.welcomeTemplates.find((t) => String(t.id) === props.welcomeTemplateId);
   const thankYouTemplateRow = props.thankYouTemplates.find((t) => String(t.id) === props.thankYouTemplateId);
   const previewFirstName = (props.uploadedContacts[0]?.name || "there").split(/\s+/)[0] || "there";
+  const rejectTitles = React.useMemo(() => [props.goal].filter(Boolean), [props.goal]);
   const previewSlides = React.useMemo(
     () =>
       buildWaPreviewSlides({
@@ -150,6 +151,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         libraryTemplatesByTypeId: props.libraryTemplatesByTypeId,
         firstName: previewFirstName,
         businessName: props.businessName,
+        rejectTitles,
       }),
     [
       previewFirstName,
@@ -160,6 +162,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       props.selectedServiceTemplateIds,
       props.libraryTemplatesByTypeId,
       props.businessName,
+      rejectTitles,
     ],
   );
   const templateSummary = props.orderedServiceTagIds
@@ -167,7 +170,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       const typeName = String(props.serviceTypes.find((t) => String(t.id) === typeId)?.name || "");
       const templateId = props.selectedServiceTemplateIds[typeId];
       const row = (props.libraryTemplatesByTypeId[typeId] || []).find((t) => String(t.id) === templateId);
-      return surveyTemplateLabel(row, typeName, idx + 1);
+      return surveyTemplateLabel(row, typeName, idx + 1, rejectTitles);
     })
     .join(", ");
 
@@ -465,6 +468,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                       libraryRows.find((t) => String(t.id) === props.selectedServiceTemplateIds[typeId]),
                       String(row.name || ""),
                       idx + 1,
+                      rejectTitles,
                     );
                     const templateRows = mapSystemTemplates(libraryRows);
                     return (

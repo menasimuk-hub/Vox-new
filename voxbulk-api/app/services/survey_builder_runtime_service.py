@@ -258,6 +258,8 @@ def sanitize_runtime_step_sequence(
     steps: list[dict[str, Any]],
     *,
     survey_type_name: str = "",
+    campaign_title: str = "",
+    campaign_goal: str = "",
 ) -> list[dict[str, Any]]:
     """Ensure every runtime middle step has display_name / template_name (Step 1 = survey type when blank)."""
     from app.services.survey_builder_flow_service import ensure_question_display_name
@@ -271,6 +273,8 @@ def sanitize_runtime_step_sequence(
                 dict(raw),
                 sequence=idx,
                 survey_type_name=survey_type_name,
+                campaign_title=campaign_title,
+                campaign_goal=campaign_goal,
             )
         )
     return out

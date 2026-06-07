@@ -11,7 +11,7 @@ import { SurveyLaunchQuoteModal } from "@/components/modals";
 import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
 import { gocardlessAvailable, GC_ORDER_ID_KEY, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
 import { surveyTitleFromGoal } from "@/lib/survey-title";
-import { surveyTemplateLabel, firstStepLabelFromConfig, resolveSurveyStepLabel } from "@/lib/survey-step-labels";
+import { surveyTemplateLabel, firstStepLabelFromConfig, resolveSurveyStepLabel, sanitizeStepLabelFromApi } from "@/lib/survey-step-labels";
 import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
 import {
   useCreateServiceOrder,
@@ -362,34 +362,47 @@ function CreateSurvey() {
 
   const libraryTemplatesLoading = libraryTemplateQueries.some((q) => q.isLoading);
 
+  const campaignRejectTitles = React.useMemo(
+    () => [goal, surveyTitleFromGoal(goal), orderQ.data?.title || ""].filter(Boolean),
+    [goal, orderQ.data?.title],
+  );
+
   const firstSurveyStepName = React.useMemo(() => {
-    const fromApi = String(orderQ.data?.first_step_name || "").trim();
+    const fromApi = sanitizeStepLabelFromApi(String(orderQ.data?.first_step_name || ""), campaignRejectTitles);
     if (fromApi) return fromApi;
-    const fromConfig = firstStepLabelFromConfig(orderQ.data?.config);
+    const fromConfig = firstStepLabelFromConfig(orderQ.data?.config, campaignRejectTitles);
     if (fromConfig) return fromConfig;
     const typeId = orderedServiceTagIds[0];
     if (!typeId) {
       const previewSeq = (waPreview?.builder_step_sequence || []) as Array<Record<string, unknown>>;
-      if (previewSeq[0]) return resolveSurveyStepLabel(previewSeq[0], { questionNumber: 1 });
-      return "";
+      if (previewSeq[0]) {
+        return resolveSurveyStepLabel(previewSeq[0], { questionNumber: 1, rejectTitles: campaignRejectTitles });
+      }
+      return "Question 1";
     }
     const typeName = String(serviceTypes.find((t) => String(t.id) === typeId)?.name || "");
     const templateId = selectedServiceTemplateIds[typeId];
     const row = (libraryTemplatesByTypeId[typeId] || []).find((t) => String(t.id) === templateId);
-    const fromWizard = surveyTemplateLabel(row, typeName, 1);
+    const fromWizard = surveyTemplateLabel(row, typeName, 1, campaignRejectTitles);
     if (fromWizard && fromWizard !== "Survey question") return fromWizard;
     const previewSeq = (waPreview?.builder_step_sequence || []) as Array<Record<string, unknown>>;
     if (previewSeq[0]) {
       return resolveSurveyStepLabel(previewSeq[0], {
         surveyTypeName: typeName,
         questionNumber: 1,
-        fallback: typeName,
+        rejectTitles: campaignRejectTitles,
       });
     }
-    return resolveSurveyStepLabel(null, { surveyTypeName: typeName, questionNumber: 1, fallback: typeName });
+    return resolveSurveyStepLabel(null, {
+      surveyTypeName: typeName,
+      questionNumber: 1,
+      rejectTitles: campaignRejectTitles,
+    });
   }, [
     orderQ.data?.first_step_name,
     orderQ.data?.config,
+    orderQ.data?.title,
+    campaignRejectTitles,
     orderedServiceTagIds,
     serviceTypes,
     selectedServiceTemplateIds,
@@ -787,8 +800,17 @@ function CreateSurvey() {
         },
       });
       if (!saved?.id) throw new Error("Draft was not persisted");
+      setOrderId(saved.id);
       await qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
-      await qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(id) });
+      await qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(saved.id) });
+      void navigate({
+        to: "/surveys/new",
+        search: {
+          channel: channel || undefined,
+          order_id: saved.id,
+        },
+        replace: true,
+      });
       toast.success("Draft saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save draft");
