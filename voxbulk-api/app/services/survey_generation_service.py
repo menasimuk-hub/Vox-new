@@ -236,8 +236,14 @@ class SurveyGenerationService:
                 tell_us_more_template_id=tell_us_more_template_id,
                 thank_you_template_id=thank_you_template_id,
                 business_name=client_name or organisation_name,
+                allow_final_additional_feedback=bool(
+                    (builder_config or {}).get("allow_final_additional_feedback", False)
+                ),
             )
             order_config_extras = attach_builder_runtime_to_config({}, builder_runtime)
+            order_config_extras["allow_final_additional_feedback"] = bool(
+                (builder_config or {}).get("allow_final_additional_feedback", False)
+            )
             builder_step_sequence = builder_runtime["step_sequence"]
             whatsapp_flow = attach_builder_runtime_to_config(
                 {**whatsapp_flow, "closing": closing},
@@ -335,6 +341,9 @@ class SurveyGenerationService:
             or None,
             "builder_runtime": builder_runtime,
             "builder_runtime_hash": builder_runtime.get("hash") if builder_runtime else None,
+            "allow_final_additional_feedback": bool(
+                (builder_config or {}).get("allow_final_additional_feedback", False)
+            ),
         }
         if order_config_extras:
             result_payload["order_config_flow"] = {

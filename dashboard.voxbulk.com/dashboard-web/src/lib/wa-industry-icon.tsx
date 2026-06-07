@@ -2,6 +2,7 @@ import {
   Briefcase,
   Building2,
   Car,
+  ChefHat,
   Dumbbell,
   GraduationCap,
   Hotel,
@@ -57,7 +58,7 @@ export function normalizeIndustrySlug(slug?: string): string {
 
 /** Slug-first icon map — checked before fuzzy name matching. */
 const SLUG_ICON: Record<string, LucideIcon> = {
-  hospitality_food: Hotel,
+  hospitality_food: ChefHat,
   hospitality: Hotel,
   hotel_accommodation: Hotel,
   healthcare_dental: Smile,
@@ -98,7 +99,7 @@ export function waIndustryIcon(name?: string, slug?: string): LucideIcon {
   }
 
   if (isHospitalityFoodIndustry(name, slug)) {
-    return Hotel;
+    return ChefHat;
   }
 
   const key = normalizeIndustryKey(name, slug);
@@ -225,16 +226,8 @@ type WaIndustryIconProps = {
   className?: string;
 };
 
-/** Renders hotel + food icons for Hospitality & food; otherwise a single industry icon. */
+/** Renders a single industry icon (ChefHat for Hospitality & food). */
 export function WaIndustryIcon({ name, slug, className }: WaIndustryIconProps) {
-  if (isHospitalityFoodIndustry(name, slug)) {
-    return (
-      <span className="inline-flex items-center gap-0.5" aria-hidden>
-        <Hotel className={className} />
-        <UtensilsCrossed className={className} />
-      </span>
-    );
-  }
   const Icon = waIndustryIcon(name, slug);
   return <Icon className={className} aria-hidden />;
 }

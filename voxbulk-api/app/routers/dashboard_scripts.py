@@ -288,6 +288,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 selected_service_template_ids=body.get("selected_service_template_ids"),
                 selected_middle_template_ids=body.get("selected_middle_template_ids"),
                 require_approved=False,
+                allow_final_additional_feedback=bool(body.get("allow_final_additional_feedback", False)),
             )
             primary_survey_type_id = str(builder_config.get("primary_survey_type_id") or primary_survey_type_id)
             type_ids = list(builder_config.get("selected_survey_type_ids") or [])

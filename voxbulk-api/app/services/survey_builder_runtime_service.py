@@ -91,12 +91,17 @@ def build_builder_runtime(
     thank_you_template_id: int | str | None = None,
     business_name: str = "Your business",
     first_name: str = "Alex",
+    allow_final_additional_feedback: bool = False,
+    final_feedback_yes_no_question: str | None = None,
+    final_feedback_open_text_prompt: str | None = None,
 ) -> dict[str, Any]:
     """Build immutable runtime payload from wizard-selected template IDs (same object preview uses)."""
     from app.services.survey_builder_flow_service import (
         build_builder_step_sequence,
         build_builder_template_ids,
     )
+
+    from app.services.survey_wa_final_feedback_service import build_final_feedback_branch
 
     middles = [int(x) for x in middle_template_ids if x is not None]
     step_sequence = build_builder_step_sequence(
@@ -148,7 +153,12 @@ def build_builder_runtime(
                 "threshold": 6,
                 "template_id": tell_id,
                 "from_step_roles": ["rating"],
-            }
+            },
+            "final_additional_feedback": build_final_feedback_branch(
+                enabled=allow_final_additional_feedback,
+                yes_no_question=final_feedback_yes_no_question,
+                open_text_prompt=final_feedback_open_text_prompt,
+            ),
         },
     }
     runtime["hash"] = compute_runtime_hash(runtime)
@@ -164,6 +174,8 @@ def build_builder_runtime(
 
 
 def _migrate_legacy_runtime(config: dict[str, Any]) -> dict[str, Any] | None:
+    from app.services.survey_wa_final_feedback_service import build_final_feedback_branch
+
     seq = config.get("builder_step_sequence")
     ids = config.get("builder_template_ids")
     if not isinstance(seq, list) or not seq or not isinstance(ids, list) or not ids:
@@ -199,7 +211,10 @@ def _migrate_legacy_runtime(config: dict[str, Any]) -> dict[str, Any] | None:
                 if config.get("tell_us_more_template_id")
                 else None,
                 "from_step_roles": ["rating"],
-            }
+            },
+            "final_additional_feedback": build_final_feedback_branch(
+                enabled=bool(config.get("allow_final_additional_feedback")),
+            ),
         },
         "migrated_from_legacy": True,
     }
@@ -253,6 +268,8 @@ def attach_builder_runtime_to_config(
     out["welcome_template_id"] = runtime.get("welcome_template_id")
     out["tell_us_more_template_id"] = runtime.get("tell_us_more_template_id")
     out["thank_you_template_id"] = runtime.get("thank_you_template_id")
+    ff_branch = (runtime.get("branches") or {}).get("final_additional_feedback") or {}
+    out["allow_final_additional_feedback"] = bool(ff_branch.get("enabled"))
     wa = dict(out.get("whatsapp_flow") or {})
     wa["questions"] = seq
     out["whatsapp_flow"] = wa

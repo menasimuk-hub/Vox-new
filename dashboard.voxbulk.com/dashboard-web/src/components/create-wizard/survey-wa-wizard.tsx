@@ -26,6 +26,7 @@ import {
 } from "@/components/create-wizard/survey-wa-template-step";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { WaIndustryIcon } from "@/lib/wa-industry-icon";
@@ -64,6 +65,8 @@ export type SurveyWaWizardProps = {
   onSelectServiceTemplate: (typeId: string, templateId: string) => void;
   libraryTemplatesByTypeId: Record<string, Array<Record<string, unknown>>>;
   libraryTemplatesLoading: boolean;
+  allowFinalAdditionalFeedback: boolean;
+  setAllowFinalAdditionalFeedback: (v: boolean) => void;
   privacyMode: "off" | "on";
   setPrivacyMode: (v: "off" | "on") => void;
   pageCount: 3 | 4 | 5 | 6;
@@ -516,6 +519,21 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 selectedId={props.thankYouTemplateId}
                 onSelect={props.setThankYouTemplateId}
               />
+
+              <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-background/40 p-4">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Allow final additional feedback</p>
+                  <p className="text-xs text-muted-foreground">
+                    Optional closing step after the main questions: ask Yes/No, then collect open text before the
+                    thank-you message. Off by default.
+                  </p>
+                </div>
+                <Switch
+                  checked={props.allowFinalAdditionalFeedback}
+                  onCheckedChange={props.setAllowFinalAdditionalFeedback}
+                  aria-label="Allow final additional feedback"
+                />
+              </div>
             </CardContent>
           </Card>
         )}

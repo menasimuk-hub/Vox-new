@@ -56,6 +56,16 @@ from app.services.survey_wa_inbound_parse_service import (
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
+from app.services.survey_wa_final_feedback_service import (
+    final_feedback_settings,
+    is_awaiting_final_feedback,
+    log_final_feedback,
+    mark_final_feedback_skipped,
+    parse_final_feedback_yes_no,
+    persist_final_feedback_text,
+    persist_final_feedback_yes_no,
+    runtime_final_feedback_enabled,
+)
 from app.services.survey_wa_vague_negative_followup_service import (
     evaluate_vague_negative_followup,
     generate_followup_text,
@@ -1853,6 +1863,268 @@ def _send_freeform_whatsapp(
     return bool(result.ok)
 
 
+def _complete_linear_survey_thank_you(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+    flow: dict[str, Any],
+    questions: list[dict[str, Any]],
+    conv: dict[str, Any],
+    payload: dict[str, Any],
+    session: SurveySession | None,
+    step: int,
+    total: int,
+    org_name: str,
+    organiser: str,
+    log_id: int | None,
+    inbound_message_id: str | None,
+) -> dict[str, Any]:
+    """Send thank-you template/text and mark recipient completed."""
+    closing_template = str(flow.get("closing") or "Thank you for your feedback.").strip()
+    if has_builder_runtime(config):
+        runtime = load_builder_runtime(config) or {}
+        thank_tid = runtime.get("thank_you_template_id")
+        if not thank_tid:
+            logger.error("%s builder_missing_thank_you order=%s", LOG_PREFIX, order.id)
+            return {"handled": False, "reason": "missing_thank_you_template"}
+        thank_q = {"template_id": thank_tid, "step_role": "completion", "source": "order.config_json.builder_runtime"}
+        try:
+            assert_runtime_template_send(
+                db,
+                config,
+                thank_tid,
+                context="builder_completion",
+                order_id=order.id,
+                session_id=session.id if session else None,
+                preview_hash=str(conv.get("builder_runtime_hash") or config.get("builder_runtime_hash") or "") or None,
+            )
+        except SurveyBuilderFlowError as exc:
+            return {"handled": False, "reason": "thank_you_send_blocked", "detail": str(exc)}
+        closing_body = _question_outbound_body(
+            db,
+            config=config,
+            question=thank_q,
+            recipient=recipient,
+            index=len(questions) + 1,
+            total=len(questions),
+        )
+        conv["step"] = total + 1
+        conv["completed_at"] = datetime.utcnow().isoformat()
+        payload["wa_conversation"] = conv
+        payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
+        if session is not None:
+            SurveySessionService.complete_linear(db, session, config=config, final_step=step)
+        recipient.status = "completed"
+        _save_recipient_result(db, recipient, payload)
+        _send_message(
+            db,
+            order=order,
+            recipient=recipient,
+            body=closing_body,
+            config=config,
+            question=thank_q,
+        )
+    else:
+        closing = _personalize(
+            closing_template,
+            first_name=_first_name(recipient.name),
+            org_name=org_name,
+            organiser=organiser,
+        )
+        conv["step"] = total + 1
+        conv["completed_at"] = datetime.utcnow().isoformat()
+        payload["wa_conversation"] = conv
+        payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
+        if session is not None:
+            SurveySessionService.complete_linear(db, session, config=config, final_step=step)
+        recipient.status = "completed"
+        _save_recipient_result(db, recipient, payload)
+        _send_message(db, order=order, recipient=recipient, body=closing)
+
+    report = {}
+    try:
+        report = json.loads(order.report_json or "{}")
+        if not isinstance(report, dict):
+            report = {}
+    except Exception:
+        report = {}
+    report["completed"] = int(report.get("completed") or 0) + 1
+    order.report_json = json.dumps(report, ensure_ascii=False)
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+
+    _maybe_complete_order(db, order)
+    logger.info("%s completed order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
+    thank_template_id = None
+    thank_template_name = None
+    if has_builder_runtime(config):
+        runtime = load_builder_runtime(config) or {}
+        thank_template_id = runtime.get("thank_you_template_id")
+        thank_row = _resolve_template_row(db, thank_template_id) if thank_template_id else None
+        if thank_row is not None:
+            thank_template_name = str(thank_row.display_name or thank_row.name or "")
+    log_wa_test_mode(
+        "completed",
+        order=order,
+        recipient=recipient,
+        config=config,
+        session=session,
+        current_step=step,
+        next_template_id=thank_template_id,
+        next_template_name=thank_template_name,
+    )
+    log_final_feedback(
+        "transition_to_thank_you",
+        order_id=order.id,
+        recipient_id=recipient.id,
+        handler="survey_whatsapp_conversation_service._complete_linear_survey_thank_you",
+        extra={"step": step, "final_feedback_done": conv.get("final_feedback_done")},
+    )
+    return {
+        "handled": True,
+        "order_id": order.id,
+        "recipient_id": recipient.id,
+        "completed": True,
+        "log_id": log_id,
+    }
+
+
+def _handle_final_feedback_inbound(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+    flow: dict[str, Any],
+    questions: list[dict[str, Any]],
+    conv: dict[str, Any],
+    payload: dict[str, Any],
+    session: SurveySession | None,
+    step: int,
+    total: int,
+    org_name: str,
+    organiser: str,
+    reply: NormalizedWaInboundReply,
+    body: str,
+    log_id: int | None,
+    inbound_message_id: str | None,
+) -> dict[str, Any]:
+    settings = final_feedback_settings(config)
+    effective_body = reply.normalized_answer or str(body or "").strip()
+
+    if conv.get("awaiting_final_feedback_yes_no"):
+        choice = parse_final_feedback_yes_no(effective_body)
+        if not choice:
+            log_final_feedback(
+                "yes_no_unparsed",
+                order_id=order.id,
+                recipient_id=recipient.id,
+                handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
+                extra={"body": effective_body[:120]},
+            )
+            return {"handled": False, "reason": "final_feedback_yes_no_unparsed"}
+
+        persist_final_feedback_yes_no(payload, choice=choice, settings=settings)
+        conv.pop("awaiting_final_feedback_yes_no", None)
+        log_final_feedback(
+            "yes_no_branch",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
+            extra={"choice": choice, "settings": settings},
+        )
+
+        if choice == "No":
+            mark_final_feedback_skipped(payload, reason="declined")
+            conv = payload["wa_conversation"]
+            conv["final_feedback_done"] = True
+            payload["wa_conversation"] = conv
+            _save_recipient_result(db, recipient, payload)
+            return _complete_linear_survey_thank_you(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                flow=flow,
+                questions=questions,
+                conv=conv,
+                payload=payload,
+                session=session,
+                step=step,
+                total=total,
+                org_name=org_name,
+                organiser=organiser,
+                log_id=log_id,
+                inbound_message_id=inbound_message_id,
+            )
+
+        conv["awaiting_final_feedback_text"] = True
+        payload["wa_conversation"] = conv
+        payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
+        _save_recipient_result(db, recipient, payload)
+        sent = _send_freeform_whatsapp(
+            db,
+            order=order,
+            recipient=recipient,
+            body=str(settings.get("open_text_prompt") or ""),
+        )
+        log_final_feedback(
+            "open_text_prompt_sent",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
+            extra={"sent": sent},
+        )
+        return {
+            "handled": True,
+            "order_id": order.id,
+            "recipient_id": recipient.id,
+            "final_feedback": "awaiting_open_text",
+            "sent": sent,
+            "log_id": log_id,
+        }
+
+    if conv.get("awaiting_final_feedback_text"):
+        text = effective_body.strip()
+        if not text:
+            return {"handled": False, "reason": "final_feedback_text_empty"}
+        persist_final_feedback_text(payload, text=text, settings=settings)
+        conv = payload["wa_conversation"]
+        conv["final_feedback_done"] = True
+        conv.pop("awaiting_final_feedback_text", None)
+        payload["wa_conversation"] = conv
+        log_final_feedback(
+            "open_text_saved",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
+            extra={"text_len": len(text)},
+        )
+        _save_recipient_result(db, recipient, payload)
+        return _complete_linear_survey_thank_you(
+            db,
+            order=order,
+            recipient=recipient,
+            config=config,
+            flow=flow,
+            questions=questions,
+            conv=conv,
+            payload=payload,
+            session=session,
+            step=step,
+            total=total,
+            org_name=org_name,
+            organiser=organiser,
+            log_id=log_id,
+            inbound_message_id=inbound_message_id,
+        )
+
+    return {"handled": False, "reason": "final_feedback_state_invalid"}
+
+
 def handle_inbound_reply(
     db: Session,
     *,
@@ -2114,6 +2386,28 @@ def handle_inbound_reply(
     answers: list[dict[str, Any]] = list(conv.get("answers") or [])
     variables = _survey_variables(config, recipient)
     elaboration_only = False
+
+    if is_awaiting_final_feedback(conv):
+        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        return _handle_final_feedback_inbound(
+            db,
+            order=order,
+            recipient=recipient,
+            config=config,
+            flow=flow,
+            questions=questions,
+            conv=conv,
+            payload=payload,
+            session=session,
+            step=step,
+            total=total,
+            org_name=org_name,
+            organiser=organiser,
+            reply=reply,
+            body=body,
+            log_id=log_id,
+            inbound_message_id=inbound_message_id,
+        )
 
     if conv.get("awaiting_followup"):
         elaboration_only = True
@@ -2464,109 +2758,71 @@ def handle_inbound_reply(
             "log_id": log_id,
         }
 
-    closing_template = str(flow.get("closing") or "Thank you for your feedback.").strip()
-    if has_builder_runtime(config):
-        runtime = load_builder_runtime(config) or {}
-        thank_tid = runtime.get("thank_you_template_id")
-        if not thank_tid:
-            logger.error("%s builder_missing_thank_you order=%s", LOG_PREFIX, order.id)
-            return {"handled": False, "reason": "missing_thank_you_template"}
-        thank_q = {"template_id": thank_tid, "step_role": "completion", "source": "order.config_json.builder_runtime"}
-        try:
-            assert_runtime_template_send(
-                db,
-                config,
-                thank_tid,
-                context="builder_completion",
-                order_id=order.id,
-                session_id=session_row.id if session_row else None,
-                preview_hash=str(conv.get("builder_runtime_hash") or config.get("builder_runtime_hash") or "") or None,
-            )
-        except SurveyBuilderFlowError as exc:
-            return {"handled": False, "reason": "thank_you_send_blocked", "detail": str(exc)}
-        closing_body = _question_outbound_body(
-            db,
-            config=config,
-            question=thank_q,
-            recipient=recipient,
-            index=len(questions) + 1,
-            total=len(questions),
+    if (
+        runtime_final_feedback_enabled(config)
+        and not conv.get("final_feedback_done")
+        and not is_awaiting_final_feedback(conv)
+    ):
+        settings = final_feedback_settings(config)
+        log_final_feedback(
+            "enabled_start_yes_no",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+            extra={"settings": settings},
         )
-        conv["step"] = total + 1
-        conv["completed_at"] = datetime.utcnow().isoformat()
+        conv["awaiting_final_feedback_yes_no"] = True
         payload["wa_conversation"] = conv
-        payload = mark_inbound_processed(
-            payload, log_id=log_id, inbound_message_id=inbound_message_id
-        )
-        SurveySessionService.complete_linear(db, session, config=config, final_step=step)
-        recipient.status = "completed"
+        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
         _save_recipient_result(db, recipient, payload)
-        _send_message(
+        sent = _send_freeform_whatsapp(
             db,
             order=order,
             recipient=recipient,
-            body=closing_body,
-            config=config,
-            question=thank_q,
+            body=str(settings.get("yes_no_question") or ""),
         )
-    else:
-        closing = _personalize(
-            closing_template,
-            first_name=_first_name(recipient.name),
-            org_name=org_name,
-            organiser=organiser,
+        log_final_feedback(
+            "yes_no_sent",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+            extra={"sent": sent},
         )
-        conv["step"] = total + 1
-        conv["completed_at"] = datetime.utcnow().isoformat()
-        payload["wa_conversation"] = conv
-        payload = mark_inbound_processed(
-            payload, log_id=log_id, inbound_message_id=inbound_message_id
-        )
-        SurveySessionService.complete_linear(db, session, config=config, final_step=step)
-        recipient.status = "completed"
-        _save_recipient_result(db, recipient, payload)
-        _send_message(db, order=order, recipient=recipient, body=closing)
+        return {
+            "handled": True,
+            "order_id": order.id,
+            "recipient_id": recipient.id,
+            "final_feedback": "awaiting_yes_no",
+            "sent": sent,
+            "log_id": log_id,
+        }
 
-    report = {}
-    try:
-        report = json.loads(order.report_json or "{}")
-        if not isinstance(report, dict):
-            report = {}
-    except Exception:
-        report = {}
-    report["completed"] = int(report.get("completed") or 0) + 1
-    order.report_json = json.dumps(report, ensure_ascii=False)
-    order.updated_at = datetime.utcnow()
-    db.add(order)
-    db.commit()
-
-    _maybe_complete_order(db, order)
-    logger.info("%s completed order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
-    thank_template_id = None
-    thank_template_name = None
-    if has_builder_runtime(config):
-        runtime = load_builder_runtime(config) or {}
-        thank_template_id = runtime.get("thank_you_template_id")
-        thank_row = _resolve_template_row(db, thank_template_id) if thank_template_id else None
-        if thank_row is not None:
-            thank_template_name = str(thank_row.display_name or thank_row.name or "")
-    log_wa_test_mode(
-        "completed",
+    log_final_feedback(
+        "disabled_skip_to_thank_you",
+        order_id=order.id,
+        recipient_id=recipient.id,
+        handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+        extra={"enabled": runtime_final_feedback_enabled(config)},
+    )
+    session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+    return _complete_linear_survey_thank_you(
+        db,
         order=order,
         recipient=recipient,
         config=config,
+        flow=flow,
+        questions=questions,
+        conv=conv,
+        payload=payload,
         session=session,
-        current_step=step,
-        next_template_id=thank_template_id,
-        next_template_name=thank_template_name,
+        step=step,
+        total=total,
+        org_name=org_name,
+        organiser=organiser,
+        log_id=log_id,
+        inbound_message_id=inbound_message_id,
     )
-    return {
-        "handled": True,
-        "order_id": order.id,
-        "recipient_id": recipient.id,
-        "completed": True,
-        "log_id": log_id,
-    }
 
 
 def _handle_inbound_reply_graph(

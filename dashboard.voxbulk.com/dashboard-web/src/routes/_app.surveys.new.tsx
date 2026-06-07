@@ -86,6 +86,7 @@ function CreateSurvey() {
   const [thankYouTemplateId, setThankYouTemplateId] = React.useState("");
   const [selectedServiceTemplateIds, setSelectedServiceTemplateIds] = React.useState<Record<string, string>>({});
   const [privacyMode, setPrivacyMode] = React.useState<"off" | "on">("off");
+  const [allowFinalAdditionalFeedback, setAllowFinalAdditionalFeedback] = React.useState(false);
   const surveyVariant = privacyMode === "on" ? "anonymous" : "standard";
   const [pageCount, setPageCount] = React.useState<3 | 4 | 5 | 6>(5);
   const [autoSelectSteps, setAutoSelectSteps] = React.useState(true);
@@ -486,6 +487,7 @@ function CreateSurvey() {
         auto_select_steps: autoSelectSteps,
         selected_step_roles: autoSelectSteps ? undefined : resolvedPageRoles,
         goal,
+        allow_final_additional_feedback: allowFinalAdditionalFeedback,
       };
       console.info("[wa-survey] POST /dashboard/service-scripts/wa-survey/generate", generateBody);
 
@@ -538,6 +540,9 @@ function CreateSurvey() {
             builder_runtime_hash: generated.builder_runtime_hash,
             builder_step_sequence: generated.builder_step_sequence,
             builder_template_ids: generated.builder_template_ids,
+            allow_final_additional_feedback: Boolean(
+              generated.allow_final_additional_feedback ?? allowFinalAdditionalFeedback,
+            ),
             ...(isBuilderFlow
               ? {
                   flow_engine: "linear",
@@ -679,6 +684,8 @@ function CreateSurvey() {
           onSelectServiceTemplate={onSelectServiceTemplate}
           libraryTemplatesByTypeId={libraryTemplatesByTypeId}
           libraryTemplatesLoading={libraryTemplatesLoading}
+          allowFinalAdditionalFeedback={allowFinalAdditionalFeedback}
+          setAllowFinalAdditionalFeedback={setAllowFinalAdditionalFeedback}
           privacyMode={privacyMode}
           setPrivacyMode={setPrivacyMode}
           pageCount={pageCount}

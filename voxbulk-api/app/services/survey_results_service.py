@@ -245,7 +245,9 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
             if not isinstance(item, dict):
                 continue
             question = str(item.get("question") or "General").strip()
-            answer = str(item.get("answer") or "").strip()
+            answer = str(
+                item.get("answer_display") or item.get("answer") or item.get("final_additional_feedback") or ""
+            ).strip()
             if not question or not answer:
                 continue
             buckets.setdefault(question, Counter())[answer] += 1
@@ -278,6 +280,19 @@ def build_survey_results_csv(payload: dict[str, Any]) -> str:
         question = block.get("question") or "Question"
         for row in block.get("responses") or []:
             writer.writerow([question, row.get("answer"), row.get("count")])
+    writer.writerow([])
+    writer.writerow(["Final additional feedback (per respondent)"])
+    writer.writerow(["Respondent", "Yes/No", "Additional feedback"])
+    for row in payload.get("respondents") or []:
+        if not isinstance(row, dict):
+            continue
+        writer.writerow(
+            [
+                row.get("name") or row.get("id") or "",
+                row.get("final_feedback_yes_no") or "",
+                row.get("final_additional_feedback") or "",
+            ]
+        )
     return buf.getvalue()
 
 
@@ -297,6 +312,7 @@ def build_survey_results_pdf(payload: dict[str, Any]) -> bytes:
 def recipient_summary_row(recipient: ServiceOrderRecipient, *, goal: str) -> dict[str, Any]:
     result = _recipient_result(recipient)
     analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
     duration_seconds = result.get("duration_seconds")
     try:
         duration_seconds = int(duration_seconds) if duration_seconds is not None else None
@@ -323,12 +339,18 @@ def recipient_summary_row(recipient: ServiceOrderRecipient, *, goal: str) -> dic
         "short_summary": str(short_summary or "").strip() or None,
         "has_transcript": bool(str(result.get("transcript") or "").strip()),
         "has_analysis": bool(result.get("analysis_saved_at")),
+        "final_additional_feedback": str(
+            result.get("final_additional_feedback") or wa_conv.get("final_additional_feedback") or ""
+        ).strip()
+        or None,
+        "final_feedback_yes_no": result.get("final_feedback_yes_no") or wa_conv.get("final_feedback_yes_no"),
     }
 
 
 def recipient_detail_payload(recipient: ServiceOrderRecipient) -> dict[str, Any]:
     result = _recipient_result(recipient)
     analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
     duration_seconds = result.get("duration_seconds")
     try:
         duration_seconds = int(duration_seconds) if duration_seconds is not None else None
@@ -347,6 +369,11 @@ def recipient_detail_payload(recipient: ServiceOrderRecipient) -> dict[str, Any]
         "call_summary": str(result.get("call_summary") or "").strip() or None,
         "analysis": analysis or None,
         "extracted_answers": analysis.get("extracted_answers") or analysis.get("answers") or result.get("extracted_answers") or [],
+        "final_additional_feedback": str(
+            result.get("final_additional_feedback") or wa_conv.get("final_additional_feedback") or ""
+        ).strip()
+        or None,
+        "final_feedback_yes_no": result.get("final_feedback_yes_no") or wa_conv.get("final_feedback_yes_no"),
         "issues": analysis.get("issues") or result.get("issues") or [],
         "tags": analysis.get("tags") or result.get("tags") or [],
         "short_summary": str(analysis.get("short_summary") or result.get("short_summary") or "").strip() or None,

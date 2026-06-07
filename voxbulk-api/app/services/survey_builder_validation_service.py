@@ -139,6 +139,7 @@ class SurveyBuilderValidationService:
         selected_service_template_ids: Any = None,
         selected_middle_template_ids: Any = None,
         require_approved: bool = False,
+        allow_final_additional_feedback: bool = False,
     ) -> dict[str, Any]:
         errors: list[str] = []
         industry = db.get(Industry, str(industry_id or "").strip())
@@ -255,4 +256,5 @@ class SurveyBuilderValidationService:
             "tell_us_more_template_id": tell_us_more_id,
             "ordered_middle_template_ids": [tpl_id for _, tpl_id in middle_pairs],
             "builder_page_count": len(middle_pairs) + 2 if middle_pairs else None,
+            "allow_final_additional_feedback": bool(allow_final_additional_feedback),
         }
