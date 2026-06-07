@@ -662,30 +662,112 @@ class ServiceOrderService:
         return re.sub(r"[^a-z0-9]", "", str(h or "").strip().lower())
 
     @staticmethod
-    def parse_recipient_file(content: bytes, filename: str) -> list[dict[str, str]]:
+    def _excel_cell_str(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return "Yes" if value else "No"
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            if value == int(value):
+                return str(int(value))
+            text = format(value, "f").rstrip("0").rstrip(".")
+            return text.strip()
+        return str(value).strip()
+
+    @staticmethod
+    def _spreadsheet_kind(content: bytes, filename: str) -> str:
+        if content[:2] == b"PK":
+            return "xlsx"
+        if content[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+            return "xls"
         name = str(filename or "").lower()
-        rows: list[dict[str, str]] = []
-        if name.endswith(".xlsx") or name.endswith(".xls"):
-            try:
-                import openpyxl
-            except ImportError as e:
-                raise ValueError("Excel upload requires openpyxl on the server. Use CSV for now.") from e
+        if name.endswith(".xlsx"):
+            return "xlsx"
+        if name.endswith(".xls"):
+            return "xls"
+        return "csv"
+
+    @staticmethod
+    def _row_field_values(data: dict[str, str]) -> tuple[str, str, str]:
+        name = (
+            data.get("name")
+            or data.get("fullname")
+            or data.get("contactname")
+            or data.get("customername")
+            or data.get("respondentname")
+            or ""
+        )
+        if not name:
+            first = data.get("firstname") or data.get("first") or data.get("givenname") or ""
+            last = data.get("lastname") or data.get("last") or data.get("surname") or data.get("familyname") or ""
+            name = f"{first} {last}".strip()
+        phone = (
+            data.get("phone")
+            or data.get("mobile")
+            or data.get("telephone")
+            or data.get("phonenumber")
+            or data.get("mobilenumber")
+            or data.get("cellphone")
+            or data.get("cell")
+            or data.get("tel")
+            or data.get("contactnumber")
+            or data.get("contactphone")
+            or data.get("whatsapp")
+            or data.get("whatsappnumber")
+            or data.get("msisdn")
+            or ""
+        )
+        email = data.get("email") or data.get("emailaddress") or data.get("mail") or data.get("emailid") or ""
+        return str(name or "").strip(), str(phone or "").strip(), str(email or "").strip()
+
+    @staticmethod
+    def _parse_recipient_spreadsheet(content: bytes, *, filename: str, kind: str) -> list[dict[str, str]]:
+        if kind == "xls":
+            raise ValueError(
+                "Legacy .xls workbooks are not supported. In Excel choose Save As → .xlsx, or upload a CSV file."
+            )
+        try:
+            import openpyxl
+        except ImportError as e:
+            raise ValueError("Excel upload requires openpyxl on the server. Use CSV for now.") from e
+        try:
             wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-            ws = wb.active
-            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
-            if not header_row:
-                return []
-            headers = [ServiceOrderService._norm_header(x) for x in header_row]
-            for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                data = {headers[i]: (str(row[i]).strip() if i < len(row) and row[i] is not None else "") for i in range(len(headers))}
-                parsed = ServiceOrderService._row_from_dict(data, idx)
-                if parsed:
-                    rows.append(parsed)
-            return rows
+        except Exception as e:
+            raise ValueError(
+                "Could not read the Excel file. Use .xlsx format with columns name and phone, or upload CSV."
+            ) from e
+        ws = wb.active
+        header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        if not header_row:
+            raise ValueError("Excel file is empty — add a header row (name, phone) and at least one contact.")
+        headers = [ServiceOrderService._norm_header(x) for x in header_row]
+        if not any(h for h in headers):
+            raise ValueError("Excel header row must include name and phone columns.")
+        rows: list[dict[str, str]] = []
+        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            data: dict[str, str] = {}
+            for i, header in enumerate(headers):
+                if not header:
+                    continue
+                cell = row[i] if i < len(row) else None
+                data[header] = ServiceOrderService._excel_cell_str(cell)
+            parsed = ServiceOrderService._row_from_dict(data, idx)
+            if parsed:
+                rows.append(parsed)
+        return rows
+
+    @staticmethod
+    def parse_recipient_file(content: bytes, filename: str) -> list[dict[str, str]]:
+        kind = ServiceOrderService._spreadsheet_kind(content, filename)
+        if kind in {"xlsx", "xls"}:
+            return ServiceOrderService._parse_recipient_spreadsheet(content, filename=filename, kind=kind)
         text = content.decode("utf-8-sig", errors="replace")
         reader = csv.DictReader(io.StringIO(text))
         if not reader.fieldnames:
             raise ValueError("CSV must include a header row: name, phone, email")
+        rows: list[dict[str, str]] = []
         for idx, raw in enumerate(reader, start=2):
             data = {ServiceOrderService._norm_header(k): str(v or "").strip() for k, v in raw.items()}
             parsed = ServiceOrderService._row_from_dict(data, idx)
@@ -695,9 +777,7 @@ class ServiceOrderService:
 
     @staticmethod
     def _row_from_dict(data: dict[str, str], row_number: int) -> dict[str, str] | None:
-        name = data.get("name") or data.get("fullname") or data.get("contactname") or ""
-        phone = data.get("phone") or data.get("mobile") or data.get("telephone") or data.get("phonenumber") or ""
-        email = data.get("email") or data.get("emailaddress") or ""
+        name, phone, email = ServiceOrderService._row_field_values(data)
         if not name and not phone:
             return None
         if not name or not phone:

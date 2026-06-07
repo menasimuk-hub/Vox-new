@@ -242,6 +242,29 @@ export async function publicApiFetch<T = unknown>(path: string, options: Request
   return data as T;
 }
 
+function apiErrorMessage(data: unknown, fallback: string): string {
+  const detail =
+    data && typeof data === "object" && "detail" in data ? (data as { detail?: string | unknown }).detail : null;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail.trim();
+  }
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "msg" in item) return String((item as { msg?: string }).msg || "");
+        return "";
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join("; ");
+  }
+  if (data && typeof data === "object" && "message" in data) {
+    const msg = String((data as { message?: string }).message || "").trim();
+    if (msg) return msg;
+  }
+  return fallback;
+}
+
 export async function apiFetch<T = unknown>(path: string, options: RequestInit & { redirectOn401?: boolean } = {}) {
   const baseUrl = getApiBaseUrl();
   const url = baseUrl ? `${baseUrl}${path}` : path;
@@ -257,14 +280,7 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit &
   const data = text ? safeJson(text) : null;
 
   if (!res.ok) {
-    const detail =
-      data && typeof data === "object" && "detail" in data
-        ? (data as { detail?: string | unknown }).detail
-        : null;
-    const message =
-      (typeof detail === "string" ? detail : null) ||
-      (data && typeof data === "object" && "message" in data ? String((data as { message?: string }).message) : null) ||
-      `${res.status} ${res.statusText}`.trim();
+    const message = apiErrorMessage(data, `${res.status} ${res.statusText}`.trim());
     const err = new ApiError(message, { status: res.status, data });
     if (res.status === 401 && options.redirectOn401 !== false) handleUnauthorizedApiError(err);
     throw err;
@@ -292,7 +308,10 @@ export async function apiUploadFiles(
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
-    const err = new ApiError(`${res.status} ${res.statusText}`.trim(), { status: res.status, data });
+    const err = new ApiError(apiErrorMessage(data, `${res.status} ${res.statusText}`.trim()), {
+      status: res.status,
+      data,
+    });
     if (res.status === 401) handleUnauthorizedApiError(err);
     throw err;
   }

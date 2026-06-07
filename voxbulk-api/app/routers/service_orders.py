@@ -792,11 +792,20 @@ async def upload_recipients(
     try:
         rows = ServiceOrderService.parse_recipient_file(content, file.filename or "upload.csv")
         if not rows:
-            raise ValueError("No valid contacts found in file")
+            raise ValueError("No valid contacts found in file — check name and phone columns.")
         order = ServiceOrderService.replace_recipients(db, order, rows)
         order = ServiceOrderService.quote_order(db, order)
         return ServiceOrderService.order_to_dict(order)
     except ValueError as e:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "recipients_upload_rejected order_id=%s filename=%r size=%s err=%s",
+            order_id,
+            file.filename,
+            len(content),
+            e,
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
