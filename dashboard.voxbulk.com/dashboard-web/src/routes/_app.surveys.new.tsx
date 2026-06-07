@@ -20,9 +20,14 @@ import {
 } from "@/lib/survey-step-labels";
 import { buildSurveyDraftCreateBody, buildSurveyDraftPatchBody, resolveSurveyNameForSave } from "@/lib/survey-draft-payload";
 import { logLaunchFlow } from "@/lib/launch-flow-log";
+import {
+  billingCheckErrorMessage,
+  resolveBillingCheckPhase,
+} from "@/lib/survey-launch-billing";
 import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
 import {
   useCreateServiceOrder,
+  fetchSurveyLaunchEligibility,
   useGenerateWaSurvey,
   useLaunchSurveyCampaign,
   useOrderRecipients,
@@ -166,6 +171,35 @@ function CreateSurvey() {
   const launchM = useLaunchSurveyCampaign();
   const activeLaunchOrderId = launchOrderId || orderId;
   const eligibilityQ = useSurveyLaunchEligibility(activeLaunchOrderId, launchOpen);
+  const eligibilityErrorMessage =
+    eligibilityQ.error instanceof Error ? eligibilityQ.error.message : eligibilityQ.isError ? "Could not load billing state" : null;
+  const billingCheckPhase = resolveBillingCheckPhase({
+    orderId: activeLaunchOrderId,
+    launchOpen,
+    isLoading: eligibilityQ.isLoading,
+    isError: eligibilityQ.isError,
+    errorMessage: eligibilityErrorMessage,
+    hasData: Boolean(eligibilityQ.data),
+    timedOut: Boolean(eligibilityErrorMessage?.toLowerCase().includes("timed out")),
+  });
+  const launchCostHint = React.useMemo(() => {
+    const e = eligibilityQ.data;
+    if (!e) return undefined;
+    if (e.can_launch && !e.payment_required) {
+      return e.estimated_send_cost_display ? `${e.estimated_send_cost_display} · included` : "Included in allowance";
+    }
+    if (e.payment_required) {
+      if (
+        e.estimated_send_cost_display &&
+        e.minimum_charge_display &&
+        e.estimated_send_cost_display !== e.minimum_charge_display
+      ) {
+        return `Send ${e.estimated_send_cost_display} · due ${e.amount_due_display || "—"}`;
+      }
+      return e.amount_due_display || undefined;
+    }
+    return undefined;
+  }, [eligibilityQ.data]);
   const openingLaunchRef = React.useRef(false);
   const hydratedOrderRef = React.useRef<string | null>(null);
   const navigatedToResultsRef = React.useRef(false);
@@ -347,6 +381,11 @@ function CreateSurvey() {
     logLaunchFlow("[launch-click]", { ...launchLogCtx(), source: "onOpenLaunch" });
     try {
       const saved = await saveSurveyDraft("launch");
+      setLaunchOrderId(saved.id);
+      await qc.fetchQuery({
+        queryKey: queryKeys.surveyLaunchEligibility(saved.id),
+        queryFn: () => fetchSurveyLaunchEligibility(saved.id),
+      });
       setLaunchMode(mode);
       setLaunchOpen(true);
       logLaunchFlow("[launch-modal:open]", {
@@ -1072,13 +1111,7 @@ function CreateSurvey() {
           sendTestPending={sendTestWaM.isPending}
           onOpenLaunch={onOpenLaunch}
           launchPending={launchM.isPending || payBusy}
-          costHint={
-            eligibilityQ.data?.payment_required
-              ? eligibilityQ.data.amount_due_display || undefined
-              : eligibilityQ.data?.can_launch
-                ? "Included"
-                : undefined
-          }
+          costHint={launchCostHint || "See launch summary"}
         />
       )}
 
@@ -1130,10 +1163,13 @@ function CreateSurvey() {
           packageName: eligibilityQ.data?.billing?.plan_name || eligibilityQ.data?.package_label,
         }}
         eligibility={eligibilityQ.data || null}
-        eligibilityLoading={eligibilityQ.isLoading || eligibilityQ.isFetching}
-        eligibilityError={
-          eligibilityQ.error instanceof Error ? eligibilityQ.error.message : eligibilityQ.isError ? "Could not load billing state" : null
-        }
+        billingCheckPhase={billingCheckPhase}
+        eligibilityLoading={billingCheckPhase === "loading"}
+        eligibilityError={billingCheckErrorMessage(
+          billingCheckPhase,
+          eligibilityErrorMessage,
+          activeLaunchOrderId,
+        )}
         launchBlockers={
           contactsCount <= 0 ? ["Upload at least one contact before launch."] : channel === "whatsapp" && !approved ? ["Approve your survey before launch."] : []
         }

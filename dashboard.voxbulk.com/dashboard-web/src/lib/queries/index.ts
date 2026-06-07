@@ -1,6 +1,11 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch, apiUploadFiles } from "@/lib/api";
+import {
+  BILLING_CHECK_TIMEOUT_MS,
+  launchEligibilityLogPayload,
+  logBillingCheck,
+} from "@/lib/survey-launch-billing";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import type {
   ApiEnabledServices,
@@ -863,6 +868,15 @@ export type SurveyLaunchEligibility = {
   shortfall_units?: number;
   amount_due_pence?: number;
   amount_due_display?: string | null;
+  estimated_send_cost_pence?: number;
+  estimated_send_cost_display?: string | null;
+  minimum_charge_pence?: number;
+  minimum_charge_display?: string | null;
+  setup_fee_pence?: number;
+  setup_fee_display?: string | null;
+  package_id?: string | null;
+  pricing_lines?: Array<Record<string, unknown>>;
+  pricing_source?: string | null;
   quote_total_display?: string | null;
   remaining_whatsapp_after_launch?: number;
   remaining_promo_credits_after_launch?: number;
@@ -873,18 +887,60 @@ export type SurveyLaunchEligibility = {
     whatsapp_remaining?: number;
     whatsapp_included?: number;
     survey_credits?: number;
+    has_whatsapp_allowance?: boolean;
+    whatsapp_used?: number;
   };
 };
+
+export async function fetchSurveyLaunchEligibility(orderId: string, signal?: AbortSignal) {
+  logBillingCheck("start", { orderId, timeoutMs: BILLING_CHECK_TIMEOUT_MS });
+  try {
+    const data = await apiFetch<SurveyLaunchEligibility>(
+      `/service-orders/${encodeURIComponent(orderId)}/launch-eligibility`,
+      { signal },
+    );
+    logBillingCheck("done", { orderId, ...launchEligibilityLogPayload(data) });
+    if (data.can_launch) {
+      logBillingCheck("allowed", { orderId, mode: data.mode, launch_action: data.launch_action });
+    } else if (data.block_reason || data.launch_action === "blocked") {
+      logBillingCheck("blocked", {
+        orderId,
+        mode: data.mode,
+        reason: data.block_reason || data.summary,
+      });
+    }
+    return data;
+  } catch (error) {
+    if (signal?.aborted) {
+      logBillingCheck("timeout", { orderId, timeoutMs: BILLING_CHECK_TIMEOUT_MS });
+      throw new Error("Billing check timed out. Try again.");
+    }
+    logBillingCheck("error", {
+      orderId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
 
 export function useSurveyLaunchEligibility(orderId: string | null, enabled = true) {
   return useQuery({
     queryKey: queryKeys.surveyLaunchEligibility(orderId || ""),
     enabled: Boolean(orderId) && enabled,
-    queryFn: () =>
-      apiFetch<SurveyLaunchEligibility>(
-        `/service-orders/${encodeURIComponent(orderId!)}/launch-eligibility`,
-      ),
+    queryFn: async ({ signal }) => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), BILLING_CHECK_TIMEOUT_MS);
+      const onAbort = () => controller.abort();
+      signal?.addEventListener("abort", onAbort);
+      try {
+        return await fetchSurveyLaunchEligibility(orderId!, controller.signal);
+      } finally {
+        window.clearTimeout(timeoutId);
+        signal?.removeEventListener("abort", onAbort);
+      }
+    },
     staleTime: 0,
+    retry: 1,
   });
 }
 

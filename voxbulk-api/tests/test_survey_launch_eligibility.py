@@ -54,14 +54,13 @@ def _csv_bytes(n: int = 2):
     return "\n".join(lines).encode()
 
 
-def _create_wa_order(app_client, headers):
+def _create_wa_order(app_client, headers, *, contact_count: int = 2):
     packages = app_client.get("/service-orders/survey-packages", headers=headers).json()
     package_id = packages["packages"]["whatsapp"][0]["id"]
     created = app_client.post(
         "/service-orders",
         json={
             "service_code": "survey",
-            "title": "WA launch test",
             "config": {
                 "survey_channel": "whatsapp",
                 "delivery": "whatsapp",
@@ -73,10 +72,13 @@ def _create_wa_order(app_client, headers):
     )
     assert created.status_code == 200, created.text
     order_id = created.json()["id"]
+    lines = ["name,phone,email"]
+    for i in range(contact_count):
+        lines.append(f"Person {i},+44770090012{i},p{i}@example.com")
     upload = app_client.post(
         f"/service-orders/{order_id}/recipients/upload",
         headers=headers,
-        files={"file": ("contacts.csv", io.BytesIO(_csv_bytes(2)), "text/csv")},
+        files={"file": ("contacts.csv", io.BytesIO("\n".join(lines).encode()), "text/csv")},
     )
     assert upload.status_code == 200, upload.text
     return order_id
@@ -156,6 +158,44 @@ def test_launch_with_promo_credits(app_client):
     assert body["ok"] is True
     assert body["order_id"] == order_id
     assert str(body.get("campaign_id") or "").startswith("VB-CMP-")
+
+
+def test_payg_one_contact_pricing_breakdown(app_client):
+    """1 WhatsApp contact should not label full bundle price as send cost only."""
+    headers, _org_id = _seed_user(app_client, email="survey_launch_pricing@example.com")
+    order_id = _create_wa_order(app_client, headers, contact_count=1)
+
+    res = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body.get("recipient_count") == 1
+    assert body.get("estimated_whatsapp_usage") == 1
+    assert body.get("launch_action") == "pay_and_launch"
+    assert int(body.get("amount_due_pence") or 0) > 0
+    assert body.get("estimated_send_cost_display")
+    assert body.get("minimum_charge_display")
+    estimated_pence = int(body.get("estimated_send_cost_pence") or 0)
+    amount_due = int(body.get("amount_due_pence") or 0)
+    assert estimated_pence < amount_due, "send estimate should be less than checkout amount for 1-contact bundle pricing"
+    assert body.get("pricing_source") == "bundle_prorated"
+
+
+def test_allowance_covers_launch_zero_due(app_client):
+    headers, _org_id = _seed_user(
+        app_client,
+        email="survey_launch_allowance@example.com",
+        whatsapp_included=100,
+    )
+    order_id = _create_wa_order(app_client, headers, contact_count=2)
+
+    res = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body.get("can_launch") is True
+    assert body.get("payment_required") is False
+    assert body.get("launch_action") == "launch"
+    assert body.get("mode") == "subscription_whatsapp"
+    assert body.get("covered_by_allowance") == 2
 
     after = app_client.get(f"/service-orders/{order_id}", headers=headers)
     assert after.status_code == 200, after.text

@@ -1036,9 +1036,12 @@ export type SurveyLaunchEligibilityView = {
   covered_by_promo_credits?: number;
   shortfall_units?: number;
   amount_due_display?: string | null;
+  estimated_send_cost_display?: string | null;
+  minimum_charge_display?: string | null;
+  setup_fee_display?: string | null;
+  estimated_whatsapp_usage?: number;
   remaining_whatsapp_after_launch?: number;
   remaining_promo_credits_after_launch?: number;
-  estimated_whatsapp_usage?: number;
   billing?: {
     has_active_subscription?: boolean;
     plan_name?: string | null;
@@ -1054,6 +1057,7 @@ export function SurveyLaunchQuoteModal({
   eligibility,
   eligibilityLoading,
   eligibilityError,
+  billingCheckPhase = "idle",
   launchBlockers = [],
   onRefreshEligibility,
   onLaunch,
@@ -1067,6 +1071,7 @@ export function SurveyLaunchQuoteModal({
   eligibility?: SurveyLaunchEligibilityView | null;
   eligibilityLoading?: boolean;
   eligibilityError?: string | null;
+  billingCheckPhase?: "idle" | "loading" | "ready" | "error" | "timeout";
   launchBlockers?: string[];
   onRefreshEligibility?: () => void;
   onLaunch?: () => void | Promise<void>;
@@ -1083,25 +1088,30 @@ export function SurveyLaunchQuoteModal({
   const canLaunchNow = Boolean(eligibility?.can_launch) && launchAction === "launch";
   const canPayLaunch = paymentRequired && launchAction === "pay_and_launch";
   const amountDue = eligibility?.amount_due_display || null;
-  const actionBusy = Boolean(payBusy || launching || eligibilityLoading);
+  const actionBusy = Boolean(payBusy || launching || billingCheckPhase === "loading");
   const readinessErrors = [...launchBlockers];
   if (data.recipientCount <= 0) readinessErrors.push("Upload at least one contact before launch.");
   if (eligibility?.block_reason && launchAction === "blocked") readinessErrors.push(eligibility.block_reason);
 
-  const costLabel = eligibilityLoading
+  const showBillingLoading = billingCheckPhase === "loading";
+  const showBillingError =
+    billingCheckPhase === "error" || billingCheckPhase === "timeout" || Boolean(eligibilityError);
+
+  const costLabel = showBillingLoading
     ? "…"
     : canLaunchNow
       ? mode === "promo_credits"
-        ? "Covered by promo credits"
+        ? "Included · promo credits"
         : mode === "subscription_whatsapp"
-          ? `Included in ${data.packageName || eligibility?.billing?.plan_name || "your package"}`
-          : "No payment required"
+          ? `Included · ${data.packageName || eligibility?.billing?.plan_name || "your package"}`
+          : "£0.00 · included"
       : canPayLaunch
         ? amountDue || "—"
-        : "—";
+        : eligibility?.estimated_send_cost_display || "—";
 
-  const canLaunch = canLaunchNow && readinessErrors.length === 0 && !actionBusy;
-  const canPay = canPayLaunch && readinessErrors.length === 0 && !actionBusy && Boolean(amountDue) && gcAvailable;
+  const canLaunch = canLaunchNow && readinessErrors.length === 0 && !actionBusy && billingCheckPhase === "ready";
+  const canPay =
+    canPayLaunch && readinessErrors.length === 0 && !actionBusy && billingCheckPhase === "ready" && Boolean(amountDue) && gcAvailable;
 
   React.useEffect(() => {
     if (open) {
@@ -1141,6 +1151,11 @@ export function SurveyLaunchQuoteModal({
 
   const blockedReason =
     readinessErrors[0] ||
+    (billingCheckPhase === "timeout"
+      ? "Billing check timed out."
+      : billingCheckPhase === "error"
+        ? eligibilityError || "Could not verify billing."
+        : null) ||
     eligibilityError ||
     (launchAction === "blocked" ? eligibility?.summary || "Launch is not available for this account." : null);
 
@@ -1163,6 +1178,31 @@ export function SurveyLaunchQuoteModal({
             <PreviewMetric icon={<ReceiptText className="size-4" />} label="Amount due" value={costLabel} />
           </div>
 
+          {canPayLaunch && eligibility?.estimated_send_cost_display ? (
+            <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
+              <p>
+                Estimated send cost: <span className="font-medium">{eligibility.estimated_send_cost_display}</span>
+                {data.recipientCount > 0 ? ` · ${data.recipientCount} contact${data.recipientCount === 1 ? "" : "s"}` : ""}
+              </p>
+              {eligibility.minimum_charge_display &&
+              eligibility.minimum_charge_display !== eligibility.estimated_send_cost_display ? (
+                <p className="mt-1 text-muted-foreground">
+                  Minimum launch charge: <span className="font-medium text-foreground">{eligibility.minimum_charge_display}</span>
+                </p>
+              ) : null}
+              {eligibility.setup_fee_display ? (
+                <p className="mt-1 text-muted-foreground">
+                  Setup fee: <span className="font-medium text-foreground">{eligibility.setup_fee_display}</span>
+                </p>
+              ) : null}
+              {amountDue ? (
+                <p className="mt-1 font-medium">
+                  Amount due at checkout: {amountDue}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           <Panel title="Campaign" icon={<FileText className="size-4" />}>
             <TimelineLine label="Survey name" value={data.campaignName || "—"} />
             <TimelineLine label="Step 1" value={data.firstStepName || "—"} />
@@ -1171,10 +1211,14 @@ export function SurveyLaunchQuoteModal({
           </Panel>
 
           <Panel title="Allowance & billing" icon={<Coins className="size-4" />}>
-            {eligibilityLoading ? (
+            {showBillingLoading ? (
               <p className="text-sm text-muted-foreground">Checking your package and allowance…</p>
-            ) : eligibilityError ? (
-              <p className="text-sm text-destructive">{eligibilityError}</p>
+            ) : showBillingError ? (
+              <p className="text-sm text-destructive">
+                {billingCheckPhase === "timeout"
+                  ? "Billing check timed out. Try Refresh or close and open launch again."
+                  : eligibilityError || "Could not load billing state."}
+              </p>
             ) : (
               <>
                 {eligibility?.billing?.has_active_subscription ? (
@@ -1206,7 +1250,10 @@ export function SurveyLaunchQuoteModal({
                 {typeof eligibility?.billing?.survey_credits === "number" ? (
                   <QuoteRow label="Survey promo credits" value={`${eligibility.billing.survey_credits}`} />
                 ) : null}
-                {canPayLaunch && amountDue ? <QuoteRow label="Amount due" value={amountDue} bold /> : null}
+                {canPayLaunch && amountDue ? <QuoteRow label="Amount due at checkout" value={amountDue} bold /> : null}
+                {canLaunchNow && !canPayLaunch ? (
+                  <QuoteRow label="Estimated send cost" value={eligibility?.estimated_send_cost_display || "£0.00 · included"} />
+                ) : null}
                 {eligibility?.summary ? (
                   <p className="mt-2 text-xs text-muted-foreground">{eligibility.summary}</p>
                 ) : null}

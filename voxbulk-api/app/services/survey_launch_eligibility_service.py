@@ -65,6 +65,92 @@ class SurveyLaunchEligibilityService:
         return ServiceOrderService.quote_order(db, order)
 
     @staticmethod
+    def _attach_launch_pricing(
+        quote: dict[str, Any],
+        *,
+        recipient_count: int,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Split quote into send estimate vs minimum charge for launch UI."""
+        lines = list(quote.get("lines") or [])
+        setup_fee = sum(int(line.get("amount_pence") or 0) for line in lines if line.get("kind") == "setup")
+        bundle_line = next((line for line in lines if line.get("kind") == "bundle"), None)
+        overage_line = next((line for line in lines if line.get("kind") == "overage"), None)
+        count = max(int(recipient_count or 0), 0)
+        estimated_send = 0
+        minimum_charge = 0
+        pricing_source = "quote_total"
+
+        if overage_line:
+            estimated_send = int(overage_line.get("amount_pence") or 0)
+            pricing_source = "overage_units"
+        elif bundle_line:
+            bundle_size = max(int(bundle_line.get("bundle_size") or bundle_line.get("contacts_included") or 0), 1)
+            bundle_price = int(bundle_line.get("amount_pence") or 0)
+            minimum_charge = bundle_price
+            if count > 0 and bundle_size > 0:
+                estimated_send = int(round(bundle_price * count / bundle_size))
+            pricing_source = "bundle_prorated"
+        else:
+            per_person = sum(
+                int(line.get("amount_pence") or 0)
+                for line in lines
+                if line.get("kind") in {"per_person", "unit", "send"}
+            )
+            if per_person > 0:
+                estimated_send = per_person
+                pricing_source = "per_person"
+
+        amount_due = int(quote.get("total_pence") or 0)
+        if estimated_send <= 0 and amount_due > 0 and count > 0:
+            estimated_send = amount_due - setup_fee if amount_due > setup_fee else amount_due
+
+        return {
+            **quote,
+            "estimated_send_cost_pence": max(0, estimated_send),
+            "estimated_send_cost_display": PlatformCatalogService._money(max(0, estimated_send)),
+            "minimum_charge_pence": max(0, minimum_charge),
+            "minimum_charge_display": PlatformCatalogService._money(max(0, minimum_charge)) if minimum_charge > 0 else None,
+            "setup_fee_pence": setup_fee,
+            "setup_fee_display": PlatformCatalogService._money(setup_fee) if setup_fee > 0 else None,
+            "package_id": str(quote.get("selected_package_id") or config.get("package_id") or "") or None,
+            "pricing_lines": lines,
+            "pricing_source": pricing_source,
+        }
+
+    @staticmethod
+    def _quote_payable_launch(
+        db: Session,
+        order: ServiceOrder,
+        *,
+        recipient_count: int,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        count = max(int(recipient_count or 0), 0)
+        quote = SurveyLaunchEligibilityService._quote_for_recipients(
+            db,
+            order,
+            recipient_count=count,
+            config=config,
+        )
+        enriched = SurveyLaunchEligibilityService._attach_launch_pricing(
+            quote,
+            recipient_count=count,
+            config=config,
+        )
+        logger.info(
+            "survey_launch_pricing order_id=%s recipients=%s package_id=%s estimated_send=%s minimum=%s amount_due=%s source=%s",
+            order.id,
+            count,
+            enriched.get("package_id"),
+            enriched.get("estimated_send_cost_pence"),
+            enriched.get("minimum_charge_pence"),
+            enriched.get("total_pence"),
+            enriched.get("pricing_source"),
+        )
+        return enriched
+
+    @staticmethod
     def compute(db: Session, order: ServiceOrder, org: Organisation) -> dict[str, Any]:
         if order.service_code != "survey":
             raise SurveyLaunchEligibilityError("Launch eligibility is only for survey orders")
@@ -74,6 +160,14 @@ class SurveyLaunchEligibilityService:
         recipient_count = max(0, int(order.recipient_count or 0))
         estimated_usage = SurveyLaunchEligibilityService.estimated_whatsapp_units(order, channel=channel)
         billing = org_survey_billing_context(db, org)
+        logger.info(
+            "survey_launch_billing_context order_id=%s org_id=%s wa_remaining=%s survey_credits=%s has_allowance=%s",
+            order.id,
+            org.id,
+            billing.get("whatsapp_remaining"),
+            billing.get("survey_credits"),
+            billing.get("has_whatsapp_allowance"),
+        )
 
         base: dict[str, Any] = {
             "order_id": order.id,
@@ -163,32 +257,18 @@ class SurveyLaunchEligibilityService:
             covered_by_allowance = min(wa_remaining, estimated_usage)
             shortfall_units = max(0, estimated_usage - covered_by_allowance)
 
-        payable_recipients = recipient_count
-        amount_quote: dict[str, Any]
-        if shortfall_units > 0:
-            payable_recipients = shortfall_units
-            amount_quote = SurveyLaunchEligibilityService._quote_for_recipients(
-                db, order, recipient_count=shortfall_units, config=config
+        payable_recipients = recipient_count if shortfall_units <= 0 else shortfall_units
+        try:
+            amount_quote = SurveyLaunchEligibilityService._quote_payable_launch(
+                db,
+                order,
+                recipient_count=payable_recipients,
+                config=config,
             )
-        else:
-            try:
-                quoted = SurveyLaunchEligibilityService._ensure_order_quote(db, order)
-                amount_quote = {
-                    "total_pence": int(quoted.quote_total_pence or 0),
-                    "total_gbp": PlatformCatalogService._money(int(quoted.quote_total_pence or 0)),
-                    "lines": [],
-                }
-                if quoted.quote_breakdown_json:
-                    try:
-                        parsed = json.loads(quoted.quote_breakdown_json or "{}")
-                        if isinstance(parsed, dict):
-                            amount_quote["lines"] = parsed.get("lines") or []
-                    except Exception:
-                        pass
-            except ValueError as e:
-                base["block_reason"] = str(e)
-                base["summary"] = str(e)
-                return base
+        except ValueError as e:
+            base["block_reason"] = str(e)
+            base["summary"] = str(e)
+            return base
 
         amount_pence = int(amount_quote.get("total_pence") or 0)
         amount_display = str(amount_quote.get("total_gbp") or PlatformCatalogService._money(amount_pence))
@@ -252,6 +332,15 @@ class SurveyLaunchEligibilityService:
                 "shortfall_units": shortfall_units or (estimated_usage if channel == "whatsapp" else recipient_count),
                 "amount_due_pence": amount_pence,
                 "amount_due_display": amount_display,
+                "estimated_send_cost_pence": amount_quote.get("estimated_send_cost_pence"),
+                "estimated_send_cost_display": amount_quote.get("estimated_send_cost_display"),
+                "minimum_charge_pence": amount_quote.get("minimum_charge_pence"),
+                "minimum_charge_display": amount_quote.get("minimum_charge_display"),
+                "setup_fee_pence": amount_quote.get("setup_fee_pence"),
+                "setup_fee_display": amount_quote.get("setup_fee_display"),
+                "package_id": amount_quote.get("package_id"),
+                "pricing_lines": amount_quote.get("pricing_lines") or [],
+                "pricing_source": amount_quote.get("pricing_source"),
                 "quote_total_pence": amount_pence,
                 "quote_total_display": amount_display,
                 "remaining_whatsapp_after_launch": max(0, wa_remaining - covered_by_allowance),
