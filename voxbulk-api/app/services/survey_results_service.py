@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.survey_analysis_service import _recipient_result, is_ai_call_survey_order
+from app.services.survey_wa_open_text_service import answer_has_pending_transcription, resolve_answer_text
 from app.services.survey_whatsapp_conversation_service import is_whatsapp_survey_order
 
 
@@ -245,9 +246,9 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
             if not isinstance(item, dict):
                 continue
             question = str(item.get("question") or "General").strip()
-            answer = str(
-                item.get("answer_display") or item.get("answer") or item.get("final_additional_feedback") or ""
-            ).strip()
+            if answer_has_pending_transcription(item):
+                continue
+            answer = resolve_answer_text(item)
             if not question or not answer:
                 continue
             buckets.setdefault(question, Counter())[answer] += 1
@@ -293,6 +294,36 @@ def build_survey_results_csv(payload: dict[str, Any]) -> str:
                 row.get("final_additional_feedback") or "",
             ]
         )
+    writer.writerow([])
+    writer.writerow(["Voice note answers"])
+    writer.writerow(
+        [
+            "Respondent",
+            "Question",
+            "Transcript",
+            "Answer source",
+            "Language",
+            "Transcription status",
+            "Audio path",
+        ]
+    )
+    for row in payload.get("respondents") or []:
+        if not isinstance(row, dict):
+            continue
+        for ans in row.get("wa_answers") or []:
+            if not isinstance(ans, dict) or str(ans.get("answer_source") or "") != "voice_note":
+                continue
+            writer.writerow(
+                [
+                    row.get("name") or row.get("id") or "",
+                    ans.get("question") or "",
+                    resolve_answer_text(ans),
+                    ans.get("answer_source") or "voice_note",
+                    ans.get("detected_language") or "",
+                    ans.get("transcription_status") or "",
+                    ans.get("audio_file_path") or "",
+                ]
+            )
     return buf.getvalue()
 
 
@@ -344,6 +375,7 @@ def recipient_summary_row(recipient: ServiceOrderRecipient, *, goal: str) -> dic
         ).strip()
         or None,
         "final_feedback_yes_no": result.get("final_feedback_yes_no") or wa_conv.get("final_feedback_yes_no"),
+        "wa_answers": wa_conv.get("answers") or [],
     }
 
 
@@ -369,6 +401,7 @@ def recipient_detail_payload(recipient: ServiceOrderRecipient) -> dict[str, Any]
         "call_summary": str(result.get("call_summary") or "").strip() or None,
         "analysis": analysis or None,
         "extracted_answers": analysis.get("extracted_answers") or analysis.get("answers") or result.get("extracted_answers") or [],
+        "wa_answers": wa_conv.get("answers") or [],
         "final_additional_feedback": str(
             result.get("final_additional_feedback") or wa_conv.get("final_additional_feedback") or ""
         ).strip()

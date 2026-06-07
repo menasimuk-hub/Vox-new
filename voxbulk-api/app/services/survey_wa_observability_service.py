@@ -110,6 +110,12 @@ class SurveyWaObservabilityService:
         order = db.get(ServiceOrder, session.order_id)
         answers = SurveySessionService.list_answers(db, session_id)
         decisions = SurveySessionService.list_decisions(db, session_id)
+        from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+        voice_notes = [
+            SurveyWaVoiceNoteService.job_to_dict(job)
+            for job in SurveyWaVoiceNoteService.list_jobs_for_recipient(db, session.recipient_id)
+        ]
         picker_debug = [
             _decision_to_dict(d)
             for d in decisions
@@ -129,6 +135,7 @@ class SurveyWaObservabilityService:
                 "status": order.status if order else None,
             },
             "answers": [_answer_to_dict(a) for a in answers],
+            "voice_notes": voice_notes,
             "decisions": [_decision_to_dict(d) for d in decisions],
             "picker_debug": picker_debug,
             "branch_path": [

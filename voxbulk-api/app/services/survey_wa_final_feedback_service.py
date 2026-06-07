@@ -151,19 +151,27 @@ def persist_final_feedback_text(
     *,
     text: str,
     settings: dict[str, Any],
+    voice_answer: dict[str, Any] | None = None,
 ) -> None:
+    from app.services.survey_wa_open_text_service import merge_voice_metadata
+
     prompt = str(settings.get("open_text_prompt") or DEFAULT_OPEN_TEXT_PROMPT)
     cleaned = str(text or "").strip()
     conv = payload.setdefault("wa_conversation", {})
     answers = list(conv.get("answers") or [])
-    answers.append(
-        {
-            "step_role": FINAL_FEEDBACK_TEXT_ROLE,
-            "question": prompt,
-            "answer": cleaned,
-            "reply_type": "long_text",
-        }
-    )
+    entry: dict[str, Any] = {
+        "step_role": FINAL_FEEDBACK_TEXT_ROLE,
+        "question": prompt,
+        "answer": cleaned,
+        "answer_text": cleaned,
+        "reply_type": "long_text",
+    }
+    if isinstance(voice_answer, dict):
+        entry = merge_voice_metadata(entry, voice_answer)
+        if not cleaned and voice_answer.get("answer_source") == "voice_note":
+            entry["answer"] = cleaned
+            entry["answer_text"] = cleaned
+    answers.append(entry)
     conv["answers"] = answers
     conv["final_additional_feedback"] = cleaned
     payload["final_additional_feedback"] = cleaned
@@ -172,8 +180,14 @@ def persist_final_feedback_text(
         {
             "question": prompt,
             "answer": cleaned,
+            "answer_text": cleaned,
             "step_role": FINAL_FEEDBACK_TEXT_ROLE,
             "final_additional_feedback": cleaned,
+            **(
+                {k: entry[k] for k in ("answer_source", "transcription_status", "voice_note_job_id", "detected_language")}
+                if isinstance(voice_answer, dict)
+                else {}
+            ),
         }
     )
     payload["extracted_answers"] = extracted

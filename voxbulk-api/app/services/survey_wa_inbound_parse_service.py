@@ -43,6 +43,7 @@ class NormalizedWaInboundReply:
     button_id: str = ""
     normalized_answer: str = ""
     normalized_action: str | None = None
+    is_voice_note: bool = False
     extracted_fields: dict[str, Any] = field(default_factory=dict)
 
     def to_log_dict(self) -> dict[str, Any]:
@@ -182,6 +183,8 @@ def parse_telnyx_wa_inbound_record(
     sender_phone: str = "",
 ) -> NormalizedWaInboundReply:
     """Parse Telnyx message.received record into one normalized survey reply object."""
+    from app.services.survey_wa_open_text_service import is_voice_message_type
+    from app.services.survey_wa_voice_note_media_service import extract_media_items
     from app.services.telnyx_inbound_messaging_service import (
         _deep_wa_reply_text,
         _extract_message_text,
@@ -228,8 +231,27 @@ def parse_telnyx_wa_inbound_record(
                 whatsapp_message.get("type") if isinstance(whatsapp_message, dict) else ""
             ),
             "button_reply": button,
+            "media_items": extract_media_items(record),
+            "inbound_record": record,
         },
     )
+    media_items = reply.extracted_fields.get("media_items") or []
+    reply.is_voice_note = bool(
+        is_voice_message_type(reply.message_type)
+        or (isinstance(media_items, list) and len(media_items) > 0 and not normalized_answer.strip())
+        or (isinstance(media_items, list) and len(media_items) > 0 and is_voice_message_type(message_type))
+    )
+    if reply.is_voice_note and isinstance(media_items, list) and media_items:
+        caption = _clean(raw_text)
+        media_ids = {
+            str(item.get("provider_media_id") or "")
+            for item in media_items
+            if isinstance(item, dict) and item.get("provider_media_id")
+        }
+        if caption and caption not in media_ids:
+            reply.normalized_answer = caption
+        else:
+            reply.normalized_answer = ""
     reply.normalized_action = detect_start_action(reply)
     return reply
 

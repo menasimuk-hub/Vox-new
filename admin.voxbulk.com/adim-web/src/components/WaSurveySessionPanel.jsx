@@ -27,10 +27,26 @@ function DeliveryBlock({ delivery }) {
   )
 }
 
-export default function WaSurveySessionPanel({ data, compact = false }) {
+async function retryVoiceNote(jobId) {
+  const res = await fetch(`/admin/wa-survey/voice-notes/${jobId}/retry`, { method: 'POST', credentials: 'include' })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || body.message || 'Retry failed')
+  }
+  return res.json()
+}
+
+export default function WaSurveySessionPanel({ data, compact = false, onRefresh }) {
   if (!data?.session) return <div className="muted">No WhatsApp survey session for this contact.</div>
 
-  const { session, answers = [], decisions = [], picker_debug: pickerDebug = [], branch_path: branchPath = [] } = data
+  const {
+    session,
+    answers = [],
+    voice_notes: voiceNotes = [],
+    decisions = [],
+    picker_debug: pickerDebug = [],
+    branch_path: branchPath = [],
+  } = data
   const delivery = session.outcome_delivery || {}
 
   return (
@@ -58,6 +74,63 @@ export default function WaSurveySessionPanel({ data, compact = false }) {
         <div className="waSurveySessionSectionTitle">Outcome delivery</div>
         <DeliveryBlock delivery={delivery} />
       </div>
+
+      {!compact && voiceNotes.length ? (
+        <div className="waSurveySessionSection">
+          <div className="waSurveySessionSectionTitle">Voice notes ({voiceNotes.length})</div>
+          <div className="tableWrap">
+            <table className="table waSurveySessionTable">
+              <thead>
+                <tr>
+                  <th>Step</th>
+                  <th>Transcript</th>
+                  <th>Source</th>
+                  <th>Language</th>
+                  <th>Status</th>
+                  <th>Audio</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {voiceNotes.map((vn) => (
+                  <tr key={vn.id}>
+                    <td>{vn.step_index ?? '—'}</td>
+                    <td>{vn.answer_text || '—'}</td>
+                    <td>{vn.answer_source || 'voice_note'}</td>
+                    <td>{vn.detected_language || '—'}</td>
+                    <td>{vn.transcription_status || '—'}</td>
+                    <td>
+                      {vn.audio_file_path && vn.admin_audio_path ? (
+                        <a href={vn.admin_audio_path} target="_blank" rel="noreferrer">Download</a>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>
+                      {vn.transcription_status === 'failed' ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={async () => {
+                            try {
+                              await retryVoiceNote(vn.id)
+                              if (onRefresh) onRefresh()
+                            } catch (err) {
+                              window.alert(err.message || 'Retry failed')
+                            }
+                          }}
+                        >
+                          Retry
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       {!compact && branchPath.length ? (
         <div className="waSurveySessionSection">

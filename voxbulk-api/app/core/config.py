@@ -117,6 +117,27 @@ class Settings(BaseSettings):
     dentally_base_url: str = Field(default="https://api.dentally.co", alias="DENTALLY_BASE_URL")
     dentally_api_key: str = Field(default="", alias="DENTALLY_API_KEY")
 
+    # Survey WhatsApp voice notes (open-text steps)
+    allow_voice_notes_for_open_text: bool = Field(default=True, alias="ALLOW_VOICE_NOTES_FOR_OPEN_TEXT")
+    transcribe_voice_notes: bool = Field(default=True, alias="TRANSCRIBE_VOICE_NOTES")
+    voice_note_max_file_size_mb: int = Field(default=16, alias="VOICE_NOTE_MAX_FILE_SIZE_MB")
+    voice_note_allowed_mime_types_raw: str = Field(
+        default="audio/ogg,audio/opus,audio/mpeg,audio/mp4,audio/aac,audio/amr,audio/wav,audio/x-wav,audio/webm",
+        alias="VOICE_NOTE_ALLOWED_MIME_TYPES",
+    )
+    voice_note_download_timeout_seconds: int = Field(default=30, alias="VOICE_NOTE_DOWNLOAD_TIMEOUT_SECONDS")
+    voice_note_transcription_timeout_seconds: int = Field(default=180, alias="VOICE_NOTE_TRANSCRIPTION_TIMEOUT_SECONDS")
+    voice_note_retention_days: int = Field(default=90, alias="VOICE_NOTE_RETENTION_DAYS")
+    voice_note_storage_dir: str = Field(default="data/survey_voice_notes", alias="VOICE_NOTE_STORAGE_DIR")
+    whisper_cpp_binary: str = Field(default="whisper-cli", alias="WHISPER_CPP_BINARY")
+    whisper_cpp_model: str = Field(default="", alias="WHISPER_CPP_MODEL")
+    ffmpeg_binary: str = Field(default="ffmpeg", alias="FFMPEG_BINARY")
+    telnyx_webhook_public_key: str = Field(default="", alias="TELNYX_WEBHOOK_PUBLIC_KEY")
+
+    @property
+    def voice_note_allowed_mime_types(self) -> list[str]:
+        return [m.strip().lower() for m in _split_csv(self.voice_note_allowed_mime_types_raw)]
+
     @property
     def cors_allow_origins(self) -> List[str]:
         origins = _split_csv(self.cors_allow_origins_raw)

@@ -93,8 +93,20 @@ async def telnyx_messages_webhook(
 ):
     # TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250 — router inbound instrumentation
     from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_webhook_entry
+    from app.services.telnyx_webhook_security import TelnyxWebhookVerificationError, verify_telnyx_webhook
+    from fastapi import HTTPException
 
-    payload = await request.json()
+    raw_body = await request.body()
+    try:
+        verify_telnyx_webhook(
+            raw_body,
+            signature_header=request.headers.get("telnyx-signature-ed25519"),
+            timestamp_header=request.headers.get("telnyx-timestamp"),
+        )
+    except TelnyxWebhookVerificationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    payload = json.loads(raw_body.decode("utf-8"))
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     record = data.get("payload") if isinstance(data.get("payload"), dict) else data
     event_type = str(data.get("event_type") or payload.get("event_type") or "").strip()

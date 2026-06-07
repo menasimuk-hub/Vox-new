@@ -28,6 +28,10 @@ celery_app.conf.update(
             "task": "sales.process_promo_followups",
             "schedule": 3600.0,
         },
+        "purge-voice-note-audio-daily": {
+            "task": "survey.purge_voice_note_audio",
+            "schedule": 86400.0,
+        },
     },
 )
 
@@ -36,6 +40,7 @@ celery_app.autodiscover_tasks(["app.workers"])
 # Ensure task modules outside tasks.py are registered (beat + workers).
 from app.workers import billing_tasks  # noqa: E402, F401
 from app.workers import sales_tasks  # noqa: E402, F401
+from app.workers import survey_wa_voice_note_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""
 

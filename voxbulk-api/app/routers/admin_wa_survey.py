@@ -966,6 +966,42 @@ def get_wa_survey_session(
     return {"ok": True, **detail}
 
 
+@router.post("/voice-notes/{job_id}/retry")
+def retry_voice_note_transcription(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+    try:
+        return {"ok": True, **SurveyWaVoiceNoteService.retry_job(db, job_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/voice-notes/{job_id}/audio")
+def download_voice_note_audio(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+
+    from app.models.survey_voice_note_job import SurveyVoiceNoteJob
+
+    job = db.get(SurveyVoiceNoteJob, job_id)
+    if job is None or not job.audio_file_path or job.audio_deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice note audio not found")
+    path = Path(str(job.audio_file_path))
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice note audio file missing")
+    media_type = str(job.audio_mime_type or "audio/ogg")
+    return FileResponse(path, media_type=media_type, filename=path.name)
+
+
 @router.get("/observability/overview")
 def wa_survey_observability_overview(
     order_id: str | None = None,

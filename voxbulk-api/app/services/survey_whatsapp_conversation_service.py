@@ -364,6 +364,80 @@ def match_answer(body: str, question: dict[str, Any]) -> str:
     return raw
 
 
+def _inbound_record_from_reply(reply: NormalizedWaInboundReply) -> dict[str, Any] | None:
+    fields = reply.extracted_fields if isinstance(reply.extracted_fields, dict) else {}
+    record = fields.get("inbound_record")
+    return record if isinstance(record, dict) else None
+
+
+def _try_voice_note_reply(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    payload: dict[str, Any],
+    conv: dict[str, Any],
+    question: dict[str, Any] | None,
+    reply: NormalizedWaInboundReply,
+    inbound_message_id: str | None,
+    log_id: int | None,
+    session_id: str | None,
+    answer_context: str,
+    step_index: int,
+    config: dict[str, Any],
+) -> dict[str, Any] | None:
+    from app.services.survey_wa_open_text_service import VOICE_NOTE_FALLBACK_MESSAGE, merge_voice_metadata
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+    if not SurveyWaVoiceNoteService.is_inbound_voice(reply):
+        return None
+
+    result = SurveyWaVoiceNoteService.prepare_voice_answer(
+        db,
+        order=order,
+        recipient=recipient,
+        payload=payload,
+        conv=conv,
+        question=question,
+        reply=reply,
+        inbound_message_id=inbound_message_id,
+        log_id=log_id,
+        session_id=session_id,
+        answer_context=answer_context,
+        step_index=step_index,
+        record=_inbound_record_from_reply(reply),
+        config=config,
+    )
+    if result is None:
+        return None
+    if result.get("rejected"):
+        sent = _send_freeform_whatsapp(
+            db,
+            order=order,
+            recipient=recipient,
+            body=str(result.get("fallback_message") or VOICE_NOTE_FALLBACK_MESSAGE),
+        )
+        return {"handled": True, "voice_rejected": True, "sent": sent, "reason": result.get("reason")}
+    if result.get("duplicate"):
+        return {
+            "handled": True,
+            "duplicate": True,
+            "voice_note": True,
+            "job_id": result.get("job_id"),
+        }
+    if result.get("accepted") and answer_context == "followup":
+        answer_entry = dict(result.get("answer") or {})
+        answers = list(conv.get("answers") or [])
+        if answers and isinstance(answer_entry, dict):
+            answers[-1] = merge_voice_metadata(answers[-1], answer_entry)
+            text = str(answer_entry.get("answer_text") or answer_entry.get("answer") or "").strip()
+            if text:
+                merge_elaboration_into_answers(answers, text)
+            conv["answers"] = answers
+        result["answers"] = answers
+    return result
+
+
 def _phone_candidates(phone: str) -> set[str]:
     out: set[str] = set()
     raw = str(phone or "").strip()
@@ -2088,6 +2162,63 @@ def _handle_final_feedback_inbound(
         }
 
     if conv.get("awaiting_final_feedback_text"):
+        voice = _try_voice_note_reply(
+            db,
+            order=order,
+            recipient=recipient,
+            payload=payload,
+            conv=conv,
+            question={"reply_type": "long_text", "step_role": "final_feedback_text"},
+            reply=reply,
+            inbound_message_id=inbound_message_id,
+            log_id=log_id,
+            session_id=session.id if session else None,
+            answer_context="final_feedback",
+            step_index=step,
+            config=config,
+        )
+        if voice and voice.get("handled"):
+            return {
+                "handled": True,
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+                "voice_note": True,
+                "duplicate": bool(voice.get("duplicate")),
+                "voice_rejected": bool(voice.get("voice_rejected")),
+                "log_id": log_id,
+            }
+        if voice and voice.get("accepted"):
+            answer_entry = dict(voice.get("answer") or {})
+            text = str(answer_entry.get("answer_text") or answer_entry.get("answer") or "").strip()
+            persist_final_feedback_text(
+                payload,
+                text=text,
+                settings=settings,
+                voice_answer=answer_entry,
+            )
+            conv = payload["wa_conversation"]
+            conv["final_feedback_done"] = True
+            conv.pop("awaiting_final_feedback_text", None)
+            payload["wa_conversation"] = conv
+            _save_recipient_result(db, recipient, payload)
+            return _complete_linear_survey_thank_you(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                flow=flow,
+                questions=questions,
+                conv=conv,
+                payload=payload,
+                session=session,
+                step=step,
+                total=total,
+                org_name=org_name,
+                organiser=organiser,
+                log_id=log_id,
+                inbound_message_id=inbound_message_id,
+            )
+
         text = effective_body.strip()
         if not text:
             return {"handled": False, "reason": "final_feedback_text_empty"}
@@ -2410,8 +2541,36 @@ def handle_inbound_reply(
         )
 
     if conv.get("awaiting_followup"):
+        voice = _try_voice_note_reply(
+            db,
+            order=order,
+            recipient=recipient,
+            payload=payload,
+            conv=conv,
+            question=None,
+            reply=reply,
+            inbound_message_id=inbound_message_id,
+            log_id=log_id,
+            session_id=session_row.id if session_row else None,
+            answer_context="followup",
+            step_index=int(conv.get("followup_for_step") or step or 0),
+            config=config,
+        )
+        if voice and voice.get("handled"):
+            return {
+                "handled": True,
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+                "voice_note": True,
+                "duplicate": bool(voice.get("duplicate")),
+                "voice_rejected": bool(voice.get("voice_rejected")),
+                "log_id": log_id,
+            }
         elaboration_only = True
-        merge_elaboration_into_answers(answers, reply.normalized_answer or str(body or "").strip())
+        if voice and voice.get("accepted"):
+            answers = list(voice.get("answers") or conv.get("answers") or [])
+        else:
+            merge_elaboration_into_answers(answers, reply.normalized_answer or str(body or "").strip())
         step = int(conv.get("followup_for_step") or step or 0)
         conv["answers"] = answers
         conv.pop("awaiting_followup", None)
@@ -2475,7 +2634,37 @@ def handle_inbound_reply(
             return {"handled": False, "reason": "step_resolve_failed", "detail": str(exc)}
 
         effective_body = reply.normalized_answer or str(body or "").strip()
-        answer = match_answer(effective_body, question)
+        voice = _try_voice_note_reply(
+            db,
+            order=order,
+            recipient=recipient,
+            payload=payload,
+            conv=conv,
+            question=question,
+            reply=reply,
+            inbound_message_id=inbound_message_id,
+            log_id=log_id,
+            session_id=session_row.id if session_row else None,
+            answer_context="normal",
+            step_index=step,
+            config=config,
+        )
+        if voice and voice.get("handled"):
+            return {
+                "handled": True,
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+                "voice_note": True,
+                "duplicate": bool(voice.get("duplicate")),
+                "voice_rejected": bool(voice.get("voice_rejected")),
+                "log_id": log_id,
+            }
+        if voice and voice.get("accepted"):
+            answer_entry = dict(voice.get("answer") or {})
+            answer = str(answer_entry.get("answer_text") or answer_entry.get("answer") or "").strip()
+        else:
+            answer = match_answer(effective_body, question)
+            answer_entry = None
         q_display = survey_question_display(
             db,
             config=config,
@@ -2484,8 +2673,23 @@ def handle_inbound_reply(
             index=step,
             total=total,
         )
+        if isinstance(answer_entry, dict):
+            answer_entry = {
+                **answer_entry,
+                "step_role": str(question.get("step_role") or answer_entry.get("step_role") or ""),
+                "question": str(
+                    q_display.get("preview_body")
+                    or q_display.get("body")
+                    or answer_entry.get("question")
+                    or question.get("text")
+                    or f"Question {step}"
+                ),
+                "reply_type": question.get("reply_type") or answer_entry.get("reply_type"),
+            }
         answers.append(
-            {
+            answer_entry
+            if isinstance(answer_entry, dict)
+            else {
                 "step_role": str(question.get("step_role") or ""),
                 "question": str(q_display.get("preview_body") or q_display.get("body") or question.get("text") or f"Question {step}"),
                 "answer": answer,
@@ -2507,7 +2711,7 @@ def handle_inbound_reply(
             session,
             step_index=step,
             question=question,
-            raw_value=str(body or "").strip(),
+            raw_value=str(body or answer or "").strip() or "[voice note]",
             normalized_value=answer,
             config=config,
         )
