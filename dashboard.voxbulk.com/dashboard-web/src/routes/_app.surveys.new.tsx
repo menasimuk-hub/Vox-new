@@ -154,6 +154,9 @@ function CreateSurvey() {
   const [launchOrderId, setLaunchOrderId] = React.useState<string | null>(null);
   const [launchMode, setLaunchMode] = React.useState<"now" | "schedule" | "recurring">("now");
   const [payBusy, setPayBusy] = React.useState(false);
+  const [eligibilityLoading, setEligibilityLoading] = React.useState(false);
+  const eligibilityFetchKeyRef = React.useRef("");
+  const eligibilityInFlightRef = React.useRef(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
   const qc = useQueryClient();
@@ -175,14 +178,14 @@ function CreateSurvey() {
     () => `${contactsCount}:${packageId || ""}`,
     [contactsCount, packageId],
   );
-  const eligibilityQ = useSurveyLaunchEligibility(activeLaunchOrderId, launchOpen, eligibilityCacheKey);
+  const eligibilityQ = useSurveyLaunchEligibility(activeLaunchOrderId, eligibilityCacheKey);
   const eligibilityErrorMessage =
     eligibilityQ.error instanceof Error ? eligibilityQ.error.message : eligibilityQ.isError ? "Could not load billing state" : null;
   const billingCheckPhase = resolveBillingCheckPhase({
     orderId: activeLaunchOrderId,
     launchOpen,
-    isLoading: eligibilityQ.isLoading,
-    isFetching: eligibilityQ.isFetching,
+    isLoading: eligibilityLoading,
+    isFetching: false,
     isError: eligibilityQ.isError,
     errorMessage: eligibilityErrorMessage,
     hasData: Boolean(eligibilityQ.data),
@@ -391,6 +394,46 @@ function CreateSurvey() {
     ],
   );
 
+  const loadLaunchEligibility = React.useCallback(
+    async (force = false) => {
+      if (!activeLaunchOrderId || !launchOpen) return;
+      const dedupeKey = `${activeLaunchOrderId}:${eligibilityCacheKey}`;
+      if (!force && eligibilityFetchKeyRef.current === dedupeKey) return;
+      if (eligibilityInFlightRef.current) return;
+
+      eligibilityFetchKeyRef.current = dedupeKey;
+      eligibilityInFlightRef.current = true;
+      setEligibilityLoading(true);
+      try {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
+        try {
+          const data = await fetchSurveyLaunchEligibility(activeLaunchOrderId, controller.signal, { force });
+          qc.setQueryData(queryKeys.surveyLaunchEligibility(activeLaunchOrderId, eligibilityCacheKey), data);
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+      } catch (e) {
+        if (!force) eligibilityFetchKeyRef.current = "";
+        throw e;
+      } finally {
+        eligibilityInFlightRef.current = false;
+        setEligibilityLoading(false);
+      }
+    },
+    [activeLaunchOrderId, eligibilityCacheKey, launchOpen, qc],
+  );
+
+  React.useEffect(() => {
+    if (!launchOpen || !activeLaunchOrderId) {
+      if (!launchOpen) eligibilityFetchKeyRef.current = "";
+      return;
+    }
+    void loadLaunchEligibility(false).catch((e) => {
+      console.error("[billing-check:fetch-error]", e);
+    });
+  }, [launchOpen, activeLaunchOrderId, eligibilityCacheKey, loadLaunchEligibility]);
+
   const onOpenLaunch = async (mode: "now" | "schedule" | "recurring") => {
     if (openingLaunchRef.current || launchOpen) return;
     openingLaunchRef.current = true;
@@ -399,10 +442,6 @@ function CreateSurvey() {
     try {
       const saved = await saveSurveyDraft("launch");
       setLaunchOrderId(saved.id);
-      await qc.fetchQuery({
-        queryKey: queryKeys.surveyLaunchEligibility(saved.id, eligibilityCacheKey),
-        queryFn: () => fetchSurveyLaunchEligibility(saved.id),
-      });
       setLaunchMode(mode);
       setLaunchOpen(true);
       logLaunchFlow("[launch-modal:open]", {
@@ -419,11 +458,11 @@ function CreateSurvey() {
   };
 
   const refreshLaunchEligibility = React.useCallback(() => {
-    if (!activeLaunchOrderId) return;
-    void qc.refetchQueries({
-      queryKey: queryKeys.surveyLaunchEligibility(activeLaunchOrderId, eligibilityCacheKey),
+    eligibilityFetchKeyRef.current = "";
+    void loadLaunchEligibility(true).catch((e) => {
+      toast.error(e instanceof Error ? e.message : "Could not refresh billing state");
     });
-  }, [activeLaunchOrderId, eligibilityCacheKey, qc]);
+  }, [loadLaunchEligibility]);
 
   const onLaunchSurvey = async () => {
     setPayBusy(true);

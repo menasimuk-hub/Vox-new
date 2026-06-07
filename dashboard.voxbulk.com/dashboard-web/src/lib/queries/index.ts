@@ -895,60 +895,70 @@ export type SurveyLaunchEligibility = {
   };
 };
 
-export async function fetchSurveyLaunchEligibility(orderId: string, signal?: AbortSignal) {
-  logBillingCheck("start", { orderId, timeoutMs: BILLING_CHECK_TIMEOUT_MS });
-  try {
-    const data = await apiFetch<SurveyLaunchEligibility>(
-      `/service-orders/${encodeURIComponent(orderId)}/launch-eligibility`,
-      { signal },
-    );
-    logBillingCheck("done", { orderId, ...launchEligibilityLogPayload(data) });
-    if (data.can_launch) {
-      logBillingCheck("allowed", { orderId, mode: data.mode, launch_action: data.launch_action });
-    } else if (
-      data.block_reason_code === "whatsapp_usage_limit" ||
-      data.block_reason ||
-      data.launch_action === "blocked"
-    ) {
-      logBillingCheck("blocked", {
-        orderId,
-        mode: data.mode,
-        code: data.block_reason_code,
-        reason: data.block_reason || data.summary,
-      });
-    }
-    return data;
-  } catch (error) {
-    if (signal?.aborted) {
-      logBillingCheck("timeout", { orderId, timeoutMs: BILLING_CHECK_TIMEOUT_MS });
-      throw new Error("Billing check timed out. Try again.");
-    }
-    logBillingCheck("error", {
-      orderId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
+const launchEligibilityInFlight = new Map<string, Promise<SurveyLaunchEligibility>>();
+
+export async function fetchSurveyLaunchEligibility(
+  orderId: string,
+  signal?: AbortSignal,
+  options?: { force?: boolean },
+) {
+  if (options?.force) launchEligibilityInFlight.delete(orderId);
+
+  const existing = launchEligibilityInFlight.get(orderId);
+  if (existing) {
+    logBillingCheck("start", { orderId, deduped: true, timeoutMs: BILLING_CHECK_TIMEOUT_MS });
+    return existing;
   }
+
+  const promise = (async () => {
+    logBillingCheck("start", { orderId, timeoutMs: BILLING_CHECK_TIMEOUT_MS });
+    try {
+      const data = await apiFetch<SurveyLaunchEligibility>(
+        `/service-orders/${encodeURIComponent(orderId)}/launch-eligibility`,
+        { signal },
+      );
+      logBillingCheck("done", { orderId, ...launchEligibilityLogPayload(data) });
+      if (data.can_launch) {
+        logBillingCheck("allowed", { orderId, mode: data.mode, launch_action: data.launch_action });
+      } else if (
+        data.block_reason_code === "whatsapp_usage_limit" ||
+        data.block_reason ||
+        data.launch_action === "blocked"
+      ) {
+        logBillingCheck("blocked", {
+          orderId,
+          mode: data.mode,
+          code: data.block_reason_code,
+          reason: data.block_reason || data.summary,
+        });
+      }
+      return data;
+    } catch (error) {
+      if (signal?.aborted) {
+        logBillingCheck("timeout", { orderId, timeoutMs: BILLING_CHECK_TIMEOUT_MS });
+        throw new Error("Billing check timed out. Try again.");
+      }
+      logBillingCheck("error", {
+        orderId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      launchEligibilityInFlight.delete(orderId);
+    }
+  })();
+
+  launchEligibilityInFlight.set(orderId, promise);
+  return promise;
 }
 
-export function useSurveyLaunchEligibility(orderId: string | null, enabled = true, cacheKey = "") {
+export function useSurveyLaunchEligibility(orderId: string | null, cacheKey = "") {
   return useQuery({
     queryKey: queryKeys.surveyLaunchEligibility(orderId || "", cacheKey),
-    enabled: Boolean(orderId) && enabled,
-    queryFn: async ({ signal }) => {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), BILLING_CHECK_TIMEOUT_MS);
-      const onAbort = () => controller.abort();
-      signal?.addEventListener("abort", onAbort);
-      try {
-        return await fetchSurveyLaunchEligibility(orderId!, controller.signal);
-      } finally {
-        window.clearTimeout(timeoutId);
-        signal?.removeEventListener("abort", onAbort);
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    queryFn: () => fetchSurveyLaunchEligibility(orderId!),
+    enabled: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 30 * 60 * 1000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
