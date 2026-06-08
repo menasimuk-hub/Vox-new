@@ -65,12 +65,12 @@ type Respondent = {
 type Recommendation = { title?: string; text?: string; impact?: string };
 type TrendPoint = { week: string; csat_pct?: number | null; completed_count?: number };
 
-type QuestionRow = readonly [string, number, string];
+type OptionRow = { label: string; count: number; pct: number; tone: string };
 type DetailQuestion = {
   id: string;
   title: string;
   type: "Rating" | "Yes / No" | "Open text" | "Choice";
-  rows: QuestionRow[];
+  options: OptionRow[];
   totalResponses: number;
   avgTime: string;
 };
@@ -103,46 +103,145 @@ function toneForAnswer(label: string): string {
 }
 
 function inferQuestionType(block: AggregateBlock): DetailQuestion["type"] {
+  const role = String(block.step_role || "").toLowerCase();
   const answers = block.responses.map((r) => String(r.answer || "").trim().toLowerCase());
+  if (role.includes("yes_no") || role === "true_false") return "Yes / No";
   if (answers.length > 0 && answers.every((a) => a === "yes" || a === "no")) return "Yes / No";
   if (block.step_role === "final_feedback_text" || block.step_role === "reason") return "Open text";
   if (block.visualization === "sentiment_breakdown") return "Rating";
-  if (block.responses.every((r) => /^\d+$/.test(String(r.answer || "").trim()))) return "Rating";
+  if (block.responses.length > 0 && block.responses.every((r) => /^\d+$/.test(String(r.answer || "").trim()))) {
+    return "Rating";
+  }
   if (block.responses.length >= 4) return "Open text";
   return "Choice";
+}
+
+function buildYesNoOptions(
+  responses: Array<{ answer: string; count: number }>,
+  total: number,
+): OptionRow[] {
+  const counts = new Map<string, number>();
+  for (const row of responses) {
+    const key = String(row.answer || "").trim().toLowerCase();
+    if (key === "yes" || key === "no") counts.set(key, (counts.get(key) || 0) + row.count);
+  }
+  const yes = counts.get("yes") || 0;
+  const no = counts.get("no") || 0;
+  const answered = yes + no;
+  const base = answered || total || 1;
+  return [
+    { label: "Yes", count: yes, pct: answered ? Math.round((yes / base) * 100) : 0, tone: "success" },
+    { label: "No", count: no, pct: answered ? Math.round((no / base) * 100) : 0, tone: "destructive" },
+  ];
+}
+
+function buildRatingOptions(block: AggregateBlock): OptionRow[] {
+  const total = block.total || 0;
+  const ratingLabels = [
+    { key: "positive", label: "Excellent", tone: "success" },
+    { key: "neutral", label: "Expected", tone: "info" },
+    { key: "negative", label: "Poor", tone: "destructive" },
+  ] as const;
+
+  if (block.visualization === "sentiment_breakdown" && block.breakdown?.length) {
+    const byKey = new Map(block.breakdown.map((g) => [g.key, g]));
+    const counts = ratingLabels.map(({ key }) => byKey.get(key)?.count ?? 0);
+    const answered = counts.reduce((sum, n) => sum + n, 0);
+    const base = answered || total || 1;
+    return ratingLabels.map(({ key, label, tone }, idx) => ({
+      label,
+      count: counts[idx],
+      pct: answered ? Math.round((counts[idx] / base) * 100) : 0,
+      tone,
+    }));
+  }
+
+  let excellent = 0;
+  let expected = 0;
+  let poor = 0;
+  for (const row of block.responses) {
+    const raw = String(row.answer || "").trim();
+    const num = parseInt(raw, 10);
+    if (!Number.isFinite(num)) {
+      const lower = raw.toLowerCase();
+      if (lower.includes("excellent") || lower.includes("good") || lower === "positive") excellent += row.count;
+      else if (lower.includes("poor") || lower.includes("bad") || lower === "negative") poor += row.count;
+      else expected += row.count;
+      continue;
+    }
+    if (num >= 9) excellent += row.count;
+    else if (num >= 7) expected += row.count;
+    else poor += row.count;
+  }
+
+  const answered = excellent + expected + poor;
+  const base = answered || total || 1;
+  return [
+    { label: "Excellent", count: excellent, pct: answered ? Math.round((excellent / base) * 100) : 0, tone: "success" },
+    { label: "Expected", count: expected, pct: answered ? Math.round((expected / base) * 100) : 0, tone: "info" },
+    { label: "Poor", count: poor, pct: answered ? Math.round((poor / base) * 100) : 0, tone: "destructive" },
+  ];
+}
+
+function buildChoiceOptions(
+  responses: Array<{ answer: string; count: number }>,
+  total: number,
+  maxOptions = 3,
+): OptionRow[] {
+  return responses.slice(0, maxOptions).map((row) => ({
+    label: String(row.answer || "—"),
+    count: row.count,
+    pct: total ? Math.round((row.count / total) * 100) : 0,
+    tone: toneForAnswer(String(row.answer)),
+  }));
 }
 
 function mapAggregateToDetailQuestion(block: AggregateBlock): DetailQuestion {
   const total = block.total || 0;
   const type = inferQuestionType(block);
 
-  if (block.visualization === "sentiment_breakdown" && block.breakdown?.length) {
-    const rows: QuestionRow[] = block.breakdown.map((g) => {
-      const label =
-        g.key === "positive" ? "Positive" : g.key === "negative" ? "Negative" : g.label || "Neutral";
-      const tone = g.key === "positive" ? "success" : g.key === "negative" ? "destructive" : "info";
-      return [label, g.pct, tone];
-    });
-    return { id: block.question, title: block.question, type: "Rating", rows, totalResponses: total, avgTime: "—" };
+  if (type === "Yes / No") {
+    return {
+      id: block.question,
+      title: block.question,
+      type,
+      options: buildYesNoOptions(block.responses, total),
+      totalResponses: total,
+      avgTime: "—",
+    };
   }
 
-  const rows: QuestionRow[] = block.responses.slice(0, 6).map((r) => {
-    const pct = total ? Math.round((r.count / total) * 100) : 0;
-    let label = String(r.answer || "—");
-    const num = parseInt(label, 10);
-    if (Number.isFinite(num) && num <= 10) {
-      if (num >= 9) label = "Excellent";
-      else if (num >= 7) label = "Good";
-      else label = "Poor";
-    }
-    return [label, pct, toneForAnswer(String(r.answer))];
-  });
+  if (type === "Rating") {
+    return {
+      id: block.question,
+      title: block.question,
+      type,
+      options: buildRatingOptions(block),
+      totalResponses: total,
+      avgTime: "—",
+    };
+  }
+
+  if (type === "Open text") {
+    const options = buildChoiceOptions(block.responses, total, 5);
+    return {
+      id: block.question,
+      title: block.question,
+      type,
+      options: options.length ? options : [{ label: "No answers yet", count: 0, pct: 0, tone: "warning" }],
+      totalResponses: total,
+      avgTime: "—",
+    };
+  }
+
+  const optionCount = Math.min(Math.max(block.responses.length, 2), 3);
+  const options = buildChoiceOptions(block.responses, total, optionCount);
 
   return {
     id: block.question,
     title: block.question,
-    type,
-    rows: rows.length ? rows : [["No answers yet", 0, "warning"]],
+    type: "Choice",
+    options: options.length ? options : [{ label: "No answers yet", count: 0, pct: 0, tone: "warning" }],
     totalResponses: total,
     avgTime: "—",
   };
@@ -227,16 +326,16 @@ function SurveyResults() {
   const weeklyTrend = (payload.weekly_trend || []) as TrendPoint[];
   const topIssues = (summary.top_issues as string[] | undefined) || [];
 
-  const exportResults = async (kind: "pdf" | "csv") => {
+  const exportResults = async (kind: "pdf" | "csv" | "xlsx") => {
     const exportId = searchOrderId || selectedId;
     if (!exportId) return;
     try {
-      const ext = kind === "pdf" ? "pdf" : "csv";
+      const ext = kind === "pdf" ? "pdf" : kind === "xlsx" ? "xlsx" : "csv";
       await downloadAuthenticatedFile(
         `/service-orders/${encodeURIComponent(exportId)}/survey-results/export.${ext}`,
         `survey-results-${exportId.slice(0, 8)}.${ext}`,
       );
-      toast.success(`${kind.toUpperCase()} downloaded`);
+      toast.success(`${kind === "xlsx" ? "Excel" : kind.toUpperCase()} downloaded`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Export failed");
     }
@@ -316,6 +415,15 @@ function SurveyResults() {
               disabled={!activeOrderId}
             >
               <Download className="size-4" /> Export PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => void exportResults("xlsx")}
+              disabled={!activeOrderId}
+            >
+              <Download className="size-4" /> Export Excel
             </Button>
             <Button
               variant="outline"
@@ -549,7 +657,7 @@ function SurveyResults() {
                       </thead>
                       <tbody>
                         {questions.map((q, idx) => {
-                          const topRow = q.rows.reduce((a, b) => (b[1] > a[1] ? b : a), q.rows[0]);
+                          const topOption = q.options.reduce((a, b) => (b.count > a.count ? b : a), q.options[0]);
                           return (
                             <tr key={q.id} className="border-b border-border/50 last:border-0">
                               <td className="py-3 pr-4 text-muted-foreground">{idx + 1}</td>
@@ -559,8 +667,8 @@ function SurveyResults() {
                               </td>
                               <td className="py-3 pr-4 text-right tabular-nums">{q.totalResponses.toLocaleString()}</td>
                               <td className="py-3 pr-4 text-right">
-                                <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", toneToColor(topRow[2]))}>
-                                  {topRow[0]} ({topRow[1]}%)
+                                <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", toneToColor(topOption.tone))}>
+                                  {topOption.label} ({topOption.count.toLocaleString()} · {topOption.pct}%)
                                 </span>
                               </td>
                               <td className="py-3 text-right tabular-nums text-muted-foreground">{q.avgTime}</td>
@@ -585,17 +693,32 @@ function SurveyResults() {
                       questions
                         .filter((q) => q.type === "Yes / No")
                         .map((q) => {
-                          const yesRow = q.rows.find((r) => r[0].toLowerCase() === "yes");
-                          const yesPct = yesRow ? yesRow[1] : 0;
+                          const yes = q.options.find((o) => o.label.toLowerCase() === "yes");
+                          const no = q.options.find((o) => o.label.toLowerCase() === "no");
+                          const yesPct = yes?.pct ?? 0;
                           return (
-                            <div key={q.id} className="space-y-1.5">
+                            <div key={q.id} className="space-y-2">
                               <div className="flex items-center justify-between text-sm">
                                 <span className="font-medium truncate pr-2">{q.title}</span>
-                                <span className="shrink-0 tabular-nums font-semibold text-success">{yesPct}% Yes</span>
+                                <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
+                                  Yes {yes?.count.toLocaleString() ?? 0} · No {no?.count.toLocaleString() ?? 0}
+                                </span>
                               </div>
                               <div className="flex h-3 overflow-hidden rounded-full bg-border">
-                                <div className="bg-success transition-all" style={{ width: `${yesPct}%` }} />
-                                <div className="bg-destructive transition-all" style={{ width: `${100 - yesPct}%` }} />
+                                <div
+                                  className="bg-success transition-all"
+                                  style={{ width: `${yesPct}%` }}
+                                  title={`Yes: ${yes?.count ?? 0}`}
+                                />
+                                <div
+                                  className="bg-destructive transition-all"
+                                  style={{ width: `${100 - yesPct}%` }}
+                                  title={`No: ${no?.count ?? 0}`}
+                                />
+                              </div>
+                              <div className="flex justify-between text-[11px] text-muted-foreground">
+                                <span>Yes {yesPct}%</span>
+                                <span>No {no?.pct ?? 0}%</span>
                               </div>
                             </div>
                           );
@@ -618,23 +741,25 @@ function SurveyResults() {
                           <div key={q.id} className="space-y-2">
                             <p className="text-sm font-medium">{q.title}</p>
                             <div className="flex h-8 overflow-hidden rounded-full bg-border">
-                              {q.rows.map(([label, value, tone]) => (
+                              {q.options.map((option) => (
                                 <div
-                                  key={label}
+                                  key={option.label}
                                   className={cn(
-                                    "flex items-center justify-center text-[10px] font-bold text-white transition-all",
-                                    toneToBar(tone),
+                                    "flex items-center justify-center px-1 text-[10px] font-bold text-white transition-all",
+                                    toneToBar(option.tone),
                                   )}
-                                  style={{ width: `${Math.max(value, value > 0 ? 8 : 0)}%` }}
+                                  style={{ width: `${Math.max(option.pct, option.count > 0 ? 8 : 0)}%` }}
+                                  title={`${option.label}: ${option.count}`}
                                 >
-                                  {value > 10 ? `${value}%` : ""}
+                                  {option.count > 0 ? option.count : ""}
                                 </div>
                               ))}
                             </div>
                             <div className="flex flex-wrap gap-3">
-                              {q.rows.map(([label, , tone]) => (
-                                <span key={label} className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <span className={cn("size-2 rounded-full", toneToDot(tone))} /> {label}
+                              {q.options.map((option) => (
+                                <span key={option.label} className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <span className={cn("size-2 rounded-full", toneToDot(option.tone))} />
+                                  {option.label} ({option.count.toLocaleString()} · {option.pct}%)
                                 </span>
                               ))}
                             </div>
@@ -757,31 +882,45 @@ function Kpi({
   );
 }
 
-function QuestionCard({ title, type, rows }: { title: string; type: string; rows: QuestionRow[] }) {
+function QuestionCard({
+  title,
+  type,
+  options,
+  totalResponses,
+}: {
+  title: string;
+  type: string;
+  options: OptionRow[];
+  totalResponses: number;
+}) {
   return (
     <div className="rounded-xl border border-border bg-background p-4">
       <div className="mb-4 flex items-start justify-between gap-2">
         <p className="text-sm font-semibold">{title}</p>
         <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-foreground">{type}</span>
       </div>
+      <p className="mb-3 text-[11px] text-muted-foreground">{totalResponses.toLocaleString()} responses</p>
       <div className="space-y-3">
-        {rows.map(([label, value, tone]) => (
-          <BarLine key={label} label={label} value={value} tone={tone} />
+        {options.map((option) => (
+          <BarLine key={option.label} {...option} />
         ))}
       </div>
     </div>
   );
 }
 
-function BarLine({ label, value, tone }: { label: string; value: number; tone: string }) {
+function BarLine({ label, count, pct, tone }: OptionRow) {
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="tabular-nums">{value}%</span>
+        <span className="font-medium text-foreground">{label}</span>
+        <span className="tabular-nums">
+          <span className="font-semibold">{count.toLocaleString()}</span>
+          <span className="text-muted-foreground"> · {pct}%</span>
+        </span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-border">
-        <div className={cn("h-full rounded-full transition-all", toneToBar(tone))} style={{ width: `${value}%` }} />
+        <div className={cn("h-full rounded-full transition-all", toneToBar(tone))} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -864,14 +1003,14 @@ function QuestionDetailCard({
   index,
   title,
   type,
-  rows,
+  options,
   totalResponses,
   avgTime,
 }: {
   index: number;
   title: string;
   type: string;
-  rows: QuestionRow[];
+  options: OptionRow[];
   totalResponses: number;
   avgTime: string;
 }) {
@@ -897,21 +1036,24 @@ function QuestionDetailCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {rows.map(([label, value, tone]) => (
-          <div key={label} className="space-y-1.5">
+        {options.map((option) => (
+          <div key={option.label} className="space-y-1.5">
             <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">{label}</span>
+              <span className="font-medium">{option.label}</span>
               <span className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">
-                  {Math.round((totalResponses * value) / 100).toLocaleString()}
+                <span className="text-xs font-semibold tabular-nums text-foreground">
+                  {option.count.toLocaleString()}
                 </span>
-                <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", toneToColor(tone))}>
-                  {value}%
+                <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", toneToColor(option.tone))}>
+                  {option.pct}%
                 </span>
               </span>
             </div>
             <div className="h-2.5 overflow-hidden rounded-full bg-border">
-              <div className={cn("h-full rounded-full transition-all", toneToBar(tone))} style={{ width: `${value}%` }} />
+              <div
+                className={cn("h-full rounded-full transition-all", toneToBar(option.tone))}
+                style={{ width: `${option.pct}%` }}
+              />
             </div>
           </div>
         ))}

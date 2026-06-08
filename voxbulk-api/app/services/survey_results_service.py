@@ -547,68 +547,16 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
     return aggregates
 
 
-def build_survey_results_csv(payload: dict[str, Any]) -> str:
-    import csv
-    import io
+def build_survey_results_csv(payload: dict[str, Any], *, anonymous: bool = False) -> str:
+    from app.services.survey_results_export_service import build_survey_results_csv as render_csv
 
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(["Survey", payload.get("order", {}).get("title", "Survey")])
-    summary = payload.get("summary") or {}
-    writer.writerow(["Completed responses", summary.get("completed_count", 0)])
-    writer.writerow(["Response rate %", summary.get("response_rate_pct", 0)])
-    writer.writerow(["Average satisfaction /5", summary.get("average_satisfaction_5", "")])
-    writer.writerow(["NPS", (summary.get("nps_score") if isinstance(summary.get("nps_score"), dict) else summary.get("nps_score")) or ""])
-    writer.writerow([])
-    writer.writerow(["Question", "Answer", "Count"])
-    for block in payload.get("aggregates") or []:
-        question = block.get("question") or "Question"
-        for row in block.get("responses") or []:
-            writer.writerow([question, row.get("answer"), row.get("count")])
-    writer.writerow([])
-    writer.writerow(["Final additional feedback (per respondent)"])
-    writer.writerow(["Respondent", "Yes/No", "Additional feedback"])
-    for row in payload.get("respondents") or []:
-        if not isinstance(row, dict):
-            continue
-        writer.writerow(
-            [
-                row.get("name") or row.get("id") or "",
-                row.get("final_feedback_yes_no") or "",
-                row.get("final_additional_feedback") or "",
-            ]
-        )
-    writer.writerow([])
-    writer.writerow(["Voice note answers"])
-    writer.writerow(
-        [
-            "Respondent",
-            "Question",
-            "Transcript",
-            "Answer source",
-            "Language",
-            "Transcription status",
-            "Audio path",
-        ]
-    )
-    for row in payload.get("respondents") or []:
-        if not isinstance(row, dict):
-            continue
-        for ans in row.get("wa_answers") or []:
-            if not isinstance(ans, dict) or str(ans.get("answer_source") or "") != "voice_note":
-                continue
-            writer.writerow(
-                [
-                    row.get("name") or row.get("id") or "",
-                    ans.get("question") or "",
-                    resolve_answer_text(ans),
-                    ans.get("answer_source") or "voice_note",
-                    ans.get("detected_language") or "",
-                    ans.get("transcription_status") or "",
-                    ans.get("audio_file_path") or "",
-                ]
-            )
-    return buf.getvalue()
+    return render_csv(payload, anonymous=anonymous)
+
+
+def build_survey_results_xlsx(payload: dict[str, Any], *, anonymous: bool = False) -> bytes:
+    from app.services.survey_results_export_service import build_survey_results_xlsx as render_xlsx
+
+    return render_xlsx(payload, anonymous=anonymous)
 
 
 def build_survey_results_html(payload: dict[str, Any]) -> str:
@@ -619,8 +567,9 @@ def build_survey_results_html(payload: dict[str, Any]) -> str:
 
 def build_survey_results_pdf(payload: dict[str, Any]) -> bytes:
     from app.services.invoice_pdf_service import render_html_to_pdf_bytes
+    from app.services.survey_results_export_service import build_survey_results_export_html
 
-    html = build_survey_results_html(payload)
+    html = build_survey_results_export_html(payload)
     return render_html_to_pdf_bytes(html)
 
 
@@ -952,13 +901,25 @@ class SurveyResultsService:
         return build_survey_results_payload(db, order, include_respondents=not anonymous)
 
     @staticmethod
+    def _export_payload(db: Session, order: ServiceOrder) -> tuple[dict[str, Any], bool]:
+        config = _order_config(order)
+        anonymous = bool(config.get("anonymous_responses"))
+        payload = build_survey_results_payload(db, order, include_respondents=True)
+        return payload, anonymous
+
+    @staticmethod
     def export_results_csv(db: Session, order: ServiceOrder) -> str:
-        payload = build_survey_results_payload(db, order, include_respondents=False)
-        return build_survey_results_csv(payload)
+        payload, anonymous = SurveyResultsService._export_payload(db, order)
+        return build_survey_results_csv(payload, anonymous=anonymous)
+
+    @staticmethod
+    def export_results_xlsx(db: Session, order: ServiceOrder) -> bytes:
+        payload, anonymous = SurveyResultsService._export_payload(db, order)
+        return build_survey_results_xlsx(payload, anonymous=anonymous)
 
     @staticmethod
     def export_results_pdf(db: Session, order: ServiceOrder) -> bytes:
-        payload = build_survey_results_payload(db, order, include_respondents=False)
+        payload, _anonymous = SurveyResultsService._export_payload(db, order)
         return build_survey_results_pdf(payload)
 
     @staticmethod

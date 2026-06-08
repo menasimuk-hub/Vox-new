@@ -1840,6 +1840,28 @@ def export_survey_results_pdf(order_id: str, db: Session = Depends(get_db), prin
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/{order_id}/survey-results/export.xlsx")
+def export_survey_results_xlsx(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.survey_results_service import SurveyResultsService
+    from fastapi.responses import Response
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        xlsx_bytes = SurveyResultsService.export_results_xlsx(db, order)
+        filename = f"survey-results-{order_id[:8]}.xlsx"
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)) from e
+
+
 @router.get("/{order_id}/recipients/{recipient_id}/survey-detail")
 def get_survey_recipient_detail(
     order_id: str,

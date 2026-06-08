@@ -36,7 +36,7 @@ def _render_with_weasyprint(html: str) -> bytes | None:
     """Render full HTML/CSS invoice template to PDF (matches browser HTML view)."""
     try:
         from weasyprint import HTML
-    except ImportError:
+    except (ImportError, OSError):
         logger.info("invoice_pdf_weasyprint_missing")
         return None
 
