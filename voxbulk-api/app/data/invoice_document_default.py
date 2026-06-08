@@ -7,8 +7,14 @@ INVOICE_DOCUMENT_BODY = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8"/>
   <title>Invoice {{invoice_number}}</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    html, body { margin: 0; padding: 0; }
+    body { page-break-inside: avoid; }
+    table { page-break-inside: avoid; }
+  </style>
 </head>
-<body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:720px;margin:0 auto;padding:32px 28px;color:#0f172a;line-height:1.5;font-size:14px;">
+<body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:720px;margin:0 auto;padding:24px 20px;color:#0f172a;line-height:1.45;font-size:13px;">
   <table style="width:100%;border-collapse:collapse;margin-bottom:28px;">
     <tr>
       <td style="vertical-align:top;width:55%;">

@@ -185,6 +185,10 @@ class BillingEventEmailService:
         status: str = "issued",
         variables: dict[str, Any] | None = None,
         invoice_row: BillingInvoice | None = None,
+        description: str | None = None,
+        line_items: list[dict[str, Any]] | None = None,
+        payment_method: str | None = None,
+        payment_reference: str | None = None,
     ) -> tuple[BillingInvoice, bool, bool]:
         """
         Returns: (invoice_row, created_row, sent_email)
@@ -203,33 +207,40 @@ class BillingEventEmailService:
             if not em:
                 raise ValueError("client_email required")
 
-            row = BillingInvoice(
-                org_id=str(org_id),
-                provider=prov,
-                external_invoice_id=ext,
-                client_email=em,
-                amount_gbp_pence=int(amount_gbp_pence or 0),
-                currency=(currency or "GBP").strip().upper(),
-                status=(status or "issued").strip().lower(),
-                created_at=datetime.utcnow(),
-            )
-            db.add(row)
-            created = True
-            try:
-                db.commit()
-                db.refresh(row)
-            except IntegrityError:
-                db.rollback()
+            from app.services.invoice_service import InvoiceService
+
+            existing = InvoiceService.get_by_external(db, provider=prov, external_invoice_id=ext)
+            if existing is not None:
+                row = existing
                 created = False
-                row = (
-                    db.execute(
-                        select(BillingInvoice).where(
-                            BillingInvoice.provider == prov, BillingInvoice.external_invoice_id == ext
-                        )
-                    )
-                    .scalars()
-                    .one()
+            else:
+                total_pence = max(0, int(amount_gbp_pence or 0))
+                desc = (description or "").strip() or f"Usage overage invoice ({ext})"
+                items = line_items
+                if not items and total_pence > 0:
+                    items = [
+                        {
+                            "description": desc,
+                            "quantity": 1,
+                            "unit_pence": total_pence,
+                            "total_pence": total_pence,
+                        }
+                    ]
+                row = InvoiceService.create_from_payment(
+                    db,
+                    org_id=str(org_id),
+                    client_email=em,
+                    subtotal_pence=total_pence,
+                    currency=(currency or "GBP").strip().upper(),
+                    description=desc,
+                    provider=prov,
+                    external_invoice_id=ext,
+                    payment_reference=(payment_reference or ext).strip() or ext,
+                    payment_method=(payment_method or "account_billing").strip().lower(),
+                    status=(status or "issued").strip().lower(),
+                    line_items=items,
                 )
+                created = True
 
         if row.emailed_at is not None:
             return row, created, False
@@ -252,14 +263,16 @@ class BillingEventEmailService:
             db.add(row)
             db.commit()
             db.refresh(row)
+            from app.core.logging import safe_log_extra
+
             logger.info(
                 "invoice_created_and_emailed",
-                extra={
-                    "invoice_id": row.id,
-                    "external_invoice_id": row.external_invoice_id,
-                    "org_id": row.org_id,
-                    "created": created,
-                },
+                extra=safe_log_extra(
+                    invoice_id=row.id,
+                    external_invoice_id=row.external_invoice_id,
+                    org_id=row.org_id,
+                    invoice_was_new=created,
+                ),
             )
             return row, created, True
         logger.warning(

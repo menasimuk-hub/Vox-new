@@ -368,19 +368,21 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                     )
                     summary["payment_success_handled"] += 1
                     summary["processed"] += 1
+                    from app.core.logging import safe_log_extra
+
                     logger.info(
                         "gocardless_payment_success_invoice",
-                        extra={
-                            "event_id": event_id,
-                            "payment_id": payment_id,
-                            "subscription_id": subscription_id or None,
-                            "org_id": org_id,
-                            "client_email": client_email,
-                            "invoice_id": invoice.id,
-                            "external_invoice_id": external_invoice_id,
-                            "created": created,
-                            "emailed": emailed,
-                        },
+                        extra=safe_log_extra(
+                            event_id=event_id,
+                            payment_id=payment_id,
+                            subscription_id=subscription_id or None,
+                            org_id=org_id,
+                            client_email=client_email,
+                            invoice_id=invoice.id,
+                            external_invoice_id=external_invoice_id,
+                            invoice_was_new=created,
+                            emailed=emailed,
+                        ),
                     )
                 except Exception as exc:
                     logger.exception(

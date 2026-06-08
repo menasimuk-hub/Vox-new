@@ -685,6 +685,68 @@ class BillingService:
         raise GoCardlessProviderError(f"GoCardless API error {response.status_code}: {detail}")
 
     @staticmethod
+    def collect_mandate_payment(
+        db: Session,
+        *,
+        org_id: str,
+        amount_pence: int,
+        description: str,
+        metadata: dict[str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Charge an existing GoCardless direct-debit mandate (subscription customers)."""
+        charge_pence = max(0, int(amount_pence or 0))
+        if charge_pence <= 0:
+            return None
+
+        sub = BillingService.get_subscription(db, org_id)
+        if sub is None or str(sub.payment_provider or "").strip().lower() != "gocardless":
+            return None
+        ext_sub_id = str(sub.external_subscription_id or "").strip()
+        if not ext_sub_id:
+            return None
+        status = str(sub.status or "").strip().lower()
+        if status not in {"active", "trial", "past_due"}:
+            return None
+
+        config = BillingService._get_gocardless_config(db)
+        headers = BillingService._gocardless_headers(config["access_token"])
+        with httpx.Client(timeout=20) as client:
+            sub_response = client.get(f"{config['api_base']}/subscriptions/{ext_sub_id}", headers=headers)
+        BillingService._raise_for_gocardless_error(sub_response)
+        subscription_payload = sub_response.json().get("subscriptions") or {}
+        mandate_id = str((subscription_payload.get("links") or {}).get("mandate") or "").strip()
+        if not mandate_id:
+            raise GoCardlessProviderError("GoCardless subscription has no mandate link")
+
+        meta_fields = {"org_id": org_id, **(metadata or {})}
+        payment_payload = {
+            "payments": {
+                "amount": charge_pence,
+                "currency": "GBP",
+                "description": str(description or "VOXBULK usage overage")[:255],
+                "links": {"mandate": mandate_id},
+                "metadata": BillingService._gocardless_metadata(**meta_fields),
+            }
+        }
+        with httpx.Client(timeout=20) as client:
+            payment_response = client.post(
+                f"{config['api_base']}/payments",
+                headers=headers,
+                json=payment_payload,
+            )
+        BillingService._raise_for_gocardless_error(payment_response)
+        provider_payment = payment_response.json().get("payments") or {}
+        payment_id = str(provider_payment.get("id") or "").strip()
+        if not payment_id:
+            raise GoCardlessProviderError("GoCardless did not return a payment id")
+        return {
+            "payment_id": payment_id,
+            "status": str(provider_payment.get("status") or "pending_submission"),
+            "mandate_id": mandate_id,
+            "amount_pence": charge_pence,
+        }
+
+    @staticmethod
     def start_gocardless_redirect_flow(
         db: Session,
         *,
@@ -995,16 +1057,18 @@ class BillingService:
                         }
                     ],
                 )
+                from app.core.logging import safe_log_extra
+
                 logger.info(
                     "gocardless_activation_invoice_success",
-                    extra={
-                        "redirect_flow_id": flow_id,
-                        "org_id": org_id,
-                        "invoice_id": invoice.id,
-                        "external_invoice_id": external_invoice_id,
-                        "created": created,
-                        "emailed": emailed,
-                    },
+                    extra=safe_log_extra(
+                        redirect_flow_id=flow_id,
+                        org_id=org_id,
+                        invoice_id=invoice.id,
+                        external_invoice_id=external_invoice_id,
+                        invoice_was_new=created,
+                        emailed=emailed,
+                    ),
                 )
             except Exception as exc:
                 logger.exception(

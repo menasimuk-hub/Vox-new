@@ -67,6 +67,9 @@ start_api() {
   cd "$API_DIR"
   # shellcheck disable=SC1091
   source .venv/bin/activate
+  if [[ "${VOX_SKIP_MIGRATE:-0}" != "1" ]]; then
+    python -m alembic upgrade head || echo "Warning: alembic upgrade failed — API will retry migrations on boot"
+  fi
   nohup uvicorn main:app --host 127.0.0.1 --port 8000 >>"$API_LOG" 2>&1 &
   echo "API started (log: $API_LOG)"
 }

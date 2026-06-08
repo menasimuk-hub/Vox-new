@@ -162,12 +162,24 @@ class EmailTemplateService:
                 and default_body
                 and (not body.strip() or not bool(row.is_enabled))
             )
+            needs_invoice_document_refresh = (
+                key == "invoice_document"
+                and default_body
+                and bool(re.search(r"\{\{#|\{\{/", body))
+            )
             if default_body and key.startswith("interview_") and (
                 "data:image" in body
                 or ("data:" in body and "base64" in body)
                 or needs_calendar_refresh
                 or needs_cancel_refresh
             ):
+                row.body = default_body
+                if default_subject:
+                    row.subject = default_subject
+                row.updated_at = datetime.utcnow()
+                db.add(row)
+                changed = True
+            elif needs_invoice_document_refresh:
                 row.body = default_body
                 if default_subject:
                     row.subject = default_subject

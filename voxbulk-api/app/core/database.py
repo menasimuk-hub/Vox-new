@@ -69,6 +69,8 @@ def ensure_schema_hotfixes() -> None:
         ("service_order_recipients", "ats_status", "VARCHAR(32) NULL"),
         ("service_order_recipients", "ats_hash", "VARCHAR(64) NULL"),
         ("service_order_recipients", "ats_error", "VARCHAR(512) NULL"),
+        ("pricing_global_settings", "wa_survey_extra_pence", "INTEGER NOT NULL DEFAULT 49"),
+        ("org_custom_pricing", "wa_survey_extra_pence", "INTEGER NULL"),
     )
     with engine.begin() as conn:
         for table, column, col_type in patches:
@@ -82,37 +84,36 @@ def ensure_schema_hotfixes() -> None:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
 
 
+def run_database_migrations() -> None:
+    """Apply pending Alembic revisions on every API boot (production included)."""
+    repo_root = Path(__file__).resolve().parents[2]
+    alembic_ini = repo_root / "alembic.ini"
+    if not alembic_ini.is_file():
+        ensure_schema_hotfixes()
+        return
+
+    settings = get_settings()
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config(str(alembic_ini))
+        cfg.set_main_option("sqlalchemy.url", settings.database_url)
+        command.upgrade(cfg, "head")
+        logger.info("database_migrations_applied")
+    except Exception as exc:
+        logger.warning("database_migrations_failed: %s", exc)
+    ensure_schema_hotfixes()
+
+
 def init_db() -> None:
     """Dev/local: migrate schema so SQLite files stay in sync with models (create_all does not add columns)."""
     import app.models  # noqa: F401
 
-    settings = get_settings()
-    url = settings.database_url
-    env_ok = str(settings.env).lower() in {"dev", "development", "local"}
-    repo_root = Path(__file__).resolve().parents[2]
-    alembic_ini = repo_root / "alembic.ini"
-
-    if env_ok and alembic_ini.is_file():
+    run_database_migrations()
+    env_ok = str(get_settings().env).lower() in {"dev", "development", "local"}
+    if env_ok:
         try:
-            from alembic import command
-            from alembic.config import Config
-            from alembic.runtime.migration import MigrationContext
-            from alembic.script import ScriptDirectory
-
-            cfg = Config(str(alembic_ini))
-            cfg.set_main_option("sqlalchemy.url", url)
-            engine = get_engine()
-            with engine.connect() as conn:
-                current = MigrationContext.configure(conn).get_current_revision()
-            head = ScriptDirectory.from_config(cfg).get_current_head()
-            if current == head:
-                ensure_schema_hotfixes()
-                return
-            command.upgrade(cfg, "head")
-            ensure_schema_hotfixes()
-            return
+            Base.metadata.create_all(bind=get_engine())
         except Exception as exc:  # pragma: no cover - best-effort bootstrap
-            logging.getLogger(__name__).warning("alembic upgrade failed; falling back to create_all: %s", exc)
-
-    ensure_schema_hotfixes()
-    Base.metadata.create_all(bind=get_engine())
+            logging.getLogger(__name__).warning("create_all failed: %s", exc)

@@ -13,7 +13,7 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.core.config import get_settings
 from app.core.cors_utils import apply_cors_headers
-from app.core.database import get_sessionmaker, init_db, ensure_schema_hotfixes
+from app.core.database import get_sessionmaker, init_db
 from app.core.logging import configure_logging, get_logger
 from app.core.security import hash_password
 from app.models.membership import OrganisationMembership
@@ -229,9 +229,19 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("runtime_build_info_failed")
     try:
-        ensure_schema_hotfixes()
+        from app.core.database import run_database_migrations
+
+        run_database_migrations()
     except Exception:
-        logger.exception("schema_hotfixes failed — run: alembic upgrade head")
+        logger.exception("database migrations failed — check alembic upgrade head")
+    try:
+        from app.core.database import get_sessionmaker
+        from app.services.email_template_service import EmailTemplateService
+
+        with get_sessionmaker()() as db:
+            EmailTemplateService.ensure_system_templates(db)
+    except Exception:
+        logger.exception("ensure_system_templates failed")
     try:
         from app.core.database import get_sessionmaker
         from app.services.sales_offer_template_service import ensure_default_offer_templates

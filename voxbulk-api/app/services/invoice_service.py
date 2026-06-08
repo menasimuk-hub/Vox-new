@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -25,6 +26,30 @@ def _money(pence: int, currency: str = "GBP") -> str:
     if code == "GBP":
         return f"£{amount:,.2f}"
     return f"{code} {amount:,.2f}"
+
+
+def _payment_method_label(invoice: BillingInvoice) -> str:
+    method = str(invoice.payment_method or "").strip().lower()
+    provider = str(invoice.provider or "").strip().lower()
+    if method == "gocardless" or provider == "gocardless":
+        return "GoCardless direct debit"
+    if provider == "internal_overage":
+        return "Account billing"
+    if method:
+        return method.replace("_", " ").title()
+    if provider:
+        return provider.replace("_", " ").title()
+    return "Invoice"
+
+
+def _invoice_template_body(raw: str) -> str:
+    body = str(raw or "").strip()
+    if not body:
+        return INVOICE_DOCUMENT_BODY
+    if re.search(r"\{\{#|\{\{/", body):
+        logger.warning("invoice_document_template_uses_handlebars_fallback_to_default")
+        return INVOICE_DOCUMENT_BODY
+    return body
 
 
 def _format_address(org: Organisation | None) -> str:
@@ -99,15 +124,18 @@ class InvoiceDocumentService:
                     line_items = parsed
             except json.JSONDecodeError:
                 pass
-        if not line_items and invoice.description:
-            line_items = [
-                {
-                    "description": invoice.description,
-                    "quantity": 1,
-                    "unit_pence": subtotal,
-                    "total_pence": subtotal,
-                }
-            ]
+        if not line_items and invoice.amount_gbp_pence:
+            total_pence = int(invoice.subtotal_pence if invoice.subtotal_pence is not None else invoice.amount_gbp_pence or 0)
+            if total_pence > 0:
+                desc = (invoice.description or "").strip() or "Plan usage overage"
+                line_items = [
+                    {
+                        "description": desc,
+                        "quantity": 1,
+                        "unit_pence": total_pence,
+                        "total_pence": total_pence,
+                    }
+                ]
 
         created = invoice.created_at or datetime.utcnow()
         due = created + timedelta(days=7)
@@ -133,7 +161,7 @@ class InvoiceDocumentService:
             "tax_amount": _money(tax, currency),
             "tax_rate": f"{rate:g}%",
             "currency": currency,
-            "payment_method": (invoice.payment_method or invoice.provider or "—").replace("_", " ").title(),
+            "payment_method": _payment_method_label(invoice),
             "payment_reference": invoice.payment_reference or invoice.external_invoice_id or "—",
             "line_items_html": _line_items_html(line_items, currency),
             "notes": "Thank you for your business. Please retain this invoice for your records.",
@@ -146,10 +174,13 @@ class InvoiceDocumentService:
     @staticmethod
     def render_html(db: Session, *, invoice: BillingInvoice, org: Organisation | None = None) -> str:
         _, template_body, _enabled = EmailTemplateService.get_send_content(db, key="invoice_document")
-        if not str(template_body).strip():
-            template_body = INVOICE_DOCUMENT_BODY
+        template_body = _invoice_template_body(template_body)
         variables = InvoiceDocumentService.build_variables(db, invoice=invoice, org=org)
-        return substitute_placeholders(template_body, variables)
+        html = substitute_placeholders(template_body, variables)
+        if re.search(r"\{\{[a-z_#]", html):
+            logger.warning("invoice_document_unresolved_placeholders_fallback_to_default")
+            html = substitute_placeholders(INVOICE_DOCUMENT_BODY, variables)
+        return html
 
     @staticmethod
     def render_pdf(db: Session, *, invoice: BillingInvoice, org: Organisation | None = None) -> bytes:
@@ -306,15 +337,17 @@ class InvoiceService:
             country_code=country_code,
         )
         _, _, sent = BillingEventEmailService.issue_payment_invoice(db, invoice=invoice)
+        from app.core.logging import safe_log_extra
+
         logger.info(
             "invoice_issue_from_payment",
-            extra={
-                "org_id": org_id,
-                "external_invoice_id": external_invoice_id,
-                "invoice_id": invoice.id,
-                "created": True,
-                "emailed": sent,
-            },
+            extra=safe_log_extra(
+                org_id=org_id,
+                external_invoice_id=external_invoice_id,
+                invoice_id=invoice.id,
+                invoice_was_new=True,
+                emailed=sent,
+            ),
         )
         return invoice, True, sent
 

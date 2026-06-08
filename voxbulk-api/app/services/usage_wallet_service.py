@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.logging import safe_log_extra
 from app.models.org_usage_period import OrgUsagePeriod
 from app.models.organisation import Organisation
 from app.models.plan import Plan
@@ -13,6 +16,8 @@ from app.models.subscription import Subscription
 from app.models.user import User
 from app.models.membership import OrganisationMembership
 from app.services.billing_event_email_service import BillingEventEmailService
+
+logger = logging.getLogger(__name__)
 
 
 class UsageWalletService:
@@ -253,8 +258,20 @@ class UsageWalletService:
     def _after_usage_increment(db: Session, *, org_id: str, row: OrgUsagePeriod, client_email: str | None = None) -> None:
         em = (client_email or "").strip().lower() or UsageWalletService.get_org_billing_email(db, org_id) or ""
         if em:
-            UsageWalletService.maybe_invoice_overage(db, org_id=org_id, client_email=em, row=row)
-        UsageWalletService.maybe_send_80_warning(db, org_id=org_id, row=row)
+            try:
+                UsageWalletService.maybe_invoice_overage(db, org_id=org_id, client_email=em, row=row)
+            except Exception as exc:
+                logger.warning(
+                    "usage_overage_invoice_failed",
+                    extra=safe_log_extra(org_id=org_id, error=str(exc)[:500]),
+                )
+        try:
+            UsageWalletService.maybe_send_80_warning(db, org_id=org_id, row=row)
+        except Exception as exc:
+            logger.warning(
+                "usage_warning_email_failed",
+                extra=safe_log_extra(org_id=org_id, error=str(exc)[:500]),
+            )
 
     @staticmethod
     def record_call_usage(
@@ -376,7 +393,7 @@ class UsageWalletService:
         row: OrgUsagePeriod | None = None,
         min_invoice_pence: int = 100,
     ) -> dict | None:
-        """Create + email an internal invoice for uninvoiced call overage."""
+        """Invoice uninvoiced usage overage — GoCardless DD when available, else internal invoice email."""
         em = (client_email or "").strip().lower()
         if not em:
             return None
@@ -391,9 +408,86 @@ class UsageWalletService:
             return None
 
         org = db.get(Organisation, org_id)
-        org_label = (org.name if org else org_id)[:20].replace(" ", "")
+        org_name = (org.name if org else "your organisation") or "your organisation"
+        org_label = org_name[:20].replace(" ", "")
+        description = f"VOXBULK usage overage — {org_name}"[:255]
+        line_items = [
+            {
+                "description": "Plan usage overage (WA survey recipients & call minutes)",
+                "quantity": 1,
+                "unit_pence": delta,
+                "total_pence": delta,
+            }
+        ]
+
+        gc_result: dict[str, Any] | None = None
+        try:
+            from app.services.gocardless_service import BillingService
+
+            gc_result = BillingService.collect_mandate_payment(
+                db,
+                org_id=org_id,
+                amount_pence=delta,
+                description=description,
+                metadata={"billing": "overage"},
+            )
+        except Exception as exc:
+            logger.warning(
+                "usage_overage_gocardless_collect_failed",
+                extra=safe_log_extra(org_id=org_id, amount_pence=delta, error=str(exc)[:500]),
+            )
+
+        payment_id = str((gc_result or {}).get("payment_id") or "").strip()
+        if payment_id:
+            from app.services.invoice_service import InvoiceService
+
+            payment_status = str((gc_result or {}).get("status") or "pending_submission").lower()
+            invoice_status = "paid" if payment_status == "confirmed" else "pending"
+            invoice_row, invoice_was_new, emailed = InvoiceService.issue_from_payment(
+                db,
+                org_id=org_id,
+                client_email=em,
+                subtotal_pence=delta,
+                currency="GBP",
+                description=description,
+                provider="gocardless",
+                external_invoice_id=payment_id,
+                payment_reference=payment_id,
+                payment_method="gocardless",
+                status=invoice_status,
+                line_items=line_items,
+            )
+            row.overage_invoiced_pence = already + delta
+            row.last_overage_invoice_at = datetime.utcnow()
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            db.commit()
+            logger.info(
+                "usage_overage_gocardless_invoiced",
+                extra=safe_log_extra(
+                    org_id=org_id,
+                    invoice_id=invoice_row.id,
+                    payment_id=payment_id,
+                    amount_gbp_pence=delta,
+                    invoice_was_new=invoice_was_new,
+                    emailed=emailed,
+                    payment_status=payment_status,
+                ),
+            )
+            return {
+                "invoice_id": invoice_row.id,
+                "external_invoice_id": payment_id,
+                "amount_gbp_pence": delta,
+                "provider": "gocardless",
+                "payment_id": payment_id,
+                "payment_status": payment_status,
+                "invoice_was_new": invoice_was_new,
+                "emailed": emailed,
+            }
+
         ext_id = f"OVG-{org_label}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-        invoice_row, created, sent = BillingEventEmailService.create_invoice(
+        overage_desc = "Plan usage overage (WA survey recipients & call minutes)"
+        invoice_row, invoice_was_new, sent = BillingEventEmailService.create_invoice(
             db,
             provider="internal_overage",
             external_invoice_id=ext_id,
@@ -402,13 +496,17 @@ class UsageWalletService:
             amount_gbp_pence=delta,
             currency="GBP",
             status="issued",
+            description=overage_desc,
+            line_items=line_items,
+            payment_method="account_billing",
+            payment_reference=ext_id,
             variables={
                 "invoice_id": ext_id,
                 "amount_gbp_pence": str(delta),
                 "amount": f"£{delta / 100:.2f}",
                 "currency": "GBP",
                 "invoice_status": "issued",
-                "message": f"Usage overage invoice for {org.name if org else 'your organisation'}",
+                "message": f"Usage overage invoice for {org_name}",
             },
         )
         row.overage_invoiced_pence = already + delta
@@ -420,7 +518,8 @@ class UsageWalletService:
             "invoice_id": invoice_row.id,
             "external_invoice_id": ext_id,
             "amount_gbp_pence": delta,
-            "created": created,
+            "provider": "internal_overage",
+            "invoice_was_new": invoice_was_new,
             "emailed": sent,
         }
 
