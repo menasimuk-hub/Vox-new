@@ -654,6 +654,53 @@ class SurveyWaVoiceNoteService:
         return {"ok": True, "job_id": job.id}
 
     @staticmethod
+    def retry_queued_jobs(
+        db: Session,
+        *,
+        statuses: tuple[str, ...] = ("pending", "failed", "retrying"),
+        order_id: str | None = None,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """Re-enqueue all voice-note jobs matching status (e.g. after Celery was down)."""
+        clean_statuses = tuple(
+            dict.fromkeys(str(s or "").strip().lower() for s in statuses if str(s or "").strip())
+        )
+        if not clean_statuses:
+            clean_statuses = ("pending", "failed", "retrying")
+
+        q = select(SurveyVoiceNoteJob).where(SurveyVoiceNoteJob.transcription_status.in_(clean_statuses))
+        if order_id:
+            q = q.where(SurveyVoiceNoteJob.order_id == str(order_id).strip())
+        q = q.order_by(SurveyVoiceNoteJob.created_at.asc()).limit(max(1, min(int(limit or 200), 500)))
+
+        jobs = list(db.execute(q).scalars().all())
+        retried: list[str] = []
+        for job in jobs:
+            job.transcription_status = "pending"
+            job.transcription_error = None
+            job.updated_at = datetime.utcnow()
+            db.add(job)
+            db.flush()
+            SurveyWaVoiceNoteService.enqueue_transcription(job.id)
+            retried.append(job.id)
+        if retried:
+            db.commit()
+        logger.info(
+            "%s bulk_retry_queued count=%s statuses=%s order_id=%s",
+            LOG_PREFIX,
+            len(retried),
+            clean_statuses,
+            order_id,
+        )
+        return {
+            "ok": True,
+            "retried_count": len(retried),
+            "job_ids": retried,
+            "statuses": list(clean_statuses),
+            "order_id": order_id,
+        }
+
+    @staticmethod
     def list_jobs_for_recipient(db: Session, recipient_id: str) -> list[SurveyVoiceNoteJob]:
         return list(
             db.execute(

@@ -966,6 +966,30 @@ def get_wa_survey_session(
     return {"ok": True, **detail}
 
 
+@router.post("/voice-notes/retry-queued")
+def retry_queued_voice_notes(
+    status: str | None = None,
+    order_id: str | None = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Re-enqueue all pending/failed voice-note transcription jobs (e.g. after Celery restart)."""
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+    statuses: tuple[str, ...]
+    if status:
+        statuses = tuple(s.strip().lower() for s in str(status).split(",") if s.strip())
+    else:
+        statuses = ("pending", "failed", "retrying")
+    return SurveyWaVoiceNoteService.retry_queued_jobs(
+        db,
+        statuses=statuses,
+        order_id=order_id,
+        limit=limit,
+    )
+
+
 @router.post("/voice-notes/{job_id}/retry")
 def retry_voice_note_transcription(
     job_id: str,
