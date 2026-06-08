@@ -53,6 +53,26 @@ def test_create_draft_welcome(db):
     assert grouped["templates"]["welcome"]
 
 
+def test_create_draft_final_feedback(db):
+    result = SurveySystemTemplateService.create_draft(
+        db,
+        kind="final_feedback",
+        payload={"display_name": "Closing question"},
+    )
+    assert result["ok"] is True
+    assert result["system_template_kind"] == "final_feedback"
+    assert result["template"]["step_role"] == "final_feedback_text"
+    assert "anything else" in str(result["template"]["body_text"]).lower()
+    grouped = SurveySystemTemplateService.list_grouped_admin(db)
+    assert grouped["templates"]["final_feedback"]
+
+
+def test_system_generate_prompt_includes_final_feedback(db):
+    prompt = SurveySystemTemplateService._system_generate_prompt("final_feedback", count=1)
+    assert "final_feedback_text" in prompt
+    assert "closing" in prompt.lower() or "final" in prompt.lower()
+
+
 def test_orphan_system_template_appears_in_grouped_list(db):
     survey_type = SurveySystemTemplateService.survey_type_for_kind(db, "welcome")
     row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)

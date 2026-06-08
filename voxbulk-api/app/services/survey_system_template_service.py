@@ -144,6 +144,15 @@ def _default_components_for_kind(kind: str) -> list[dict[str, Any]]:
             },
             {"type": "FOOTER", "text": "Reply STOP to opt out"},
         ]
+    if kind == "final_feedback":
+        return [
+            {
+                "type": "BODY",
+                "text": "Please share anything else you'd like us to know.",
+                "example": {"body_text": [["there"]]},
+            },
+            {"type": "FOOTER", "text": "Reply STOP to opt out"},
+        ]
     return [
         {
             "type": "BODY",
@@ -188,6 +197,19 @@ def _system_template_seed(*, kind: str, idx: int) -> dict[str, Any]:
             "step_role": step_role,
             "purpose": "thank_you",
             "outcome_key": "neutral",
+        }
+    elif kind == "final_feedback":
+        body = "Please share anything else you'd like us to know."
+        seed = {
+            "template_name": f"final_feedback_variant_{idx + 1}",
+            "title": f"Closing question variant {idx + 1}",
+            "body": body,
+            "button_type": "none",
+            "buttons": [],
+            "example_values": ["there"],
+            "step_role": step_role,
+            "purpose": "final_feedback",
+            "outcome_key": None,
         }
     else:
         body = (
@@ -727,6 +749,12 @@ class SurveySystemTemplateService:
                 "GLOBAL TELL-US-MORE templates ask for detail after a low rating. "
                 "Use step_role=reason. Prefer button_type=none — user replies with free text. "
                 "Empathetic, non-defensive tone."
+            ),
+            "final_feedback": (
+                "GLOBAL CLOSING QUESTION templates invite optional final open-text feedback "
+                "after the respondent chooses Yes on the closing yes/no step. "
+                "Use step_role=final_feedback_text. Prefer button_type=none — user replies with text or voice. "
+                "Default body: “Please share anything else you'd like us to know.” Warm, optional tone."
             ),
         }[kind]
         extra = f"\nAdmin instructions:\n{instruction.strip()}\n" if instruction.strip() else ""

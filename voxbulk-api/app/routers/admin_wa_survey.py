@@ -1127,12 +1127,17 @@ def create_system_template(
     if not kind:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="system_template_kind is required (welcome, thank_you, tell_us_more).",
+            detail="system_template_kind is required (welcome, thank_you, tell_us_more, final_feedback).",
         )
     try:
         return SurveySystemTemplateService.create_draft(db, kind=kind, payload=body)
     except SurveySystemTemplateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except KeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported system_template_kind configuration: {e}",
+        ) from e
 
 
 @router.post("/system-templates/generate")
@@ -1164,6 +1169,11 @@ def generate_system_templates(
             else status.HTTP_502_BAD_GATEWAY
         )
         raise HTTPException(status_code=status_code, detail=msg) from e
+    except KeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported system_template_kind configuration: {e}",
+        ) from e
 
 
 @router.post("/system-templates/save-generated")
