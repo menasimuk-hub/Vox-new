@@ -103,6 +103,7 @@ class SurveyOutcomeSendService:
                     template_name=str(template_send.get("template_name") or ""),
                     template_language=str(template_send.get("language") or "en_US"),
                     template_components=components if isinstance(components, list) else None,
+                    meter_usage=False,
                 )
                 ok = bool(result.ok)
                 detail = result.detail or ""
@@ -130,6 +131,7 @@ class SurveyOutcomeSendService:
                     org_id=order.org_id,
                     to_number=recipient.phone or "",
                     body=fallback_body,
+                    meter_usage=False,
                 )
                 ok = bool(result.ok)
                 detail = f"template_fallback: {detail}; {result.detail or ''}"
@@ -141,6 +143,7 @@ class SurveyOutcomeSendService:
                 org_id=order.org_id,
                 to_number=recipient.phone or "",
                 body=fallback_body,
+                meter_usage=False,
             )
             ok = bool(result.ok)
             detail = result.detail or ""

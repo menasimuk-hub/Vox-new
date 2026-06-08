@@ -111,10 +111,25 @@ def is_awaiting_final_feedback(conv: dict[str, Any]) -> bool:
     return bool(conv.get("awaiting_final_feedback_text") or conv.get("awaiting_final_feedback_yes_no"))
 
 
+def begin_final_feedback_yes_no(conv: dict[str, Any]) -> None:
+    """Enter optional closing yes/no gate before open-text prompt."""
+    conv["awaiting_final_feedback_yes_no"] = True
+    conv.pop("awaiting_final_feedback_text", None)
+
+
 def begin_final_feedback_open_text(conv: dict[str, Any]) -> None:
-    """Enter the single open-text final feedback stage (no yes/no gate)."""
+    """Enter the open-text final feedback stage after user chooses Yes."""
     conv["awaiting_final_feedback_text"] = True
     conv.pop("awaiting_final_feedback_yes_no", None)
+
+
+def build_final_feedback_yes_no_question(settings: dict[str, Any]) -> dict[str, Any]:
+    question = str(settings.get("yes_no_question") or DEFAULT_YES_NO_QUESTION).strip()
+    return {
+        **YES_NO_MATCH_QUESTION,
+        "text": question or DEFAULT_YES_NO_QUESTION,
+        "step_role": FINAL_FEEDBACK_YES_NO_ROLE,
+    }
 
 
 def should_offer_final_feedback(config: dict[str, Any], conv: dict[str, Any]) -> bool:

@@ -9,6 +9,7 @@ const KIND_OPTIONS = [
   { value: 'welcome', label: 'Welcome' },
   { value: 'thank_you', label: 'Thank you' },
   { value: 'tell_us_more', label: 'Tell us more' },
+  { value: 'final_feedback', label: 'Closing question' },
 ]
 
 const PRIVACY_OPTIONS = [

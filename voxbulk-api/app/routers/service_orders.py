@@ -1732,6 +1732,52 @@ def export_interview_batch_report_csv(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/{order_id}/survey-voice-notes/{job_id}/audio")
+def download_survey_voice_note_audio(
+    order_id: str,
+    job_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+
+    from app.models.survey_voice_note_job import SurveyVoiceNoteJob
+    from app.services.survey_analysis_service import _recipient_result
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    job = db.get(SurveyVoiceNoteJob, job_id)
+    if job is None or not job.audio_file_path or job.audio_deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice note audio not found")
+
+    allowed = False
+    if str(job.order_id or "") == order_id:
+        allowed = True
+    else:
+        recipients = ServiceOrderService.get_recipients(db, order_id)
+        for recipient in recipients:
+            result = _recipient_result(recipient)
+            wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
+            for ans in wa_conv.get("answers") or []:
+                if isinstance(ans, dict) and str(ans.get("voice_note_job_id") or "") == job_id:
+                    allowed = True
+                    break
+            if allowed:
+                break
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice note audio not found")
+
+    path = Path(str(job.audio_file_path))
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice note audio file missing")
+    media_type = str(job.audio_mime_type or "audio/ogg")
+    return FileResponse(path, media_type=media_type, filename=path.name)
+
+
 @router.get("/{order_id}/survey-results")
 def get_survey_results(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.survey_results_service import SurveyResultsService

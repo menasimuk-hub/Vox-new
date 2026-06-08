@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
 from typing import Any
@@ -38,12 +39,13 @@ from app.services.survey_wa_template_pack_service import (
 from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.wa_template_privacy import PRIVACY_MODE_OFF, PRIVACY_MODE_ON, normalize_privacy_mode, resolve_row_privacy_mode
 
-SYSTEM_TEMPLATE_KINDS = ("welcome", "thank_you", "tell_us_more")
+SYSTEM_TEMPLATE_KINDS = ("welcome", "thank_you", "tell_us_more", "final_feedback")
 
 KIND_LABELS: dict[str, str] = {
     "welcome": "Welcome templates",
     "thank_you": "Thank-you templates",
     "tell_us_more": "Tell us more templates",
+    "final_feedback": "Closing question templates",
 }
 
 SYSTEM_SURVEY_TYPES: list[dict[str, Any]] = [
@@ -68,6 +70,13 @@ SYSTEM_SURVEY_TYPES: list[dict[str, Any]] = [
         "description": "Low-rating follow-up prompt — applied automatically when score is low.",
         "sort_order": 30,
     },
+    {
+        "slug": "final_feedback",
+        "name": "Closing question",
+        "system_template_kind": "final_feedback",
+        "description": "Optional closing open-text prompt after Yes on final feedback step.",
+        "sort_order": 35,
+    },
 ]
 
 
@@ -89,6 +98,8 @@ def _step_role_for_kind(kind: str) -> str:
         return "start"
     if kind == "thank_you":
         return "completion"
+    if kind == "final_feedback":
+        return "final_feedback_text"
     return "reason"
 
 
@@ -490,6 +501,61 @@ class SurveySystemTemplateService:
             .limit(1)
         ).scalar_one_or_none()
         return int(row.id) if row is not None else None
+
+    @staticmethod
+    def resolve_final_feedback_template_id(db: Session) -> int | None:
+        SurveySystemTemplateService.ensure_system_survey_types(db)
+        st = db.execute(
+            select(SurveyType).where(SurveyType.system_template_kind == "final_feedback").limit(1)
+        ).scalar_one_or_none()
+        if st is None:
+            return None
+        row = db.execute(
+            select(TelnyxWhatsappTemplate)
+            .join(SurveyTypeTemplate, SurveyTypeTemplate.template_id == TelnyxWhatsappTemplate.id)
+            .where(
+                SurveyTypeTemplate.survey_type_id == st.id,
+                TelnyxWhatsappTemplate.active_for_survey.is_(True),
+            )
+            .order_by(TelnyxWhatsappTemplate.id.asc())
+            .limit(1)
+        ).scalar_one_or_none()
+        return int(row.id) if row is not None else None
+
+    @staticmethod
+    def resolve_final_feedback_prompt(db: Session) -> str:
+        from app.services.survey_wa_final_feedback_service import DEFAULT_OPEN_TEXT_PROMPT
+
+        SurveySystemTemplateService.ensure_system_survey_types(db)
+        st = db.execute(
+            select(SurveyType).where(SurveyType.system_template_kind == "final_feedback").limit(1)
+        ).scalar_one_or_none()
+        if st is None:
+            return DEFAULT_OPEN_TEXT_PROMPT
+        row = db.execute(
+            select(TelnyxWhatsappTemplate)
+            .join(SurveyTypeTemplate, SurveyTypeTemplate.template_id == TelnyxWhatsappTemplate.id)
+            .where(
+                SurveyTypeTemplate.survey_type_id == st.id,
+                TelnyxWhatsappTemplate.active_for_survey.is_(True),
+            )
+            .order_by(TelnyxWhatsappTemplate.id.asc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is None:
+            return DEFAULT_OPEN_TEXT_PROMPT
+        body = str(row.body_preview or "").strip()
+        if not body:
+            try:
+                components = json.loads(row.components_json or "[]")
+                if isinstance(components, list):
+                    for comp in components:
+                        if isinstance(comp, dict) and str(comp.get("type") or "").upper() == "BODY":
+                            body = str(comp.get("text") or "").strip()
+                            break
+            except Exception:
+                pass
+        return body or DEFAULT_OPEN_TEXT_PROMPT
 
     @staticmethod
     def _system_type_meta(kind: str) -> dict[str, Any]:

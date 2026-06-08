@@ -56,13 +56,18 @@ from app.services.survey_wa_inbound_parse_service import (
 from app.services.survey_flow_engine_service import SurveyFlowEngineService
 from app.services.survey_outcome_send_service import SurveyOutcomeSendService
 from app.services.survey_session_service import SurveySessionService
-# WA_FINAL_FEEDBACK_DIRECT_OPEN_TEXT_ACTIVE — direct open-text final feedback (no yes/no gate).
+# WA_FINAL_FEEDBACK_YES_NO_ACTIVE — optional closing yes/no gate before open-text prompt.
 from app.services.survey_wa_final_feedback_service import (
     begin_final_feedback_open_text,
+    begin_final_feedback_yes_no,
+    build_final_feedback_yes_no_question,
     final_feedback_settings,
     is_awaiting_final_feedback,
     log_final_feedback,
+    mark_final_feedback_skipped,
+    parse_final_feedback_yes_no,
     persist_final_feedback_text,
+    persist_final_feedback_yes_no,
     runtime_final_feedback_enabled,
 )
 from app.services.survey_wa_vague_negative_followup_service import (
@@ -2093,14 +2098,78 @@ def _handle_final_feedback_inbound(
     effective_body = reply.normalized_answer or str(body or "").strip()
 
     if conv.get("awaiting_final_feedback_yes_no"):
+        choice = parse_final_feedback_yes_no(effective_body)
+        if not choice:
+            retry_q = build_final_feedback_yes_no_question(settings)
+            retry_body = format_question_message(retry_q, index=total, total=total)
+            _send_message(
+                db,
+                order=order,
+                recipient=recipient,
+                body=retry_body,
+                config=config,
+                question=retry_q,
+            )
+            return {
+                "handled": True,
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+                "final_feedback": "yes_no_retry",
+                "log_id": log_id,
+            }
+        persist_final_feedback_yes_no(payload, choice=choice, settings=settings)
+        conv = payload["wa_conversation"]
+        if choice == "No":
+            mark_final_feedback_skipped(payload, reason="user_declined")
+            conv = payload["wa_conversation"]
+            conv["final_feedback_done"] = True
+            payload["wa_conversation"] = conv
+            payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
+            _save_recipient_result(db, recipient, payload)
+            log_final_feedback(
+                "yes_no_declined_skip_to_thank_you",
+                order_id=order.id,
+                recipient_id=recipient.id,
+                handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
+            )
+            return _complete_linear_survey_thank_you(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                flow=flow,
+                questions=questions,
+                conv=conv,
+                payload=payload,
+                session=session,
+                step=step,
+                total=total,
+                org_name=org_name,
+                organiser=organiser,
+                log_id=log_id,
+                inbound_message_id=inbound_message_id,
+            )
         begin_final_feedback_open_text(conv)
         payload["wa_conversation"] = conv
+        payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
+        _save_recipient_result(db, recipient, payload)
+        prompt = str(settings.get("open_text_prompt") or "").strip()
+        sent = _send_freeform_whatsapp(db, order=order, recipient=recipient, body=prompt)
         log_final_feedback(
-            "legacy_yes_no_migrated_to_open_text",
+            "yes_no_accepted_open_text_prompt_sent",
             order_id=order.id,
             recipient_id=recipient.id,
             handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
+            extra={"sent": sent},
         )
+        return {
+            "handled": True,
+            "order_id": order.id,
+            "recipient_id": recipient.id,
+            "final_feedback": "awaiting_open_text",
+            "sent": sent,
+            "log_id": log_id,
+        }
 
     if conv.get("awaiting_final_feedback_text"):
         voice = _try_voice_note_reply(
@@ -2912,28 +2981,32 @@ def handle_inbound_reply(
     ):
         settings = final_feedback_settings(config)
         log_final_feedback(
-            "enabled_start_open_text",
+            "enabled_start_yes_no",
             order_id=order.id,
             recipient_id=recipient.id,
             handler="survey_whatsapp_conversation_service.handle_inbound_reply",
             extra={
                 "settings": settings,
-                "marker": "WA_FINAL_FEEDBACK_DIRECT_OPEN_TEXT_ACTIVE",
+                "marker": "WA_FINAL_FEEDBACK_YES_NO_ACTIVE",
             },
         )
-        begin_final_feedback_open_text(conv)
+        begin_final_feedback_yes_no(conv)
         payload["wa_conversation"] = conv
         session = SurveySessionService.get_active_by_recipient(db, recipient.id)
         payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
         _save_recipient_result(db, recipient, payload)
-        sent = _send_freeform_whatsapp(
+        yes_no_q = build_final_feedback_yes_no_question(settings)
+        yes_no_body = format_question_message(yes_no_q, index=total, total=total)
+        sent = _send_message(
             db,
             order=order,
             recipient=recipient,
-            body=str(settings.get("open_text_prompt") or ""),
+            body=yes_no_body,
+            config=config,
+            question=yes_no_q,
         )
         log_final_feedback(
-            "open_text_prompt_sent",
+            "yes_no_prompt_sent",
             order_id=order.id,
             recipient_id=recipient.id,
             handler="survey_whatsapp_conversation_service.handle_inbound_reply",
@@ -2943,7 +3016,7 @@ def handle_inbound_reply(
             "handled": True,
             "order_id": order.id,
             "recipient_id": recipient.id,
-            "final_feedback": "awaiting_open_text",
+            "final_feedback": "awaiting_yes_no",
             "sent": sent,
             "log_id": log_id,
         }

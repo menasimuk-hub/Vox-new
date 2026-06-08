@@ -254,7 +254,7 @@ def _seed_final_feedback_order(db, org_id: str):
 
 
 @patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
-def test_final_feedback_sends_open_text_prompt_not_yes_no(mock_send, db):
+def test_final_feedback_sends_yes_no_before_open_text(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     org = Organisation(name="Final Feedback Org")
     db.add(org)
@@ -263,20 +263,19 @@ def test_final_feedback_sends_open_text_prompt_not_yes_no(mock_send, db):
 
     result = handle_inbound_reply(db, from_phone=recipient.phone, body="8", org_id=org_id)
 
-    assert result.get("final_feedback") == "awaiting_open_text"
-    assert result.get("reason") != "final_feedback_yes_no_unparsed"
+    assert result.get("final_feedback") == "awaiting_yes_no"
     db.refresh(recipient)
     payload = json.loads(recipient.result_json or "{}")
     conv = payload.get("wa_conversation") or {}
-    assert conv.get("awaiting_final_feedback_text") is True
-    assert conv.get("awaiting_final_feedback_yes_no") is not True
+    assert conv.get("awaiting_final_feedback_yes_no") is True
+    assert conv.get("awaiting_final_feedback_text") is not True
     sent_bodies = [str(c.kwargs.get("body") or "") for c in mock_send.call_args_list]
-    assert any(DEFAULT_OPEN_TEXT_PROMPT in body for body in sent_bodies)
-    assert not any(DEFAULT_YES_NO_QUESTION in body for body in sent_bodies)
+    assert any(DEFAULT_YES_NO_QUESTION in body for body in sent_bodies)
+    assert not any(DEFAULT_OPEN_TEXT_PROMPT in body for body in sent_bodies)
 
 
 @patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
-def test_final_feedback_text_reply_completes(mock_send, db):
+def test_final_feedback_no_skips_to_thank_you(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     org = Organisation(name="Final Feedback Org")
     db.add(org)
@@ -284,6 +283,25 @@ def test_final_feedback_text_reply_completes(mock_send, db):
     order, recipient, org_id = _seed_final_feedback_order(db, org.id)
 
     handle_inbound_reply(db, from_phone=recipient.phone, body="8", org_id=org_id)
+    result = handle_inbound_reply(db, from_phone=recipient.phone, body="No", org_id=org_id)
+
+    assert result.get("completed") is True
+    db.refresh(recipient)
+    payload = json.loads(recipient.result_json or "{}")
+    assert payload.get("final_feedback_yes_no") == "No"
+    assert payload.get("final_additional_feedback") in (None, "")
+
+
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+def test_final_feedback_yes_then_text_completes(mock_send, db):
+    mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+    org = Organisation(name="Final Feedback Org")
+    db.add(org)
+    db.commit()
+    order, recipient, org_id = _seed_final_feedback_order(db, org.id)
+
+    handle_inbound_reply(db, from_phone=recipient.phone, body="8", org_id=org_id)
+    handle_inbound_reply(db, from_phone=recipient.phone, body="Yes", org_id=org_id)
     final = handle_inbound_reply(db, from_phone=recipient.phone, body="Parking was difficult", org_id=org_id)
 
     assert final.get("completed") is True
@@ -296,7 +314,7 @@ def test_final_feedback_text_reply_completes(mock_send, db):
 
 
 @patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
-def test_legacy_yes_no_state_accepts_text_as_final_feedback(mock_send, db):
+def test_legacy_yes_no_state_parses_yes_then_open_text(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     org = Organisation(name="Final Feedback Org")
     db.add(org)
@@ -308,10 +326,10 @@ def test_legacy_yes_no_state_accepts_text_as_final_feedback(mock_send, db):
     db.add(recipient)
     db.commit()
 
-    result = handle_inbound_reply(db, from_phone=recipient.phone, body="More time with the hygienist", org_id=org_id)
+    result = handle_inbound_reply(db, from_phone=recipient.phone, body="Yes", org_id=org_id)
 
-    assert result.get("completed") is True
-    assert result.get("reason") != "final_feedback_yes_no_unparsed"
+    assert result.get("final_feedback") == "awaiting_open_text"
     db.refresh(recipient)
     saved = json.loads(recipient.result_json or "{}")
-    assert saved.get("final_additional_feedback") == "More time with the hygienist"
+    assert saved.get("final_feedback_yes_no") == "Yes"
+    assert saved["wa_conversation"].get("awaiting_final_feedback_text") is True

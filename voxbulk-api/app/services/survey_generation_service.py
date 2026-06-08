@@ -27,6 +27,7 @@ from app.services.survey_builder_runtime_service import (
     attach_builder_runtime_to_config,
     build_builder_runtime,
 )
+from app.services.survey_system_template_service import SurveySystemTemplateService
 from app.services.survey_flow_constants import FLOW_ENGINE_GRAPH, FLOW_ENGINE_LINEAR
 from app.services.survey_flow_definition_service import SurveyFlowDefinitionService
 from app.services.survey_type_service import SurveyTypeService
@@ -239,6 +240,11 @@ class SurveyGenerationService:
                 business_name=client_name or organisation_name,
                 allow_final_additional_feedback=bool(
                     (builder_config or {}).get("allow_final_additional_feedback", False)
+                ),
+                final_feedback_open_text_prompt=(
+                    SurveySystemTemplateService.resolve_final_feedback_prompt(db)
+                    if (builder_config or {}).get("allow_final_additional_feedback")
+                    else None
                 ),
             )
             order_config_extras = attach_builder_runtime_to_config({}, builder_runtime)

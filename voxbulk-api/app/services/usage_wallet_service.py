@@ -139,7 +139,7 @@ class UsageWalletService:
         }
 
     @staticmethod
-    def _calc_overage_pence(row: OrgUsagePeriod, db: Session | None = None, org_id: str | None = None) -> int:
+    def _overage_breakdown_pence(row: OrgUsagePeriod, db: Session | None = None, org_id: str | None = None) -> dict[str, int]:
         calls_overage = max(0, int(row.calls_used or 0) - int(row.calls_included or 0))
         call_pence = calls_overage * int(row.overage_per_min_pence or 0)
         wa_used = int(row.whatsapp_used or 0)
@@ -154,7 +154,42 @@ class UsageWalletService:
                 wa_extra_pence = int(rates.get("wa_survey_extra_pence") or 49)
             except Exception:
                 pass
-        return call_pence + wa_overage_units * wa_extra_pence
+        wa_pence = wa_overage_units * wa_extra_pence
+        return {
+            "call_minutes_overage": calls_overage,
+            "call_overage_pence": call_pence,
+            "wa_recipient_overage": wa_overage_units,
+            "wa_overage_pence": wa_pence,
+            "total_overage_pence": call_pence + wa_pence,
+            "wa_extra_pence": wa_extra_pence,
+        }
+
+    @staticmethod
+    def _calc_overage_pence(row: OrgUsagePeriod, db: Session | None = None, org_id: str | None = None) -> int:
+        breakdown = UsageWalletService._overage_breakdown_pence(row, db, org_id)
+        return int(breakdown["total_overage_pence"])
+
+    @staticmethod
+    def _overage_breakdown_pence_from_invoiced(
+        invoiced_pence: int,
+        wa_extra_pence: int,
+        overage_per_min_pence: int,
+    ) -> dict[str, int]:
+        """Best-effort split of already-invoiced overage (WA priced first, then call minutes)."""
+        remaining = max(0, int(invoiced_pence or 0))
+        wa_unit = max(1, int(wa_extra_pence or 49))
+        wa_units = remaining // wa_unit if remaining >= wa_unit else 0
+        wa_pence = wa_units * wa_unit
+        remaining -= wa_pence
+        rate = max(0, int(overage_per_min_pence or 0))
+        call_mins = remaining // rate if rate > 0 and remaining >= rate else 0
+        call_pence = call_mins * rate
+        return {
+            "wa_recipient_overage": wa_units,
+            "wa_overage_pence": wa_pence,
+            "call_minutes_overage": call_mins,
+            "call_overage_pence": call_pence,
+        }
 
     @staticmethod
     def get_org_billing_email(db: Session, org_id: str) -> str | None:
@@ -407,18 +442,52 @@ class UsageWalletService:
         if delta < int(min_invoice_pence):
             return None
 
+        breakdown = UsageWalletService._overage_breakdown_pence(row, db, org_id)
+        already_breakdown = UsageWalletService._overage_breakdown_pence_from_invoiced(
+            already, breakdown["wa_extra_pence"], int(row.overage_per_min_pence or 0)
+        )
+        call_delta = max(0, breakdown["call_overage_pence"] - already_breakdown["call_overage_pence"])
+        wa_delta = max(0, breakdown["wa_overage_pence"] - already_breakdown["wa_overage_pence"])
+        line_items: list[dict[str, Any]] = []
+        if wa_delta > 0:
+            wa_units = breakdown["wa_recipient_overage"] - already_breakdown.get("wa_recipient_overage", 0)
+            unit = int(breakdown["wa_extra_pence"] or 49)
+            line_items.append(
+                {
+                    "description": f"WA survey overage ({max(1, wa_units)} extra recipient{'s' if wa_units != 1 else ''} × £{unit / 100:.2f})",
+                    "quantity": max(1, wa_units),
+                    "unit_pence": unit,
+                    "total_pence": wa_delta,
+                    "kind": "wa_survey",
+                }
+            )
+        if call_delta > 0:
+            mins = breakdown["call_minutes_overage"] - already_breakdown.get("call_minutes_overage", 0)
+            rate = int(row.overage_per_min_pence or 0)
+            line_items.append(
+                {
+                    "description": f"AI call minutes overage ({max(1, mins)} min × £{rate / 100:.2f}/min)",
+                    "quantity": max(1, mins),
+                    "unit_pence": rate,
+                    "total_pence": call_delta,
+                    "kind": "call_minutes",
+                }
+            )
+        if not line_items:
+            line_items = [
+                {
+                    "description": "Plan usage overage (WA survey recipients & call minutes)",
+                    "quantity": 1,
+                    "unit_pence": delta,
+                    "total_pence": delta,
+                    "kind": "combined",
+                }
+            ]
+
         org = db.get(Organisation, org_id)
         org_name = (org.name if org else "your organisation") or "your organisation"
         org_label = org_name[:20].replace(" ", "")
         description = f"VOXBULK usage overage — {org_name}"[:255]
-        line_items = [
-            {
-                "description": "Plan usage overage (WA survey recipients & call minutes)",
-                "quantity": 1,
-                "unit_pence": delta,
-                "total_pence": delta,
-            }
-        ]
 
         gc_result: dict[str, Any] | None = None
         try:

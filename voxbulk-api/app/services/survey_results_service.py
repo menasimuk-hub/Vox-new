@@ -107,6 +107,256 @@ def normalize_nps_display(raw_nps: float | int | None) -> dict[str, Any]:
     return {"score": score, "label": label, "raw": round(raw, 1)}
 
 
+def _parse_numeric_score(raw: str) -> int | None:
+    text = str(raw or "").strip()
+    if not text or not text.isdigit():
+        return None
+    try:
+        value = int(text)
+    except ValueError:
+        return None
+    if 0 <= value <= 10:
+        return value
+    return None
+
+
+def _nps_bucket(score: int) -> str:
+    if score >= 9:
+        return "promoter"
+    if score >= 7:
+        return "passive"
+    return "detractor"
+
+
+def _sentiment_bucket_for_score(score: int) -> str:
+    if score >= 9:
+        return "positive"
+    if score >= 7:
+        return "neutral"
+    return "negative"
+
+
+def _is_rating_answer(item: dict[str, Any]) -> bool:
+    role = str(item.get("step_role") or "").lower()
+    if role == "rating":
+        return _parse_numeric_score(str(item.get("answer") or "")) is not None
+    if role in {"reason", "final_feedback_text"}:
+        return False
+    return _parse_numeric_score(str(item.get("answer") or "")) is not None
+
+
+def _normalize_answer_source(item: dict[str, Any]) -> str:
+    source = str(item.get("answer_source") or "").strip().lower()
+    if source == "voice_note":
+        return "voice"
+    return "text"
+
+
+def _voice_audio_api_path(order_id: str, job_id: str | None) -> str | None:
+    clean = str(job_id or "").strip()
+    if not clean or not order_id:
+        return None
+    return f"/service-orders/{order_id}/survey-voice-notes/{clean}/audio"
+
+
+def _serialize_open_answer(item: dict[str, Any], *, order_id: str | None = None) -> dict[str, Any]:
+    transcript = resolve_answer_text(item)
+    source = _normalize_answer_source(item)
+    job_id = str(item.get("voice_note_job_id") or "").strip() or None
+    return {
+        "question": str(item.get("question") or "Feedback").strip(),
+        "step_role": str(item.get("step_role") or "").strip() or None,
+        "answer_source": source,
+        "transcript": transcript or None,
+        "transcription_status": str(item.get("transcription_status") or "").strip() or None,
+        "detected_language": str(item.get("detected_language") or "").strip() or None,
+        "voice_note_job_id": job_id,
+        "audio_url": _voice_audio_api_path(order_id or "", job_id) if order_id and source == "voice" else None,
+        "text": transcript or None,
+    }
+
+
+def _collect_open_feedback(recipient: ServiceOrderRecipient, *, order_id: str | None = None) -> list[dict[str, Any]]:
+    result = _recipient_result(recipient)
+    wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
+    answers = wa_conv.get("answers") if isinstance(wa_conv.get("answers"), list) else []
+    out: list[dict[str, Any]] = []
+    open_roles = {"reason", "final_feedback_text", "followup", "tell_us_more"}
+    for item in answers:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("step_role") or "").lower()
+        reply_type = str(item.get("reply_type") or "").lower()
+        if role not in open_roles and reply_type not in {"long_text", "text"}:
+            continue
+        if answer_has_pending_transcription(item):
+            continue
+        text = resolve_answer_text(item)
+        if not text and _normalize_answer_source(item) != "voice":
+            continue
+        row = _serialize_open_answer(item, order_id=order_id)
+        if row.get("transcript") or row.get("answer_source") == "voice":
+            out.append(row)
+    return out
+
+
+def compute_wa_survey_metrics(recipients: list[ServiceOrderRecipient]) -> dict[str, Any]:
+    promoters = passives = detractors = 0
+    sentiment_counts: Counter[str] = Counter()
+    recommend_scores: list[float] = []
+
+    for row in recipients:
+        if str(row.status or "").lower() != "completed":
+            continue
+        result = _recipient_result(row)
+        wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
+        answers = wa_conv.get("answers") if isinstance(wa_conv.get("answers"), list) else []
+        rating_score: int | None = None
+        for item in answers:
+            if not isinstance(item, dict) or not _is_rating_answer(item):
+                continue
+            if answer_has_pending_transcription(item):
+                continue
+            score = _parse_numeric_score(str(item.get("answer") or ""))
+            if score is None:
+                continue
+            rating_score = score
+            bucket = _nps_bucket(score)
+            if bucket == "promoter":
+                promoters += 1
+            elif bucket == "passive":
+                passives += 1
+            else:
+                detractors += 1
+            sentiment_counts[_sentiment_bucket_for_score(score)] += 1
+            recommend_scores.append(float(score))
+        if rating_score is None:
+            for key in ("recommend_score", "satisfaction_score"):
+                raw = result.get(key)
+                if raw is None and isinstance(result.get("analysis"), dict):
+                    raw = result["analysis"].get(key)
+                if raw is None:
+                    continue
+                try:
+                    score = int(float(raw))
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= score <= 10:
+                    rating_score = score
+                    bucket = _nps_bucket(score)
+                    if bucket == "promoter":
+                        promoters += 1
+                    elif bucket == "passive":
+                        passives += 1
+                    else:
+                        detractors += 1
+                    sentiment_counts[_sentiment_bucket_for_score(score)] += 1
+                    recommend_scores.append(float(score))
+                    break
+
+    nps_responses = promoters + passives + detractors
+    raw_nps = None
+    if nps_responses:
+        raw_nps = round(((promoters - detractors) / nps_responses) * 100, 1)
+    nps_display = normalize_nps_display(raw_nps)
+    nps_den = max(1, nps_responses)
+    avg_recommend = round(sum(recommend_scores) / len(recommend_scores), 1) if recommend_scores else None
+    return {
+        "nps_score": nps_display["score"],
+        "nps_label": nps_display["label"],
+        "nps_score_raw": nps_display["raw"],
+        "nps_promoters_pct": round((promoters / nps_den) * 100) if nps_responses else 0,
+        "nps_passives_pct": round((passives / nps_den) * 100) if nps_responses else 0,
+        "nps_detractors_pct": round((detractors / nps_den) * 100) if nps_responses else 0,
+        "nps_promoters": promoters,
+        "nps_passives": passives,
+        "nps_detractors": detractors,
+        "average_recommend_score": avg_recommend,
+        "recommend_pct": _recommend_pct(recommend_scores),
+        "sentiment_counts": dict(sentiment_counts),
+    }
+
+
+def build_org_survey_weekly_trend(db: Session, order: ServiceOrder, *, weeks: int = 8) -> list[dict[str, Any]]:
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import select
+
+    since = datetime.utcnow() - timedelta(weeks=weeks)
+    rows = list(
+        db.execute(
+            select(ServiceOrder)
+            .where(
+                ServiceOrder.org_id == order.org_id,
+                ServiceOrder.service_code == "survey",
+                ServiceOrder.created_at >= since,
+            )
+            .order_by(ServiceOrder.created_at.asc())
+        ).scalars()
+    )
+    buckets: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not row.created_at:
+            continue
+        week_start = row.created_at.date() - timedelta(days=row.created_at.weekday())
+        label = week_start.strftime("%d %b")
+        bucket = buckets.setdefault(
+            label,
+            {
+                "week": label,
+                "week_start": week_start.isoformat(),
+                "surveys": 0,
+                "completed_count": 0,
+                "total_recipients": 0,
+                "response_rate_pct": 0,
+                "nps_score": None,
+            },
+        )
+        bucket["surveys"] += 1
+        recipients = ServiceOrderService.get_recipients(db, row.id)
+        total = len(recipients)
+        completed = sum(1 for r in recipients if str(r.status or "").lower() == "completed")
+        bucket["completed_count"] += completed
+        bucket["total_recipients"] += total
+        metrics = compute_wa_survey_metrics(recipients)
+        if metrics.get("nps_score_raw") is not None:
+            bucket["nps_score"] = metrics["nps_score"]
+    trend: list[dict[str, Any]] = []
+    for bucket in buckets.values():
+        total = int(bucket.get("total_recipients") or 0)
+        completed = int(bucket.get("completed_count") or 0)
+        bucket["response_rate_pct"] = round((completed / total) * 100) if total else 0
+        trend.append(bucket)
+    trend.sort(key=lambda item: str(item.get("week_start") or ""))
+    return trend[-weeks:]
+
+
+def _aggregate_breakdown(question: str, counter: Counter[str], meta_items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not meta_items or not all(_is_rating_answer(item) for item in meta_items):
+        return None
+    groups = {"positive": 0, "neutral": 0, "negative": 0}
+    for item in meta_items:
+        if answer_has_pending_transcription(item):
+            continue
+        score = _parse_numeric_score(str(item.get("answer") or ""))
+        if score is None:
+            continue
+        groups[_sentiment_bucket_for_score(score)] += 1
+    total = sum(groups.values())
+    if total <= 0:
+        return None
+    return {
+        "type": "sentiment_breakdown",
+        "groups": [
+            {"label": "Positive", "key": "positive", "count": groups["positive"], "pct": round((groups["positive"] / total) * 100)},
+            {"label": "Neutral", "key": "neutral", "count": groups["neutral"], "pct": round((groups["neutral"] / total) * 100)},
+            {"label": "Negative", "key": "negative", "count": groups["negative"], "pct": round((groups["negative"] / total) * 100)},
+        ],
+        "total": total,
+        "question": question,
+    }
+
+
 def _recommendations_fingerprint(summary: dict[str, Any], aggregates: list[dict[str, Any]]) -> str:
     import hashlib
 
@@ -225,6 +475,7 @@ def derive_survey_recommendations(
 def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dict[str, Any]]:
     """Anonymous roll-up of extracted answers — no respondent names."""
     buckets: dict[str, Counter[str]] = {}
+    meta: dict[str, list[dict[str, Any]]] = {}
 
     for row in recipients:
         if str(row.status or "").lower() != "completed":
@@ -249,15 +500,37 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
             if answer_has_pending_transcription(item):
                 continue
             answer = resolve_answer_text(item)
-            if not question or not answer:
+            if not question:
+                continue
+            if _is_rating_answer(item):
+                score = _parse_numeric_score(str(item.get("answer") or answer))
+                if score is None:
+                    continue
+                label = str(score)
+                buckets.setdefault(question, Counter())[label] += 1
+                meta.setdefault(question, []).append(item)
+                continue
+            if not answer:
                 continue
             buckets.setdefault(question, Counter())[answer] += 1
+            meta.setdefault(question, []).append(item)
 
     aggregates: list[dict[str, Any]] = []
     for question, counter in buckets.items():
         total = sum(counter.values())
         responses = [{"answer": label, "count": count} for label, count in counter.most_common(12)]
-        aggregates.append({"question": question, "total": total, "responses": responses})
+        block: dict[str, Any] = {
+            "question": question,
+            "total": total,
+            "responses": responses,
+            "visualization": "choice",
+        }
+        breakdown = _aggregate_breakdown(question, counter, meta.get(question) or [])
+        if breakdown:
+            block["visualization"] = "sentiment_breakdown"
+            block["breakdown"] = breakdown["groups"]
+            block["step_role"] = str((meta.get(question) or [{}])[0].get("step_role") or "rating")
+        aggregates.append(block)
 
     aggregates.sort(key=lambda row: (-int(row.get("total") or 0), str(row.get("question") or "")))
     return aggregates
@@ -340,7 +613,12 @@ def build_survey_results_pdf(payload: dict[str, Any]) -> bytes:
     return render_html_to_pdf_bytes(html)
 
 
-def recipient_summary_row(recipient: ServiceOrderRecipient, *, goal: str) -> dict[str, Any]:
+def recipient_summary_row(
+    recipient: ServiceOrderRecipient,
+    *,
+    goal: str,
+    order_id: str | None = None,
+) -> dict[str, Any]:
     result = _recipient_result(recipient)
     analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
     wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
@@ -353,6 +631,23 @@ def recipient_summary_row(recipient: ServiceOrderRecipient, *, goal: str) -> dic
     satisfaction = analysis.get("satisfaction_score", result.get("satisfaction_score"))
     sentiment = analysis.get("sentiment", result.get("sentiment"))
     short_summary = analysis.get("short_summary", result.get("short_summary"))
+    open_feedback = _collect_open_feedback(recipient, order_id=order_id)
+    quote = str(short_summary or "").strip()
+    if not quote and open_feedback:
+        quote = str(open_feedback[0].get("transcript") or open_feedback[0].get("text") or "").strip()
+    if not quote:
+        quote = str(
+            result.get("final_additional_feedback") or wa_conv.get("final_additional_feedback") or ""
+        ).strip()
+
+    recommend_score = analysis.get("recommend_score", result.get("recommend_score"))
+    if recommend_score is None:
+        for item in wa_conv.get("answers") or []:
+            if isinstance(item, dict) and _is_rating_answer(item):
+                score = _parse_numeric_score(str(item.get("answer") or ""))
+                if score is not None:
+                    recommend_score = score
+                    break
 
     return {
         "id": recipient.id,
@@ -365,9 +660,12 @@ def recipient_summary_row(recipient: ServiceOrderRecipient, *, goal: str) -> dic
         "duration_label": _format_duration(duration_seconds),
         "goal": goal,
         "satisfaction_score": satisfaction,
+        "recommend_score": recommend_score,
         "sentiment": sentiment,
         "sentiment_label": _sentiment_label(str(sentiment or "")),
         "short_summary": str(short_summary or "").strip() or None,
+        "quote": quote or None,
+        "theme": _sentiment_label(str(sentiment or "")),
         "has_transcript": bool(str(result.get("transcript") or "").strip()),
         "has_analysis": bool(result.get("analysis_saved_at")),
         "final_additional_feedback": str(
@@ -376,6 +674,8 @@ def recipient_summary_row(recipient: ServiceOrderRecipient, *, goal: str) -> dic
         or None,
         "final_feedback_yes_no": result.get("final_feedback_yes_no") or wa_conv.get("final_feedback_yes_no"),
         "wa_answers": wa_conv.get("answers") or [],
+        "open_feedback": open_feedback,
+        "voice_responses": [row for row in open_feedback if row.get("answer_source") == "voice"],
     }
 
 
@@ -436,31 +736,40 @@ def build_whatsapp_survey_results_payload(
     completed_count = len(completed)
     response_rate = round((completed_count / total) * 100) if total else 0
     aggregates = build_answer_aggregates(recipients)
+    wa_metrics = compute_wa_survey_metrics(recipients)
+    voice_feedback: list[dict[str, Any]] = []
+    for recipient in completed:
+        for row in _collect_open_feedback(recipient, order_id=order.id):
+            voice_feedback.append({"respondent_id": recipient.id, "respondent_initials": _initials(recipient.name), **row})
     summary = {
         "total_recipients": total,
         "completed_count": completed_count,
         "response_rate_pct": response_rate,
-        "average_satisfaction_10": None,
-        "average_satisfaction_5": None,
-        "average_recommend_score": None,
-        "recommend_pct": None,
-        "nps_score": None,
-        "nps_label": None,
-        "nps_score_raw": None,
-        "nps_promoters_pct": 0,
-        "nps_passives_pct": 0,
-        "nps_detractors_pct": 0,
-        "nps_promoters": 0,
-        "nps_passives": 0,
-        "nps_detractors": 0,
+        "average_satisfaction_10": wa_metrics.get("average_recommend_score"),
+        "average_satisfaction_5": round(float(wa_metrics["average_recommend_score"]) / 2, 1)
+        if wa_metrics.get("average_recommend_score") is not None
+        else None,
+        "average_recommend_score": wa_metrics.get("average_recommend_score"),
+        "recommend_pct": wa_metrics.get("recommend_pct"),
+        "nps_score": wa_metrics.get("nps_score"),
+        "nps_label": wa_metrics.get("nps_label"),
+        "nps_score_raw": wa_metrics.get("nps_score_raw"),
+        "nps_promoters_pct": wa_metrics.get("nps_promoters_pct", 0),
+        "nps_passives_pct": wa_metrics.get("nps_passives_pct", 0),
+        "nps_detractors_pct": wa_metrics.get("nps_detractors_pct", 0),
+        "nps_promoters": wa_metrics.get("nps_promoters", 0),
+        "nps_passives": wa_metrics.get("nps_passives", 0),
+        "nps_detractors": wa_metrics.get("nps_detractors", 0),
         "average_call_duration_seconds": None,
-        "average_call_duration_label": None,
-        "sentiment_counts": {},
+        "average_call_duration_label": "WhatsApp survey",
+        "sentiment_counts": wa_metrics.get("sentiment_counts") or {},
         "top_issues": [],
         "top_tags": [],
         "analyzed_count": completed_count,
         "pending_analysis": max(0, total - completed_count),
         "channel_note": report.get("note") or "WhatsApp survey",
+        "voice_feedback_count": len([row for row in voice_feedback if row.get("answer_source") == "voice"]),
+        "open_feedback_count": len(voice_feedback),
     }
     recommendations = ensure_action_recommendations(
         db,
@@ -475,6 +784,7 @@ def build_whatsapp_survey_results_payload(
         "order": {
             "id": order.id,
             "title": order.title,
+            "survey_name": order.title,
             "status": order.status,
             "goal": goal,
             "organisation_name": org_name or None,
@@ -486,7 +796,13 @@ def build_whatsapp_survey_results_payload(
         },
         "summary": summary,
         "aggregates": aggregates,
-        "respondents": [recipient_summary_row(r, goal=goal) for r in recipients] if include_respondents else [],
+        "weekly_trend": build_org_survey_weekly_trend(db, order),
+        "voice_feedback": voice_feedback,
+        "respondents": [
+            recipient_summary_row(r, goal=goal, order_id=order.id) for r in recipients
+        ]
+        if include_respondents
+        else [],
         "recommendations": recommendations,
     }
 
@@ -601,7 +917,11 @@ def build_survey_results_payload(
         },
         "summary": summary,
         "aggregates": aggregates,
-        "respondents": [recipient_summary_row(r, goal=goal) for r in recipients] if include_respondents else [],
+        "respondents": [
+            recipient_summary_row(r, goal=goal, order_id=order.id) for r in recipients
+        ]
+        if include_respondents
+        else [],
         "recommendations": recommendations,
     }
 
