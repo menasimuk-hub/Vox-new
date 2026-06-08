@@ -246,7 +246,8 @@ function CreateSurvey() {
 
   React.useEffect(() => {
     const restored = (orderIdSearch || "").trim();
-    if (restored && !orderId) setOrderId(restored);
+    if (!restored || restored.toLowerCase() === "new") return;
+    if (!orderId) setOrderId(restored);
   }, [orderIdSearch, orderId]);
 
   React.useEffect(() => {
@@ -395,6 +396,11 @@ function CreateSurvey() {
   }, [orderId, createM, surveyName, goal, channel, anonymous, script, packageId]);
 
   const resolvedPageRolesRef = React.useRef<string[]>([]);
+
+  const businessName = React.useMemo(() => {
+    const org = orgQ.data;
+    return String(org?.display_name || org?.name || "").trim();
+  }, [orgQ.data]);
 
   const buildDraftConfig = React.useCallback(() => {
     const persisted = (orderQ.data?.config || {}) as Record<string, unknown>;
@@ -641,11 +647,6 @@ function CreateSurvey() {
     if (fromUser) return fromUser;
     return String(orgQ.data?.contact_phone || "").trim();
   }, [session?.profile, orgQ.data?.contact_phone]);
-
-  const businessName = React.useMemo(() => {
-    const org = orgQ.data;
-    return String(org?.display_name || org?.name || "").trim();
-  }, [orgQ.data]);
 
   const delivery = channel === "whatsapp" ? "whatsapp" : "ai_call";
 

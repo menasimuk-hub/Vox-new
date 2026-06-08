@@ -41,6 +41,8 @@ function SurveyDetail() {
   const { session } = useSession();
 
   React.useEffect(() => {
+    const reserved = new Set(["new", "results", "reports"]);
+    if (reserved.has(String(id || "").toLowerCase())) return;
     void navigate({ to: "/surveys/new", search: { order_id: id }, replace: true });
   }, [id, navigate]);
   const orderQ = useServiceOrder(id);
