@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Any
@@ -13,6 +14,8 @@ from app.models.plan import Plan
 from app.models.pricing import OrgCustomPricing, PricingGlobalSettings, TopupTier
 from app.models.platform_service import PlatformService, ServicePricingRule
 from app.services.platform_catalog_service import PlatformCatalogService
+
+logger = logging.getLogger(__name__)
 
 MARKETS = ("gbp", "aud", "cad", "usd")
 MARKET_SYMBOLS = {"gbp": "£", "aud": "A$", "cad": "CA$", "usd": "$"}
@@ -709,7 +712,11 @@ class VoxbulkPricingService:
     def seed_voxbulk_plans(db: Session) -> None:
         """Ensure VoxBulk Pay-as-you-go, Starter/Pro/Business/Enterprise plans exist."""
         VoxbulkPricingService.get_settings(db)
-        PlatformCatalogService.ensure_defaults(db)
+        try:
+            PlatformCatalogService.ensure_defaults(db)
+        except Exception as exc:
+            logger.warning("pricing_seed_platform_catalog_skipped: %s", exc)
+            db.rollback()
         now = datetime.utcnow()
         settings = VoxbulkPricingService.get_settings(db)
         per_min = int(settings.interview_per_min_pence or 35)

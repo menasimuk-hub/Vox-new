@@ -236,15 +236,6 @@ async def lifespan(app: FastAPI):
         logger.exception("database migrations failed — check alembic upgrade head")
     try:
         from app.core.database import get_sessionmaker
-        from app.services.voxbulk_pricing_service import VoxbulkPricingService
-
-        with get_sessionmaker()() as db:
-            VoxbulkPricingService.ensure_seeded(db)
-            logger.info("pricing_plans_seeded_on_boot")
-    except Exception:
-        logger.exception("pricing_seed_on_boot_failed")
-    try:
-        from app.core.database import get_sessionmaker
         from app.services.email_template_service import EmailTemplateService
 
         with get_sessionmaker()() as db:
@@ -384,6 +375,17 @@ async def db_programming_error_handler(request: Request, exc: ProgrammingError):
     detail = hint or "Database error — check API logs."
     response = JSONResponse(status_code=503, content={"detail": detail})
     return apply_cors_headers(request, response, get_settings())
+
+
+@app.get("/health/pricing", tags=["health"])
+def health_pricing():
+    from app.services.pricing_bootstrap_service import get_pricing_bootstrap_status
+
+    status = get_pricing_bootstrap_status()
+    return {
+        "status": "ok" if status.get("ok") else "not_ready",
+        **status,
+    }
 
 
 @app.get("/health", tags=["health"])

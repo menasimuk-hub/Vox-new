@@ -171,9 +171,11 @@ def run_database_migrations() -> None:
     alembic_ini = repo_root / "alembic.ini"
     if not alembic_ini.is_file():
         ensure_pricing_schema()
+        _run_pricing_bootstrap_after_migrations()
         return
 
     settings = get_settings()
+    logger.info("database_migrations_start")
     try:
         from alembic import command
         from alembic.config import Config
@@ -183,8 +185,24 @@ def run_database_migrations() -> None:
         command.upgrade(cfg, "head")
         logger.info("database_migrations_applied")
     except Exception as exc:
-        logger.warning("database_migrations_failed: %s", exc)
-    ensure_pricing_schema()
+        logger.exception("database_migrations_failed: %s", exc)
+    try:
+        ensure_pricing_schema()
+        logger.info("database_migrations_schema_hotfix_ok")
+    except Exception as exc:
+        logger.exception("database_migrations_schema_hotfix_failed: %s", exc)
+    _run_pricing_bootstrap_after_migrations()
+    logger.info("database_migrations_complete")
+
+
+def _run_pricing_bootstrap_after_migrations() -> None:
+    from app.services.pricing_bootstrap_service import bootstrap_pricing_on_startup
+
+    try:
+        with get_sessionmaker()() as db:
+            bootstrap_pricing_on_startup(db)
+    except Exception as exc:
+        logger.exception("pricing_bootstrap_after_migrations_failed: %s", exc)
 
 
 def init_db() -> None:
