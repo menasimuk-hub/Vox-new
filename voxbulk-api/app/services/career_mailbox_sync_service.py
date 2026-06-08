@@ -165,12 +165,6 @@ def _process_message(db: Session, msg: Message) -> tuple[str, int]:
             db, order, parsed=parsed, storage_key=key, sender_email=reply_to or None
         )
         order = _order
-        from app.services.interview_email_ats_service import auto_ats_after_email_cv
-
-        ats_result = auto_ats_after_email_cv(db, order, recipient, is_update=True)
-        if ats_result.get("reason") == "ats_below_threshold":
-            _reply_auto_excluded(db, to_addr=reply_to)
-            return "rejected_ats_score", 0
         from app.services.interview_cv_collection_service import maybe_close_cv_collection_on_limit
 
         maybe_close_cv_collection_on_limit(db, order)

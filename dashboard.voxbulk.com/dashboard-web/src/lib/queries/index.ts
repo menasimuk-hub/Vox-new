@@ -677,6 +677,28 @@ export function useApplyInterviewAtsThreshold(orderId: string | null) {
   });
 }
 
+export function usePatchInterviewRecipient(orderId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { recipientId: string; phone?: string; email?: string; name?: string }) =>
+      apiFetch<Record<string, unknown>>(
+        `/service-orders/${encodeURIComponent(orderId!)}/recipients/${encodeURIComponent(args.recipientId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            ...(args.phone !== undefined ? { phone: args.phone } : {}),
+            ...(args.email !== undefined ? { email: args.email } : {}),
+            ...(args.name !== undefined ? { name: args.name } : {}),
+          }),
+        },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.interviewDraft });
+      if (orderId) void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
+    },
+  });
+}
+
 export function useLaunchInterviewCampaign(orderId: string | null) {
   const qc = useQueryClient();
   return useMutation({

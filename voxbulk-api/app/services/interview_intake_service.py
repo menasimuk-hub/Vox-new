@@ -815,7 +815,6 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
     recipients = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars())
     unmatched: list[dict[str, Any]] = []
     created = 0
-    ats_candidates: list[ServiceOrderRecipient] = []
 
     for parsed in parsed_list:
         raw_bytes = bytes_by_name.get(parsed.filename)
@@ -831,7 +830,6 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
                 save_cv_bytes(storage_key=key, content=raw_file[1])
                 dup.cv_storage_key = key
             db.add(dup)
-            ats_candidates.append(dup)
             continue
 
         match = _find_match(recipients, parsed)
@@ -847,7 +845,6 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
             if match.intake_source in {None, "csv"}:
                 match.intake_source = "merged"
             db.add(match)
-            ats_candidates.append(match)
             continue
 
         display_name = (parsed.name or name_from_filename(parsed.filename)).strip()
@@ -877,7 +874,6 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
             recipient.cv_storage_key = key
         db.add(recipient)
         recipients.append(recipient)
-        ats_candidates.append(recipient)
         created += 1
 
     db.flush()
@@ -898,22 +894,6 @@ def intake_cv_files(db: Session, order: ServiceOrder, files: list[tuple[str, byt
     db.add(order)
     db.commit()
     db.refresh(order)
-
-    if ats_candidates:
-        from app.services.interview_ats_service import sanitize_cv_text
-        from app.services.interview_email_ats_service import auto_ats_for_cv_recipient
-
-        seen_ids: set[str] = set()
-        for recipient in ats_candidates:
-            if recipient.id in seen_ids:
-                continue
-            seen_ids.add(recipient.id)
-            db.refresh(recipient)
-            if str(recipient.ats_status or "").lower() == "complete" and recipient.ats_score is not None:
-                continue
-            if len(sanitize_cv_text(recipient.cv_text or "")) < 80:
-                continue
-            auto_ats_for_cv_recipient(db, order, recipient, is_update=False)
 
     final_recipients = list(
         db.execute(

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
-import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity, ChevronDown, Settings2, FileText, Users, Mail, Rocket } from "lucide-react";
+import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity, ChevronDown, ChevronLeft, Settings2, FileText, Users, Mail, Rocket, Pencil } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { notifyInterviewLaunch, type InterviewLaunchResult } from "@/lib/interviewLaunchFeedback";
@@ -66,6 +66,7 @@ import {
   useLaunchInterviewCampaign,
   useRunInterviewAts,
   useApplyInterviewAtsThreshold,
+  usePatchInterviewRecipient,
   useSaveInterviewDraft,
   useSendInterviewBookingInvites,
   useCreateNewInterviewDraft,
@@ -291,6 +292,7 @@ function CreateInterview() {
   const orderId = order?.id ?? "";
   const runAtsM = useRunInterviewAts(orderId || null);
   const applyAtsThresholdM = useApplyInterviewAtsThreshold(orderId || null);
+  const patchRecipientM = usePatchInterviewRecipient(orderId || null);
   const launchM = useLaunchInterviewCampaign(orderId || null);
   const resendInvitesM = useSendInterviewBookingInvites(orderId || null);
   const quoteM = useOrderQuote(orderId || null);
@@ -458,6 +460,8 @@ function CreateInterview() {
 
   const orderStatus = String(order?.status || "").toLowerCase();
   const campaignReadOnly = isInterviewCampaignReadOnly(orderStatus);
+  const isEditingExisting = Boolean(draftOrderId && orderId);
+  const isLiveCampaign = ["running", "paused", "scheduled"].includes(orderStatus);
   const shouldPollRecipients = ["running", "scheduled", "paused"].includes(orderStatus);
   const lastInviteDispatch = config.last_invite_dispatch as
     | { ok?: boolean; whatsapp_sent?: number; email_sent?: number; errors?: string[] }
@@ -781,6 +785,51 @@ function CreateInterview() {
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "CV download failed");
+    }
+  };
+
+  const [recipientContactDraft, setRecipientContactDraft] = React.useState<
+    Record<string, { phone: string; email: string }>
+  >({});
+
+  const recipientContactValue = (c: CandidateRow, field: "phone" | "email") => {
+    const draft = recipientContactDraft[c.id];
+    if (draft) return draft[field];
+    return field === "phone" ? c.phone : c.email;
+  };
+
+  const onRecipientContactChange = (c: CandidateRow, field: "phone" | "email", value: string) => {
+    setRecipientContactDraft((prev) => ({
+      ...prev,
+      [c.id]: {
+        phone: recipientContactValue(c, "phone"),
+        email: recipientContactValue(c, "email"),
+        [field]: value,
+      },
+    }));
+  };
+
+  const onRecipientContactBlur = async (c: CandidateRow, field: "phone" | "email") => {
+    if (!orderId || candidatesLocked) return;
+    const nextVal = recipientContactValue(c, field);
+    const currentVal = field === "phone" ? c.phone : c.email;
+    if (nextVal.trim() === currentVal.trim()) return;
+    try {
+      await patchRecipientM.mutateAsync({ recipientId: c.id, [field]: nextVal.trim() });
+      setRecipientContactDraft((prev) => {
+        const next = { ...prev };
+        delete next[c.id];
+        return next;
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update candidate");
+      setRecipientContactDraft((prev) => ({
+        ...prev,
+        [c.id]: {
+          phone: field === "phone" ? currentVal : recipientContactValue(c, "phone"),
+          email: field === "email" ? currentVal : recipientContactValue(c, "email"),
+        },
+      }));
     }
   };
 
@@ -1666,7 +1715,29 @@ function CreateInterview() {
 
   return (
     <div className="flex w-full flex-col gap-6 pb-24">
-      <PageHeader eyebrow="Interviews" title="Create new interview" description="A guided 4-step wizard — script, CVs, email collection, then launch." />
+      <PageHeader
+        eyebrow="Interviews"
+        title={isEditingExisting ? "Edit interview" : "Create new interview"}
+        description={
+          isEditingExisting
+            ? "Update script, candidates, and launch settings in the full wizard."
+            : "A guided 4-step wizard — script, CVs, email collection, then launch."
+        }
+        actions={
+          isEditingExisting ? (
+            <Button variant="outline" size="sm" className="gap-1.5" disabled>
+              <Pencil className="size-4" /> Editing
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {isLiveCampaign && !campaignReadOnly ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
+          Live interview — script and calling window changes apply to <strong>candidates not yet called</strong>.
+          Completed interviews and in-progress calls are unchanged.
+        </div>
+      ) : null}
 
       {campaignReadOnly && orderId ? (
         <Card className="border-muted bg-muted/40">
@@ -1891,15 +1962,17 @@ function CreateInterview() {
                       />
                     </TableHead>
                     <TableHead>Name</TableHead>
+                    <TableHead className="min-w-[120px]">Mobile</TableHead>
+                    <TableHead className="min-w-[160px]">Email</TableHead>
                     <TableHead className="w-20">ATS</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="w-20 pr-4 text-right" />
+                    <TableHead className="w-28 pr-4 text-right" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {candSort.sorted.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
                         {cvEmailActive
                           ? (
                               <>
@@ -1922,7 +1995,27 @@ function CreateInterview() {
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">{r.name}</div>
-                          {r.email ? <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{r.email}</div> : null}
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            value={recipientContactValue(r, "phone")}
+                            onChange={(e) => onRecipientContactChange(r, "phone", e.target.value)}
+                            onBlur={() => void onRecipientContactBlur(r, "phone")}
+                            disabled={candidatesLocked || patchRecipientM.isPending}
+                            placeholder="Mobile"
+                            className="h-8 min-w-[110px] text-xs"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="email"
+                            value={recipientContactValue(r, "email")}
+                            onChange={(e) => onRecipientContactChange(r, "email", e.target.value)}
+                            onBlur={() => void onRecipientContactBlur(r, "email")}
+                            disabled={candidatesLocked || patchRecipientM.isPending}
+                            placeholder="Email"
+                            className="h-8 min-w-[140px] text-xs"
+                          />
                         </TableCell>
                         <TableCell>
                           {(() => {
@@ -1945,6 +2038,17 @@ function CreateInterview() {
                         </TableCell>
                         <TableCell className="pr-4">
                           <div className="flex justify-end gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-8"
+                              aria-label="Download CV"
+                              title={r.cvFilename ? `Download ${r.cvFilename}` : "No CV file"}
+                              disabled={!r.cvFilename}
+                              onClick={() => void onDownloadCv(r.id, r.cvFilename)}
+                            >
+                              <FileDown className="size-4" />
+                            </Button>
                             <Button
                               size="icon"
                               variant="ghost"
@@ -2420,13 +2524,21 @@ function CreateInterview() {
             </div>
           ) : null}
           {!campaignReadOnly ? (
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0 || campaignReadOnly} onClick={onRunAtsClick}>
-              <Sparkles className="size-4" /> {runAtsM.isPending ? ATS_ANALYZING_LABEL : "Run ATS"}
+          <div className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <Button variant="outline" className="gap-1.5" onClick={goWizardPrev}>
+              <ChevronLeft className="size-4" /> Back
             </Button>
-            <Button className="gap-1.5" disabled={campaignReadOnly} onClick={onAttemptPreview}>
-              <Eye className="size-4" /> Preview &amp; approve
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending}>
+                <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
+              </Button>
+              <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0 || campaignReadOnly} onClick={onRunAtsClick}>
+                <Sparkles className="size-4" /> {runAtsM.isPending ? ATS_ANALYZING_LABEL : "Run ATS"}
+              </Button>
+              <Button className="gap-1.5" disabled={campaignReadOnly} onClick={onAttemptPreview}>
+                <Eye className="size-4" /> Preview &amp; approve
+              </Button>
+            </div>
           </div>
           ) : null}
         </CardContent>
@@ -2434,7 +2546,7 @@ function CreateInterview() {
       ) : null}
       </div>
 
-      {!campaignReadOnly ? (
+      {!campaignReadOnly && wizardStep !== 4 ? (
         <WizardNav
           step={wizardStep}
           total={INTERVIEW_WIZARD_STEPS.length}
@@ -2443,9 +2555,6 @@ function CreateInterview() {
           nextDisabled={!canWizardNext}
           skippable={wizardStep === 2}
           onSkip={goWizardNext}
-          finalLabel="Preview & launch"
-          onFinish={onAttemptPreview}
-          finishDisabled={previewBlockers.length > 0}
           leftActions={
             <>
               <Button variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" disabled>
@@ -2514,9 +2623,6 @@ function CreateInterview() {
             <Send className="size-4" /> Resend booking invites
           </Button>
         ) : null}
-        <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending || campaignReadOnly}>
-          <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
-        </Button>
       </div>
 
       <PackageUpgradeModal

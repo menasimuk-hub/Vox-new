@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import * as React from "react";
-import { CheckCircle2, ExternalLink, Lock, Save } from "lucide-react";
+import { CheckCircle2, Lock, Pencil, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -193,10 +193,10 @@ function InterviewManagePage() {
                 View results
               </Link>
             </Button>
-            {!readOnly && !locked ? (
+            {!readOnly ? (
               <Button variant="outline" asChild className="gap-1.5">
                 <Link to="/interviews/new" search={{ order_id: orderId }}>
-                  <ExternalLink className="size-4" /> Full setup wizard
+                  <Pencil className="size-4" /> Edit
                 </Link>
               </Button>
             ) : null}

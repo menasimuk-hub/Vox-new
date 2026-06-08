@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { Plus } from "lucide-react";
+import { Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
+import { isInterviewCampaignReadOnly } from "@/lib/interview-campaign";
 import { useArchiveOrder, useDeleteOrder, useHomeSummary, usePromoCredits, useServiceOrders, useStopInterviewCampaign } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/interviews/")({
@@ -192,6 +193,13 @@ function SavedInterviews() {
                       </TableCell>
                       <TableCell className="pr-6 text-right">
                         <div className="inline-flex flex-wrap justify-end gap-1">
+                          {raw && !isInterviewCampaignReadOnly(raw.status) ? (
+                            <Button size="sm" variant="ghost" asChild aria-label="Edit interview">
+                              <Link to="/interviews/new" search={{ order_id: c.id }}>
+                                <Pencil className="size-4" />
+                              </Link>
+                            </Button>
+                          ) : null}
                           <Button size="sm" variant="default" asChild>
                             <Link to="/interviews/$orderId" params={{ orderId: c.id }}>Open</Link>
                           </Button>

@@ -4,6 +4,7 @@ import zipfile
 
 import pytest
 from docx import Document
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
@@ -87,6 +88,19 @@ def test_intake_cv_zip_creates_recipient_rows(db_session: Session, interview_ord
     names = {r["name"] for r in result["recipients"]}
     assert "Jane Doe" in names or "jane doe".title() in names
     assert result["summary"]["total"] == 2
+
+
+def test_intake_cv_files_does_not_auto_run_ats(db_session: Session, interview_order: ServiceOrder):
+    zip_bytes = _zip_with_docx(
+        [("jane_doe_cv.docx", _docx_bytes("Jane Doe", phone="+44 7700 900111", email="jane@example.com"))]
+    )
+    result = intake_cv_files(db_session, interview_order, [("cvs.zip", zip_bytes)])
+    assert result["recipient_count"] == 1
+    row = db_session.execute(
+        select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == interview_order.id)
+    ).scalar_one()
+    assert row.ats_score is None
+    assert str(row.ats_status or "").lower() not in {"analyzing", "complete", "pending"}
 
 
 def test_intake_mixed_zip_and_csv(db_session: Session, interview_order: ServiceOrder):
