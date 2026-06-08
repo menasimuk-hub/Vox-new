@@ -351,10 +351,13 @@ async def ensure_cors_on_all_responses(request: Request, call_next):
 def _migration_hint_from_db_error(exc: BaseException) -> str | None:
     msg = str(exc).lower()
     if "unknown column" in msg or "doesn't exist" in msg or "no such table" in msg or "does not exist" in msg:
-        return (
-            "Database schema is behind the API code. On the VPS run: "
-            "cd /www/voxbulk/voxbulk-api && source .venv/bin/activate && python -m alembic upgrade head && cd /www/voxbulk && ./vox.sh restart"
-        )
+        try:
+            from app.core.database import ensure_pricing_schema
+
+            ensure_pricing_schema()
+        except Exception:
+            pass
+        return "Database schema was updated automatically. Refresh the page and try again."
     return None
 
 

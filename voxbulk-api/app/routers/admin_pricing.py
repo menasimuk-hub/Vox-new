@@ -6,50 +6,61 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import CAP_BILLING, require_cap
-from app.core.database import get_db
+from app.core.database import ensure_pricing_schema, get_db
 from app.models.organisation import Organisation
 from app.models.pricing import OrgCustomPricing, TopupTier
 from app.services.plan_admin_service import PlanAdminError, PlanAdminService
 from app.services.voxbulk_pricing_service import VoxbulkPricingError, VoxbulkPricingService
 
-router = APIRouter(prefix="/admin/pricing", tags=["admin-pricing"])
 
-_PRICING_SCHEMA_HINT = (
-    "Pricing database schema is out of date. On the VPS run: "
-    "cd /www/voxbulk && git pull && ./vox.sh restart "
-    "(migrations apply automatically on API boot)."
+def _ensure_pricing_schema_ready() -> None:
+    ensure_pricing_schema()
+
+
+router = APIRouter(
+    prefix="/admin/pricing",
+    tags=["admin-pricing"],
+    dependencies=[Depends(_ensure_pricing_schema_ready)],
 )
 
 
 def _pricing_db_error(exc: Exception) -> HTTPException:
+    ensure_pricing_schema()
     msg = str(exc).lower()
     if (
         "wa_survey_extra_pence" in msg
         or "whatsapp_survey_fee_pence" in msg
         or "unknown column" in msg
         or "doesn't exist" in msg
+        or "no such table" in msg
     ):
-        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_PRICING_SCHEMA_HINT)
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Pricing database schema was updated automatically. Refresh the page or click Retry.",
+        )
     return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc) or "Pricing error")
 
 
 @router.get("")
 def get_pricing_overview(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
-    VoxbulkPricingService.ensure_seeded(db)
-    settings = VoxbulkPricingService.get_settings(db)
-    plans = [PlanAdminService.plan_to_dict(p) for p in PlanAdminService.list_plans(db)]
-    tiers = [VoxbulkPricingService.topup_tier_to_dict(t, settings=settings) for t in VoxbulkPricingService.list_topup_tiers(db)]
-    custom = []
-    for row in VoxbulkPricingService.list_custom_pricing(db):
-        org = db.get(Organisation, row.org_id)
-        custom.append(VoxbulkPricingService.custom_pricing_to_dict(row, org))
-    return {
-        "settings": VoxbulkPricingService.settings_to_dict(settings),
-        "plans": plans,
-        "topup_tiers": tiers,
-        "custom_pricing": custom,
-        "fx_multipliers": VoxbulkPricingService.fx_multipliers(settings),
-    }
+    try:
+        VoxbulkPricingService.ensure_seeded(db)
+        settings = VoxbulkPricingService.get_settings(db)
+        plans = [PlanAdminService.plan_to_dict(p) for p in PlanAdminService.list_plans(db)]
+        tiers = [VoxbulkPricingService.topup_tier_to_dict(t, settings=settings) for t in VoxbulkPricingService.list_topup_tiers(db)]
+        custom = []
+        for row in VoxbulkPricingService.list_custom_pricing(db):
+            org = db.get(Organisation, row.org_id)
+            custom.append(VoxbulkPricingService.custom_pricing_to_dict(row, org))
+        return {
+            "settings": VoxbulkPricingService.settings_to_dict(settings),
+            "plans": plans,
+            "topup_tiers": tiers,
+            "custom_pricing": custom,
+            "fx_multipliers": VoxbulkPricingService.fx_multipliers(settings),
+        }
+    except (OperationalError, ProgrammingError) as exc:
+        raise _pricing_db_error(exc) from exc
 
 
 @router.post("/seed")

@@ -52,6 +52,52 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def _table_exists(insp, table: str) -> bool:
+    try:
+        return table in insp.get_table_names()
+    except Exception:
+        return False
+
+
+def _seed_pricing_global_settings(conn) -> None:
+    row = conn.execute(text("SELECT id FROM pricing_global_settings WHERE id = 1")).fetchone()
+    if row is not None:
+        return
+    logger.warning("schema_hotfix_seed_pricing_global_settings")
+    conn.execute(
+        text(
+            """
+            INSERT INTO pricing_global_settings (
+                id, fx_aud_multiplier, fx_cad_multiplier, fx_usd_multiplier,
+                connection_fee_pence, connection_fee_label, connection_fee_enabled,
+                interview_per_min_pence, whatsapp_survey_fee_pence, wa_survey_extra_pence,
+                ats_cv_scan_fee_pence, estimator_default_duration_min,
+                estimator_default_interview_count, updated_at
+            ) VALUES (
+                1, 1.95, 1.71, 1.26,
+                200, 'AI Interview — connection fee', 1,
+                35, 50, 49,
+                75, 12, 100, CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+
+
+def ensure_pricing_schema() -> None:
+    """Create pricing tables, columns, and default row when alembic was skipped or failed."""
+    import app.models.pricing  # noqa: F401
+    from app.models.pricing import OrgCustomPricing, PricingGlobalSettings, TopupTier
+
+    engine = get_engine()
+    for table in (PricingGlobalSettings.__table__, TopupTier.__table__, OrgCustomPricing.__table__):
+        table.create(bind=engine, checkfirst=True)
+    ensure_schema_hotfixes()
+    with engine.begin() as conn:
+        if _table_exists(inspect(engine), "pricing_global_settings"):
+            _seed_pricing_global_settings(conn)
+
+
 def ensure_schema_hotfixes() -> None:
     """Idempotent DDL for columns added in recent releases when alembic was not run."""
     engine = get_engine()
@@ -63,6 +109,7 @@ def ensure_schema_hotfixes() -> None:
         ("organisations", "logo_storage_key", "VARCHAR(512) NULL"),
         ("organisations", "allowed_services_json", "TEXT NULL"),
         ("organisations", "hubspot_config_json", "TEXT NULL"),
+        ("organisations", "wallet_balance_pence", "INTEGER NOT NULL DEFAULT 0"),
         ("org_usage_periods", "cv_scans_included", "INTEGER NOT NULL DEFAULT 0"),
         ("org_usage_periods", "cv_scans_used", "INTEGER NOT NULL DEFAULT 0"),
         ("service_order_recipients", "ats_score", "INTEGER NULL"),
@@ -72,9 +119,14 @@ def ensure_schema_hotfixes() -> None:
         ("pricing_global_settings", "wa_survey_extra_pence", "INTEGER NOT NULL DEFAULT 49"),
         ("org_custom_pricing", "wa_survey_extra_pence", "INTEGER NULL"),
         ("plans", "per_min_pence", "INTEGER NOT NULL DEFAULT 0"),
+        ("plans", "cv_scans_included", "INTEGER NOT NULL DEFAULT 0"),
+        ("plans", "is_featured", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("plans", "is_enterprise", "BOOLEAN NOT NULL DEFAULT 0"),
     )
     with engine.begin() as conn:
         for table, column, col_type in patches:
+            if not _table_exists(insp, table):
+                continue
             try:
                 cols = {c["name"] for c in insp.get_columns(table)}
             except Exception:
@@ -90,7 +142,7 @@ def run_database_migrations() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     alembic_ini = repo_root / "alembic.ini"
     if not alembic_ini.is_file():
-        ensure_schema_hotfixes()
+        ensure_pricing_schema()
         return
 
     settings = get_settings()
@@ -104,7 +156,7 @@ def run_database_migrations() -> None:
         logger.info("database_migrations_applied")
     except Exception as exc:
         logger.warning("database_migrations_failed: %s", exc)
-    ensure_schema_hotfixes()
+    ensure_pricing_schema()
 
 
 def init_db() -> None:

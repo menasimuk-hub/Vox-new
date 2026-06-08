@@ -25,11 +25,13 @@ class VoxbulkPricingError(ValueError):
 class VoxbulkPricingService:
     @staticmethod
     def get_settings(db: Session) -> PricingGlobalSettings:
-        from app.core.database import ensure_schema_hotfixes
+        from app.core.database import ensure_pricing_schema
 
         last_exc: Exception | None = None
         for attempt in range(2):
             try:
+                if attempt == 0:
+                    ensure_pricing_schema()
                 row = db.get(PricingGlobalSettings, 1)
                 if row is None:
                     now = datetime.utcnow()
@@ -42,7 +44,7 @@ class VoxbulkPricingService:
                 db.rollback()
                 last_exc = exc
                 if attempt == 0:
-                    ensure_schema_hotfixes()
+                    ensure_pricing_schema()
                     continue
                 raise
         if last_exc is not None:

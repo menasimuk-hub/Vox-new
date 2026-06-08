@@ -45,10 +45,7 @@ export function PricingLoadGate({ loading, error, title, description, onRetry, r
           ) : null
         }
       >
-        <p className="muted">
-          After deploying API updates, run <code>./vox.sh restart</code> on the VPS — migrations apply automatically on boot.
-          Rebuild admin if this page is blank: <code>./deploy-vps.sh</code> or <code>bash scripts/vps-update-ui.sh</code>.
-        </p>
+        {null}
       </PricingPageFrame>
     )
   }
