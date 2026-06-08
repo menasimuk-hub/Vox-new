@@ -59,6 +59,12 @@ def _table_exists(insp, table: str) -> bool:
         return False
 
 
+def _mysql_type(col_type: str, dialect: str) -> str:
+    if dialect == "mysql" and "BOOLEAN" in col_type.upper():
+        return col_type.upper().replace("BOOLEAN", "TINYINT(1)")
+    return col_type
+
+
 def _seed_pricing_global_settings(conn) -> None:
     row = conn.execute(text("SELECT id FROM pricing_global_settings WHERE id = 1")).fetchone()
     if row is not None:
@@ -90,18 +96,37 @@ def ensure_pricing_schema() -> None:
     from app.models.pricing import OrgCustomPricing, PricingGlobalSettings, TopupTier
 
     engine = get_engine()
+    dialect = engine.dialect.name
     for table in (PricingGlobalSettings.__table__, TopupTier.__table__, OrgCustomPricing.__table__):
         table.create(bind=engine, checkfirst=True)
     ensure_schema_hotfixes()
     with engine.begin() as conn:
-        if _table_exists(inspect(engine), "pricing_global_settings"):
+        insp = inspect(engine)
+        if _table_exists(insp, "pricing_global_settings"):
             _seed_pricing_global_settings(conn)
+        if _table_exists(insp, "plans"):
+            plan_cols = {c["name"] for c in insp.get_columns("plans")}
+            if "service_kind" in plan_cols:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE plans
+                        SET service_kind = 'voxbulk'
+                        WHERE code IN ('payg', 'starter', 'pro', 'business', 'enterprise')
+                          AND (
+                            service_kind IS NULL
+                            OR service_kind = ''
+                            OR service_kind IN ('dental', 'order', 'clinic')
+                          )
+                        """
+                    )
+                )
 
 
 def ensure_schema_hotfixes() -> None:
     """Idempotent DDL for columns added in recent releases when alembic was not run."""
     engine = get_engine()
-    insp = inspect(engine)
+    dialect = engine.dialect.name
     patches = (
         ("frontpage_call_settings", "telnyx_greeting", "TEXT NULL"),
         ("lead_sales_settings", "telnyx_greeting", "TEXT NULL"),
@@ -120,21 +145,24 @@ def ensure_schema_hotfixes() -> None:
         ("org_custom_pricing", "wa_survey_extra_pence", "INTEGER NULL"),
         ("plans", "per_min_pence", "INTEGER NOT NULL DEFAULT 0"),
         ("plans", "cv_scans_included", "INTEGER NOT NULL DEFAULT 0"),
-        ("plans", "is_featured", "BOOLEAN NOT NULL DEFAULT 0"),
-        ("plans", "is_enterprise", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("plans", "is_featured", "TINYINT(1) NOT NULL DEFAULT 0"),
+        ("plans", "is_enterprise", "TINYINT(1) NOT NULL DEFAULT 0"),
+        ("plans", "service_kind", "VARCHAR(32) NOT NULL DEFAULT 'voxbulk'"),
     )
     with engine.begin() as conn:
+        insp = inspect(engine)
         for table, column, col_type in patches:
             if not _table_exists(insp, table):
                 continue
             try:
-                cols = {c["name"] for c in insp.get_columns(table)}
+                cols = {c["name"] for c in inspect(engine).get_columns(table)}
             except Exception:
                 continue
             if column in cols:
                 continue
+            ddl_type = _mysql_type(col_type, dialect)
             logger.warning("schema_hotfix_add_column table=%s column=%s", table, column)
-            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"))
 
 
 def run_database_migrations() -> None:

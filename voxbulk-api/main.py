@@ -236,6 +236,15 @@ async def lifespan(app: FastAPI):
         logger.exception("database migrations failed — check alembic upgrade head")
     try:
         from app.core.database import get_sessionmaker
+        from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+        with get_sessionmaker()() as db:
+            VoxbulkPricingService.ensure_seeded(db)
+            logger.info("pricing_plans_seeded_on_boot")
+    except Exception:
+        logger.exception("pricing_seed_on_boot_failed")
+    try:
+        from app.core.database import get_sessionmaker
         from app.services.email_template_service import EmailTemplateService
 
         with get_sessionmaker()() as db:

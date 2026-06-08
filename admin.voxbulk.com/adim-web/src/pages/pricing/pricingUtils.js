@@ -18,8 +18,19 @@ export function usePricingSettings() {
 
   const load = useCallback(async () => {
     setError('')
-    const row = await apiFetch('/admin/pricing/settings')
-    setSettings(row)
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const row = await apiFetch('/admin/pricing/settings')
+        setSettings(row)
+        return
+      } catch (e) {
+        if (attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 400))
+          continue
+        }
+        throw e
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -60,7 +71,11 @@ export function usePricingPlans() {
 
   const load = useCallback(async () => {
     setError('')
-    const rows = await apiFetch('/admin/pricing/plans')
+    let rows = await apiFetch('/admin/pricing/plans')
+    if (!Array.isArray(rows) || rows.length === 0) {
+      await apiFetch('/admin/pricing/seed', { method: 'POST', body: '{}' })
+      rows = await apiFetch('/admin/pricing/plans')
+    }
     setPlans(Array.isArray(rows) ? rows : [])
   }, [])
 

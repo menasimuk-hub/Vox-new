@@ -754,9 +754,14 @@ class VoxbulkPricingService:
 
     @staticmethod
     def ensure_seeded(db: Session) -> None:
-        settings = VoxbulkPricingService.get_settings(db)
-        voxbulk_plans = db.execute(select(Plan).where(Plan.service_kind == "voxbulk")).scalars().first()
-        if voxbulk_plans is None:
+        from app.core.database import ensure_pricing_schema
+
+        ensure_pricing_schema()
+        canonical = ("payg", "starter", "pro", "business", "enterprise")
+        have = set(db.execute(select(Plan.code).where(Plan.code.in_(canonical))).scalars().all())
+        missing = [code for code in canonical if code not in have]
+        voxbulk_any = db.execute(select(Plan.id).where(Plan.service_kind == "voxbulk").limit(1)).first()
+        if missing or voxbulk_any is None:
             VoxbulkPricingService.seed_voxbulk_plans(db)
         elif not VoxbulkPricingService.list_topup_tiers(db):
             now = datetime.utcnow()
