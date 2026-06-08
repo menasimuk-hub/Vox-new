@@ -103,6 +103,7 @@ const NAV = [
       ['OpenAI', '/integrations/openai'],
       ['DeepSeek', '/integrations/deepseek'],
       ['Groq', '/integrations/groq'],
+      ['DeepInfra', '/integrations/deepinfra'],
       ['Deepgram', '/integrations/deepgram'],
       ['Cartesia', '/integrations/cartesia'],
       ['ElevenLabs', '/integrations/elevenlabs'],

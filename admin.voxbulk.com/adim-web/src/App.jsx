@@ -148,6 +148,7 @@ export default function App() {
         <Route path='/integrations/openai' element={<Integrations />} />
         <Route path='/integrations/deepseek' element={<Integrations />} />
         <Route path='/integrations/groq' element={<Integrations />} />
+        <Route path='/integrations/deepinfra' element={<Integrations />} />
         <Route path='/integrations/deepgram' element={<Integrations />} />
         <Route path='/integrations/cartesia' element={<Integrations />} />
         <Route path='/integrations/elevenlabs' element={<Integrations />} />
