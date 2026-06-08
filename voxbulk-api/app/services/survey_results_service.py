@@ -120,6 +120,15 @@ def _parse_numeric_score(raw: str) -> int | None:
     return None
 
 
+def _rating_score_from_item(item: dict[str, Any]) -> int | None:
+    """Extract a 0–10 score from a WA answer row (answer, answer_text, or normalized_value)."""
+    for key in ("answer", "answer_text", "normalized_value"):
+        score = _parse_numeric_score(str(item.get(key) or ""))
+        if score is not None:
+            return score
+    return None
+
+
 def _nps_bucket(score: int) -> str:
     if score >= 9:
         return "promoter"
@@ -138,11 +147,11 @@ def _sentiment_bucket_for_score(score: int) -> str:
 
 def _is_rating_answer(item: dict[str, Any]) -> bool:
     role = str(item.get("step_role") or "").lower()
-    if role == "rating":
-        return _parse_numeric_score(str(item.get("answer") or "")) is not None
-    if role in {"reason", "final_feedback_text"}:
+    if role in {"reason", "final_feedback_text", "followup", "tell_us_more", "improvement"}:
         return False
-    return _parse_numeric_score(str(item.get("answer") or "")) is not None
+    if role == "rating":
+        return _rating_score_from_item(item) is not None
+    return _rating_score_from_item(item) is not None
 
 
 def _normalize_answer_source(item: dict[str, Any]) -> str:
@@ -217,7 +226,7 @@ def compute_wa_survey_metrics(recipients: list[ServiceOrderRecipient]) -> dict[s
                 continue
             if answer_has_pending_transcription(item):
                 continue
-            score = _parse_numeric_score(str(item.get("answer") or ""))
+            score = _rating_score_from_item(item)
             if score is None:
                 continue
             rating_score = score

@@ -39,6 +39,9 @@ from app.services.survey_wa_template_pack_service import (
 from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.wa_template_privacy import PRIVACY_MODE_OFF, PRIVACY_MODE_ON, normalize_privacy_mode, resolve_row_privacy_mode
 
+# WA_FINAL_FEEDBACK_SYSTEM_TEMPLATE_ACTIVE — health/build deploy marker (runtime_build_info).
+FINAL_FEEDBACK_SYSTEM_TEMPLATE_MARKER = "WA_FINAL_FEEDBACK_SYSTEM_TEMPLATE_ACTIVE"
+
 SYSTEM_TEMPLATE_KINDS = ("welcome", "thank_you", "tell_us_more", "final_feedback")
 
 KIND_LABELS: dict[str, str] = {

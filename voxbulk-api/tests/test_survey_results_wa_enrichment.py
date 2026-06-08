@@ -88,6 +88,18 @@ def test_wa_results_include_nps_and_sentiment_breakdown(db):
     assert len(rating_block["breakdown"]) == 3
 
 
+def test_wa_nps_reads_answer_text_when_answer_empty(db):
+    order, _ = _seed_wa_order(
+        db,
+        answers=[
+            {"step_role": "rating", "question": "Recommend us", "answer": "", "answer_text": "8", "reply_type": "choice"},
+        ],
+    )
+    payload = build_whatsapp_survey_results_payload(db, order)
+    assert payload["summary"]["nps_score"] is not None
+    assert payload["summary"]["nps_passives"] == 1
+
+
 def test_recipient_summary_surfaces_voice_transcript(db):
     order, recipient = _seed_wa_order(
         db,

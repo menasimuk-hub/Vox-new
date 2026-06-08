@@ -23,6 +23,8 @@ WA_TEST_SESSION_PERSISTENCE_FIX_MARKER = "WA_TEST_SESSION_PERSISTENCE_FIX_ACTIVE
 
 # Final feedback yes/no gate before open-text — grep live logs for this marker.
 FINAL_FEEDBACK_YES_NO_MARKER = "WA_FINAL_FEEDBACK_YES_NO_ACTIVE"
+# System-template OpenAI generate for closing question (final_feedback_text step role).
+FINAL_FEEDBACK_SYSTEM_TEMPLATE_MARKER = "WA_FINAL_FEEDBACK_SYSTEM_TEMPLATE_ACTIVE"
 # Legacy marker kept for one release so old health checks fail loudly if reverted.
 FINAL_FEEDBACK_DIRECT_OPEN_TEXT_MARKER = "WA_FINAL_FEEDBACK_DIRECT_OPEN_TEXT_ACTIVE"
 
@@ -223,6 +225,14 @@ def get_deploy_verification() -> dict[str, Any]:
         "app.services.survey_whatsapp_conversation_service",
         ["enabled_start_yes_no", "yes_no_prompt_sent", FINAL_FEEDBACK_YES_NO_MARKER],
     )
+    final_feedback_system_template_on_disk = _file_has_needles(
+        "app/services/survey_system_template_service.py",
+        ["final_feedback_text", FINAL_FEEDBACK_SYSTEM_TEMPLATE_MARKER, "build_system_template_json_schema"],
+    )
+    final_feedback_system_template_loaded = _module_source_has_needles(
+        "app.services.survey_system_template_service",
+        ["final_feedback_text", FINAL_FEEDBACK_SYSTEM_TEMPLATE_MARKER],
+    )
 
     try:
         from app.services.survey_session_service import SurveySessionService
@@ -242,6 +252,8 @@ def get_deploy_verification() -> dict[str, Any]:
         and session_persistence_fix_loaded
         and final_feedback_yes_no_on_disk
         and final_feedback_yes_no_loaded
+        and final_feedback_system_template_on_disk
+        and final_feedback_system_template_loaded
     )
 
     return {
@@ -253,6 +265,9 @@ def get_deploy_verification() -> dict[str, Any]:
         "final_feedback_yes_no_marker": FINAL_FEEDBACK_YES_NO_MARKER,
         "final_feedback_yes_no_on_disk": final_feedback_yes_no_on_disk,
         "final_feedback_yes_no_loaded": final_feedback_yes_no_loaded,
+        "final_feedback_system_template_marker": FINAL_FEEDBACK_SYSTEM_TEMPLATE_MARKER,
+        "final_feedback_system_template_on_disk": final_feedback_system_template_on_disk,
+        "final_feedback_system_template_loaded": final_feedback_system_template_loaded,
         "session_persistence_fix_on_disk": session_persistence_fix_on_disk,
         "session_persistence_fix_loaded": session_persistence_fix_loaded,
         "wa_test_session_handler": wa_test_handler,
