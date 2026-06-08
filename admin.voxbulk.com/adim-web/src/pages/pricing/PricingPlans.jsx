@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { usePricingPlans, usePricingSettings, penceToPounds, poundsToPence } from './pricingUtils'
-import PricingPageFrame, { PricingFormulaBox } from './PricingPageFrame'
+import PricingPageFrame, { PricingFormulaBox, PricingLoadGate } from './PricingPageFrame'
 
 function calcPreview(d, settings) {
   const price = Number(d.price_gbp_pence || 0)
@@ -96,58 +96,70 @@ function PlanRow({ plan, settings, onSave }) {
 }
 
 export default function PricingPlans() {
-  const { plans, loading, error, msg, savePlan, seed } = usePricingPlans()
-  const { settings } = usePricingSettings()
+  const { plans, loading, error, msg, savePlan, seed, load } = usePricingPlans()
+  const { settings, loading: settingsLoading, error: settingsError } = usePricingSettings()
 
   const visiblePlans = useMemo(() => {
     const vox = plans.filter((p) => p.service_kind === 'voxbulk')
     return [...(vox.length ? vox : plans)].sort((a, b) => (a.sort_order ?? 100) - (b.sort_order ?? 100))
   }, [plans])
 
-  if (loading) return <p className="muted">Loading plans…</p>
-
-  const wa = settings ? penceToPounds(settings.wa_survey_package_fee_pence ?? settings.whatsapp_survey_fee_pence) : '—'
-  const cv = settings ? penceToPounds(settings.ats_cv_scan_fee_pence) : '—'
+  const combinedError = [error, settingsError].filter(Boolean).join(' · ')
 
   return (
-    <PricingPageFrame
+    <PricingLoadGate
+      loading={loading || settingsLoading}
+      error={error}
       title="Subscription plans"
       description="Edit prices on the left; green boxes are auto-calculated when you save."
-      error={error}
-      msg={msg}
-      actions={<button className="btn soft" type="button" onClick={() => void seed()}>Seed defaults</button>}
+      onRetry={load}
+      ready={!loading && !error}
     >
-      <PricingFormulaBox
-        items={[
-          'Mins/mo = Monthly ÷ Cost/min',
-          `WA = Monthly ÷ £${wa}`,
-          `CV = Monthly ÷ £${cv}`,
-          'Extra min = charged after included mins used up',
-        ]}
-      />
-      <div className="tableWrap pricingTableWrap">
-        <table className="table pricingTable pricingTablePlans">
-          <thead>
-            <tr>
-              <th className="pricingThPlan">Plan</th>
-              <th className="pricingThNum">Monthly £</th>
-              <th className="pricingThNum">Cost/min</th>
-              <th className="pricingThNum">Extra/min</th>
-              <th className="pricingThNum pricingThCalc">Mins</th>
-              <th className="pricingThNum pricingThCalc">WA</th>
-              <th className="pricingThNum pricingThCalc">CV</th>
-              <th className="pricingThToggle">Feat.</th>
-              <th className="pricingThToggle">On</th>
-              <th className="pricingThAction" />
-            </tr>
-          </thead>
-          <tbody>
-            {visiblePlans.map((p) => (
-              <PlanRow key={p.id} plan={p} settings={settings} onSave={savePlan} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </PricingPageFrame>
+      <PricingPageFrame
+        title="Subscription plans"
+        description="Edit prices on the left; green boxes are auto-calculated when you save."
+        error={combinedError}
+        msg={msg}
+        actions={<button className="btn soft" type="button" onClick={() => void seed()}>Seed defaults</button>}
+      >
+        {settings ? (
+          <PricingFormulaBox
+            items={[
+              'Mins/mo = Monthly ÷ Cost/min',
+              `WA = Monthly ÷ £${penceToPounds(settings.wa_survey_package_fee_pence ?? settings.whatsapp_survey_fee_pence)}`,
+              `CV = Monthly ÷ £${penceToPounds(settings.ats_cv_scan_fee_pence)}`,
+              'Extra min = charged after included mins used up',
+            ]}
+          />
+        ) : null}
+        {visiblePlans.length === 0 ? (
+          <p className="muted">No VoxBulk plans yet. Click <strong>Seed defaults</strong> to create Starter / Pro / Enterprise.</p>
+        ) : (
+          <div className="tableWrap pricingTableWrap">
+            <table className="table pricingTable pricingTablePlans">
+              <thead>
+                <tr>
+                  <th className="pricingThPlan">Plan</th>
+                  <th className="pricingThNum">Monthly £</th>
+                  <th className="pricingThNum">Cost/min</th>
+                  <th className="pricingThNum">Extra/min</th>
+                  <th className="pricingThNum pricingThCalc">Mins</th>
+                  <th className="pricingThNum pricingThCalc">WA</th>
+                  <th className="pricingThNum pricingThCalc">CV</th>
+                  <th className="pricingThToggle">Feat.</th>
+                  <th className="pricingThToggle">On</th>
+                  <th className="pricingThAction" />
+                </tr>
+              </thead>
+              <tbody>
+                {visiblePlans.map((p) => (
+                  <PlanRow key={p.id} plan={p} settings={settings} onSave={savePlan} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </PricingPageFrame>
+    </PricingLoadGate>
   )
 }

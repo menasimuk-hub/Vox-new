@@ -16,13 +16,19 @@ router = APIRouter(prefix="/admin/pricing", tags=["admin-pricing"])
 
 _PRICING_SCHEMA_HINT = (
     "Pricing database schema is out of date. On the VPS run: "
-    "cd /www/voxbulk/voxbulk-api && source .venv/bin/activate && alembic upgrade head"
+    "cd /www/voxbulk && git pull && ./vox.sh restart "
+    "(migrations apply automatically on API boot)."
 )
 
 
 def _pricing_db_error(exc: Exception) -> HTTPException:
     msg = str(exc).lower()
-    if "wa_survey_extra_pence" in msg or "whatsapp_survey_fee_pence" in msg or "unknown column" in msg:
+    if (
+        "wa_survey_extra_pence" in msg
+        or "whatsapp_survey_fee_pence" in msg
+        or "unknown column" in msg
+        or "doesn't exist" in msg
+    ):
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_PRICING_SCHEMA_HINT)
     return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc) or "Pricing error")
 
@@ -72,13 +78,16 @@ def update_settings(payload: dict = Body(...), db: Session = Depends(get_db), _a
 
 @router.get("/plans")
 def list_plans(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
-    VoxbulkPricingService.ensure_seeded(db)
-    settings = VoxbulkPricingService.get_settings(db)
-    out = []
-    for p in PlanAdminService.list_plans(db):
-        base = PlanAdminService.plan_to_dict(p)
-        out.append(VoxbulkPricingService.enrich_plan_dict(p, base, settings))
-    return out
+    try:
+        VoxbulkPricingService.ensure_seeded(db)
+        settings = VoxbulkPricingService.get_settings(db)
+        out = []
+        for p in PlanAdminService.list_plans(db):
+            base = PlanAdminService.plan_to_dict(p)
+            out.append(VoxbulkPricingService.enrich_plan_dict(p, base, settings))
+        return out
+    except (OperationalError, ProgrammingError) as exc:
+        raise _pricing_db_error(exc) from exc
 
 
 @router.put("/plans/{plan_id}")

@@ -29,6 +29,32 @@ export function PricingField({ label, hint, children, wide, compact, fullRow }) 
   )
 }
 
+export function PricingLoadGate({ loading, error, title, description, onRetry, ready = true, children }) {
+  if (loading) return <p className="muted">Loading…</p>
+  if (!ready || (error && !ready)) {
+    return (
+      <PricingPageFrame
+        title={title}
+        description={description}
+        error={error || 'Could not load pricing data.'}
+        actions={
+          onRetry ? (
+            <button className="btn soft" type="button" onClick={() => void onRetry()}>
+              Retry
+            </button>
+          ) : null
+        }
+      >
+        <p className="muted">
+          After deploying API updates, run <code>./vox.sh restart</code> on the VPS — migrations apply automatically on boot.
+          Rebuild admin if this page is blank: <code>./deploy-vps.sh</code> or <code>bash scripts/vps-update-ui.sh</code>.
+        </p>
+      </PricingPageFrame>
+    )
+  }
+  return children
+}
+
 export function PricingFormulaBox({ items }) {
   return (
     <div className="pricingFormulaBox">

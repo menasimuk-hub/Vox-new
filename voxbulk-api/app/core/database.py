@@ -71,6 +71,7 @@ def ensure_schema_hotfixes() -> None:
         ("service_order_recipients", "ats_error", "VARCHAR(512) NULL"),
         ("pricing_global_settings", "wa_survey_extra_pence", "INTEGER NOT NULL DEFAULT 49"),
         ("org_custom_pricing", "wa_survey_extra_pence", "INTEGER NULL"),
+        ("plans", "per_min_pence", "INTEGER NOT NULL DEFAULT 0"),
     )
     with engine.begin() as conn:
         for table, column, col_type in patches:

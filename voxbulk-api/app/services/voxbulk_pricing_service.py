@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
@@ -24,14 +25,29 @@ class VoxbulkPricingError(ValueError):
 class VoxbulkPricingService:
     @staticmethod
     def get_settings(db: Session) -> PricingGlobalSettings:
-        row = db.get(PricingGlobalSettings, 1)
-        if row is None:
-            now = datetime.utcnow()
-            row = PricingGlobalSettings(id=1, updated_at=now)
-            db.add(row)
-            db.commit()
-            db.refresh(row)
-        return row
+        from app.core.database import ensure_schema_hotfixes
+
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                row = db.get(PricingGlobalSettings, 1)
+                if row is None:
+                    now = datetime.utcnow()
+                    row = PricingGlobalSettings(id=1, updated_at=now)
+                    db.add(row)
+                    db.commit()
+                    db.refresh(row)
+                return row
+            except (OperationalError, ProgrammingError) as exc:
+                db.rollback()
+                last_exc = exc
+                if attempt == 0:
+                    ensure_schema_hotfixes()
+                    continue
+                raise
+        if last_exc is not None:
+            raise last_exc
+        raise VoxbulkPricingError("Pricing settings unavailable")
 
     @staticmethod
     def fx_multipliers(settings: PricingGlobalSettings) -> dict[str, float]:
