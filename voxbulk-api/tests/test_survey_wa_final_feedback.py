@@ -24,7 +24,37 @@ from app.services.survey_wa_final_feedback_service import (
     persist_final_feedback_text,
     runtime_final_feedback_enabled,
 )
-from app.services.survey_whatsapp_conversation_service import handle_inbound_reply
+from app.services.survey_wa_inbound_parse_service import NormalizedWaInboundReply
+from app.services.survey_whatsapp_conversation_service import handle_inbound_reply, _try_voice_note_reply
+
+
+def _voice_inbound_reply(message_id: str = "msg-voice-1") -> NormalizedWaInboundReply:
+    return NormalizedWaInboundReply(
+        message_type="audio",
+        is_voice_note=True,
+        normalized_answer="",
+        extracted_fields={
+            "media_items": [
+                {
+                    "url": "https://example.com/voice.ogg",
+                    "provider_media_id": "media-1",
+                    "content_type": "audio/ogg",
+                }
+            ]
+        },
+    )
+
+
+def _mock_pending_voice_job(create_job):
+    job = MagicMock()
+    job.id = "job-final-1"
+    job.transcription_status = "pending"
+    job.audio_file_path = "/tmp/voice.ogg"
+    job.audio_mime_type = "audio/ogg"
+    job.inbound_message_id = "msg-voice-1"
+    job.provider_media_id = "media-1"
+    create_job.return_value = job
+    return job
 
 
 @pytest.fixture()
@@ -333,3 +363,115 @@ def test_legacy_yes_no_state_parses_yes_then_open_text(mock_send, db):
     saved = json.loads(recipient.result_json or "{}")
     assert saved.get("final_feedback_yes_no") == "Yes"
     assert saved["wa_conversation"].get("awaiting_final_feedback_text") is True
+
+
+@patch("app.services.survey_wa_voice_note_settings.voice_notes_enabled", return_value=True)
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+@patch("app.services.survey_wa_voice_note_service.SurveyWaVoiceNoteService.enqueue_transcription")
+def test_final_feedback_voice_on_yes_no_completes(mock_enqueue, mock_send, _voice_enabled, db):
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+    mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+    org = Organisation(name="Final Feedback Org")
+    db.add(org)
+    db.commit()
+    order, recipient, org_id = _seed_final_feedback_order(db, org.id)
+
+    handle_inbound_reply(db, from_phone=recipient.phone, body="8", org_id=org_id)
+    voice = _voice_inbound_reply()
+    with patch.object(SurveyWaVoiceNoteService, "find_existing_job", return_value=None):
+        with patch.object(SurveyWaVoiceNoteService, "create_pending_job") as create_job:
+            _mock_pending_voice_job(create_job)
+            result = handle_inbound_reply(
+                db,
+                from_phone=recipient.phone,
+                body="",
+                org_id=org_id,
+                inbound_message_id="msg-voice-1",
+                inbound_reply=voice,
+            )
+
+    assert result.get("completed") is True
+    db.refresh(recipient)
+    payload = json.loads(recipient.result_json or "{}")
+    assert payload.get("final_feedback_yes_no") == "Yes"
+    roles = [a.get("step_role") for a in payload["wa_conversation"]["answers"]]
+    assert "final_feedback_text" in roles
+    assert payload["wa_conversation"].get("final_feedback_done") is True
+    mock_enqueue.assert_called_once_with("job-final-1")
+
+
+@patch("app.services.survey_wa_voice_note_settings.voice_notes_enabled", return_value=True)
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+@patch("app.services.survey_wa_voice_note_service.SurveyWaVoiceNoteService.enqueue_transcription")
+def test_final_feedback_yes_then_voice_completes(mock_enqueue, mock_send, _voice_enabled, db):
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+    mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+    org = Organisation(name="Final Feedback Org")
+    db.add(org)
+    db.commit()
+    order, recipient, org_id = _seed_final_feedback_order(db, org.id)
+
+    handle_inbound_reply(db, from_phone=recipient.phone, body="8", org_id=org_id)
+    handle_inbound_reply(db, from_phone=recipient.phone, body="Yes", org_id=org_id)
+    voice = _voice_inbound_reply("msg-voice-2")
+    with patch.object(SurveyWaVoiceNoteService, "find_existing_job", return_value=None):
+        with patch.object(SurveyWaVoiceNoteService, "create_pending_job") as create_job:
+            _mock_pending_voice_job(create_job)
+            result = handle_inbound_reply(
+                db,
+                from_phone=recipient.phone,
+                body="",
+                org_id=org_id,
+                inbound_message_id="msg-voice-2",
+                inbound_reply=voice,
+            )
+
+    assert result.get("completed") is True
+    db.refresh(recipient)
+    payload = json.loads(recipient.result_json or "{}")
+    assert payload.get("final_feedback_yes_no") == "Yes"
+    text_answers = [a for a in payload["wa_conversation"]["answers"] if a.get("step_role") == "final_feedback_text"]
+    assert len(text_answers) == 1
+    assert text_answers[0].get("answer_source") == "voice_note"
+
+
+@patch("app.services.survey_wa_voice_note_settings.voice_notes_enabled", return_value=True)
+def test_try_voice_note_reply_duplicate_keeps_accepted(_voice_enabled):
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+    db = MagicMock()
+    order = MagicMock(id="order-1", org_id="org-1")
+    recipient = MagicMock(id="recipient-1")
+    reply = _voice_inbound_reply()
+    with patch.object(
+        SurveyWaVoiceNoteService,
+        "prepare_voice_answer",
+        return_value={
+            "accepted": True,
+            "duplicate": True,
+            "job_id": "job-dup",
+            "transcript_ready": False,
+            "answer": {"answer_source": "voice_note", "transcription_status": "pending"},
+        },
+    ):
+        result = _try_voice_note_reply(
+            db,
+            order=order,
+            recipient=recipient,
+            payload={"wa_conversation": {"answers": []}},
+            conv={"answers": []},
+            question={"reply_type": "long_text", "step_role": "final_feedback_text"},
+            reply=reply,
+            inbound_message_id="msg-dup",
+            log_id=1,
+            session_id=None,
+            answer_context="final_feedback",
+            step_index=2,
+            config={},
+        )
+
+    assert result is not None
+    assert result.get("accepted") is True
+    assert result.get("duplicate") is True

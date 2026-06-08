@@ -332,6 +332,11 @@ class SurveyWaVoiceNoteService:
             len(text),
         )
 
+        if job.answer_context == "final_feedback":
+            from app.services.survey_wa_final_feedback_service import try_complete_survey_after_final_feedback_voice
+
+            try_complete_survey_after_final_feedback_voice(db, job)
+
         session_id = job.session_id
         if session_id and text:
             from app.models.survey_session import SurveySessionAnswer

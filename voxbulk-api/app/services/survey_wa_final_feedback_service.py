@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
+
+from app.models.service_order import ServiceOrder
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[wa-final-feedback]"
@@ -206,7 +209,7 @@ def persist_final_feedback_text(
             "step_role": FINAL_FEEDBACK_TEXT_ROLE,
             "final_additional_feedback": cleaned,
             **(
-                {k: entry[k] for k in ("answer_source", "transcription_status", "voice_note_job_id", "detected_language")}
+                {k: entry[k] for k in ("answer_source", "transcription_status", "voice_note_job_id", "detected_language") if k in entry}
                 if isinstance(voice_answer, dict)
                 else {}
             ),
@@ -224,3 +227,88 @@ def mark_final_feedback_skipped(payload: dict[str, Any], *, reason: str) -> None
     payload["wa_conversation"] = conv
     payload.setdefault("final_additional_feedback", None)
     payload.setdefault("final_feedback_skip_reason", reason)
+
+
+def try_complete_survey_after_final_feedback_voice(db, job) -> None:
+    """Complete survey + thank-you if voice transcription finished while still in final feedback."""
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+    from app.models.survey_voice_note_job import SurveyVoiceNoteJob
+
+    if not isinstance(job, SurveyVoiceNoteJob) or job.answer_context != "final_feedback":
+        return
+
+    recipient = db.get(ServiceOrderRecipient, job.recipient_id)
+    order = db.get(ServiceOrder, job.order_id)
+    if recipient is None or order is None:
+        return
+    if str(recipient.status or "").lower() == "completed":
+        return
+
+    try:
+        payload = json.loads(recipient.result_json or "{}")
+    except Exception:
+        return
+    if not isinstance(payload, dict):
+        return
+
+    conv = payload.get("wa_conversation") or {}
+    if conv.get("final_feedback_done") or not conv.get("awaiting_final_feedback_text"):
+        return
+
+    from app.services.survey_flow_engine_service import SurveyFlowEngineService
+    from app.services.survey_whatsapp_conversation_service import _complete_linear_survey_thank_you
+
+    from app.services.survey_session_service import SurveySessionService
+
+    settings = final_feedback_settings(_order_config_from_service_order(order))
+    text = str(job.answer_text or "").strip()
+    persist_final_feedback_text(payload, text=text, settings=settings)
+    conv = payload["wa_conversation"]
+    conv["final_feedback_done"] = True
+    conv.pop("awaiting_final_feedback_text", None)
+    payload["wa_conversation"] = conv
+    recipient.result_json = json.dumps(payload, ensure_ascii=False)
+    db.add(recipient)
+    db.commit()
+
+    config = _order_config_from_service_order(order)
+    flow = SurveyFlowEngineService.build_flow(config)
+    questions = list(flow.get("questions") or [])
+    session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
+    organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
+    step = int(conv.get("step") or 0)
+    total = int(conv.get("total") or len(questions))
+
+    log_final_feedback(
+        "voice_transcript_completed_survey",
+        order_id=order.id,
+        recipient_id=recipient.id,
+        handler="survey_wa_final_feedback_service.try_complete_survey_after_final_feedback_voice",
+        extra={"job_id": job.id, "text_len": len(text)},
+    )
+    _complete_linear_survey_thank_you(
+        db,
+        order=order,
+        recipient=recipient,
+        config=config,
+        flow=flow,
+        questions=questions,
+        conv=conv,
+        payload=payload,
+        session=session,
+        step=step,
+        total=total,
+        org_name=org_name,
+        organiser=organiser,
+        log_id=job.whatsapp_log_id,
+        inbound_message_id=job.inbound_message_id,
+    )
+
+
+def _order_config_from_service_order(order: ServiceOrder) -> dict[str, Any]:
+    try:
+        data = json.loads(order.config_json or "{}")
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}

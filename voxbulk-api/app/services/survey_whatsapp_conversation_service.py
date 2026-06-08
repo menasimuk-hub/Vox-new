@@ -423,12 +423,17 @@ def _try_voice_note_reply(
         )
         return {"handled": True, "voice_rejected": True, "sent": sent, "reason": result.get("reason")}
     if result.get("duplicate"):
-        return {
+        duplicate_result: dict[str, Any] = {
             "handled": True,
             "duplicate": True,
             "voice_note": True,
             "job_id": result.get("job_id"),
         }
+        if result.get("accepted"):
+            duplicate_result["accepted"] = True
+            duplicate_result["answer"] = result.get("answer")
+            duplicate_result["transcript_ready"] = result.get("transcript_ready")
+        return duplicate_result
     if result.get("accepted") and answer_context == "followup":
         answer_entry = dict(result.get("answer") or {})
         answers = list(conv.get("answers") or [])
@@ -2094,10 +2099,23 @@ def _handle_final_feedback_inbound(
     log_id: int | None,
     inbound_message_id: str | None,
 ) -> dict[str, Any]:
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
     settings = final_feedback_settings(config)
     effective_body = reply.normalized_answer or str(body or "").strip()
 
-    if conv.get("awaiting_final_feedback_yes_no"):
+    if conv.get("awaiting_final_feedback_yes_no") and SurveyWaVoiceNoteService.is_inbound_voice(reply):
+        persist_final_feedback_yes_no(payload, choice="Yes", settings=settings)
+        conv = payload["wa_conversation"]
+        begin_final_feedback_open_text(conv)
+        payload["wa_conversation"] = conv
+        log_final_feedback(
+            "yes_no_voice_treated_as_yes_open_text",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            handler="survey_whatsapp_conversation_service._handle_final_feedback_inbound",
+        )
+    elif conv.get("awaiting_final_feedback_yes_no"):
         choice = parse_final_feedback_yes_no(effective_body)
         if not choice:
             retry_q = build_final_feedback_yes_no_question(settings)
@@ -2187,14 +2205,13 @@ def _handle_final_feedback_inbound(
             step_index=step,
             config=config,
         )
-        if voice and voice.get("handled") and not voice.get("accepted"):
+        if voice and voice.get("voice_rejected"):
             return {
                 "handled": True,
                 "order_id": order.id,
                 "recipient_id": recipient.id,
                 "voice_note": True,
-                "duplicate": bool(voice.get("duplicate")),
-                "voice_rejected": bool(voice.get("voice_rejected")),
+                "voice_rejected": True,
                 "log_id": log_id,
             }
         if voice and voice.get("accepted"):
