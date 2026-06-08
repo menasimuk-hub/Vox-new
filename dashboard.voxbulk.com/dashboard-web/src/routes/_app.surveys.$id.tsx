@@ -1,6 +1,8 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import * as React from "react";
 import { Play, Pause, Pencil, Copy, Trash2, Square, FileBarChart, Coins } from "lucide-react";
+
+import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -109,7 +111,21 @@ function SurveyDetail() {
       <PageHeader
         eyebrow="Survey detail"
         title={c.name}
-        description={<span className="flex items-center gap-2"><StatusBadge tone={c.status} /> · {c.responses}/{c.target} responses</span> as unknown as string}
+        description={
+          (
+            <div className="space-y-2">
+              <SurveyIdentityHeader
+                surveyName={c.name}
+                surveyId={c.surveyId || order.campaign_id || order.survey_id}
+                channel={c.surveyChannel}
+                compact
+              />
+              <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                <StatusBadge tone={c.status} /> · {c.responses}/{c.target} responses
+              </span>
+            </div>
+          ) as unknown as string
+        }
         actions={
           <>
             <Button variant="ghost" asChild><Link to="/surveys">← Back</Link></Button>

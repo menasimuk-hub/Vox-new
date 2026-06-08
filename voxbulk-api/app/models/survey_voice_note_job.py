@@ -33,6 +33,7 @@ class SurveyVoiceNoteJob(Base):
     answer_context: Mapped[str] = mapped_column(String(32), nullable=False, default="normal", index=True)
     step_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     answer_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    question_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 
     inbound_message_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     provider_media_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
@@ -54,6 +55,7 @@ class SurveyVoiceNoteJob(Base):
 
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     transcribed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     audio_deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

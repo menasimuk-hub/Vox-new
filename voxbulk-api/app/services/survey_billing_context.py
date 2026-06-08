@@ -26,6 +26,11 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
     usage_status = str(usage.status or "").strip().lower() if usage else ""
     has_whatsapp_allowance = usage is not None and wa_included > 0 and usage_status in {"active", "trial"}
 
+    calls_included = int(usage.calls_included or 0) if usage else 0
+    calls_used = int(usage.calls_used or 0) if usage else 0
+    calls_remaining = max(0, calls_included - calls_used) if calls_included > 0 else 0
+    has_call_allowance = usage is not None and calls_included > 0 and usage_status in {"active", "trial"}
+
     survey_credits = int(org.survey_credits_balance or 0)
     plan_code = str(plan.code or "").strip().lower() if plan else None
     if not plan_code and usage and usage.plan_code:
@@ -46,6 +51,10 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
         "whatsapp_included": wa_included,
         "whatsapp_used": wa_used,
         "whatsapp_remaining": wa_remaining,
+        "calls_included": calls_included,
+        "calls_used": calls_used,
+        "calls_remaining": calls_remaining,
+        "has_call_allowance": has_call_allowance,
         "survey_credits": survey_credits,
         "payg_allowed": True,
     }

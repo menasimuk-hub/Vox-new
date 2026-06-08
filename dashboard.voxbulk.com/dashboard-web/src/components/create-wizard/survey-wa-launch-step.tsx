@@ -159,8 +159,10 @@ export function SurveyWaLaunchStep({
         >
           <Checkbox checked={consent} onCheckedChange={(v) => setConsent(!!v)} className="mt-0.5" />
           <div>
-            <p className="text-sm font-medium">I confirm my contact list has valid WhatsApp opt-in consent.</p>
-            <p className="text-xs text-muted-foreground">Required before launch — protects your account and your contacts.</p>
+            <p className="text-sm font-medium">
+              I confirm all contacts in this list have consented to be contacted for survey purposes, and I accept full
+              responsibility as data controller.
+            </p>
           </div>
         </label>
 

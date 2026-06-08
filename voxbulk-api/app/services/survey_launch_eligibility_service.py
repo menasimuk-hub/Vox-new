@@ -389,22 +389,79 @@ class SurveyLaunchEligibilityService:
         total = int(quote.get("total_pence") or 0)
         amount_display = str(quote.get("total_gbp") or VoxbulkPricingService.money_display(total))
         per_call_display = str(quote.get("per_call_display") or "")
+        duration_min = int(quote.get("duration_minutes") or 1)
+        estimated_minutes = max(1, duration_min * recipient_count)
+        calls_remaining = int(billing.get("calls_remaining") or 0)
+        calls_included = int(billing.get("calls_included") or 0)
+        can_invoice = bool(billing.get("can_launch_and_invoice"))
+        covered_minutes = min(calls_remaining, estimated_minutes) if can_invoice and calls_included > 0 else 0
+        extra_minutes = max(0, estimated_minutes - covered_minutes)
+        remaining_after = max(0, calls_remaining - covered_minutes)
 
-        if billing.get("can_launch_and_invoice") and total <= 0:
+        base.update(
+            {
+                "estimated_call_minutes": estimated_minutes,
+                "covered_call_minutes": covered_minutes,
+                "extra_call_minutes": extra_minutes,
+                "remaining_call_minutes_after_launch": remaining_after,
+                "pricing_source": quote.get("pricing_source"),
+            }
+        )
+
+        if can_invoice and calls_included > 0 and extra_minutes <= 0:
             base.update(
                 {
                     "can_launch": True,
                     "payment_required": False,
-                    "mode": "included",
+                    "mode": "subscription_phone_included",
                     "launch_action": "launch",
                     "amount_due_pence": 0,
                     "amount_due_display": "£0.00",
-                    "summary": "AI phone survey: billed by connection + minutes.",
+                    "summary": (
+                        f"Plan includes {calls_included} call minutes/month. "
+                        f"This launch uses {estimated_minutes} minute{'s' if estimated_minutes != 1 else ''} "
+                        f"({remaining_after} remaining after launch)."
+                    ),
                 }
             )
             return base
 
-        if billing.get("can_launch_and_invoice"):
+        if can_invoice and calls_included > 0 and extra_minutes > 0:
+            base.update(
+                {
+                    "can_launch": True,
+                    "payment_required": False,
+                    "mode": "subscription_phone_overage",
+                    "launch_action": "launch",
+                    "amount_due_pence": total,
+                    "amount_due_display": amount_display,
+                    "summary": (
+                        f"Plan includes {calls_included} call minutes/month. "
+                        f"This launch: {covered_minutes} included, {extra_minutes} extra minute{'s' if extra_minutes != 1 else ''} "
+                        f"({amount_display} invoiced on your next bill)."
+                    ),
+                }
+            )
+            return base
+
+        if can_invoice and total <= 0:
+            base.update(
+                {
+                    "can_launch": True,
+                    "payment_required": False,
+                    "mode": "subscription_phone",
+                    "launch_action": "launch",
+                    "amount_due_pence": 0,
+                    "amount_due_display": "£0.00",
+                    "summary": (
+                        f"AI phone survey: billed by connection + minutes "
+                        f"({per_call_display}/call × {recipient_count})."
+                    ),
+                }
+            )
+            return base
+
+        if can_invoice:
             base.update(
                 {
                     "can_launch": True,
@@ -413,7 +470,6 @@ class SurveyLaunchEligibilityService:
                     "launch_action": "launch",
                     "amount_due_pence": total,
                     "amount_due_display": amount_display,
-                    "pricing_source": quote.get("pricing_source"),
                     "summary": (
                         f"AI phone survey: billed by connection + minutes "
                         f"({per_call_display}/call × {recipient_count} = {amount_display} on your next bill)."
@@ -432,10 +488,9 @@ class SurveyLaunchEligibilityService:
                 "amount_due_display": amount_display,
                 "quote_total_pence": total,
                 "quote_total_display": amount_display,
-                "pricing_source": quote.get("pricing_source"),
                 "summary": (
-                    f"AI phone survey: billed by connection + minutes. "
-                    f"Pay & launch: {amount_display} ({per_call_display}/call × {recipient_count})."
+                    f"AI phone survey: pay as you go — {amount_display} "
+                    f"({per_call_display}/call × {recipient_count})."
                 ),
             }
         )
@@ -519,7 +574,13 @@ class SurveyLaunchEligibilityService:
             except OrgServiceCreditError as e:
                 raise SurveyLaunchEligibilityError(str(e)) from e
 
-        if mode in {"subscription_whatsapp", "subscription_overage", "subscription_phone"}:
+        if mode in {
+            "subscription_whatsapp",
+            "subscription_overage",
+            "subscription_phone",
+            "subscription_phone_included",
+            "subscription_phone_overage",
+        }:
             from datetime import datetime
 
             plan_name = str(eligibility.get("package_label") or "package").strip() or "package"

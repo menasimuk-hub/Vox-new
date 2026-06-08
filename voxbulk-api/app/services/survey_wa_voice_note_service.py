@@ -95,6 +95,7 @@ class SurveyWaVoiceNoteService:
         answer_context: str,
         step_index: int,
         answer_index: int | None,
+        question_id: str | None = None,
     ) -> SurveyVoiceNoteJob:
         provider_media_id = str(media_item.get("provider_media_id") or "")
         existing = SurveyWaVoiceNoteService.find_existing_job(
@@ -122,6 +123,7 @@ class SurveyWaVoiceNoteService:
             answer_context=str(answer_context or "normal"),
             step_index=int(step_index or 0),
             answer_index=answer_index,
+            question_id=str(question_id or "").strip() or None,
             inbound_message_id=str(inbound_message_id or ""),
             provider_media_id=provider_media_id,
             media_url=str(media_item.get("url") or ""),
@@ -135,6 +137,46 @@ class SurveyWaVoiceNoteService:
         db.add(job)
         db.flush()
         return job
+
+    @staticmethod
+    def _resolve_recipient_language(recipient: ServiceOrderRecipient | None) -> str | None:
+        if recipient is None:
+            return None
+        for key in ("language", "locale"):
+            raw = str(getattr(recipient, key, "") or "").strip().lower()
+            if raw:
+                return raw.split("-")[0]
+        try:
+            payload = json.loads(recipient.result_json or "{}")
+            if isinstance(payload, dict):
+                for key in ("language", "locale"):
+                    raw = str(payload.get(key) or "").strip().lower()
+                    if raw:
+                        return raw.split("-")[0]
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _transcribe_audio(
+        db: Session,
+        audio_path,
+        *,
+        recipient: ServiceOrderRecipient | None = None,
+    ) -> dict[str, Any]:
+        language = SurveyWaVoiceNoteService._resolve_recipient_language(recipient)
+        try:
+            from app.services.providers.deepinfra_service import DeepInfraProviderService
+
+            if DeepInfraProviderService.is_configured(db):
+                return DeepInfraProviderService.transcribe_audio_file(
+                    db,
+                    audio_path=audio_path,
+                    language=language,
+                )
+        except Exception as exc:
+            logger.warning("%s deepinfra_transcription_fallback reason=%s", LOG_PREFIX, str(exc)[:300])
+        return transcribe_with_whisper_cpp(audio_path)
 
     @staticmethod
     def process_transcription_job(db: Session, job_id: str) -> dict[str, Any]:
@@ -182,7 +224,8 @@ class SurveyWaVoiceNoteService:
             db.commit()
 
             logger.info("%s transcription_started job_id=%s path=%s", LOG_PREFIX, job.id, path)
-            result = transcribe_with_whisper_cpp(path)
+            recipient = db.get(ServiceOrderRecipient, job.recipient_id)
+            result = SurveyWaVoiceNoteService._transcribe_audio(db, path, recipient=recipient)
             text = str(result.get("text") or "").strip()
             if not text:
                 raise WhisperTranscriptionError("Empty transcript")
@@ -193,6 +236,7 @@ class SurveyWaVoiceNoteService:
             job.transcription_duration_ms = result.get("transcription_duration_ms")
             job.transcription_status = "completed"
             job.transcribed_at = datetime.utcnow()
+            job.processed_at = datetime.utcnow()
             job.updated_at = datetime.utcnow()
             job.transcription_error = None
             db.add(job)
@@ -462,6 +506,16 @@ class SurveyWaVoiceNoteService:
         if answer_context == "followup" and answer_index > 0:
             answer_index = answer_index - 1
 
+        question_id = None
+        if isinstance(question, dict):
+            question_id = str(
+                question.get("id")
+                or question.get("question_id")
+                or question.get("step_role")
+                or question.get("template_id")
+                or ""
+            ).strip() or None
+
         job = SurveyWaVoiceNoteService.create_pending_job(
             db,
             org_id=str(order.org_id),
@@ -474,6 +528,7 @@ class SurveyWaVoiceNoteService:
             answer_context=answer_context,
             step_index=step_index,
             answer_index=answer_index,
+            question_id=question_id,
         )
 
         if job.transcription_status == "completed" and job.answer_text:
@@ -539,6 +594,9 @@ class SurveyWaVoiceNoteService:
             "answer_context": job.answer_context,
             "step_index": job.step_index,
             "answer_index": job.answer_index,
+            "question_id": job.question_id,
+            "survey_id": job.order_id,
+            "contact_id": job.recipient_id,
             "answer_text": job.answer_text,
             "answer_source": job.answer_source,
             "detected_language": job.detected_language,
@@ -553,6 +611,7 @@ class SurveyWaVoiceNoteService:
             "audio_file_size": job.audio_file_size,
             "audio_deleted_at": job.audio_deleted_at.isoformat() if job.audio_deleted_at else None,
             "transcribed_at": job.transcribed_at.isoformat() if job.transcribed_at else None,
+            "processed_at": job.processed_at.isoformat() if job.processed_at else None,
             "created_at": job.created_at.isoformat() if job.created_at else None,
             "updated_at": job.updated_at.isoformat() if job.updated_at else None,
             "retry_count": int(job.retry_count or 0),

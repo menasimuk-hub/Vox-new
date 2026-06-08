@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { MessageCircle, Phone } from "lucide-react";
 import * as React from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Download, FileSpreadsheet, TrendingUp } from "lucide-react";
@@ -123,7 +124,19 @@ function SurveyReports() {
             <TableBody>
               {rowsSort.sorted.map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell className="pl-6 font-medium">{c.name}</TableCell>
+                  <TableCell className="pl-6">
+                    <div className="flex items-center gap-2 font-medium">
+                      {c.surveyChannel === "whatsapp" ? (
+                        <MessageCircle className="size-4 shrink-0 text-primary" aria-label="WhatsApp survey" />
+                      ) : c.surveyChannel === "ai_call" ? (
+                        <Phone className="size-4 shrink-0 text-primary" aria-label="Calling survey" />
+                      ) : null}
+                      <span>{c.name}</span>
+                    </div>
+                    {c.surveyId ? (
+                      <span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">ID {c.surveyId}</span>
+                    ) : null}
+                  </TableCell>
                   <TableCell><StatusBadge tone={c.status} /></TableCell>
                   <TableCell>{c.responses.toLocaleString()}</TableCell>
                   <TableCell>{c.completion}%</TableCell>

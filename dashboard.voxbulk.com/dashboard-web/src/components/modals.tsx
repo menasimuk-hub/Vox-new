@@ -7,7 +7,12 @@ import { WaBookingPhonePreview } from "@/components/wa-booking-phone-preview";
 import { WaSurveyPhonePreview } from "@/components/wa-survey-phone-preview";
 import { ATS_ANALYZING_LABEL } from "@/lib/interview-campaign";
 import { parseScriptQuestions } from "@/lib/interview-script";
-import { mapBillingBlockReason, buildLaunchPricingBreakdown, buildWhatsAppAllowanceNotice, isWhatsAppAllowanceExhausted } from "@/lib/survey-launch-billing";
+import {
+  mapBillingBlockReason,
+  buildLaunchPricingBreakdown,
+  buildSurveyAllowanceNotice,
+  isWhatsAppAllowanceExhausted,
+} from "@/lib/survey-launch-billing";
 import {
   AlertCircle,
   CheckCircle2,
@@ -1026,6 +1031,7 @@ export function InterviewPreviewQuoteModal({
 
 export type SurveyLaunchModalData = {
   campaignName: string;
+  surveyId?: string;
   firstStepName?: string;
   recipientCount: number;
   channelLabel: string;
@@ -1105,7 +1111,7 @@ export function SurveyLaunchQuoteModal({
   const canLaunchNow = Boolean(eligibility?.can_launch) && launchAction === "launch";
   const canPayLaunch = paymentRequired && launchAction === "pay_and_launch";
   const amountDue = eligibility?.amount_due_display || null;
-  const allowanceNotice = buildWhatsAppAllowanceNotice(eligibility);
+  const allowanceNotice = buildSurveyAllowanceNotice(eligibility);
   const allowanceExhausted = isWhatsAppAllowanceExhausted(eligibility);
   const pricingBreakdown = buildLaunchPricingBreakdown(eligibility);
   const actionBusy = Boolean(payBusy || launching || billingPhase === "checking");
@@ -1132,7 +1138,9 @@ export function SurveyLaunchQuoteModal({
         ? "Included · promo credits"
         : mode === "subscription_whatsapp"
           ? `Included · ${data.packageName || eligibility?.billing?.plan_name || "your package"}`
-          : "£0.00 · included"
+          : mode === "subscription_phone_included"
+            ? `Included · ${data.packageName || eligibility?.billing?.plan_name || "call minutes"}`
+            : "£0.00 · included"
       : canPayLaunch
         ? pricingBreakdown?.totalDue || amountDue || "—"
         : eligibility?.summary || eligibility?.extra_cost_display || amountDue || "—";
@@ -1259,6 +1267,7 @@ export function SurveyLaunchQuoteModal({
 
           <Panel title="Campaign" icon={<FileText className="size-4" />}>
             <TimelineLine label="Survey name" value={data.campaignName || "—"} />
+            <TimelineLine label="Survey ID" value={data.surveyId || "—"} />
             <TimelineLine label="Step 1" value={data.firstStepName || "—"} />
             <TimelineLine label="Launch timing" value={data.launchModeLabel} />
             <TimelineLine label="Recipients" value={`${data.recipientCount} contacts`} />

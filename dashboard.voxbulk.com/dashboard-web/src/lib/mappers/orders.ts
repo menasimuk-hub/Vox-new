@@ -56,6 +56,20 @@ export function statusLabelToTone(label: string, order: ServiceOrder): CampaignT
   return "quoted";
 }
 
+export function resolveSurveyChannel(order: ServiceOrder): "whatsapp" | "ai_call" | null {
+  const cfg = (order.config || {}) as Record<string, unknown>;
+  const raw = String(cfg.survey_channel || cfg.delivery || "").trim().toLowerCase();
+  if (raw === "whatsapp") return "whatsapp";
+  if (raw === "ai_call" || raw === "phone") return "ai_call";
+  const channels = cfg.channels;
+  if (Array.isArray(channels)) {
+    const first = String(channels[0] || "").trim().toLowerCase();
+    if (first === "whatsapp") return "whatsapp";
+    if (first === "ai_call" || first === "phone") return "ai_call";
+  }
+  return null;
+}
+
 export function orderToCampaign(order: ServiceOrder, type: CampaignType): Campaign {
   const { responses, target, completion } = orderProgress(order);
   const rejectTitles = [order.survey_name || "", order.title || "", String(order.config?.goal || "")].filter(Boolean);
@@ -68,6 +82,8 @@ export function orderToCampaign(order: ServiceOrder, type: CampaignType): Campai
     id: order.id,
     name: displayName || (type === "interview" ? "Interview task" : "Survey task"),
     subtitle: step1 ? step1 : undefined,
+    surveyId: String(order.campaign_id || (order as { survey_id?: string }).survey_id || "").trim() || undefined,
+    surveyChannel: type === "survey" ? resolveSurveyChannel(order) : null,
     type,
     status: statusLabelToTone(order.status_label || order.status, order),
     responses,

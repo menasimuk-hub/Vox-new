@@ -5,23 +5,35 @@ import { toast } from "sonner";
 import { parseScriptQuestions } from "@/lib/interview-script";
 import type { SurveyAgent } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
+import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { Stepper, Summary, WizardNav, type WizardStepDef } from "@/components/create-wizard";
+import {
+  SURVEY_LAUNCH_CONSENT_TEXT,
+  SurveyUploadConsent,
+} from "@/components/create-wizard/survey-upload-consent";
+import { UploadedContactsTable } from "@/components/create-wizard/uploaded-contacts-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 const PHONE_STEPS: WizardStepDef[] = [
-  { id: 1, title: "Goal & script", subtitle: "Questions & voice", icon: Target },
-  { id: 2, title: "Contacts", subtitle: "Upload & schedule", icon: Users },
-  { id: 3, title: "Launch", subtitle: "Preview & go", icon: Rocket },
+  { id: 1, title: "Name & script", subtitle: "Goal, questions & voice", icon: Target },
+  { id: 2, title: "Contacts", subtitle: "Upload list", icon: Users },
+  { id: 3, title: "Launch", subtitle: "Schedule & go", icon: Rocket },
 ];
 
 export type SurveyPhoneWizardProps = {
   onBack: () => void;
+  surveyName: string;
+  setSurveyName: (v: string) => void;
+  surveyId?: string | null;
+  onEnsureDraft?: () => void | Promise<void>;
   anonymous: boolean;
   goal: string;
   setGoal: (v: string) => void;
@@ -40,10 +52,6 @@ export type SurveyPhoneWizardProps = {
   setStartAt: (v: string) => void;
   endAt: string;
   setEndAt: (v: string) => void;
-  packageId: string;
-  setPackageId: (v: string) => void;
-  packages: Array<Record<string, unknown>>;
-  packagesLoading: boolean;
   fileRef: React.RefObject<HTMLInputElement | null>;
   uploading: boolean;
   onUpload: (files: FileList | null) => void;
@@ -51,6 +59,15 @@ export type SurveyPhoneWizardProps = {
   onSaveDraft: () => void;
   savePending: boolean;
   contactsCount?: number;
+  uploadedContacts: Array<{ name: string; phone: string; language?: string }>;
+  recipientsLoading?: boolean;
+  recipientsError?: string | null;
+  uploadTypeAck: boolean;
+  setUploadTypeAck: (v: boolean) => void;
+  uploadConsent: boolean;
+  setUploadConsent: (v: boolean) => void;
+  launchConsent: boolean;
+  setLaunchConsent: (v: boolean) => void;
   launchBlockers?: string[];
   onOpenLaunch: () => void | Promise<void>;
   launchPending?: boolean;
@@ -74,35 +91,66 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
   const questionCount = React.useMemo(() => parseScriptQuestions(props.script).length, [props.script]);
   const missingCallingWindow = !props.startAt || !props.endAt;
   const launchBlockers = props.launchBlockers || [];
+  const hasContacts = (props.contactsCount ?? 0) > 0;
+  const uploadReady = props.uploadTypeAck && props.uploadConsent;
 
   const canNext = React.useMemo(() => {
     if (step === 1) {
       return (
+        props.surveyName.trim().length > 0 &&
         props.goal.trim().length > 0 &&
         props.script.trim().length > 0 &&
         props.approved &&
         Boolean(props.agentId)
       );
     }
-    if (step === 2) return !missingCallingWindow;
+    if (step === 2) return hasContacts && uploadReady;
     return true;
-  }, [step, props.goal, props.script, props.approved, props.agentId, missingCallingWindow]);
+  }, [
+    step,
+    props.surveyName,
+    props.goal,
+    props.script,
+    props.approved,
+    props.agentId,
+    hasContacts,
+    uploadReady,
+  ]);
 
-  const goNext = () => {
+  const goNext = async () => {
     if (!canNext) {
-      if (step === 1 && !props.approved) {
+      if (step === 1 && !props.surveyName.trim()) {
+        toast.error("Enter a survey name before continuing");
+      } else if (step === 1 && !props.approved) {
         toast.error("Approve your script before continuing");
       } else if (step === 1 && !props.agentId) {
         toast.error("Select a survey voice agent");
       } else if (step === 1) {
         toast.error("Add a survey goal and script before continuing");
-      } else if (step === 2 && missingCallingWindow) {
-        toast.error("Set calling start and end date/time");
+      } else if (step === 2 && !hasContacts) {
+        toast.error("Upload at least one contact before continuing");
+      } else if (step === 2 && !uploadReady) {
+        toast.error("Confirm survey type and upload consent before continuing");
       }
       return;
     }
+    if (step === 1 && props.onEnsureDraft) {
+      try {
+        await props.onEnsureDraft();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not save draft");
+        return;
+      }
+    }
     setStep((s) => Math.min(PHONE_STEPS.length, s + 1));
   };
+
+  const canLaunch =
+    props.launchConsent &&
+    !missingCallingWindow &&
+    props.approved &&
+    hasContacts &&
+    launchBlockers.length === 0;
 
   return (
     <>
@@ -113,13 +161,30 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
           <Card className="animate-scale-in">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Target className="size-4 text-primary" /> Step 1 · Survey goal & script
+                <Target className="size-4 text-primary" /> Step 1 · Survey name, goal & script
               </CardTitle>
               <CardDescription>
-                Tell the AI what you need to learn — it drafts a natural phone survey (up to 4 questions).
+                Name your campaign, then tell the AI what to learn — it drafts a natural phone survey (up to 4 questions).
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="phone-survey-name">Survey name</Label>
+                <Input
+                  id="phone-survey-name"
+                  value={props.surveyName}
+                  onChange={(e) => props.setSurveyName(e.target.value)}
+                  placeholder="Q2 customer satisfaction calls"
+                  maxLength={120}
+                />
+                <SurveyIdentityHeader
+                  surveyName={props.surveyName}
+                  surveyId={props.surveyId}
+                  channel="ai_call"
+                  compact
+                />
+              </div>
+
               <div className="flex items-start gap-3 rounded-xl border border-primary/15 bg-primary/5 p-4">
                 <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
                   <Sparkles className="size-3.5" />
@@ -127,7 +192,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 <div>
                   <p className="text-sm font-medium text-primary">Keep calls short and friendly</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    AI generates up to 4 questions. You can edit or add your own before approving — billing is per call.
+                    AI generates up to 4 questions. Billing is per call on your plan or pay as you go.
                   </p>
                 </div>
               </div>
@@ -220,9 +285,9 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
           <Card className="animate-scale-in">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Users className="size-4 text-primary" /> Step 2 · Contacts & calling window
+                <Users className="size-4 text-primary" /> Step 2 · Upload contacts
               </CardTitle>
-              <CardDescription>Upload contacts and choose when the AI may place survey calls.</CardDescription>
+              <CardDescription>Upload your contact list and confirm consent before continuing.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <input
@@ -239,9 +304,6 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                   </div>
                   <p className="text-sm font-medium">Upload CSV or Excel</p>
                   <p className="text-xs text-muted-foreground">Columns: name, phone (required)</p>
-                  {(props.contactsCount ?? 0) > 0 ? (
-                    <p className="text-xs font-medium text-foreground">{props.contactsCount} contact(s) ready</p>
-                  ) : null}
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                     <Button size="sm" onClick={() => props.fileRef.current?.click()} disabled={props.uploading}>
                       {props.uploading ? "Uploading…" : "Choose file"}
@@ -253,32 +315,19 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <Field label="Calling start (date & time)" error={!props.startAt ? "Required" : undefined}>
-                  <Input type="datetime-local" value={props.startAt} onChange={(e) => props.setStartAt(e.target.value)} />
-                </Field>
-                <Field label="Calling end (date & time)" error={!props.endAt ? "Required" : undefined}>
-                  <Input type="datetime-local" value={props.endAt} onChange={(e) => props.setEndAt(e.target.value)} />
-                </Field>
-                <Field label="Package">
-                  {props.packagesLoading ? (
-                    <Skeleton className="h-10 w-full" />
-                  ) : (
-                    <Select value={props.packageId} onValueChange={props.setPackageId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select package" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {props.packages.map((p) => (
-                          <SelectItem key={String(p.id || p.rule_id)} value={String(p.id || p.rule_id)}>
-                            {String(p.label || p.name || p.bundle_size || "Package")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </Field>
-              </div>
+              <UploadedContactsTable
+                contacts={props.uploadedContacts}
+                loading={props.recipientsLoading || props.uploading}
+                error={props.recipientsError}
+              />
+
+              <SurveyUploadConsent
+                channel="phone"
+                typeAck={props.uploadTypeAck}
+                setTypeAck={props.setUploadTypeAck}
+                uploadConsent={props.uploadConsent}
+                setUploadConsent={props.setUploadConsent}
+              />
             </CardContent>
           </Card>
         )}
@@ -287,11 +336,17 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
           <Card className="animate-scale-in">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Rocket className="size-4 text-primary" /> Step 3 · Preview & launch
+                <Rocket className="size-4 text-primary" /> Step 3 · Schedule & launch
               </CardTitle>
-              <CardDescription>Review your survey script and calling window, then launch — billed per call.</CardDescription>
+              <CardDescription>Set your calling window, review the survey, and launch — billed per call on plan or pay as you go.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <SurveyIdentityHeader
+                surveyName={props.surveyName}
+                surveyId={props.surveyId}
+                channel="ai_call"
+              />
+
               {launchBlockers.length > 0 ? (
                 <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
                   <p className="font-medium text-foreground">Before launch:</p>
@@ -302,6 +357,15 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                   </ul>
                 </div>
               ) : null}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Calling start (date & time)" error={!props.startAt ? "Required" : undefined}>
+                  <Input type="datetime-local" value={props.startAt} onChange={(e) => props.setStartAt(e.target.value)} />
+                </Field>
+                <Field label="Calling end (date & time)" error={!props.endAt ? "Required" : undefined}>
+                  <Input type="datetime-local" value={props.endAt} onChange={(e) => props.setEndAt(e.target.value)} />
+                </Field>
+              </div>
 
               <div className="rounded-2xl border border-border bg-gradient-to-br from-background to-accent/10 p-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
@@ -342,6 +406,22 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 <Summary label="Calling end" value={props.endAt || "Not set"} />
                 <Summary label="Contacts" value={String(props.contactsCount ?? 0)} />
               </div>
+
+              <label
+                className={cn(
+                  "flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition",
+                  props.launchConsent ? "border-primary bg-primary/5" : "border-warning/50 bg-warning/5",
+                )}
+              >
+                <Checkbox
+                  checked={props.launchConsent}
+                  onCheckedChange={(v) => props.setLaunchConsent(!!v)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <p className="text-sm font-medium">{SURVEY_LAUNCH_CONSENT_TEXT}</p>
+                </div>
+              </label>
             </CardContent>
           </Card>
         )}
@@ -352,11 +432,11 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
         total={PHONE_STEPS.length}
         onBack={props.onBack}
         onPrev={() => setStep((s) => Math.max(1, s - 1))}
-        onNext={goNext}
+        onNext={() => void goNext()}
         nextDisabled={!canNext}
         finalLabel="Preview & launch"
         onFinish={() => void props.onOpenLaunch()}
-        finishDisabled={!props.approved || props.launchPending || launchBlockers.length > 0}
+        finishDisabled={!canLaunch || props.launchPending}
         leftActions={
           <Button variant="outline" className="gap-1.5" onClick={() => void props.onSaveDraft()} disabled={props.savePending}>
             {props.savePending ? "Saving…" : "Save draft"}

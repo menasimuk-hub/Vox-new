@@ -53,6 +53,7 @@ export type ServiceOrder = {
   survey_name?: string;
   reference_id?: string | null;
   campaign_id?: string | null;
+  survey_id?: string | null;
   status: string;
   payment_status?: string | null;
   status_label?: string;

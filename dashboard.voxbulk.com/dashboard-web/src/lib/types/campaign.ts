@@ -13,6 +13,8 @@ export type Campaign = {
   id: string;
   name: string;
   subtitle?: string;
+  surveyId?: string;
+  surveyChannel?: "whatsapp" | "ai_call" | null;
   type: CampaignType;
   status: CampaignTone;
   responses: number;

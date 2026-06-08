@@ -316,6 +316,36 @@ def test_groq_connection(db: Session = Depends(get_db), _admin=Depends(require_c
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Groq test failed: {e}") from e
 
 
+@router.post("/integrations/deepinfra/test")
+def test_deepinfra_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.providers.deepinfra_service import DeepInfraProviderService
+
+    try:
+        result = DeepInfraProviderService.test_connection(db)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"DeepInfra test failed: {e}") from e
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result)
+    try:
+        from app.services.provider_settings import ProviderSettingsService
+
+        ProviderSettingsService.upsert_platform_config(
+            db,
+            provider="deepinfra",
+            is_enabled=True,
+            config={
+                "last_tested_at": result.get("last_tested_at"),
+                "last_test_status": result.get("last_test_status"),
+                "last_test_response_time_ms": result.get("response_time_ms"),
+            },
+        )
+    except Exception:
+        pass
+    return result
+
+
 @router.post("/integrations/deepgram/test")
 def test_deepgram_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:

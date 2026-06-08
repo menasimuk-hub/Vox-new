@@ -44,6 +44,7 @@ const PROVIDERS = [
   { key: 'openai', label: 'OpenAI' },
   { key: 'deepseek', label: 'DeepSeek' },
   { key: 'groq', label: 'Groq' },
+  { key: 'deepinfra', label: 'DeepInfra' },
   { key: 'deepgram', label: 'Deepgram' },
   { key: 'cartesia', label: 'Cartesia' },
   { key: 'elevenlabs', label: 'ElevenLabs' },
@@ -148,6 +149,15 @@ function vapiValidation(config, draft, summary) {
   if (!String(config?.public_key || '').trim()) errors.public_key = 'Public key is required for browser calls.'
   if (!String(config?.assistant_id || '').trim()) errors.assistant_id = 'Assistant ID is required for browser calls.'
   if (!hasPrivateKey) errors.api_key = 'Private API key is required for lead transcripts and recordings.'
+  return { errors, valid: Object.keys(errors).length === 0 }
+}
+
+function deepinfraValidation(config, draft, summary) {
+  const errors = {}
+  const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
+  if (!hasApiKey) errors.api_key = 'API key is required.'
+  if (!String(config?.base_url || '').trim()) errors.base_url = 'Base URL is required.'
+  if (!String(config?.model_name || '').trim()) errors.model_name = 'Model name is required.'
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
@@ -603,6 +613,7 @@ export default function Integrations() {
   const [cronofyTestResult, setCronofyTestResult] = useState('')
   const [hubspotTestResult, setHubspotTestResult] = useState('')
   const [groqTestResult, setGroqTestResult] = useState('')
+  const [deepinfraTestResult, setDeepinfraTestResult] = useState('')
   const [deepgramTestResult, setDeepgramTestResult] = useState('')
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
   const [gocardlessTestResult, setGocardlessTestResult] = useState('')
@@ -786,6 +797,13 @@ export default function Integrations() {
         const token = String(draft.api_key_draft || '').trim()
         if (token) config.api_key = token
       }
+      if (providerKey === 'deepinfra') {
+        if (!config.integration_name) config.integration_name = 'DeepInfra API'
+        if (!config.model_name) config.model_name = 'openai/whisper-large-v3-turbo'
+        if (!config.base_url) config.base_url = 'https://api.deepinfra.com/v1/inference/openai/whisper-large-v3-turbo'
+        const token = String(draft.api_key_draft || '').trim()
+        if (token) config.api_key = token
+      }
       if (providerKey === 'groq') {
         if (!config.base_url) config.base_url = 'https://api.groq.com/openai'
         config.llm_model = 'llama-3.3-70b-versatile'
@@ -857,6 +875,7 @@ export default function Integrations() {
       if (providerKey === 'openai') setOpenAITestResult('')
       if (providerKey === 'deepseek') setDeepSeekTestResult('')
       if (providerKey === 'groq') setGroqTestResult('')
+      if (providerKey === 'deepinfra') setDeepinfraTestResult('')
       if (providerKey === 'deepgram') setDeepgramTestResult('')
       if (providerKey === 'cartesia') setCartesiaTestResult('')
       if (providerKey === 'vapi') setVapiTestResult('')
@@ -882,6 +901,7 @@ export default function Integrations() {
   const cronofyStatus = activeProvider === 'cronofy' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const hubspotStatus = activeProvider === 'hubspot' ? hubspotValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const groqStatus = activeProvider === 'groq' ? groqValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const deepinfraStatus = activeProvider === 'deepinfra' ? deepinfraValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepgramStatus = activeProvider === 'deepgram' ? deepgramValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const cartesiaStatus = activeProvider === 'cartesia' ? cartesiaValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const vapiStatus = activeProvider === 'vapi' ? vapiValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -987,6 +1007,22 @@ export default function Integrations() {
     } catch (e) {
       setHubspotTestResult('')
       setProviderError(e?.message || 'HubSpot test failed')
+    }
+  }
+
+  const testDeepinfra = async () => {
+    setProviderError('')
+    setDeepinfraTestResult('Testing DeepInfra…')
+    try {
+      const result = await apiFetch('/admin/integrations/deepinfra/test', { method: 'POST' })
+      setDeepinfraTestResult(
+        result.ok
+          ? `DeepInfra OK · model ${result.model_name || 'openai/whisper-large-v3-turbo'} · ${result.response_time_ms || '—'}ms · ${result.last_tested_at || ''}`
+          : (result.error || 'DeepInfra check failed'),
+      )
+    } catch (e) {
+      setDeepinfraTestResult('')
+      setProviderError(e?.message || 'DeepInfra test failed')
     }
   }
 
@@ -1729,6 +1765,50 @@ export default function Integrations() {
                         Test Groq
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+            ) : activeProvider === 'deepinfra' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>DeepInfra WA voice-note STT</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('deepinfra', e.target.checked)} />
+                      <span>Enable DeepInfra Whisper STT for WA survey open-text voice notes</span>
+                    </label>
+                    <label className='label'>Integration name</label>
+                    <input className='input' value={String(activeConfig.integration_name || 'DeepInfra API')} onChange={(e) => setProviderField('deepinfra', 'integration_name', e.target.value)} />
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>DeepInfra API key</label>
+                      <input className='input' style={deepinfraStatus.errors.api_key ? invalidInputStyle : undefined} type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, deepinfra: { ...(s.deepinfra || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste DeepInfra API key'} />
+                    </div>
+                    <label className='label'>Base URL</label>
+                    <input className='input' style={deepinfraStatus.errors.base_url ? invalidInputStyle : undefined} value={String(activeConfig.base_url || 'https://api.deepinfra.com/v1/inference/openai/whisper-large-v3-turbo')} onChange={(e) => setProviderField('deepinfra', 'base_url', e.target.value)} />
+                    <label className='label'>Model name</label>
+                    <input className='input' style={deepinfraStatus.errors.model_name ? invalidInputStyle : undefined} value={String(activeConfig.model_name || 'openai/whisper-large-v3-turbo')} onChange={(e) => setProviderField('deepinfra', 'model_name', e.target.value)} />
+                    {activeConfig.last_tested_at ? (
+                      <div className='muted' style={{ fontSize: 12 }}>
+                        Last tested {String(activeConfig.last_tested_at)} · {String(activeConfig.last_test_status || '—')}
+                        {activeConfig.last_test_response_time_ms ? ` · ${activeConfig.last_test_response_time_ms}ms` : ''}
+                      </div>
+                    ) : null}
+                    {!deepinfraStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete the required DeepInfra fields before saving.</div> : null}
+                    {deepinfraTestResult ? <div className='note'>{deepinfraTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('deepinfra')} disabled={providerSaving || !deepinfraStatus.valid}>
+                        {providerSaving ? 'Saving…' : 'Save DeepInfra'}
+                      </button>
+                      <button className='btn soft' onClick={testDeepinfra} disabled={providerSaving || !activeSummary.configured}>
+                        Test connection
+                      </button>
+                    </div>
+                    <div className='note'>Used internally when respondents send voice notes on open-text WA survey questions. No customer billing is applied for DeepInfra usage.</div>
                   </div>
                 </div>
               </div>

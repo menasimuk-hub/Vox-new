@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -404,7 +405,21 @@ function SurveyResults() {
       <PageHeader
         eyebrow="Surveys · Results"
         title={orderInfo.survey_name || orderInfo.title || selected?.name || "Survey results"}
-        description="One-survey results: live responses, question analysis, themes, and anonymous response browser."
+        description={
+          (
+            <div className="space-y-2">
+              <SurveyIdentityHeader
+                surveyName={orderInfo.survey_name || orderInfo.title || selected?.name || "Survey results"}
+                surveyId={orderInfo.campaign_id || orderInfo.survey_id || selected?.surveyId}
+                channel={selected?.surveyChannel || (orderInfo.channel === "whatsapp" ? "whatsapp" : orderInfo.channel === "ai_call" ? "ai_call" : null)}
+                compact
+              />
+              <p className="text-sm text-muted-foreground">
+                One-survey results: live responses, question analysis, themes, and anonymous response browser.
+              </p>
+            </div>
+          ) as unknown as string
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             <Button

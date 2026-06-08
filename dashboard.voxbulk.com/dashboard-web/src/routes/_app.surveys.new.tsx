@@ -169,6 +169,9 @@ function CreateSurvey() {
   const eligibilityInFlightRef = React.useRef<Promise<SurveyLaunchEligibility | null> | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
+  const [uploadTypeAck, setUploadTypeAck] = React.useState(false);
+  const [uploadConsent, setUploadConsent] = React.useState(false);
+  const [launchConsent, setLaunchConsent] = React.useState(false);
   const qc = useQueryClient();
   const orderQ = useServiceOrder(orderId);
   const recipientsQ = useOrderRecipients(orderId);
@@ -181,6 +184,10 @@ function CreateSurvey() {
     }));
   }, [recipientsQ.data?.recipients]);
   const contactsCount = uploadedContacts.filter((c) => c.phone).length;
+  const surveyId = String(orderQ.data?.campaign_id || orderQ.data?.survey_id || "").trim() || null;
+  const recipientsLoading = recipientsQ.isFetching || recipientsQ.isLoading;
+  const recipientsError =
+    recipientsQ.isError && recipientsQ.error instanceof Error ? recipientsQ.error.message : null;
   const gcReady = gocardlessAvailable(session?.subscription as Record<string, unknown> | null);
   const launchM = useLaunchSurveyCampaign();
   const activeLaunchOrderId = launchOrderId || orderId;
@@ -289,6 +296,12 @@ function CreateSurvey() {
     if (hydrated.channel) setChannel(hydrated.channel);
     if (hydrated.approved) setApproved(true);
     if (hydrated.waPreview) setWaPreview(hydrated.waPreview);
+    const cfg = (order.config || {}) as Record<string, unknown>;
+    if (cfg.upload_consent_at) {
+      setUploadTypeAck(true);
+      setUploadConsent(true);
+    }
+    if (cfg.launch_consent_at) setLaunchConsent(true);
   }, [orderQ.data]);
 
   React.useEffect(() => {
@@ -432,7 +445,15 @@ function CreateSurvey() {
     async (purpose: "save" | "launch") => {
       logLaunchFlow("[save-draft:start]", { ...launchLogCtx(), source: `saveSurveyDraft:${purpose}` });
       const id = await ensureOrder();
-      const patchBody = buildSurveyDraftPatchBody(surveyName, buildDraftConfig(), {
+      const nowIso = new Date().toISOString();
+      const draftConfig = buildDraftConfig();
+      if (uploadTypeAck && uploadConsent) {
+        draftConfig.upload_consent_at = String(draftConfig.upload_consent_at || nowIso);
+      }
+      if (purpose === "launch" && launchConsent) {
+        draftConfig.launch_consent_at = nowIso;
+      }
+      const patchBody = buildSurveyDraftPatchBody(surveyName, draftConfig, {
         scheduled_start_at: startAt || null,
         scheduled_end_at: endAt || null,
         ...(purpose === "launch"
@@ -462,6 +483,9 @@ function CreateSurvey() {
       startAt,
       endAt,
       surveyName,
+      uploadTypeAck,
+      uploadConsent,
+      launchConsent,
     ],
   );
 
@@ -506,6 +530,10 @@ function CreateSurvey() {
   };
 
   const onOpenLaunch = async (mode: "now" | "schedule" | "recurring") => {
+    if (!launchConsent) {
+      toast.error("Confirm launch consent before continuing");
+      return;
+    }
     if (openingLaunchRef.current || launchOpen) return;
     openingLaunchRef.current = true;
     navigatedToResultsRef.current = false;
@@ -1137,7 +1165,17 @@ function CreateSurvey() {
         });
       }
       await apiUploadFiles(`/service-orders/${encodeURIComponent(id)}/recipients/upload`, Array.from(files), "file");
-      await qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(id) });
+      await qc.refetchQueries({ queryKey: queryKeys.orderRecipients(id) });
+      if (uploadTypeAck && uploadConsent) {
+        const nowIso = new Date().toISOString();
+        await patchM.mutateAsync({
+          orderId: id,
+          body: buildSurveyDraftPatchBody(surveyName, {
+            ...buildDraftConfig(),
+            upload_consent_at: nowIso,
+          }),
+        });
+      }
       toast.success("Contacts uploaded");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
@@ -1242,6 +1280,19 @@ function CreateSurvey() {
           savePending={savePending}
           contactsCount={contactsCount}
           uploadedContacts={uploadedContacts}
+          recipientsLoading={recipientsLoading}
+          recipientsError={recipientsError}
+          surveyId={surveyId}
+          onEnsureDraft={async () => {
+            await ensureOrder();
+            await saveSurveyDraft("save");
+          }}
+          uploadTypeAck={uploadTypeAck}
+          setUploadTypeAck={setUploadTypeAck}
+          uploadConsent={uploadConsent}
+          setUploadConsent={setUploadConsent}
+          launchConsent={launchConsent}
+          setLaunchConsent={setLaunchConsent}
           userTestPhone={userTestPhone}
           businessName={businessName}
           onSendWaTest={onSendWaTest}
@@ -1255,6 +1306,13 @@ function CreateSurvey() {
       {channel === "phone" && (
         <SurveyPhoneWizard
           onBack={() => setChannel(null)}
+          surveyName={surveyName}
+          setSurveyName={setSurveyName}
+          surveyId={surveyId}
+          onEnsureDraft={async () => {
+            await ensureOrder();
+            await saveSurveyDraft("save");
+          }}
           anonymous={anonymous}
           goal={goal}
           setGoal={setGoal}
@@ -1273,10 +1331,6 @@ function CreateSurvey() {
           setStartAt={setStartAt}
           endAt={endAt}
           setEndAt={setEndAt}
-          packageId={packageId}
-          setPackageId={setPackageId}
-          packages={packages}
-          packagesLoading={packagesQ.isLoading}
           fileRef={fileRef}
           uploading={uploading}
           onUpload={onUpload}
@@ -1284,6 +1338,15 @@ function CreateSurvey() {
           onSaveDraft={onSaveDraft}
           savePending={savePending}
           contactsCount={contactsCount}
+          uploadedContacts={uploadedContacts}
+          recipientsLoading={recipientsLoading}
+          recipientsError={recipientsError}
+          uploadTypeAck={uploadTypeAck}
+          setUploadTypeAck={setUploadTypeAck}
+          uploadConsent={uploadConsent}
+          setUploadConsent={setUploadConsent}
+          launchConsent={launchConsent}
+          setLaunchConsent={setLaunchConsent}
           launchBlockers={phoneLaunchBlockers}
           onOpenLaunch={() => void onOpenLaunch("now")}
           launchPending={launchM.isPending || payBusy}
@@ -1302,6 +1365,7 @@ function CreateSurvey() {
         }}
         data={{
           campaignName: normalizeSurveyName(surveyName),
+          surveyId: surveyId || undefined,
           firstStepName: firstSurveyStepName,
           recipientCount: contactsCount,
           channelLabel,

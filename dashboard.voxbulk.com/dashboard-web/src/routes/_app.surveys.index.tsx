@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { Plus } from "lucide-react";
+import { MessageCircle, Phone, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -106,7 +106,17 @@ function SavedSurveys() {
                 <TableRow key={c.id} className="cursor-pointer">
                   <TableCell className="pl-6">
                     <Link to="/surveys/$id" params={{ id: c.id }} className="block hover:underline">
-                      <span className="font-medium">{c.name}</span>
+                      <div className="flex items-center gap-2">
+                        {c.surveyChannel === "whatsapp" ? (
+                          <MessageCircle className="size-4 shrink-0 text-primary" aria-label="WhatsApp survey" />
+                        ) : c.surveyChannel === "ai_call" ? (
+                          <Phone className="size-4 shrink-0 text-primary" aria-label="Calling survey" />
+                        ) : null}
+                        <span className="font-medium">{c.name}</span>
+                      </div>
+                      {c.surveyId ? (
+                        <span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">ID {c.surveyId}</span>
+                      ) : null}
                       {c.subtitle ? (
                         <span className="mt-0.5 block text-xs text-muted-foreground">Step 1 · {c.subtitle}</span>
                       ) : null}

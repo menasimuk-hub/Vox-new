@@ -14,6 +14,9 @@ import {
 import { toast } from "sonner";
 
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
+import { SurveyUploadConsent } from "@/components/create-wizard/survey-upload-consent";
+import { UploadedContactsTable } from "@/components/create-wizard/uploaded-contacts-table";
+import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
 import { WizardAlert, wizardFieldErrorClassName } from "@/components/create-wizard/wizard-alert";
@@ -28,7 +31,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { surveyTemplateLabel } from "@/lib/survey-step-labels";
 import { WaIndustryIcon } from "@/lib/wa-industry-icon";
@@ -113,6 +115,16 @@ export type SurveyWaWizardProps = {
   savePending: boolean;
   contactsCount: number;
   uploadedContacts: Array<{ name: string; phone: string; language?: string }>;
+  recipientsLoading?: boolean;
+  recipientsError?: string | null;
+  surveyId?: string | null;
+  onEnsureDraft?: () => void | Promise<void>;
+  uploadTypeAck: boolean;
+  setUploadTypeAck: (v: boolean) => void;
+  uploadConsent: boolean;
+  setUploadConsent: (v: boolean) => void;
+  launchConsent: boolean;
+  setLaunchConsent: (v: boolean) => void;
   userTestPhone?: string;
   businessName?: string;
   onSendWaTest: (input: { testPhone: string; welcomeTemplateId: string; firstName: string }) => Promise<void>;
@@ -130,7 +142,6 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const [sendMode, setSendMode] = React.useState<"all" | "test">("all");
   const [testPhone, setTestPhone] = React.useState("");
   const [launchMode, setLaunchMode] = React.useState<"now" | "schedule" | "recurring">("now");
-  const [consent, setConsent] = React.useState(false);
   const [recurringInterval, setRecurringInterval] = React.useState("1-week");
   const [firstDeliveryAt, setFirstDeliveryAt] = React.useState("");
   const generateErrorRef = React.useRef<HTMLDivElement>(null);
@@ -232,7 +243,9 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         props.orderedServiceTagIds.every((id) => Boolean(props.selectedServiceTemplateIds[String(id).trim()]))
       );
     }
-    if (step === 4) return true;
+    if (step === 4) {
+      return props.contactsCount > 0 && props.uploadTypeAck && props.uploadConsent;
+    }
     if (step === 5) return previewSlides.length > 0;
     return true;
   }, [step, props]);
@@ -244,7 +257,17 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       else if (step === 2 && props.serviceTagErrors[0]) toast.error(props.serviceTagErrors[0]);
       else if (step === 3 && props.step3SelectionErrors[0]) toast.error(props.step3SelectionErrors[0]);
       else if (step === 3) toast.error("Pick welcome, thank-you, and one template for each survey type");
+      else if (step === 4 && props.contactsCount <= 0) toast.error("Upload at least one contact before continuing");
+      else if (step === 4) toast.error("Confirm survey type and upload consent before continuing");
       return;
+    }
+    if (step === 1 && props.onEnsureDraft) {
+      try {
+        await props.onEnsureDraft();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not save draft");
+        return;
+      }
     }
     if (step === 3 && !props.approved) {
       const ok = await props.onGenerateWaSurvey();
@@ -276,9 +299,12 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   placeholder="Patient satisfaction follow-up"
                   maxLength={120}
                 />
-                <p className="text-xs text-muted-foreground">
-                  This is the campaign title shown in saved surveys, launch, and results — not the first survey question.
-                </p>
+                <SurveyIdentityHeader
+                  surveyName={props.surveyName}
+                  surveyId={props.surveyId}
+                  channel="whatsapp"
+                  compact
+                />
               </div>
               {props.industriesLoading ? (
                 <Skeleton className="h-32 w-full" />
@@ -592,36 +618,19 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   </Button>
                 </div>
               </label>
-              {props.contactsCount > 0 ? (
-                <div className="space-y-2 animate-fade-in">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">{props.contactsCount} valid contacts</p>
-                  </div>
-                  <div className="overflow-hidden rounded-lg border border-border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Phone</TableHead>
-                          <TableHead>Language</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {props.uploadedContacts.slice(0, 5).map((c, i) => (
-                          <TableRow key={`${c.phone}-${i}`}>
-                            <TableCell className="font-medium">{c.name || "—"}</TableCell>
-                            <TableCell className="tabular-nums">{c.phone}</TableCell>
-                            <TableCell className="text-muted-foreground">{c.language || "—"}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  {props.contactsCount > 5 ? (
-                    <p className="text-xs text-muted-foreground">Showing first 5 of {props.contactsCount} rows.</p>
-                  ) : null}
-                </div>
-              ) : null}
+              <UploadedContactsTable
+                contacts={props.uploadedContacts}
+                loading={props.recipientsLoading || props.uploading}
+                error={props.recipientsError}
+              />
+
+              <SurveyUploadConsent
+                channel="whatsapp"
+                typeAck={props.uploadTypeAck}
+                setTypeAck={props.setUploadTypeAck}
+                uploadConsent={props.uploadConsent}
+                setUploadConsent={props.setUploadConsent}
+              />
               {contactsSkipped ? (
                 <p className="text-xs text-muted-foreground">Contacts skipped — you can upload a list later from the survey order.</p>
               ) : null}
@@ -630,6 +639,12 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         )}
 
         {step === 5 && (
+          <div className="space-y-4">
+            <SurveyIdentityHeader
+              surveyName={props.surveyName}
+              surveyId={props.surveyId}
+              channel="whatsapp"
+            />
           <SurveyWaPreviewCarousel
             slides={previewSlides}
             industryLabel={industryLabel}
@@ -648,6 +663,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
             onSendTest={props.onSendWaTest}
             sendTestPending={props.sendTestPending}
           />
+          </div>
         )}
 
         {step === 6 && (
@@ -663,8 +679,8 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               setFirstDeliveryAt(v);
               props.setEndAt(v);
             }}
-            consent={consent}
-            setConsent={setConsent}
+            consent={props.launchConsent}
+            setConsent={props.setLaunchConsent}
             contactsCount={props.contactsCount}
             typeCount={props.orderedServiceTagIds.length}
             costHint={props.costHint}

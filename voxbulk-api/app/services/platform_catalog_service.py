@@ -838,6 +838,7 @@ class ServiceOrderService:
             "service_code": order.service_code,
             "title": order.title,
             "survey_name": str(config.get("survey_name") or order.title or ""),
+            "survey_id": str(order.campaign_id or config.get("survey_id") or ""),
             "reference_id": order.reference_id,
             "campaign_id": order.campaign_id,
             "status": order.status,
@@ -1451,6 +1452,17 @@ class ServiceOrderService:
 
         if code in {"interview", "survey"}:
             order = ensure_campaign_id(db, order)
+            if code == "survey" and order.campaign_id:
+                try:
+                    cfg = json.loads(order.config_json or "{}")
+                    if isinstance(cfg, dict):
+                        cfg["survey_id"] = str(order.campaign_id)
+                        order.config_json = json.dumps(cfg, ensure_ascii=False)
+                        db.add(order)
+                        db.commit()
+                        db.refresh(order)
+                except Exception:
+                    pass
         if code == "interview":
             from app.services.interview_reference_service import ensure_order_reference_id
 

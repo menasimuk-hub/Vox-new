@@ -5,6 +5,7 @@ export const INTEGRATION_PROVIDERS = [
   { key: 'openai', label: 'OpenAI', icon: 'ti-brain', blurb: 'Realtime call reasoning models.' },
   { key: 'deepseek', label: 'DeepSeek', icon: 'ti-sparkles', blurb: 'LLM for demos and sales outcomes.' },
   { key: 'groq', label: 'Groq', icon: 'ti-bolt', blurb: 'Fast STT, LLM, and Orpheus TTS.' },
+  { key: 'deepinfra', label: 'DeepInfra', icon: 'ti-microphone-2', blurb: 'Whisper STT for WA survey voice-note transcription.' },
   { key: 'deepgram', label: 'Deepgram', icon: 'ti-activity', blurb: 'Streaming speech-to-text.' },
   { key: 'cartesia', label: 'Cartesia', icon: 'ti-volume', blurb: 'Streaming text-to-speech.' },
   { key: 'elevenlabs', label: 'ElevenLabs', icon: 'ti-player-play', blurb: 'High-quality TTS voices.' },
