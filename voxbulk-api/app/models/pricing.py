@@ -7,6 +7,7 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.pricing_schema import WHATSAPP_SURVEY_FEE_PENCE_COLUMN
 
 
 class PricingGlobalSettings(Base):
@@ -26,9 +27,8 @@ class PricingGlobalSettings(Base):
     connection_fee_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     interview_per_min_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=35)
-    # Physical column remains whatsapp_survey_fee_pence until a future rename migration.
     wa_survey_package_fee_pence: Mapped[int] = mapped_column(
-        "whatsapp_survey_fee_pence",
+        WHATSAPP_SURVEY_FEE_PENCE_COLUMN,
         Integer,
         nullable=False,
         default=50,
@@ -73,7 +73,7 @@ class OrgCustomPricing(Base):
 
     interview_per_min_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     wa_survey_package_fee_pence: Mapped[int | None] = mapped_column(
-        "whatsapp_survey_fee_pence",
+        WHATSAPP_SURVEY_FEE_PENCE_COLUMN,
         Integer,
         nullable=True,
     )

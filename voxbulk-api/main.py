@@ -379,11 +379,19 @@ async def db_programming_error_handler(request: Request, exc: ProgrammingError):
 
 @app.get("/health/pricing", tags=["health"])
 def health_pricing():
+    from app.core.database import get_engine, _table_columns
+    from app.core.pricing_schema import WHATSAPP_SURVEY_FEE_PENCE_COLUMN
     from app.services.pricing_bootstrap_service import get_pricing_bootstrap_status
 
+    engine = get_engine()
+    settings_cols = sorted(_table_columns(engine, "pricing_global_settings"))
+    custom_cols = sorted(_table_columns(engine, "org_custom_pricing"))
     status = get_pricing_bootstrap_status()
     return {
         "status": "ok" if status.get("ok") else "not_ready",
+        "whatsapp_survey_fee_column": WHATSAPP_SURVEY_FEE_PENCE_COLUMN,
+        "pricing_global_settings_columns": settings_cols,
+        "org_custom_pricing_columns": custom_cols,
         **status,
     }
 

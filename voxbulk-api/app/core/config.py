@@ -173,7 +173,7 @@ class Settings(BaseSettings):
             # LAN access (e.g. http://192.168.x.x:5174) otherwise hits TrustedHostMiddleware before CORS.
             resolved = ["*"]
         else:
-            resolved = ["localhost", "127.0.0.1", "api.voxbulk.com"]
+            resolved = ["localhost", "127.0.0.1", "api.voxbulk.com", "admin.voxbulk.com", "dashboard.voxbulk.com"]
         # Starlette TestClient uses "testserver" as Host by default.
         if "*" not in resolved and "testserver" not in resolved:
             resolved.append("testserver")
