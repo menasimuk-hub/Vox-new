@@ -55,8 +55,6 @@ def _csv_bytes(n: int = 2):
 
 
 def _create_wa_order(app_client, headers, *, contact_count: int = 2):
-    packages = app_client.get("/service-orders/survey-packages", headers=headers).json()
-    package_id = packages["packages"]["whatsapp"][0]["id"]
     created = app_client.post(
         "/service-orders",
         json={
@@ -65,7 +63,6 @@ def _create_wa_order(app_client, headers, *, contact_count: int = 2):
                 "survey_channel": "whatsapp",
                 "delivery": "whatsapp",
                 "channels": ["whatsapp"],
-                "package_id": package_id,
             },
         },
         headers=headers,
@@ -113,7 +110,7 @@ def test_launch_eligibility_whatsapp_allowance_covers_full(app_client):
     assert body["payment_required"] is False
 
 
-def test_launch_eligibility_partial_allowance_requires_payment(app_client):
+def test_launch_eligibility_partial_allowance_invoices_extra(app_client):
     headers, _org_id = _seed_user(
         app_client,
         email="survey_launch_partial@example.com",
@@ -124,12 +121,14 @@ def test_launch_eligibility_partial_allowance_requires_payment(app_client):
     res = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["mode"] == "partial_allowance"
-    assert body["payment_required"] is True
-    assert body["launch_action"] == "pay_and_launch"
+    assert body["mode"] == "subscription_overage"
+    assert body["payment_required"] is False
+    assert body["launch_action"] == "launch"
+    assert body["can_launch"] is True
     assert body["covered_by_allowance"] == 1
     assert body["shortfall_units"] == 1
-    assert int(body["amount_due_pence"] or 0) > 0
+    assert body["extra_recipients"] == 1
+    assert int(body["amount_due_pence"] or 0) == 49
 
 
 def test_launch_eligibility_no_allowance_payg(app_client):
@@ -161,7 +160,7 @@ def test_launch_with_promo_credits(app_client):
 
 
 def test_payg_one_contact_pricing_breakdown(app_client):
-    """1 WhatsApp contact should not label full bundle price as send cost only."""
+    """1 WhatsApp contact on PAYG = 1 × wa_survey_extra (default 49p)."""
     headers, _org_id = _seed_user(app_client, email="survey_launch_pricing@example.com")
     order_id = _create_wa_order(app_client, headers, contact_count=1)
 
@@ -171,13 +170,8 @@ def test_payg_one_contact_pricing_breakdown(app_client):
     assert body.get("recipient_count") == 1
     assert body.get("estimated_whatsapp_usage") == 1
     assert body.get("launch_action") == "pay_and_launch"
-    assert int(body.get("amount_due_pence") or 0) > 0
-    assert body.get("estimated_send_cost_display")
-    assert body.get("minimum_charge_display")
-    estimated_pence = int(body.get("estimated_send_cost_pence") or 0)
-    amount_due = int(body.get("amount_due_pence") or 0)
-    assert estimated_pence < amount_due, "send estimate should be less than checkout amount for 1-contact bundle pricing"
-    assert body.get("pricing_source") == "bundle_prorated"
+    assert int(body.get("amount_due_pence") or 0) == 49
+    assert body.get("pricing_source") == "wa_survey_extra"
 
 
 def test_allowance_covers_launch_zero_due(app_client):

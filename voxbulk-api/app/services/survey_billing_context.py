@@ -9,6 +9,7 @@ from app.services.gocardless_service import BillingService
 from app.services.usage_wallet_service import UsageWalletService
 
 ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trial", "past_due"})
+PAYG_PLAN_CODES = frozenset({"payg", "free", "topup"})
 
 
 def org_survey_billing_context(db: Session, org: Organisation) -> dict:
@@ -16,7 +17,7 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
     sub = BillingService.get_subscription(db, org.id)
     plan = BillingService.resolve_active_plan(db, org.id)
     status = str(sub.status or "").strip().lower() if sub else ""
-    has_active_subscription = sub is not None and status in ACTIVE_SUBSCRIPTION_STATUSES
+    has_dd_subscription = sub is not None and status in ACTIVE_SUBSCRIPTION_STATUSES
 
     usage = UsageWalletService.get_current(db, org.id)
     wa_included = int(usage.whatsapp_included or 0) if usage else 0
@@ -27,10 +28,18 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
 
     survey_credits = int(org.survey_credits_balance or 0)
     plan_code = str(plan.code or "").strip().lower() if plan else None
+    if not plan_code and usage and usage.plan_code:
+        plan_code = str(usage.plan_code or "").strip().lower()
+
+    is_payg_plan = plan_code in PAYG_PLAN_CODES or (plan is None and not has_whatsapp_allowance)
+    can_launch_and_invoice = has_whatsapp_allowance or (has_dd_subscription and not is_payg_plan)
 
     return {
-        "has_active_subscription": has_active_subscription or has_whatsapp_allowance,
+        "has_active_subscription": has_dd_subscription or has_whatsapp_allowance,
+        "has_dd_subscription": has_dd_subscription,
         "has_whatsapp_allowance": has_whatsapp_allowance,
+        "can_launch_and_invoice": can_launch_and_invoice,
+        "is_payg_plan": is_payg_plan,
         "subscription_status": status or usage_status or None,
         "plan_name": plan.name if plan else (str(usage.plan_code or "").strip().title() if usage and usage.plan_code else None),
         "plan_code": plan_code or (str(usage.plan_code or "").strip().lower() if usage else None),

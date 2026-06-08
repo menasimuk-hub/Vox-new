@@ -272,6 +272,7 @@ def _send_text_reply(
         to_number=to_number,
         body=body,
         org_id=org_id,
+        meter_usage=False,
     )
     try:
         TelnyxMessagingService.log_outbound(

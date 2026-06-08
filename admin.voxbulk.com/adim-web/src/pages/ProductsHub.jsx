@@ -322,7 +322,7 @@ export default function ProductsHub() {
                               </>
                             ) : (
                               <>
-                                <Link className="btn soft" to="/billing/services-pricing">
+                                <Link className="btn soft" to="/pricing/services">
                                   Edit pricing
                                 </Link>
                                 <button

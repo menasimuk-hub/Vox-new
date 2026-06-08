@@ -27,42 +27,13 @@ class InterviewAtsBillingError(ValueError):
 
 
 def ats_unit_price_pence(db: Session) -> int:
-    """Read ATS unit price without failing the quote if catalog seeding is unavailable."""
+    """Read ATS unit price from VoxBulk global/org pricing."""
     try:
-        svc = (
-            db.execute(
-                select(PlatformService)
-                .where(PlatformService.code == ATS_SERVICE_CODE)
-                .order_by(PlatformService.updated_at.desc())
-                .limit(1)
-            )
-            .scalars()
-            .first()
-        )
-        if svc is None:
-            try:
-                PlatformCatalogService.ensure_defaults(db)
-                svc = (
-                    db.execute(
-                        select(PlatformService)
-                        .where(PlatformService.code == ATS_SERVICE_CODE)
-                        .order_by(PlatformService.updated_at.desc())
-                        .limit(1)
-                    )
-                    .scalars()
-                    .first()
-                )
-            except Exception:
-                return DEFAULT_ATS_UNIT_PENCE
-        if svc is None:
-            return DEFAULT_ATS_UNIT_PENCE
-        rules = PlatformCatalogService.list_rules_for_service(db, svc.id, active_only=True)
-        for rule in rules:
-            if int(rule.unit_price_pence or 0) > 0:
-                return int(rule.unit_price_pence)
-            if int(rule.overage_unit_price_pence or 0) > 0:
-                return int(rule.overage_unit_price_pence)
-        return DEFAULT_ATS_UNIT_PENCE
+        from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+        settings = VoxbulkPricingService.get_settings(db)
+        fee = int(settings.ats_cv_scan_fee_pence or 0)
+        return fee if fee > 0 else DEFAULT_ATS_UNIT_PENCE
     except Exception:
         return DEFAULT_ATS_UNIT_PENCE
 

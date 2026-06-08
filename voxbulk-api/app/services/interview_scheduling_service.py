@@ -245,6 +245,7 @@ class InterviewSchedulingService:
                         template_language=template_row.language or "en_US",
                         template_components=components,
                         org_id=order.org_id,
+                        meter_usage=False,
                     )
                     if result.ok:
                         wa_sent += 1

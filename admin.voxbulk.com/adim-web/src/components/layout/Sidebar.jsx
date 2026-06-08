@@ -139,7 +139,6 @@ const NAV = [
       ['Calls cost', '/billing/calls-cost'],
       ['Products hub', '/billing/products'],
       ['VoxBulk pricing', '/pricing/plans'],
-      ['Services & pricing (legacy)', '/billing/services-pricing'],
       ['Service orders (cash)', '/billing/service-orders'],
     ],
   ],

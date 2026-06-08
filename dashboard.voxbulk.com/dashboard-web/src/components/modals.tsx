@@ -1127,7 +1127,7 @@ export function SurveyLaunchQuoteModal({
           : "£0.00 · included"
       : canPayLaunch
         ? pricingBreakdown?.totalDue || amountDue || "—"
-        : eligibility?.estimated_send_cost_display || "—";
+        : eligibility?.summary || eligibility?.extra_cost_display || amountDue || "—";
 
   const canLaunch = canLaunchNow && readinessErrors.length === 0 && !actionBusy && billingPhase === "ready";
   const canPay =
@@ -1227,37 +1227,22 @@ export function SurveyLaunchQuoteModal({
           ) : null}
 
           {pricingBreakdown ? (
-            <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
+            <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm space-y-1">
               <p className="font-medium text-foreground">Pricing breakdown</p>
-              {pricingBreakdown.packageLabel || pricingBreakdown.packageId ? (
-                <p className="mt-1 text-muted-foreground">
-                  Package:{" "}
-                  <span className="font-medium text-foreground">
-                    {pricingBreakdown.packageLabel || pricingBreakdown.packageId}
-                  </span>
-                </p>
-              ) : null}
-              {pricingBreakdown.estimatedSend ? (
-                <p className="mt-1">
-                  Estimated send cost: <span className="font-medium">{pricingBreakdown.estimatedSend}</span>
-                  {data.recipientCount > 0
-                    ? ` · ${data.recipientCount} contact${data.recipientCount === 1 ? "" : "s"}`
+              {pricingBreakdown.planIncludes ? <p>{pricingBreakdown.planIncludes}</p> : null}
+              {pricingBreakdown.extraRecipientsLine ? <p>{pricingBreakdown.extraRecipientsLine}</p> : null}
+              {typeof pricingBreakdown.coveredRecipients === "number" && pricingBreakdown.coveredRecipients > 0 ? (
+                <p>
+                  This launch: <span className="font-medium">{pricingBreakdown.coveredRecipients}</span> included
+                  {typeof pricingBreakdown.extraRecipients === "number" && pricingBreakdown.extraRecipients > 0
+                    ? ` · ${pricingBreakdown.extraRecipients} extra (${pricingBreakdown.extraCost || "—"} invoiced)`
                     : ""}
                 </p>
               ) : null}
-              {pricingBreakdown.minimumCharge ? (
-                <p className="mt-1 text-muted-foreground">
-                  Minimum / package charge:{" "}
-                  <span className="font-medium text-foreground">{pricingBreakdown.minimumCharge}</span>
-                </p>
-              ) : null}
-              {pricingBreakdown.setupFee ? (
-                <p className="mt-1 text-muted-foreground">
-                  Setup fee: <span className="font-medium text-foreground">{pricingBreakdown.setupFee}</span>
-                </p>
-              ) : null}
-              {pricingBreakdown.totalDue ? (
-                <p className="mt-2 font-medium">
+              <p>{pricingBreakdown.interviewWhatsApp}</p>
+              <p>{pricingBreakdown.aiPhoneSurvey}</p>
+              {pricingBreakdown.totalDue && canPayLaunch ? (
+                <p className="pt-1 font-medium">
                   Total due now: <span className="text-foreground">{pricingBreakdown.totalDue}</span>
                 </p>
               ) : null}

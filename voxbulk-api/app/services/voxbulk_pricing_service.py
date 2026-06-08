@@ -65,7 +65,7 @@ class VoxbulkPricingService:
         price = int(plan.price_gbp_pence or 0)
         per_min = int(getattr(plan, "per_min_pence", 0) or 0)
         extra = int(plan.overage_per_min_pence or 0)
-        wa_unit = int(settings.whatsapp_survey_fee_pence or 0)
+        wa_unit = int(settings.wa_survey_package_fee_pence or 0)
         cv_unit = int(settings.ats_cv_scan_fee_pence or 0)
         mins = price // per_min if per_min > 0 else 0
         wa = price // wa_unit if wa_unit > 0 else 0
@@ -79,7 +79,7 @@ class VoxbulkPricingService:
             "wa_unit_pence": wa_unit,
             "cv_unit_pence": cv_unit,
             "minutes_formula": f"monthly ÷ cost/min = {price // 100}.{price % 100:02d} ÷ {per_min / 100:.2f}" if per_min else "",
-            "wa_formula": f"monthly ÷ WA fee = {price / 100:.2f} ÷ {wa_unit / 100:.2f}" if wa_unit else "",
+            "wa_formula": f"monthly ÷ WA survey package fee = {price / 100:.2f} ÷ {wa_unit / 100:.2f} = {wa} recipients" if wa_unit else "",
             "cv_formula": f"monthly ÷ CV fee = {price / 100:.2f} ÷ {cv_unit / 100:.2f}" if cv_unit else "",
         }
 
@@ -104,7 +104,8 @@ class VoxbulkPricingService:
             **base,
             "per_min_pence": per_min,
             "extra_per_min_pence": extra,
-            "wa_unit_pence": int(settings.whatsapp_survey_fee_pence or 0),
+            "wa_unit_pence": int(settings.wa_survey_package_fee_pence or 0),
+            "wa_survey_extra_pence": int(settings.wa_survey_extra_pence or 49),
             "cv_unit_pence": int(settings.ats_cv_scan_fee_pence or 0),
         }
         if plan.is_enterprise:
@@ -142,8 +143,10 @@ class VoxbulkPricingService:
             "per_min_display": VoxbulkPricingService.money_display(per_min, m, settings),
             "extra_per_min_pence": extra_min,
             "extra_per_min_display": VoxbulkPricingService.money_display(extra_min, m, settings),
-            "wa_unit_pence": int(settings.whatsapp_survey_fee_pence or 0),
-            "wa_unit_display": VoxbulkPricingService.money_display(int(settings.whatsapp_survey_fee_pence or 0), m, settings),
+            "wa_unit_pence": int(settings.wa_survey_package_fee_pence or 0),
+            "wa_unit_display": VoxbulkPricingService.money_display(int(settings.wa_survey_package_fee_pence or 0), m, settings),
+            "wa_survey_extra_pence": int(settings.wa_survey_extra_pence or 49),
+            "wa_survey_extra_display": VoxbulkPricingService.money_display(int(settings.wa_survey_extra_pence or 49), m, settings),
             "cv_unit_pence": int(settings.ats_cv_scan_fee_pence or 0),
             "cv_unit_display": VoxbulkPricingService.money_display(int(settings.ats_cv_scan_fee_pence or 0), m, settings),
             "minutes_formula": calc.get("minutes_formula"),
@@ -177,6 +180,8 @@ class VoxbulkPricingService:
 
     @staticmethod
     def settings_to_dict(row: PricingGlobalSettings) -> dict[str, Any]:
+        package_fee = int(row.wa_survey_package_fee_pence or 0)
+        extra = int(row.wa_survey_extra_pence or 49)
         return {
             "fx_aud_multiplier": float(row.fx_aud_multiplier),
             "fx_cad_multiplier": float(row.fx_cad_multiplier),
@@ -185,7 +190,9 @@ class VoxbulkPricingService:
             "connection_fee_label": row.connection_fee_label,
             "connection_fee_enabled": bool(row.connection_fee_enabled),
             "interview_per_min_pence": int(row.interview_per_min_pence or 0),
-            "whatsapp_survey_fee_pence": int(row.whatsapp_survey_fee_pence or 0),
+            "wa_survey_package_fee_pence": package_fee,
+            "wa_survey_extra_pence": extra,
+            "whatsapp_survey_fee_pence": package_fee,
             "ats_cv_scan_fee_pence": int(row.ats_cv_scan_fee_pence or 0),
             "estimator_default_duration_min": int(row.estimator_default_duration_min or 12),
             "estimator_default_interview_count": int(row.estimator_default_interview_count or 100),
@@ -203,13 +210,18 @@ class VoxbulkPricingService:
             "connection_fee_label",
             "connection_fee_enabled",
             "interview_per_min_pence",
+            "wa_survey_package_fee_pence",
+            "wa_survey_extra_pence",
             "whatsapp_survey_fee_pence",
             "ats_cv_scan_fee_pence",
             "estimator_default_duration_min",
             "estimator_default_interview_count",
         ):
             if key in payload and payload[key] is not None:
-                setattr(row, key, payload[key])
+                if key == "whatsapp_survey_fee_pence":
+                    row.wa_survey_package_fee_pence = int(payload[key])
+                else:
+                    setattr(row, key, payload[key])
         row.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(row)
@@ -291,7 +303,9 @@ class VoxbulkPricingService:
             "whatsapp_included": row.whatsapp_included,
             "cv_scans_included": row.cv_scans_included,
             "interview_per_min_pence": row.interview_per_min_pence,
-            "whatsapp_survey_fee_pence": row.whatsapp_survey_fee_pence,
+            "wa_survey_package_fee_pence": row.wa_survey_package_fee_pence,
+            "wa_survey_extra_pence": row.wa_survey_extra_pence,
+            "whatsapp_survey_fee_pence": row.wa_survey_package_fee_pence,
             "ats_cv_scan_fee_pence": row.ats_cv_scan_fee_pence,
             "is_active": bool(row.is_active),
             "notes": row.notes,
@@ -319,7 +333,8 @@ class VoxbulkPricingService:
             whatsapp_included=payload.get("whatsapp_included"),
             cv_scans_included=payload.get("cv_scans_included"),
             interview_per_min_pence=payload.get("interview_per_min_pence"),
-            whatsapp_survey_fee_pence=payload.get("whatsapp_survey_fee_pence"),
+            wa_survey_package_fee_pence=payload.get("wa_survey_package_fee_pence") or payload.get("whatsapp_survey_fee_pence"),
+            wa_survey_extra_pence=payload.get("wa_survey_extra_pence"),
             ats_cv_scan_fee_pence=payload.get("ats_cv_scan_fee_pence"),
             is_active=bool(payload.get("is_active", True)),
             notes=str(payload.get("notes") or "").strip() or None,
@@ -342,13 +357,18 @@ class VoxbulkPricingService:
             "whatsapp_included",
             "cv_scans_included",
             "interview_per_min_pence",
+            "wa_survey_package_fee_pence",
+            "wa_survey_extra_pence",
             "whatsapp_survey_fee_pence",
             "ats_cv_scan_fee_pence",
             "is_active",
             "notes",
         ):
             if key in payload:
-                setattr(row, key, payload[key])
+                if key == "whatsapp_survey_fee_pence":
+                    row.wa_survey_package_fee_pence = payload[key]
+                else:
+                    setattr(row, key, payload[key])
         row.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(row)
@@ -386,7 +406,16 @@ class VoxbulkPricingService:
             if custom and custom.connection_fee_pence is not None
             else (settings.connection_fee_pence if settings.connection_fee_enabled else 0)
         )
-        wa = int(custom.whatsapp_survey_fee_pence if custom and custom.whatsapp_survey_fee_pence is not None else settings.whatsapp_survey_fee_pence)
+        wa_pkg = int(
+            custom.wa_survey_package_fee_pence
+            if custom and custom.wa_survey_package_fee_pence is not None
+            else settings.wa_survey_package_fee_pence
+        )
+        wa_extra = int(
+            custom.wa_survey_extra_pence
+            if custom and custom.wa_survey_extra_pence is not None
+            else settings.wa_survey_extra_pence
+        )
         ats = int(custom.ats_cv_scan_fee_pence if custom and custom.ats_cv_scan_fee_pence is not None else settings.ats_cv_scan_fee_pence)
         interview_per_min = int(
             custom.interview_per_min_pence
@@ -398,13 +427,71 @@ class VoxbulkPricingService:
             "extra_per_min_pence": extra_min,
             "interview_per_min_pence": interview_per_min,
             "connection_fee_pence": conn,
-            "whatsapp_survey_fee_pence": wa,
+            "wa_survey_package_fee_pence": wa_pkg,
+            "wa_survey_extra_pence": wa_extra,
+            "whatsapp_survey_fee_pence": wa_pkg,
             "ats_cv_scan_fee_pence": ats,
         }
 
     @staticmethod
     def interview_call_cost_pence(*, per_min_pence: int, duration_min: int, connection_fee_pence: int) -> int:
         return int(connection_fee_pence or 0) + max(int(duration_min or 0), 0) * int(per_min_pence or 0)
+
+    @staticmethod
+    def quote_wa_survey_launch(
+        *,
+        recipient_count: int,
+        wa_remaining: int,
+        wa_survey_extra_pence: int,
+        has_subscription: bool,
+    ) -> dict[str, Any]:
+        """Price a WA survey launch by recipient allowance + extra rate."""
+        count = max(int(recipient_count or 0), 0)
+        remaining = max(int(wa_remaining or 0), 0)
+        extra_rate = max(int(wa_survey_extra_pence or 0), 0)
+        covered = min(remaining, count) if has_subscription else 0
+        extra_recipients = max(0, count - covered)
+        extra_pence = extra_recipients * extra_rate
+        total_pence = extra_pence if has_subscription else count * extra_rate
+        return {
+            "recipient_count": count,
+            "covered_recipients": covered,
+            "extra_recipients": extra_recipients,
+            "wa_survey_extra_pence": extra_rate,
+            "extra_cost_pence": extra_pence,
+            "extra_cost_display": VoxbulkPricingService.money_display(extra_pence),
+            "total_pence": total_pence,
+            "total_gbp": VoxbulkPricingService.money_display(total_pence),
+            "pricing_source": "wa_survey_extra",
+        }
+
+    @staticmethod
+    def quote_phone_survey_launch(
+        db: Session,
+        *,
+        org_id: str,
+        recipient_count: int,
+        duration_min: int | None = None,
+    ) -> dict[str, Any]:
+        settings = VoxbulkPricingService.get_settings(db)
+        rates = VoxbulkPricingService.resolve_rates_for_org(db, org_id)
+        duration = max(int(duration_min or settings.estimator_default_duration_min or 12), 1)
+        per_call = VoxbulkPricingService.interview_call_cost_pence(
+            per_min_pence=int(rates["interview_per_min_pence"]),
+            duration_min=duration,
+            connection_fee_pence=int(rates["connection_fee_pence"]),
+        )
+        count = max(int(recipient_count or 0), 0)
+        total = per_call * count
+        return {
+            "recipient_count": count,
+            "duration_minutes": duration,
+            "per_call_pence": per_call,
+            "per_call_display": VoxbulkPricingService.money_display(per_call),
+            "total_pence": total,
+            "total_gbp": VoxbulkPricingService.money_display(total),
+            "pricing_source": "interview_per_minute",
+        }
 
     @staticmethod
     def estimate_interview_batch(
@@ -446,7 +533,7 @@ class VoxbulkPricingService:
         per_interview = VoxbulkPricingService.interview_call_cost_pence(
             per_min_pence=per_min, duration_min=avg_duration, connection_fee_pence=conn
         )
-        wa_fee = int(settings.whatsapp_survey_fee_pence or 150)
+        wa_fee = int(settings.wa_survey_package_fee_pence or 50)
         ats_fee = int(settings.ats_cv_scan_fee_pence or 75)
         credit = max(int(credit_pence or 0), 0)
         interviews = per_interview > 0 and credit // per_interview or 0
@@ -458,7 +545,7 @@ class VoxbulkPricingService:
             "credit_pence": credit,
             "credit_display": VoxbulkPricingService.money_display(credit, m, settings),
             "estimated_interviews": int(interviews),
-            "estimated_wa_surveys": int(wa_surveys),
+            "estimated_wa_survey_recipients": int(wa_surveys),
             "estimated_cv_scans": int(cv_scans),
             "estimated_call_minutes": int(call_minutes),
             "avg_call_duration_min": avg_duration,
@@ -488,8 +575,12 @@ class VoxbulkPricingService:
             "connection_fee_display": VoxbulkPricingService.money_display(rates["connection_fee_pence"], m, settings),
             "connection_fee_label": settings.connection_fee_label,
             "connection_fee_enabled": bool(settings.connection_fee_enabled),
-            "whatsapp_survey_fee_pence": rates["whatsapp_survey_fee_pence"],
-            "whatsapp_survey_display": VoxbulkPricingService.money_display(rates["whatsapp_survey_fee_pence"], m, settings),
+            "wa_survey_package_fee_pence": rates["wa_survey_package_fee_pence"],
+            "wa_survey_package_fee_display": VoxbulkPricingService.money_display(rates["wa_survey_package_fee_pence"], m, settings),
+            "wa_survey_extra_pence": rates["wa_survey_extra_pence"],
+            "wa_survey_extra_display": VoxbulkPricingService.money_display(rates["wa_survey_extra_pence"], m, settings),
+            "whatsapp_survey_fee_pence": rates["wa_survey_package_fee_pence"],
+            "whatsapp_survey_display": VoxbulkPricingService.money_display(rates["wa_survey_package_fee_pence"], m, settings),
             "ats_cv_scan_fee_pence": rates["ats_cv_scan_fee_pence"],
             "ats_cv_scan_display": VoxbulkPricingService.money_display(rates["ats_cv_scan_fee_pence"], m, settings),
         }
@@ -628,19 +719,6 @@ class VoxbulkPricingService:
                         updated_at=now,
                     )
                 )
-        interview = db.execute(select(PlatformService).where(PlatformService.code == "interview")).scalars().first()
-        if interview:
-            rules = PlatformCatalogService.list_rules_for_service(db, interview.id, active_only=False)
-            for rule in rules:
-                if str(rule.channel) == "ai_call":
-                    rule.rule_type = "per_minute"
-                    rule.unit_price_pence = 35
-                    rule.label = "Interview AI call — per minute"
-        ats_svc = db.execute(select(PlatformService).where(PlatformService.code == "interview_ats")).scalars().first()
-        if ats_svc:
-            rules = PlatformCatalogService.list_rules_for_service(db, ats_svc.id, active_only=False)
-            for rule in rules:
-                rule.unit_price_pence = 75
         db.commit()
 
     @staticmethod

@@ -55,6 +55,7 @@ function meterDisplay(m: UsageMeter) {
 
 function meterSub(m: UsageMeter) {
   if (m.key === "wallet") return "Pay-as-you-go balance";
+  if (m.key === "whatsapp") return "Interview WhatsApp: included · extra survey recipients invoiced at plan rate";
   if (m.unit === "credits") return "Promo credits remaining";
   if (m.unlimited || (m.included ?? 0) <= 0) return "No plan allowance";
   const left = m.remaining ?? Math.max(0, (m.included ?? 0) - (m.used ?? 0));
@@ -177,7 +178,7 @@ function BillingPage() {
             <p className="text-xs text-muted-foreground">
               {overagePending > 0
                 ? "An invoice is being prepared for usage above your plan allowance."
-                : "Usage beyond your included minutes or messages is invoiced automatically."}
+                : "Extra recipients: billed at your plan rate after WA survey allowance is used. AI phone survey: connection + minutes."}
             </p>
           </CardContent>
         </Card>

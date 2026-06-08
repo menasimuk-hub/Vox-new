@@ -397,6 +397,11 @@ class SurveyBuilderTestService:
             trace_id,
         )
 
+        from app.services.usage_wallet_service import UsageWalletService
+
+        UsageWalletService.record_whatsapp_usage(db, org_id=org_id, units=1, commit=True)
+        logger.info("%s test_send_metered org_id=%s units=1", LOG_PREFIX, org_id)
+
         return {
             "ok": True,
             "success": True,

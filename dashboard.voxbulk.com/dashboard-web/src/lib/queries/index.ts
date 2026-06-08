@@ -867,8 +867,14 @@ export type SurveyLaunchEligibility = {
   block_reason_code?: string | null;
   allowance_exhausted?: boolean;
   covered_by_allowance?: number;
+  covered_recipients?: number;
+  extra_recipients?: number;
   covered_by_promo_credits?: number;
   shortfall_units?: number;
+  wa_survey_extra_pence?: number;
+  wa_survey_extra_display?: string | null;
+  extra_cost_pence?: number;
+  extra_cost_display?: string | null;
   amount_due_pence?: number;
   amount_due_display?: string | null;
   estimated_send_cost_pence?: number;

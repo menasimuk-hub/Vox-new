@@ -193,6 +193,7 @@ class InterviewBookingReminderService:
                         to_number=str(recipient.phone),
                         body=body,
                         org_id=order.org_id,
+                        meter_usage=False,
                     )
                     if result.ok:
                         wa_ok = True

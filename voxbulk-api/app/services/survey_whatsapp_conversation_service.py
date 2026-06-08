@@ -1332,6 +1332,7 @@ def _send_whatsapp_template(
             template_name=template_row.name,
             template_language=lang,
             template_components=template_components,
+            meter_usage=False,
         )
         result = attempt
         if attempt.ok:
@@ -1346,6 +1347,7 @@ def _send_whatsapp_template(
                 template_id=send_id,
                 template_language=lang,
                 template_components=template_components,
+                meter_usage=False,
             )
             result = attempt
             if attempt.ok:
@@ -1402,6 +1404,7 @@ def _send_message(
             org_id=order.org_id,
             to_number=recipient.phone or "",
             body=personalized,
+            meter_usage=False,
         )
 
     try:
@@ -1921,6 +1924,7 @@ def _send_freeform_whatsapp(
         org_id=order.org_id,
         to_number=recipient.phone or "",
         body=text,
+        meter_usage=False,
     )
     try:
         TelnyxMessagingService.log_outbound(

@@ -363,7 +363,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
     usage_payload = UsageWalletService.summary_dict(row) if row else None
     pending_overage_pence = 0
     if row is not None:
-        total_overage = UsageWalletService._calc_overage_pence(row)
+        total_overage = UsageWalletService._calc_overage_pence(row, db, principal.org_id)
         pending_overage_pence = max(0, total_overage - int(row.overage_invoiced_pence or 0))
         billing_email = UsageWalletService.get_org_billing_email(db, principal.org_id)
         if billing_email and pending_overage_pence >= 100:
@@ -377,7 +377,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
                 row = UsageWalletService.get_current(db, principal.org_id)
                 if row is not None:
                     usage_payload = UsageWalletService.summary_dict(row)
-                    total_overage = UsageWalletService._calc_overage_pence(row)
+                    total_overage = UsageWalletService._calc_overage_pence(row, db, principal.org_id)
                     pending_overage_pence = max(0, total_overage - int(row.overage_invoiced_pence or 0))
             except Exception:
                 pass
@@ -410,7 +410,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
 
     meters = [
         _meter("calls", "AI call minutes", int(calls.get("used") or 0), int(calls.get("included") or 0), unit="min"),
-        _meter("whatsapp", "WhatsApp messages", int(whatsapp.get("used") or 0), int(whatsapp.get("included") or 0)),
+        _meter("whatsapp", "WA survey recipients", int(whatsapp.get("used") or 0), int(whatsapp.get("included") or 0), unit="recipients"),
         _meter("sms", "SMS messages", int(sms.get("used") or 0), int(sms.get("included") or 0)),
         _meter("cv_scans", "CV scans (ATS)", cv_used, cv_included),
         _meter(

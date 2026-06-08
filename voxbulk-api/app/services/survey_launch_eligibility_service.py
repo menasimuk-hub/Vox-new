@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder
 from app.services.org_service_credit_service import OrgServiceCreditError, OrgServiceCreditService
-from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
+from app.services.platform_catalog_service import PlatformCatalogService
 from app.services.survey_billing_context import org_survey_billing_context
 from app.services.usage_wallet_service import UsageWalletService
+from app.services.voxbulk_pricing_service import VoxbulkPricingService
 
 logger = logging.getLogger(__name__)
 
@@ -43,116 +44,39 @@ class SurveyLaunchEligibilityService:
         return max(0, int(order.recipient_count or 0))
 
     @staticmethod
-    def _quote_for_recipients(
+    def _wa_launch_quote(
         db: Session,
-        order: ServiceOrder,
         *,
+        org_id: str,
         recipient_count: int,
-        config: dict[str, Any],
+        wa_remaining: int,
+        has_subscription_package: bool,
     ) -> dict[str, Any]:
-        count = max(int(recipient_count or 0), 0)
-        if count <= 0:
-            return {"total_pence": 0, "total_gbp": "£0.00", "lines": [], "recipient_count": 0}
-        options = dict(config)
-        options["org_id"] = order.org_id
-        return PlatformCatalogService.calculate_quote(
-            db,
-            service_code="survey",
-            recipient_count=count,
-            options=options,
+        rates = VoxbulkPricingService.resolve_rates_for_org(db, org_id)
+        quote = VoxbulkPricingService.quote_wa_survey_launch(
+            recipient_count=recipient_count,
+            wa_remaining=wa_remaining,
+            wa_survey_extra_pence=int(rates["wa_survey_extra_pence"]),
+            has_subscription=has_subscription_package,
         )
+        quote["wa_survey_extra_display"] = VoxbulkPricingService.money_display(int(rates["wa_survey_extra_pence"]))
+        return quote
 
     @staticmethod
-    def _ensure_order_quote(db: Session, order: ServiceOrder) -> ServiceOrder:
-        if order.quote_total_pence and order.quote_total_pence > 0 and order.status == "quoted":
-            return order
-        return ServiceOrderService.quote_order(db, order)
-
-    @staticmethod
-    def _attach_launch_pricing(
-        quote: dict[str, Any],
-        *,
-        recipient_count: int,
-        config: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Split quote into send estimate vs minimum charge for launch UI."""
-        lines = list(quote.get("lines") or [])
-        setup_fee = sum(int(line.get("amount_pence") or 0) for line in lines if line.get("kind") == "setup")
-        bundle_line = next((line for line in lines if line.get("kind") == "bundle"), None)
-        overage_line = next((line for line in lines if line.get("kind") == "overage"), None)
-        count = max(int(recipient_count or 0), 0)
-        estimated_send = 0
-        minimum_charge = 0
-        pricing_source = "quote_total"
-
-        if overage_line:
-            estimated_send = int(overage_line.get("amount_pence") or 0)
-            pricing_source = "overage_units"
-        elif bundle_line:
-            bundle_size = max(int(bundle_line.get("bundle_size") or bundle_line.get("contacts_included") or 0), 1)
-            bundle_price = int(bundle_line.get("amount_pence") or 0)
-            minimum_charge = bundle_price
-            if count > 0 and bundle_size > 0:
-                estimated_send = int(round(bundle_price * count / bundle_size))
-            pricing_source = "bundle_prorated"
-        else:
-            per_person = sum(
-                int(line.get("amount_pence") or 0)
-                for line in lines
-                if line.get("kind") in {"per_person", "unit", "send"}
-            )
-            if per_person > 0:
-                estimated_send = per_person
-                pricing_source = "per_person"
-
-        amount_due = int(quote.get("total_pence") or 0)
-        if estimated_send <= 0 and amount_due > 0 and count > 0:
-            estimated_send = amount_due - setup_fee if amount_due > setup_fee else amount_due
-
-        return {
-            **quote,
-            "estimated_send_cost_pence": max(0, estimated_send),
-            "estimated_send_cost_display": PlatformCatalogService._money(max(0, estimated_send)),
-            "minimum_charge_pence": max(0, minimum_charge),
-            "minimum_charge_display": PlatformCatalogService._money(max(0, minimum_charge)) if minimum_charge > 0 else None,
-            "setup_fee_pence": setup_fee,
-            "setup_fee_display": PlatformCatalogService._money(setup_fee) if setup_fee > 0 else None,
-            "package_id": str(quote.get("selected_package_id") or config.get("package_id") or "") or None,
-            "pricing_lines": lines,
-            "pricing_source": pricing_source,
-        }
-
-    @staticmethod
-    def _quote_payable_launch(
+    def _phone_launch_quote(
         db: Session,
-        order: ServiceOrder,
         *,
+        org_id: str,
         recipient_count: int,
         config: dict[str, Any],
     ) -> dict[str, Any]:
-        count = max(int(recipient_count or 0), 0)
-        quote = SurveyLaunchEligibilityService._quote_for_recipients(
+        duration = config.get("estimated_duration_min") or config.get("duration_min")
+        return VoxbulkPricingService.quote_phone_survey_launch(
             db,
-            order,
-            recipient_count=count,
-            config=config,
+            org_id=org_id,
+            recipient_count=recipient_count,
+            duration_min=int(duration) if duration else None,
         )
-        enriched = SurveyLaunchEligibilityService._attach_launch_pricing(
-            quote,
-            recipient_count=count,
-            config=config,
-        )
-        logger.info(
-            "survey_launch_pricing order_id=%s recipients=%s package_id=%s estimated_send=%s minimum=%s amount_due=%s source=%s",
-            order.id,
-            count,
-            enriched.get("package_id"),
-            enriched.get("estimated_send_cost_pence"),
-            enriched.get("minimum_charge_pence"),
-            enriched.get("total_pence"),
-            enriched.get("pricing_source"),
-        )
-        return enriched
 
     @staticmethod
     def _set_block(base: dict[str, Any], *, code: str, reason: str, summary: str | None = None) -> dict[str, Any]:
@@ -180,15 +104,8 @@ class SurveyLaunchEligibilityService:
         recipient_count = max(0, int(order.recipient_count or 0))
         estimated_usage = SurveyLaunchEligibilityService.estimated_whatsapp_units(order, channel=channel)
         billing = org_survey_billing_context(db, org)
-        package_id = str(config.get("package_id") or "").strip() or None
 
         usage = UsageWalletService.get_current(db, org.id)
-        logger.info(
-            "survey_launch_package_lookup order_id=%s package_id=%s channel=%s",
-            order.id,
-            package_id,
-            channel,
-        )
         logger.info(
             "survey_launch_wallet_lookup order_id=%s org_id=%s wallet_status=%s wa_included=%s wa_used=%s",
             order.id,
@@ -227,8 +144,14 @@ class SurveyLaunchEligibilityService:
             "block_reason_code": None,
             "summary": "",
             "covered_by_allowance": 0,
+            "covered_recipients": 0,
+            "extra_recipients": 0,
             "covered_by_promo_credits": 0,
             "shortfall_units": 0,
+            "wa_survey_extra_pence": None,
+            "wa_survey_extra_display": None,
+            "extra_cost_pence": 0,
+            "extra_cost_display": None,
             "amount_due_pence": 0,
             "amount_due_display": None,
             "quote_total_pence": int(order.quote_total_pence or 0),
@@ -237,6 +160,7 @@ class SurveyLaunchEligibilityService:
             "remaining_promo_credits_after_launch": billing["survey_credits"],
             "package_label": billing.get("plan_name"),
             "launch_action": "blocked",
+            "pricing_source": None,
         }
 
         if recipient_count <= 0:
@@ -287,19 +211,69 @@ class SurveyLaunchEligibilityService:
             )
             return base
 
-        if channel == "whatsapp" and billing.get("has_whatsapp_allowance") and wa_remaining >= estimated_usage > 0:
+        if channel == "whatsapp":
+            return SurveyLaunchEligibilityService._compute_whatsapp(
+                db, order, org, base, billing, recipient_count, estimated_usage, wa_remaining
+            )
+
+        return SurveyLaunchEligibilityService._compute_phone(
+            db, order, org, base, billing, recipient_count, config
+        )
+
+    @staticmethod
+    def _compute_whatsapp(
+        db: Session,
+        order: ServiceOrder,
+        org: Organisation,
+        base: dict[str, Any],
+        billing: dict[str, Any],
+        recipient_count: int,
+        estimated_usage: int,
+        wa_remaining: int,
+    ) -> dict[str, Any]:
+        can_invoice = bool(billing.get("can_launch_and_invoice"))
+        quote = SurveyLaunchEligibilityService._wa_launch_quote(
+            db,
+            org_id=org.id,
+            recipient_count=recipient_count,
+            wa_remaining=wa_remaining,
+            has_subscription_package=can_invoice,
+        )
+        covered = int(quote.get("covered_recipients") or 0)
+        extra = int(quote.get("extra_recipients") or 0)
+        extra_pence = int(quote.get("extra_cost_pence") or 0)
+        payg_total = int(quote.get("total_pence") or 0)
+        extra_display = str(quote.get("extra_cost_display") or VoxbulkPricingService.money_display(extra_pence))
+        extra_rate_display = str(quote.get("wa_survey_extra_display") or "")
+
+        base.update(
+            {
+                "covered_by_allowance": covered,
+                "covered_recipients": covered,
+                "extra_recipients": extra,
+                "shortfall_units": extra,
+                "wa_survey_extra_pence": quote.get("wa_survey_extra_pence"),
+                "wa_survey_extra_display": extra_rate_display,
+                "extra_cost_pence": extra_pence,
+                "extra_cost_display": extra_display,
+                "pricing_source": quote.get("pricing_source"),
+                "remaining_whatsapp_after_launch": max(0, wa_remaining - covered),
+            }
+        )
+
+        if can_invoice and wa_remaining >= estimated_usage > 0:
             base.update(
                 {
                     "can_launch": True,
                     "payment_required": False,
                     "mode": "subscription_whatsapp",
                     "launch_action": "launch",
-                    "covered_by_allowance": estimated_usage,
-                    "remaining_whatsapp_after_launch": wa_remaining - estimated_usage,
+                    "amount_due_pence": 0,
+                    "amount_due_display": "£0.00",
                     "summary": (
-                        "This campaign is covered by your package. "
-                        f"Remaining WhatsApp allowance: {wa_remaining}. "
-                        f"Estimated usage for this launch: {estimated_usage}."
+                        f"Plan includes: {billing.get('whatsapp_included', 0)} WA survey recipients/month. "
+                        f"This launch uses {recipient_count} recipient{'s' if recipient_count != 1 else ''} "
+                        f"({wa_remaining} remaining after launch)."
                     ),
                 }
             )
@@ -309,36 +283,86 @@ class SurveyLaunchEligibilityService:
             )
             return base
 
-        shortfall_units = 0
-        covered_by_allowance = 0
-        if channel == "whatsapp" and billing.get("has_whatsapp_allowance") and wa_remaining > 0:
-            covered_by_allowance = min(wa_remaining, estimated_usage)
-            shortfall_units = max(0, estimated_usage - covered_by_allowance)
-
-        payable_recipients = recipient_count if shortfall_units <= 0 else shortfall_units
-        try:
-            amount_quote = SurveyLaunchEligibilityService._quote_payable_launch(
-                db,
-                order,
-                recipient_count=payable_recipients,
-                config=config,
+        if can_invoice:
+            extra_rate = extra_rate_display or VoxbulkPricingService.money_display(int(quote.get("wa_survey_extra_pence") or 49))
+            if extra > 0:
+                summary = (
+                    f"Plan includes: {billing.get('whatsapp_included', 0)} WA survey recipients/month. "
+                    f"This launch: {covered} included, {extra} extra. "
+                    f"Extra recipients: {extra_rate} each after allowance is used "
+                    f"({extra_display} invoiced on your next bill)."
+                )
+            else:
+                summary = (
+                    f"Plan includes: {billing.get('whatsapp_included', 0)} WA survey recipients/month. "
+                    "Interview WhatsApp: included."
+                )
+            base.update(
+                {
+                    "can_launch": True,
+                    "payment_required": False,
+                    "mode": "subscription_overage" if extra > 0 else "subscription_whatsapp",
+                    "launch_action": "launch",
+                    "amount_due_pence": extra_pence,
+                    "amount_due_display": extra_display if extra > 0 else "£0.00",
+                    "summary": summary,
+                }
             )
-        except ValueError as e:
-            msg = str(e)
-            code = "package_not_found" if "package" in msg.lower() else "quote_failed"
-            return SurveyLaunchEligibilityService._set_block(base, code=code, reason=msg)
-
-        amount_pence = int(amount_quote.get("total_pence") or 0)
-        amount_display = str(amount_quote.get("total_gbp") or PlatformCatalogService._money(amount_pence))
-
-        if amount_pence <= 0 and not billing["payg_allowed"]:
-            return SurveyLaunchEligibilityService._set_block(
-                base,
-                code="package_not_found",
-                reason="Package not found.",
+            logger.info(
+                "survey_launch_billing_done order_id=%s success=true launch_action=launch mode=%s extra=%s",
+                order.id,
+                base["mode"],
+                extra,
             )
+            return base
 
-        if amount_pence <= 0:
+        amount_display = str(quote.get("total_gbp") or VoxbulkPricingService.money_display(payg_total))
+        summary = (
+            f"Extra recipients: {extra_rate_display or '£0.49'} each after allowance is used. "
+            f"Pay & launch: {recipient_count} recipient{'s' if recipient_count != 1 else ''} × "
+            f"{extra_rate_display or '£0.49'} = {amount_display}."
+        )
+        base.update(
+            {
+                "can_launch": False,
+                "payment_required": True,
+                "mode": "payg",
+                "launch_action": "pay_and_launch",
+                "amount_due_pence": payg_total,
+                "amount_due_display": amount_display,
+                "quote_total_pence": payg_total,
+                "quote_total_display": amount_display,
+                "summary": summary,
+            }
+        )
+        logger.info(
+            "survey_launch_billing_done order_id=%s success=false launch_action=pay_and_launch mode=payg amount_due=%s",
+            order.id,
+            payg_total,
+        )
+        return base
+
+    @staticmethod
+    def _compute_phone(
+        db: Session,
+        order: ServiceOrder,
+        org: Organisation,
+        base: dict[str, Any],
+        billing: dict[str, Any],
+        recipient_count: int,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        quote = SurveyLaunchEligibilityService._phone_launch_quote(
+            db,
+            org_id=org.id,
+            recipient_count=recipient_count,
+            config=config,
+        )
+        total = int(quote.get("total_pence") or 0)
+        amount_display = str(quote.get("total_gbp") or VoxbulkPricingService.money_display(total))
+        per_call_display = str(quote.get("per_call_display") or "")
+
+        if billing.get("can_launch_and_invoice") and total <= 0:
             base.update(
                 {
                     "can_launch": True,
@@ -347,107 +371,44 @@ class SurveyLaunchEligibilityService:
                     "launch_action": "launch",
                     "amount_due_pence": 0,
                     "amount_due_display": "£0.00",
-                    "summary": "This launch is included — no payment required.",
+                    "summary": "AI phone survey: billed by connection + minutes.",
                 }
-            )
-            logger.info(
-                "survey_launch_billing_done order_id=%s success=true launch_action=launch mode=included",
-                order.id,
             )
             return base
 
-        if not billing["payg_allowed"]:
-            return SurveyLaunchEligibilityService._set_block(
-                base,
-                code="package_not_found",
-                reason="Package not found.",
-                summary="No active package found for WhatsApp launch.",
+        if billing.get("can_launch_and_invoice"):
+            base.update(
+                {
+                    "can_launch": True,
+                    "payment_required": False,
+                    "mode": "subscription_phone",
+                    "launch_action": "launch",
+                    "amount_due_pence": total,
+                    "amount_due_display": amount_display,
+                    "pricing_source": quote.get("pricing_source"),
+                    "summary": (
+                        f"AI phone survey: billed by connection + minutes "
+                        f"({per_call_display}/call × {recipient_count} = {amount_display} on your next bill)."
+                    ),
+                }
             )
-
-        if shortfall_units > 0:
-            summary = (
-                "Your package covers part of this launch. "
-                f"Remaining WhatsApp allowance: {wa_remaining}. "
-                f"Covered by package: {covered_by_allowance}. "
-                f"Additional WhatsApp usage required: {shortfall_units}. "
-                f"Amount due: {amount_display}."
-            )
-            mode = "partial_allowance"
-        elif billing["has_active_subscription"]:
-            summary = (
-                f"Your package allowance does not cover this launch. "
-                f"Estimated usage: {estimated_usage or recipient_count}. "
-                f"Amount due: {amount_display}."
-            )
-            mode = "payg"
-        else:
-            summary = (
-                "No active package found for WhatsApp launch. "
-                f"Pay-as-you-go amount due: {amount_display}."
-                if channel == "whatsapp"
-                else f"Pay-as-you-go amount due: {amount_display}."
-            )
-            mode = "payg"
-
-        allowance_exhausted = (
-            channel == "whatsapp"
-            and billing.get("has_whatsapp_allowance")
-            and wa_remaining <= 0
-            and estimated_usage > 0
-        )
-        block_reason_code = None
-        block_reason = None
-        if allowance_exhausted:
-            wa_included = int(billing.get("whatsapp_included") or 0)
-            wa_used = int(billing.get("whatsapp_used") or 0)
-            block_reason_code = "whatsapp_usage_limit"
-            block_reason = (
-                f"Your WhatsApp allowance has been fully used. "
-                f"Included: {wa_included}, used: {wa_used}, remaining: 0. "
-                f"This launch would require additional billing of {amount_display}."
-            )
-            summary = block_reason
-            logger.info(
-                "survey_launch_pay_required order_id=%s code=whatsapp_usage_limit wa_remaining=%s amount_due=%s recipient_count=%s launch_action=pay_and_launch",
-                order.id,
-                wa_remaining,
-                amount_pence,
-                recipient_count,
-            )
-        else:
-            logger.info(
-                "survey_launch_billing_done order_id=%s success=false launch_action=pay_and_launch mode=%s amount_due=%s",
-                order.id,
-                mode,
-                amount_pence,
-            )
+            return base
 
         base.update(
             {
                 "can_launch": False,
                 "payment_required": True,
-                "mode": mode,
+                "mode": "payg",
                 "launch_action": "pay_and_launch",
-                "block_reason_code": block_reason_code,
-                "block_reason": block_reason,
-                "allowance_exhausted": allowance_exhausted,
-                "covered_by_allowance": covered_by_allowance,
-                "shortfall_units": shortfall_units or (estimated_usage if channel == "whatsapp" else recipient_count),
-                "amount_due_pence": amount_pence,
+                "amount_due_pence": total,
                 "amount_due_display": amount_display,
-                "estimated_send_cost_pence": amount_quote.get("estimated_send_cost_pence"),
-                "estimated_send_cost_display": amount_quote.get("estimated_send_cost_display"),
-                "minimum_charge_pence": amount_quote.get("minimum_charge_pence"),
-                "minimum_charge_display": amount_quote.get("minimum_charge_display"),
-                "setup_fee_pence": amount_quote.get("setup_fee_pence"),
-                "setup_fee_display": amount_quote.get("setup_fee_display"),
-                "package_id": amount_quote.get("package_id"),
-                "pricing_lines": amount_quote.get("pricing_lines") or [],
-                "pricing_source": amount_quote.get("pricing_source"),
-                "quote_total_pence": amount_pence,
+                "quote_total_pence": total,
                 "quote_total_display": amount_display,
-                "remaining_whatsapp_after_launch": max(0, wa_remaining - covered_by_allowance),
-                "summary": summary,
+                "pricing_source": quote.get("pricing_source"),
+                "summary": (
+                    f"AI phone survey: billed by connection + minutes. "
+                    f"Pay & launch: {amount_display} ({per_call_display}/call × {recipient_count})."
+                ),
             }
         )
         return base
@@ -482,31 +443,35 @@ class SurveyLaunchEligibilityService:
 
     @staticmethod
     def prepare_order_payment_quote(db: Session, order: ServiceOrder, org: Organisation) -> ServiceOrder:
-        """Align order quote with payable shortfall/full payg amount before GoCardless."""
+        """Align order quote with payable PAYG amount before GoCardless."""
         eligibility = SurveyLaunchEligibilityService.compute(db, order, org)
         if not eligibility.get("payment_required"):
             return order
         amount_pence = int(eligibility.get("amount_due_pence") or 0)
         if amount_pence <= 0:
             raise SurveyLaunchEligibilityError("Nothing to pay for this launch")
-        shortfall = int(eligibility.get("shortfall_units") or 0)
+
         config = SurveyLaunchEligibilityService._order_config(order)
-        if shortfall > 0:
-            quote = SurveyLaunchEligibilityService._quote_for_recipients(
-                db, order, recipient_count=shortfall, config=config
+        channel = PlatformCatalogService.resolve_survey_channel(config)
+        if channel == "whatsapp":
+            quote = SurveyLaunchEligibilityService._wa_launch_quote(
+                db,
+                org_id=org.id,
+                recipient_count=max(0, int(order.recipient_count or 0)),
+                wa_remaining=0,
+                has_subscription_package=False,
             )
         else:
-            order = SurveyLaunchEligibilityService._ensure_order_quote(db, order)
-            quote = json.loads(order.quote_breakdown_json or "{}") if order.quote_breakdown_json else {}
-            quote["total_pence"] = int(order.quote_total_pence or 0)
+            quote = SurveyLaunchEligibilityService._phone_launch_quote(
+                db,
+                org_id=org.id,
+                recipient_count=max(0, int(order.recipient_count or 0)),
+                config=config,
+            )
+
         order.quote_total_pence = int(quote.get("total_pence") or amount_pence)
         order.quote_breakdown_json = json.dumps(quote, ensure_ascii=False)
         order.status = "quoted"
-        covered = int(eligibility.get("covered_by_allowance") or 0)
-        if covered > 0:
-            config = SurveyLaunchEligibilityService._order_config(order)
-            config["launch_allowance_units"] = covered
-            order.config_json = json.dumps(config, ensure_ascii=False)
         db.add(order)
         db.commit()
         db.refresh(order)
@@ -526,19 +491,28 @@ class SurveyLaunchEligibilityService:
             except OrgServiceCreditError as e:
                 raise SurveyLaunchEligibilityError(str(e)) from e
 
-        if mode == "subscription_whatsapp":
+        if mode in {"subscription_whatsapp", "subscription_overage", "subscription_phone"}:
             from datetime import datetime
 
             plan_name = str(eligibility.get("package_label") or "package").strip() or "package"
-            covered = int(eligibility.get("covered_by_allowance") or eligibility.get("estimated_whatsapp_usage") or 0)
             config = SurveyLaunchEligibilityService._order_config(order)
-            if covered > 0:
-                config["launch_allowance_units"] = covered
-                order.config_json = json.dumps(config, ensure_ascii=False)
-            order.payment_method = "subscription_whatsapp"
+            config["launch_allowance_units"] = SurveyLaunchEligibilityService.estimated_whatsapp_units(
+                order,
+                channel=PlatformCatalogService.resolve_survey_channel(config),
+            )
+            order.config_json = json.dumps(config, ensure_ascii=False)
+            order.payment_method = "subscription_whatsapp" if "whatsapp" in mode else "subscription"
             order.payment_status = "approved"
             order.status = "paid"
-            order.payment_note = f"Covered by {plan_name} WhatsApp allowance"
+            extra = int(eligibility.get("extra_recipients") or 0)
+            covered = int(eligibility.get("covered_recipients") or eligibility.get("covered_by_allowance") or 0)
+            if extra > 0:
+                order.payment_note = (
+                    f"Covered by {plan_name} ({covered} recipients); "
+                    f"{extra} extra invoiced at launch"
+                )
+            else:
+                order.payment_note = f"Covered by {plan_name} WhatsApp allowance"
             order.updated_at = datetime.utcnow()
             db.add(order)
             db.commit()
@@ -559,7 +533,7 @@ class SurveyLaunchEligibilityService:
         if channel != "whatsapp":
             return
         units = int(config.get("launch_allowance_units") or 0)
-        if units <= 0 and str(order.payment_method or "") == "subscription_whatsapp":
+        if units <= 0:
             units = SurveyLaunchEligibilityService.estimated_whatsapp_units(order, channel=channel)
         if units > 0:
             UsageWalletService.record_whatsapp_usage(db, org_id=org.id, units=units, commit=True)

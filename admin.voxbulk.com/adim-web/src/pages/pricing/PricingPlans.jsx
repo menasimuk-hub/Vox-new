@@ -5,7 +5,7 @@ import PricingPageFrame, { PricingFormulaBox } from './PricingPageFrame'
 function calcPreview(d, settings) {
   const price = Number(d.price_gbp_pence || 0)
   const perMin = Number(d.per_min_pence || 0)
-  const wa = Number(settings?.whatsapp_survey_fee_pence || 0)
+  const wa = Number(settings?.wa_survey_package_fee_pence ?? settings?.whatsapp_survey_fee_pence ?? 0)
   const cv = Number(settings?.ats_cv_scan_fee_pence || 0)
   return {
     minutes: perMin > 0 ? Math.floor(price / perMin) : 0,
@@ -61,7 +61,7 @@ function PlanRow({ plan, settings, onSave }) {
   }
 
   const priceTip = `${penceToPounds(d.price_gbp_pence)} ÷ ${penceToPounds(d.per_min_pence)}`
-  const waTip = `${penceToPounds(d.price_gbp_pence)} ÷ ${penceToPounds(settings?.whatsapp_survey_fee_pence)}`
+  const waTip = `${penceToPounds(d.price_gbp_pence)} ÷ ${penceToPounds(settings?.wa_survey_package_fee_pence ?? settings?.whatsapp_survey_fee_pence)}`
   const cvTip = `${penceToPounds(d.price_gbp_pence)} ÷ ${penceToPounds(settings?.ats_cv_scan_fee_pence)}`
 
   return (
@@ -106,7 +106,7 @@ export default function PricingPlans() {
 
   if (loading) return <p className="muted">Loading plans…</p>
 
-  const wa = settings ? penceToPounds(settings.whatsapp_survey_fee_pence) : '—'
+  const wa = settings ? penceToPounds(settings.wa_survey_package_fee_pence ?? settings.whatsapp_survey_fee_pence) : '—'
   const cv = settings ? penceToPounds(settings.ats_cv_scan_fee_pence) : '—'
 
   return (

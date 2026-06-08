@@ -125,11 +125,13 @@ describe("survey launch billing UI helpers", () => {
 
   it("builds whatsapp allowance notice from live-like payload", () => {
     const notice = buildWhatsAppAllowanceNotice({
-      block_reason_code: "whatsapp_usage_limit",
-      block_reason:
-        "Your WhatsApp allowance has been fully used. Included: 86, used: 124, remaining: 0. This launch would require additional billing of £15.00.",
-      amount_due_display: "£15.00",
-      payment_required: true,
+      mode: "subscription_overage",
+      summary:
+        "Plan includes: 86 WA survey recipients/month. Extra recipients: £0.49 each after allowance is used.",
+      extra_recipients: 1,
+      extra_cost_display: "£0.49",
+      wa_survey_extra_display: "£0.49",
+      payment_required: false,
       billing: {
         whatsapp_included: 86,
         whatsapp_used: 124,
@@ -137,21 +139,21 @@ describe("survey launch billing UI helpers", () => {
         has_whatsapp_allowance: true,
       },
     });
-    expect(notice).toContain("Included: 86");
-    expect(notice).toContain("£15.00");
+    expect(notice).toContain("Plan includes:");
+    expect(notice).toContain("Extra recipients:");
   });
 
   it("builds explicit pricing breakdown lines", () => {
     const breakdown = buildLaunchPricingBreakdown({
       payment_required: true,
-      estimated_send_cost_display: "£0.20",
-      minimum_charge_display: "£10.00",
-      amount_due_display: "£15.00",
-      setup_fee_display: "£5.00",
-      package_id: "pkg-1",
+      amount_due_display: "£0.49",
+      wa_survey_extra_display: "£0.49",
+      billing: { whatsapp_included: 118, has_whatsapp_allowance: true },
     });
-    expect(breakdown?.estimatedSend).toBe("£0.20");
-    expect(breakdown?.minimumCharge).toBe("£10.00");
-    expect(breakdown?.totalDue).toBe("£15.00");
+    expect(breakdown?.planIncludes).toContain("118");
+    expect(breakdown?.extraRecipientsLine).toContain("£0.49");
+    expect(breakdown?.interviewWhatsApp).toContain("included");
+    expect(breakdown?.aiPhoneSurvey).toContain("connection + minutes");
+    expect(breakdown?.totalDue).toBe("£0.49");
   });
 });

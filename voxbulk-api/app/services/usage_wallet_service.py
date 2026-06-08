@@ -108,7 +108,8 @@ class UsageWalletService:
         pack_included = int(row.pack_credits_included or 0)
 
         overage_calls = max(0, calls_used - calls_included)
-        est_overage_pence = overage_calls * int(row.overage_per_min_pence or 0)
+        wa_overage_units = max(0, wa_used - wa_included)
+        est_overage_pence = overage_calls * int(row.overage_per_min_pence or 0) + wa_overage_units * 49
 
         return {
             "period_start": row.period_start.isoformat(),
@@ -133,9 +134,22 @@ class UsageWalletService:
         }
 
     @staticmethod
-    def _calc_overage_pence(row: OrgUsagePeriod) -> int:
+    def _calc_overage_pence(row: OrgUsagePeriod, db: Session | None = None, org_id: str | None = None) -> int:
         calls_overage = max(0, int(row.calls_used or 0) - int(row.calls_included or 0))
-        return calls_overage * int(row.overage_per_min_pence or 0)
+        call_pence = calls_overage * int(row.overage_per_min_pence or 0)
+        wa_used = int(row.whatsapp_used or 0)
+        wa_included = int(row.whatsapp_included or 0)
+        wa_overage_units = max(0, wa_used - wa_included)
+        wa_extra_pence = 49
+        if db is not None and org_id:
+            try:
+                from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+                rates = VoxbulkPricingService.resolve_rates_for_org(db, org_id)
+                wa_extra_pence = int(rates.get("wa_survey_extra_pence") or 49)
+            except Exception:
+                pass
+        return call_pence + wa_overage_units * wa_extra_pence
 
     @staticmethod
     def get_org_billing_email(db: Session, org_id: str) -> str | None:
@@ -370,7 +384,7 @@ class UsageWalletService:
         if row is None:
             return None
 
-        total_overage = UsageWalletService._calc_overage_pence(row)
+        total_overage = UsageWalletService._calc_overage_pence(row, db, org_id)
         already = int(row.overage_invoiced_pence or 0)
         delta = total_overage - already
         if delta < int(min_invoice_pence):

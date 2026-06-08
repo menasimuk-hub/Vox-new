@@ -70,7 +70,8 @@ function PackagesPage() {
 
   const connEnabled = Boolean(services.connection_fee_enabled);
   const connPence = Number(services.connection_fee_pence || 0);
-  const waFee = Number(services.whatsapp_survey_fee_pence || 150);
+  const waPkgFee = Number(services.wa_survey_package_fee_pence || services.whatsapp_survey_fee_pence || 50);
+  const waExtraDisplay = String(services.wa_survey_extra_display || services.whatsapp_survey_display || "£0.49");
   const atsFee = Number(services.ats_cv_scan_fee_pence || 75);
   const paygPerMin = Number(services.interview_per_min_pence || 35);
 
@@ -80,10 +81,10 @@ function PackagesPage() {
     const credit = topupPence;
     return {
       interviews: perInterview > 0 ? Math.floor(credit / perInterview) : 0,
-      wa: waFee > 0 ? Math.floor(credit / waFee) : 0,
+      wa: waPkgFee > 0 ? Math.floor(credit / waPkgFee) : 0,
       cv: atsFee > 0 ? Math.floor(credit / atsFee) : 0,
     };
-  }, [topupPence, connPence, paygPerMin, waFee, atsFee, settings.estimator_default_duration_min, duration]);
+  }, [topupPence, connPence, paygPerMin, waPkgFee, atsFee, settings.estimator_default_duration_min, duration]);
 
   const onTopup = async (amountPence: number, tierId?: string) => {
     try {
@@ -206,7 +207,13 @@ function PackagesPage() {
                       )}
                       <div className="mt-auto space-y-1 border-t border-border pt-2">
                         <div className="flex justify-between"><span className="text-muted-foreground">Mins included</span><span>{ent ? "Custom" : payg ? "Pay per use" : Number(p.minutes_included || 0).toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">WA surveys</span><span>{ent ? "Custom" : payg ? "Pay per use" : Number(p.whatsapp_included || 0).toLocaleString()}</span></div>
+                        {!ent && !payg ? (
+                          <p className="text-muted-foreground">
+                            Plan includes: <strong>{Number(p.whatsapp_included || 0).toLocaleString()}</strong> WA survey recipients/month.
+                          </p>
+                        ) : (
+                          <div className="flex justify-between"><span className="text-muted-foreground">WA survey recipients</span><span>{ent ? "Custom" : "Pay per use"}</span></div>
+                        )}
                         <div className="flex justify-between"><span className="text-muted-foreground">CV scans</span><span>{ent ? "Custom" : payg ? "Pay per use" : Number(p.cv_scans_included || 0).toLocaleString()}</span></div>
                       </div>
                       <Button
@@ -274,10 +281,16 @@ function PackagesPage() {
 
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">What each service costs</h2>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="mb-4 space-y-1 rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm">
+          <p>Extra recipients: <strong>{waExtraDisplay}</strong> each after allowance is used.</p>
+          <p>Interview WhatsApp: <strong>included</strong>.</p>
+          <p>AI phone survey: <strong>billed by connection + minutes</strong>.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><Phone className="size-4 text-primary" /><span className="font-medium">Interview call</span></div><p className="text-xl font-semibold">{String(services.interview_per_min_display)}/min</p>{connEnabled && <p className="text-xs text-muted-foreground">+ {String(services.connection_fee_display)} connection fee per call</p>}</CardContent></Card>
-          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><MessageCircle className="size-4 text-green-600" /><span className="font-medium">WhatsApp survey</span></div><p className="text-xl font-semibold">{String(services.whatsapp_survey_display)}</p><p className="text-xs text-muted-foreground">per user sent</p></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><FileText className="size-4 text-amber-600" /><span className="font-medium">ATS CV scan</span></div><p className="text-xl font-semibold">{String(services.ats_cv_scan_display)}</p><p className="text-xs text-muted-foreground">per CV scanned</p></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><MessageCircle className="size-4 text-green-600" /><span className="font-medium">WA survey allowance</span></div><p className="text-xl font-semibold">{String(services.wa_survey_package_fee_display || services.whatsapp_survey_display)}</p><p className="text-xs text-muted-foreground">Package fee used to calculate plan recipients/month</p></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><MessageCircle className="size-4 text-green-600" /><span className="font-medium">WA survey extra</span></div><p className="text-xl font-semibold">{waExtraDisplay}</p><p className="text-xs text-muted-foreground">Each recipient after allowance is used</p></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><FileText className="size-4 text-amber-600" /><span className="font-medium">ATS CV scan</span></div><p className="text-xl font-semibold">{String(services.ats_cv_scan_display)}</p><p className="text-xs text-muted-foreground">Per CV screened · Interview WhatsApp included</p></CardContent></Card>
         </div>
       </section>
 
@@ -310,7 +323,7 @@ function PackagesPage() {
           <Slider value={[topupPence / 100]} min={5} max={500} step={5} onValueChange={([v]) => { setTopupPence(Math.round(v * 100)); setCustomTopup(String(v)); }} />
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded-lg bg-muted/50 p-3"><p className="text-[11px] text-muted-foreground">Est. interviews</p><p className="font-semibold">~{breakdown.interviews}</p></div>
-            <div className="rounded-lg bg-muted/50 p-3"><p className="text-[11px] text-muted-foreground">WA surveys</p><p className="font-semibold">{breakdown.wa}</p></div>
+            <div className="rounded-lg bg-muted/50 p-3"><p className="text-[11px] text-muted-foreground">Est. WA survey recipients</p><p className="font-semibold">{breakdown.wa}</p></div>
             <div className="rounded-lg bg-muted/50 p-3"><p className="text-[11px] text-muted-foreground">CV scans</p><p className="font-semibold">{breakdown.cv}</p></div>
           </div>
         </CardContent>

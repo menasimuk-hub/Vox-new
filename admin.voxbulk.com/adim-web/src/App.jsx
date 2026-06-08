@@ -55,7 +55,6 @@ import SalesOfferTemplates from './pages/SalesOfferTemplates'
 import PromoOffers from './pages/PromoOffers'
 import PromoOfferCreate from './pages/PromoOfferCreate'
 import AiTeam from './pages/AiTeam'
-import ServicesPricing from './pages/ServicesPricing'
 import PricingShell from './pages/pricing/PricingShell'
 import PricingPlans from './pages/pricing/PricingPlans'
 import PricingConnectionFee from './pages/pricing/PricingConnectionFee'
@@ -179,7 +178,6 @@ export default function App() {
         <Route path='/billing/products' element={<ProductsHub />} />
         <Route path='/billing/products/plan/new' element={<ProductPlanEdit />} />
         <Route path='/billing/products/plan/:planId/edit' element={<ProductPlanEdit />} />
-        <Route path='/billing/services-pricing' element={<ServicesPricing />} />
         <Route path='/billing/service-orders' element={<ServiceOrdersAdmin />} />
 
         <Route path='/pricing' element={<PricingShell />}>
