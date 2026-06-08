@@ -1,4 +1,4 @@
-"""WA survey package fee rename + wa_survey_extra overage rate."""
+"""Add wa_survey_extra_pence; keep whatsapp_survey_fee_pence column name in DB."""
 
 from __future__ import annotations
 
@@ -11,32 +11,9 @@ branch_labels = None
 depends_on = None
 
 
-def _rename_pricing_global_wa_column() -> None:
-    op.alter_column(
-        "pricing_global_settings",
-        "whatsapp_survey_fee_pence",
-        new_column_name="wa_survey_package_fee_pence",
-        existing_type=sa.Integer(),
-        existing_nullable=False,
-    )
-
-
-def _rename_org_custom_wa_column() -> None:
-    op.alter_column(
-        "org_custom_pricing",
-        "whatsapp_survey_fee_pence",
-        new_column_name="wa_survey_package_fee_pence",
-        existing_type=sa.Integer(),
-        existing_nullable=True,
-    )
-
-
 def upgrade() -> None:
     conn = op.get_bind()
     insp = sa.inspect(conn)
-    cols = {c["name"] for c in insp.get_columns("pricing_global_settings")}
-    if "whatsapp_survey_fee_pence" in cols and "wa_survey_package_fee_pence" not in cols:
-        _rename_pricing_global_wa_column()
     cols = {c["name"] for c in insp.get_columns("pricing_global_settings")}
     if "wa_survey_extra_pence" not in cols:
         op.add_column(
@@ -44,9 +21,6 @@ def upgrade() -> None:
             sa.Column("wa_survey_extra_pence", sa.Integer(), nullable=False, server_default="49"),
         )
 
-    org_cols = {c["name"] for c in insp.get_columns("org_custom_pricing")}
-    if "whatsapp_survey_fee_pence" in org_cols and "wa_survey_package_fee_pence" not in org_cols:
-        _rename_org_custom_wa_column()
     org_cols = {c["name"] for c in insp.get_columns("org_custom_pricing")}
     if "wa_survey_extra_pence" not in org_cols:
         op.add_column(
@@ -61,25 +35,7 @@ def downgrade() -> None:
     cols = {c["name"] for c in insp.get_columns("pricing_global_settings")}
     if "wa_survey_extra_pence" in cols:
         op.drop_column("pricing_global_settings", "wa_survey_extra_pence")
-    cols = {c["name"] for c in insp.get_columns("pricing_global_settings")}
-    if "wa_survey_package_fee_pence" in cols and "whatsapp_survey_fee_pence" not in cols:
-        op.alter_column(
-            "pricing_global_settings",
-            "wa_survey_package_fee_pence",
-            new_column_name="whatsapp_survey_fee_pence",
-            existing_type=sa.Integer(),
-            existing_nullable=False,
-        )
 
     org_cols = {c["name"] for c in insp.get_columns("org_custom_pricing")}
     if "wa_survey_extra_pence" in org_cols:
         op.drop_column("org_custom_pricing", "wa_survey_extra_pence")
-    org_cols = {c["name"] for c in insp.get_columns("org_custom_pricing")}
-    if "wa_survey_package_fee_pence" in org_cols and "whatsapp_survey_fee_pence" not in org_cols:
-        op.alter_column(
-            "org_custom_pricing",
-            "wa_survey_package_fee_pence",
-            new_column_name="whatsapp_survey_fee_pence",
-            existing_type=sa.Integer(),
-            existing_nullable=True,
-        )

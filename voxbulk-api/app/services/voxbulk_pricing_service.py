@@ -202,6 +202,16 @@ class VoxbulkPricingService:
     @staticmethod
     def update_settings(db: Session, payload: dict[str, Any]) -> PricingGlobalSettings:
         row = VoxbulkPricingService.get_settings(db)
+        int_fields = {
+            "connection_fee_pence",
+            "interview_per_min_pence",
+            "wa_survey_package_fee_pence",
+            "wa_survey_extra_pence",
+            "whatsapp_survey_fee_pence",
+            "ats_cv_scan_fee_pence",
+            "estimator_default_duration_min",
+            "estimator_default_interview_count",
+        }
         for key in (
             "fx_aud_multiplier",
             "fx_cad_multiplier",
@@ -217,11 +227,14 @@ class VoxbulkPricingService:
             "estimator_default_duration_min",
             "estimator_default_interview_count",
         ):
-            if key in payload and payload[key] is not None:
-                if key == "whatsapp_survey_fee_pence":
-                    row.wa_survey_package_fee_pence = int(payload[key])
-                else:
-                    setattr(row, key, payload[key])
+            if key not in payload or payload[key] is None:
+                continue
+            if key in ("whatsapp_survey_fee_pence", "wa_survey_package_fee_pence"):
+                row.wa_survey_package_fee_pence = int(payload[key])
+            elif key in int_fields:
+                setattr(row, key, int(payload[key]))
+            else:
+                setattr(row, key, payload[key])
         row.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(row)

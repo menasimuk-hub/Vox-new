@@ -26,7 +26,13 @@ class PricingGlobalSettings(Base):
     connection_fee_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     interview_per_min_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=35)
-    wa_survey_package_fee_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    # Physical column remains whatsapp_survey_fee_pence until a future rename migration.
+    wa_survey_package_fee_pence: Mapped[int] = mapped_column(
+        "whatsapp_survey_fee_pence",
+        Integer,
+        nullable=False,
+        default=50,
+    )
     wa_survey_extra_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=49)
     ats_cv_scan_fee_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=75)
 
@@ -66,7 +72,11 @@ class OrgCustomPricing(Base):
     cv_scans_included: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     interview_per_min_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    wa_survey_package_fee_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wa_survey_package_fee_pence: Mapped[int | None] = mapped_column(
+        "whatsapp_survey_fee_pence",
+        Integer,
+        nullable=True,
+    )
     wa_survey_extra_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ats_cv_scan_fee_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

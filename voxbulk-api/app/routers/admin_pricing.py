@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import CAP_BILLING, require_cap
@@ -12,6 +13,18 @@ from app.services.plan_admin_service import PlanAdminError, PlanAdminService
 from app.services.voxbulk_pricing_service import VoxbulkPricingError, VoxbulkPricingService
 
 router = APIRouter(prefix="/admin/pricing", tags=["admin-pricing"])
+
+_PRICING_SCHEMA_HINT = (
+    "Pricing database schema is out of date. On the VPS run: "
+    "cd /www/voxbulk/voxbulk-api && source .venv/bin/activate && alembic upgrade head"
+)
+
+
+def _pricing_db_error(exc: Exception) -> HTTPException:
+    msg = str(exc).lower()
+    if "wa_survey_extra_pence" in msg or "whatsapp_survey_fee_pence" in msg or "unknown column" in msg:
+        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_PRICING_SCHEMA_HINT)
+    return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc) or "Pricing error")
 
 
 @router.get("")
@@ -41,14 +54,20 @@ def seed_default_pricing(db: Session = Depends(get_db), _admin=Depends(require_c
 
 @router.get("/settings")
 def get_settings(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
-    row = VoxbulkPricingService.get_settings(db)
-    return VoxbulkPricingService.settings_to_dict(row)
+    try:
+        row = VoxbulkPricingService.get_settings(db)
+        return VoxbulkPricingService.settings_to_dict(row)
+    except (OperationalError, ProgrammingError) as exc:
+        raise _pricing_db_error(exc) from exc
 
 
 @router.put("/settings")
 def update_settings(payload: dict = Body(...), db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
-    row = VoxbulkPricingService.update_settings(db, payload)
-    return VoxbulkPricingService.settings_to_dict(row)
+    try:
+        row = VoxbulkPricingService.update_settings(db, payload)
+        return VoxbulkPricingService.settings_to_dict(row)
+    except (OperationalError, ProgrammingError) as exc:
+        raise _pricing_db_error(exc) from exc
 
 
 @router.get("/plans")
