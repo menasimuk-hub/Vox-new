@@ -151,6 +151,7 @@ def generate_ai_action_recommendations(
     org_name: str,
     summary: dict[str, Any],
     aggregates: list[dict[str, Any]],
+    negative_feedback: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     if int(summary.get("completed_count") or 0) <= 0:
         return []
@@ -166,6 +167,8 @@ def generate_ai_action_recommendations(
         "sentiment": summary.get("sentiment_counts"),
         "top_themes": summary.get("top_issues"),
         "questions_and_answers": aggregates,
+        "negative_feedback_excerpts": negative_feedback or [],
+        "unhappy_respondent_count": summary.get("unhappy_count"),
     }
     user_block = json.dumps(payload, ensure_ascii=False, indent=2)
 

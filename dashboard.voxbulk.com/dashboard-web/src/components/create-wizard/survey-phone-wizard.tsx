@@ -134,7 +134,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
       }
       return;
     }
-    if (step === 1 && props.onEnsureDraft) {
+    if (false && step === 1 && props.onEnsureDraft) {
       try {
         await props.onEnsureDraft();
       } catch (e) {

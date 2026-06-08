@@ -67,6 +67,20 @@ export function resolveSurveyStepLabel(
   return "Question 1";
 }
 
+/** Wizard Step 3 — admin `display_name` only (no body preview or internal names). */
+export function wizardTemplateDisplayName(
+  row: Record<string, unknown> | null | undefined,
+  fallback: string,
+  questionNumber?: number,
+): string {
+  const display = String(row?.display_name || "").trim();
+  if (display) return display.split(" — ")[0].trim();
+  const fb = String(fallback || "").trim();
+  if (fb) return fb.split(" — ")[0].trim();
+  if (questionNumber && questionNumber > 0) return `Question ${questionNumber}`;
+  return "Template";
+}
+
 /** Human-readable label for a WA survey template row (Step 1, Step 2, …). */
 export function surveyTemplateLabel(
   row: Record<string, unknown> | null | undefined,

@@ -37,7 +37,14 @@ from app.services.survey_wa_template_pack_service import (
     build_system_template_json_schema,
 )
 from app.services.survey_type_template_service import SurveyTypeTemplateService
+import logging
+
 from app.services.wa_template_privacy import PRIVACY_MODE_OFF, PRIVACY_MODE_ON, normalize_privacy_mode, resolve_row_privacy_mode
+
+logger = logging.getLogger(__name__)
+
+WELCOME_TEMPLATE_ANONYMOUS_NAME = "voxbulk_survey_welcome_templates_global_welcome_anonymous_start_2"
+WELCOME_TEMPLATE_NAMED_NAME = "voxbulk_survey_welcome_templates_standard"
 
 # WA_FINAL_FEEDBACK_SYSTEM_TEMPLATE_ACTIVE — health/build deploy marker (runtime_build_info).
 FINAL_FEEDBACK_SYSTEM_TEMPLATE_MARKER = "WA_FINAL_FEEDBACK_SYSTEM_TEMPLATE_ACTIVE"
@@ -506,6 +513,34 @@ class SurveySystemTemplateService:
                     }
                 )
         return {"ok": True, "templates": grouped}
+
+    @staticmethod
+    def resolve_welcome_template_for_survey(db: Session, config: dict[str, Any]) -> TelnyxWhatsappTemplate | None:
+        """Pick welcome template by anonymous vs named survey mode."""
+        anonymous = bool(config.get("anonymous_responses"))
+        template_name = WELCOME_TEMPLATE_ANONYMOUS_NAME if anonymous else WELCOME_TEMPLATE_NAMED_NAME
+        row = db.execute(
+            select(TelnyxWhatsappTemplate).where(
+                TelnyxWhatsappTemplate.name == template_name,
+                TelnyxWhatsappTemplate.active_for_survey.is_(True),
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            logger.error("survey_welcome_template_missing name=%s anonymous=%s", template_name, anonymous)
+            return None
+        status = str(row.status or "").upper()
+        if status != "APPROVED":
+            logger.error(
+                "survey_welcome_template_not_approved name=%s status=%s",
+                template_name,
+                status,
+            )
+        return row
+
+    @staticmethod
+    def resolve_welcome_template_id_for_survey(db: Session, config: dict[str, Any]) -> int | None:
+        row = SurveySystemTemplateService.resolve_welcome_template_for_survey(db, config)
+        return int(row.id) if row is not None else None
 
     @staticmethod
     def resolve_tell_us_more_template_id(db: Session) -> int | None:

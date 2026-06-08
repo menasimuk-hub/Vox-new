@@ -7,7 +7,7 @@ Usage:
   cd voxbulk-api && source .venv/bin/activate
   python scripts/seed_demo_survey_mixed.py --email you@example.com
 
-  python scripts/seed_demo_survey_mixed.py --email you@example.com --clear
+  python scripts/seed_demo_survey_mixed.py --email user@user.com --clear
   python scripts/seed_demo_survey_mixed.py --wa-only --count 50
   python scripts/seed_demo_survey_mixed.py --call-only --seed 42
   python scripts/seed_demo_survey_mixed.py --export-json /tmp/demo_survey.json
@@ -804,7 +804,7 @@ def _validate_results(db, order: ServiceOrder, channel: str) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Seed mixed WA + AI Call survey demo data (synthetic)")
-    parser.add_argument("--email", default="menasimuk@gmail.com", help="Dashboard user email (org owner)")
+    parser.add_argument("--email", default="user@user.com", help="Dashboard user email (org owner; must exist)")
     parser.add_argument("--count", type=int, default=DEFAULT_COUNT, help="Respondents per survey type")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible output")
     parser.add_argument("--clear", action="store_true", help="Remove previous demo pack orders first")

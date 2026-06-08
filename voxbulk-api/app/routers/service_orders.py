@@ -982,13 +982,37 @@ def start_gocardless_order_payment(
 
 
 @router.delete("/{order_id}")
-def delete_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def delete_order(
+    order_id: str,
+    confirm_running_delete: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
-        ServiceOrderService.delete_order(db, order)
+        ServiceOrderService.delete_order(db, order, confirm_running_delete=confirm_running_delete)
         return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{order_id}/duplicate")
+def duplicate_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "survey":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only survey orders can be duplicated")
+    try:
+        copy = ServiceOrderService.duplicate_order(
+            db,
+            order,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+        )
+        return {"ok": True, "order": ServiceOrderService.order_to_dict(copy)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

@@ -181,11 +181,38 @@ def _conversation_already_started(recipient: ServiceOrderRecipient) -> bool:
     return isinstance(answers, list) and len(answers) > 0
 
 
-def _save_recipient_result(db: Session, recipient: ServiceOrderRecipient, payload: dict[str, Any]) -> None:
+def _save_recipient_result(
+    db: Session,
+    recipient: ServiceOrderRecipient,
+    payload: dict[str, Any],
+    *,
+    enqueue_translation: bool = False,
+) -> None:
     recipient.result_json = json.dumps(payload, ensure_ascii=False)
     recipient.updated_at = datetime.utcnow()
     db.add(recipient)
     db.commit()
+    if enqueue_translation:
+        _enqueue_text_answer_translation(recipient, payload)
+
+
+def _enqueue_text_answer_translation(recipient: ServiceOrderRecipient, payload: dict[str, Any]) -> None:
+    conv = payload.get("wa_conversation") if isinstance(payload.get("wa_conversation"), dict) else {}
+    answers = conv.get("answers") if isinstance(conv.get("answers"), list) else []
+    if not answers:
+        return
+    last_index = len(answers) - 1
+    last = answers[last_index] if isinstance(answers[last_index], dict) else None
+    if not last:
+        return
+    if str(last.get("answer_source") or "") == "voice_note":
+        return
+    text = str(last.get("answer") or last.get("answer_text") or "").strip()
+    if not text:
+        return
+    from app.services.survey_wa_translation_service import SurveyWaTranslationService
+
+    SurveyWaTranslationService.enqueue_answer_translation(recipient.id, answer_index=last_index)
 
 
 def _survey_variables(
@@ -1640,7 +1667,10 @@ def send_survey_opening(
     )
 
     variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
-    template_row = _resolve_template_row(db, config.get("wa_template_id"))
+    from app.services.survey_system_template_service import SurveySystemTemplateService
+
+    welcome_template_id = SurveySystemTemplateService.resolve_welcome_template_id_for_survey(db, config)
+    template_row = _resolve_template_row(db, welcome_template_id or config.get("wa_template_id"))
     preview_body = ""
     if template_row is not None:
         preview = SurveyWhatsappTemplateService.build_preview(
@@ -3023,7 +3053,7 @@ def handle_inbound_reply(
                 db, session, config=config, from_step=step, to_step=next_step
             )
         recipient.status = "in_progress"
-        _save_recipient_result(db, recipient, payload)
+        _save_recipient_result(db, recipient, payload, enqueue_translation=True)
         sent = _send_message(
             db, order=order, recipient=recipient, body=next_body, config=config, question=next_q
         )

@@ -32,7 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { surveyTemplateLabel } from "@/lib/survey-step-labels";
+import { surveyTemplateLabel, wizardTemplateDisplayName } from "@/lib/survey-step-labels";
 import { WaIndustryIcon } from "@/lib/wa-industry-icon";
 
 const WA_STEPS: WizardStepDef[] = [
@@ -261,7 +261,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       else if (step === 4) toast.error("Confirm survey type and upload consent before continuing");
       return;
     }
-    if (step === 1 && props.onEnsureDraft) {
+    if (false && step === 1 && props.onEnsureDraft) {
       try {
         await props.onEnsureDraft();
       } catch (e) {
@@ -450,9 +450,8 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
           <Card className="animate-scale-in">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FileText className="size-4 text-primary" /> Step 3 · Select & arrange templates
+                <FileText className="size-4 text-primary" /> Step 3 · Templates
               </CardTitle>
-              <CardDescription>Pick welcome & thanks templates, then one survey template per type. Drag to reorder the flow.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {props.step3SelectionErrors.length && !props.generateErrors.length ? (
@@ -474,49 +473,30 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   </ul>
                 </WizardAlert>
               ) : null}
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  Selected:{" "}
-                  <span
-                    className={cn(
-                      "font-semibold",
-                      templatePickCount >= templatePickTotal ? "text-success" : "text-primary",
-                    )}
-                  >
-                    {templatePickCount}
-                  </span>{" "}
-                  / {templatePickTotal}
-                </p>
-              </div>
-
               <WaTemplatePickerSection
-                label="Welcome message"
-                badge="Opening"
+                label="Welcome"
                 templates={welcomeTemplateRows}
                 selectedId={props.welcomeTemplateId}
                 onSelect={props.setWelcomeTemplateId}
               />
 
               <div className="space-y-3">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Survey questions — drag to reorder
-                </p>
+                <p className="text-sm font-semibold">Questions</p>
                 {props.orderedServiceTagIds.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-                    Select at least one survey type in step 2 to configure templates here.
+                    No questions yet.
                   </p>
                 ) : (
                   props.orderedServiceTagIds.map((typeId, idx) => {
                     const row = props.serviceTypes.find((t) => String(t.id) === typeId);
                     if (!row) return null;
                     const libraryRows = props.libraryTemplatesByTypeId[typeId] || [];
-                    const serviceName = surveyTemplateLabel(
-                      libraryRows.find((t) => String(t.id) === props.selectedServiceTemplateIds[typeId]),
-                      String(row.name || ""),
+                    const typeLabel = wizardTemplateDisplayName(
+                      undefined,
+                      String(row.name || `Question ${idx + 1}`),
                       idx + 1,
-                      rejectTitles,
                     );
-                    const templateRows = mapSystemTemplates(libraryRows);
+                    const templateRows = mapSystemTemplates(libraryRows, { fallback: typeLabel });
                     return (
                       <div
                         key={typeId}
@@ -544,7 +524,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                           </div>
                         ) : (
                           <WaDraggableTypeGroup
-                            serviceName={serviceName}
+                            serviceName={typeLabel}
                             index={idx}
                             total={props.orderedServiceTagIds.length}
                             templates={templateRows}
@@ -568,21 +548,14 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               </div>
 
               <WaTemplatePickerSection
-                label="Thank-you message"
-                badge="Closing"
+                label="Thank you"
                 templates={thankYouTemplateRows}
                 selectedId={props.thankYouTemplateId}
                 onSelect={props.setThankYouTemplateId}
               />
 
-              <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-background/40 p-4">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Allow final additional feedback</p>
-                  <p className="text-xs text-muted-foreground">
-                    Optional closing step after the main questions: send an open-text prompt, then thank-you.
-                    Off by default.
-                  </p>
-                </div>
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-background/40 p-4">
+                <p className="text-sm font-medium">Final feedback</p>
                 <Switch
                   checked={props.allowFinalAdditionalFeedback}
                   onCheckedChange={props.setAllowFinalAdditionalFeedback}

@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useParams } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
 import * as React from "react";
 import { Play, Pause, Pencil, Copy, Trash2, Square, FileBarChart, Coins } from "lucide-react";
 
@@ -37,7 +37,12 @@ function toLocalInput(iso?: string | null) {
 
 function SurveyDetail() {
   const { id } = useParams({ from: "/_app/surveys/$id" });
+  const navigate = useNavigate();
   const { session } = useSession();
+
+  React.useEffect(() => {
+    void navigate({ to: "/surveys/new", search: { order_id: id }, replace: true });
+  }, [id, navigate]);
   const orderQ = useServiceOrder(id);
   const patchM = usePatchServiceOrder();
   const deleteM = useDeleteOrder();

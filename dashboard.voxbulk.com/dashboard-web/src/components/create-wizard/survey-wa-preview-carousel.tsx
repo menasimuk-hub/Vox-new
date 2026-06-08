@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
-import { surveyTemplateLabel } from "@/lib/survey-step-labels";
+import { wizardTemplateDisplayName } from "@/lib/survey-step-labels";
 
 type PreviewMessage = { you?: boolean; text: string; button?: boolean };
 
@@ -44,9 +44,8 @@ function templateTitle(
   row: Record<string, unknown>,
   fallback: string,
   questionNumber?: number,
-  rejectTitles: string[] = [],
 ): string {
-  return surveyTemplateLabel(row, fallback, questionNumber, rejectTitles);
+  return wizardTemplateDisplayName(row, fallback, questionNumber);
 }
 
 function buttonsFromRow(row: Record<string, unknown>): string[] {
@@ -124,7 +123,7 @@ export function buildWaPreviewSlides(input: {
     if (!messages.length) continue;
     slides.push({
       id: typeId,
-      title: templateTitle(tplRow, typeName, qIndex + 1, rejectTitles),
+      title: templateTitle(tplRow, typeName, qIndex + 1),
       kind: "survey",
       messages,
     });
@@ -135,7 +134,7 @@ export function buildWaPreviewSlides(input: {
     if (messages.length) {
       slides.push({
         id: "thanks",
-        title: templateTitle(input.thankYouTemplate, "Thank-you"),
+        title: templateTitle(input.thankYouTemplate, "Thank you"),
         kind: "thanks",
         messages,
       });

@@ -150,10 +150,45 @@ export function useArchiveOrder() {
 export function useDeleteOrder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (orderId: string) =>
-      apiFetch(`/service-orders/${encodeURIComponent(orderId)}`, { method: "DELETE" }),
+    mutationFn: (args: string | { orderId: string; confirmRunningDelete?: boolean }) => {
+      const orderId = typeof args === "string" ? args : args.orderId;
+      const confirmRunningDelete = typeof args === "object" && args.confirmRunningDelete;
+      const qs = confirmRunningDelete ? "?confirm_running_delete=true" : "";
+      return apiFetch(`/service-orders/${encodeURIComponent(orderId)}${qs}`, { method: "DELETE" });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["service-orders"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
+    },
+  });
+}
+
+export function useDuplicateSurveyOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) =>
+      apiFetch<{ ok: boolean; order: ServiceOrder }>(
+        `/service-orders/${encodeURIComponent(orderId)}/duplicate`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["service-orders"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
+    },
+  });
+}
+
+export function useStopSurveyOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) =>
+      apiFetch(`/service-orders/${encodeURIComponent(orderId)}/stop`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (_data, orderId) => {
+      void qc.invalidateQueries({ queryKey: ["service-orders"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(orderId) });
       void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
     },
   });

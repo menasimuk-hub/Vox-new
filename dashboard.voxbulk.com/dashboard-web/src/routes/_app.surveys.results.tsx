@@ -12,6 +12,8 @@ import {
   ListFilter as Filter,
   MessageCircle,
   MessageSquareText,
+  Mic,
+  Phone,
   Search,
   Sparkles,
   ThumbsDown,
@@ -33,6 +35,13 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { downloadAuthenticatedFile } from "@/lib/api";
 import { logLaunchFlow } from "@/lib/launch-flow-log";
 import { orderToCampaign } from "@/lib/mappers/orders";
@@ -55,21 +64,39 @@ type WaAnswer = {
   answer_source?: string;
   transcription_status?: string;
 };
+type OpenFeedbackRow = {
+  question?: string;
+  transcript?: string | null;
+  text?: string | null;
+  translated_text?: string | null;
+  original_text?: string | null;
+  answer_source?: string;
+};
+type ExtractedAnswer = { question?: string; answer?: string };
 type Respondent = {
   id?: string;
+  name?: string;
+  phone?: string | null;
+  email?: string | null;
   quote?: string | null;
   short_summary?: string | null;
   recommend_score?: number | string | null;
   satisfaction_score?: number | string | null;
+  rating_label?: string | null;
   theme?: string | null;
   sentiment_label?: string | null;
   status_label?: string;
+  completed_at?: string | null;
   duration_label?: string | null;
+  needs_follow_up?: boolean;
+  is_unhappy?: boolean;
+  primary_response_type?: string | null;
   wa_answers?: WaAnswer[];
-  open_feedback?: Array<{ question?: string; transcript?: string | null; text?: string | null }>;
+  extracted_answers?: ExtractedAnswer[];
+  open_feedback?: OpenFeedbackRow[];
   final_additional_feedback?: string | null;
 };
-type Recommendation = { title?: string; text?: string; impact?: string };
+type Recommendation = { title?: string; text?: string; impact?: string; source?: string };
 type TrendPoint = { week: string; csat_pct?: number | null; completed_count?: number };
 
 type OptionRow = { label: string; count: number; pct: number; tone: string };
@@ -90,6 +117,8 @@ type ResponseCardData = {
   theme: string;
   quote: string;
   duration: string;
+  isUnhappy: boolean;
+  responseType: "text" | "voice" | null;
 };
 
 export const Route = createFileRoute("/_app/surveys/results")({
@@ -301,15 +330,49 @@ function mapRespondentToCard(r: Respondent, index: number): ResponseCardData | n
 
   if (!quote && answers.length === 0 && score <= 0 && !(r.open_feedback || []).length) return null;
 
+  const rating =
+    String(r.rating_label || "").trim() ||
+    (r.sentiment_label === "Negative" ? "Poor" : scoreToRatingLabel(score));
+  const responseType =
+    r.primary_response_type === "voice"
+      ? "voice"
+      : r.primary_response_type === "text"
+        ? "text"
+        : (r.open_feedback || []).some((fb) => fb.answer_source === "voice")
+          ? "voice"
+          : (r.wa_answers || []).some((a) => a.answer_source === "voice_note")
+            ? "voice"
+            : null;
+
   return {
     id: String(r.id || index),
-    date: r.status_label || "Completed",
-    rating: scoreToRatingLabel(score),
+    date: r.completed_at ? new Date(r.completed_at).toLocaleDateString() : r.status_label || "Completed",
+    rating,
     answers: answers.slice(0, 4),
     theme: String(r.theme || r.sentiment_label || "General"),
     quote: quote || "No written comment.",
     duration: r.duration_label || "—",
+    isUnhappy: Boolean(r.is_unhappy),
+    responseType,
   };
+}
+
+function formatRespondentScore(r: Respondent): string {
+  if (r.rating_label) return r.rating_label;
+  if (r.sentiment_label) return r.sentiment_label;
+  const score = Number(r.recommend_score ?? r.satisfaction_score ?? 0);
+  return scoreToRatingLabel(score);
+}
+
+function formatRespondentDate(r: Respondent): string {
+  if (r.completed_at) {
+    try {
+      return new Date(r.completed_at).toLocaleString();
+    } catch {
+      return r.completed_at;
+    }
+  }
+  return r.status_label || "—";
 }
 
 function SurveyResults() {
@@ -322,6 +385,9 @@ function SurveyResults() {
   const [selectedId, setSelectedId] = React.useState<string | undefined>(searchOrderId);
   const [responseSearch, setResponseSearch] = React.useState("");
   const [visibleResponses, setVisibleResponses] = React.useState(12);
+  const [activeTab, setActiveTab] = React.useState("overview");
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [detailRespondent, setDetailRespondent] = React.useState<Respondent | null>(null);
 
   React.useEffect(() => {
     logLaunchFlow("[results:init]", {
@@ -354,6 +420,9 @@ function SurveyResults() {
   const respondents = (payload.respondents || []) as Respondent[];
   const weeklyTrend = (payload.weekly_trend || []) as TrendPoint[];
   const topIssues = (summary.top_issues as string[] | undefined) || [];
+  const allowFollowUp = payload.allow_follow_up !== false && !payload.anonymous_responses;
+  const unhappyCount = Number(summary.unhappy_count || 0);
+  const surveyChannel = selected?.surveyChannel || (orderInfo.channel === "whatsapp" ? "whatsapp" : orderInfo.channel === "ai_call" ? "ai_call" : null);
 
   const exportResults = async (kind: "pdf" | "csv" | "xlsx") => {
     const exportId = searchOrderId || selectedId;
@@ -490,7 +559,14 @@ function SurveyResults() {
             <SelectContent>
               {campaigns.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
-                  {c.name}
+                  <span className="flex items-center gap-2">
+                    {c.surveyChannel === "whatsapp" ? (
+                      <MessageCircle className="size-3.5 shrink-0 text-primary" />
+                    ) : c.surveyChannel === "ai_call" ? (
+                      <Phone className="size-3.5 shrink-0 text-primary" />
+                    ) : null}
+                    {c.name}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -499,6 +575,20 @@ function SurveyResults() {
           <span className="text-sm text-muted-foreground truncate">
             {completed.toLocaleString()} / {totalRecipients.toLocaleString()} responses · {responseRate}% rate
           </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {allowFollowUp ? (
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setDetailsOpen(true)}>
+              <Users className="size-4" /> More details
+            </Button>
+          ) : null}
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="h-9">
+              <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
+              <TabsTrigger value="questions" className="text-xs">Questions</TabsTrigger>
+              <TabsTrigger value="responses" className="text-xs">Responses</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
       </div>
 
@@ -553,13 +643,7 @@ function SurveyResults() {
         </div>
       )}
 
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="questions">Questions</TabsTrigger>
-          <TabsTrigger value="responses">Responses</TabsTrigger>
-        </TabsList>
-
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsContent value="overview" className="space-y-6">
           {isLoading ? (
             <Skeleton className="h-64 w-full" />
@@ -642,7 +726,12 @@ function SurveyResults() {
                       <p className="text-muted-foreground">Recommendations appear after enough responses are analysed.</p>
                     ) : (
                       recommendations.slice(0, 3).map((r, i) => (
-                        <Action key={i} text={String(r.text || r.title || "")} impact={String(r.impact || "Medium")} />
+                        <Action
+                          key={i}
+                          text={String(r.text || r.title || "")}
+                          impact={String(r.impact || "Medium")}
+                          source={r.source}
+                        />
                       ))
                     )}
                   </CardContent>
@@ -818,9 +907,16 @@ function SurveyResults() {
 
         <TabsContent value="responses" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              {responseCards.length} responses · sorted by survey order
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm text-muted-foreground">
+                {responseCards.length} responses · sorted by survey order
+              </p>
+              {allowFollowUp && unhappyCount > 0 ? (
+                <Badge variant="destructive" className="gap-1">
+                  <AlertTriangle className="size-3" /> {unhappyCount} unhappy
+                </Badge>
+              ) : null}
+            </div>
             <div className="flex gap-2">
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" />
@@ -872,7 +968,168 @@ function SurveyResults() {
       <p className="text-center text-[11px] text-muted-foreground">
         Results are for one selected survey. Reports compare many surveys over time.
       </p>
+
+      <RespondentsDetailsSheet
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        respondents={respondents}
+        channel={surveyChannel}
+        onSelect={(r) => setDetailRespondent(r)}
+      />
+      <RespondentDetailSheet
+        respondent={detailRespondent}
+        channel={surveyChannel}
+        onClose={() => setDetailRespondent(null)}
+      />
     </div>
+  );
+}
+
+function RespondentsDetailsSheet({
+  open,
+  onOpenChange,
+  respondents,
+  channel,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  respondents: Respondent[];
+  channel: string | null;
+  onSelect: (r: Respondent) => void;
+}) {
+  const completed = respondents.filter((r) => String(r.status_label || "").toLowerCase() === "completed" || r.completed_at);
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>Respondent details</SheetTitle>
+          <SheetDescription>
+            {completed.length} completed respondents · click a row for full answers
+          </SheetDescription>
+        </SheetHeader>
+        <div className="mt-6 space-y-2">
+          {completed.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No completed respondents yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                  <th className="py-2 pr-2">Name</th>
+                  <th className="py-2 pr-2">Score</th>
+                  <th className="py-2">Responded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {completed.map((r) => (
+                  <tr
+                    key={r.id}
+                    className="cursor-pointer border-b border-border/50 hover:bg-muted/40"
+                    onClick={() => onSelect(r)}
+                  >
+                    <td className="py-2.5 pr-2">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        {r.is_unhappy ? <span className="size-2 rounded-full bg-destructive" title="Unhappy" /> : null}
+                        {r.name || "Respondent"}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-2">{formatRespondentScore(r)}</td>
+                    <td className="py-2.5 text-muted-foreground">{formatRespondentDate(r)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function RespondentDetailSheet({
+  respondent,
+  channel,
+  onClose,
+}: {
+  respondent: Respondent | null;
+  channel: string | null;
+  onClose: () => void;
+}) {
+  const open = Boolean(respondent);
+  const waAnswers = respondent?.wa_answers || [];
+  const extracted = respondent?.extracted_answers || [];
+  const openFeedback = respondent?.open_feedback || [];
+
+  return (
+    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+      <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
+        {respondent ? (
+          <>
+            <SheetHeader>
+              <SheetTitle>{respondent.name || "Respondent"}</SheetTitle>
+              <SheetDescription>
+                {[respondent.phone, respondent.email].filter(Boolean).join(" · ") || "No contact details"}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-6 space-y-4 text-sm">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">{formatRespondentScore(respondent)}</Badge>
+                {respondent.duration_label ? <Badge variant="outline">{respondent.duration_label}</Badge> : null}
+                {respondent.is_unhappy ? <Badge variant="destructive">Needs attention</Badge> : null}
+              </div>
+              {channel === "ai_call" && extracted.length > 0 ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Call answers</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {extracted.map((row, i) => (
+                      <div key={i}>
+                        <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
+                        <p>{row.answer}</p>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              ) : null}
+              {waAnswers.length > 0 ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">WhatsApp answers</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {waAnswers.map((row, i) => (
+                      <div key={i}>
+                        <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
+                        <p>{row.answer_text || row.answer}</p>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              ) : null}
+              {openFeedback.length > 0 ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Open feedback</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {openFeedback.map((row, i) => (
+                      <div key={i}>
+                        <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
+                        <p>{row.translated_text || row.transcript || row.text}</p>
+                        {row.original_text && row.translated_text && row.original_text !== row.translated_text ? (
+                          <p className="mt-1 text-xs text-muted-foreground">Original: {row.original_text}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -1016,10 +1273,15 @@ function Segment({ label, excellent, rate }: { label: string; excellent: string;
   );
 }
 
-function Action({ text, impact }: { text: string; impact: string }) {
+function Action({ text, impact, source }: { text: string; impact: string; source?: string }) {
   const impactCls = impact === "High" ? "text-success" : "text-warning";
   return (
     <div className="rounded-lg border border-border bg-background p-3">
+      {source === "negative_feedback" ? (
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-destructive">
+          From respondent feedback
+        </p>
+      ) : null}
       <p>{text}</p>
       <p className={`mt-1 text-xs ${impactCls}`}>{impact} impact</p>
     </div>
@@ -1112,6 +1374,8 @@ function ResponseCard({
   theme,
   quote,
   duration,
+  isUnhappy,
+  responseType,
 }: {
   date: string;
   rating: string;
@@ -1119,6 +1383,8 @@ function ResponseCard({
   theme: string;
   quote: string;
   duration: string;
+  isUnhappy: boolean;
+  responseType: "text" | "voice" | null;
 }) {
   const ratingCls =
     rating === "Excellent"
@@ -1129,11 +1395,19 @@ function ResponseCard({
           ? "bg-destructive/15 text-destructive"
           : "bg-muted text-muted-foreground";
   return (
-    <Card className="overflow-hidden">
+    <Card className={cn("overflow-hidden", isUnhappy && "ring-1 ring-destructive/30")}>
       <CardContent className="space-y-3 p-4">
         <div className="flex items-center justify-between">
-          <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold", ratingCls)}>{rating}</span>
+          <span className="flex items-center gap-1.5">
+            {isUnhappy ? <span className="size-2 rounded-full bg-destructive" title="Unhappy" /> : null}
+            <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold", ratingCls)}>{rating}</span>
+          </span>
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            {responseType === "voice" ? (
+              <Mic className="size-4 text-muted-foreground" aria-label="Voice response" />
+            ) : responseType === "text" ? (
+              <MessageSquareText className="size-4 text-muted-foreground" aria-label="Text response" />
+            ) : null}
             <span className="flex items-center gap-1">
               <Clock className="size-3" /> {duration}
             </span>

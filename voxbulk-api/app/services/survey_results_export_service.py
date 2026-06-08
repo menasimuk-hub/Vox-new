@@ -186,12 +186,38 @@ def build_survey_results_csv(payload: dict[str, Any], *, anonymous: bool = False
         )
     writer.writerow([])
 
-    writer.writerow(["Voice note answers"])
-    writer.writerow(["Respondent", "Question", "Transcript", "Source", "Language", "Status"])
+    writer.writerow(["Open feedback & voice answers"])
+    writer.writerow(
+        [
+            "Respondent",
+            "Question",
+            "English text",
+            "Original text",
+            "Source",
+            "Language",
+            "Transcription status",
+            "Translation status",
+        ]
+    )
     for row in payload.get("respondents") or []:
         if not isinstance(row, dict):
             continue
         label = row.get("initials") or row.get("id") if anonymous else row.get("name") or row.get("id") or ""
+        for ans in row.get("open_feedback") or []:
+            if not isinstance(ans, dict):
+                continue
+            writer.writerow(
+                [
+                    label,
+                    ans.get("question") or "",
+                    ans.get("translated_text") or ans.get("transcript") or ans.get("text") or "",
+                    ans.get("original_text") or "",
+                    ans.get("answer_source") or "",
+                    ans.get("detected_language") or "",
+                    ans.get("transcription_status") or "",
+                    ans.get("translation_status") or "",
+                ]
+            )
         for ans in row.get("wa_answers") or []:
             if not isinstance(ans, dict) or str(ans.get("answer_source") or "") != "voice_note":
                 continue
@@ -199,10 +225,12 @@ def build_survey_results_csv(payload: dict[str, Any], *, anonymous: bool = False
                 [
                     label,
                     ans.get("question") or "",
-                    resolve_answer_text(ans),
+                    ans.get("translated_text") or resolve_answer_text(ans),
+                    ans.get("original_text") or resolve_answer_text(ans),
                     ans.get("answer_source") or "voice_note",
                     ans.get("detected_language") or "",
                     ans.get("transcription_status") or "",
+                    ans.get("translation_status") or "",
                 ]
             )
 

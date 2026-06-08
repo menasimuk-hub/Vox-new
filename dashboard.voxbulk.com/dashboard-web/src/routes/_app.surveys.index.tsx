@@ -13,25 +13,54 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
-import { useArchiveOrder, useDeleteOrder, useHomeSummary, useServiceOrders } from "@/lib/queries";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  useArchiveOrder,
+  useDeleteOrder,
+  useDuplicateSurveyOrder,
+  useHomeSummary,
+  useServiceOrders,
+  useStopSurveyOrder,
+} from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/surveys/")({
   head: () => ({ meta: [{ title: "Saved surveys — VoxBulk" }] }),
   component: SavedSurveys,
 });
 
+const PAGE_SIZE = 10;
+
 function SavedSurveys() {
   const [tab, setTab] = React.useState<"live" | "finished" | "archived">("live");
+  const [page, setPage] = React.useState(1);
+  const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string; status: string } | null>(null);
   const ordersQ = useServiceOrders("survey");
   const summaryQ = useHomeSummary();
   const archiveM = useArchiveOrder();
   const deleteM = useDeleteOrder();
+  const duplicateM = useDuplicateSurveyOrder();
+  const stopM = useStopSurveyOrder();
 
   const filtered = React.useMemo(
     () => (ordersQ.data || []).filter((o) => orderTab(o) === tab).map((o) => orderToCampaign(o, "survey")),
     [ordersQ.data, tab],
   );
   const s = useTableSort(filtered);
+  const totalPages = Math.max(1, Math.ceil(s.sorted.length / PAGE_SIZE));
+  const pageRows = s.sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  React.useEffect(() => {
+    setPage(1);
+  }, [tab]);
   const running = (ordersQ.data || []).filter((o) => o.status === "running").length;
   const sur = summaryQ.data?.survey;
 
@@ -44,10 +73,25 @@ function SavedSurveys() {
     }
   };
 
-  const onDelete = async (id: string) => {
+  const onDuplicate = async (id: string) => {
     try {
-      await deleteM.mutateAsync(id);
+      await duplicateM.mutateAsync(id);
+      toast.success("Survey duplicated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Duplicate failed");
+    }
+  };
+
+  const onConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    const runningLike = ["running", "paused", "scheduled"].includes(deleteTarget.status);
+    try {
+      if (runningLike) {
+        await stopM.mutateAsync(deleteTarget.id);
+      }
+      await deleteM.mutateAsync({ orderId: deleteTarget.id, confirmRunningDelete: runningLike });
       toast.success("Survey deleted");
+      setDeleteTarget(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Delete failed");
     }
@@ -102,10 +146,10 @@ function SavedSurveys() {
               <TableHead className="pr-6 text-right">Actions</TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {s.sorted.map((c) => (
-                <TableRow key={c.id} className="cursor-pointer">
+              {pageRows.map((c) => (
+                <TableRow key={c.id}>
                   <TableCell className="pl-6">
-                    <Link to="/surveys/$id" params={{ id: c.id }} className="block hover:underline">
+                    <div className="block">
                       <div className="flex items-center gap-2">
                         {c.surveyChannel === "whatsapp" ? (
                           <MessageCircle className="size-4 shrink-0 text-primary" aria-label="WhatsApp survey" />
@@ -120,7 +164,7 @@ function SavedSurveys() {
                       {c.subtitle ? (
                         <span className="mt-0.5 block text-xs text-muted-foreground">Step 1 · {c.subtitle}</span>
                       ) : null}
-                    </Link>
+                    </div>
                   </TableCell>
                   <TableCell><StatusBadge tone={c.status} /></TableCell>
                   <TableCell className="min-w-[180px]">
@@ -132,12 +176,18 @@ function SavedSurveys() {
                   <TableCell className="pr-6 text-right">
                     <div className="inline-flex gap-1">
                       <Button size="sm" variant="ghost" asChild><Link to="/surveys/new" search={{ order_id: c.id }}>Edit</Link></Button>
-                      {tab === "finished" && (
+                      <Button size="sm" variant="ghost" onClick={() => void onDuplicate(c.id)}>Duplicate</Button>
+                      {(tab === "finished" || tab === "live") && c.status !== "running" ? (
                         <Button size="sm" variant="ghost" onClick={() => void onArchive(c.id)}>Archive</Button>
-                      )}
-                      {tab === "live" && (
-                        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => void onDelete(c.id)}>Delete</Button>
-                      )}
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setDeleteTarget({ id: c.id, name: c.name, status: c.status })}
+                      >
+                        Delete
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -146,7 +196,43 @@ function SavedSurveys() {
           </Table>
           </div>
         )}
+        {!ordersQ.isLoading && s.sorted.length > PAGE_SIZE ? (
+          <div className="flex items-center justify-between border-t border-border px-6 py-3 text-sm">
+            <span className="text-muted-foreground">
+              Page {page} of {totalPages} · {s.sorted.length} surveys
+            </span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                Previous
+              </Button>
+              <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                Next
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </CardContent></Card>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete survey?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget && ["running", "paused", "scheduled"].includes(deleteTarget.status)
+                ? `"${deleteTarget.name}" is still active. It will be stopped, then permanently deleted. This cannot be undone.`
+                : deleteTarget
+                  ? `Permanently delete "${deleteTarget.name}"? This cannot be undone.`
+                  : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => void onConfirmDelete()}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

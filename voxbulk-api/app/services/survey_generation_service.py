@@ -127,6 +127,19 @@ class SurveyGenerationService:
         start_row = db.get(TelnyxWhatsappTemplate, int(start_id))
         if start_row is None:
             raise ValueError("Start template not found in step bank")
+
+        from app.services.survey_system_template_service import SurveySystemTemplateService
+
+        resolved_welcome_id = SurveySystemTemplateService.resolve_welcome_template_id_for_survey(
+            db,
+            {"anonymous_responses": variant_key == VARIANT_ANONYMOUS},
+        )
+        if resolved_welcome_id:
+            resolved_row = db.get(TelnyxWhatsappTemplate, int(resolved_welcome_id))
+            if resolved_row is not None:
+                start_row = resolved_row
+                welcome_template_id = int(resolved_welcome_id)
+
         start_status = str(start_row.status or "").upper()
         if start_status != "APPROVED" and not allow_unapproved_templates:
             raise ValueError(

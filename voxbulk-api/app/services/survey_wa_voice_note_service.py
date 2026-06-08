@@ -376,6 +376,14 @@ class SurveyWaVoiceNoteService:
             len(text),
         )
 
+        if text:
+            from app.services.survey_wa_translation_service import SurveyWaTranslationService
+
+            SurveyWaTranslationService.enqueue_answer_translation(
+                recipient.id,
+                voice_note_job_id=job.id,
+            )
+
         if job.answer_context == "final_feedback":
             from app.services.survey_wa_final_feedback_service import try_complete_survey_after_final_feedback_voice
 

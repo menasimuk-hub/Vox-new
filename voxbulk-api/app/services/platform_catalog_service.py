@@ -1252,9 +1252,53 @@ class ServiceOrderService:
         return out
 
     @staticmethod
-    def delete_order(db: Session, order: ServiceOrder) -> None:
-        if order.status in {"running", "paused"}:
-            raise ValueError("Stop the survey before deleting")
+    def duplicate_order(
+        db: Session,
+        order: ServiceOrder,
+        *,
+        org_id: str,
+        user_id: str,
+    ) -> ServiceOrder:
+        if order.org_id != org_id:
+            raise ValueError("Order not found")
+        try:
+            config = json.loads(order.config_json or "{}")
+        except Exception:
+            config = {}
+        if not isinstance(config, dict):
+            config = {}
+        base_title = str(order.title or config.get("survey_name") or "Survey").strip() or "Survey"
+        copy_title = f"Copy of {base_title}"
+        config = dict(config)
+        config["survey_name"] = copy_title
+        new_order = ServiceOrderService.create_order(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            service_code=order.service_code,
+            title=copy_title,
+            config=config,
+        )
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        if recipients:
+            rows = [
+                {
+                    "name": str(r.name or "").strip() or "Contact",
+                    "phone": str(r.phone or "").strip(),
+                    "email": str(r.email or "").strip() if r.email else None,
+                }
+                for r in recipients
+            ]
+            new_order = ServiceOrderService.replace_recipients(db, new_order, rows)
+        return new_order
+
+    @staticmethod
+    def delete_order(db: Session, order: ServiceOrder, *, confirm_running_delete: bool = False) -> None:
+        if order.status in {"running", "paused", "scheduled"}:
+            if not confirm_running_delete:
+                raise ValueError("Stop the survey before deleting")
+            ServiceOrderService.stop_order(db, order, reason="Deleted by user")
+            db.refresh(order)
         if order.payment_status == "approved" and order.status not in {"completed", "cancelled", "draft", "quoted"}:
             raise ValueError("Cannot delete a paid survey that has started")
         if order.service_code == "interview":

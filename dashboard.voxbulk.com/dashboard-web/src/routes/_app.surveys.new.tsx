@@ -3,6 +3,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import { SurveyEditActionBar } from "@/components/survey-edit-action-bar";
 import { ChannelPicker } from "@/components/create-wizard";
 import { SurveyPhoneWizard } from "@/components/create-wizard/survey-phone-wizard";
 import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
@@ -367,8 +368,15 @@ function CreateSurvey() {
         ? `Scheduled · ${startAt || "—"}`
         : `Recurring · starting ${endAt || startAt || "—"}`;
 
+  const creatingRef = React.useRef(false);
   const ensureOrder = React.useCallback(async () => {
     if (orderId) return orderId;
+    if (creatingRef.current) {
+      await new Promise((r) => setTimeout(r, 200));
+      if (orderId) return orderId;
+    }
+    creatingRef.current = true;
+    try {
     const deliveryChannel = channel === "whatsapp" ? "whatsapp" : "ai_call";
     const created = await createM.mutateAsync(
       buildSurveyDraftCreateBody(surveyName, {
@@ -381,6 +389,9 @@ function CreateSurvey() {
     );
     setOrderId(created.id);
     return created.id;
+    } finally {
+      creatingRef.current = false;
+    }
   }, [orderId, createM, surveyName, goal, channel, anonymous, script, packageId]);
 
   const resolvedPageRolesRef = React.useRef<string[]>([]);
@@ -802,13 +813,32 @@ function CreateSurvey() {
     });
   }, [selectedServiceTagIds]);
 
+  const filterSystemTemplatesByPrivacy = React.useCallback(
+    (rows: Array<Record<string, unknown>>) => {
+      const filtered = rows.filter((row) => {
+        const privacy = String(row.privacy_mode || "").toLowerCase();
+        const variant = String(row.variant_type || "").toLowerCase();
+        const isAnonymous = privacy === "on" || variant === "anonymous";
+        return anonymous ? isAnonymous : !isAnonymous;
+      });
+      return filtered.length ? filtered : rows;
+    },
+    [anonymous],
+  );
+
   const welcomeTemplates = React.useMemo(
-    () => (systemTemplatesQ.data?.templates?.welcome || []) as Array<Record<string, unknown>>,
-    [systemTemplatesQ.data],
+    () =>
+      filterSystemTemplatesByPrivacy(
+        (systemTemplatesQ.data?.templates?.welcome || []) as Array<Record<string, unknown>>,
+      ),
+    [systemTemplatesQ.data, filterSystemTemplatesByPrivacy],
   );
   const thankYouTemplates = React.useMemo(
-    () => (systemTemplatesQ.data?.templates?.thank_you || []) as Array<Record<string, unknown>>,
-    [systemTemplatesQ.data],
+    () =>
+      filterSystemTemplatesByPrivacy(
+        (systemTemplatesQ.data?.templates?.thank_you || []) as Array<Record<string, unknown>>,
+      ),
+    [systemTemplatesQ.data, filterSystemTemplatesByPrivacy],
   );
 
   const toggleServiceTag = (typeId: string) => {
@@ -1204,8 +1234,24 @@ function CreateSurvey() {
     <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Surveys"
-        title="Create new survey"
-        description="Pick a channel — AI phone call or WhatsApp — then run through the guided wizard."
+        title={orderId ? surveyName || orderQ.data?.title || "Edit survey" : "Create new survey"}
+        description={
+          orderId
+            ? "Edit your survey draft — click Save when you are ready to persist changes."
+            : "Pick a channel — AI phone call or WhatsApp — then run through the guided wizard."
+        }
+        actions={
+          orderId ? (
+            <SurveyEditActionBar
+              order={orderQ.data}
+              onSave={onSaveDraft}
+              savePending={savePending}
+              onPay={onPayLaunchSurvey}
+              payBusy={payBusy}
+              gcAvailable={gcReady}
+            />
+          ) : undefined
+        }
       />
 
       {!channel && (

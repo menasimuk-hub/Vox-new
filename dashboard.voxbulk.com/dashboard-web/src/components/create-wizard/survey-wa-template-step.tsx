@@ -5,7 +5,7 @@ import { WaSurveyPhonePreview } from "@/components/wa-survey-phone-preview";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { surveyTemplateLabel } from "@/lib/survey-step-labels";
+import { wizardTemplateDisplayName } from "@/lib/survey-step-labels";
 
 export type WaBuilderTemplateRow = {
   id: string;
@@ -29,21 +29,29 @@ function buttonsFromApiRow(row: Record<string, unknown>): Array<{ label: string;
     .filter(Boolean) as Array<{ label: string; type?: string }>;
 }
 
-function templateFromApiRow(row: Record<string, unknown>, questionNumber?: number): WaBuilderTemplateRow {
+function templateFromApiRow(
+  row: Record<string, unknown>,
+  questionNumber?: number,
+  fallback = "",
+): WaBuilderTemplateRow {
   const body = String(row.body_preview || row.body || row.body_text || "").trim();
-  const title = surveyTemplateLabel(row, "", questionNumber);
+  const title = wizardTemplateDisplayName(row, fallback, questionNumber);
   return {
     id: String(row.id),
     title,
-    description: body ? body.slice(0, 120) + (body.length > 120 ? "…" : "") : "WhatsApp template",
+    description: "",
     bodyPreview: body || undefined,
     footer: String(row.footer || "Reply STOP to opt out").trim() || undefined,
     buttons: buttonsFromApiRow(row),
   };
 }
 
-export function mapSystemTemplates(rows: Array<Record<string, unknown>>): WaBuilderTemplateRow[] {
-  return rows.map((row, index) => templateFromApiRow(row, index + 1));
+export function mapSystemTemplates(
+  rows: Array<Record<string, unknown>>,
+  options?: { fallback?: string },
+): WaBuilderTemplateRow[] {
+  const fallback = String(options?.fallback || "").trim();
+  return rows.map((row, index) => templateFromApiRow(row, index + 1, fallback));
 }
 
 export function pageCountFromServiceType(row: Record<string, unknown> | undefined): 4 | 5 | 6 {
@@ -60,26 +68,21 @@ export function pageCountFromSelectedTypes(typeCount: number): 3 | 4 | 5 | 6 {
 
 type WaTemplatePickerSectionProps = {
   label: string;
-  badge: "Opening" | "Closing";
   templates: WaBuilderTemplateRow[];
   selectedId: string;
   onSelect: (id: string) => void;
 };
 
-export function WaTemplatePickerSection({ label, badge, templates, selectedId, onSelect }: WaTemplatePickerSectionProps) {
+export function WaTemplatePickerSection({ label, templates, selectedId, onSelect }: WaTemplatePickerSectionProps) {
   const [preview, setPreview] = React.useState<WaBuilderTemplateRow | null>(null);
 
   return (
     <>
       <div className="space-y-2.5">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
-            {badge} · {label}
-          </span>
-        </div>
+        <p className="text-sm font-semibold">{label}</p>
         {templates.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
-            No templates available yet. Ask your admin to add global system templates.
+            No templates yet.
           </p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -160,7 +163,6 @@ export function WaDraggableTypeGroup({
           >
             {selectedId ? <Check className="size-3" /> : null} {serviceName}
           </span>
-          <span className="text-xs font-medium text-muted-foreground">({index + 1} of survey order)</span>
           <div className="ml-auto flex items-center gap-1">
             <Button
               type="button"
@@ -193,9 +195,7 @@ export function WaDraggableTypeGroup({
           </div>
         </div>
         {templates.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-            No library templates for this survey type yet. Add one in Admin → WA Survey.
-          </p>
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">No templates yet.</p>
         ) : (
           <div className={cn("grid gap-3 p-4", templates.length === 1 ? "grid-cols-1" : "sm:grid-cols-2 lg:grid-cols-3")}>
             {templates.map((tpl) => (
@@ -241,7 +241,6 @@ function TemplateCard({
     >
       <div>
         <p className="text-sm font-semibold">{tpl.title}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{tpl.description}</p>
       </div>
       <div className="mt-auto flex items-center gap-2">
         <Button size="sm" variant="outline" className="gap-1.5" type="button" onClick={onPreview}>

@@ -60,6 +60,80 @@ def _sentiment_label(sentiment: str | None) -> str:
     return mapping.get(clean, "Neutral")
 
 
+_NEGATIVE_ANSWER_VALUES = frozenset({"bad", "no", "poor", "negative"})
+
+
+def _is_negative_answer_value(raw: str) -> bool:
+    return str(raw or "").strip().lower() in _NEGATIVE_ANSWER_VALUES
+
+
+def _derive_needs_follow_up(recipient: ServiceOrderRecipient) -> bool:
+    result = _recipient_result(recipient)
+    if result.get("needs_follow_up"):
+        return True
+    analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    if analysis.get("needs_follow_up"):
+        return True
+    wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
+    return bool(wa_conv.get("needs_follow_up"))
+
+
+def _is_unhappy_respondent(recipient: ServiceOrderRecipient) -> bool:
+    if _derive_needs_follow_up(recipient):
+        return True
+    result = _recipient_result(recipient)
+    analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    sentiment = str(analysis.get("sentiment") or result.get("sentiment") or "").strip().lower()
+    if sentiment == "negative":
+        return True
+    wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
+    for item in wa_conv.get("answers") or []:
+        if not isinstance(item, dict):
+            continue
+        for key in ("answer", "answer_text", "normalized_value"):
+            if _is_negative_answer_value(str(item.get(key) or "")):
+                return True
+    extracted = (
+        analysis.get("extracted_answers")
+        or analysis.get("answers")
+        or result.get("extracted_answers")
+        or []
+    )
+    for item in extracted:
+        if isinstance(item, dict) and _is_negative_answer_value(str(item.get("answer") or item.get("value") or "")):
+            return True
+    recommend_score = analysis.get("recommend_score", result.get("recommend_score"))
+    if recommend_score is not None:
+        try:
+            if float(recommend_score) < 7:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
+
+
+def _rating_label_from_answers(wa_answers: list[Any]) -> str | None:
+    for item in wa_answers or []:
+        if not isinstance(item, dict):
+            continue
+        ans = str(item.get("answer") or item.get("answer_text") or "").strip().lower()
+        if ans == "bad":
+            return "Poor"
+        if ans == "excellent":
+            return "Excellent"
+        if ans == "good":
+            return "Good"
+    return None
+
+
+def _count_unhappy_respondents(recipients: list[ServiceOrderRecipient]) -> int:
+    return sum(
+        1
+        for row in recipients
+        if str(row.status or "").lower() == "completed" and _is_unhappy_respondent(row)
+    )
+
+
 def _stars_html(score_10: float | None) -> str:
     if score_10 is None:
         return '<span style="color:var(--t3);font-size:11px">—</span>'
@@ -186,17 +260,23 @@ def _serialize_open_answer(item: dict[str, Any], *, order_id: str | None = None)
     transcript = resolve_answer_text(item) or _voice_answer_placeholder(item)
     source = _normalize_answer_source(item)
     job_id = str(item.get("voice_note_job_id") or "").strip() or None
+    original_text = str(item.get("original_text") or resolve_answer_text(item) or "").strip() or None
+    translated_text = str(item.get("translated_text") or "").strip() or None
+    display_text = translated_text or transcript
     return {
         "question": str(item.get("question") or "Feedback").strip(),
         "step_role": str(item.get("step_role") or "").strip() or None,
         "answer_source": source,
-        "transcript": transcript or None,
+        "transcript": display_text or transcript or None,
         "transcription_status": str(item.get("transcription_status") or "").strip() or None,
         "transcription_error": str(item.get("transcription_error") or "").strip() or None,
         "detected_language": str(item.get("detected_language") or "").strip() or None,
+        "translation_status": str(item.get("translation_status") or "").strip() or None,
+        "original_text": original_text,
+        "translated_text": translated_text,
         "voice_note_job_id": job_id,
         "audio_url": _voice_audio_api_path(order_id or "", job_id) if order_id and source == "voice" else None,
-        "text": transcript or None,
+        "text": display_text or transcript or None,
         "created_at": str(item.get("transcribed_at") or item.get("processed_at") or "").strip() or None,
     }
 
@@ -400,6 +480,35 @@ def _recommendations_fingerprint(summary: dict[str, Any], aggregates: list[dict[
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
+def _collect_negative_feedback_excerpts(
+    recipients: list[ServiceOrderRecipient],
+    *,
+    order_id: str | None = None,
+) -> list[dict[str, Any]]:
+    excerpts: list[dict[str, Any]] = []
+    for recipient in recipients:
+        if str(recipient.status or "").lower() != "completed":
+            continue
+        if not _is_unhappy_respondent(recipient):
+            continue
+        for row in _collect_open_feedback(recipient, order_id=order_id):
+            text = str(
+                row.get("translated_text") or row.get("transcript") or row.get("text") or ""
+            ).strip()
+            if not text or text.startswith("[Voice note"):
+                continue
+            excerpts.append(
+                {
+                    "source": "negative_feedback",
+                    "respondent_id": recipient.id,
+                    "question": row.get("question"),
+                    "excerpt": text[:500],
+                    "response_type": row.get("answer_source"),
+                }
+            )
+    return excerpts[:20]
+
+
 def ensure_action_recommendations(
     db: Session,
     order: ServiceOrder,
@@ -408,6 +517,7 @@ def ensure_action_recommendations(
     org_name: str,
     summary: dict[str, Any],
     aggregates: list[dict[str, Any]],
+    negative_feedback: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     from datetime import datetime
 
@@ -428,9 +538,34 @@ def ensure_action_recommendations(
         org_name=org_name,
         summary=summary,
         aggregates=aggregates,
+        negative_feedback=negative_feedback or [],
     )
     if not items:
         items = fallback_action_recommendations(summary=summary, aggregates=aggregates)
+
+    for excerpt in negative_feedback or []:
+        quote = str(excerpt.get("excerpt") or "").strip()
+        question = str(excerpt.get("question") or "Feedback").strip()
+        if not quote:
+            continue
+        items.append(
+            {
+                "title": f"Address: {question[:60]}",
+                "text": quote,
+                "source": "negative_feedback",
+                "impact": "High",
+            }
+        )
+
+    seen_titles: set[str] = set()
+    deduped: list[dict[str, str]] = []
+    for item in items:
+        title = str(item.get("title") or "").strip().lower()
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
+        deduped.append(item)
+    items = deduped[:8]
 
     report["ai_recommendations"] = {
         "fingerprint": fingerprint,
@@ -619,31 +754,55 @@ def recipient_summary_row(
         ).strip()
 
     recommend_score = analysis.get("recommend_score", result.get("recommend_score"))
+    wa_answers = wa_conv.get("answers") or []
     if recommend_score is None:
-        for item in wa_conv.get("answers") or []:
+        for item in wa_answers:
             if isinstance(item, dict) and _is_rating_answer(item):
                 score = _parse_numeric_score(str(item.get("answer") or ""))
                 if score is not None:
                     recommend_score = score
                     break
+    rating_label = _rating_label_from_answers(wa_answers)
+    extracted_answers = (
+        analysis.get("extracted_answers")
+        or analysis.get("answers")
+        or result.get("extracted_answers")
+        or []
+    )
+    completed_raw = getattr(recipient, "completed_at", None) or result.get("completed_at")
+    if completed_raw and hasattr(completed_raw, "isoformat"):
+        completed_at = completed_raw.isoformat()
+    elif completed_raw:
+        completed_at = str(completed_raw)
+    elif str(recipient.status or "").lower() == "completed":
+        stamp = getattr(recipient, "updated_at", None) or getattr(recipient, "created_at", None)
+        completed_at = stamp.isoformat() if stamp and hasattr(stamp, "isoformat") else None
+    else:
+        completed_at = None
 
     return {
         "id": recipient.id,
         "name": recipient.name,
+        "phone": recipient.phone,
+        "email": recipient.email,
         "initials": _initials(recipient.name),
         "avatar_class": _avatar_class(recipient.name),
         "status": recipient.status,
         "status_label": str(recipient.status or "pending").replace("_", " ").title(),
+        "completed_at": completed_at,
         "duration_seconds": duration_seconds,
         "duration_label": _format_duration(duration_seconds),
         "goal": goal,
         "satisfaction_score": satisfaction,
         "recommend_score": recommend_score,
+        "rating_label": rating_label,
         "sentiment": sentiment,
         "sentiment_label": _sentiment_label(str(sentiment or "")),
         "short_summary": str(short_summary or "").strip() or None,
         "quote": quote or None,
         "theme": _sentiment_label(str(sentiment or "")),
+        "needs_follow_up": _derive_needs_follow_up(recipient),
+        "is_unhappy": _is_unhappy_respondent(recipient),
         "has_transcript": bool(str(result.get("transcript") or "").strip()),
         "has_analysis": bool(result.get("analysis_saved_at")),
         "final_additional_feedback": str(
@@ -651,9 +810,17 @@ def recipient_summary_row(
         ).strip()
         or None,
         "final_feedback_yes_no": result.get("final_feedback_yes_no") or wa_conv.get("final_feedback_yes_no"),
-        "wa_answers": wa_conv.get("answers") or [],
+        "wa_answers": wa_answers,
+        "extracted_answers": extracted_answers,
         "open_feedback": open_feedback,
         "voice_responses": [row for row in open_feedback if row.get("answer_source") == "voice"],
+        "primary_response_type": (
+            "voice"
+            if any(row.get("answer_source") == "voice" for row in open_feedback)
+            else "text"
+            if open_feedback
+            else None
+        ),
     }
 
 
@@ -667,14 +834,26 @@ def recipient_detail_payload(recipient: ServiceOrderRecipient) -> dict[str, Any]
     except (TypeError, ValueError):
         duration_seconds = None
 
+    wa_answers = wa_conv.get("answers") or []
     return {
         "id": recipient.id,
         "name": recipient.name,
+        "phone": recipient.phone,
+        "email": recipient.email,
         "initials": _initials(recipient.name),
         "avatar_class": _avatar_class(recipient.name),
         "status": recipient.status,
+        "completed_at": (
+            getattr(recipient, "completed_at", None).isoformat()
+            if getattr(recipient, "completed_at", None)
+            else str(result.get("completed_at") or "") or None
+        ),
         "duration_seconds": duration_seconds,
         "duration_label": _format_duration(duration_seconds),
+        "needs_follow_up": _derive_needs_follow_up(recipient),
+        "is_unhappy": _is_unhappy_respondent(recipient),
+        "rating_label": _rating_label_from_answers(wa_answers),
+        "open_feedback": _collect_open_feedback(recipient, order_id=recipient.order_id),
         "transcript": str(result.get("transcript") or "").strip() or None,
         "call_summary": str(result.get("call_summary") or "").strip() or None,
         "analysis": analysis or None,
@@ -759,7 +938,9 @@ def build_whatsapp_survey_results_payload(
         "channel_note": report.get("note") or "WhatsApp survey",
         "voice_feedback_count": len([row for row in voice_feedback if row.get("answer_source") == "voice"]),
         "open_feedback_count": len(voice_feedback),
+        "unhappy_count": _count_unhappy_respondents(recipients),
     }
+    negative_feedback = _collect_negative_feedback_excerpts(recipients, order_id=order.id)
     recommendations = ensure_action_recommendations(
         db,
         order,
@@ -767,6 +948,7 @@ def build_whatsapp_survey_results_payload(
         org_name=org_name,
         summary=summary,
         aggregates=aggregates,
+        negative_feedback=negative_feedback,
     )
     return {
         "ok": True,
@@ -878,9 +1060,11 @@ def build_survey_results_payload(
         "top_tags": analysis.get("top_tags") or [],
         "analyzed_count": analysis.get("analyzed_count") or 0,
         "pending_analysis": analysis.get("pending_analysis") or 0,
+        "unhappy_count": _count_unhappy_respondents(recipients),
     }
 
     aggregates = build_answer_aggregates(recipients)
+    negative_feedback = _collect_negative_feedback_excerpts(recipients, order_id=order.id)
     recommendations = ensure_action_recommendations(
         db,
         order,
@@ -888,6 +1072,7 @@ def build_survey_results_payload(
         org_name=org_name,
         summary=summary,
         aggregates=aggregates,
+        negative_feedback=negative_feedback,
     )
 
     return {
