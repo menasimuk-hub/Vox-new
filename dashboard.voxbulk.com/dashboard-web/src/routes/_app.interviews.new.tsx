@@ -209,8 +209,6 @@ function collectInterviewSetupErrors(opts: {
   criteria: string;
   script: string;
   scriptIsApproved: boolean;
-  callingStart: string;
-  callingEnd: string;
   agentId: string;
   agentsCount: number;
 }): string[] {
@@ -224,7 +222,12 @@ function collectInterviewSetupErrors(opts: {
   if (!opts.criteria.trim()) errors.push("Add screening criteria in Step 1");
   if (!opts.script.trim()) errors.push("Generate or write interview questions in Step 1");
   if (!opts.scriptIsApproved) errors.push("Approve your script in Step 1");
-  if (!opts.callingStart || !opts.callingEnd) errors.push("Set calling start and end in Step 1");
+  return errors;
+}
+
+function collectInterviewScheduleErrors(callingStart: string, callingEnd: string): string[] {
+  const errors: string[] = [];
+  if (!callingStart || !callingEnd) errors.push("Set calling start and end in Step 4");
   return errors;
 }
 
@@ -1310,11 +1313,17 @@ function CreateInterview() {
     criteria,
     script,
     scriptIsApproved,
-    callingStart,
-    callingEnd,
     agentId: resolvedAgentId,
     agentsCount: agents.length,
   });
+  const scheduleErrors = React.useMemo(
+    () => collectInterviewScheduleErrors(callingStart, callingEnd),
+    [callingStart, callingEnd],
+  );
+  const previewBlockers = React.useMemo(
+    () => [...setupErrors, ...scheduleErrors],
+    [setupErrors, scheduleErrors],
+  );
   const launchErrors = collectInterviewLaunchErrors({
     cvEmailActive,
     cvReadyForScreening,
@@ -1418,7 +1427,7 @@ function CreateInterview() {
       const market = String((quoted as Record<string, unknown>).pricing_market || "gbp");
       setQuoteTotalDisplay(pence ? formatQuoteDisplay(pence, market) : undefined);
       if (!pence && !display) {
-        setQuoteError("Quote returned empty — set calling window and save draft, then retry");
+        setQuoteError("Quote returned empty — set calling window in Step 4, save draft, then retry");
       }
     } catch (e) {
       setQuoteError(e instanceof Error ? e.message : "Could not load quote");
@@ -1516,11 +1525,11 @@ function CreateInterview() {
     unscoredCount === 0 && candidates.some((c) => c.ats != null || Boolean(c.atsStatus));
 
   const onAttemptPreview = () => {
-    if (setupErrors.length > 0) {
+    if (previewBlockers.length > 0) {
       toast.error(
-        setupErrors.length === 1
-          ? setupErrors[0]
-          : `Complete setup first:\n${setupErrors.map((e) => `• ${e}`).join("\n")}`,
+        previewBlockers.length === 1
+          ? previewBlockers[0]
+          : `Complete setup first:\n${previewBlockers.map((e) => `• ${e}`).join("\n")}`,
       );
       return;
     }
@@ -1776,14 +1785,6 @@ function CreateInterview() {
               ) : null}
               <StatusBadge tone={scriptIsApproved ? "approved-script" : "draft-script"} />
             </div>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 md:col-span-2">
-            <Field label="Calling start" error={missingCallingWindow && !callingStart ? "Set when AI calls can start" : undefined}>
-              <Input type="datetime-local" value={callingStart} onChange={(e) => setCallingStart(e.target.value)} className={inputErrorClass(missingCallingWindow && !callingStart)} />
-            </Field>
-            <Field label="Calling end" error={missingCallingWindow && !callingEnd ? "Set when AI calls must end" : undefined}>
-              <Input type="datetime-local" value={callingEnd} onChange={(e) => setCallingEnd(e.target.value)} className={inputErrorClass(missingCallingWindow && !callingEnd)} />
-            </Field>
           </div>
         </CardContent>
       </Card>
@@ -2301,14 +2302,14 @@ function CreateInterview() {
       </Card>
       )}
 
-      {wizardStep === 4 && !campaignReadOnly ? (
+      {(wizardStep === 4 || campaignReadOnly) ? (
       <Card ref={launchStatusRef}>
         <CardHeader>
           <CardTitle>Step 4 · ATS, preview & launch</CardTitle>
           <CardDescription>
             {cvEmailActive
-              ? "When CV collection ends, review email applicants, approve the preview, then launch — booking invites go out by WhatsApp and email."
-              : `Run ATS on uploaded CVs, approve the preview, then launch — ${hasPackageSub ? "included in your package" : "pay per campaign"}, then WhatsApp booking invites go to candidates.`}
+              ? "When CV collection ends, review email applicants, set your calling window, approve the preview, then launch — booking invites go out by WhatsApp and email."
+              : `Run ATS on uploaded CVs, set your calling window, approve the preview, then launch — ${hasPackageSub ? "included in your package" : "pay per campaign"}, then WhatsApp booking invites go to candidates.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -2320,6 +2321,15 @@ function CreateInterview() {
               detail={atsStatusDetail}
             />
             <LaunchStatus label="Script approved" done={scriptIsApproved} detail={scriptIsApproved ? "Ready" : "Approve in Step 1"} />
+            <LaunchStatus
+              label="Calling window"
+              done={!missingCallingWindow}
+              detail={
+                missingCallingWindow
+                  ? "Set start and end below"
+                  : `${callingStart ? new Date(callingStart).toLocaleString() : "—"} → ${callingEnd ? new Date(callingEnd).toLocaleString() : "—"}`
+              }
+            />
             <LaunchStatus label="Payment" done={paymentApproved || hasPackageSub} detail={paymentApproved ? "Approved" : hasPackageSub ? `Included in ${billingPlanName || "package"}` : "After preview"} />
             <LaunchStatus
               label="WhatsApp invites"
@@ -2335,9 +2345,44 @@ function CreateInterview() {
               }
             />
           </div>
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <p className="text-sm font-medium">Calling schedule</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Choose when the AI can place screening calls to candidates.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <Field
+                label="Calling start"
+                error={!campaignReadOnly && missingCallingWindow && !callingStart ? "Set when AI calls can start" : undefined}
+              >
+                <Input
+                  type="datetime-local"
+                  value={callingStart}
+                  onChange={(e) => setCallingStart(e.target.value)}
+                  disabled={campaignReadOnly}
+                  className={inputErrorClass(!campaignReadOnly && missingCallingWindow && !callingStart)}
+                />
+              </Field>
+              <Field
+                label="Calling end"
+                error={!campaignReadOnly && missingCallingWindow && !callingEnd ? "Set when AI calls must end" : undefined}
+              >
+                <Input
+                  type="datetime-local"
+                  value={callingEnd}
+                  onChange={(e) => setCallingEnd(e.target.value)}
+                  disabled={campaignReadOnly}
+                  className={inputErrorClass(!campaignReadOnly && missingCallingWindow && !callingEnd)}
+                />
+              </Field>
+            </div>
+          </div>
           <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
             <li>
-              <strong className="text-foreground">Define interview</strong> — complete Step 1 (criteria, questions, calling window).
+              <strong className="text-foreground">Define interview</strong> — complete Step 1 (criteria and questions).
+            </li>
+            <li>
+              <strong className="text-foreground">Set calling window</strong> — choose when AI screening calls can run (above).
             </li>
             <li>
               <strong className="text-foreground">Run ATS</strong> —{" "}
@@ -2348,13 +2393,13 @@ function CreateInterview() {
             <li><strong className="text-foreground">Preview &amp; approve</strong> — confirm script and preview, then <strong className="text-foreground">{hasPackageSub ? "Launch" : "Pay & launch"}</strong>.</li>
             <li><strong className="text-foreground">Send booking invites</strong> — {hasPackageSub ? "sent when you launch" : "appears after payment"}; WhatsApp links go to each eligible candidate.</li>
           </ol>
-          {(setupErrors.length > 0 || launchErrors.length > 0) && (
+          {(previewBlockers.length > 0 || launchErrors.length > 0) && !campaignReadOnly ? (
             <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
-              {setupErrors.length > 0 ? (
+              {previewBlockers.length > 0 ? (
                 <div>
                   <p className="font-medium text-foreground">Complete before preview:</p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
-                    {setupErrors.map((item) => (
+                    {previewBlockers.map((item) => (
                       <li key={item}>{item}</li>
                     ))}
                   </ul>
@@ -2363,7 +2408,7 @@ function CreateInterview() {
               {launchErrors.length > 0 ? (
                 <div>
                   <p className="font-medium text-foreground">
-                    {setupErrors.length > 0 ? "Also before launch:" : cvEmailActive ? "You can preview now — finish before launch:" : "Before launch:"}
+                    {previewBlockers.length > 0 ? "Also before launch:" : cvEmailActive ? "You can preview now — finish before launch:" : "Before launch:"}
                   </p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
                     {launchErrors.map((item) => (
@@ -2373,7 +2418,8 @@ function CreateInterview() {
                 </div>
               ) : null}
             </div>
-          )}
+          ) : null}
+          {!campaignReadOnly ? (
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0 || campaignReadOnly} onClick={onRunAtsClick}>
               <Sparkles className="size-4" /> {runAtsM.isPending ? ATS_ANALYZING_LABEL : "Run ATS"}
@@ -2382,6 +2428,7 @@ function CreateInterview() {
               <Eye className="size-4" /> Preview &amp; approve
             </Button>
           </div>
+          ) : null}
         </CardContent>
       </Card>
       ) : null}
@@ -2398,7 +2445,7 @@ function CreateInterview() {
           onSkip={goWizardNext}
           finalLabel="Preview & launch"
           onFinish={onAttemptPreview}
-          finishDisabled={setupErrors.length > 0}
+          finishDisabled={previewBlockers.length > 0}
           leftActions={
             <>
               <Button variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" disabled>
