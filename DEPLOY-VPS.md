@@ -62,6 +62,29 @@ export VOX_PUBLIC_DIST=/var/www/voxbulk.com
 ./deploy-vps.sh
 ```
 
+## Celery worker (required for WA voice-note transcription)
+
+Voice notes stay **`pending`** until a Celery worker runs `survey.transcribe_voice_note`. Redis must be up (`redis-cli ping` → `PONG`).
+
+**One-time setup** (replaces legacy `retover-celery`):
+
+```bash
+cd /www/voxbulk
+git pull origin fix/wa-interview-platform-templates   # or main after merge
+chmod +x scripts/vps-setup-celery.sh scripts/run-celery-worker.sh
+sudo bash scripts/vps-setup-celery.sh
+```
+
+**Check status:**
+
+```bash
+supervisorctl status voxbulk-celery    # want RUNNING
+./vox.sh status                        # includes Celery + Redis
+tail -f /tmp/voxbulk-celery.log
+```
+
+**After Celery is running**, retry stuck voice notes in Admin → WA Survey insights (or `POST /admin/wa-survey/voice-notes/{job_id}/retry`).
+
 ## Git remote (important)
 
 **Canonical repo:** `https://github.com/menasimuk-hub/Vox-new.git` (`origin` → `main`)
@@ -102,7 +125,8 @@ Verify dashboard: view source — must **not** contain `tabler-icons` (old theme
 | API 404 on `/admin/messaging/*` | `./vox.sh restart` after pull |
 | Port 8000 in use | `./vox.sh stop` then redeploy |
 | `./vox.sh status` says API not responding but uvicorn running | API still starting (wait 10–20s) or check `/tmp/voxbulk-api.log`; set `TRUSTED_HOSTS=api.voxbulk.com,localhost,127.0.0.1` in `voxbulk-api/.env` |
-| `retover-celery: ERROR (no such process)` | Optional — only if you use Celery via supervisor; safe to ignore otherwise |
+| `retover-celery: FATAL can't find command celery` | Legacy config — run `sudo bash scripts/vps-setup-celery.sh` to install `voxbulk-celery` |
+| Voice notes stuck `pending` | Celery worker not running — `supervisorctl status voxbulk-celery` must be RUNNING; then retry jobs in admin |
 | KB files wrong library | Re-upload on Lead or Sales page (scoped upload) |
 | `git pull` unrelated histories | `git fetch origin && git reset --hard origin/main` (destroys local VPS edits) |
 | `untracked working tree files would be overwritten` (brand `*.png`) | Remove untracked PNGs under `admin/.../public/brand/` and `dashboard/.../public/brand/`, then `git pull origin main` — or run latest `./deploy-vps.sh` (auto-clears before pull) |

@@ -25,15 +25,61 @@ stop_dashboard() {
   pkill -f "npm run preview.*5175" 2>/dev/null || true
 }
 
+celery_supervisor_name() {
+  if command -v supervisorctl >/dev/null 2>&1 && supervisorctl status voxbulk-celery >/dev/null 2>&1; then
+    echo "voxbulk-celery"
+    return 0
+  fi
+  if command -v supervisorctl >/dev/null 2>&1 && supervisorctl status retover-celery >/dev/null 2>&1; then
+    echo "retover-celery"
+    return 0
+  fi
+  return 1
+}
+
 restart_celery() {
   if ! command -v supervisorctl >/dev/null 2>&1; then
+    echo "supervisorctl not found — install Celery via: sudo bash scripts/vps-setup-celery.sh"
     return
   fi
-  if supervisorctl status retover-celery >/dev/null 2>&1; then
-    supervisorctl restart retover-celery && echo "Celery restarted (retover-celery)"
+  local name
+  if name="$(celery_supervisor_name)"; then
+    supervisorctl restart "$name" && echo "Celery restarted ($name)"
   else
-    echo "Celery not configured in supervisor (optional — only needed for background invoice/email jobs)"
+    echo "Celery not in supervisor — run once: sudo bash scripts/vps-setup-celery.sh"
+    echo "  (Required for WA voice-note transcription, billing jobs, webhooks)"
   fi
+}
+
+status_celery() {
+  echo ""
+  echo "=== Celery (WA voice notes, async jobs) ==="
+  if ! command -v supervisorctl >/dev/null 2>&1; then
+    echo "supervisorctl not installed"
+    return 1
+  fi
+  local name ok=0
+  if name="$(celery_supervisor_name)"; then
+    supervisorctl status "$name" || true
+    if supervisorctl status "$name" 2>/dev/null | grep -q RUNNING; then
+      ok=1
+    fi
+  else
+    echo "voxbulk-celery not configured — run: sudo bash scripts/vps-setup-celery.sh"
+  fi
+  if pgrep -af "celery.*worker" >/dev/null 2>&1; then
+    pgrep -af "celery.*worker" | head -3
+    ok=1
+  else
+    echo "no celery worker process"
+  fi
+  if redis-cli ping >/dev/null 2>&1; then
+    echo "redis: PONG"
+  else
+    echo "redis: not responding (CELERY_BROKER_URL)"
+    ok=0
+  fi
+  [[ "$ok" -eq 1 ]]
 }
 
 wait_for_http() {
@@ -150,6 +196,7 @@ status() {
   echo "=== Processes ==="
   pgrep -af "uvicorn main:app" || echo "no uvicorn"
   pgrep -af "vite preview" || echo "no vite preview"
+  status_celery || true
 
   if [[ "$api_ok" -eq 0 || "$public_ok" -eq 0 || "$dashboard_ok" -eq 0 ]]; then
     return 1
