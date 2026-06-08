@@ -97,7 +97,7 @@ function PlanRow({ plan, settings, onSave }) {
 
 export default function PricingPlans() {
   const { plans, loading, error, msg, savePlan, seed, load } = usePricingPlans()
-  const { settings, loading: settingsLoading, error: settingsError } = usePricingSettings()
+  const { settings, error: settingsError } = usePricingSettings()
 
   const visiblePlans = useMemo(() => {
     const vox = plans.filter((p) => p.service_kind === 'voxbulk')
@@ -108,12 +108,11 @@ export default function PricingPlans() {
 
   return (
     <PricingLoadGate
-      loading={loading || settingsLoading}
+      loading={loading}
       error={error}
       title="Subscription plans"
       description="Edit prices on the left; green boxes are auto-calculated when you save."
       onRetry={load}
-      ready={!loading && !error}
     >
       <PricingPageFrame
         title="Subscription plans"

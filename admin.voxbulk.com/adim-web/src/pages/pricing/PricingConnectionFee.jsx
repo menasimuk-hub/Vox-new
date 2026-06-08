@@ -13,8 +13,8 @@ export default function PricingConnectionFee() {
       title="Connection fee"
       description="Flat fee per AI call, on top of per-minute usage."
       onRetry={load}
-      ready={Boolean(settings)}
     >
+      {settings ? (
       <PricingPageFrame title="Connection fee" description="Flat fee per AI call, on top of per-minute usage." error={error} msg={msg}>
       <div className="pricingGrid5">
         <PricingField label="Enabled" compact>
@@ -29,6 +29,7 @@ export default function PricingConnectionFee() {
       </div>
       <div className="pricingActions"><button className="btn" type="button" onClick={() => void save(settings)}>Save</button></div>
       </PricingPageFrame>
+      ) : null}
     </PricingLoadGate>
   )
 }

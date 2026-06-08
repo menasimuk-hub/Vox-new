@@ -13,8 +13,8 @@ export default function PricingFxRates() {
       title="FX rates"
       description="GBP base — multiply for AUD, CAD, USD on customer dashboard."
       onRetry={load}
-      ready={Boolean(settings)}
     >
+      {settings ? (
       <PricingPageFrame title="FX rates" description="GBP base — multiply for AUD, CAD, USD on customer dashboard." error={error} msg={msg}>
         <div className="pricingGrid5">
           <PricingField label="AUD ×" compact>
@@ -29,6 +29,7 @@ export default function PricingFxRates() {
         </div>
         <div className="pricingActions"><button className="btn" type="button" onClick={() => void save(settings)}>Save</button></div>
       </PricingPageFrame>
+      ) : null}
     </PricingLoadGate>
   )
 }

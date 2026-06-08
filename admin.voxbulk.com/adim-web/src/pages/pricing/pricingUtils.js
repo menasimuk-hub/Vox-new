@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { createContext, createElement, useCallback, useContext, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 
 export function penceToPounds(pence) {
@@ -10,7 +10,9 @@ export function poundsToPence(pounds) {
   return Math.round((Number.isFinite(n) ? n : 0) * 100)
 }
 
-export function usePricingSettings() {
+const PricingSettingsContext = createContext(null)
+
+export function PricingSettingsProvider({ children }) {
   const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -18,23 +20,33 @@ export function usePricingSettings() {
 
   const load = useCallback(async () => {
     setError('')
-    const row = await apiFetch('/admin/pricing/settings')
-    setSettings(row)
+    try {
+      const row = await apiFetch('/admin/pricing/settings')
+      if (!row || typeof row !== 'object') {
+        throw new Error('Could not load pricing settings')
+      }
+      setSettings(row)
+      return true
+    } catch (e) {
+      setError(e?.message || 'Could not load settings')
+      return false
+    }
   }, [])
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      try {
-        await load()
-      } catch (e) {
-        if (!cancelled) setError(e?.message || 'Could not load settings')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+      await load()
+      if (!cancelled) setLoading(false)
     })()
     return () => { cancelled = true }
+  }, [load])
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    await load()
+    setLoading(false)
   }, [load])
 
   const save = async (patch) => {
@@ -42,6 +54,9 @@ export function usePricingSettings() {
     setMsg('')
     try {
       const row = await apiFetch('/admin/pricing/settings', { method: 'PUT', body: JSON.stringify(patch) })
+      if (!row || typeof row !== 'object') {
+        throw new Error('Invalid settings response')
+      }
       setSettings(row)
       setMsg('Saved.')
     } catch (e) {
@@ -49,7 +64,19 @@ export function usePricingSettings() {
     }
   }
 
-  return { settings, setSettings, loading, error, msg, load, save }
+  return createElement(
+    PricingSettingsContext.Provider,
+    { value: { settings, setSettings, loading, error, msg, load: reload, save } },
+    children,
+  )
+}
+
+export function usePricingSettings() {
+  const ctx = useContext(PricingSettingsContext)
+  if (!ctx) {
+    throw new Error('usePricingSettings must be used within PricingSettingsProvider')
+  }
+  return ctx
 }
 
 export function usePricingPlans() {
@@ -60,23 +87,30 @@ export function usePricingPlans() {
 
   const load = useCallback(async () => {
     setError('')
-    const rows = await apiFetch('/admin/pricing/plans')
-    setPlans(Array.isArray(rows) ? rows : [])
+    try {
+      const rows = await apiFetch('/admin/pricing/plans')
+      setPlans(Array.isArray(rows) ? rows : [])
+      return true
+    } catch (e) {
+      setError(e?.message || 'Could not load plans')
+      return false
+    }
   }, [])
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      try {
-        await load()
-      } catch (e) {
-        if (!cancelled) setError(e?.message || 'Could not load plans')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+      await load()
+      if (!cancelled) setLoading(false)
     })()
     return () => { cancelled = true }
+  }, [load])
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    await load()
+    setLoading(false)
   }, [load])
 
   const savePlan = async (planId, patch) => {
@@ -98,12 +132,12 @@ export function usePricingPlans() {
     setError('')
     try {
       await apiFetch('/admin/pricing/seed', { method: 'POST', body: '{}' })
-      await load()
+      await reload()
       setMsg('Default VoxBulk plans seeded.')
     } catch (e) {
       setError(e?.message || 'Seed failed')
     }
   }
 
-  return { plans, loading, error, msg, load, savePlan, seed }
+  return { plans, loading, error, msg, load: reload, savePlan, seed }
 }

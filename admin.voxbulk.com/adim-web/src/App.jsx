@@ -180,7 +180,7 @@ export default function App() {
         <Route path='/billing/products/plan/:planId/edit' element={<ProductPlanEdit />} />
         <Route path='/billing/service-orders' element={<ServiceOrdersAdmin />} />
 
-        <Route path='/pricing' element={<PricingShell />}>
+        <Route path='/pricing/*' element={<PricingShell />}>
           <Route index element={<Navigate to='/pricing/plans' replace />} />
           <Route path='plans' element={<PricingPlans />} />
           <Route path='connection-fee' element={<PricingConnectionFee />} />

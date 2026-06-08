@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { penceToPounds, poundsToPence } from './pricingUtils'
-import PricingPageFrame, { PricingField } from './PricingPageFrame'
+import PricingPageFrame, { PricingField, PricingLoadGate } from './PricingPageFrame'
 
 const empty = {
   org_id: '',
@@ -24,26 +24,40 @@ export default function PricingCustomOrg() {
   const [orgs, setOrgs] = useState([])
   const [draft, setDraft] = useState(empty)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
 
   const load = useCallback(async () => {
-    const [custom, orgList] = await Promise.all([
-      apiFetch('/admin/pricing/custom'),
-      apiFetch('/organisations?limit=200'),
-    ])
-    setRows(Array.isArray(custom) ? custom : [])
-    setOrgs(Array.isArray(orgList?.items) ? orgList.items : Array.isArray(orgList) ? orgList : [])
+    setLoadError('')
+    try {
+      const [custom, orgList] = await Promise.all([
+        apiFetch('/admin/pricing/custom'),
+        apiFetch('/organisations?limit=200'),
+      ])
+      setRows(Array.isArray(custom) ? custom : [])
+      setOrgs(Array.isArray(orgList?.items) ? orgList.items : Array.isArray(orgList) ? orgList : [])
+      return true
+    } catch (e) {
+      setLoadError(e?.message || 'Load failed')
+      return false
+    }
   }, [])
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      try { await load() } catch (e) { if (!cancelled) setError(e?.message || 'Load failed') }
-      finally { if (!cancelled) setLoading(false) }
+      await load()
+      if (!cancelled) setLoading(false)
     })()
     return () => { cancelled = true }
+  }, [load])
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    await load()
+    setLoading(false)
   }, [load])
 
   const set = (field, value) => setDraft({ ...draft, [field]: value })
@@ -80,9 +94,14 @@ export default function PricingCustomOrg() {
     await load()
   }
 
-  if (loading) return <p className="muted">Loading…</p>
-
   return (
+    <PricingLoadGate
+      loading={loading}
+      error={loadError}
+      title="Custom org pricing"
+      description="Enterprise deals — set bespoke rates for one organisation."
+      onRetry={reload}
+    >
     <PricingPageFrame
       title="Custom org pricing"
       description="Enterprise deals — set bespoke rates for one organisation."
@@ -165,5 +184,6 @@ export default function PricingCustomOrg() {
       </div>
       <div className="pricingActions"><button className="btn" type="button" onClick={() => void create()}>Create</button></div>
     </PricingPageFrame>
+    </PricingLoadGate>
   )
 }

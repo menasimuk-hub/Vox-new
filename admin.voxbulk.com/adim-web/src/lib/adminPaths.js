@@ -70,6 +70,7 @@ export function canAccessAdminPath(role, pathname) {
     return (
       isUnder('/dashboard') ||
       isUnder('/billing') ||
+      isUnder('/pricing') ||
       isUnder('/organisations') ||
       isUnder('/onboarding') ||
       isUnder('/operations') ||

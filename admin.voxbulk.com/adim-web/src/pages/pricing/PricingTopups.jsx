@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { penceToPounds, poundsToPence } from './pricingUtils'
-import PricingPageFrame, { PricingField } from './PricingPageFrame'
+import PricingPageFrame, { PricingField, PricingLoadGate } from './PricingPageFrame'
 
 const emptyTier = { credit_gbp_pence: 5000, bonus_credit_pence: 0, is_active: true, sort_order: 100 }
 
@@ -16,23 +16,37 @@ function BoxInput({ value, onBlur, step }) {
 export default function PricingTopups() {
   const [tiers, setTiers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
   const [draft, setDraft] = useState(emptyTier)
 
   const load = useCallback(async () => {
-    const rows = await apiFetch('/admin/pricing/topup-tiers')
-    setTiers(Array.isArray(rows) ? rows : [])
+    setLoadError('')
+    try {
+      const rows = await apiFetch('/admin/pricing/topup-tiers')
+      setTiers(Array.isArray(rows) ? rows : [])
+      return true
+    } catch (e) {
+      setLoadError(e?.message || 'Load failed')
+      return false
+    }
   }, [])
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      try { await load() } catch (e) { if (!cancelled) setError(e?.message || 'Load failed') }
-      finally { if (!cancelled) setLoading(false) }
+      await load()
+      if (!cancelled) setLoading(false)
     })()
     return () => { cancelled = true }
+  }, [load])
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    await load()
+    setLoading(false)
   }, [load])
 
   const saveTier = async (tier) => {
@@ -60,10 +74,15 @@ export default function PricingTopups() {
     await load()
   }
 
-  if (loading) return <p className="muted">Loading…</p>
-
   return (
-    <PricingPageFrame title="Top-up tiers" description="Fixed wallet amounts. Customers can also enter any amount ≥ £5." error={error} msg={msg}>
+    <PricingLoadGate
+      loading={loading}
+      error={loadError}
+      title="Top-up tiers"
+      description="Fixed wallet amounts. Customers can also enter any amount ≥ £5."
+      onRetry={reload}
+    >
+      <PricingPageFrame title="Top-up tiers" description="Fixed wallet amounts. Customers can also enter any amount ≥ £5." error={error} msg={msg}>
       <div className="tableWrap pricingTableWrap">
         <table className="table pricingTable pricingTablePlans">
           <thead>
@@ -102,6 +121,7 @@ export default function PricingTopups() {
           <button className="btn" type="button" onClick={() => void addTier()}>Add</button>
         </div>
       </div>
-    </PricingPageFrame>
+      </PricingPageFrame>
+    </PricingLoadGate>
   )
 }

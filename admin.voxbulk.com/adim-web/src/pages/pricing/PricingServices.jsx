@@ -15,8 +15,8 @@ export default function PricingServices() {
       title="Service rates"
       description="Fixed unit prices for PAYG and for calculating plan WA/CV allowances."
       onRetry={load}
-      ready={Boolean(settings)}
     >
+      {settings ? (
       <PricingPageFrame title="Service rates" description="Fixed unit prices for PAYG and for calculating plan WA/CV allowances." error={error} msg={msg}>
         <div className="pricingGrid5">
           <PricingField label="Interview /min £" compact>
@@ -35,6 +35,7 @@ export default function PricingServices() {
         <p className="muted text-sm">Plan includes = plan price ÷ WA package fee. Extra recipients billed at WA extra rate after allowance is used.</p>
         <div className="pricingActions"><button className="btn" type="button" onClick={() => void save(settings)}>Save</button></div>
       </PricingPageFrame>
+      ) : null}
     </PricingLoadGate>
   )
 }
