@@ -27,6 +27,9 @@ import {
   Users,
 } from "lucide-react";
 
+/** Deploy marker — verified by scripts/vps-sync-dashboard.sh */
+export const INTERVIEW_PREVIEW_MODAL_BUILD_MARKER = "interview-preview-parseScriptQuestions-v2";
+
 export function ConfirmDialog({
   open, onOpenChange, title, message, confirmLabel = "Confirm", destructive,
 }: {
@@ -709,7 +712,11 @@ export function InterviewPreviewQuoteModal({
   const [scriptApproved, setScriptApproved] = React.useState(Boolean(data.scriptApproved));
   const [launching, setLaunching] = React.useState(false);
   const [launchActionError, setLaunchActionError] = React.useState<string | null>(null);
-  const scriptQuestions = parseScriptQuestions(data.script || "");
+  void INTERVIEW_PREVIEW_MODAL_BUILD_MARKER;
+  const scriptQuestions = React.useMemo(
+    () => parseScriptQuestions(data.script || ""),
+    [data.script],
+  );
   const expectedTimeLabel = data.expectedDurationMinutes
     ? `~${data.expectedDurationMinutes} min per call`
     : "—";

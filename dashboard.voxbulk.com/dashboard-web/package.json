@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "sync:brand": "node ../../scripts/sync-brand-assets.mjs",
-    "predev": "npm run sync:brand",
-    "prebuild": "npm run sync:brand",
+    "sync:build-info": "node ../../scripts/write-dashboard-build-info.mjs",
+    "predev": "npm run sync:brand && npm run sync:build-info",
+    "prebuild": "npm run sync:brand && npm run sync:build-info",
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
