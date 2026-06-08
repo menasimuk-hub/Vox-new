@@ -1,32 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
   AlertCircle,
-  ArrowDownRight,
-  ArrowUpRight,
+  ArrowUpDown,
+  ChartBar as BarChart3,
+  CircleCheck as CheckCircle2,
+  Circle as HelpCircle,
+  Clock,
+  Circle as XCircle,
   Download,
-  Filter,
+  ListFilter as Filter,
+  MessageCircle,
   MessageSquareText,
-  Mic,
   Search,
   Sparkles,
-  Star,
+  ThumbsDown,
+  ThumbsUp,
   TrendingUp,
+  TriangleAlert as AlertTriangle,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -56,54 +47,42 @@ type AggregateBlock = {
   responses: Array<{ answer: string; count: number }>;
   step_role?: string;
 };
-type OpenFeedback = {
-  question?: string;
-  answer_source?: string;
-  transcript?: string | null;
-  text?: string | null;
-  transcription_status?: string | null;
-  audio_url?: string | null;
-  respondent_initials?: string;
-  respondent_id?: string;
-};
+type WaAnswer = { question?: string; answer?: string };
 type Respondent = {
   id?: string;
   quote?: string | null;
   short_summary?: string | null;
   recommend_score?: number | string | null;
+  satisfaction_score?: number | string | null;
   theme?: string | null;
   sentiment_label?: string | null;
   status_label?: string;
-  open_feedback?: OpenFeedback[];
-  voice_responses?: OpenFeedback[];
+  duration_label?: string | null;
+  wa_answers?: WaAnswer[];
+  open_feedback?: Array<{ question?: string; transcript?: string | null; text?: string | null }>;
   final_additional_feedback?: string | null;
-  final_feedback_yes_no?: string | null;
 };
 type Recommendation = { title?: string; text?: string; impact?: string };
-type TrendPoint = {
-  week: string;
-  response_rate_pct?: number;
-  completed_count?: number;
-  nps_score?: number | null;
-  csat_pct?: number | null;
-};
+type TrendPoint = { week: string; csat_pct?: number | null; completed_count?: number };
 
-type Bar3 = { label: string; promoters: number; passives: number; detractors: number };
-type QuestionView = {
+type QuestionRow = readonly [string, number, string];
+type DetailQuestion = {
   id: string;
   title: string;
-  type: "NPS" | "CSAT" | "Rating" | "Open text" | "Choice";
-  responses: number;
-  avg?: string;
-  delta?: number;
-  bars?: Bar3[];
-  rating?: { stars: number; pct: number }[];
+  type: "Rating" | "Yes / No" | "Open text" | "Choice";
+  rows: QuestionRow[];
+  totalResponses: number;
+  avgTime: string;
 };
 
-const NPS_PIE_COLORS = {
-  detractors: "#ef4444",
-  passives: "#f59e0b",
-  promoters: "#22c55e",
+type ResponseCardData = {
+  id: string;
+  date: string;
+  rating: string;
+  answers: { question: string; answer: string }[];
+  theme: string;
+  quote: string;
+  duration: string;
 };
 
 export const Route = createFileRoute("/_app/surveys/results")({
@@ -114,51 +93,94 @@ export const Route = createFileRoute("/_app/surveys/results")({
   component: SurveyResults,
 });
 
-function mapAggregateToQuestion(block: AggregateBlock): QuestionView {
+function toneForAnswer(label: string): string {
+  const lower = label.toLowerCase();
+  const num = parseInt(label, 10);
+  if (lower === "yes" || lower.includes("excellent") || num >= 9) return "success";
+  if (lower === "no" || lower.includes("poor") || (Number.isFinite(num) && num <= 6)) return "destructive";
+  if (lower.includes("good") || num === 7 || num === 8) return "info";
+  return "warning";
+}
+
+function inferQuestionType(block: AggregateBlock): DetailQuestion["type"] {
+  const answers = block.responses.map((r) => String(r.answer || "").trim().toLowerCase());
+  if (answers.length > 0 && answers.every((a) => a === "yes" || a === "no")) return "Yes / No";
+  if (block.step_role === "final_feedback_text" || block.step_role === "reason") return "Open text";
+  if (block.visualization === "sentiment_breakdown") return "Rating";
+  if (block.responses.every((r) => /^\d+$/.test(String(r.answer || "").trim()))) return "Rating";
+  if (block.responses.length >= 4) return "Open text";
+  return "Choice";
+}
+
+function mapAggregateToDetailQuestion(block: AggregateBlock): DetailQuestion {
   const total = block.total || 0;
+  const type = inferQuestionType(block);
+
   if (block.visualization === "sentiment_breakdown" && block.breakdown?.length) {
-    const positive = block.breakdown.find((g) => g.key === "positive")?.pct ?? 0;
-    const neutral = block.breakdown.find((g) => g.key === "neutral")?.pct ?? 0;
-    const negative = block.breakdown.find((g) => g.key === "negative")?.pct ?? 0;
-    const topScore = block.responses[0]?.answer;
-    return {
-      id: block.question,
-      title: block.question,
-      type: "NPS",
-      responses: total,
-      avg: topScore ? `Top: ${topScore}` : undefined,
-      bars: [{ label: block.question, promoters: positive, passives: neutral, detractors: negative }],
-    };
+    const rows: QuestionRow[] = block.breakdown.map((g) => {
+      const label =
+        g.key === "positive" ? "Positive" : g.key === "negative" ? "Negative" : g.label || "Neutral";
+      const tone = g.key === "positive" ? "success" : g.key === "negative" ? "destructive" : "info";
+      return [label, g.pct, tone];
+    });
+    return { id: block.question, title: block.question, type: "Rating", rows, totalResponses: total, avgTime: "—" };
   }
 
-  const numeric = block.responses.filter((r) => /^\d+$/.test(String(r.answer || "").trim()));
-  if (numeric.length > 0 && numeric.length === block.responses.length) {
-    const starBuckets = new Map<number, number>();
-    for (const row of numeric) {
-      const stars = Math.min(5, Math.max(1, Math.round(Number(row.answer) / 2)));
-      starBuckets.set(stars, (starBuckets.get(stars) || 0) + row.count);
+  const rows: QuestionRow[] = block.responses.slice(0, 6).map((r) => {
+    const pct = total ? Math.round((r.count / total) * 100) : 0;
+    let label = String(r.answer || "—");
+    const num = parseInt(label, 10);
+    if (Number.isFinite(num) && num <= 10) {
+      if (num >= 9) label = "Excellent";
+      else if (num >= 7) label = "Good";
+      else label = "Poor";
     }
-    const rating = [5, 4, 3, 2, 1].map((stars) => ({
-      stars,
-      pct: total ? Math.round(((starBuckets.get(stars) || 0) / total) * 100) : 0,
-    }));
-    const avgNum = numeric.reduce((sum, r) => sum + Number(r.answer) * r.count, 0) / Math.max(1, total);
-    return {
-      id: block.question,
-      title: block.question,
-      type: "Rating",
-      responses: total,
-      avg: `${(avgNum / 2).toFixed(1)} / 5`,
-      rating,
-    };
-  }
+    return [label, pct, toneForAnswer(String(r.answer))];
+  });
 
   return {
     id: block.question,
     title: block.question,
-    type: block.step_role === "reason" || block.step_role === "final_feedback_text" ? "Open text" : "Choice",
-    responses: total,
-    avg: block.responses[0]?.answer,
+    type,
+    rows: rows.length ? rows : [["No answers yet", 0, "warning"]],
+    totalResponses: total,
+    avgTime: "—",
+  };
+}
+
+function scoreToRatingLabel(score: number): string {
+  if (score >= 9) return "Excellent";
+  if (score >= 7) return "Good";
+  if (score > 0) return "Poor";
+  return "—";
+}
+
+function mapRespondentToCard(r: Respondent, index: number): ResponseCardData | null {
+  const quote = String(
+    r.quote || r.short_summary || r.final_additional_feedback || r.open_feedback?.[0]?.transcript || "",
+  ).trim();
+  const score = Number(r.recommend_score ?? r.satisfaction_score ?? 0);
+  const answers: { question: string; answer: string }[] = [];
+
+  for (const item of r.wa_answers || []) {
+    const q = String(item.question || "").trim();
+    const a = String(item.answer || "").trim();
+    if (q && a) answers.push({ question: q.slice(0, 28), answer: a });
+  }
+  if (answers.length === 0 && r.final_additional_feedback) {
+    answers.push({ question: "Feedback", answer: "Provided" });
+  }
+
+  if (!quote && answers.length === 0 && score <= 0) return null;
+
+  return {
+    id: String(r.id || index),
+    date: r.status_label || "Completed",
+    rating: scoreToRatingLabel(score),
+    answers: answers.slice(0, 4),
+    theme: String(r.theme || r.sentiment_label || "General"),
+    quote: quote || "No written comment.",
+    duration: r.duration_label || "—",
   };
 }
 
@@ -170,8 +192,8 @@ function SurveyResults() {
     [ordersQ.data],
   );
   const [selectedId, setSelectedId] = React.useState<string | undefined>(searchOrderId);
-  const [tab, setTab] = React.useState("overview");
-  const [themeSearch, setThemeSearch] = React.useState("");
+  const [responseSearch, setResponseSearch] = React.useState("");
+  const [visibleResponses, setVisibleResponses] = React.useState(12);
 
   React.useEffect(() => {
     logLaunchFlow("[results:init]", {
@@ -202,7 +224,6 @@ function SurveyResults() {
   const aggregates = (payload.aggregates || []) as AggregateBlock[];
   const recommendations = (payload.recommendations || []) as Recommendation[];
   const respondents = (payload.respondents || []) as Respondent[];
-  const voiceFeedback = (payload.voice_feedback || []) as OpenFeedback[];
   const weeklyTrend = (payload.weekly_trend || []) as TrendPoint[];
   const topIssues = (summary.top_issues as string[] | undefined) || [];
 
@@ -224,85 +245,37 @@ function SurveyResults() {
   const completed = Number(summary.completed_count || 0);
   const totalRecipients = Number(summary.total_recipients || 0);
   const responseRate = Number(summary.response_rate_pct || 0);
-  const npsDisplay =
-    summary.nps_score != null && summary.nps_score !== "" ? String(summary.nps_score) : "—";
-  const csatPctValue =
-    summary.average_satisfaction_5 != null
-      ? Math.round((Number(summary.average_satisfaction_5) / 5) * 100)
-      : summary.average_recommend_score != null
-        ? Math.round((Number(summary.average_recommend_score) / 10) * 100)
-        : null;
-  const csatPct = csatPctValue != null ? `${csatPctValue}%` : "—";
-  const csatSub =
-    summary.average_satisfaction_5 != null
-      ? `avg ${summary.average_satisfaction_5} / 5`
-      : summary.average_recommend_score != null
-        ? `avg score ${summary.average_recommend_score}`
-        : "satisfaction";
+  const avgSat5 = summary.average_satisfaction_5 != null ? Number(summary.average_satisfaction_5) : null;
+  const excellentRate =
+    avgSat5 != null ? Math.round((avgSat5 / 5) * 100) : responseRate > 0 ? responseRate : 0;
+  const excellentDelta =
+    weeklyTrend.length >= 2
+      ? (weeklyTrend[weeklyTrend.length - 1]?.csat_pct ?? excellentRate) - (weeklyTrend[0]?.csat_pct ?? excellentRate)
+      : undefined;
 
   const sentimentCounts = (summary.sentiment_counts || {}) as Record<string, number>;
   const sentimentTotal = Object.values(sentimentCounts).reduce((sum, count) => sum + Number(count || 0), 0);
+  const negativePct =
+    sentimentTotal > 0
+      ? Math.round((Number(sentimentCounts.negative || 0) / sentimentTotal) * 100)
+      : Math.round(Number(summary.nps_detractors_pct || 0));
 
-  const chartTrend =
-    weeklyTrend.length > 0
-      ? weeklyTrend.map((w) => ({
-          week: w.week,
-          nps: w.nps_score ?? 0,
-          csat: w.csat_pct ?? csatPctValue ?? 0,
-          responses: w.completed_count ?? 0,
-        }))
-      : completed > 0
-        ? [
-            {
-              week: "This survey",
-              nps: summary.nps_score != null && summary.nps_score !== "" ? Number(summary.nps_score) : 0,
-              csat: csatPctValue ?? 0,
-              responses: completed,
-            },
-          ]
-        : [];
+  const completionLabel = String(summary.average_call_duration_label || "—");
+  const pending = Math.max(0, totalRecipients - completed);
 
-  const npsDelta =
-    chartTrend.length >= 2 ? (chartTrend[chartTrend.length - 1]?.nps ?? 0) - (chartTrend[0]?.nps ?? 0) : undefined;
-  const rateDelta =
-    chartTrend.length >= 2
-      ? (chartTrend[chartTrend.length - 1]?.csat ?? 0) - (chartTrend[0]?.csat ?? 0)
-      : undefined;
-
-  const npsDistribution = [
-    { name: "Detractors", value: Number(summary.nps_detractors_pct || 0), color: NPS_PIE_COLORS.detractors },
-    { name: "Passives", value: Number(summary.nps_passives_pct || 0), color: NPS_PIE_COLORS.passives },
-    { name: "Promoters", value: Number(summary.nps_promoters_pct || 0), color: NPS_PIE_COLORS.promoters },
-  ];
-
-  const questionViews = aggregates.map(mapAggregateToQuestion);
-
-  const voiceCards = voiceFeedback.map((row, i) => {
-    const respondent = respondents.find((r) => r.id === row.respondent_id);
-    const score = Number(respondent?.recommend_score ?? 0);
-    const tone = score >= 9 ? "success" : score >= 7 ? "warning" : "destructive";
-    return {
-      id: `voice-${i}`,
-      name: row.respondent_initials ? `Anonymous · ${row.respondent_initials}` : "Anonymous",
-      score: score || "—",
-      tone: tone as "success" | "destructive" | "warning",
-      transcript: row.transcript || row.text || "—",
-      reason: row.question || "Feedback",
-      question: row.question || "Why this score?",
-      audioUrl: row.audio_url,
-      orderId: activeOrderId,
-    };
-  });
-
-  const textComments = respondents
-    .filter((r) => r.quote || r.final_additional_feedback || r.open_feedback?.some((f) => f.answer_source !== "voice"))
-    .map((r) => ({
-      quote: String(r.quote || r.final_additional_feedback || r.open_feedback?.[0]?.transcript || "").trim(),
-      score: Number(r.recommend_score ?? 0) || 0,
-      theme: String(r.theme || r.sentiment_label || "General"),
-    }))
-    .filter((r) => r.quote)
-    .filter((r) => !themeSearch || r.quote.toLowerCase().includes(themeSearch.toLowerCase()) || r.theme.toLowerCase().includes(themeSearch.toLowerCase()));
+  const questions = aggregates.map(mapAggregateToDetailQuestion);
+  const responseCards = respondents
+    .map(mapRespondentToCard)
+    .filter((r): r is ResponseCardData => r != null)
+    .filter((r) => {
+      if (!responseSearch.trim()) return true;
+      const q = responseSearch.toLowerCase();
+      return (
+        r.quote.toLowerCase().includes(q) ||
+        r.theme.toLowerCase().includes(q) ||
+        r.rating.toLowerCase().includes(q)
+      );
+    });
 
   const themeItems =
     sentimentTotal > 0
@@ -314,21 +287,15 @@ function SurveyResults() {
             value: Math.round((Number(count) / sentimentTotal) * 100),
             sentiment: label === "negative" ? "negative" : label === "positive" ? "positive" : "mixed",
           }))
-      : topIssues.length
-        ? topIssues.slice(0, 4).map((label) => ({
-            label,
-            value: Math.round(100 / Math.min(topIssues.length, 4)),
-            sentiment: label.toLowerCase().includes("negative")
-              ? "negative"
-              : label.toLowerCase().includes("positive")
-                ? "positive"
-                : "mixed",
-          }))
-        : recommendations.slice(0, 4).map((r) => ({
-            label: String(r.title || r.text || "Theme").slice(0, 48),
-            value: 0,
-            sentiment: "mixed",
-          }));
+      : topIssues.slice(0, 4).map((label) => ({
+          label,
+          value: topIssues.length ? Math.round(100 / topIssues.length) : 0,
+          sentiment: label.toLowerCase().includes("negative")
+            ? "negative"
+            : label.toLowerCase().includes("positive")
+              ? "positive"
+              : "mixed",
+        }));
 
   const isLoading = resultsQ.isLoading;
   const hasError = resultsQ.isError;
@@ -338,21 +305,33 @@ function SurveyResults() {
       <PageHeader
         eyebrow="Surveys · Results"
         title={orderInfo.survey_name || orderInfo.title || selected?.name || "Survey results"}
-        description="Track week-over-week improvement, dive into each question, and read every voice and text comment."
+        description="One-survey results: live responses, question analysis, themes, and anonymous response browser."
         actions={
-          <>
-            <Button variant="outline" className="gap-1.5" onClick={() => void exportResults("pdf")} disabled={!activeOrderId}>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => void exportResults("pdf")}
+              disabled={!activeOrderId}
+            >
               <Download className="size-4" /> Export PDF
             </Button>
-            <Button variant="outline" className="gap-1.5" onClick={() => void exportResults("csv")} disabled={!activeOrderId}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => void exportResults("csv")}
+              disabled={!activeOrderId}
+            >
               <Download className="size-4" /> Export CSV
             </Button>
-          </>
+          </div>
         }
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
           <Select value={activeOrderId} onValueChange={setSelectedId}>
             <SelectTrigger className="h-9 w-56">
               <SelectValue placeholder="Select survey" />
@@ -366,17 +345,10 @@ function SurveyResults() {
             </SelectContent>
           </Select>
           {selected && <StatusBadge tone={selected.status} />}
-          <span className="text-sm text-muted-foreground">
+          <span className="text-sm text-muted-foreground truncate">
             {completed.toLocaleString()} / {totalRecipients.toLocaleString()} responses · {responseRate}% rate
           </span>
         </div>
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="questions">Questions</TabsTrigger>
-            <TabsTrigger value="responses">Responses</TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
 
       {hasError ? (
@@ -388,232 +360,344 @@ function SurveyResults() {
         </Card>
       ) : null}
 
-      <Tabs value={tab} onValueChange={setTab}>
+      {isLoading ? (
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+          <Kpi
+            title="Excellent rate"
+            value={`${excellentRate}%`}
+            sub={
+              excellentDelta != null && excellentDelta !== 0
+                ? `${excellentDelta > 0 ? "+" : ""}${excellentDelta} vs previous`
+                : avgSat5 != null
+                  ? `avg ${avgSat5} / 5`
+                  : "satisfaction"
+            }
+            icon={<TrendingUp className="size-4" />}
+          />
+          <Kpi
+            title="Response rate"
+            value={`${responseRate}%`}
+            sub={`${completed.toLocaleString()} of ${totalRecipients.toLocaleString()}`}
+            icon={<Users className="size-4" />}
+          />
+          <Kpi
+            title="Completion"
+            value={`${responseRate}%`}
+            sub={completionLabel !== "—" ? `avg. ${completionLabel}` : `${completed} completed`}
+            icon={<MessageSquareText className="size-4" />}
+          />
+          <Kpi
+            title="Poor rating"
+            value={`${negativePct}%`}
+            sub={`${Number(sentimentCounts.negative || summary.nps_detractors || 0)} responses`}
+            tone="destructive"
+            icon={<Sparkles className="size-4" />}
+          />
+        </div>
+      )}
+
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="questions">Questions</TabsTrigger>
+          <TabsTrigger value="responses">Responses</TabsTrigger>
+        </TabsList>
+
         <TabsContent value="overview" className="space-y-6">
           {isLoading ? (
-            <div className="grid gap-4 md:grid-cols-4">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-28" />
-              ))}
-            </div>
+            <Skeleton className="h-64 w-full" />
           ) : (
-            <div className="grid gap-4 md:grid-cols-4">
-              <Kpi title="NPS" value={npsDisplay} delta={npsDelta} sub="customer score" icon={<TrendingUp className="size-4" />} />
-              <Kpi title="CSAT" value={csatPct} delta={rateDelta} sub={csatSub} icon={<Star className="size-4" />} />
-              <Kpi title="Response rate" value={`${responseRate}%`} sub={`${completed} of ${totalRecipients}`} icon={<Users className="size-4" />} />
-              <Kpi
-                title="Detractor risk"
-                value={`${summary.nps_detractors_pct ?? 0}%`}
-                sub={`${summary.nps_detractors ?? 0} responses`}
-                icon={<MessageSquareText className="size-4" />}
-                tone="destructive"
-                invertDelta
-              />
-            </div>
+            <>
+              <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Question-level results</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                    {questions.length === 0 ? (
+                      <p className="col-span-full text-sm text-muted-foreground">No question aggregates yet.</p>
+                    ) : (
+                      questions.slice(0, 3).map((q) => <QuestionCard key={q.id} {...q} />)
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Drop-off funnel</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <Funnel
+                      label="Invited"
+                      value={totalRecipients ? 100 : 0}
+                      count={totalRecipients.toLocaleString()}
+                    />
+                    <Funnel
+                      label="In progress"
+                      value={totalRecipients ? Math.round((pending / totalRecipients) * 100) : 0}
+                      count={pending.toLocaleString()}
+                    />
+                    <Funnel
+                      label="Completed"
+                      value={responseRate}
+                      count={completed.toLocaleString()}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">AI themes</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {themeItems.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Themes appear after enough responses are analysed.</p>
+                    ) : (
+                      themeItems.map((t) => (
+                        <Theme key={t.label} label={t.label} value={t.value} sentiment={t.sentiment} />
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Response breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Segment label="Completed" excellent={`${responseRate}%`} rate={`${completed} responses`} />
+                    <Segment label="Pending" excellent={`${totalRecipients ? Math.round((pending / totalRecipients) * 100) : 0}%`} rate={`${pending} waiting`} />
+                    {orderInfo.channel ? (
+                      <Segment label={`${orderInfo.channel} channel`} excellent={`${excellentRate}%`} rate={`${responseRate}% response`} />
+                    ) : null}
+                  </CardContent>
+                </Card>
+
+                <Card className="md:col-span-2 lg:col-span-1">
+                  <CardHeader className="flex flex-row items-center gap-2">
+                    <Sparkles className="size-4 text-primary" />
+                    <CardTitle className="text-base">AI recommended actions</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    {recommendations.length === 0 ? (
+                      <p className="text-muted-foreground">Recommendations appear after enough responses are analysed.</p>
+                    ) : (
+                      recommendations.slice(0, 3).map((r, i) => (
+                        <Action key={i} text={String(r.text || r.title || "")} impact={String(r.impact || "Medium")} />
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </>
           )}
-
-          <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base">Weekly improvement</CardTitle>
-                    <p className="text-xs text-muted-foreground">NPS and CSAT over recent weeks</p>
-                  </div>
-                  {npsDelta != null && npsDelta !== 0 ? (
-                    <Badge variant="secondary" className="gap-1">
-                      {npsDelta > 0 ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
-                      {npsDelta > 0 ? "+" : ""}
-                      {npsDelta} NPS
-                    </Badge>
-                  ) : null}
-                </div>
-              </CardHeader>
-              <CardContent className="h-[280px]">
-                {isLoading ? (
-                  <Skeleton className="h-full w-full" />
-                ) : chartTrend.length === 0 ? (
-                  <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                    Trend data appears after more surveys complete in your organisation.
-                  </p>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartTrend} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="results-nps" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="results-csat" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#14b8a6" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="#14b8a6" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="week" stroke="#9ca3af" fontSize={12} />
-                      <YAxis stroke="#9ca3af" fontSize={12} />
-                      <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area type="monotone" dataKey="nps" stroke="#6366f1" strokeWidth={2} fill="url(#results-nps)" name="NPS" />
-                      <Area type="monotone" dataKey="csat" stroke="#14b8a6" strokeWidth={2} fill="url(#results-csat)" name="CSAT %" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">NPS distribution</CardTitle>
-                <p className="text-xs text-muted-foreground">Promoters · Passives · Detractors</p>
-              </CardHeader>
-              <CardContent className="h-[280px]">
-                {isLoading ? (
-                  <Skeleton className="h-full w-full" />
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={npsDistribution} dataKey="value" innerRadius={60} outerRadius={95} paddingAngle={3} stroke="#ffffff">
-                        {npsDistribution.map((d) => (
-                          <Cell key={d.name} fill={d.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Response volume / week</CardTitle>
-              </CardHeader>
-              <CardContent className="h-[200px]">
-                {isLoading ? (
-                  <Skeleton className="h-full w-full" />
-                ) : chartTrend.length === 0 ? (
-                  <p className="flex h-full items-center justify-center text-sm text-muted-foreground">No weekly data yet.</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartTrend} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="week" stroke="#9ca3af" fontSize={11} />
-                      <YAxis stroke="#9ca3af" fontSize={11} />
-                      <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
-                      <Bar dataKey="responses" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">AI themes</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {themeItems.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Themes appear after enough responses are analysed.</p>
-                ) : (
-                  themeItems.map((t) => <Theme key={t.label} label={t.label} value={t.value} sentiment={t.sentiment} />)
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2">
-                <Sparkles className="size-4 text-primary" />
-                <CardTitle className="text-base">AI recommended actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                {recommendations.length === 0 ? (
-                  <p className="text-muted-foreground">Recommendations appear after enough responses are analysed.</p>
-                ) : (
-                  recommendations.slice(0, 3).map((r, i) => (
-                    <Action key={i} text={String(r.text || r.title || "")} impact={String(r.impact || "Medium")} />
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
         </TabsContent>
 
-        <TabsContent value="questions" className="space-y-4">
-          <div className="rounded-xl border border-border bg-card p-3 text-sm text-muted-foreground">
-            Each question shows a positive / neutral / negative breakdown (or star distribution) so you can see exactly where wins or losses come from — not just one bar.
-          </div>
+        <TabsContent value="questions" className="space-y-6">
           {isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-48 w-full" />)
-          ) : questionViews.length === 0 ? (
+            <Skeleton className="h-48 w-full" />
+          ) : questions.length === 0 ? (
             <Card>
               <CardContent className="p-6 text-sm text-muted-foreground">No question aggregates yet.</CardContent>
             </Card>
           ) : (
-            questionViews.map((q) => <QuestionBlock key={q.id} q={q} />)
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary" className="gap-1">
+                  <BarChart3 className="size-3" /> {questions.filter((q) => q.type === "Rating").length} Rating
+                </Badge>
+                <Badge variant="secondary" className="gap-1">
+                  <HelpCircle className="size-3" /> {questions.filter((q) => q.type === "Yes / No").length} Yes / No
+                </Badge>
+                <Badge variant="secondary" className="gap-1">
+                  <MessageCircle className="size-3" /> {questions.filter((q) => q.type === "Open text").length} Open text
+                </Badge>
+              </div>
+
+              <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                {questions.map((q, idx) => (
+                  <QuestionDetailCard key={q.id} index={idx + 1} {...q} />
+                ))}
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <ArrowUpDown className="size-4 text-primary" /> Question comparison
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto -mx-4 px-4">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="py-3 pr-4 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wider">#</th>
+                          <th className="py-3 pr-4 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wider">Question</th>
+                          <th className="py-3 pr-4 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wider">Type</th>
+                          <th className="py-3 pr-4 text-right font-semibold text-muted-foreground text-xs uppercase tracking-wider">Responses</th>
+                          <th className="py-3 pr-4 text-right font-semibold text-muted-foreground text-xs uppercase tracking-wider">Top answer</th>
+                          <th className="py-3 text-right font-semibold text-muted-foreground text-xs uppercase tracking-wider">Avg time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {questions.map((q, idx) => {
+                          const topRow = q.rows.reduce((a, b) => (b[1] > a[1] ? b : a), q.rows[0]);
+                          return (
+                            <tr key={q.id} className="border-b border-border/50 last:border-0">
+                              <td className="py-3 pr-4 text-muted-foreground">{idx + 1}</td>
+                              <td className="py-3 pr-4 font-medium max-w-[200px] truncate">{q.title}</td>
+                              <td className="py-3 pr-4">
+                                <QuestionTypeBadge type={q.type} />
+                              </td>
+                              <td className="py-3 pr-4 text-right tabular-nums">{q.totalResponses.toLocaleString()}</td>
+                              <td className="py-3 pr-4 text-right">
+                                <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", toneToColor(topRow[2]))}>
+                                  {topRow[0]} ({topRow[1]}%)
+                                </span>
+                              </td>
+                              <td className="py-3 text-right tabular-nums text-muted-foreground">{q.avgTime}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Yes / No breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {questions.filter((q) => q.type === "Yes / No").length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No yes/no questions in this survey.</p>
+                    ) : (
+                      questions
+                        .filter((q) => q.type === "Yes / No")
+                        .map((q) => {
+                          const yesRow = q.rows.find((r) => r[0].toLowerCase() === "yes");
+                          const yesPct = yesRow ? yesRow[1] : 0;
+                          return (
+                            <div key={q.id} className="space-y-1.5">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium truncate pr-2">{q.title}</span>
+                                <span className="shrink-0 tabular-nums font-semibold text-success">{yesPct}% Yes</span>
+                              </div>
+                              <div className="flex h-3 overflow-hidden rounded-full bg-border">
+                                <div className="bg-success transition-all" style={{ width: `${yesPct}%` }} />
+                                <div className="bg-destructive transition-all" style={{ width: `${100 - yesPct}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Rating distribution</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {questions.filter((q) => q.type === "Rating").length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No rating questions in this survey.</p>
+                    ) : (
+                      questions
+                        .filter((q) => q.type === "Rating")
+                        .map((q) => (
+                          <div key={q.id} className="space-y-2">
+                            <p className="text-sm font-medium">{q.title}</p>
+                            <div className="flex h-8 overflow-hidden rounded-full bg-border">
+                              {q.rows.map(([label, value, tone]) => (
+                                <div
+                                  key={label}
+                                  className={cn(
+                                    "flex items-center justify-center text-[10px] font-bold text-white transition-all",
+                                    toneToBar(tone),
+                                  )}
+                                  style={{ width: `${Math.max(value, value > 0 ? 8 : 0)}%` }}
+                                >
+                                  {value > 10 ? `${value}%` : ""}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                              {q.rows.map(([label, , tone]) => (
+                                <span key={label} className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <span className={cn("size-2 rounded-full", toneToDot(tone))} /> {label}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </>
           )}
         </TabsContent>
 
-        <TabsContent value="responses" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Mic className="size-4 text-primary" />
-                    Voice comments & transcripts
-                  </CardTitle>
-                  <p className="text-xs text-muted-foreground">
-                    Voice replies are transcribed automatically. Download audio when available.
-                  </p>
-                </div>
-                <Badge variant="secondary">{voiceCards.length} voice replies</Badge>
+        <TabsContent value="responses" className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {responseCards.length} responses · sorted by survey order
+            </p>
+            <div className="flex gap-2">
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search responses"
+                  className="h-9 w-full pl-8 sm:w-48"
+                  value={responseSearch}
+                  onChange={(e) => {
+                    setResponseSearch(e.target.value);
+                    setVisibleResponses(12);
+                  }}
+                />
               </div>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {isLoading ? (
-                <Skeleton className="col-span-full h-32" />
-              ) : voiceCards.length === 0 ? (
-                <p className="col-span-full text-sm text-muted-foreground">No voice comments captured yet.</p>
-              ) : (
-                voiceCards.map((v) => <VoiceCard key={v.id} v={v} />)
-              )}
-            </CardContent>
-          </Card>
+              <Button variant="outline" size="sm" className="gap-1.5" disabled>
+                <Filter className="size-4" /> Filter
+              </Button>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <CardTitle className="text-base">Anonymous text responses</CardTitle>
-                <div className="flex gap-2">
-                  <div className="relative">
-                    <Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search themes"
-                      className="h-9 w-48 pl-8"
-                      value={themeSearch}
-                      onChange={(e) => setThemeSearch(e.target.value)}
-                    />
-                  </div>
-                  <Button variant="outline" size="sm" className="gap-1.5" disabled>
-                    <Filter className="size-4" /> Filter
+          {isLoading ? (
+            <div className="grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-40" />
+              ))}
+            </div>
+          ) : responseCards.length === 0 ? (
+            <Card>
+              <CardContent className="p-6 text-sm text-muted-foreground">No responses to show yet.</CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+                {responseCards.slice(0, visibleResponses).map((r) => (
+                  <ResponseCard key={r.id} {...r} />
+                ))}
+              </div>
+              {visibleResponses < responseCards.length ? (
+                <div className="flex justify-center">
+                  <Button variant="outline" size="sm" onClick={() => setVisibleResponses((n) => n + 12)}>
+                    Load more responses
                   </Button>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {isLoading ? (
-                Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32" />)
-              ) : textComments.length === 0 ? (
-                <p className="col-span-full text-sm text-muted-foreground">No text responses to show yet.</p>
-              ) : (
-                textComments.slice(0, 12).map((r, i) => <Response key={i} quote={r.quote} score={r.score} theme={r.theme} />)
-              )}
-            </CardContent>
-          </Card>
+              ) : null}
+            </>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -624,240 +708,282 @@ function SurveyResults() {
   );
 }
 
+function toneToColor(tone: string) {
+  if (tone === "success") return "bg-success/15 text-success";
+  if (tone === "info") return "bg-info/15 text-info";
+  if (tone === "warning") return "bg-warning/15 text-warning";
+  if (tone === "destructive") return "bg-destructive/15 text-destructive";
+  return "bg-accent text-accent-foreground";
+}
+
+function toneToBar(tone: string) {
+  if (tone === "success") return "bg-success";
+  if (tone === "info") return "bg-info";
+  if (tone === "warning") return "bg-warning";
+  if (tone === "destructive") return "bg-destructive";
+  return "bg-primary";
+}
+
+function toneToDot(tone: string) {
+  if (tone === "success") return "bg-success";
+  if (tone === "info") return "bg-info";
+  if (tone === "warning") return "bg-warning";
+  if (tone === "destructive") return "bg-destructive";
+  return "bg-primary";
+}
+
 function Kpi({
   title,
   value,
   sub,
   icon,
   tone = "primary",
-  delta,
-  invertDelta,
 }: {
   title: string;
   value: string;
   sub: string;
   icon: React.ReactNode;
   tone?: "primary" | "destructive";
-  delta?: number;
-  invertDelta?: boolean;
 }) {
-  const positive = invertDelta ? (delta ?? 0) < 0 : (delta ?? 0) >= 0;
   return (
-    <Card className="overflow-hidden">
+    <Card>
       <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div className={cn("rounded-lg p-2", tone === "destructive" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary")}>
-            {icon}
-          </div>
-          {delta !== undefined && delta !== 0 && (
-            <span className={cn("flex items-center gap-0.5 text-xs font-medium", positive ? "text-success" : "text-destructive")}>
-              {positive ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
-              {Math.abs(delta)}
-              {title === "NPS" ? " pts" : "%"}
-            </span>
-          )}
-        </div>
+        <div className={tone === "destructive" ? "text-destructive" : "text-primary"}>{icon}</div>
         <p className="mt-3 text-xs uppercase tracking-wider text-muted-foreground">{title}</p>
-        <p className="text-3xl font-semibold tracking-tight">{value}</p>
+        <p className="text-2xl font-semibold tracking-tight md:text-3xl">{value}</p>
         <p className="text-xs text-muted-foreground">{sub}</p>
       </CardContent>
     </Card>
   );
 }
 
-function QuestionBlock({ q }: { q: QuestionView }) {
+function QuestionCard({ title, type, rows }: { title: string; type: string; rows: QuestionRow[] }) {
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-base">{q.title}</CardTitle>
-              <Badge variant="outline">{q.type}</Badge>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">{q.responses.toLocaleString()} responses</p>
-          </div>
-          {q.avg ? (
-            <div className="text-right">
-              <p className="text-2xl font-semibold tracking-tight">{q.avg}</p>
-            </div>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {q.bars && <StackedBars bars={q.bars} />}
-        {q.rating && <RatingDistribution rating={q.rating} />}
-        {!q.bars && !q.rating ? (
-          <p className="text-sm text-muted-foreground">Open-ended or choice responses — see the Responses tab for quotes.</p>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function StackedBars({ bars }: { bars: Bar3[] }) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-        <LegendDot color="bg-success" label="Positive" />
-        <LegendDot color="bg-warning" label="Neutral" />
-        <LegendDot color="bg-destructive" label="Negative" />
+    <div className="rounded-xl border border-border bg-background p-4">
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold">{title}</p>
+        <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-foreground">{type}</span>
       </div>
-      {bars.map((b) => (
-        <div key={b.label}>
-          <div className="mb-1 flex justify-between text-sm">
-            <span className="font-medium">{b.label}</span>
-            <span className="tabular-nums text-muted-foreground">
-              {b.promoters}% / {b.passives}% / {b.detractors}%
-            </span>
-          </div>
-          <div className="flex h-3 overflow-hidden rounded-full bg-border">
-            <div className="bg-success transition-all" style={{ width: `${b.promoters}%` }} title={`Positive ${b.promoters}%`} />
-            <div className="bg-warning transition-all" style={{ width: `${b.passives}%` }} title={`Neutral ${b.passives}%`} />
-            <div className="bg-destructive transition-all" style={{ width: `${b.detractors}%` }} title={`Negative ${b.detractors}%`} />
-          </div>
-        </div>
-      ))}
+      <div className="space-y-3">
+        {rows.map(([label, value, tone]) => (
+          <BarLine key={label} label={label} value={value} tone={tone} />
+        ))}
+      </div>
     </div>
   );
 }
 
-function RatingDistribution({ rating }: { rating: { stars: number; pct: number }[] }) {
+function BarLine({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
-    <div className="space-y-2">
-      {rating.map((r) => (
-        <div key={r.stars} className="flex items-center gap-3">
-          <div className="flex w-16 items-center gap-0.5 text-xs">
-            {r.stars} <Star className="size-3 fill-warning text-warning" />
-          </div>
-          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-border">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all",
-                r.stars >= 4 ? "bg-success" : r.stars === 3 ? "bg-warning" : "bg-destructive",
-              )}
-              style={{ width: `${r.pct}%` }}
-            />
-          </div>
-          <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{r.pct}%</span>
-        </div>
-      ))}
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="tabular-nums">{value}%</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-border">
+        <div className={cn("h-full rounded-full transition-all", toneToBar(tone))} style={{ width: `${value}%` }} />
+      </div>
     </div>
   );
 }
 
-function LegendDot({ color, label }: { color: string; label: string }) {
+function Funnel({ label, value, count }: { label: string; value: number; count: string }) {
   return (
-    <span className="flex items-center gap-1.5">
-      <span className={cn("size-2 rounded-full", color)} />
-      {label}
-    </span>
-  );
-}
-
-function VoiceCard({
-  v,
-}: {
-  v: {
-    id: string;
-    name: string;
-    score: number | string;
-    tone: "success" | "destructive" | "warning";
-    transcript: string;
-    reason: string;
-    question: string;
-    audioUrl?: string | null;
-    orderId?: string;
-  };
-}) {
-  const isLow = v.tone === "destructive";
-  const downloadAudio = async () => {
-    if (!v.orderId || !v.audioUrl) return;
-    try {
-      await downloadAuthenticatedFile(v.audioUrl, `voice-note-${Date.now()}.ogg`);
-      toast.success("Audio downloaded");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not download audio");
-    }
-  };
-
-  return (
-    <div
-      className={cn(
-        "group rounded-xl border bg-background p-4 transition-shadow hover:shadow-md",
-        isLow ? "border-destructive/30" : "border-success/30",
-      )}
-    >
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] font-medium",
-              isLow ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success",
-            )}
-          >
-            Score {v.score}
-          </span>
-          <span className="text-[11px] text-muted-foreground">{v.name.split("·")[0]?.trim()}</span>
-        </div>
-        <Badge variant="outline" className="text-[10px]">
-          {v.reason}
-        </Badge>
+    <div>
+      <div className="mb-1 flex justify-between text-sm">
+        <span>{label}</span>
+        <span className="text-muted-foreground">{count}</span>
       </div>
-      <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">Transcript · {v.question}</p>
-      <p className="text-sm leading-relaxed">&ldquo;{v.transcript}&rdquo;</p>
-      {v.audioUrl ? (
-        <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={() => void downloadAudio()}>
-          <Mic className="size-3.5" /> Download audio
-        </Button>
-      ) : null}
+      <Progress value={value} className="h-2" />
     </div>
   );
 }
 
 function Theme({ label, value, sentiment }: { label: string; value: number; sentiment: string }) {
-  const tone = sentiment === "positive" ? "bg-success" : sentiment === "negative" ? "bg-destructive" : "bg-warning";
+  const icon =
+    sentiment === "positive" ? (
+      <ThumbsUp className="size-3 text-success" />
+    ) : sentiment === "negative" ? (
+      <ThumbsDown className="size-3 text-destructive" />
+    ) : (
+      <AlertTriangle className="size-3 text-warning" />
+    );
   return (
     <div className="rounded-lg border border-border bg-background p-3">
-      <div className="flex justify-between text-sm">
-        <span className="font-medium">{label}</span>
+      <div className="flex items-center justify-between text-sm">
+        <span className="flex items-center gap-1.5 font-medium">
+          {icon} {label}
+        </span>
         <span className="tabular-nums text-muted-foreground">{value}%</span>
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border">
-        <div className={cn("h-full rounded-full", tone)} style={{ width: `${Math.min(100, value * 2)}%` }} />
-      </div>
-      <p className="mt-1 text-xs capitalize text-muted-foreground">{sentiment} sentiment</p>
+      <p className="mt-1 text-xs capitalize text-muted-foreground">{sentiment} sentiment cluster</p>
+    </div>
+  );
+}
+
+function Segment({ label, excellent, rate }: { label: string; excellent: string; rate: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border bg-background p-3 text-sm">
+      <span>{label}</span>
+      <span className="text-right">
+        <b>{excellent}</b>
+        <br />
+        <span className="text-xs text-muted-foreground">{rate}</span>
+      </span>
     </div>
   );
 }
 
 function Action({ text, impact }: { text: string; impact: string }) {
+  const impactCls = impact === "High" ? "text-success" : "text-warning";
   return (
     <div className="rounded-lg border border-border bg-background p-3">
       <p>{text}</p>
-      <p className="mt-1 text-xs text-success">{impact} impact</p>
+      <p className={`mt-1 text-xs ${impactCls}`}>{impact} impact</p>
     </div>
   );
 }
 
-function Response({ quote, score, theme }: { quote: string; score: number; theme: string }) {
-  const tone = score >= 9 ? "success" : score >= 7 ? "warning" : "destructive";
+function QuestionTypeBadge({ type }: { type: string }) {
+  const icon =
+    type === "Rating" ? (
+      <BarChart3 className="size-3" />
+    ) : type === "Yes / No" ? (
+      <HelpCircle className="size-3" />
+    ) : (
+      <MessageCircle className="size-3" />
+    );
   return (
-    <div className="rounded-xl border border-border bg-background p-4">
-      <div className="mb-3 flex justify-between text-xs">
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 font-medium",
-            tone === "success" && "bg-success/10 text-success",
-            tone === "warning" && "bg-warning/10 text-warning",
-            tone === "destructive" && "bg-destructive/10 text-destructive",
-          )}
-        >
-          NPS {score || "—"}
-        </span>
-        <span className="text-muted-foreground">{theme}</span>
-      </div>
-      <p className="text-sm leading-relaxed">&ldquo;{quote}&rdquo;</p>
-    </div>
+    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary ring-1 ring-primary/20">
+      {icon} {type}
+    </span>
+  );
+}
+
+function QuestionDetailCard({
+  index,
+  title,
+  type,
+  rows,
+  totalResponses,
+  avgTime,
+}: {
+  index: number;
+  title: string;
+  type: string;
+  rows: QuestionRow[];
+  totalResponses: number;
+  avgTime: string;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-2">
+            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
+              {index}
+            </span>
+            <CardTitle className="text-sm leading-snug">{title}</CardTitle>
+          </div>
+          <QuestionTypeBadge type={type} />
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Users className="size-3" /> {totalResponses.toLocaleString()} responses
+          </span>
+          <span className="flex items-center gap-1">
+            <Clock className="size-3" /> avg {avgTime}
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {rows.map(([label, value, tone]) => (
+          <div key={label} className="space-y-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">{label}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {Math.round((totalResponses * value) / 100).toLocaleString()}
+                </span>
+                <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", toneToColor(tone))}>
+                  {value}%
+                </span>
+              </span>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-border">
+              <div className={cn("h-full rounded-full transition-all", toneToBar(tone))} style={{ width: `${value}%` }} />
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ResponseCard({
+  date,
+  rating,
+  answers,
+  theme,
+  quote,
+  duration,
+}: {
+  date: string;
+  rating: string;
+  answers: { question: string; answer: string }[];
+  theme: string;
+  quote: string;
+  duration: string;
+}) {
+  const ratingCls =
+    rating === "Excellent"
+      ? "bg-success/15 text-success"
+      : rating === "Good"
+        ? "bg-info/15 text-info"
+        : rating === "Poor"
+          ? "bg-destructive/15 text-destructive"
+          : "bg-muted text-muted-foreground";
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-center justify-between">
+          <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold", ratingCls)}>{rating}</span>
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Clock className="size-3" /> {duration}
+            </span>
+            <span>{date}</span>
+          </div>
+        </div>
+        {answers.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {answers.map((a) => (
+              <MiniBadge key={`${a.question}-${a.answer}`} label={a.question} value={a.answer} />
+            ))}
+          </div>
+        ) : null}
+        {quote ? <p className="text-sm leading-relaxed text-muted-foreground">&ldquo;{quote}&rdquo;</p> : null}
+        <Badge variant="outline" className="text-[10px]">
+          {theme}
+        </Badge>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MiniBadge({ label, value }: { label: string; value: string }) {
+  const isYes = value.toLowerCase() === "yes";
+  const isNo = value.toLowerCase() === "no";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+        isYes && "bg-success/10 text-success",
+        isNo && "bg-destructive/10 text-destructive",
+        !isYes && !isNo && "bg-muted text-muted-foreground",
+      )}
+    >
+      {isYes ? <CheckCircle2 className="size-3" /> : isNo ? <XCircle className="size-3" /> : null} {label}
+    </span>
   );
 }
