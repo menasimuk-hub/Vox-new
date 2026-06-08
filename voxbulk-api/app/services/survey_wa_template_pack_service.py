@@ -437,10 +437,20 @@ def build_pack_json_schema(count: int) -> dict[str, Any]:
     }
 
 
-def build_system_template_json_schema(count: int) -> dict[str, Any]:
-    """Strict OpenAI Responses schema for global welcome/thank-you/tell-us-more generation."""
+def build_system_template_json_schema(
+    count: int,
+    *,
+    step_roles: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    """Strict OpenAI Responses schema for global system-template generation."""
     size = max(1, min(int(count or 1), 6))
     schema = build_pack_json_schema(size)
+    if step_roles:
+        items = schema.get("properties", {}).get("templates", {}).get("items")
+        if isinstance(items, dict):
+            step_role = items.get("properties", {}).get("step_role")
+            if isinstance(step_role, dict):
+                step_role["enum"] = list(step_roles)
     assert_openai_strict_json_schema(schema)
     return schema
 

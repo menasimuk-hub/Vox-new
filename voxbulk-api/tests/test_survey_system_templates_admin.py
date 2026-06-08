@@ -131,7 +131,7 @@ def test_selectable_industries_exclude_hidden_system_industry(db):
 def test_system_generate_schema_is_openai_strict():
     from app.services.survey_wa_template_pack_service import build_system_template_json_schema
 
-    schema = SurveySystemTemplateService._system_generate_schema(2)
+    schema = SurveySystemTemplateService._system_generate_schema(2, "thank_you")
     build_system_template_json_schema(2)
     assert schema.get("additionalProperties") is False
     assert schema.get("required") == ["templates"]
@@ -140,6 +140,11 @@ def test_system_generate_schema_is_openai_strict():
     assert items.get("type") == "object"
     assert items.get("additionalProperties") is False
     assert set(items.get("required") or []) == set(items.get("properties") or {})
+    assert items["properties"]["step_role"]["enum"] == ["completion"]
+
+    final_schema = SurveySystemTemplateService._system_generate_schema(1, "final_feedback")
+    final_items = final_schema["properties"]["templates"]["items"]
+    assert final_items["properties"]["step_role"]["enum"] == ["final_feedback_text"]
 
     button_items = items["properties"]["buttons"]["items"]
     assert button_items.get("additionalProperties") is False
@@ -187,6 +192,44 @@ def test_generate_with_openai_repairs_sparse_openai_rows(db, monkeypatch):
     assert first["valid"] is True
     assert first["template"]["body"]
     assert first["template"]["example_values"]
+
+
+def test_generate_with_openai_final_feedback(db, monkeypatch):
+    sparse = {
+        "template_name": "closing_q",
+        "variant_type": "standard",
+        "title": "Closing question",
+        "step_role": "final_feedback_text",
+        "outcome_key": None,
+        "purpose": "final_feedback",
+        "body": "",
+        "footer": "",
+        "header": "",
+        "button_type": "none",
+        "buttons": [],
+        "example_values": [],
+        "language": "en_US",
+        "category": "UTILITY",
+    }
+
+    def fake_responses_json(db, **kwargs):
+        assert kwargs["json_schema"]["properties"]["templates"]["items"]["properties"]["step_role"]["enum"] == [
+            "final_feedback_text"
+        ]
+        return {"templates": [sparse]}, {"model": "test"}
+
+    monkeypatch.setattr(
+        "app.services.survey_system_template_service.OpenAIProviderService.responses_json",
+        fake_responses_json,
+    )
+
+    result = SurveySystemTemplateService.generate_with_openai(db, kind="final_feedback", count=1)
+    assert result["valid_count"] >= 1
+    first = result["templates"][0]
+    assert first["valid"] is True
+    assert first["template"]["step_role"] == "final_feedback_text"
+    assert first["template"]["body"]
+    assert "anything else" in first["template"]["body"].lower()
 
 
 def test_hide_template_sets_active_for_survey_false(db):

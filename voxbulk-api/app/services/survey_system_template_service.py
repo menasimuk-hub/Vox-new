@@ -724,11 +724,11 @@ class SurveySystemTemplateService:
         return {**result, "system_template_kind": None}
 
     @staticmethod
-    def _system_generate_schema(count: int) -> dict[str, Any]:
-        """Strict OpenAI json_schema — deep-copied pack item schema with preflight validation."""
-        schema = build_system_template_json_schema(count)
-        assert_openai_strict_json_schema(schema)
-        return schema
+    def _system_generate_schema(count: int, kind: str) -> dict[str, Any]:
+        """Strict OpenAI json_schema — pack item schema locked to the system kind step_role."""
+        kind = normalize_system_template_kind(kind)
+        step_role = _step_role_for_kind(kind)
+        return build_system_template_json_schema(count, step_roles=(step_role,))
 
     @staticmethod
     def _system_generate_prompt(kind: str, *, instruction: str = "", count: int = 1) -> str:
@@ -801,7 +801,7 @@ class SurveySystemTemplateService:
                     kind,
                     count=pack_count,
                 ),
-                json_schema=SurveySystemTemplateService._system_generate_schema(pack_count),
+                json_schema=SurveySystemTemplateService._system_generate_schema(pack_count, kind),
                 schema_name=f"wa_system_{kind}_templates",
                 max_output_tokens=8000,
                 temperature=0.65,

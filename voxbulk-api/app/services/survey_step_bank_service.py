@@ -35,6 +35,7 @@ MIDDLE_STEP_ROLES: tuple[str, ...] = (
     "helpfulness",
     "abc_choice",
     "reason",
+    "final_feedback_text",
     "feeling_word",
     "follow_up",
     "improvement",
@@ -72,6 +73,7 @@ STEP_REPLY_CONFIG: dict[str, dict[str, Any]] = {
         "options": ["Option A", "Option B", "Option C"],
     },
     "reason": {"reply_type": "long_text", "options": []},
+    "final_feedback_text": {"reply_type": "long_text", "options": []},
     "feeling_word": {
         "reply_type": "choice",
         "options": ["Great", "Okay", "Disappointing", "Frustrating"],
@@ -91,6 +93,7 @@ def normalize_step_role(raw: str) -> str:
         "closing": "completion",
         "thank_you": "completion",
         "tell_us_more": "reason",
+        "final_feedback": "final_feedback_text",
         "nps": "rating",
         "score": "rating",
         "yesno": "yes_no",

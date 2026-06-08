@@ -85,6 +85,7 @@ type TrendPoint = {
   response_rate_pct?: number;
   completed_count?: number;
   nps_score?: number | null;
+  csat_pct?: number | null;
 };
 
 type Bar3 = { label: string; promoters: number; passives: number; detractors: number };
@@ -225,12 +226,13 @@ function SurveyResults() {
   const responseRate = Number(summary.response_rate_pct || 0);
   const npsDisplay =
     summary.nps_score != null && summary.nps_score !== "" ? String(summary.nps_score) : "—";
-  const csatPct =
+  const csatPctValue =
     summary.average_satisfaction_5 != null
-      ? `${Math.round((Number(summary.average_satisfaction_5) / 5) * 100)}%`
+      ? Math.round((Number(summary.average_satisfaction_5) / 5) * 100)
       : summary.average_recommend_score != null
-        ? `${Math.round((Number(summary.average_recommend_score) / 10) * 100)}%`
-        : "—";
+        ? Math.round((Number(summary.average_recommend_score) / 10) * 100)
+        : null;
+  const csatPct = csatPctValue != null ? `${csatPctValue}%` : "—";
   const csatSub =
     summary.average_satisfaction_5 != null
       ? `avg ${summary.average_satisfaction_5} / 5`
@@ -238,12 +240,27 @@ function SurveyResults() {
         ? `avg score ${summary.average_recommend_score}`
         : "satisfaction";
 
-  const chartTrend = weeklyTrend.map((w) => ({
-    week: w.week,
-    nps: w.nps_score ?? 0,
-    csat: w.response_rate_pct ?? 0,
-    responses: w.completed_count ?? 0,
-  }));
+  const sentimentCounts = (summary.sentiment_counts || {}) as Record<string, number>;
+  const sentimentTotal = Object.values(sentimentCounts).reduce((sum, count) => sum + Number(count || 0), 0);
+
+  const chartTrend =
+    weeklyTrend.length > 0
+      ? weeklyTrend.map((w) => ({
+          week: w.week,
+          nps: w.nps_score ?? 0,
+          csat: w.csat_pct ?? csatPctValue ?? 0,
+          responses: w.completed_count ?? 0,
+        }))
+      : completed > 0
+        ? [
+            {
+              week: "This survey",
+              nps: summary.nps_score != null && summary.nps_score !== "" ? Number(summary.nps_score) : 0,
+              csat: csatPctValue ?? 0,
+              responses: completed,
+            },
+          ]
+        : [];
 
   const npsDelta =
     chartTrend.length >= 2 ? (chartTrend[chartTrend.length - 1]?.nps ?? 0) - (chartTrend[0]?.nps ?? 0) : undefined;
@@ -287,17 +304,31 @@ function SurveyResults() {
     .filter((r) => r.quote)
     .filter((r) => !themeSearch || r.quote.toLowerCase().includes(themeSearch.toLowerCase()) || r.theme.toLowerCase().includes(themeSearch.toLowerCase()));
 
-  const themeItems = topIssues.length
-    ? topIssues.slice(0, 4).map((label, i) => ({
-        label,
-        value: Math.max(10, 40 - i * 8),
-        sentiment: i === 0 ? "negative" : i === 1 ? "mixed" : "positive",
-      }))
-    : recommendations.slice(0, 4).map((r, i) => ({
-        label: String(r.title || r.text || "Theme").slice(0, 48),
-        value: Math.max(10, 35 - i * 7),
-        sentiment: "mixed",
-      }));
+  const themeItems =
+    sentimentTotal > 0
+      ? Object.entries(sentimentCounts)
+          .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+          .slice(0, 4)
+          .map(([label, count]) => ({
+            label: label.charAt(0).toUpperCase() + label.slice(1),
+            value: Math.round((Number(count) / sentimentTotal) * 100),
+            sentiment: label === "negative" ? "negative" : label === "positive" ? "positive" : "mixed",
+          }))
+      : topIssues.length
+        ? topIssues.slice(0, 4).map((label) => ({
+            label,
+            value: Math.round(100 / Math.min(topIssues.length, 4)),
+            sentiment: label.toLowerCase().includes("negative")
+              ? "negative"
+              : label.toLowerCase().includes("positive")
+                ? "positive"
+                : "mixed",
+          }))
+        : recommendations.slice(0, 4).map((r) => ({
+            label: String(r.title || r.text || "Theme").slice(0, 48),
+            value: 0,
+            sentiment: "mixed",
+          }));
 
   const isLoading = resultsQ.isLoading;
   const hasError = resultsQ.isError;
@@ -387,7 +418,7 @@ function SurveyResults() {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-base">Weekly improvement</CardTitle>
-                    <p className="text-xs text-muted-foreground">NPS and response rate over recent weeks</p>
+                    <p className="text-xs text-muted-foreground">NPS and CSAT over recent weeks</p>
                   </div>
                   {npsDelta != null && npsDelta !== 0 ? (
                     <Badge variant="secondary" className="gap-1">
@@ -424,7 +455,7 @@ function SurveyResults() {
                       <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       <Area type="monotone" dataKey="nps" stroke="#6366f1" strokeWidth={2} fill="url(#results-nps)" name="NPS" />
-                      <Area type="monotone" dataKey="csat" stroke="#14b8a6" strokeWidth={2} fill="url(#results-csat)" name="Response rate %" />
+                      <Area type="monotone" dataKey="csat" stroke="#14b8a6" strokeWidth={2} fill="url(#results-csat)" name="CSAT %" />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}

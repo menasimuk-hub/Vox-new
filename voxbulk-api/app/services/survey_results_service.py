@@ -321,6 +321,8 @@ def build_org_survey_weekly_trend(db: Session, order: ServiceOrder, *, weeks: in
         metrics = compute_wa_survey_metrics(recipients)
         if metrics.get("nps_score_raw") is not None:
             bucket["nps_score"] = metrics["nps_score"]
+        if metrics.get("average_recommend_score") is not None:
+            bucket["csat_pct"] = round((float(metrics["average_recommend_score"]) / 10) * 100)
     trend: list[dict[str, Any]] = []
     for bucket in buckets.values():
         total = int(bucket.get("total_recipients") or 0)
@@ -741,6 +743,15 @@ def build_whatsapp_survey_results_payload(
     for recipient in completed:
         for row in _collect_open_feedback(recipient, order_id=order.id):
             voice_feedback.append({"respondent_id": recipient.id, "respondent_initials": _initials(recipient.name), **row})
+    sentiment_counts = wa_metrics.get("sentiment_counts") or {}
+    top_issues = [
+        f"{str(label).strip().title()} responses"
+        for label, count in sorted(
+            sentiment_counts.items(),
+            key=lambda item: (-int(item[1] or 0), str(item[0])),
+        )
+        if int(count or 0) > 0
+    ][:4]
     summary = {
         "total_recipients": total,
         "completed_count": completed_count,
@@ -762,8 +773,8 @@ def build_whatsapp_survey_results_payload(
         "nps_detractors": wa_metrics.get("nps_detractors", 0),
         "average_call_duration_seconds": None,
         "average_call_duration_label": "WhatsApp survey",
-        "sentiment_counts": wa_metrics.get("sentiment_counts") or {},
-        "top_issues": [],
+        "sentiment_counts": sentiment_counts,
+        "top_issues": top_issues,
         "top_tags": [],
         "analyzed_count": completed_count,
         "pending_analysis": max(0, total - completed_count),

@@ -1113,7 +1113,15 @@ def list_system_templates(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    return SurveySystemTemplateService.list_grouped_admin(db)
+    try:
+        return SurveySystemTemplateService.list_grouped_admin(db)
+    except SurveySystemTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except KeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported system_template_kind configuration: {e}",
+        ) from e
 
 
 @router.post("/system-templates")
