@@ -10,6 +10,42 @@ export function poundsToPence(pounds) {
   return Math.round((Number.isFinite(n) ? n : 0) * 100)
 }
 
+const SETTINGS_WRITABLE_KEYS = [
+  'fx_aud_multiplier',
+  'fx_cad_multiplier',
+  'fx_usd_multiplier',
+  'connection_fee_pence',
+  'connection_fee_label',
+  'connection_fee_enabled',
+  'interview_per_min_pence',
+  'wa_survey_package_fee_pence',
+  'wa_survey_extra_pence',
+  'ats_cv_scan_fee_pence',
+  'estimator_default_duration_min',
+  'estimator_default_interview_count',
+]
+
+export function pricingSettingsSavePayload(settings) {
+  const out = {}
+  for (const key of SETTINGS_WRITABLE_KEYS) {
+    if (settings?.[key] !== undefined && settings?.[key] !== null) {
+      out[key] = settings[key]
+    }
+  }
+  return out
+}
+
+function settingsFieldMatches(key, expected, fresh) {
+  if (key === 'wa_survey_package_fee_pence') {
+    const got = fresh.wa_survey_package_fee_pence ?? fresh.whatsapp_survey_fee_pence
+    return Number(got) === Number(expected)
+  }
+  const got = fresh[key]
+  if (typeof expected === 'boolean') return Boolean(got) === Boolean(expected)
+  if (typeof expected === 'number') return Number(got) === Number(expected)
+  return String(got ?? '') === String(expected ?? '')
+}
+
 const PricingSettingsContext = createContext(null)
 
 export function PricingSettingsProvider({ children }) {
@@ -52,12 +88,19 @@ export function PricingSettingsProvider({ children }) {
   const save = async (patch) => {
     setError('')
     setMsg('')
+    const body = pricingSettingsSavePayload(patch)
     try {
-      const row = await apiFetch('/admin/pricing/settings', { method: 'PUT', body: JSON.stringify(patch) })
-      if (!row || typeof row !== 'object') {
-        throw new Error('Invalid settings response')
+      await apiFetch('/admin/pricing/settings', { method: 'PUT', body: JSON.stringify(body) })
+      const fresh = await apiFetch('/admin/pricing/settings')
+      if (!fresh || typeof fresh !== 'object') {
+        throw new Error('Could not verify saved settings')
       }
-      setSettings(row)
+      for (const [key, val] of Object.entries(body)) {
+        if (!settingsFieldMatches(key, val, fresh)) {
+          throw new Error('Save did not persist. Reload the page and try again.')
+        }
+      }
+      setSettings(fresh)
       setMsg('Saved.')
     } catch (e) {
       setError(e?.message || 'Save failed')

@@ -62,3 +62,26 @@ def test_run_database_migrations_bootstraps_pricing():
         again = bootstrap_pricing_on_startup(db)
         assert again["ok"] is True
         assert set(again["plan_codes"]) == set(CANONICAL_PLAN_CODES)
+
+
+def test_update_settings_wa_package_fee_not_overwritten_by_stale_alias():
+    ensure_pricing_schema()
+    with get_sessionmaker()() as db:
+        row = VoxbulkPricingService.get_settings(db)
+        row.wa_survey_package_fee_pence = 50
+        db.commit()
+
+        updated = VoxbulkPricingService.update_settings(
+            db,
+            {
+                "wa_survey_package_fee_pence": 75,
+                "whatsapp_survey_fee_pence": 50,
+            },
+        )
+        assert updated.wa_survey_package_fee_pence == 75
+
+        reloaded = VoxbulkPricingService.get_settings(db)
+        assert reloaded.wa_survey_package_fee_pence == 75
+        out = VoxbulkPricingService.settings_to_dict(reloaded)
+        assert out["wa_survey_package_fee_pence"] == 75
+        assert out["whatsapp_survey_fee_pence"] == 75

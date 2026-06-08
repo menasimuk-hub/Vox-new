@@ -23,7 +23,16 @@ export default function PricingServices() {
             <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={penceToPounds(settings.interview_per_min_pence)} onChange={(e) => set('interview_per_min_pence', poundsToPence(e.target.value))} />
           </PricingField>
           <PricingField label="WA package fee £" compact>
-            <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={penceToPounds(waPkg)} onChange={(e) => set('wa_survey_package_fee_pence', poundsToPence(e.target.value))} />
+            <input
+              className="input pricingInputSm pricingInputNum"
+              type="number"
+              step="0.01"
+              value={penceToPounds(waPkg)}
+              onChange={(e) => {
+                const pence = poundsToPence(e.target.value)
+                setSettings({ ...settings, wa_survey_package_fee_pence: pence, whatsapp_survey_fee_pence: pence })
+              }}
+            />
           </PricingField>
           <PricingField label="WA extra £" compact>
             <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={penceToPounds(waExtra)} onChange={(e) => set('wa_survey_extra_pence', poundsToPence(e.target.value))} />

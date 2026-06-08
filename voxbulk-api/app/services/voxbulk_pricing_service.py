@@ -221,14 +221,25 @@ class VoxbulkPricingService:
         }
 
     @staticmethod
+    def _resolve_wa_package_fee_pence(payload: dict[str, Any]) -> int | None:
+        """Canonical WA package fee wins over read-only whatsapp_survey_fee_pence alias."""
+        if "wa_survey_package_fee_pence" in payload and payload["wa_survey_package_fee_pence"] is not None:
+            return int(payload["wa_survey_package_fee_pence"])
+        if "whatsapp_survey_fee_pence" in payload and payload["whatsapp_survey_fee_pence"] is not None:
+            return int(payload["whatsapp_survey_fee_pence"])
+        return None
+
+    @staticmethod
     def update_settings(db: Session, payload: dict[str, Any]) -> PricingGlobalSettings:
         row = VoxbulkPricingService.get_settings(db)
+        wa_pkg = VoxbulkPricingService._resolve_wa_package_fee_pence(payload)
+        if wa_pkg is not None:
+            row.wa_survey_package_fee_pence = wa_pkg
+
         int_fields = {
             "connection_fee_pence",
             "interview_per_min_pence",
-            "wa_survey_package_fee_pence",
             "wa_survey_extra_pence",
-            "whatsapp_survey_fee_pence",
             "ats_cv_scan_fee_pence",
             "estimator_default_duration_min",
             "estimator_default_interview_count",
@@ -241,18 +252,14 @@ class VoxbulkPricingService:
             "connection_fee_label",
             "connection_fee_enabled",
             "interview_per_min_pence",
-            "wa_survey_package_fee_pence",
             "wa_survey_extra_pence",
-            "whatsapp_survey_fee_pence",
             "ats_cv_scan_fee_pence",
             "estimator_default_duration_min",
             "estimator_default_interview_count",
         ):
             if key not in payload or payload[key] is None:
                 continue
-            if key in ("whatsapp_survey_fee_pence", "wa_survey_package_fee_pence"):
-                row.wa_survey_package_fee_pence = int(payload[key])
-            elif key in int_fields:
+            if key in int_fields:
                 setattr(row, key, int(payload[key]))
             else:
                 setattr(row, key, payload[key])
@@ -382,6 +389,10 @@ class VoxbulkPricingService:
 
     @staticmethod
     def update_custom_pricing(db: Session, row: OrgCustomPricing, payload: dict[str, Any]) -> OrgCustomPricing:
+        wa_pkg = VoxbulkPricingService._resolve_wa_package_fee_pence(payload)
+        if wa_pkg is not None:
+            row.wa_survey_package_fee_pence = wa_pkg
+
         for key in (
             "label",
             "monthly_price_gbp_pence",
@@ -391,18 +402,13 @@ class VoxbulkPricingService:
             "whatsapp_included",
             "cv_scans_included",
             "interview_per_min_pence",
-            "wa_survey_package_fee_pence",
             "wa_survey_extra_pence",
-            "whatsapp_survey_fee_pence",
             "ats_cv_scan_fee_pence",
             "is_active",
             "notes",
         ):
             if key in payload:
-                if key == "whatsapp_survey_fee_pence":
-                    row.wa_survey_package_fee_pence = payload[key]
-                else:
-                    setattr(row, key, payload[key])
+                setattr(row, key, payload[key])
         row.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(row)
