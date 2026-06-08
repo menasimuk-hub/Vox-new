@@ -70,7 +70,9 @@ class SurveyDispatchService:
         except Exception:
             config = {}
 
-        org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
+        from app.services.survey_wa_org_context_service import resolve_survey_organisation_name
+
+        org_name = resolve_survey_organisation_name(db, org_id=str(order.org_id), config=config)
         organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
         intro_template = _survey_intro_text(config)
         prefer_whatsapp = _uses_whatsapp(config)

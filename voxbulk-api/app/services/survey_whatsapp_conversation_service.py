@@ -60,6 +60,7 @@ from app.services.survey_session_service import SurveySessionService
 from app.services.survey_wa_final_feedback_service import (
     begin_final_feedback_open_text,
     begin_final_feedback_yes_no,
+    build_final_feedback_open_text_question,
     build_final_feedback_yes_no_question,
     final_feedback_settings,
     is_awaiting_final_feedback,
@@ -124,15 +125,17 @@ def _question_outbound_body(
     recipient: ServiceOrderRecipient,
     index: int,
     total: int,
+    org_id: str | None = None,
 ) -> str:
     """Prefer approved WhatsApp template body — never append generic Option A/B/C for builder flows."""
-    variables = _survey_variables(config, recipient)
+    variables = _survey_variables(config, recipient, db=db, org_id=org_id)
     if question.get("template_id"):
         preview = survey_template_preview(
             db,
             config=config,
             template_id=question["template_id"],
             recipient=recipient,
+            org_id=org_id,
         )
         body = str(preview.get("preview_body") or "").strip()
         if body:
@@ -189,9 +192,16 @@ def _survey_variables(
     config: dict[str, Any],
     recipient: ServiceOrderRecipient | None = None,
     *,
+    db: Session | None = None,
+    org_id: str | None = None,
     default_first_name: str = "Alex",
 ) -> dict[str, str]:
-    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
+    if db is not None and org_id:
+        from app.services.survey_wa_org_context_service import resolve_survey_organisation_name
+
+        org_name = resolve_survey_organisation_name(db, org_id=str(org_id), config=config)
+    else:
+        org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
     organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
     first = _first_name(recipient.name or "") if recipient else default_first_name
     if not first or first == "there":
@@ -212,6 +222,7 @@ def survey_template_preview(
     config: dict[str, Any],
     template_id: Any,
     recipient: ServiceOrderRecipient | None = None,
+    org_id: str | None = None,
 ) -> dict[str, Any]:
     """Rendered WhatsApp template body + buttons for UI and simulator previews."""
     tid = str(template_id or "").strip()
@@ -220,7 +231,7 @@ def survey_template_preview(
     row = SurveyWhatsappTemplateService.get_template(db, int(tid))
     if row is None:
         return {}
-    variables = _survey_variables(config, recipient)
+    variables = _survey_variables(config, recipient, db=db, org_id=org_id)
     preview = SurveyWhatsappTemplateService.build_preview(
         db,
         row,
@@ -248,12 +259,15 @@ def survey_question_display(
     recipient: ServiceOrderRecipient | None,
     index: int,
     total: int,
+    org_id: str | None = None,
 ) -> dict[str, Any]:
     """Prefer saved template preview; fall back to compact free-text for unapproved rows."""
-    variables = _survey_variables(config, recipient)
+    variables = _survey_variables(config, recipient, db=db, org_id=org_id)
     template_id = question.get("template_id")
     if template_id:
-        preview = survey_template_preview(db, config=config, template_id=template_id, recipient=recipient)
+        preview = survey_template_preview(
+            db, config=config, template_id=template_id, recipient=recipient, org_id=org_id
+        )
         if preview.get("preview_body"):
             step_role = str(question.get("step_role") or preview.get("step_role") or "").strip()
             options = question.get("options") or []
@@ -1268,6 +1282,14 @@ def _resolve_template_row(db: Session, template_id: Any) -> Any | None:
     return row
 
 
+def _is_branch_system_template(question: dict[str, Any] | None) -> bool:
+    """Final-feedback / tell-us-more templates sit outside builder step_sequence."""
+    if not isinstance(question, dict):
+        return False
+    role = str(question.get("step_role") or "").strip().lower()
+    return role in {"final_feedback_yes_no", "final_feedback_text", "tell_us_more", "reason"}
+
+
 def _resolve_question_template(
     db: Session,
     config: dict[str, Any],
@@ -1280,6 +1302,17 @@ def _resolve_question_template(
     """Strict template lookup for builder flows — no step-bank fallback."""
     strict = should_use_builder_linear_runtime(config)
     tid = question.get("template_id") if isinstance(question, dict) else None
+    if strict and _is_branch_system_template(question):
+        if tid:
+            row = _resolve_template_row(db, tid)
+            if row is not None:
+                return row
+        msg = (
+            f"Branch template missing or unapproved for step_role={question.get('step_role') if isinstance(question, dict) else None} "
+            f"(order={order_id}, session={session_id})"
+        )
+        logger.error("%s %s", LOG_PREFIX, msg)
+        raise SurveyBuilderFlowError(msg)
     if strict:
         if not tid:
             msg = (
@@ -1383,7 +1416,7 @@ def _send_message(
     if is_simulator_dry_run(config):
         return True
 
-    variables = _survey_variables(config, recipient)
+    variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
     template_row = None
     if question and question.get("template_id"):
         template_row = _resolve_question_template(
@@ -1606,7 +1639,7 @@ def send_survey_opening(
         current_step=0,
     )
 
-    variables = _survey_variables(config, recipient)
+    variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
     template_row = _resolve_template_row(db, config.get("wa_template_id"))
     preview_body = ""
     if template_row is not None:
@@ -1756,6 +1789,7 @@ def send_first_question(
         recipient=recipient,
         index=1,
         total=total,
+        org_id=str(order.org_id),
     )
     template_row = None
     try:
@@ -1885,7 +1919,7 @@ def _send_first_question_graph(
         db, order=order, recipient=recipient, config=config
     )
     total = max_question_visits(config)
-    variables = _survey_variables(config, recipient)
+    variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
     body = format_question_message(q, index=1, total=total, variables=variables)
     conv = _wa_conversation(_recipient_result(recipient))
     payload = _recipient_result(recipient)
@@ -1996,6 +2030,7 @@ def _complete_linear_survey_thank_you(
             recipient=recipient,
             index=len(questions) + 1,
             total=len(questions),
+            org_id=str(order.org_id),
         )
         conv["step"] = total + 1
         conv["completed_at"] = datetime.utcnow().isoformat()
@@ -2118,8 +2153,13 @@ def _handle_final_feedback_inbound(
     elif conv.get("awaiting_final_feedback_yes_no"):
         choice = parse_final_feedback_yes_no(effective_body)
         if not choice:
-            retry_q = build_final_feedback_yes_no_question(settings)
-            retry_body = format_question_message(retry_q, index=total, total=total)
+            retry_q = build_final_feedback_yes_no_question(settings, db=db, config=config)
+            retry_body = format_question_message(
+                retry_q,
+                index=total,
+                total=total,
+                variables=_survey_variables(config, recipient, db=db, org_id=str(order.org_id)),
+            )
             _send_message(
                 db,
                 order=order,
@@ -2171,8 +2211,21 @@ def _handle_final_feedback_inbound(
         payload["wa_conversation"] = conv
         payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
         _save_recipient_result(db, recipient, payload)
-        prompt = str(settings.get("open_text_prompt") or "").strip()
-        sent = _send_freeform_whatsapp(db, order=order, recipient=recipient, body=prompt)
+        open_text_q = build_final_feedback_open_text_question(settings, db=db, config=config)
+        open_text_body = format_question_message(
+            open_text_q,
+            index=total,
+            total=total,
+            variables=_survey_variables(config, recipient, db=db, org_id=str(order.org_id)),
+        )
+        sent = _send_message(
+            db,
+            order=order,
+            recipient=recipient,
+            body=open_text_body,
+            config=config,
+            question=open_text_q,
+        )
         log_final_feedback(
             "yes_no_accepted_open_text_prompt_sent",
             order_id=order.id,
@@ -2537,14 +2590,14 @@ def handle_inbound_reply(
             session_row.id if session_row else None,
         )
 
-    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
-    organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
+    variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
+    org_name = variables["organisation_name"]
+    organiser = variables["organiser_name"]
 
     conv = _wa_conversation(payload)
     step = int(conv.get("step") or 0)
     total = int(conv.get("total") or len(questions))
     answers: list[dict[str, Any]] = list(conv.get("answers") or [])
-    variables = _survey_variables(config, recipient)
     elaboration_only = False
 
     if is_awaiting_final_feedback(conv):
@@ -2585,7 +2638,9 @@ def handle_inbound_reply(
             step_index=int(conv.get("followup_for_step") or step or 0),
             config=config,
         )
-        if voice and voice.get("handled"):
+        if voice and voice.get("handled") and (
+            voice.get("voice_rejected") or (voice.get("duplicate") and not voice.get("answer"))
+        ):
             return {
                 "handled": True,
                 "order_id": order.id,
@@ -2642,7 +2697,7 @@ def handle_inbound_reply(
     else:
         try:
             if conv.get("tell_us_more_pending"):
-                variables = _survey_variables(config, recipient)
+                variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
                 question = question_from_tell_us_more_template(
                     db,
                     config,
@@ -2678,7 +2733,9 @@ def handle_inbound_reply(
             step_index=step,
             config=config,
         )
-        if voice and voice.get("handled"):
+        if voice and voice.get("handled") and (
+            voice.get("voice_rejected") or (voice.get("duplicate") and not voice.get("answer"))
+        ):
             return {
                 "handled": True,
                 "order_id": order.id,
@@ -2701,6 +2758,7 @@ def handle_inbound_reply(
             recipient=recipient,
             index=step,
             total=total,
+            org_id=str(order.org_id),
         )
         if isinstance(answer_entry, dict):
             answer_entry = {
@@ -2887,7 +2945,7 @@ def handle_inbound_reply(
                 and normalize_step_role(str(question.get("step_role") or "")) == "rating"
                 and _rating_answer_is_low(answer, threshold=runtime_low_rating_threshold(config))
             ):
-                variables = _survey_variables(config, recipient)
+                variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
                 next_q = question_from_tell_us_more_template(
                     db,
                     config,
@@ -2951,6 +3009,7 @@ def handle_inbound_reply(
             recipient=recipient,
             index=next_step,
             total=total,
+            org_id=str(order.org_id),
         )
         conv["step"] = next_step
         conv["current_template_id"] = next_q.get("template_id")
@@ -3012,8 +3071,13 @@ def handle_inbound_reply(
         session = SurveySessionService.get_active_by_recipient(db, recipient.id)
         payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
         _save_recipient_result(db, recipient, payload)
-        yes_no_q = build_final_feedback_yes_no_question(settings)
-        yes_no_body = format_question_message(yes_no_q, index=total, total=total)
+        yes_no_q = build_final_feedback_yes_no_question(settings, db=db, config=config)
+        yes_no_body = format_question_message(
+            yes_no_q,
+            index=total,
+            total=total,
+            variables=_survey_variables(config, recipient, db=db, org_id=str(order.org_id)),
+        )
         sent = _send_message(
             db,
             order=order,
@@ -3090,8 +3154,9 @@ def _handle_inbound_reply_graph(
             "detail": "Graph resolver disabled for builder-selected surveys",
         }
 
-    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
-    organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
+    variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
+    org_name = variables["organisation_name"]
+    organiser = variables["organiser_name"]
 
     payload = _recipient_result(recipient)
     conv = _wa_conversation(payload)
@@ -3257,7 +3322,7 @@ def _handle_inbound_reply_graph(
             "log_id": log_id,
         }
 
-    variables = _survey_variables(config, recipient)
+    variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
     next_node_key = str(result.get("node_key") or session.current_node_key or "")
     next_q: dict[str, Any] = {}
     if session.flow_snapshot_json:

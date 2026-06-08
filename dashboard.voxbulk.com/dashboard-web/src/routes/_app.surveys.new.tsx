@@ -414,6 +414,7 @@ function CreateSurvey() {
         expectedDurationMinutes,
       },
       persisted,
+      { organisationName: businessName || undefined },
     );
   }, [
     channel,
@@ -421,6 +422,7 @@ function CreateSurvey() {
     anonymous,
     script,
     packageId,
+    businessName,
     industryId,
     primarySurveyTypeId,
     orderedServiceTagIds,
@@ -1059,6 +1061,8 @@ function CreateSurvey() {
         const isBuilderFlow = Array.isArray(builderSequence) && builderSequence.length > 0;
         const patchBody = buildSurveyDraftPatchBody(surveyName, {
           goal,
+          organisation_name: businessName || undefined,
+          client_name: businessName || undefined,
           delivery: "whatsapp",
           survey_channel: "whatsapp",
           channels: ["whatsapp"],

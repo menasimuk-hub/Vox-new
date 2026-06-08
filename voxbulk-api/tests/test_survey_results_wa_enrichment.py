@@ -123,7 +123,7 @@ def test_recipient_summary_surfaces_voice_transcript(db):
     assert row["voice_responses"]
 
 
-def test_build_answer_aggregates_skips_pending_transcription(db):
+def test_build_answer_aggregates_includes_pending_voice_note(db):
     order, recipient = _seed_wa_order(
         db,
         answers=[
@@ -133,9 +133,36 @@ def test_build_answer_aggregates_skips_pending_transcription(db):
                 "answer": "",
                 "answer_source": "voice_note",
                 "transcription_status": "pending",
+                "voice_note_job_id": "job-pending-1",
                 "reply_type": "long_text",
             }
         ],
     )
     aggregates = build_answer_aggregates([recipient])
-    assert aggregates == []
+    assert len(aggregates) == 1
+    assert aggregates[0]["question"] == "Tell us more"
+    assert aggregates[0]["responses"][0]["answer"] == "[Voice note — transcription pending]"
+
+
+def test_collect_open_feedback_includes_pending_voice(db):
+    order, recipient = _seed_wa_order(
+        db,
+        answers=[
+            {
+                "step_role": "final_feedback_text",
+                "question": "Share more",
+                "answer": "",
+                "answer_source": "voice_note",
+                "transcription_status": "pending",
+                "voice_note_job_id": "job-pending-2",
+                "reply_type": "long_text",
+            }
+        ],
+    )
+    from app.services.survey_results_service import _collect_open_feedback
+
+    rows = _collect_open_feedback(recipient, order_id=order.id)
+    assert len(rows) == 1
+    assert rows[0]["answer_source"] == "voice"
+    assert rows[0]["transcription_status"] == "pending"
+    assert "pending" in str(rows[0]["transcript"]).lower()

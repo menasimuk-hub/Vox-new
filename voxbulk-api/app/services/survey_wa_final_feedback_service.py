@@ -7,13 +7,22 @@ import logging
 import re
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.models.service_order import ServiceOrder
+from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[wa-final-feedback]"
 
 DEFAULT_YES_NO_QUESTION = "Would you like to add anything else before we finish?"
 DEFAULT_OPEN_TEXT_PROMPT = "Please share anything else you'd like us to know."
+
+FINAL_FEEDBACK_YES_NO_TEMPLATE_NAMES = (
+    "voxbulk_survey_final_feedback_global_final_feedback_voice_note",
+    "final_feedback_global_final_feedback_voice_note",
+)
 
 FINAL_FEEDBACK_YES_NO_ROLE = "final_feedback_yes_no"
 FINAL_FEEDBACK_TEXT_ROLE = "final_feedback_text"
@@ -126,13 +135,142 @@ def begin_final_feedback_open_text(conv: dict[str, Any]) -> None:
     conv.pop("awaiting_final_feedback_yes_no", None)
 
 
-def build_final_feedback_yes_no_question(settings: dict[str, Any]) -> dict[str, Any]:
+def _approved_template_row(db: Session, template_id: int) -> TelnyxWhatsappTemplate | None:
+    try:
+        row = db.get(TelnyxWhatsappTemplate, int(template_id))
+    except (TypeError, ValueError):
+        return None
+    if row is None or str(row.status or "").upper() != "APPROVED":
+        return None
+    return row
+
+
+def _body_text_from_template_row(row: TelnyxWhatsappTemplate) -> str:
+    preview = str(row.body_preview or "").strip()
+    if preview:
+        return preview
+    try:
+        components = json.loads(row.components_json or "[]")
+        if isinstance(components, list):
+            for comp in components:
+                if isinstance(comp, dict) and str(comp.get("type") or "").upper() == "BODY":
+                    body = str(comp.get("text") or "").strip()
+                    if body:
+                        return body
+    except Exception:
+        pass
+    return str(row.display_name or row.name or "").strip()
+
+
+def resolve_final_feedback_yes_no_template(
+    db: Session,
+    config: dict[str, Any] | None = None,
+) -> TelnyxWhatsappTemplate | None:
+    """Approved Telnyx yes/no template for the voice-note final feedback gate."""
+    cfg = config if isinstance(config, dict) else {}
+    runtime = cfg.get("builder_runtime") if isinstance(cfg.get("builder_runtime"), dict) else {}
+    branch = (runtime.get("branches") or {}).get("final_additional_feedback") or {}
+    configured_id = branch.get("yes_no_template_id") or cfg.get("final_feedback_yes_no_template_id")
+    if configured_id:
+        row = _approved_template_row(db, int(configured_id))
+        if row is not None:
+            return row
+
+    for name in FINAL_FEEDBACK_YES_NO_TEMPLATE_NAMES:
+        row = db.execute(
+            select(TelnyxWhatsappTemplate)
+            .where(
+                TelnyxWhatsappTemplate.name == name,
+                TelnyxWhatsappTemplate.active_for_survey.is_(True),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is not None and str(row.status or "").upper() == "APPROVED":
+            return row
+
+    row = db.execute(
+        select(TelnyxWhatsappTemplate)
+        .where(
+            TelnyxWhatsappTemplate.name.ilike("%final_feedback%voice_note%"),
+            TelnyxWhatsappTemplate.active_for_survey.is_(True),
+        )
+        .order_by(TelnyxWhatsappTemplate.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if row is not None and str(row.status or "").upper() == "APPROVED":
+        return row
+    return None
+
+
+def build_final_feedback_yes_no_question(
+    settings: dict[str, Any],
+    *,
+    db: Session | None = None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if db is not None:
+        row = resolve_final_feedback_yes_no_template(db, config)
+        if row is not None:
+            body = _body_text_from_template_row(row)
+            log_final_feedback(
+                "yes_no_template_resolved",
+                extra={"template_id": row.id, "template_name": row.name},
+            )
+            return {
+                **YES_NO_MATCH_QUESTION,
+                "template_id": row.id,
+                "template_name": row.name,
+                "text": body or str(settings.get("yes_no_question") or DEFAULT_YES_NO_QUESTION).strip(),
+                "step_role": FINAL_FEEDBACK_YES_NO_ROLE,
+            }
+        if runtime_final_feedback_enabled(config):
+            logger.error(
+                "%s missing_yes_no_template config_keys=%s",
+                LOG_PREFIX,
+                list((config or {}).keys())[:12],
+            )
+
     question = str(settings.get("yes_no_question") or DEFAULT_YES_NO_QUESTION).strip()
     return {
         **YES_NO_MATCH_QUESTION,
         "text": question or DEFAULT_YES_NO_QUESTION,
         "step_role": FINAL_FEEDBACK_YES_NO_ROLE,
     }
+
+
+def build_final_feedback_open_text_question(
+    settings: dict[str, Any],
+    *,
+    db: Session | None = None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    prompt = str(settings.get("open_text_prompt") or DEFAULT_OPEN_TEXT_PROMPT).strip()
+    question: dict[str, Any] = {
+        "reply_type": "long_text",
+        "step_role": FINAL_FEEDBACK_TEXT_ROLE,
+        "text": prompt or DEFAULT_OPEN_TEXT_PROMPT,
+    }
+    if db is None:
+        return question
+
+    from app.services.survey_system_template_service import SurveySystemTemplateService
+
+    template_id = SurveySystemTemplateService.resolve_final_feedback_template_id(db)
+    if template_id:
+        row = _approved_template_row(db, template_id)
+        if row is not None:
+            question["template_id"] = row.id
+            question["template_name"] = row.name
+            body = _body_text_from_template_row(row)
+            if body:
+                question["text"] = body
+            log_final_feedback(
+                "open_text_template_resolved",
+                extra={"template_id": row.id, "template_name": row.name},
+            )
+    elif runtime_final_feedback_enabled(config):
+        logger.warning("%s missing_open_text_template using_prompt_copy", LOG_PREFIX)
+    return question
 
 
 def should_offer_final_feedback(config: dict[str, Any], conv: dict[str, Any]) -> bool:
@@ -275,7 +413,9 @@ def try_complete_survey_after_final_feedback_voice(db, job) -> None:
     flow = SurveyFlowEngineService.build_flow(config)
     questions = list(flow.get("questions") or [])
     session = SurveySessionService.get_active_by_recipient(db, recipient.id)
-    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "Your business").strip()
+    from app.services.survey_wa_org_context_service import resolve_survey_organisation_name
+
+    org_name = resolve_survey_organisation_name(db, org_id=str(order.org_id), config=config)
     organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
     step = int(conv.get("step") or 0)
     total = int(conv.get("total") or len(questions))

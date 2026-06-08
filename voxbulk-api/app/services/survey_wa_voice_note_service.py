@@ -495,11 +495,32 @@ class SurveyWaVoiceNoteService:
                     "answer": answer_entry,
                     "transcript_ready": True,
                 }
+            q_text = str((question or {}).get("text") or "")
+            if answer_context == "final_feedback":
+                from app.services.survey_wa_final_feedback_service import final_feedback_settings
+
+                q_text = str(final_feedback_settings(config or {}).get("open_text_prompt") or q_text)
+            pending_entry = enrich_answer_with_voice_fields(
+                {
+                    "step_role": str((question or {}).get("step_role") or answer_context),
+                    "question": q_text,
+                    "answer": existing.answer_text or "",
+                    "answer_text": existing.answer_text or "",
+                    "reply_type": (question or {}).get("reply_type") if question else "long_text",
+                    "audio_file_path": existing.audio_file_path,
+                    "audio_mime_type": existing.audio_mime_type,
+                    "inbound_message_id": existing.inbound_message_id,
+                    "provider_media_id": existing.provider_media_id,
+                },
+                job_id=existing.id,
+                status=str(existing.transcription_status or "pending"),
+            )
             return {
                 "accepted": True,
                 "duplicate": True,
                 "job_id": existing.id,
-                "transcript_ready": False,
+                "answer": pending_entry,
+                "transcript_ready": existing.transcription_status == "completed",
             }
 
         answer_index = len(list(conv.get("answers") or []))

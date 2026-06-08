@@ -168,8 +168,22 @@ def _voice_audio_api_path(order_id: str, job_id: str | None) -> str | None:
     return f"/service-orders/{order_id}/survey-voice-notes/{clean}/audio"
 
 
+def _voice_answer_placeholder(item: dict[str, Any]) -> str | None:
+    if _normalize_answer_source(item) != "voice":
+        return None
+    status = str(item.get("transcription_status") or "").strip().lower()
+    if status in {"pending", "retrying", "transcribing"}:
+        return "[Voice note — transcription pending]"
+    if status == "failed":
+        err = str(item.get("transcription_error") or "").strip()
+        return f"[Voice note — transcription failed{': ' + err[:120] if err else ''}]"
+    if not resolve_answer_text(item):
+        return "[Voice note]"
+    return None
+
+
 def _serialize_open_answer(item: dict[str, Any], *, order_id: str | None = None) -> dict[str, Any]:
-    transcript = resolve_answer_text(item)
+    transcript = resolve_answer_text(item) or _voice_answer_placeholder(item)
     source = _normalize_answer_source(item)
     job_id = str(item.get("voice_note_job_id") or "").strip() or None
     return {
@@ -178,10 +192,12 @@ def _serialize_open_answer(item: dict[str, Any], *, order_id: str | None = None)
         "answer_source": source,
         "transcript": transcript or None,
         "transcription_status": str(item.get("transcription_status") or "").strip() or None,
+        "transcription_error": str(item.get("transcription_error") or "").strip() or None,
         "detected_language": str(item.get("detected_language") or "").strip() or None,
         "voice_note_job_id": job_id,
         "audio_url": _voice_audio_api_path(order_id or "", job_id) if order_id and source == "voice" else None,
         "text": transcript or None,
+        "created_at": str(item.get("transcribed_at") or item.get("processed_at") or "").strip() or None,
     }
 
 
@@ -198,13 +214,14 @@ def _collect_open_feedback(recipient: ServiceOrderRecipient, *, order_id: str | 
         reply_type = str(item.get("reply_type") or "").lower()
         if role not in open_roles and reply_type not in {"long_text", "text"}:
             continue
-        if answer_has_pending_transcription(item):
+        source = _normalize_answer_source(item)
+        if answer_has_pending_transcription(item) and source != "voice":
             continue
         text = resolve_answer_text(item)
-        if not text and _normalize_answer_source(item) != "voice":
+        if not text and source != "voice":
             continue
         row = _serialize_open_answer(item, order_id=order_id)
-        if row.get("transcript") or row.get("answer_source") == "voice":
+        if row.get("transcript") or source == "voice":
             out.append(row)
     return out
 
@@ -508,9 +525,10 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
             if not isinstance(item, dict):
                 continue
             question = str(item.get("question") or "General").strip()
-            if answer_has_pending_transcription(item):
+            source = _normalize_answer_source(item)
+            if answer_has_pending_transcription(item) and source != "voice":
                 continue
-            answer = resolve_answer_text(item)
+            answer = resolve_answer_text(item) or _voice_answer_placeholder(item) or ""
             if not question:
                 continue
             if _is_rating_answer(item):
@@ -688,7 +706,9 @@ def build_whatsapp_survey_results_payload(
 ) -> dict[str, Any]:
     config = _order_config(order)
     goal = str(config.get("goal") or "Survey").strip()
-    org_name = str(config.get("organisation_name") or config.get("clinic_name") or "").strip()
+    from app.services.survey_wa_org_context_service import resolve_survey_organisation_name
+
+    org_name = resolve_survey_organisation_name(db, org_id=str(order.org_id), config=config)
     report = _parse_report(order)
     recipients = ServiceOrderService.get_recipients(db, order.id)
     completed = [r for r in recipients if str(r.status or "").lower() == "completed"]

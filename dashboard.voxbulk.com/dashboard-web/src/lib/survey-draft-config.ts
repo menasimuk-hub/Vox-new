@@ -92,6 +92,7 @@ function pickBuilderFields(
 export function buildFullSurveyDraftConfig(
   wizard: SurveyDraftWizardSnapshot,
   persistedConfig?: Record<string, unknown> | null,
+  options?: { organisationName?: string },
 ): Record<string, unknown> {
   const persisted = persistedConfig || {};
   const builder = pickBuilderFields(wizard.waPreview, persisted);
@@ -109,6 +110,8 @@ export function buildFullSurveyDraftConfig(
     return compactRecord({
       ...builder,
       goal: wizard.goal,
+      organisation_name: options?.organisationName || persisted.organisation_name || undefined,
+      client_name: options?.organisationName || persisted.client_name || undefined,
       delivery: "whatsapp",
       survey_channel: "whatsapp",
       channels: ["whatsapp"],

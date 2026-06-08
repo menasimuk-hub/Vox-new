@@ -220,7 +220,32 @@ def _seed_final_feedback_order(db, org_id: str):
         variant_type="standard",
         components_json=json.dumps([{"type": "BODY", "text": "Thanks {{1}}"}]),
     )
-    db.add_all([welcome, rating, thank])
+    yes_no = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="voxbulk_survey_final_feedback_global_final_feedback_voice_note",
+        display_name="Final feedback yes/no",
+        language="en_US",
+        category="MARKETING",
+        body_preview="Would you like to add anything else before we finish?",
+        step_role="yes_no",
+        status="APPROVED",
+        active_for_survey=True,
+        variant_type="standard",
+        components_json=json.dumps(
+            [
+                {"type": "BODY", "text": "Would you like to add anything else before we finish?"},
+                {
+                    "type": "BUTTONS",
+                    "buttons": [
+                        {"type": "QUICK_REPLY", "text": "Yes"},
+                        {"type": "QUICK_REPLY", "text": "No"},
+                    ],
+                },
+            ]
+        ),
+    )
+    db.add_all([welcome, rating, thank, yes_no])
     db.commit()
 
     runtime = build_builder_runtime(
@@ -299,8 +324,9 @@ def test_final_feedback_sends_yes_no_before_open_text(mock_send, db):
     conv = payload.get("wa_conversation") or {}
     assert conv.get("awaiting_final_feedback_yes_no") is True
     assert conv.get("awaiting_final_feedback_text") is not True
+    sent_names = [str(c.kwargs.get("template_name") or "") for c in mock_send.call_args_list]
+    assert "voxbulk_survey_final_feedback_global_final_feedback_voice_note" in sent_names
     sent_bodies = [str(c.kwargs.get("body") or "") for c in mock_send.call_args_list]
-    assert any(DEFAULT_YES_NO_QUESTION in body for body in sent_bodies)
     assert not any(DEFAULT_OPEN_TEXT_PROMPT in body for body in sent_bodies)
 
 

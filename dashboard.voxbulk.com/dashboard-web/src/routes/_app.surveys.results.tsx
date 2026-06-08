@@ -48,7 +48,13 @@ type AggregateBlock = {
   responses: Array<{ answer: string; count: number }>;
   step_role?: string;
 };
-type WaAnswer = { question?: string; answer?: string };
+type WaAnswer = {
+  question?: string;
+  answer?: string;
+  answer_text?: string;
+  answer_source?: string;
+  transcription_status?: string;
+};
 type Respondent = {
   id?: string;
   quote?: string | null;
@@ -264,14 +270,36 @@ function mapRespondentToCard(r: Respondent, index: number): ResponseCardData | n
 
   for (const item of r.wa_answers || []) {
     const q = String(item.question || "").trim();
-    const a = String(item.answer || "").trim();
-    if (q && a) answers.push({ question: q.slice(0, 28), answer: a });
+    const a = String(item.answer_text || item.answer || "").trim();
+    const isVoice = String(item.answer_source || "") === "voice_note";
+    if (!q) continue;
+    if (a) {
+      answers.push({ question: q.slice(0, 28), answer: a });
+      continue;
+    }
+    if (isVoice) {
+      const status = String(item.transcription_status || "").trim().toLowerCase();
+      const label =
+        status === "failed"
+          ? "Voice note (failed)"
+          : status === "completed"
+            ? "Voice note"
+            : "Voice note (transcribing)";
+      answers.push({ question: q.slice(0, 28), answer: label });
+    }
+  }
+  for (const fb of r.open_feedback || []) {
+    const q = String(fb.question || "Feedback").trim();
+    const a = String(fb.transcript || fb.text || "").trim();
+    if (q && a && !answers.some((row) => row.question === q.slice(0, 28))) {
+      answers.push({ question: q.slice(0, 28), answer: a.slice(0, 80) });
+    }
   }
   if (answers.length === 0 && r.final_additional_feedback) {
     answers.push({ question: "Feedback", answer: "Provided" });
   }
 
-  if (!quote && answers.length === 0 && score <= 0) return null;
+  if (!quote && answers.length === 0 && score <= 0 && !(r.open_feedback || []).length) return null;
 
   return {
     id: String(r.id || index),
