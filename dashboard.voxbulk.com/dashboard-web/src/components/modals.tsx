@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
 import { WaBookingPhonePreview } from "@/components/wa-booking-phone-preview";
 import { WaSurveyPhonePreview } from "@/components/wa-survey-phone-preview";
-import { mapBillingBlockReason, buildLaunchPricingBreakdown, buildWhatsAppAllowanceNotice, isWhatsAppAllowanceExhausted } from "@/lib/survey-launch-billing";
 import { ATS_ANALYZING_LABEL } from "@/lib/interview-campaign";
+import { parseScriptQuestions } from "@/lib/interview-script";
+import { mapBillingBlockReason, buildLaunchPricingBreakdown, buildWhatsAppAllowanceNotice, isWhatsAppAllowanceExhausted } from "@/lib/survey-launch-billing";
 import {
   AlertCircle,
   CheckCircle2,
