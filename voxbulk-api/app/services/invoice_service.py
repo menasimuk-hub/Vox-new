@@ -10,7 +10,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.data.invoice_document_default import INVOICE_DOCUMENT_BODY
+from app.data.invoice_document_default import INVOICE_ACCENT, INVOICE_BORDER, INVOICE_DOCUMENT_BODY, INVOICE_MUTED
+from app.services.brand_assets import logo_data_uri
 from app.models.billing_invoice import BillingInvoice
 from app.models.organisation import Organisation
 from app.services.country_vat_service import CountryVatService
@@ -49,7 +50,24 @@ def _invoice_template_body(raw: str) -> str:
     if re.search(r"\{\{#|\{\{/", body):
         logger.warning("invoice_document_template_uses_handlebars_fallback_to_default")
         return INVOICE_DOCUMENT_BODY
+    if "#0f766e" in body.lower():
+        logger.warning("invoice_document_template_uses_legacy_green_fallback_to_default")
+        return INVOICE_DOCUMENT_BODY
     return body
+
+
+def _company_logo_html() -> str:
+    data = logo_data_uri(variant="logo-black")
+    if data:
+        return (
+            f'<img src="{data}" alt="VOXBULK" '
+            f'style="height:40px;width:auto;max-width:200px;display:block;margin-bottom:4px;" />'
+        )
+    settings = get_settings()
+    return (
+        f'<div style="font-size:22px;font-weight:800;color:{INVOICE_ACCENT};letter-spacing:-0.02em;">'
+        f"{settings.invoice_company_name}</div>"
+    )
 
 
 def _format_address(org: Organisation | None) -> str:
@@ -68,7 +86,7 @@ def _format_address(org: Organisation | None) -> str:
 def _line_items_html(items: list[dict[str, Any]], currency: str) -> str:
     if not items:
         return (
-            '<tr><td colspan="4" style="padding:12px;border-bottom:1px solid #e2e8f0;color:#64748b;">'
+            f'<tr><td colspan="4" style="padding:12px;border-bottom:1px solid {INVOICE_BORDER};color:{INVOICE_MUTED};">'
             "No line items</td></tr>"
         )
     rows: list[str] = []
@@ -79,10 +97,10 @@ def _line_items_html(items: list[dict[str, Any]], currency: str) -> str:
         total_pence = int(item.get("total_pence") or unit_pence * qty)
         rows.append(
             "<tr>"
-            f'<td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">{desc}</td>'
-            f'<td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;text-align:center;">{qty}</td>'
-            f'<td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:right;">{_money(unit_pence, currency)}</td>'
-            f'<td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;">{_money(total_pence, currency)}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid {INVOICE_BORDER};">{desc}</td>'
+            f'<td style="padding:10px 8px;border-bottom:1px solid {INVOICE_BORDER};text-align:center;">{qty}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid {INVOICE_BORDER};text-align:right;">{_money(unit_pence, currency)}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid {INVOICE_BORDER};text-align:right;font-weight:600;">{_money(total_pence, currency)}</td>'
             "</tr>"
         )
     return "".join(rows)
@@ -98,6 +116,7 @@ class InvoiceDocumentService:
             "company_address": address,
             "company_email": settings.invoice_company_email,
             "company_vat": settings.invoice_company_vat or "—",
+            "company_logo_html": _company_logo_html(),
         }
 
     @staticmethod

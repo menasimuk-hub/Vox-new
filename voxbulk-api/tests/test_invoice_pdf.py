@@ -9,6 +9,7 @@ from app.services.invoice_pdf_service import render_html_to_pdf_bytes
 def _filled_invoice_html() -> str:
     html = INVOICE_DOCUMENT_BODY
     values = {
+        "company_logo_html": '<img src="data:image/svg+xml;base64,TEST" alt="VOXBULK" style="height:40px;" />',
         "company_name": "VOXBULK",
         "company_address": "London",
         "company_email": "billing@voxbulk.com",

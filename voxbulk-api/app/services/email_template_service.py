@@ -165,7 +165,16 @@ class EmailTemplateService:
             needs_invoice_document_refresh = (
                 key == "invoice_document"
                 and default_body
-                and bool(re.search(r"\{\{#|\{\{/", body))
+                and (
+                    bool(re.search(r"\{\{#|\{\{/", body))
+                    or "#0f766e" in body.lower()
+                    or "{{company_logo_html}}" not in body
+                )
+            )
+            needs_new_invoice_refresh = (
+                key == "new_invoice"
+                and default_body
+                and "#0f766e" in body.lower()
             )
             if default_body and key.startswith("interview_") and (
                 "data:image" in body
@@ -180,6 +189,13 @@ class EmailTemplateService:
                 db.add(row)
                 changed = True
             elif needs_invoice_document_refresh:
+                row.body = default_body
+                if default_subject:
+                    row.subject = default_subject
+                row.updated_at = datetime.utcnow()
+                db.add(row)
+                changed = True
+            elif needs_new_invoice_refresh:
                 row.body = default_body
                 if default_subject:
                     row.subject = default_subject
