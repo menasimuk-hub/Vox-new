@@ -51,7 +51,7 @@ export function clearBillingQuery() {
     url.searchParams.delete("billing");
     url.searchParams.delete("order_billing");
     url.searchParams.delete("redirect_flow_id");
-    url.searchParams.delete("order_id");
+    // Keep order_id — it identifies the interview/survey draft, not only billing return.
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   } catch {
     /* ignore */

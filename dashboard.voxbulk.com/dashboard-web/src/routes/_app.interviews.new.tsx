@@ -50,7 +50,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
+import { apiFetch, apiUploadFiles, downloadAuthenticatedFile, ApiError } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
 import { formatQuoteDisplay } from "@/lib/billing/market";
 import { interviewBillingFromSources } from "@/lib/billing/plan-entitlements";
@@ -414,6 +414,13 @@ function CreateInterview() {
   React.useEffect(() => {
     createFailedRef.current = false;
   }, [wantNew]);
+
+  // Stale links like ?new=false without order_id (e.g. after billing return stripped params) show a dead page.
+  React.useEffect(() => {
+    if (draftOrderId) return;
+    if (wantNew) return;
+    void navigate({ to: "/interviews/new", search: { new: true }, replace: true });
+  }, [draftOrderId, navigate, wantNew]);
 
   React.useEffect(() => {
     if (draftOrderId) return;
@@ -1548,14 +1555,29 @@ function CreateInterview() {
   }
 
   if (draftQ.isError) {
+    const isNotFound = draftQ.error instanceof ApiError && draftQ.error.status === 404;
     return (
       <div className="flex w-full flex-col gap-6">
         <PageHeader eyebrow="Interviews" title="Create new interview" description="Could not load interview draft." />
         <Card>
           <CardContent className="py-8 text-center text-sm text-destructive">
             {draftQ.error instanceof Error ? draftQ.error.message : "Failed to load interview draft"}
-            <div className="mt-4">
+            {isNotFound ? (
+              <p className="mt-3 text-muted-foreground">
+                This ID may be a survey (not an interview), deleted, or from another organisation. Open{" "}
+                <strong>Interviews → list → Open</strong> for live campaigns, or start fresh below.
+              </p>
+            ) : null}
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
               <Button onClick={() => void draftQ.refetch()}>Try again</Button>
+              <Button variant="outline" asChild>
+                <Link to="/interviews/new" search={{ new: true }}>
+                  Start new interview
+                </Link>
+              </Button>
+              <Button variant="ghost" asChild>
+                <Link to="/interviews">Back to interviews</Link>
+              </Button>
             </div>
           </CardContent>
         </Card>
