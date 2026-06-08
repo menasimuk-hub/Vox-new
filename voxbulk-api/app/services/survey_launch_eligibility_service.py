@@ -171,6 +171,16 @@ class SurveyLaunchEligibilityService:
                 summary="No recipients on this survey yet.",
             )
 
+        if channel == "ai_call":
+            setup_error = SurveyLaunchEligibilityService._phone_survey_setup_error(db, order, config)
+            if setup_error:
+                return SurveyLaunchEligibilityService._set_block(
+                    base,
+                    code="phone_survey_setup_incomplete",
+                    reason=setup_error,
+                    summary=setup_error,
+                )
+
         if order.payment_status == "approved":
             base.update(
                 {
@@ -219,6 +229,24 @@ class SurveyLaunchEligibilityService:
         return SurveyLaunchEligibilityService._compute_phone(
             db, order, org, base, billing, recipient_count, config
         )
+
+    @staticmethod
+    def _phone_survey_setup_error(db: Session, order: ServiceOrder, config: dict[str, Any]) -> str | None:
+        if not config.get("script_approved") and not str(config.get("approved_script") or "").strip():
+            return "Approve your survey script before launch."
+        if not order.scheduled_start_at or not order.scheduled_end_at:
+            return "Set calling start and end date/time before launch."
+        try:
+            if order.scheduled_end_at <= order.scheduled_start_at:
+                return "Calling end must be after calling start."
+        except TypeError:
+            return "Set a valid calling window before launch."
+        from app.services.survey_voice_agent_service import resolve_survey_agent_for_order
+
+        agent = resolve_survey_agent_for_order(db, order, config)
+        if agent is None or not str(agent.telnyx_assistant_id or "").strip():
+            return "Select a survey voice agent with a Telnyx assistant configured."
+        return None
 
     @staticmethod
     def _compute_whatsapp(

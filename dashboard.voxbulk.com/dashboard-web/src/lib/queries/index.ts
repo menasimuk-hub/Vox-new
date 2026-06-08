@@ -36,6 +36,7 @@ export const queryKeys = {
   serviceCatalog: ["service-orders", "catalog"] as const,
   interviewDraft: ["service-orders", "interview-draft"] as const,
   interviewAgents: ["service-orders", "interview-agents"] as const,
+  surveyAgents: ["service-orders", "survey-agents"] as const,
   interviewBilling: ["service-orders", "interview-billing"] as const,
   orderRecipients: (orderId: string) => ["service-orders", orderId, "recipients"] as const,
   surveyLaunchEligibility: (orderId: string, cacheKey = "") =>
@@ -617,6 +618,38 @@ export function useInterviewAgents() {
       const data = await apiFetch<{ agents?: InterviewAgent[] }>("/service-orders/interview-agents");
       return data.agents || [];
     },
+  });
+}
+
+export type SurveyAgent = InterviewAgent;
+
+export function pickDefaultSurveyAgent(agents: SurveyAgent[]): SurveyAgent | undefined {
+  if (!agents.length) return undefined;
+  return (
+    agents.find((a) => a.is_default_for_org) ||
+    agents.find((a) => a.is_zone_match) ||
+    agents.find((a) => a.is_platform_default) ||
+    agents[0]
+  );
+}
+
+export function useSurveyAgents() {
+  return useQuery({
+    queryKey: queryKeys.surveyAgents,
+    queryFn: async () => {
+      const data = await apiFetch<{ agents?: SurveyAgent[] }>("/service-orders/survey-agents");
+      return data.agents || [];
+    },
+  });
+}
+
+export function useGenerateSurveyScript() {
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch<Record<string, unknown>>("/dashboard/service-scripts/generate", {
+        method: "POST",
+        body: JSON.stringify({ ...body, service_code: "survey" }),
+      }),
   });
 }
 

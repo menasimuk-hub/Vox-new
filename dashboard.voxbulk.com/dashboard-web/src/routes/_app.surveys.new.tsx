@@ -20,16 +20,12 @@ import {
 } from "@/lib/survey-step-labels";
 import { buildSurveyDraftCreateBody, buildSurveyDraftPatchBody, resolveSurveyNameForSave } from "@/lib/survey-draft-payload";
 import { buildFullSurveyDraftConfig, hydrateSurveyDraftFromOrder } from "@/lib/survey-draft-config";
-import { logLaunchFlow } from "@/lib/launch-flow-log";
 import {
-  billingCheckErrorMessage,
-  resolveBillingCheckPhase,
-} from "@/lib/survey-launch-billing";
-import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
-import {
+  pickDefaultSurveyAgent,
   useCreateServiceOrder,
   fetchSurveyLaunchEligibility,
   type SurveyLaunchEligibility,
+  useGenerateSurveyScript,
   useGenerateWaSurvey,
   useLaunchSurveyCampaign,
   useOrderRecipients,
@@ -37,6 +33,7 @@ import {
   usePatchServiceOrder,
   useSendWaSurveyTest,
   useServiceOrder,
+  useSurveyAgents,
   useSurveyPackages,
   useWaSurveyIndustries,
   useWaSurveyLibraryTemplates,
@@ -44,6 +41,12 @@ import {
   useWaSurveySystemTemplates,
   useWaSurveyTypes,
 } from "@/lib/queries";
+import { logLaunchFlow } from "@/lib/launch-flow-log";
+import {
+  billingCheckErrorMessage,
+  resolveBillingCheckPhase,
+} from "@/lib/survey-launch-billing";
+import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries/index";
 import { useSession } from "@/lib/session";
@@ -109,7 +112,9 @@ function CreateSurvey() {
   const createM = useCreateServiceOrder();
   const patchM = usePatchServiceOrder();
   const generateWaM = useGenerateWaSurvey();
+  const generatePhoneM = useGenerateSurveyScript();
   const sendTestWaM = useSendWaSurveyTest();
+  const agentsQ = useSurveyAgents();
 
   const [channel, setChannel] = React.useState<Channel>(null);
   const [surveyName, setSurveyName] = React.useState("");
@@ -146,6 +151,9 @@ function CreateSurvey() {
   const [script, setScript] = React.useState(
     "1. On a scale of 0-10, how likely are you to recommend us?\n2. What stood out about your visit?\n3. Anything we could improve?",
   );
+  const [agentId, setAgentId] = React.useState("");
+  const [systemPrompt, setSystemPrompt] = React.useState("");
+  const [expectedDurationMinutes, setExpectedDurationMinutes] = React.useState<number | undefined>(3);
   const [startAt, setStartAt] = React.useState("");
   const [endAt, setEndAt] = React.useState("");
   const [packageId, setPackageId] = React.useState("");
@@ -258,6 +266,9 @@ function CreateSurvey() {
     if (hydrated.surveyName) setSurveyName(hydrated.surveyName);
     if (hydrated.goal) setGoal(hydrated.goal);
     if (hydrated.script) setScript(hydrated.script);
+    if (hydrated.agentId) setAgentId(hydrated.agentId);
+    if (hydrated.systemPrompt) setSystemPrompt(hydrated.systemPrompt);
+    if (hydrated.expectedDurationMinutes != null) setExpectedDurationMinutes(hydrated.expectedDurationMinutes);
     if (hydrated.industryId) setIndustryId(hydrated.industryId);
     if (hydrated.selectedServiceTagIds) setSelectedServiceTagIds(hydrated.selectedServiceTagIds);
     if (hydrated.orderedServiceTagIds) setOrderedServiceTagIds(hydrated.orderedServiceTagIds);
@@ -279,6 +290,61 @@ function CreateSurvey() {
     if (hydrated.approved) setApproved(true);
     if (hydrated.waPreview) setWaPreview(hydrated.waPreview);
   }, [orderQ.data]);
+
+  React.useEffect(() => {
+    if (channel !== "phone" || agentId) return;
+    const defaultAgent = pickDefaultSurveyAgent(agentsQ.data || []);
+    if (defaultAgent?.id) setAgentId(defaultAgent.id);
+  }, [channel, agentId, agentsQ.data]);
+
+  const phoneLaunchBlockers = React.useMemo(() => {
+    if (channel !== "phone") return [] as string[];
+    const blockers: string[] = [];
+    if (contactsCount <= 0) blockers.push("Upload at least one contact before launch.");
+    if (!approved) blockers.push("Approve your survey script before launch.");
+    if (!agentId) blockers.push("Select a survey voice agent.");
+    if (!startAt || !endAt) blockers.push("Set calling start and end date/time.");
+    else if (new Date(startAt) >= new Date(endAt)) blockers.push("Calling end must be after calling start.");
+    return blockers;
+  }, [channel, contactsCount, approved, agentId, startAt, endAt]);
+
+  const onGeneratePhoneScript = async () => {
+    if (!goal.trim()) {
+      toast.error("Add a survey goal before generating");
+      return;
+    }
+    if (!agentId) {
+      toast.error("Select a survey voice agent");
+      return;
+    }
+    try {
+      const res = await generatePhoneM.mutateAsync({
+        goal,
+        contact_method: "AI phone call",
+        max_call_length: "4 minutes",
+        agent_id: agentId,
+        client_context: { agent_id: agentId },
+      });
+      const text = String(res.script_text || res.script || "").trim();
+      const system = String(res.system_prompt || text).trim();
+      if (!text) {
+        toast.error("AI did not return a script — try again");
+        return;
+      }
+      const rawDuration = res.expected_duration_minutes;
+      const duration =
+        rawDuration != null && !Number.isNaN(Number(rawDuration))
+          ? Math.max(2, Math.min(10, Number(rawDuration)))
+          : undefined;
+      setScript(text);
+      setSystemPrompt(system);
+      setExpectedDurationMinutes(duration);
+      setApproved(false);
+      toast.success(duration ? `AI script ready — est. ~${duration} min per call` : "AI script ready — review and approve when happy");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not generate script");
+    }
+  };
 
   const channelLabel = channel === "whatsapp" ? "WhatsApp" : channel === "phone" ? "AI phone call" : "—";
   const launchModeLabel =
@@ -330,6 +396,9 @@ function CreateSurvey() {
         resolvedPageRoles: resolvedPageRolesRef.current,
         waPreview,
         approved,
+        agentId,
+        systemPrompt,
+        expectedDurationMinutes,
       },
       persisted,
     );
@@ -353,6 +422,9 @@ function CreateSurvey() {
     autoSelectSteps,
     waPreview,
     approved,
+    agentId,
+    systemPrompt,
+    expectedDurationMinutes,
     orderQ.data?.config,
   ]);
 
@@ -1190,6 +1262,13 @@ function CreateSurvey() {
           setScript={setScript}
           approved={approved}
           setApproved={setApproved}
+          agentId={agentId}
+          setAgentId={setAgentId}
+          agents={agentsQ.data || []}
+          agentsLoading={agentsQ.isLoading}
+          onGenerateScript={onGeneratePhoneScript}
+          generatePending={generatePhoneM.isPending}
+          expectedDurationMinutes={expectedDurationMinutes}
           startAt={startAt}
           setStartAt={setStartAt}
           endAt={endAt}
@@ -1205,6 +1284,7 @@ function CreateSurvey() {
           onSaveDraft={onSaveDraft}
           savePending={savePending}
           contactsCount={contactsCount}
+          launchBlockers={phoneLaunchBlockers}
           onOpenLaunch={() => void onOpenLaunch("now")}
           launchPending={launchM.isPending || payBusy}
         />
@@ -1238,7 +1318,13 @@ function CreateSurvey() {
           launchEligibility,
         )}
         launchBlockers={
-          contactsCount <= 0 ? ["Upload at least one contact before launch."] : channel === "whatsapp" && !approved ? ["Approve your survey before launch."] : []
+          channel === "phone"
+            ? phoneLaunchBlockers
+            : contactsCount <= 0
+              ? ["Upload at least one contact before launch."]
+              : channel === "whatsapp" && !approved
+                ? ["Approve your survey before launch."]
+                : []
         }
         onRefreshEligibility={refreshLaunchEligibility}
         onLaunch={onLaunchSurvey}

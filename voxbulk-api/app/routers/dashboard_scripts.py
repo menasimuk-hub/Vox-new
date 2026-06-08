@@ -92,7 +92,7 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
                 db,
                 goal=str(payload.get("goal") or ""),
                 contact_method=str(payload.get("contact_method") or "AI phone call"),
-                max_call_length=str(payload.get("max_call_length") or "3 minutes"),
+                max_call_length=str(payload.get("max_call_length") or "4 minutes"),
                 organisation_name=branding["organisation_name"],
                 assistant_name=branding["assistant_name"],
                 organiser_name=branding["organiser_name"],

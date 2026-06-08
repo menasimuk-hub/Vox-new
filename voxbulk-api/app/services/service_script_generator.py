@@ -9,14 +9,15 @@ from app.models.agent import AgentDefinition
 from app.services.agents.base import AgentMessage
 from app.services.providers.openai_service import OpenAIProviderService
 
-_SURVEY_META = """You are an expert survey designer for VOXBULK outbound AI phone and WhatsApp surveys.
+_SURVEY_META = """You are an expert survey designer for VOXBULK outbound AI phone surveys.
 Return ONLY valid JSON with these fields:
 - "opening_disclosure": optional — usually omit; platform agent config supplies this
 - "intro": short segment AFTER opening disclosure — availability check and warm lead-in (follow agent call workflow)
-- "questions": array of 3-8 clear survey questions as strings
+- "questions": array of 1-4 clear survey questions as strings (hard maximum 4 for phone calls)
 - "closing": short thank-you and goodbye
 - "script_text": full readable script with sections OPENING DISCLOSURE, INTRO, QUESTIONS, CLOSING (see agent config)
 - "system_prompt": instructions for the AI agent running the survey (tone, pacing, when to probe)
+- "expected_duration_minutes": integer estimate of total call length (typically 2-5 minutes for up to four questions)
 
 British English. Practical for clinics and businesses. No markdown fences.
 Never mention Voxbulk, VOXBULK, or any platform provider to the recipient — all messages are on behalf of the client's organisation."""
@@ -62,6 +63,18 @@ def _estimate_interview_duration_minutes(questions: list[str], *, ai_value: obje
             pass
     count = len(questions)
     return max(5, min(30, 2 + round(count * 1.8)))
+
+
+def _estimate_survey_duration_minutes(questions: list[str], *, ai_value: object = None) -> int:
+    if ai_value is not None:
+        try:
+            parsed = int(float(ai_value))
+            if 2 <= parsed <= 10:
+                return parsed
+        except (TypeError, ValueError):
+            pass
+    count = len(questions)
+    return max(2, min(5, 1 + count))
 
 
 def _extract_json_object(raw: str) -> dict:
@@ -608,7 +621,7 @@ def generate_survey_script(
     *,
     goal: str,
     contact_method: str = "AI phone call",
-    max_call_length: str = "3 minutes",
+    max_call_length: str = "4 minutes",
     organisation_name: str = "",
     assistant_name: str = "",
     organiser_name: str = "",
@@ -665,6 +678,22 @@ def generate_survey_script(
         organiser_name=organiser_name,
         client_name=client_name,
     )
+    if not uses_whatsapp:
+        questions = list(result.get("questions") or [])
+        truncated = len(questions) > 4
+        if truncated:
+            questions = questions[:4]
+            result["questions"] = questions
+            intro = str(result.get("intro") or "").strip()
+            closing = str(result.get("closing") or "").strip()
+            result["script_text"] = _format_script(intro, questions, closing)
+            result["system_prompt"] = str(result.get("system_prompt") or "").strip() or (
+                f"Follow this approved script closely.\n\n{result['script_text']}"
+            )
+        result["expected_duration_minutes"] = _estimate_survey_duration_minutes(
+            questions,
+            ai_value=None if truncated else result.get("expected_duration_minutes"),
+        )
     if agent is not None:
         result = _apply_agent_layers_to_script(
             db,

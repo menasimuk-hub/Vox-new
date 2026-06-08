@@ -2,6 +2,8 @@ import * as React from "react";
 import { Download, Lock, Phone, Rocket, RotateCcw, Sparkles, Target, Upload, Users, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { parseScriptQuestions } from "@/lib/interview-script";
+import type { SurveyAgent } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { Stepper, Summary, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { Button } from "@/components/ui/button";
@@ -18,12 +20,6 @@ const PHONE_STEPS: WizardStepDef[] = [
   { id: 3, title: "Launch", subtitle: "Preview & go", icon: Rocket },
 ];
 
-const VOICE_LABELS: Record<string, string> = {
-  amelia: "Amelia (UK · warm)",
-  ravi: "Ravi (UK · professional)",
-  nora: "Nora (US · neutral)",
-};
-
 export type SurveyPhoneWizardProps = {
   onBack: () => void;
   anonymous: boolean;
@@ -33,6 +29,13 @@ export type SurveyPhoneWizardProps = {
   setScript: (v: string) => void;
   approved: boolean;
   setApproved: (v: boolean) => void;
+  agentId: string;
+  setAgentId: (v: string) => void;
+  agents: SurveyAgent[];
+  agentsLoading: boolean;
+  onGenerateScript: () => void | Promise<void>;
+  generatePending: boolean;
+  expectedDurationMinutes?: number;
   startAt: string;
   setStartAt: (v: string) => void;
   endAt: string;
@@ -48,45 +51,58 @@ export type SurveyPhoneWizardProps = {
   onSaveDraft: () => void;
   savePending: boolean;
   contactsCount?: number;
+  launchBlockers?: string[];
   onOpenLaunch: () => void | Promise<void>;
   launchPending?: boolean;
 };
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, error }: { label: string; children: React.ReactNode; error?: string }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
+      <Label className={`text-xs ${error ? "text-destructive" : ""}`}>{label}</Label>
       {children}
+      {error ? <p className="text-[11px] text-destructive">{error}</p> : null}
     </div>
   );
 }
 
 export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
   const [step, setStep] = React.useState(1);
-  const [voice, setVoice] = React.useState("amelia");
+
+  const selectedAgent = props.agents.find((a) => a.id === props.agentId);
+  const agentLabel = selectedAgent?.voice_label || selectedAgent?.name || "Survey agent";
+  const questionCount = React.useMemo(() => parseScriptQuestions(props.script).length, [props.script]);
+  const missingCallingWindow = !props.startAt || !props.endAt;
+  const launchBlockers = props.launchBlockers || [];
 
   const canNext = React.useMemo(() => {
     if (step === 1) {
-      return props.goal.trim().length > 0 && props.script.trim().length > 0 && props.approved;
+      return (
+        props.goal.trim().length > 0 &&
+        props.script.trim().length > 0 &&
+        props.approved &&
+        Boolean(props.agentId)
+      );
     }
-    if (step === 2) return true;
+    if (step === 2) return !missingCallingWindow;
     return true;
-  }, [step, props.goal, props.script, props.approved]);
+  }, [step, props.goal, props.script, props.approved, props.agentId, missingCallingWindow]);
 
   const goNext = () => {
     if (!canNext) {
       if (step === 1 && !props.approved) {
         toast.error("Approve your script before continuing");
+      } else if (step === 1 && !props.agentId) {
+        toast.error("Select a survey voice agent");
       } else if (step === 1) {
         toast.error("Add a survey goal and script before continuing");
+      } else if (step === 2 && missingCallingWindow) {
+        toast.error("Set calling start and end date/time");
       }
       return;
     }
     setStep((s) => Math.min(PHONE_STEPS.length, s + 1));
   };
-
-  const voiceLabel = VOICE_LABELS[voice]?.split(" (")[0] || "Amelia";
-  const selectedPackage = props.packages.find((p) => String(p.id || p.rule_id) === props.packageId);
 
   return (
     <>
@@ -99,7 +115,9 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
               <CardTitle className="flex items-center gap-2">
                 <Target className="size-4 text-primary" /> Step 1 · Survey goal & script
               </CardTitle>
-              <CardDescription>Tell the AI what you need to learn — it drafts a natural phone conversation.</CardDescription>
+              <CardDescription>
+                Tell the AI what you need to learn — it drafts a natural phone survey (up to 4 questions).
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="flex items-start gap-3 rounded-xl border border-primary/15 bg-primary/5 p-4">
@@ -109,7 +127,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 <div>
                   <p className="text-sm font-medium text-primary">Keep calls short and friendly</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    3–5 clear questions work best. The AI voice agent reads your approved script on each call.
+                    AI generates up to 4 questions. You can edit or add your own before approving — billing is per call.
                   </p>
                 </div>
               </div>
@@ -118,44 +136,57 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 <Textarea rows={3} value={props.goal} onChange={(e) => props.setGoal(e.target.value)} />
               </Field>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="AI voice agent">
-                  <Select value={voice} onValueChange={setVoice}>
+              <Field label="AI voice agent">
+                {props.agentsLoading ? (
+                  <Skeleton className="h-10 w-full" />
+                ) : props.agents.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No survey agents configured yet. Ask your admin to enable survey voice agents.
+                  </p>
+                ) : (
+                  <Select value={props.agentId} onValueChange={props.setAgentId}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select survey agent" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="amelia">Amelia (UK · warm)</SelectItem>
-                      <SelectItem value="ravi">Ravi (UK · professional)</SelectItem>
-                      <SelectItem value="nora">Nora (US · neutral)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Max call length">
-                  <Select defaultValue="2">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {["1", "2", "3", "5"].map((m) => (
-                        <SelectItem key={m} value={m}>
-                          {m} minutes
+                      {props.agents.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.voice_label || a.name}
+                          {a.is_default_for_org ? " · default" : a.is_zone_match ? " · GB" : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                </Field>
-              </div>
+                )}
+              </Field>
 
-              <Field label="Script">
-                <Textarea rows={6} value={props.script} onChange={(e) => props.setScript(e.target.value)} />
+              <Field label="Survey script">
+                <Textarea rows={10} value={props.script} onChange={(e) => props.setScript(e.target.value)} className="font-mono text-sm" />
+                {questionCount > 4 ? (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    {questionCount} questions detected — AI generation is capped at 4; longer scripts are allowed if you wrote them manually.
+                  </p>
+                ) : null}
               </Field>
 
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" className="gap-1.5" disabled>
-                  <Wand2 className="size-4" /> AI write survey script
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={props.generatePending || !props.goal.trim() || !props.agentId}
+                  onClick={() => void props.onGenerateScript()}
+                >
+                  <Wand2 className="size-4" /> {props.generatePending ? "Generating…" : "AI write survey script"}
                 </Button>
-                <Button variant="outline" className="gap-1.5" onClick={() => props.setApproved(true)}>
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={!props.script.trim()}
+                  onClick={() => {
+                    props.setApproved(true);
+                    toast.success("Script approved — save draft or continue to contacts");
+                  }}
+                >
                   <Lock className="size-4" /> Approve script
                 </Button>
                 <Button
@@ -166,16 +197,19 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                     toast.message("Edit the script, then approve again when ready.");
                   }}
                 >
-                  <RotateCcw className="size-4" /> Regenerate
+                  <RotateCcw className="size-4" /> Reset approval
                 </Button>
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center gap-2">
+                  {props.expectedDurationMinutes ? (
+                    <span className="text-[11px] text-muted-foreground">~{props.expectedDurationMinutes} min/call</span>
+                  ) : null}
                   <StatusBadge tone={props.approved ? "approved-script" : "draft-script"} />
                 </div>
               </div>
 
               {props.anonymous ? (
                 <p className="text-[11px] text-muted-foreground">
-                  Anonymous mode on — answers are transcribed without saving caller identity.
+                  Anonymous mode on — answers are aggregated without identifying individuals in reports.
                 </p>
               ) : null}
             </CardContent>
@@ -188,7 +222,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
               <CardTitle className="flex items-center gap-2">
                 <Users className="size-4 text-primary" /> Step 2 · Contacts & calling window
               </CardTitle>
-              <CardDescription>Upload patients and choose when the AI may call.</CardDescription>
+              <CardDescription>Upload contacts and choose when the AI may place survey calls.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <input
@@ -205,6 +239,9 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                   </div>
                   <p className="text-sm font-medium">Upload CSV or Excel</p>
                   <p className="text-xs text-muted-foreground">Columns: name, phone (required)</p>
+                  {(props.contactsCount ?? 0) > 0 ? (
+                    <p className="text-xs font-medium text-foreground">{props.contactsCount} contact(s) ready</p>
+                  ) : null}
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                     <Button size="sm" onClick={() => props.fileRef.current?.click()} disabled={props.uploading}>
                       {props.uploading ? "Uploading…" : "Choose file"}
@@ -212,18 +249,15 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                     <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void props.onDownloadTemplate()}>
                       <Download className="size-3.5" /> Sample template
                     </Button>
-                    <Button size="sm" type="button" variant="ghost" className="gap-1.5 text-muted-foreground" onClick={goNext}>
-                      Skip for now
-                    </Button>
                   </div>
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
-                <Field label="Calling start">
+                <Field label="Calling start (date & time)" error={!props.startAt ? "Required" : undefined}>
                   <Input type="datetime-local" value={props.startAt} onChange={(e) => props.setStartAt(e.target.value)} />
                 </Field>
-                <Field label="Calling end">
+                <Field label="Calling end (date & time)" error={!props.endAt ? "Required" : undefined}>
                   <Input type="datetime-local" value={props.endAt} onChange={(e) => props.setEndAt(e.target.value)} />
                 </Field>
                 <Field label="Package">
@@ -255,9 +289,20 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
               <CardTitle className="flex items-center gap-2">
                 <Rocket className="size-4 text-primary" /> Step 3 · Preview & launch
               </CardTitle>
-              <CardDescription>Hear a sample call flow and confirm everything before launch.</CardDescription>
+              <CardDescription>Review your survey script and calling window, then launch — billed per call.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {launchBlockers.length > 0 ? (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
+                  <p className="font-medium text-foreground">Before launch:</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                    {launchBlockers.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <div className="rounded-2xl border border-border bg-gradient-to-br from-background to-accent/10 p-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -265,47 +310,38 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                       <Phone className="size-4" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold">{voiceLabel} · sample call</p>
+                      <p className="text-sm font-semibold">{agentLabel} · sample call</p>
                       <p className="text-xs text-muted-foreground">AI phone survey preview</p>
                     </div>
                   </div>
                   <span className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">
-                    ~2 min call
+                    ~{props.expectedDurationMinutes || 3} min call
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {props.script
-                    .split("\n")
-                    .filter(Boolean)
-                    .slice(0, 4)
-                    .map((q, i) => (
-                      <div key={i} className="flex gap-3 rounded-lg border border-border bg-background p-3 text-sm">
-                        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
-                          {i + 1}
-                        </span>
-                        <span>{q.replace(/^\d+\.\s*/, "")}</span>
-                      </div>
-                    ))}
+                  {parseScriptQuestions(props.script).slice(0, 4).map((q) => (
+                    <div key={q.index} className="flex gap-3 rounded-lg border border-border bg-background p-3 text-sm">
+                      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
+                        {q.index}
+                      </span>
+                      <span>{q.text}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <Summary label="Channel" value="AI phone call" />
-                <Summary label="Voice" value={voiceLabel} />
+                <Summary label="Voice agent" value={agentLabel} />
                 <Summary label="Anonymous" value={props.anonymous ? "On" : "Off"} />
                 <Summary label="Script" value={props.approved ? "Approved" : "Draft"} />
               </div>
 
-              {(props.startAt || props.endAt || selectedPackage) && (
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <Summary label="Calling start" value={props.startAt || "Not set"} />
-                  <Summary label="Calling end" value={props.endAt || "Not set"} />
-                  <Summary
-                    label="Package"
-                    value={String(selectedPackage?.label || selectedPackage?.name || selectedPackage?.bundle_size || "—")}
-                  />
-                </div>
-              )}
+              <div className="grid gap-2 sm:grid-cols-3">
+                <Summary label="Calling start" value={props.startAt || "Not set"} />
+                <Summary label="Calling end" value={props.endAt || "Not set"} />
+                <Summary label="Contacts" value={String(props.contactsCount ?? 0)} />
+              </div>
             </CardContent>
           </Card>
         )}
@@ -318,12 +354,9 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
         onPrev={() => setStep((s) => Math.max(1, s - 1))}
         onNext={goNext}
         nextDisabled={!canNext}
-        skippable={step === 2}
-        onSkip={goNext}
-        skipLabel="Skip for now"
         finalLabel="Preview & launch"
         onFinish={() => void props.onOpenLaunch()}
-        finishDisabled={!props.approved || props.launchPending}
+        finishDisabled={!props.approved || props.launchPending || launchBlockers.length > 0}
         leftActions={
           <Button variant="outline" className="gap-1.5" onClick={() => void props.onSaveDraft()} disabled={props.savePending}>
             {props.savePending ? "Saving…" : "Save draft"}

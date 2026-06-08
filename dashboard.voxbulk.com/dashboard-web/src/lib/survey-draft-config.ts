@@ -25,6 +25,9 @@ export type SurveyDraftWizardSnapshot = {
   resolvedPageRoles: string[];
   waPreview: Record<string, unknown> | null;
   approved: boolean;
+  agentId?: string;
+  systemPrompt?: string;
+  expectedDurationMinutes?: number;
 };
 
 const BUILDER_PERSIST_KEYS = [
@@ -153,6 +156,12 @@ export function buildFullSurveyDraftConfig(
     survey_channel: "ai_call",
     anonymous_responses: wizard.anonymous,
     script: wizard.script,
+    approved_script: wizard.approved ? wizard.script : persisted.approved_script || undefined,
+    generated_script_draft: wizard.script,
+    script_approved: wizard.approved,
+    agent_id: wizard.agentId || persisted.agent_id || undefined,
+    system_prompt: wizard.systemPrompt || persisted.system_prompt || undefined,
+    estimated_duration_min: wizard.expectedDurationMinutes ?? persisted.estimated_duration_min ?? undefined,
     package_id: wizard.packageId || persisted.package_id || undefined,
   });
 }
@@ -178,6 +187,9 @@ export type HydratedSurveyDraftState = {
   autoSelectSteps?: boolean;
   manualMiddleRoles?: string[];
   approved?: boolean;
+  agentId?: string;
+  systemPrompt?: string;
+  expectedDurationMinutes?: number;
   waPreview?: Record<string, unknown> | null;
 };
 
@@ -206,7 +218,12 @@ export function hydrateSurveyDraftFromOrder(order: {
   };
 
   if (cfg.goal) out.goal = String(cfg.goal);
-  if (cfg.script) out.script = String(cfg.script);
+  const scriptText = String(cfg.approved_script || cfg.generated_script_draft || cfg.script || "").trim();
+  if (scriptText) out.script = scriptText;
+  if (cfg.agent_id) out.agentId = String(cfg.agent_id);
+  if (cfg.system_prompt) out.systemPrompt = String(cfg.system_prompt);
+  if (cfg.estimated_duration_min != null) out.expectedDurationMinutes = Number(cfg.estimated_duration_min);
+  if (cfg.script_approved === true || cfg.approved_script) out.approved = true;
   if (cfg.industry_id) out.industryId = String(cfg.industry_id);
   if (Array.isArray(cfg.selected_survey_type_ids)) {
     const ids = cfg.selected_survey_type_ids.map(String);

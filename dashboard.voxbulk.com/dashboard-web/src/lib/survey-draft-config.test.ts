@@ -47,6 +47,44 @@ describe("buildFullSurveyDraftConfig", () => {
     expect(config.builder_step_sequence).toEqual([{ step_role: "rating", text: "Rate us" }]);
     expect(config.package_id).toBe("pkg-1");
   });
+
+  it("persists phone survey approval fields", () => {
+    const config = buildFullSurveyDraftConfig(
+      {
+        channel: "phone",
+        goal: "NPS check",
+        script: "INTRO\nHi\n\nQUESTIONS\n1. Score?\n\nCLOSING\nThanks",
+        anonymous: true,
+        packageId: "pkg-phone",
+        industryId: "",
+        primarySurveyTypeId: "",
+        orderedServiceTagIds: [],
+        selectedServiceTagIds: [],
+        selectedServiceTemplateIds: {},
+        welcomeTemplateId: "",
+        thankYouTemplateId: "",
+        pageCount: 4,
+        privacyMode: "off",
+        surveyVariant: "standard",
+        allowFinalAdditionalFeedback: false,
+        autoSelectSteps: true,
+        resolvedPageRoles: [],
+        waPreview: null,
+        approved: true,
+        agentId: "agent-1",
+        systemPrompt: "Be concise.",
+        expectedDurationMinutes: 3,
+      },
+      {},
+    );
+
+    expect(config.survey_channel).toBe("ai_call");
+    expect(config.script_approved).toBe(true);
+    expect(config.approved_script).toContain("QUESTIONS");
+    expect(config.agent_id).toBe("agent-1");
+    expect(config.system_prompt).toBe("Be concise.");
+    expect(config.estimated_duration_min).toBe(3);
+  });
 });
 
 describe("hydrateSurveyDraftFromOrder", () => {
@@ -76,6 +114,29 @@ describe("hydrateSurveyDraftFromOrder", () => {
     expect(hydrated.pageCount).toBe(4);
     expect(hydrated.approved).toBe(true);
     expect(hydrated.channel).toBe("whatsapp");
+  });
+
+  it("restores phone survey script and agent fields", () => {
+    const hydrated = hydrateSurveyDraftFromOrder({
+      survey_name: "Phone survey",
+      scheduled_start_at: "2026-06-10T09:00:00Z",
+      scheduled_end_at: "2026-06-10T17:00:00Z",
+      config: {
+        goal: "Feedback",
+        delivery: "ai_call",
+        approved_script: "INTRO\nHello\n\nQUESTIONS\n1. How was it?\n\nCLOSING\nThanks",
+        script_approved: true,
+        agent_id: "agent-survey-1",
+        system_prompt: "Survey tone",
+        estimated_duration_min: 4,
+      },
+    });
+
+    expect(hydrated.channel).toBe("phone");
+    expect(hydrated.approved).toBe(true);
+    expect(hydrated.agentId).toBe("agent-survey-1");
+    expect(hydrated.script).toContain("How was it?");
+    expect(hydrated.expectedDurationMinutes).toBe(4);
   });
 });
 
