@@ -48,6 +48,10 @@ import {
   resolveBillingCheckPhase,
 } from "@/lib/survey-launch-billing";
 import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
+import {
+  SURVEY_TYPE_LIBRARY_PRIVACY_MODE,
+  filterSystemTemplatesByPrivacy,
+} from "@/lib/wa-survey-template-mode";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries/index";
 import { useSession } from "@/lib/session";
@@ -141,7 +145,7 @@ function CreateSurvey() {
   const stepBankQ = useWaSurveyStepBank(channel === "whatsapp" ? primarySurveyTypeId : null, privacyMode);
   const libraryTemplateQueries = useWaSurveyLibraryTemplates(
     orderedServiceTagIds,
-    privacyMode,
+    SURVEY_TYPE_LIBRARY_PRIVACY_MODE,
     channel === "whatsapp",
   );
   const [approved, setApproved] = React.useState(false);
@@ -814,14 +818,8 @@ function CreateSurvey() {
     });
   }, [selectedServiceTagIds]);
 
-  const filterSystemTemplatesByPrivacy = React.useCallback(
-    (rows: Array<Record<string, unknown>>) =>
-      rows.filter((row) => {
-        const privacy = String(row.privacy_mode || "").toLowerCase();
-        const variant = String(row.variant_type || "").toLowerCase();
-        const isAnonymous = privacy === "on" || variant === "anonymous";
-        return privacyMode === "on" ? isAnonymous : !isAnonymous;
-      }),
+  const filterSystemTemplatesByPrivacyMode = React.useCallback(
+    (rows: Array<Record<string, unknown>>) => filterSystemTemplatesByPrivacy(rows, privacyMode),
     [privacyMode],
   );
 
@@ -830,22 +828,21 @@ function CreateSurvey() {
     setPrivacyMode(value ? "on" : "off");
     setWelcomeTemplateId("");
     setThankYouTemplateId("");
-    setSelectedServiceTemplateIds({});
   }, []);
 
   const welcomeTemplates = React.useMemo(
     () =>
-      filterSystemTemplatesByPrivacy(
+      filterSystemTemplatesByPrivacyMode(
         (systemTemplatesQ.data?.templates?.welcome || []) as Array<Record<string, unknown>>,
       ),
-    [systemTemplatesQ.data, filterSystemTemplatesByPrivacy],
+    [systemTemplatesQ.data, filterSystemTemplatesByPrivacyMode],
   );
   const thankYouTemplates = React.useMemo(
     () =>
-      filterSystemTemplatesByPrivacy(
+      filterSystemTemplatesByPrivacyMode(
         (systemTemplatesQ.data?.templates?.thank_you || []) as Array<Record<string, unknown>>,
       ),
-    [systemTemplatesQ.data, filterSystemTemplatesByPrivacy],
+    [systemTemplatesQ.data, filterSystemTemplatesByPrivacyMode],
   );
 
   const toggleServiceTag = (typeId: string) => {

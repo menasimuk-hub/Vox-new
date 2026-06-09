@@ -425,7 +425,7 @@ function SurveyResults() {
   const respondents = (payload.respondents || []) as Respondent[];
   const weeklyTrend = (payload.weekly_trend || []) as TrendPoint[];
   const topIssues = (summary.top_issues as string[] | undefined) || [];
-  const allowFollowUp = payload.allow_follow_up !== false && !payload.anonymous_responses;
+  const allowFollowUp = false;
   const unhappyCount = Number(summary.unhappy_count || 0);
   const surveyChannel = selected?.surveyChannel || (orderInfo.channel === "whatsapp" ? "whatsapp" : orderInfo.channel === "ai_call" ? "ai_call" : null);
 
