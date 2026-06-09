@@ -53,21 +53,26 @@ function footerTextFromComponents(components) {
   return footer?.text || ''
 }
 
-function updateBodyInComponents(components, text, exampleValues = ['Alex']) {
-  const values = ensureExampleValues(text, '', exampleValues)
+function updateBodyInComponents(components, text, exampleValues = []) {
   const varIds = varIndexesFromText(text)
-  const needed = varIds.length ? Math.max(...varIds) : 1
-  const bodyExample = values.slice(0, needed)
-  while (bodyExample.length < needed) {
-    bodyExample.push(`Sample ${bodyExample.length + 1}`)
-  }
+  const values = ensureExampleValues(text, '', exampleValues)
   let found = false
   const out = components.map((comp) => {
     if (String(comp?.type || '').toUpperCase() !== 'BODY') return comp
     found = true
-    return { ...comp, text, example: { body_text: [bodyExample] } }
+    if (!varIds.length) {
+      const { example: _removed, ...rest } = comp
+      return { ...rest, text }
+    }
+    return { ...comp, text, example: { body_text: [values] } }
   })
-  if (!found) out.unshift({ type: 'BODY', text, example: { body_text: [bodyExample] } })
+  if (!found) {
+    out.unshift(
+      varIds.length
+        ? { type: 'BODY', text, example: { body_text: [values] } }
+        : { type: 'BODY', text }
+    )
+  }
   return out
 }
 
@@ -172,7 +177,7 @@ function applyTemplateDraft(setDraft, tpl) {
     components,
     button_type: buttonMeta.button_type,
     buttons: buttonMeta.buttons.length ? buttonMeta.buttons : [emptyButton()],
-    example_values: tpl?.example_values || ['Alex'],
+    example_values: ensureExampleValues(bodyTextFromComponents(components), '', tpl?.example_values || []),
     step_role: tpl?.step_role || 'rating',
   })
 }
@@ -952,21 +957,27 @@ export default function WaSurveyTemplateModal({
                   </div>
                   <div className="waTplEd-field-body">
                     <div className="waTplEd-var-rows">
-                      {(livePreview?.values || ensureExampleValues(draft.body, '', draft.example_values)).map((val, i) => (
-                        <div key={i} className="waTplEd-var-row">
-                          <span className="waTplEd-var-key">{`{{${i + 1}}}`}</span>
-                          <input
-                            className="waTplEd-input"
-                            value={val}
-                            onChange={(e) => patchDraft((d) => {
-                              const values = ensureExampleValues(d.body, '', d.example_values)
-                              values[i] = e.target.value
-                              return { ...d, example_values: values }
-                            })}
-                          />
-                          <span className="waTplEd-hint" style={{ margin: 0, minWidth: 72 }}>{VAR_LABELS[i] || 'Variable'}</span>
-                        </div>
-                      ))}
+                      {(() => {
+                        const values = livePreview?.values || ensureExampleValues(draft.body, '', draft.example_values)
+                        if (!values.length) {
+                          return <p className="waTplEd-hint">No variables in this template body.</p>
+                        }
+                        return values.map((val, i) => (
+                          <div key={i} className="waTplEd-var-row">
+                            <span className="waTplEd-var-key">{`{{${i + 1}}}`}</span>
+                            <input
+                              className="waTplEd-input"
+                              value={val}
+                              onChange={(e) => patchDraft((d) => {
+                                const next = ensureExampleValues(d.body, '', d.example_values)
+                                next[i] = e.target.value
+                                return { ...d, example_values: next }
+                              })}
+                            />
+                            <span className="waTplEd-hint" style={{ margin: 0, minWidth: 72 }}>{VAR_LABELS[i] || 'Variable'}</span>
+                          </div>
+                        ))
+                      })()}
                     </div>
                   </div>
                 </div>

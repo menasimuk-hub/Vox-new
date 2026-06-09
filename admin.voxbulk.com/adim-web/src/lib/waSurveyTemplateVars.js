@@ -12,12 +12,13 @@ export function varIndexesFromText(text) {
 
 export function ensureExampleValues(body, header = '', values = []) {
   const ids = varIndexesFromText(`${header || ''} ${body || ''}`)
-  const max = ids.length ? Math.max(...ids) : Math.max(1, (values || []).length)
+  if (!ids.length) return []
+  const max = Math.max(...ids)
   const next = [...(values || [])]
   while (next.length < max) {
     next.push(DEFAULT_EXAMPLES[next.length] || `Sample ${next.length + 1}`)
   }
-  return next
+  return next.slice(0, max)
 }
 
 export function substituteTemplateVars(text, values = []) {

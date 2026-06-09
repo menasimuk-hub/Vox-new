@@ -264,11 +264,15 @@ def _extract_example_values(components: list[Any] | None) -> list[str]:
             continue
         if str(comp.get("type") or "").upper() != "BODY":
             continue
+        text = str(comp.get("text") or "")
+        var_ids = _meta_var_ids_in_text(text)
+        if not var_ids:
+            return []
         example = comp.get("example")
         if isinstance(example, dict):
             body_text = example.get("body_text")
             if isinstance(body_text, list) and body_text and isinstance(body_text[0], list):
-                return [str(v) for v in body_text[0]]
+                return [str(v) for v in body_text[0][: max(var_ids)]]
         break
     return []
 
@@ -314,6 +318,7 @@ def validate_meta_variable_order(components: list[Any] | None) -> str | None:
 
 
 _DEFAULT_META_EXAMPLES = ["Alex", "Northgate Dental", "https://example.com/s/abc", "Monday 9am"]
+META_STATIC_BODY_SAMPLE = "Sample"
 
 
 def _resolve_example_values(
@@ -322,6 +327,10 @@ def _resolve_example_values(
     row: TelnyxWhatsappTemplate | None = None,
     override: list[str] | None = None,
 ) -> list[str]:
+    var_ids = _meta_var_ids_in_components(components)
+    if not var_ids:
+        return []
+
     if isinstance(override, list) and override:
         examples = [str(v) for v in override if str(v).strip()]
     elif row is not None:
@@ -332,8 +341,24 @@ def _resolve_example_values(
     if not examples:
         examples = _extract_example_values(components)
     if not examples:
-        examples = [_DEFAULT_META_EXAMPLES[0]]
-    return examples
+        examples = _pad_example_values([], max(var_ids))
+    return examples[: max(var_ids)]
+
+
+def build_meta_body_component(text: str, *, example_values: list[str] | None = None) -> dict[str, Any]:
+    """Build a Meta/Telnyx-compatible BODY component (example required even without variables)."""
+    body = str(text or "").strip()
+    var_ids = _meta_var_ids_in_text(body)
+    component: dict[str, Any] = {"type": "BODY", "text": body}
+    if var_ids:
+        examples = [str(v) for v in (example_values or []) if str(v).strip()]
+        if not examples:
+            examples = _pad_example_values([], max(var_ids))
+        body_example = _pad_example_values(examples, max(var_ids))
+    else:
+        body_example = [META_STATIC_BODY_SAMPLE]
+    component["example"] = {"body_text": [body_example]}
+    return component
 
 
 def _pad_example_values(examples: list[str], count: int) -> list[str]:
@@ -360,6 +385,43 @@ def _meta_example_is_valid(example: Any, *, field: str) -> bool:
     return any(str(v).strip() for v in first)
 
 
+def _normalize_draft_components(components: list[Any] | None) -> list[Any]:
+    """Persist draft components without Meta-only static examples."""
+    if not isinstance(components, list):
+        return []
+    out: list[Any] = []
+    for comp in components:
+        if not isinstance(comp, dict):
+            continue
+        cloned = dict(comp)
+        ctype = str(cloned.get("type") or "").upper()
+        if ctype == "BODY":
+            text = str(cloned.get("text") or "")
+            if not _meta_var_ids_in_text(text):
+                cloned.pop("example", None)
+            elif not _meta_example_is_valid(cloned.get("example"), field="body_text"):
+                cloned.pop("example", None)
+        out.append(cloned)
+    return out
+
+
+def _example_values_for_storage(
+    components: list[Any] | None,
+    *,
+    override: list[str] | None = None,
+) -> list[str]:
+    var_ids = _meta_var_ids_in_components(components)
+    if not var_ids:
+        return []
+    if isinstance(override, list):
+        values = [str(v) for v in override][: max(var_ids)]
+    else:
+        values = _extract_example_values(components)
+    if len(values) < max(var_ids):
+        values = _pad_example_values(values, max(var_ids))
+    return values[: max(var_ids)]
+
+
 def ensure_meta_examples_on_components(
     components: list[Any] | None,
     example_values: list[str] | None = None,
@@ -379,10 +441,11 @@ def ensure_meta_examples_on_components(
         if ctype == "BODY":
             text = str(cloned.get("text") or "")
             var_ids = _meta_var_ids_in_text(text)
-            needed = max(var_ids) if var_ids else 1
-            body_example = _pad_example_values(examples, needed)
-            if var_ids or not _meta_example_is_valid(cloned.get("example"), field="body_text"):
+            if var_ids:
+                body_example = _pad_example_values(examples, max(var_ids))
                 cloned["example"] = {"body_text": [body_example]}
+            elif not _meta_example_is_valid(cloned.get("example"), field="body_text"):
+                cloned["example"] = {"body_text": [[META_STATIC_BODY_SAMPLE]]}
         elif ctype == "HEADER":
             text = str(cloned.get("text") or "")
             var_ids = _meta_var_ids_in_text(text)
@@ -447,7 +510,7 @@ def _default_question_components(*, step_role: str) -> list[dict[str, Any]]:
         role = "rating"
     body = _QUESTION_DRAFT_BODIES.get(role, "How was your experience?")
     components: list[dict[str, Any]] = [
-        {"type": "BODY", "text": body, "example": {"body_text": [[]]}},
+        {"type": "BODY", "text": body},
         {"type": "FOOTER", "text": STANDARD_OPT_OUT_FOOTER},
     ]
     buttons = _question_button_components(role)
@@ -806,9 +869,14 @@ def survey_template_to_dict(
     components = _effective_components(row)
     sync_status = _refresh_local_sync_status(row)
     row.local_sync_status = sync_status
+    var_ids = _meta_var_ids_in_components(components)
     examples = _loads(row.example_values_json)
     if not isinstance(examples, list):
-        examples = _extract_example_values(components)
+        examples = []
+    if not var_ids:
+        examples = []
+    else:
+        examples = _example_values_for_storage(components, override=examples)
     workflow = template_workflow_state(row)
     payload = {
         **base,
@@ -1097,18 +1165,19 @@ class SurveyWhatsappTemplateService:
             row.step_role = raw_role[:32] or None
         components = payload.get("components")
         if isinstance(components, list):
+            normalized = _normalize_draft_components(components)
+            row.draft_components_json = _dumps(normalized)
+            row.body_preview = _body_preview(normalized)
             examples = payload.get("example_values")
             example_list = [str(v) for v in examples] if isinstance(examples, list) else None
-            if example_list is None:
-                loaded = _loads(row.example_values_json)
-                example_list = [str(v) for v in loaded] if isinstance(loaded, list) else None
-            components = ensure_meta_examples_on_components(components, example_list, row=row)
-            row.draft_components_json = _dumps(components)
-            row.body_preview = _body_preview(components)
-            row.example_values_json = _dumps(_extract_example_values(components))
-        examples = payload.get("example_values")
-        if isinstance(examples, list):
-            row.example_values_json = _dumps([str(v) for v in examples])
+            row.example_values_json = _dumps(
+                _example_values_for_storage(normalized, override=example_list)
+            )
+        elif "example_values" in payload and isinstance(payload.get("example_values"), list):
+            examples = payload.get("example_values")
+            row.example_values_json = _dumps(
+                _example_values_for_storage(_effective_components(row), override=examples)
+            )
         row.local_sync_status = _refresh_local_sync_status(row)
         row.updated_at = _now()
         db.add(row)

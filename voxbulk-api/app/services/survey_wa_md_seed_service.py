@@ -223,7 +223,7 @@ def _build_abc_choice_components(*, body: str, options: list[str]) -> list[dict[
     if len(labels) < 2:
         raise SurveyWaMdSeedError("At least two button labels are required")
     return [
-        {"type": "BODY", "text": body, "example": {"body_text": [[]]}},
+        {"type": "BODY", "text": body},
         {"type": "FOOTER", "text": STANDARD_OPT_OUT_FOOTER},
         {
             "type": "BUTTONS",

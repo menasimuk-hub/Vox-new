@@ -364,7 +364,7 @@ def test_push_to_telnyx_injects_body_example_when_missing(monkeypatch):
                 },
             ]
         )
-        row.example_values_json = json.dumps(["Sample"])
+        row.example_values_json = json.dumps([])
         db.add(row)
         db.commit()
         captured = {}
