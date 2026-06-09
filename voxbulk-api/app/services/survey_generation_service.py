@@ -255,7 +255,13 @@ class SurveyGenerationService:
                     (builder_config or {}).get("allow_final_additional_feedback", False)
                 ),
                 final_feedback_open_text_prompt=(
-                    SurveySystemTemplateService.resolve_final_feedback_prompt(db)
+                    SurveySystemTemplateService.resolve_final_feedback_prompt(
+                        db,
+                        {
+                            "privacy_mode": resolved_privacy,
+                            "anonymous_responses": variant_key == VARIANT_ANONYMOUS,
+                        },
+                    )
                     if (builder_config or {}).get("allow_final_additional_feedback")
                     else None
                 ),

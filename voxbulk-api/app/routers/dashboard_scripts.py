@@ -188,6 +188,8 @@ def validate_wa_survey_builder(
             selected_service_template_ids=body.get("selected_service_template_ids"),
             selected_middle_template_ids=body.get("selected_middle_template_ids"),
             require_approved=bool(body.get("require_approved")),
+            privacy_mode=body.get("privacy_mode"),
+            anonymous_responses=bool(body.get("anonymous_responses")),
         )
     except SurveyBuilderValidationError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"message": str(e), "errors": e.errors}) from e
@@ -289,6 +291,8 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 selected_middle_template_ids=body.get("selected_middle_template_ids"),
                 require_approved=False,
                 allow_final_additional_feedback=bool(body.get("allow_final_additional_feedback", False)),
+                privacy_mode=body.get("privacy_mode"),
+                anonymous_responses=bool(body.get("anonymous_responses")),
             )
             primary_survey_type_id = str(builder_config.get("primary_survey_type_id") or primary_survey_type_id)
             type_ids = list(builder_config.get("selected_survey_type_ids") or [])

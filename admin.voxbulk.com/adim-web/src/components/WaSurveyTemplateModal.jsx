@@ -148,6 +148,8 @@ function applyTemplateDraft(setDraft, tpl) {
   const buttonMeta = buttonsMetaFromComponents(components)
   setDraft({
     display_name: tpl?.display_name || tpl?.name,
+    customer_description: tpl?.customer_description || '',
+    privacy_mode: tpl?.privacy_mode === 'on' ? 'on' : 'off',
     category: tpl?.category || 'MARKETING',
     language: tpl?.language || 'en_GB',
     active_for_survey: tpl?.active_for_survey !== false,
@@ -395,6 +397,8 @@ export default function WaSurveyTemplateModal({
         method: 'PUT',
         body: JSON.stringify({
           display_name: draft.display_name,
+          customer_description: draft.customer_description,
+          privacy_mode: draft.privacy_mode,
           category: draft.category,
           language: draft.language || 'en_GB',
           active_for_survey: draft.active_for_survey !== false,
@@ -715,6 +719,40 @@ export default function WaSurveyTemplateModal({
               </div>
 
               <div className="waTplEd-edit-panel">
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-forms" /></div>
+                    <span className="waTplEd-ftitle">Wizard description</span>
+                    <span className="waTplEd-fbadge">customer-facing</span>
+                  </div>
+                  <div className="waTplEd-field-body">
+                    <textarea
+                      className="waTplEd-input"
+                      rows={3}
+                      value={draft.customer_description || ''}
+                      onChange={(e) => patchDraft({ customer_description: e.target.value })}
+                      placeholder="Short description shown in the create-survey wizard"
+                    />
+                  </div>
+                </div>
+
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-user-check" /></div>
+                    <span className="waTplEd-ftitle">Named / Anonymous</span>
+                  </div>
+                  <div className="waTplEd-field-body">
+                    <select
+                      className="waTplEd-select"
+                      value={draft.privacy_mode || 'off'}
+                      onChange={(e) => patchDraft({ privacy_mode: e.target.value })}
+                    >
+                      <option value="off">Named</option>
+                      <option value="on">Anonymous</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div className="waTplEd-field-card">
                   <div className="waTplEd-field-hdr">
                     <div className="waTplEd-ficon"><i className="ti ti-tag" /></div>

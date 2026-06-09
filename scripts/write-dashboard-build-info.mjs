@@ -23,8 +23,8 @@ const payload = {
   git_branch: git("git rev-parse --abbrev-ref HEAD"),
   built_at: new Date().toISOString(),
   interview_wizard_marker: "interview-preview-parseScriptQuestions-v2",
-  survey_results_marker: "survey-results-details-tab-v1",
-  survey_wizard_marker: "survey-wizard-customer-description-v1",
+  survey_results_marker: "survey-results-details-tab-v2",
+  survey_wizard_marker: "survey-wizard-customer-description-v2",
 };
 
 mkdirSync(outDir, { recursive: true });

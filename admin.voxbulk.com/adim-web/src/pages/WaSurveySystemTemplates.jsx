@@ -63,6 +63,7 @@ export default function WaSurveySystemTemplates() {
   const [createModal, setCreateModal] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
   const [genKind, setGenKind] = useState('welcome')
+  const [genPrivacyMode, setGenPrivacyMode] = useState('off')
   const [genInstruction, setGenInstruction] = useState('')
   const [genCount, setGenCount] = useState(2)
   const [genResult, setGenResult] = useState(null)
@@ -143,7 +144,7 @@ export default function WaSurveySystemTemplates() {
   }
 
   const openCreateModal = (kind) => {
-    setCreateModal({ kind: kind || 'welcome', display_name: '', privacy_mode: 'off' })
+    setCreateModal({ kind: kind || 'welcome', display_name: '', customer_description: '', privacy_mode: 'off' })
   }
 
   const submitCreate = async (e) => {
@@ -157,6 +158,7 @@ export default function WaSurveySystemTemplates() {
         body: JSON.stringify({
           system_template_kind: createModal.kind,
           display_name: createModal.display_name.trim() || undefined,
+          customer_description: createModal.customer_description?.trim() || undefined,
           privacy_mode: createModal.privacy_mode,
         }),
       })
@@ -249,6 +251,7 @@ export default function WaSurveySystemTemplates() {
         method: 'POST',
         body: JSON.stringify({
           system_template_kind: genKind,
+          privacy_mode: genPrivacyMode,
           instruction: genInstruction,
           count: Number(genCount) || 1,
         }),
@@ -363,6 +366,9 @@ export default function WaSurveySystemTemplates() {
           <span className={`pill ${variantBadgeClass(tpl.variant_label)}`}>{tpl.variant_label || 'Named'}</span>
           <span className="pill muted">{kindLabel(tpl.system_template_kind || section.kind)}</span>
         </div>
+        {tpl.customer_description ? (
+          <p className="waSurveySystemTemplateBody" style={{ fontStyle: 'italic' }}>{tpl.customer_description}</p>
+        ) : null}
         <p className="waSurveySystemTemplateBody">{draftBody(tpl)}</p>
         <div className="waSurveySystemTemplateMeta">
           <span>ID {tpl.id}</span>
@@ -447,6 +453,14 @@ export default function WaSurveySystemTemplates() {
             <select id="sys-kind" className="select" value={genKind} onChange={(e) => setGenKind(e.target.value)}>
               {KIND_OPTIONS.map((k) => (
                 <option key={k.value} value={k.value}>{k.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="formField">
+            <label className="label" htmlFor="sys-privacy">Named / Anonymous</label>
+            <select id="sys-privacy" className="select" value={genPrivacyMode} onChange={(e) => setGenPrivacyMode(e.target.value)}>
+              {PRIVACY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
           </div>
@@ -603,8 +617,18 @@ export default function WaSurveySystemTemplates() {
                 </select>
               </label>
               <label className="field" style={{ gridColumn: '1 / -1' }}>
-                <span>Display name</span>
+                <span>Wizard name</span>
                 <input className="input" value={createModal.display_name} onChange={(e) => setCreateModal({ ...createModal, display_name: e.target.value })} />
+              </label>
+              <label className="field" style={{ gridColumn: '1 / -1' }}>
+                <span>Wizard description</span>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={createModal.customer_description || ''}
+                  onChange={(e) => setCreateModal({ ...createModal, customer_description: e.target.value })}
+                  placeholder="Shown to customers in the create-survey wizard"
+                />
               </label>
             </div>
             <div className="leadModalFoot">

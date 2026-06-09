@@ -39,7 +39,7 @@ function templateFromApiRow(
   return {
     id: String(row.id),
     title,
-    description: "",
+    description: String(row.customer_description || "").trim(),
     bodyPreview: body || undefined,
     footer: String(row.footer || "Reply STOP to opt out").trim() || undefined,
     buttons: buttonsFromApiRow(row),
@@ -241,6 +241,7 @@ function TemplateCard({
     >
       <div>
         <p className="text-sm font-semibold">{tpl.title}</p>
+        {tpl.description ? <p className="mt-1 text-xs text-muted-foreground">{tpl.description}</p> : null}
       </div>
       <div className="mt-auto flex items-center gap-2">
         <Button size="sm" variant="outline" className="gap-1.5" type="button" onClick={onPreview}>

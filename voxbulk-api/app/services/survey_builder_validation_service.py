@@ -140,6 +140,8 @@ class SurveyBuilderValidationService:
         selected_middle_template_ids: Any = None,
         require_approved: bool = False,
         allow_final_additional_feedback: bool = False,
+        privacy_mode: str | None = None,
+        anonymous_responses: bool = False,
     ) -> dict[str, Any]:
         errors: list[str] = []
         industry = db.get(Industry, str(industry_id or "").strip())
@@ -232,7 +234,13 @@ class SurveyBuilderValidationService:
         tell_us_more_id = None
         if not errors:
             try:
-                tell_us_more_id = SurveySystemTemplateService.resolve_tell_us_more_template_id(db)
+                tell_us_more_id = SurveySystemTemplateService.resolve_tell_us_more_template_id(
+                    db,
+                    {
+                        "privacy_mode": privacy_mode,
+                        "anonymous_responses": anonymous_responses,
+                    },
+                )
             except Exception:
                 tell_us_more_id = None
         if errors:

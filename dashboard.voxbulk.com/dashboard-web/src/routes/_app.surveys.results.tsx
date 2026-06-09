@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import {
   AlertCircle,
+  ArrowLeft,
   ArrowUpDown,
   ChartBar as BarChart3,
   CircleCheck as CheckCircle2,
@@ -25,6 +26,7 @@ import {
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import { SurveyResultsRespondentsTab } from "@/components/survey-results/survey-results-respondents-tab";
 import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -382,35 +384,38 @@ function SurveyResults() {
     () => (ordersQ.data || []).map((o) => orderToCampaign(o, "survey")),
     [ordersQ.data],
   );
-  const [selectedId, setSelectedId] = React.useState<string | undefined>(searchOrderId);
+  const [pendingOrderId, setPendingOrderId] = React.useState<string | undefined>(searchOrderId);
+  const [activeOrderId, setActiveOrderId] = React.useState<string | undefined>(searchOrderId);
   const [responseSearch, setResponseSearch] = React.useState("");
   const [visibleResponses, setVisibleResponses] = React.useState(12);
   const [activeTab, setActiveTab] = React.useState("overview");
-  const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [detailRespondent, setDetailRespondent] = React.useState<Respondent | null>(null);
 
   React.useEffect(() => {
     logLaunchFlow("[results:init]", {
       component: "SurveyResults",
       orderId: searchOrderId || null,
-      selectedCampaignId: selectedId || null,
+      selectedCampaignId: activeOrderId || pendingOrderId || null,
       survey_name: "",
       title: "",
     });
   }, []);
 
   React.useEffect(() => {
-    if (searchOrderId) setSelectedId(searchOrderId);
+    if (!searchOrderId) return;
+    setPendingOrderId(searchOrderId);
+    setActiveOrderId(searchOrderId);
   }, [searchOrderId]);
 
   React.useEffect(() => {
     if (searchOrderId) return;
     if (ordersQ.isLoading || ordersQ.isFetching) return;
-    if (!selectedId && campaigns[0]) setSelectedId(campaigns[0].id);
-  }, [searchOrderId, campaigns, selectedId, ordersQ.isLoading, ordersQ.isFetching]);
+    if (!pendingOrderId && campaigns[0]) setPendingOrderId(campaigns[0].id);
+  }, [searchOrderId, campaigns, pendingOrderId, ordersQ.isLoading, ordersQ.isFetching]);
 
-  const activeOrderId = searchOrderId || selectedId;
-  const selected = campaigns.find((c) => c.id === activeOrderId);
+  const selected = campaigns.find((c) => c.id === (activeOrderId || pendingOrderId));
+  const pendingSelected = campaigns.find((c) => c.id === pendingOrderId);
+  const showDisabled = !pendingOrderId || pendingOrderId === activeOrderId;
   const resultsQ = useSurveyResults(activeOrderId || null);
   const payload = resultsQ.data || {};
   const summary = (payload.summary || {}) as Record<string, number | string | null | undefined>;
@@ -425,7 +430,7 @@ function SurveyResults() {
   const surveyChannel = selected?.surveyChannel || (orderInfo.channel === "whatsapp" ? "whatsapp" : orderInfo.channel === "ai_call" ? "ai_call" : null);
 
   const exportResults = async (kind: "pdf" | "csv" | "xlsx") => {
-    const exportId = searchOrderId || selectedId;
+    const exportId = activeOrderId;
     if (!exportId) return;
     try {
       const ext = kind === "pdf" ? "pdf" : kind === "xlsx" ? "xlsx" : "csv";
@@ -552,8 +557,8 @@ function SurveyResults() {
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
         <div className="flex flex-wrap items-center gap-3 min-w-0">
-          <Select value={activeOrderId} onValueChange={setSelectedId}>
-            <SelectTrigger className="h-9 w-56">
+          <Select value={pendingOrderId} onValueChange={setPendingOrderId}>
+            <SelectTrigger className="h-9 w-[21rem]">
               <SelectValue placeholder="Select survey" />
             </SelectTrigger>
             <SelectContent>
@@ -571,22 +576,32 @@ function SurveyResults() {
               ))}
             </SelectContent>
           </Select>
-          {selected && <StatusBadge tone={selected.status} />}
+          <Button size="sm" disabled={showDisabled} onClick={() => pendingOrderId && setActiveOrderId(pendingOrderId)}>
+            Show
+          </Button>
+          {pendingSelected && <StatusBadge tone={pendingSelected.status} />}
           <span className="text-sm text-muted-foreground truncate">
-            {completed.toLocaleString()} / {totalRecipients.toLocaleString()} responses · {responseRate}% rate
+            {activeOrderId
+              ? `${completed.toLocaleString()} / ${totalRecipients.toLocaleString()} responses · ${responseRate}% rate`
+              : "Select a survey and click Show"}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {allowFollowUp ? (
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setDetailsOpen(true)}>
-              <Users className="size-4" /> More details
-            </Button>
-          ) : null}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="h-9">
               <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
               <TabsTrigger value="questions" className="text-xs">Questions</TabsTrigger>
               <TabsTrigger value="responses" className="text-xs">Responses</TabsTrigger>
+              {allowFollowUp ? (
+                <TabsTrigger value="details" className="relative text-xs">
+                  More details
+                  {unhappyCount > 0 ? (
+                    <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
+                      {unhappyCount > 9 ? "9+" : unhappyCount}
+                    </span>
+                  ) : null}
+                </TabsTrigger>
+              ) : null}
             </TabsList>
           </Tabs>
         </div>
@@ -963,19 +978,26 @@ function SurveyResults() {
             </>
           )}
         </TabsContent>
+
+        {allowFollowUp ? (
+          <TabsContent value="details" className="space-y-4">
+            {isLoading ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <SurveyResultsRespondentsTab
+                respondents={respondents}
+                unhappyCount={unhappyCount}
+                onOpenRespondent={(row) => setDetailRespondent(row as Respondent)}
+              />
+            )}
+          </TabsContent>
+        ) : null}
       </Tabs>
 
       <p className="text-center text-[11px] text-muted-foreground">
         Results are for one selected survey. Reports compare many surveys over time.
       </p>
 
-      <RespondentsDetailsSheet
-        open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-        respondents={respondents}
-        channel={surveyChannel}
-        onSelect={(r) => setDetailRespondent(r)}
-      />
       <RespondentDetailSheet
         respondent={detailRespondent}
         channel={surveyChannel}
@@ -985,65 +1007,24 @@ function SurveyResults() {
   );
 }
 
-function RespondentsDetailsSheet({
-  open,
-  onOpenChange,
-  respondents,
-  channel,
-  onSelect,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  respondents: Respondent[];
-  channel: string | null;
-  onSelect: (r: Respondent) => void;
-}) {
-  const completed = respondents.filter((r) => String(r.status_label || "").toLowerCase() === "completed" || r.completed_at);
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>Respondent details</SheetTitle>
-          <SheetDescription>
-            {completed.length} completed respondents · click a row for full answers
-          </SheetDescription>
-        </SheetHeader>
-        <div className="mt-6 space-y-2">
-          {completed.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No completed respondents yet.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="py-2 pr-2">Name</th>
-                  <th className="py-2 pr-2">Score</th>
-                  <th className="py-2">Responded</th>
-                </tr>
-              </thead>
-              <tbody>
-                {completed.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="cursor-pointer border-b border-border/50 hover:bg-muted/40"
-                    onClick={() => onSelect(r)}
-                  >
-                    <td className="py-2.5 pr-2">
-                      <span className="flex items-center gap-1.5 font-medium">
-                        {r.is_unhappy ? <span className="size-2 rounded-full bg-destructive" title="Unhappy" /> : null}
-                        {r.name || "Respondent"}
-                      </span>
-                    </td>
-                    <td className="py-2.5 pr-2">{formatRespondentScore(r)}</td>
-                    <td className="py-2.5 text-muted-foreground">{formatRespondentDate(r)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
+function respondentInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
+}
+
+function completedAgoLabel(completedAt: string | null | undefined) {
+  if (!completedAt) return "Completed recently";
+  try {
+    const diffMs = Date.now() - new Date(completedAt).getTime();
+    const hours = Math.max(1, Math.round(diffMs / (1000 * 60 * 60)));
+    if (hours < 24) return `Completed ${hours}h ago`;
+    const days = Math.round(hours / 24);
+    return `Completed ${days}d ago`;
+  } catch {
+    return "Completed recently";
+  }
 }
 
 function RespondentDetailSheet({
@@ -1060,71 +1041,89 @@ function RespondentDetailSheet({
   const extracted = respondent?.extracted_answers || [];
   const openFeedback = respondent?.open_feedback || [];
 
+  const unhappyReason =
+    waAnswers.find((row) => {
+      const label = String(row.answer_text || row.answer || "").toLowerCase();
+      return label.includes("poor") || label === "no";
+    })?.question ||
+    extracted.find((row) => String(row.answer || "").toLowerCase().includes("poor"))?.question ||
+    "Negative feedback on survey answers";
+
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
         {respondent ? (
           <>
+            <Button variant="ghost" size="sm" className="mb-2 gap-1.5 px-0" onClick={onClose}>
+              <ArrowLeft className="size-4" /> Back to list
+            </Button>
             <SheetHeader>
-              <SheetTitle>{respondent.name || "Respondent"}</SheetTitle>
-              <SheetDescription>
-                {[respondent.phone, respondent.email].filter(Boolean).join(" · ") || "No contact details"}
-              </SheetDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                    {respondentInitials(respondent.name || "Respondent")}
+                  </span>
+                  <div>
+                    <SheetTitle>{respondent.name || "Respondent"}</SheetTitle>
+                    <SheetDescription>
+                      {[respondent.phone, respondent.email].filter(Boolean).join(" · ") || "No contact details"}
+                    </SheetDescription>
+                    <p className="mt-1 text-xs text-muted-foreground">{completedAgoLabel(respondent.completed_at)}</p>
+                  </div>
+                </div>
+                {respondent.is_unhappy ? <Badge variant="destructive">Unhappy</Badge> : null}
+              </div>
             </SheetHeader>
             <div className="mt-6 space-y-4 text-sm">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">{formatRespondentScore(respondent)}</Badge>
-                {respondent.duration_label ? <Badge variant="outline">{respondent.duration_label}</Badge> : null}
-                {respondent.is_unhappy ? <Badge variant="destructive">Needs attention</Badge> : null}
-              </div>
-              {channel === "ai_call" && extracted.length > 0 ? (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Call answers</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {extracted.map((row, i) => (
-                      <div key={i}>
-                        <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
-                        <p>{row.answer}</p>
-                      </div>
-                    ))}
+              {respondent.is_unhappy ? (
+                <Card className="border-destructive/40 bg-destructive/5">
+                  <CardContent className="space-y-1 p-4">
+                    <p className="font-medium text-destructive">Recommended: call within 24h</p>
+                    <p className="text-muted-foreground">{unhappyReason}</p>
                   </CardContent>
                 </Card>
               ) : null}
-              {waAnswers.length > 0 ? (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">WhatsApp answers</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {waAnswers.map((row, i) => (
-                      <div key={i}>
+              {channel === "ai_call" && extracted.length > 0
+                ? extracted.map((row, i) => (
+                    <Card key={`call-${i}`}>
+                      <CardContent className="space-y-2 p-4">
                         <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
-                        <p>{row.answer_text || row.answer}</p>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              ) : null}
-              {openFeedback.length > 0 ? (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Open feedback</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {openFeedback.map((row, i) => (
-                      <div key={i}>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{row.answer || "—"}</Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                : null}
+              {waAnswers.length > 0
+                ? waAnswers.map((row, i) => {
+                    const answer = String(row.answer_text || row.answer || "—");
+                    const tone = toneForAnswer(answer);
+                    return (
+                      <Card key={`wa-${i}`}>
+                        <CardContent className="space-y-2 p-4">
+                          <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
+                          <Badge className={cn(toneToColor(tone))}>{answer}</Badge>
+                        </CardContent>
+                      </Card>
+                    );
+                  })
+                : null}
+              {openFeedback.length > 0
+                ? openFeedback.map((row, i) => (
+                    <Card key={`open-${i}`}>
+                      <CardContent className="space-y-2 p-4">
                         <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
-                        <p>{row.translated_text || row.transcript || row.text}</p>
+                        <blockquote className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-muted-foreground">
+                          {row.translated_text || row.transcript || row.text || "—"}
+                        </blockquote>
                         {row.original_text && row.translated_text && row.original_text !== row.translated_text ? (
-                          <p className="mt-1 text-xs text-muted-foreground">Original: {row.original_text}</p>
+                          <p className="text-xs text-muted-foreground">Original: {row.original_text}</p>
                         ) : null}
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              ) : null}
+                      </CardContent>
+                    </Card>
+                  ))
+                : null}
             </div>
           </>
         ) : null}

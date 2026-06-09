@@ -255,7 +255,7 @@ def build_final_feedback_open_text_question(
 
     from app.services.survey_system_template_service import SurveySystemTemplateService
 
-    template_id = SurveySystemTemplateService.resolve_final_feedback_template_id(db)
+    template_id = SurveySystemTemplateService.resolve_final_feedback_template_id(db, config)
     if template_id:
         row = _approved_template_row(db, template_id)
         if row is not None:

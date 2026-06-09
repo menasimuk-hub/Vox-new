@@ -815,17 +815,23 @@ function CreateSurvey() {
   }, [selectedServiceTagIds]);
 
   const filterSystemTemplatesByPrivacy = React.useCallback(
-    (rows: Array<Record<string, unknown>>) => {
-      const filtered = rows.filter((row) => {
+    (rows: Array<Record<string, unknown>>) =>
+      rows.filter((row) => {
         const privacy = String(row.privacy_mode || "").toLowerCase();
         const variant = String(row.variant_type || "").toLowerCase();
         const isAnonymous = privacy === "on" || variant === "anonymous";
-        return anonymous ? isAnonymous : !isAnonymous;
-      });
-      return filtered.length ? filtered : rows;
-    },
-    [anonymous],
+        return privacyMode === "on" ? isAnonymous : !isAnonymous;
+      }),
+    [privacyMode],
   );
+
+  const handleAnonymousChange = React.useCallback((value: boolean) => {
+    setAnonymous(value);
+    setPrivacyMode(value ? "on" : "off");
+    setWelcomeTemplateId("");
+    setThankYouTemplateId("");
+    setSelectedServiceTemplateIds({});
+  }, []);
 
   const welcomeTemplates = React.useMemo(
     () =>
@@ -1256,7 +1262,7 @@ function CreateSurvey() {
       />
 
       {!channel && (
-        <ChannelPicker anonymous={anonymous} setAnonymous={setAnonymous} onPick={(c) => setChannel(c)} />
+        <ChannelPicker anonymous={anonymous} setAnonymous={handleAnonymousChange} onPick={(c) => setChannel(c)} />
       )}
 
       {channel === "whatsapp" && (
