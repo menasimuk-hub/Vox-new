@@ -108,16 +108,32 @@ def _line_items_html(items: list[dict[str, Any]], currency: str) -> str:
 
 class InvoiceDocumentService:
     @staticmethod
-    def _company_defaults() -> dict[str, str]:
+    def _company_defaults(db: Session | None = None) -> dict[str, str]:
         settings = get_settings()
         address = str(settings.invoice_company_address or "").replace("\\n", "\n")
-        return {
+        out = {
             "company_name": settings.invoice_company_name,
             "company_address": address,
             "company_email": settings.invoice_company_email,
             "company_vat": settings.invoice_company_vat or "—",
             "company_logo_html": _company_logo_html(),
         }
+        if db is not None:
+            try:
+                from app.services.billing_settings_service import BillingSettingsService
+
+                billing = BillingSettingsService.get(db)
+                if str(billing.company_name or "").strip():
+                    out["company_name"] = billing.company_name.strip()
+                if str(billing.company_address or "").strip():
+                    out["company_address"] = billing.company_address.strip()
+                if str(billing.company_email or "").strip():
+                    out["company_email"] = billing.company_email.strip()
+                if str(billing.vat_number or "").strip():
+                    out["company_vat"] = billing.vat_number.strip()
+            except Exception:
+                logger.exception("invoice_company_defaults_billing_settings_failed")
+        return out
 
     @staticmethod
     def build_variables(
@@ -157,7 +173,7 @@ class InvoiceDocumentService:
                 ]
 
         created = invoice.created_at or datetime.utcnow()
-        due = created + timedelta(days=7)
+        due = getattr(invoice, "due_date", None) or (created + timedelta(days=7))
         settings = get_settings()
         dashboard_origin = str(getattr(settings, "dashboard_app_origin", None) or "http://localhost:5175").rstrip("/")
         first_name = (org.contact_name or "").strip().split()[0] if org and org.contact_name else "there"
@@ -187,7 +203,7 @@ class InvoiceDocumentService:
             "first_name": first_name,
             "dashboard_invoice_url": f"{dashboard_origin}/billing#invoice-{invoice.id}",
         }
-        vars_.update(InvoiceDocumentService._company_defaults())
+        vars_.update(InvoiceDocumentService._company_defaults(db))
         return vars_
 
     @staticmethod
@@ -212,17 +228,24 @@ class InvoiceDocumentService:
 class InvoiceService:
     @staticmethod
     def allocate_invoice_number(db: Session) -> str:
-        year = datetime.utcnow().year
-        prefix = f"INV-{year}-"
-        count = (
-            db.execute(
-                select(func.count())
-                .select_from(BillingInvoice)
-                .where(BillingInvoice.invoice_number.like(f"{prefix}%"))
-            ).scalar_one()
-            or 0
-        )
-        return f"{prefix}{int(count) + 1:04d}"
+        """Sequential, gap-aware invoice number from billing settings (e.g. INV-2026-000123)."""
+        from app.services.billing_settings_service import BillingSettingsService
+
+        try:
+            return BillingSettingsService.allocate_invoice_number(db)
+        except Exception:
+            logger.exception("invoice_number_settings_allocation_failed_fallback_to_count")
+            year = datetime.utcnow().year
+            prefix = f"INV-{year}-"
+            count = (
+                db.execute(
+                    select(func.count())
+                    .select_from(BillingInvoice)
+                    .where(BillingInvoice.invoice_number.like(f"{prefix}%"))
+                ).scalar_one()
+                or 0
+            )
+            return f"{prefix}{int(count) + 1:04d}"
 
     @staticmethod
     def invoice_to_dict(db: Session, invoice: BillingInvoice, *, include_org_name: bool = True) -> dict[str, Any]:
@@ -247,6 +270,16 @@ class InvoiceService:
             "country_code": invoice.country_code,
             "payment_method": invoice.payment_method,
             "payment_reference": invoice.payment_reference,
+            "kind": getattr(invoice, "kind", None),
+            "order_id": getattr(invoice, "order_id", None),
+            "due_date": invoice.due_date.isoformat() if getattr(invoice, "due_date", None) else None,
+            "disputed": bool(getattr(invoice, "disputed", False)),
+            "dispute_note": getattr(invoice, "dispute_note", None),
+            "dd_status": getattr(invoice, "dd_status", None),
+            "dd_retry_count": int(getattr(invoice, "dd_retry_count", 0) or 0),
+            "dd_next_retry_at": (
+                invoice.dd_next_retry_at.isoformat() if getattr(invoice, "dd_next_retry_at", None) else None
+            ),
             "emailed_at": invoice.emailed_at.isoformat() if invoice.emailed_at else None,
             "issued_at": invoice.created_at.isoformat() if invoice.created_at else None,
             "created_at": invoice.created_at.isoformat() if invoice.created_at else None,
@@ -333,6 +366,8 @@ class InvoiceService:
         status: str = "paid",
         line_items: list[dict[str, Any]] | None = None,
         country_code: str | None = None,
+        kind: str | None = None,
+        order_id: str | None = None,
     ) -> tuple[BillingInvoice, bool, bool]:
         from app.services.billing_event_email_service import BillingEventEmailService
 
@@ -354,6 +389,8 @@ class InvoiceService:
             status=status,
             line_items=line_items,
             country_code=country_code,
+            kind=kind,
+            order_id=order_id,
         )
         _, _, sent = BillingEventEmailService.issue_payment_invoice(db, invoice=invoice)
         from app.core.logging import safe_log_extra
@@ -371,6 +408,27 @@ class InvoiceService:
         return invoice, True, sent
 
     @staticmethod
+    def effective_vat_rate(db: Session, *, country_code: str) -> float:
+        """UK VAT applies only when VAT is enabled in billing settings; non-UK markets get the
+        rate configured for their country (default 0 — no GB fallback for foreign customers)."""
+        from app.models.country_vat_rate import CountryVatRate
+
+        try:
+            from app.services.billing_settings_service import BillingSettingsService
+
+            settings = BillingSettingsService.get(db)
+            vat_enabled = bool(settings.vat_enabled)
+        except Exception:
+            vat_enabled = False
+        if not vat_enabled:
+            return 0.0
+        code = str(country_code or "GB").upper()[:2]
+        row = db.execute(select(CountryVatRate).where(CountryVatRate.country_code == code)).scalar_one_or_none()
+        if row is None or not row.is_enabled:
+            return 20.0 if code == "GB" else 0.0
+        return float(row.vat_rate_percent or 0)
+
+    @staticmethod
     def create_from_payment(
         db: Session,
         *,
@@ -386,14 +444,24 @@ class InvoiceService:
         status: str = "paid",
         line_items: list[dict[str, Any]] | None = None,
         country_code: str | None = None,
+        kind: str | None = None,
+        order_id: str | None = None,
     ) -> BillingInvoice:
         org = db.get(Organisation, org_id)
         code = (country_code or CountryVatService.resolve_org_country_code(db, org)).upper()[:2]
-        rate, _ = CountryVatService.get_rate(db, code)
+        rate = InvoiceService.effective_vat_rate(db, country_code=code)
         subtotal = max(0, int(subtotal_pence or 0))
         tax = CountryVatService.compute_tax(subtotal, rate)
         total = subtotal + tax
         invoice_number = InvoiceService.allocate_invoice_number(db)
+        due_days = 7
+        try:
+            from app.services.billing_settings_service import BillingSettingsService
+
+            due_days = int(BillingSettingsService.get(db).invoice_due_days or 7)
+        except Exception:
+            pass
+        now = datetime.utcnow()
         row = BillingInvoice(
             org_id=str(org_id),
             provider=(provider or "internal").strip().lower(),
@@ -411,7 +479,10 @@ class InvoiceService:
             line_items_json=json.dumps(line_items or []) if line_items else None,
             payment_reference=(payment_reference or "").strip() or None,
             payment_method=(payment_method or "gocardless").strip().lower(),
-            created_at=datetime.utcnow(),
+            kind=(kind or "").strip().lower() or None,
+            order_id=(order_id or "").strip() or None,
+            due_date=now + timedelta(days=due_days),
+            created_at=now,
         )
         db.add(row)
         db.commit()

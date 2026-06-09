@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -32,6 +32,19 @@ class BillingInvoice(Base):
     line_items_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     payment_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+    # Billing lifecycle (Phase 1+)
+    kind: Mapped[str | None] = mapped_column(String(40), nullable=True)  # campaign | subscription | overage | topup
+    order_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    due_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    disputed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    dispute_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # GoCardless Direct Debit collection state
+    dd_payment_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    dd_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    dd_retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dd_next_retry_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     emailed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

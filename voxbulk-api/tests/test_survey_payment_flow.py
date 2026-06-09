@@ -1,4 +1,4 @@
-"""End-to-end survey order payment flow (create → upload → schedule → quote → pay → schedule)."""
+"""End-to-end survey payment flow (create → upload → quote → wallet top-up → launch)."""
 from __future__ import annotations
 
 import io
@@ -35,25 +35,41 @@ def _csv_bytes():
     return b"name,phone,email\nSarah Ahmed,+447700900123,sarah@example.com\n"
 
 
-def test_survey_cash_payment_flow(app_client):
-    headers, _org_id = _seed_user(app_client)
+def _create_wa_order(app_client, headers, *, title: str = "Wallet survey"):
+    created = app_client.post(
+        "/service-orders",
+        json={
+            "service_code": "survey",
+            "title": title,
+            "config": {
+                "survey_channel": "whatsapp",
+                "delivery": "whatsapp",
+                "channels": ["whatsapp"],
+            },
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["id"]
+    upload = app_client.post(
+        f"/service-orders/{order_id}/recipients/upload",
+        headers=headers,
+        files={"file": ("contacts.csv", io.BytesIO(_csv_bytes()), "text/csv")},
+    )
+    assert upload.status_code == 200, upload.text
+    assert upload.json()["recipient_count"] == 1
+    return order_id
 
-    packages = app_client.get("/service-orders/survey-packages", headers=headers)
-    assert packages.status_code == 200, packages.text
-    pkg_list = packages.json()["packages"]["ai_call"]
-    assert pkg_list, "expected ai_call packages"
-    package_id = pkg_list[0]["id"]
+
+def test_survey_quote_uses_voxbulk_pricing(app_client):
+    headers, _org_id = _seed_user(app_client)
 
     created = app_client.post(
         "/service-orders",
         json={
             "service_code": "survey",
-            "title": "Test survey",
-            "config": {
-                "survey_channel": "ai_call",
-                "package_id": package_id,
-                "script_approved": True,
-            },
+            "title": "AI call survey",
+            "config": {"survey_channel": "ai_call", "script_approved": True},
         },
         headers=headers,
     )
@@ -66,120 +82,75 @@ def test_survey_cash_payment_flow(app_client):
         files={"file": ("contacts.csv", io.BytesIO(_csv_bytes()), "text/csv")},
     )
     assert upload.status_code == 200, upload.text
-    assert upload.json()["recipient_count"] == 1
     assert upload.json()["status"] == "quoted"
-
-    patched = app_client.patch(
-        f"/service-orders/{order_id}",
-        json={
-            "run_mode": "scheduled",
-            "scheduled_start_at": "2026-06-01T09:00:00",
-            "scheduled_end_at": "2026-06-01T17:00:00",
-        },
-        headers=headers,
-    )
-    assert patched.status_code == 200, patched.text
 
     quoted = app_client.post(f"/service-orders/{order_id}/quote", headers=headers)
     assert quoted.status_code == 200, quoted.text
     assert quoted.json()["quote_total_pence"] > 0
 
-    paid = app_client.post(
-        f"/service-orders/{order_id}/pay-cash",
-        json={"note": "test cash"},
+
+def test_payg_launch_blocked_until_wallet_topup(app_client):
+    headers, _org_id = _seed_user(app_client, email="survey_wallet@example.com")
+    order_id = _create_wa_order(app_client, headers)
+
+    # No wallet balance, no subscription → launch requires a top-up.
+    res = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["can_launch"] is False
+    assert body["mode"] == "wallet_insufficient"
+    assert body["launch_action"] == "topup_required"
+    amount_due = int(body["amount_due_pence"] or 0)
+    assert amount_due > 0
+
+    launch = app_client.post(f"/service-orders/{order_id}/survey/launch", headers=headers, json={"run_mode": "now"})
+    assert launch.status_code in {400, 402}
+
+    # Top up the wallet (dev test-cash path) and relaunch.
+    topup = app_client.post("/billing/wallet/topup", json={"amount_minor": 5000}, headers=headers)
+    assert topup.status_code == 200, topup.text
+    assert int(topup.json()["wallet_balance_pence"]) == 5000
+
+    refreshed = app_client.get(f"/service-orders/{order_id}/launch-eligibility?refresh=1", headers=headers)
+    assert refreshed.status_code == 200, refreshed.text
+    body = refreshed.json()
+    assert body["can_launch"] is True
+    assert body["mode"] == "wallet"
+    assert body["launch_action"] == "launch"
+    assert int(body["wallet_charge_minor"]) == amount_due
+
+    launch = app_client.post(f"/service-orders/{order_id}/survey/launch", headers=headers, json={"run_mode": "now"})
+    assert launch.status_code == 200, launch.text
+    assert launch.json()["ok"] is True
+
+    # Wallet was debited and the launch is recorded in the ledger.
+    wallet = app_client.get("/billing/wallet", headers=headers)
+    assert wallet.status_code == 200
+    assert int(wallet.json()["wallet_balance_pence"]) == 5000 - amount_due
+
+    txs = app_client.get("/billing/wallet/transactions", headers=headers)
+    assert txs.status_code == 200
+    kinds = [t["kind"] for t in txs.json()["transactions"]]
+    assert "topup" in kinds
+    assert "launch_debit" in kinds
+
+
+def test_wallet_topup_intent_requires_known_provider(app_client):
+    headers, _org_id = _seed_user(app_client, email="survey_topup_intent@example.com")
+    res = app_client.post(
+        "/billing/wallet/topup/intent",
+        json={"provider": "paypal", "amount_minor": 5000},
         headers=headers,
     )
-    assert paid.status_code == 200, paid.text
-    assert paid.json()["payment_status"] == "pending_approval"
-
-    schedule_before_approve = app_client.post(f"/service-orders/{order_id}/schedule", headers=headers)
-    assert schedule_before_approve.status_code == 400
+    assert res.status_code == 400
+    assert "stripe or airwallex" in res.json()["detail"].lower()
 
 
-def test_survey_gocardless_start_requires_quote(app_client):
-    headers, _org_id = _seed_user(app_client, email="survey_gc@example.com")
-
-    created = app_client.post(
-        "/service-orders",
-        json={"service_code": "survey", "title": "GC survey", "config": {"survey_channel": "ai_call"}},
-        headers=headers,
-    )
-    order_id = created.json()["id"]
-
-    start = app_client.post(f"/service-orders/{order_id}/gocardless/start", headers=headers)
-    assert start.status_code == 400
-    assert "quote" in start.json()["detail"].lower()
-
-
-def test_survey_gocardless_start_after_quote(app_client, monkeypatch):
-    headers, _org_id = _seed_user(app_client, email="survey_gc_ok@example.com", superuser=True)
-
-    packages = app_client.get("/service-orders/survey-packages", headers=headers).json()
-    package_id = packages["packages"]["ai_call"][0]["id"]
-
-    created = app_client.post(
-        "/service-orders",
-        json={
-            "service_code": "survey",
-            "title": "GC quoted survey",
-            "config": {"survey_channel": "ai_call", "package_id": package_id},
-        },
-        headers=headers,
-    )
-    order_id = created.json()["id"]
-
-    upload = app_client.post(
-        f"/service-orders/{order_id}/recipients/upload",
-        headers=headers,
-        files={"file": ("contacts.csv", io.BytesIO(_csv_bytes()), "text/csv")},
-    )
-    assert upload.status_code == 200
-
-    admin_headers = headers
-    app_client.put(
-        "/admin/integrations/gocardless",
-        json={
-            "is_enabled": True,
-            "config": {
-                "access_token": "sandbox-token",
-                "environment": "sandbox",
-                "webhook_secret": "gc-test",
-            },
-        },
-        headers=admin_headers,
-    )
-
-    class _FakeResponse:
-        status_code = 200
-
-        def __init__(self, payload):
-            self._payload = payload
-            self.text = str(payload)
-
-        def json(self):
-            return self._payload
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def post(self, url, **kwargs):
-            if url.endswith("/redirect_flows"):
-                return _FakeResponse(
-                    {"redirect_flows": {"id": "RE_SURVEY", "redirect_url": "https://pay-sandbox.example/survey-flow"}}
-                )
-            raise AssertionError(f"unexpected GoCardless URL: {url}")
-
-    monkeypatch.setattr("app.services.gocardless_service.httpx.Client", _FakeClient)
-
-    start = app_client.post(f"/service-orders/{order_id}/gocardless/start", headers=headers)
-    assert start.status_code == 200, start.text
-    body = start.json()
-    assert body["authorization_url"] == "https://pay-sandbox.example/survey-flow"
-    assert body["redirect_flow_id"] == "RE_SURVEY"
+def test_wallet_topup_options_lists_currency(app_client):
+    headers, _org_id = _seed_user(app_client, email="survey_topup_options@example.com")
+    res = app_client.get("/billing/wallet/topup/options", headers=headers)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["currency"] in {"GBP", "USD", "CAD", "AUD"}
+    assert isinstance(body["providers"], list)

@@ -27,6 +27,8 @@ class ServiceOrder(Base):
     quote_total_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     quote_breakdown_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Snapshot of how the launch was charged (allowance/wallet/direct debit split)
+    launch_billing_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     run_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")  # manual | scheduled
     scheduled_start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

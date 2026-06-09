@@ -120,7 +120,8 @@ def test_usage_80_warning_email_sent_once(monkeypatch):
         assert sent[0]["template_key"] == "usage_warning"
 
         UsageWalletService.record_call_usage(db, org_id=org_id, units=1)
-        assert len(sent) == 1
+        assert len(sent) == 2
+        assert sent[1]["template_key"] == "usage_warning_100"
 
 
 def test_whatsapp_sales_offer_system_template():

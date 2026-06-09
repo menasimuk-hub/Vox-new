@@ -63,6 +63,29 @@ class ProductEmailTriggers:
         )
 
     @staticmethod
+    def notify_payment_receipt(
+        db: Session,
+        *,
+        to_email: str,
+        extra_variables: dict[str, Any] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> tuple[bool, str | None]:
+        em = (to_email or "").strip().lower()
+        if not em:
+            return False, "missing_recipient"
+        vars_: dict[str, str] = {"user_email": em}
+        if extra_variables:
+            for k, v in (extra_variables or {}).items():
+                vars_[str(k)] = "" if v is None else str(v)
+        return TransactionalEmailService.send_templated_optional(
+            db,
+            template_key="payment_receipt",
+            to_email=em,
+            variables=vars_,
+            attachments=attachments,
+        )
+
+    @staticmethod
     def notify_general(
         db: Session,
         *,

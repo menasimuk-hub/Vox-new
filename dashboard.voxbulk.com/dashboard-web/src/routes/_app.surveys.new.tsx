@@ -9,8 +9,9 @@ import { SurveyPhoneWizard } from "@/components/create-wizard/survey-phone-wizar
 import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
 import { pageCountFromSelectedTypes } from "@/components/create-wizard/survey-wa-template-step";
 import { SurveyLaunchQuoteModal } from "@/components/modals";
+import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 import { apiFetch, apiUploadFiles, downloadAuthenticatedFile } from "@/lib/api";
-import { gocardlessAvailable, GC_ORDER_ID_KEY, startGoCardlessOrderPayment } from "@/lib/billing/gocardless";
+import { GC_ORDER_ID_KEY } from "@/lib/billing/gocardless";
 import { surveyTitleFromGoal, normalizeSurveyName } from "@/lib/survey-title";
 import {
   buildCampaignRejectTitles,
@@ -167,6 +168,7 @@ function CreateSurvey() {
   const [launchOrderId, setLaunchOrderId] = React.useState<string | null>(null);
   const [launchMode, setLaunchMode] = React.useState<"now" | "schedule" | "recurring">("now");
   const [payBusy, setPayBusy] = React.useState(false);
+  const [topupOpen, setTopupOpen] = React.useState(false);
   const [eligibilityLoading, setEligibilityLoading] = React.useState(false);
   const [launchEligibility, setLaunchEligibility] = React.useState<SurveyLaunchEligibility | null>(null);
   const [eligibilityError, setEligibilityError] = React.useState<string | null>(null);
@@ -193,7 +195,6 @@ function CreateSurvey() {
   const recipientsLoading = recipientsQ.isFetching || recipientsQ.isLoading;
   const recipientsError =
     recipientsQ.isError && recipientsQ.error instanceof Error ? recipientsQ.error.message : null;
-  const gcReady = gocardlessAvailable(session?.subscription as Record<string, unknown> | null);
   const launchM = useLaunchSurveyCampaign();
   const activeLaunchOrderId = launchOrderId || orderId;
   const eligibilityCacheKey = React.useMemo(
@@ -630,18 +631,13 @@ function CreateSurvey() {
     }
   };
 
-  const onPayLaunchSurvey = async () => {
-    const payOrderId = launchOrderId || orderId;
-    if (!payOrderId) throw new Error("Save your draft before paying");
-    if (!gcReady) throw new Error("GoCardless checkout is not configured");
-    setPayBusy(true);
-    try {
-      await saveSurveyDraft("launch");
-      await startGoCardlessOrderPayment(payOrderId);
-    } catch (e) {
-      setPayBusy(false);
-      throw e instanceof Error ? e : new Error("Could not start GoCardless checkout");
-    }
+  const onOpenWalletTopup = () => {
+    setTopupOpen(true);
+  };
+
+  const onWalletToppedUp = () => {
+    refreshLaunchEligibility();
+    toast.success("Wallet updated — you can launch when ready.");
   };
 
   const userTestPhone = React.useMemo(() => {
@@ -1250,9 +1246,9 @@ function CreateSurvey() {
               order={orderQ.data}
               onSave={onSaveDraft}
               savePending={savePending}
-              onPay={onPayLaunchSurvey}
+              onPay={onOpenWalletTopup}
               payBusy={payBusy}
-              gcAvailable={gcReady}
+              gcAvailable={false}
             />
           ) : undefined
         }
@@ -1446,9 +1442,20 @@ function CreateSurvey() {
         }
         onRefreshEligibility={refreshLaunchEligibility}
         onLaunch={onLaunchSurvey}
-        onPayLaunch={onPayLaunchSurvey}
+        onTopUpWallet={onOpenWalletTopup}
         payBusy={payBusy || launchM.isPending}
-        gcAvailable={gcReady}
+      />
+      <WalletTopupDialog
+        open={topupOpen}
+        onOpenChange={setTopupOpen}
+        initialAmountMinor={
+          Math.max(
+            Number(launchEligibility?.amount_due_pence || 0),
+            Number(launchEligibility?.wallet_shortfall_minor || 0),
+            500,
+          )
+        }
+        onToppedUp={onWalletToppedUp}
       />
     </div>
   );

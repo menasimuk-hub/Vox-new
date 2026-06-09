@@ -1,0 +1,288 @@
+import * as React from "react";
+import { CreditCard, Loader2, Wallet } from "lucide-react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  useWalletTopupConfirm,
+  useWalletTopupIntent,
+  useWalletTopupOptions,
+} from "@/lib/queries";
+
+declare global {
+  interface Window {
+    Stripe?: (key: string) => StripeJs;
+    Airwallex?: AirwallexJs;
+  }
+}
+
+type StripeJs = {
+  elements: (opts: { clientSecret: string }) => StripeElements;
+  confirmPayment: (opts: {
+    elements: StripeElements;
+    redirect: "if_required";
+    confirmParams?: Record<string, unknown>;
+  }) => Promise<{ error?: { message?: string }; paymentIntent?: { id: string; status: string } }>;
+};
+type StripeElements = { create: (kind: string) => { mount: (el: HTMLElement) => void; destroy: () => void } };
+type AirwallexJs = {
+  init: (opts: { env: string; origin: string }) => void;
+  createElement: (
+    kind: "dropIn",
+    opts: { intent_id: string; client_secret: string; currency: string },
+  ) => { mount: (el: HTMLElement) => void; destroy?: () => void } | null;
+};
+
+const loadedScripts: Record<string, Promise<void>> = {};
+
+function loadScript(src: string): Promise<void> {
+  if (!loadedScripts[src]) {
+    loadedScripts[src] = new Promise<void>((resolve, reject) => {
+      const tag = document.createElement("script");
+      tag.src = src;
+      tag.async = true;
+      tag.onload = () => resolve();
+      tag.onerror = () => reject(new Error(`Failed to load ${src}`));
+      document.head.appendChild(tag);
+    });
+  }
+  return loadedScripts[src];
+}
+
+type Props = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Pre-filled amount in minor units (e.g. wallet shortfall before a launch). */
+  initialAmountMinor?: number;
+  onToppedUp?: () => void;
+};
+
+export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onToppedUp }: Props) {
+  const optionsQ = useWalletTopupOptions();
+  const intentM = useWalletTopupIntent();
+  const confirmM = useWalletTopupConfirm();
+
+  const options = optionsQ.data;
+  const currency = String(options?.currency || "GBP");
+  const symbol = { GBP: "£", USD: "$", CAD: "CA$", AUD: "A$" }[currency] || currency;
+  const minMinor = Number(options?.min_amount_minor || 500);
+
+  const [amount, setAmount] = React.useState("50");
+  const [provider, setProvider] = React.useState<string | null>(null);
+  const [paying, setPaying] = React.useState(false);
+  const [paymentReady, setPaymentReady] = React.useState(false);
+  const mountRef = React.useRef<HTMLDivElement | null>(null);
+  const stripeRef = React.useRef<{ stripe: StripeJs; elements: StripeElements; intentId: string } | null>(null);
+  const cleanupRef = React.useRef<(() => void) | null>(null);
+
+  React.useEffect(() => {
+    if (open && initialAmountMinor && initialAmountMinor > 0) {
+      setAmount((Math.ceil(initialAmountMinor / 100)).toString());
+    }
+    if (!open) {
+      setProvider(null);
+      setPaymentReady(false);
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+      stripeRef.current = null;
+    }
+  }, [open, initialAmountMinor]);
+
+  const amountMinor = Math.round(Number(amount || 0) * 100);
+
+  const startPayment = async (providerId: string) => {
+    if (amountMinor < minMinor) {
+      toast.error(`Minimum top-up is ${options?.min_amount_display || "5.00"}`);
+      return;
+    }
+    setProvider(providerId);
+    setPaymentReady(false);
+    try {
+      const intent = await intentM.mutateAsync({ provider: providerId, amount_minor: amountMinor });
+      if (providerId === "stripe") {
+        await loadScript("https://js.stripe.com/v3");
+        if (!window.Stripe) throw new Error("Stripe.js failed to load");
+        const stripe = window.Stripe(String(intent.publishable_key || ""));
+        const elements = stripe.elements({ clientSecret: intent.client_secret });
+        const paymentElement = elements.create("payment");
+        if (mountRef.current) {
+          mountRef.current.innerHTML = "";
+          paymentElement.mount(mountRef.current);
+        }
+        stripeRef.current = { stripe, elements, intentId: intent.payment_intent_id };
+        cleanupRef.current = () => paymentElement.destroy();
+        setPaymentReady(true);
+      } else if (providerId === "airwallex") {
+        await loadScript("https://checkout.airwallex.com/assets/elements.bundle.min.js");
+        if (!window.Airwallex) throw new Error("Airwallex SDK failed to load");
+        const env = String((intent as Record<string, unknown>).environment || "demo");
+        window.Airwallex.init({ env, origin: window.location.origin });
+        const dropIn = window.Airwallex.createElement("dropIn", {
+          intent_id: intent.payment_intent_id,
+          client_secret: intent.client_secret,
+          currency: intent.currency,
+        });
+        if (dropIn && mountRef.current) {
+          mountRef.current.innerHTML = "";
+          dropIn.mount(mountRef.current);
+          cleanupRef.current = () => dropIn.destroy?.();
+        }
+        const onSuccess = () => {
+          void finishPayment("airwallex", intent.payment_intent_id);
+        };
+        const onError = (event: Event) => {
+          const detail = (event as CustomEvent).detail as { error?: { message?: string } } | undefined;
+          toast.error(detail?.error?.message || "Payment failed");
+          setPaying(false);
+        };
+        window.addEventListener("onSuccess", onSuccess);
+        window.addEventListener("onError", onError);
+        const prevCleanup = cleanupRef.current;
+        cleanupRef.current = () => {
+          window.removeEventListener("onSuccess", onSuccess);
+          window.removeEventListener("onError", onError);
+          prevCleanup?.();
+        };
+        setPaymentReady(true);
+      }
+    } catch (e) {
+      setProvider(null);
+      toast.error(e instanceof Error ? e.message : "Could not start payment");
+    }
+  };
+
+  const finishPayment = async (providerId: string, intentId: string) => {
+    try {
+      const res = await confirmM.mutateAsync({ provider: providerId, payment_intent_id: intentId });
+      if (res.credited || res.duplicate) {
+        toast.success(`Wallet topped up — ${String(res.wallet_balance_display || res.wallet_balance_gbp || "")}`);
+        onOpenChange(false);
+        onToppedUp?.();
+      } else {
+        toast.message("Payment is still processing", {
+          description: "Your wallet will be credited as soon as the payment settles.",
+        });
+        onOpenChange(false);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not verify payment");
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const payWithStripe = async () => {
+    const ctx = stripeRef.current;
+    if (!ctx) return;
+    setPaying(true);
+    try {
+      const result = await ctx.stripe.confirmPayment({ elements: ctx.elements, redirect: "if_required" });
+      if (result.error) {
+        toast.error(result.error.message || "Payment failed");
+        setPaying(false);
+        return;
+      }
+      await finishPayment("stripe", result.paymentIntent?.id || ctx.intentId);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Payment failed");
+      setPaying(false);
+    }
+  };
+
+  const providers = options?.providers || [];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Wallet className="size-5 text-primary" /> Top up wallet
+          </DialogTitle>
+          <DialogDescription>
+            Balance: {String(options?.wallet_balance_display || "—")} · paid by card, credited instantly.
+          </DialogDescription>
+        </DialogHeader>
+
+        {!provider ? (
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Amount ({symbol})</label>
+              <Input
+                type="number"
+                min={minMinor / 100}
+                step={5}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(options?.suggested_amounts || []).slice(0, 4).map((t) => {
+                const minor = Number(t.total_credit_pence || t.credit_pence || 0);
+                if (!minor) return null;
+                return (
+                  <Button key={String(t.id)} variant="outline" size="sm" onClick={() => setAmount(String(minor / 100))}>
+                    {String(t.total_credit_display || t.credit_display || `${symbol}${(minor / 100).toFixed(0)}`)}
+                  </Button>
+                );
+              })}
+            </div>
+            {optionsQ.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading payment methods…</p>
+            ) : providers.length === 0 ? (
+              <p className="text-sm text-destructive">
+                Card payments are not configured yet. Contact support to top up your wallet.
+              </p>
+            ) : (
+              <div className="grid gap-2">
+                {providers.map((p) => (
+                  <Button
+                    key={p.id}
+                    className="w-full justify-start gap-2"
+                    variant="default"
+                    disabled={intentM.isPending || amountMinor < minMinor}
+                    onClick={() => void startPayment(p.id)}
+                  >
+                    {intentM.isPending && provider === p.id ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="size-4" />
+                    )}
+                    Pay {symbol}{(amountMinor / 100).toFixed(2)} with {p.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div ref={mountRef} className="min-h-24" />
+            {!paymentReady && (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Preparing secure payment…
+              </p>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <Button variant="ghost" disabled={paying} onClick={() => { cleanupRef.current?.(); cleanupRef.current = null; setProvider(null); setPaymentReady(false); }}>
+                Back
+              </Button>
+              {provider === "stripe" && paymentReady ? (
+                <Button disabled={paying} onClick={() => void payWithStripe()}>
+                  {paying ? <Loader2 className="size-4 animate-spin" /> : null}
+                  Pay {symbol}{(amountMinor / 100).toFixed(2)}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

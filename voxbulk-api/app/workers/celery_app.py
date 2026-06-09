@@ -24,6 +24,14 @@ celery_app.conf.update(
             "task": "billing.rollover_usage_periods",
             "schedule": 86400.0,
         },
+        "monthly-subscription-billing-hourly": {
+            "task": "billing.process_monthly_subscriptions",
+            "schedule": 3600.0,
+        },
+        "retry-failed-dd-hourly": {
+            "task": "billing.retry_failed_dd_payments",
+            "schedule": 3600.0,
+        },
         "sales-promo-followups-daily": {
             "task": "sales.process_promo_followups",
             "schedule": 3600.0,

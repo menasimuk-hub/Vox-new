@@ -43,18 +43,15 @@ PREFLIGHT_HEADERS = {
 }
 
 
-def test_cors_preflight_survey_gocardless_matches_billing(prod_cors_client):
+def test_cors_preflight_wallet_topup_matches_billing(prod_cors_client):
     client = prod_cors_client
     billing = client.options("/billing/subscription/gocardless/start", headers=PREFLIGHT_HEADERS)
-    survey = client.options(
-        "/service-orders/00000000-0000-0000-0000-000000000001/gocardless/start",
-        headers=PREFLIGHT_HEADERS,
-    )
+    topup = client.options("/billing/wallet/topup/intent", headers=PREFLIGHT_HEADERS)
     assert billing.status_code == 200
-    assert survey.status_code == 200
+    assert topup.status_code == 200
     assert billing.headers.get("access-control-allow-origin") == ORIGIN
-    assert survey.headers.get("access-control-allow-origin") == ORIGIN
-    assert "POST" in (survey.headers.get("access-control-allow-methods") or "")
+    assert topup.headers.get("access-control-allow-origin") == ORIGIN
+    assert "POST" in (topup.headers.get("access-control-allow-methods") or "")
 
 
 def test_cors_on_unhandled_500(prod_cors_client):
@@ -62,13 +59,14 @@ def test_cors_on_unhandled_500(prod_cors_client):
     res = client.get("/__test/crash", headers={"Origin": ORIGIN})
     assert res.status_code == 500
     assert res.headers.get("access-control-allow-origin") == ORIGIN
-    assert res.json()["detail"] == "Internal server error"
+    assert res.json()["error_type"] == "RuntimeError"
 
 
-def test_cors_on_survey_gocardless_auth_error(prod_cors_client):
+def test_cors_on_wallet_topup_auth_error(prod_cors_client):
     client = prod_cors_client
     res = client.post(
-        "/service-orders/00000000-0000-0000-0000-000000000001/gocardless/start",
+        "/billing/wallet/topup/intent",
+        json={"provider": "stripe", "amount_minor": 1000},
         headers={"Origin": ORIGIN, "Authorization": "Bearer invalid"},
     )
     assert res.status_code == 401

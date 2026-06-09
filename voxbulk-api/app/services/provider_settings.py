@@ -26,6 +26,8 @@ class ProviderSettingsService:
         "deepinfra",
         "cartesia",
         "gocardless",
+        "stripe",
+        "airwallex",
         "telnyx",
         "azure_speech",
         "openai",
@@ -51,6 +53,8 @@ class ProviderSettingsService:
         "deepinfra": {"api_key", "base_url", "model_name"},
         "cartesia": {"api_key", "base_url", "model_id", "voice_id"},
         "gocardless": {"access_token", "webhook_secret"},
+        "stripe": {"secret_key", "publishable_key"},
+        "airwallex": {"client_id", "api_key"},
         "telnyx": {"api_key", "connection_id", "default_outbound_number", "fallback_caller_id", "media_stream_url"},
         "azure_speech": {"api_key", "region", "default_voice_id"},
         "openai": {"api_key", "default_model", "realtime_model", "temperature", "max_output_tokens"},
@@ -76,6 +80,8 @@ class ProviderSettingsService:
         "deepinfra": {"api_key"},
         "cartesia": {"api_key"},
         "gocardless": {"access_token", "webhook_secret"},
+        "stripe": {"secret_key", "webhook_secret"},
+        "airwallex": {"api_key", "webhook_secret"},
         "telnyx": {"api_key"},
         "azure_speech": {"api_key"},
         "openai": {"api_key"},
@@ -149,6 +155,12 @@ class ProviderSettingsService:
                         "You may have pasted the Connection ID or another value by mistake."
                     )
                 config["api_key"] = incoming_key
+        if provider == "stripe":
+            config = ProviderSettingsService._validate_stripe_config(config)
+        if provider == "airwallex":
+            config = ProviderSettingsService._validate_airwallex_config(config)
+        if provider == "gocardless":
+            config = ProviderSettingsService._validate_gocardless_config(config)
         if provider == "zoom":
             config = ProviderSettingsService._validate_zoom_config(config)
         if provider == "calendly":
@@ -619,6 +631,63 @@ class ProviderSettingsService:
         allowlist, enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
         cfg["phone_allowlist"] = allowlist
         cfg["phone_allowlist_enabled"] = enabled
+        return cfg
+
+    @staticmethod
+    def _validate_stripe_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        secret_key = str(cfg.get("secret_key") or "").strip()
+        publishable_key = str(cfg.get("publishable_key") or "").strip()
+        if not secret_key:
+            errors["secret_key"] = "Secret key is required"
+        elif not secret_key.startswith(("sk_test_", "sk_live_", "rk_test_", "rk_live_")):
+            errors["secret_key"] = "Secret key must start with sk_test_ or sk_live_"
+        if not publishable_key:
+            errors["publishable_key"] = "Publishable key is required"
+        elif not publishable_key.startswith(("pk_test_", "pk_live_")):
+            errors["publishable_key"] = "Publishable key must start with pk_test_ or pk_live_"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Stripe settings validation failed: {details}")
+        cfg["secret_key"] = secret_key
+        cfg["publishable_key"] = publishable_key
+        cfg["webhook_secret"] = str(cfg.get("webhook_secret") or "").strip()
+        cfg["environment"] = "live" if secret_key.startswith(("sk_live_", "rk_live_")) else "test"
+        return cfg
+
+    @staticmethod
+    def _validate_airwallex_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        client_id = str(cfg.get("client_id") or "").strip()
+        api_key = str(cfg.get("api_key") or "").strip()
+        if not client_id:
+            errors["client_id"] = "Client ID is required"
+        if not api_key:
+            errors["api_key"] = "API key is required"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Airwallex settings validation failed: {details}")
+        env = str(cfg.get("environment") or "demo").strip().lower()
+        cfg["client_id"] = client_id
+        cfg["api_key"] = api_key
+        cfg["webhook_secret"] = str(cfg.get("webhook_secret") or "").strip()
+        cfg["environment"] = env if env in {"demo", "prod"} else "demo"
+        return cfg
+
+    @staticmethod
+    def _validate_gocardless_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        access_token = str(cfg.get("access_token") or "").strip()
+        if not access_token:
+            raise ValueError("GoCardless settings validation failed: access_token: Access token is required")
+        env = str(cfg.get("environment") or "").strip().lower()
+        if env not in {"sandbox", "live"}:
+            env = "live" if access_token.startswith("live_") else "sandbox"
+        cfg["access_token"] = access_token
+        cfg["environment"] = env
+        cfg["webhook_secret"] = str(cfg.get("webhook_secret") or "").strip()
         return cfg
 
     @staticmethod

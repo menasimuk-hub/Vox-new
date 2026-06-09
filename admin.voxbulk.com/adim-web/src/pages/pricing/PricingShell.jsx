@@ -10,13 +10,17 @@ const LINKS = [
 
   ['Plans', 'plans'],
 
+  ['Plan prices', 'plan-prices'],
+
+  ['Currency rates', 'currency-rates'],
+
   ['Connection fee', 'connection-fee'],
 
   ['Service rates', 'services'],
 
   ['Top-up tiers', 'topups'],
 
-  ['FX rates', 'fx'],
+  ['Invoice settings', 'invoice-settings'],
 
   ['Estimator', 'estimator'],
 
@@ -38,9 +42,7 @@ export default function PricingShell() {
 
         <p className="pricingShellIntro">
 
-          Configure what customers see on the dashboard. Plans auto-calculate included minutes and surveys from monthly price ÷ unit rates.
-
-          GoCardless checkout will connect here next.
+          Configure what customers see on the dashboard. Each currency (GBP, USD, CAD, AUD) has its own explicit prices — no FX conversion.
 
         </p>
 

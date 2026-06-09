@@ -131,16 +131,37 @@ def test_launch_eligibility_partial_allowance_invoices_extra(app_client):
     assert int(body["amount_due_pence"] or 0) == 49
 
 
-def test_launch_eligibility_no_allowance_payg(app_client):
+def test_launch_eligibility_no_allowance_payg_blocked_until_topup(app_client):
     headers, _org_id = _seed_user(app_client, email="survey_launch_payg@example.com")
     order_id = _create_wa_order(app_client, headers)
 
     res = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["mode"] == "payg"
+    assert body["mode"] == "wallet_insufficient"
+    assert body["can_launch"] is False
     assert body["payment_required"] is True
+    assert body["launch_action"] == "topup_required"
     assert int(body["amount_due_pence"] or 0) > 0
+    assert int(body["wallet_shortfall_minor"] or 0) > 0
+
+
+def test_launch_eligibility_payg_wallet_covers(app_client):
+    headers, org_id = _seed_user(app_client, email="survey_launch_wallet@example.com")
+    with get_sessionmaker()() as db:
+        org = db.get(Organisation, org_id)
+        org.wallet_balance_pence = 10_000
+        db.add(org)
+        db.commit()
+    order_id = _create_wa_order(app_client, headers)
+
+    res = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["mode"] == "wallet"
+    assert body["can_launch"] is True
+    assert body["launch_action"] == "launch"
+    assert int(body["wallet_charge_minor"]) == int(body["amount_due_pence"])
 
 
 def test_launch_with_promo_credits(app_client):
@@ -160,7 +181,7 @@ def test_launch_with_promo_credits(app_client):
 
 
 def test_payg_one_contact_pricing_breakdown(app_client):
-    """1 WhatsApp contact on PAYG = 1 × wa_survey_extra (default 49p)."""
+    """1 WhatsApp contact on PAYG = 1 × wa_extra rate (default 49p)."""
     headers, _org_id = _seed_user(app_client, email="survey_launch_pricing@example.com")
     order_id = _create_wa_order(app_client, headers, contact_count=1)
 
@@ -169,9 +190,9 @@ def test_payg_one_contact_pricing_breakdown(app_client):
     body = res.json()
     assert body.get("recipient_count") == 1
     assert body.get("estimated_whatsapp_usage") == 1
-    assert body.get("launch_action") == "pay_and_launch"
+    assert body.get("launch_action") == "topup_required"
     assert int(body.get("amount_due_pence") or 0) == 49
-    assert body.get("pricing_source") == "wa_survey_extra"
+    assert body.get("pricing_source") == "voxbulk_plan_prices"
 
 
 def test_allowance_covers_launch_zero_due(app_client):

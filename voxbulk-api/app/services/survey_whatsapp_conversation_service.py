@@ -1980,6 +1980,13 @@ def _maybe_complete_order(db: Session, order: ServiceOrder) -> None:
         order.updated_at = datetime.utcnow()
         db.add(order)
         db.commit()
+        db.refresh(order)
+        try:
+            from app.services.billing_reconciliation_service import BillingReconciliationService
+
+            BillingReconciliationService.on_order_terminal(db, order, trigger="completion")
+        except Exception:
+            logger.exception("billing_reconciliation_complete_failed order_id=%s", order.id)
 
 
 def _send_freeform_whatsapp(

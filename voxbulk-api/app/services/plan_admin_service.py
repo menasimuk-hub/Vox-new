@@ -101,8 +101,7 @@ class PlanAdminService:
         services = db.execute(select(PlatformService).order_by(PlatformService.sort_order.asc())).scalars().all()
         out: list[dict[str, Any]] = [PlanAdminService.plan_to_dict(p) for p in plans]
         for svc in services:
-            rules = PlatformCatalogService.list_rules_for_service(db, svc.id, active_only=False)
-            out.append(PlanAdminService.campaign_to_dict(svc, rules_count=len(rules)))
+            out.append(PlanAdminService.campaign_to_dict(svc))
         out.sort(key=lambda x: (0 if x["product_type"] == "subscription" else 1, int(x.get("sort_order") or 100), x.get("name") or ""))
         return out
 

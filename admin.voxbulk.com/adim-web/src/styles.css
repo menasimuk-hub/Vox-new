@@ -8293,6 +8293,16 @@ body.dark .matrix th {
 .pricingActions { margin-top: 14px; }
 .content:has(.pricingShell) { max-width: none; }
 
+/* Per-currency plan prices + currency rates */
+.pricingSectionTitle { margin: 18px 0 10px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--t2); }
+.pricingPlanPricesStack { display: flex; flex-direction: column; gap: 18px; }
+.pricingPlanPriceCard { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.pricingPlanPriceHead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.pricingPlanPriceTable { width: 100%; max-width: 760px; border-collapse: collapse; }
+.pricingPlanPriceTable th, .pricingPlanPriceTable td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); font-size: 13px; }
+.pricingPlanPriceTable th { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--t3); }
+.pricingPlanPriceTable input { max-width: 130px; }
+
 /* Zone org detail + dashboard-aligned helpers */
 .grid-2 {
   display: grid;

@@ -244,6 +244,52 @@ class UsageWalletService:
         return out
 
     @staticmethod
+    def maybe_send_100_warning(db: Session, *, org_id: str, row: OrgUsagePeriod | None = None) -> bool:
+        row = row or UsageWalletService.get_current(db, org_id)
+        if row is None or row.warned_at_100:
+            return False
+
+        hot = UsageWalletService._channels_at_or_above(row, 100.0)
+        if not hot:
+            return False
+
+        em = UsageWalletService.get_org_billing_email(db, org_id)
+        if not em:
+            return False
+
+        org = db.get(Organisation, org_id)
+        org_name = (org.name if org else "Your organisation") or "Your organisation"
+        lines = [
+            f"<div><strong>{label}</strong>: {used} of {included} ({pct}%)</div>"
+            for label, used, included, pct in hot
+        ]
+        summary = ", ".join(f"{label} {pct}%" for label, _, _, pct in hot)
+        variables = {
+            "organisation_name": org_name,
+            "plan_code": str(row.plan_code or "your plan"),
+            "usage_summary": summary,
+            "usage_details_html": "".join(lines),
+            "period_end": row.period_end.strftime("%d %b %Y") if row.period_end else "",
+            "message": f"Allowance fully used: {summary}",
+        }
+
+        from app.services.transactional_email_service import TransactionalEmailService
+
+        sent, _err = TransactionalEmailService.send_templated_optional(
+            db,
+            template_key="usage_warning_100",
+            to_email=em,
+            variables=variables,
+        )
+        if sent:
+            row.warned_at_100 = True
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            db.commit()
+            return True
+        return False
+
+    @staticmethod
     def maybe_send_80_warning(db: Session, *, org_id: str, row: OrgUsagePeriod | None = None) -> bool:
         row = row or UsageWalletService.get_current(db, org_id)
         if row is None or row.warned_at_80:
@@ -302,6 +348,7 @@ class UsageWalletService:
                 )
         try:
             UsageWalletService.maybe_send_80_warning(db, org_id=org_id, row=row)
+            UsageWalletService.maybe_send_100_warning(db, org_id=org_id, row=row)
         except Exception as exc:
             logger.warning(
                 "usage_warning_email_failed",
@@ -660,6 +707,8 @@ class UsageWalletService:
                     whatsapp_included=int(plan.whatsapp_included or 0),
                     sms_included=int(plan.sms_included or 0),
                     overage_per_min_pence=int(plan.overage_per_min_pence or 0),
+                    warned_at_80=False,
+                    warned_at_100=False,
                     created_at=now,
                     updated_at=now,
                 )

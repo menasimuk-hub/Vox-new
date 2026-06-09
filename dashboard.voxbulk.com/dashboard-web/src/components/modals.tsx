@@ -1043,7 +1043,11 @@ export type SurveyLaunchEligibilityView = {
   can_launch?: boolean;
   payment_required?: boolean;
   mode?: string;
-  launch_action?: "launch" | "pay_and_launch" | "blocked";
+  launch_action?: "launch" | "pay_and_launch" | "topup_required" | "blocked";
+  wallet_balance_display?: string | null;
+  wallet_charge_minor?: number;
+  wallet_shortfall_minor?: number;
+  amount_due_pence?: number;
   summary?: string;
   block_reason?: string | null;
   block_reason_code?: string | null;
@@ -1082,6 +1086,7 @@ export function SurveyLaunchQuoteModal({
   onRefreshEligibility,
   onLaunch,
   onPayLaunch,
+  onTopUpWallet,
   payBusy,
   gcAvailable = true,
 }: {
@@ -1096,6 +1101,7 @@ export function SurveyLaunchQuoteModal({
   onRefreshEligibility?: () => void;
   onLaunch?: () => void | Promise<void>;
   onPayLaunch?: () => void | Promise<void>;
+  onTopUpWallet?: () => void;
   payBusy?: boolean;
   gcAvailable?: boolean;
 }) {
@@ -1109,7 +1115,9 @@ export function SurveyLaunchQuoteModal({
   const launchAction = eligibility?.launch_action || "blocked";
   const paymentRequired = Boolean(eligibility?.payment_required);
   const canLaunchNow = Boolean(eligibility?.can_launch) && launchAction === "launch";
+  const needsWalletTopup = launchAction === "topup_required";
   const canPayLaunch = paymentRequired && launchAction === "pay_and_launch";
+  const walletMode = String(eligibility?.mode || "") === "wallet";
   const amountDue = eligibility?.amount_due_display || null;
   const allowanceNotice = buildSurveyAllowanceNotice(eligibility);
   const allowanceExhausted = isWhatsAppAllowanceExhausted(eligibility);
@@ -1120,6 +1128,10 @@ export function SurveyLaunchQuoteModal({
   if (launchAction === "blocked") {
     const blocked = mapBillingBlockReason(eligibility) || eligibility?.block_reason;
     if (blocked) readinessErrors.push(blocked);
+  }
+  if (needsWalletTopup) {
+    const msg = mapBillingBlockReason(eligibility) || eligibility?.summary || "Top up your wallet to launch.";
+    readinessErrors.push(msg);
   }
 
   const showBillingLoading = billingPhase === "checking";
@@ -1141,9 +1153,13 @@ export function SurveyLaunchQuoteModal({
           : mode === "subscription_phone_included"
             ? `Included · ${data.packageName || eligibility?.billing?.plan_name || "call minutes"}`
             : "£0.00 · included"
-      : canPayLaunch
-        ? pricingBreakdown?.totalDue || amountDue || "—"
-        : eligibility?.summary || eligibility?.extra_cost_display || amountDue || "—";
+      : walletMode && canLaunchNow
+        ? `${amountDue || pricingBreakdown?.totalDue || "—"} · wallet`
+        : needsWalletTopup
+          ? amountDue || pricingBreakdown?.totalDue || "—"
+          : canPayLaunch
+            ? pricingBreakdown?.totalDue || amountDue || "—"
+            : eligibility?.summary || eligibility?.extra_cost_display || amountDue || "—";
 
   const canLaunch = canLaunchNow && readinessErrors.length === 0 && !actionBusy && billingPhase === "ready";
   const canPay =
@@ -1345,6 +1361,15 @@ export function SurveyLaunchQuoteModal({
                 {typeof eligibility?.billing?.survey_credits === "number" ? (
                   <QuoteRow label="Survey promo credits" value={`${eligibility.billing.survey_credits}`} />
                 ) : null}
+                {eligibility?.wallet_balance_display ? (
+                  <QuoteRow label="Wallet balance" value={eligibility.wallet_balance_display} />
+                ) : null}
+                {walletMode && typeof eligibility?.wallet_charge_minor === "number" && eligibility.wallet_charge_minor > 0 ? (
+                  <QuoteRow label="Charged to wallet at launch" value={amountDue || "—"} bold />
+                ) : null}
+                {needsWalletTopup ? (
+                  <QuoteRow label="Top-up needed" value={amountDue || "—"} bold />
+                ) : null}
                 {canPayLaunch && amountDue ? <QuoteRow label="Amount due at checkout" value={amountDue} bold /> : null}
                 {canLaunchNow && !canPayLaunch ? (
                   <QuoteRow label="Estimated send cost" value={eligibility?.estimated_send_cost_display || "£0.00 · included"} />
@@ -1380,7 +1405,7 @@ export function SurveyLaunchQuoteModal({
             Back
           </Button>
           <div className="flex w-full flex-col gap-2 sm:w-auto">
-            {!canLaunch && !canPay && blockedReason ? (
+            {!canLaunch && !canPay && !needsWalletTopup && blockedReason ? (
               <p className="text-center text-xs text-muted-foreground sm:text-right">{blockedReason}</p>
             ) : null}
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
@@ -1392,7 +1417,12 @@ export function SurveyLaunchQuoteModal({
               {canLaunchNow ? (
                 <Button type="button" className="gap-1.5" disabled={!canLaunch} onClick={() => void handleLaunch()}>
                   <Rocket className="size-4" />
-                  {actionBusy ? "Launching…" : "Launch now"}
+                  {actionBusy ? "Launching…" : walletMode ? `Launch · ${amountDue || "wallet"}` : "Launch now"}
+                </Button>
+              ) : needsWalletTopup && onTopUpWallet ? (
+                <Button type="button" className="gap-1.5" disabled={actionBusy} onClick={onTopUpWallet}>
+                  <CreditCard className="size-4" />
+                  Top up wallet
                 </Button>
               ) : canPayLaunch ? (
                 <Button type="button" className="gap-1.5" disabled={!canPay} onClick={() => void handlePayLaunch()}>

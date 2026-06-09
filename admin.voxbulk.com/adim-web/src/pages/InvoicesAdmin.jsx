@@ -21,7 +21,7 @@ const TABS = [
   { id: 'vat', label: 'VAT by country', icon: 'ti-world' },
 ]
 
-const STATUS_OPTIONS = ['', 'paid', 'issued', 'open', 'failed']
+const STATUS_OPTIONS = ['', 'paid', 'issued', 'open', 'pending', 'collecting', 'failed', 'past_due', 'disputed', 'refunded']
 
 function substitutePlaceholders(template, variables) {
   let out = String(template || '')
@@ -173,6 +173,61 @@ export default function InvoicesAdmin() {
     }
   }
 
+  const disputeInvoice = async (row) => {
+    const note = window.prompt('Dispute note (optional):', row.dispute_note || '')
+    if (note === null) return
+    setBusy(row.id)
+    setError('')
+    try {
+      await apiFetch(`/admin/billing/invoices/${encodeURIComponent(row.id)}/dispute`, {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      })
+      await loadInvoices()
+    } catch (e) {
+      setError(e?.message || 'Dispute failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const resolveDispute = async (row) => {
+    const note = window.prompt('Resolution note (optional):', '')
+    if (note === null) return
+    setBusy(row.id)
+    setError('')
+    try {
+      await apiFetch(`/admin/billing/invoices/${encodeURIComponent(row.id)}/resolve-dispute`, {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      })
+      await loadInvoices()
+    } catch (e) {
+      setError(e?.message || 'Resolve failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const bankRefund = async (row) => {
+    const note = window.prompt('Bank refund note (logged against invoice):', 'Manual bank refund')
+    if (note === null) return
+    if (!window.confirm(`Record bank refund for ${money(row.amount_gbp_pence, row.currency)}?`)) return
+    setBusy(row.id)
+    setError('')
+    try {
+      await apiFetch(`/admin/billing/invoices/${encodeURIComponent(row.id)}/bank-refund`, {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      })
+      await loadInvoices()
+    } catch (e) {
+      setError(e?.message || 'Bank refund failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
   const saveTemplate = async () => {
     setTemplateSaving(true)
     setTemplateMsg('')
@@ -272,6 +327,12 @@ export default function InvoicesAdmin() {
         </td>
         <td>
           <span className={`pill invoiceStatusPill ${statusPillClass(row.status)}`}>{row.status || '—'}</span>
+          {row.disputed ? <span className="invoiceTag invoiceTagMuted" style={{ marginLeft: 6 }}>disputed</span> : null}
+          {row.dd_retry_count > 0 ? (
+            <span className="invoiceTag invoiceTagMuted" style={{ marginLeft: 6 }} title={row.dd_next_retry_at || ''}>
+              DD retry {row.dd_retry_count}
+            </span>
+          ) : null}
         </td>
         <td className="invoiceListTags">
           <div className="invoiceListTagWrap">
@@ -303,6 +364,21 @@ export default function InvoicesAdmin() {
             <button type="button" className="btn primary xs" disabled={isBusy} onClick={() => resendEmail(row.id)} title="Resend email">
               <i className="ti ti-send" />
             </button>
+            {!row.disputed && String(row.status || '').toLowerCase() !== 'refunded' ? (
+              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => disputeInvoice(row)} title="Mark disputed">
+                <i className="ti ti-flag" />
+              </button>
+            ) : null}
+            {row.disputed ? (
+              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => resolveDispute(row)} title="Resolve dispute">
+                <i className="ti ti-flag-off" />
+              </button>
+            ) : null}
+            {String(row.status || '').toLowerCase() !== 'refunded' ? (
+              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => bankRefund(row)} title="Log bank refund">
+                <i className="ti ti-cash-banknote" />
+              </button>
+            ) : null}
           </div>
         </td>
       </tr>

@@ -13,7 +13,6 @@ from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrderRecipient
 from app.services.org_service_credit_service import OrgServiceCreditError, OrgServiceCreditService
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
-from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
 
 router = APIRouter(prefix="/service-orders", tags=["service-orders"])
 
@@ -63,45 +62,16 @@ def _require_order_service(db: Session, org_id: str, order_id: str) -> tuple[Org
 @router.get("/catalog")
 def list_catalog(db: Session = Depends(get_db), _principal=Depends(get_current_principal)):
     services = PlatformCatalogService.list_services(db)
-    out = []
-    for svc in services:
-        if svc.code == "survey":
-            survey_catalog = PlatformCatalogService.survey_packages_for_service(db, svc, active_only=True)
-            out.append(
-                {
-                    "id": svc.id,
-                    "code": svc.code,
-                    "name": svc.name,
-                    "description": svc.description,
-                    "service_kind": svc.service_kind,
-                    "setup_fee_pence": survey_catalog["setup_fee_pence"],
-                    "setup_fee_gbp": survey_catalog["setup_fee_gbp"],
-                    "packages": survey_catalog["packages"],
-                }
-            )
-            continue
-
-        rules = PlatformCatalogService.list_rules_for_service(db, svc.id)
-        out.append(
-            {
-                "id": svc.id,
-                "code": svc.code,
-                "name": svc.name,
-                "description": svc.description,
-                "service_kind": svc.service_kind,
-                "pricing_rules": [PlatformCatalogService.rule_to_dict(r) for r in rules],
-            }
-        )
-    return out
-
-
-@router.get("/survey-packages")
-def list_survey_packages(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_org_service(db, principal.org_id, "survey")
-    svc = PlatformCatalogService.get_service_by_code(db, "survey")
-    if svc is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey service not found")
-    return PlatformCatalogService.survey_packages_for_service(db, svc, active_only=True)
+    return [
+        {
+            "id": svc.id,
+            "code": svc.code,
+            "name": svc.name,
+            "description": svc.description,
+            "service_kind": svc.service_kind,
+        }
+        for svc in services
+    ]
 
 
 @router.get("/credits")
@@ -126,11 +96,13 @@ def quote_preview(payload: dict, db: Session = Depends(get_db), principal=Depend
     service_code = str(payload.get("service_code") or "")
     _require_org_service(db, principal.org_id, service_code)
     try:
+        options = dict(payload.get("options") or {})
+        options["org_id"] = principal.org_id
         return PlatformCatalogService.calculate_quote(
             db,
-            service_code=str(payload.get("service_code") or ""),
+            service_code=service_code,
             recipient_count=int(payload.get("recipient_count") or 0),
-            options=payload.get("options") or {},
+            options=options,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -151,7 +123,7 @@ async def preview_recipients_file(
         rows = ServiceOrderService.parse_recipient_file(content, file.filename or "upload.csv")
         if not rows:
             raise ValueError("No valid contacts found in file")
-        options: dict = {}
+        options: dict = {"org_id": principal.org_id}
         if code == "interview":
             options["delivery"] = str(delivery or "ai_call").strip().lower()
         quote = PlatformCatalogService.calculate_quote(
@@ -414,48 +386,6 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
         summary=intake_summary(recipients),
         billing=billing,
     )
-
-
-@router.get("/gocardless/browser-return")
-def gocardless_order_browser_return(
-    session_token: str,
-    order_billing: str = "success",
-    db: Session = Depends(get_db),
-):
-    """GoCardless order payment return hop — sends browser to dashboard with order_billing params."""
-    from fastapi.responses import RedirectResponse
-
-    target = BillingService.complete_order_browser_return(
-        db,
-        session_token=session_token,
-        order_billing=order_billing,
-    )
-    return RedirectResponse(url=target, status_code=302)
-
-
-@router.post("/gocardless/complete")
-def complete_gocardless_order_payment(
-    payload: dict,
-    db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
-):
-    redirect_flow_id = str((payload or {}).get("redirect_flow_id") or "").strip()
-    if not redirect_flow_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="redirect_flow_id required")
-    try:
-        res = BillingService.complete_service_order_gocardless_flow(
-            db,
-            org_id=principal.org_id,
-            user_id=principal.user_id,
-            redirect_flow_id=redirect_flow_id,
-        )
-        return res
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except GoCardlessConfigError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except GoCardlessProviderError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
 
 
 @router.get("/interview-reports")
@@ -817,8 +747,8 @@ def refresh_quote(order_id: str, db: Session = Depends(get_db), principal=Depend
     import logging
 
     from app.models.organisation import Organisation
+    from app.services.billing_currency import currency_symbol, resolve_org_currency
     from app.services.interview_billing_context import org_interview_billing_context
-    from app.services.pricing_market_service import PricingMarketService
 
     logger = logging.getLogger(__name__)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
@@ -826,18 +756,25 @@ def refresh_quote(order_id: str, db: Session = Depends(get_db), principal=Depend
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     org = db.get(Organisation, principal.org_id)
     try:
+        currency = resolve_org_currency(db, org)
         billing = org_interview_billing_context(db, org) if org else {}
         if order.service_code == "interview" and billing.get("has_active_subscription"):
             payload = ServiceOrderService.order_to_dict(order)
             plan_name = str(billing.get("plan_name") or "your package").strip() or "your package"
             payload["quote_total_pence"] = 0
             payload["quote_total_display"] = f"Included in {plan_name}"
-            payload["pricing_market"] = PricingMarketService.market_for_org(db, org)
+            payload["currency"] = currency
+            payload["currency_symbol"] = currency_symbol(currency)
             payload["included_in_package"] = True
             return payload
         order = ServiceOrderService.quote_order(db, order)
         payload = ServiceOrderService.order_to_dict(order)
-        return PricingMarketService.attach_order_quote_display(db, payload, org)
+        from app.services.billing_currency import money_display
+
+        payload["currency"] = currency
+        payload["currency_symbol"] = currency_symbol(currency)
+        payload["quote_total_display"] = money_display(int(order.quote_total_pence or 0), currency)
+        return payload
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
@@ -868,7 +805,7 @@ def get_survey_launch_eligibility(
     principal=Depends(get_current_principal),
 ):
     from app.models.organisation import Organisation
-    from app.services.pricing_market_service import PricingMarketService
+    from app.services.billing_currency import currency_symbol
     from app.services.survey_launch_eligibility_service import SurveyLaunchEligibilityService
 
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
@@ -881,16 +818,10 @@ def get_survey_launch_eligibility(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     try:
         payload = SurveyLaunchEligibilityService.compute_cached(db, order, org, force=refresh)
+        payload["currency_symbol"] = currency_symbol(str(payload.get("currency") or "GBP"))
         if payload.get("amount_due_pence"):
-            payload = PricingMarketService.attach_order_quote_display(
-                db,
-                {
-                    **payload,
-                    "quote_total_pence": payload.get("amount_due_pence"),
-                    "quote_total_display": payload.get("amount_due_display"),
-                },
-                org,
-            )
+            payload["quote_total_pence"] = payload.get("amount_due_pence")
+            payload["quote_total_display"] = payload.get("amount_due_display")
         return payload
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -930,55 +861,6 @@ def launch_survey_campaign(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e) or "Could not launch survey campaign",
         ) from e
-
-
-@router.post("/{order_id}/pay-cash")
-def pay_cash(order_id: str, payload: dict | None = None, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    try:
-        order = ServiceOrderService.submit_cash_payment(db, order, note=str((payload or {}).get("note") or ""))
-        return ServiceOrderService.order_to_dict(order)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-
-
-@router.post("/{order_id}/gocardless/start")
-def start_gocardless_order_payment(
-    order_id: str,
-    db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
-):
-    from app.models.organisation import Organisation
-    from app.services.survey_launch_eligibility_service import (
-        SurveyLaunchEligibilityError,
-        SurveyLaunchEligibilityService,
-    )
-
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    org = db.get(Organisation, principal.org_id)
-    if order.service_code == "survey" and org is not None:
-        try:
-            SurveyLaunchEligibilityService.prepare_order_payment_quote(db, order, org)
-        except SurveyLaunchEligibilityError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    try:
-        res = BillingService.start_service_order_gocardless_flow(
-            db,
-            org_id=principal.org_id,
-            user_id=principal.user_id,
-            order_id=order_id,
-        )
-        return res
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except GoCardlessConfigError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except GoCardlessProviderError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
 
 
 @router.delete("/{order_id}")

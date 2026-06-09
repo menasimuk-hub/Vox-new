@@ -31,6 +31,10 @@ class InterviewLaunchService:
     @staticmethod
     def org_has_package_launch_access(db: Session, org: Organisation) -> bool:
         """True when org may launch interviews without per-order checkout."""
+        from app.services.billing_access_service import BillingAccessService
+
+        if BillingAccessService.launch_block_reason(db, org):
+            return False
         ctx = org_interview_billing_context(db, org)
         if ctx.get("has_active_subscription"):
             return True
@@ -39,7 +43,7 @@ class InterviewLaunchService:
         status = str(sub.status or "").strip().lower() if sub else ""
         return (
             sub is not None
-            and status in {"active", "trial", "past_due"}
+            and status in {"active", "trial", "pending_first_payment"}
             and plan_allows_cv_email(plan)
         )
 

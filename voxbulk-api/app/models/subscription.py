@@ -25,6 +25,12 @@ class Subscription(Base):
     external_customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     external_subscription_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 
+    # GoCardless mandate lifecycle
+    mandate_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    mandate_status: Mapped[str | None] = mapped_column(String(40), nullable=True)  # active | cancelled | failed | expired
+    first_payment_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 

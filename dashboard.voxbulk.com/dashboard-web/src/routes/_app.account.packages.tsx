@@ -13,8 +13,9 @@ import { apiFetch } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessSubscription } from "@/lib/billing/gocardless";
 import { marketLabel } from "@/lib/billing/market";
 import { isSamePlan, planButtonLabel, sortedPlans, type PlanLike } from "@/lib/billing/plans";
-import { useBillingPricing, useBillingWallet, useOrganisation, useWalletTopup } from "@/lib/queries";
+import { useBillingPricing, useBillingWallet, useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
+import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 
 export const Route = createFileRoute("/_app/account/packages")({
   head: () => ({ meta: [{ title: "Packages & pricing — VoxBulk" }] }),
@@ -43,7 +44,7 @@ function PackagesPage() {
   const orgCountry = String(orgQ.data?.country || "").trim();
   const pricingQ = useBillingPricing("auto", orgCountry);
   const walletQ = useBillingWallet();
-  const topupM = useWalletTopup();
+  const [topupOpen, setTopupOpen] = React.useState(false);
 
   const data = pricingQ.data;
   const market = String(data?.org_market || data?.market || "gbp");
@@ -85,19 +86,6 @@ function PackagesPage() {
       cv: atsFee > 0 ? Math.floor(credit / atsFee) : 0,
     };
   }, [topupPence, connPence, paygPerMin, waPkgFee, atsFee, settings.estimator_default_duration_min, duration]);
-
-  const onTopup = async (amountPence: number, tierId?: string) => {
-    try {
-      const res = await topupM.mutateAsync({ amount_pence: amountPence, tier_id: tierId });
-      if ((res as Record<string, unknown>).awaiting_payment) {
-        toast.message("Payment required", { description: String((res as Record<string, unknown>).message || "") });
-        return;
-      }
-      toast.success(`Wallet topped up — ${String((res as Record<string, unknown>).wallet_balance_gbp || "")}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Top-up failed");
-    }
-  };
 
   const onSubscribe = async (plan: PlanRow) => {
     if (plan.is_enterprise) return;
@@ -158,9 +146,11 @@ function PackagesPage() {
               <span className="text-muted-foreground">Wallet balance</span>
               <span className="font-semibold">{walletQ.data.wallet_balance_gbp}</span>
             </div>
+            <Button size="sm" onClick={() => setTopupOpen(true)}>Top up</Button>
           </CardContent>
         </Card>
       )}
+      <WalletTopupDialog open={topupOpen} onOpenChange={setTopupOpen} initialAmountMinor={topupPence} />
 
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subscription plans</h2>
@@ -266,12 +256,11 @@ function PackagesPage() {
               }
               const perMin = Number(p.per_min_pence || 0);
               const { perCall, total } = interviewCost(perMin, duration, connEnabled ? connPence : 0, interviewCount);
-              const fx = Number(data?.fx_multipliers?.[market as keyof object] || 1);
               return (
                 <div key={String(p.id)} className="rounded-lg bg-muted/50 p-3 text-center">
                   <p className="text-[11px] text-muted-foreground">{String(p.name)}</p>
-                  <p className="text-base font-semibold">{sym(data)}{((total * fx) / 100).toFixed(2)}</p>
-                  <p className="text-[10px] text-muted-foreground">{sym(data)}{((perCall * fx) / 100).toFixed(2)}/call</p>
+                  <p className="text-base font-semibold">{sym(data)}{(total / 100).toFixed(2)}</p>
+                  <p className="text-[10px] text-muted-foreground">{sym(data)}{(perCall / 100).toFixed(2)}/call</p>
                 </div>
               );
             })}
@@ -299,15 +288,15 @@ function PackagesPage() {
           <div className="flex items-center gap-2">
             <Wallet className="size-5 text-green-600" />
             <div>
-              <CardTitle>Credit top-up</CardTitle>
-              <CardDescription>No expiry — use across calls, surveys and CV scans (min {sym(data)}5)</CardDescription>
+              <CardTitle>Wallet top-up</CardTitle>
+              <CardDescription>Pay by card (Stripe or Airwallex) — no expiry, use across calls, surveys and CV scans (min {sym(data)}5)</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {tiers.map((t) => (
-              <Button key={String(t.id)} variant="outline" size="sm" disabled={topupM.isPending} onClick={() => void onTopup(Number(t.total_credit_pence || 0), String(t.id))}>
+              <Button key={String(t.id)} variant="outline" size="sm" onClick={() => { const v = Number(t.total_credit_pence || 0); setTopupPence(v); setCustomTopup(String(v / 100)); setTopupOpen(true); }}>
                 {String(t.total_credit_display || t.credit_display)}
                 {Number(t.bonus_credit_pence || 0) > 0 && <span className="ml-1 text-[10px] text-green-600">+bonus</span>}
               </Button>
@@ -318,7 +307,7 @@ function PackagesPage() {
               <label className="text-xs text-muted-foreground">Custom amount ({sym(data)})</label>
               <Input type="number" min={5} step={5} value={customTopup} onChange={(e) => { setCustomTopup(e.target.value); setTopupPence(Math.round(Number(e.target.value || 0) * 100)); }} className="w-32" />
             </div>
-            <Button disabled={topupM.isPending} onClick={() => void onTopup(Math.round(Number(customTopup || 0) * 100))}>Top up custom</Button>
+            <Button onClick={() => setTopupOpen(true)}>Top up by card</Button>
           </div>
           <Slider value={[topupPence / 100]} min={5} max={500} step={5} onValueChange={([v]) => { setTopupPence(Math.round(v * 100)); setCustomTopup(String(v)); }} />
           <div className="grid grid-cols-3 gap-2 text-center">

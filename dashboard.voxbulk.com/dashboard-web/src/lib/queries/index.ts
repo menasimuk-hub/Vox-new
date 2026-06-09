@@ -28,6 +28,7 @@ export const queryKeys = {
   billingWallet: ["billing", "wallet"] as const,
   billingUsage: ["billing", "usage-summary"] as const,
   billingInvoices: ["billing", "invoices"] as const,
+  billingAccess: ["billing", "access"] as const,
   organisation: ["organisations", "me"] as const,
   interviewReports: (period: string) => ["service-orders", "interview-reports", period] as const,
   interviewResults: (orderId: string) => ["service-orders", orderId, "interview-results"] as const,
@@ -119,6 +120,62 @@ export function useWalletTopup() {
   });
 }
 
+export type WalletTopupOptions = {
+  ok: boolean;
+  currency: string;
+  providers: Array<{ id: string; label: string; publishable_key?: string }>;
+  suggested_amounts: Array<Record<string, unknown>>;
+  min_amount_minor: number;
+  min_amount_display: string;
+  wallet_balance_minor: number;
+  wallet_balance_display: string;
+};
+
+export function useWalletTopupOptions() {
+  return useQuery({
+    queryKey: ["billing", "wallet", "topup-options"],
+    queryFn: () => apiFetch<WalletTopupOptions>("/billing/wallet/topup/options"),
+  });
+}
+
+export function useWalletTopupIntent() {
+  return useMutation({
+    mutationFn: (body: { provider: string; amount_minor: number }) =>
+      apiFetch<{
+        ok: boolean;
+        provider: string;
+        payment_intent_id: string;
+        client_secret: string;
+        publishable_key?: string;
+        amount_minor: number;
+        currency: string;
+      }>("/billing/wallet/topup/intent", { method: "POST", body: JSON.stringify(body) }),
+  });
+}
+
+export function useWalletTopupConfirm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { provider: string; payment_intent_id: string }) =>
+      apiFetch<Record<string, unknown>>("/billing/wallet/topup/confirm", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.billingWallet });
+      void qc.invalidateQueries({ queryKey: ["billing", "wallet", "topup-options"] });
+      void qc.invalidateQueries({ queryKey: ["billing", "wallet", "transactions"] });
+    },
+  });
+}
+
+export function useWalletTransactions(limit = 50) {
+  return useQuery({
+    queryKey: ["billing", "wallet", "transactions", limit],
+    queryFn: () =>
+      apiFetch<{ ok: boolean; transactions: Array<Record<string, unknown>> }>(
+        `/billing/wallet/transactions?limit=${limit}`,
+      ),
+  });
+}
+
 export function useBillingUsage() {
   return useQuery({
     queryKey: queryKeys.billingUsage,
@@ -131,6 +188,23 @@ export function useBillingInvoices() {
   return useQuery({
     queryKey: queryKeys.billingInvoices,
     queryFn: () => apiFetch<Invoice[]>("/billing/invoices"),
+    refetchOnMount: "always",
+  });
+}
+
+export function useBillingAccess() {
+  return useQuery({
+    queryKey: queryKeys.billingAccess,
+    queryFn: () =>
+      apiFetch<{
+        can_launch: boolean;
+        launch_block_reason?: string | null;
+        credit_limit_exceeded?: boolean;
+        outstanding_display?: string;
+        credit_limit_display?: string;
+        pending_first_payment?: boolean;
+        subscription_status?: string | null;
+      }>("/billing/access"),
     refetchOnMount: "always",
   });
 }
@@ -951,7 +1025,12 @@ export type SurveyLaunchEligibility = {
   can_launch?: boolean;
   payment_required?: boolean;
   mode?: string;
-  launch_action?: "launch" | "pay_and_launch" | "blocked";
+  launch_action?: "launch" | "pay_and_launch" | "topup_required" | "blocked";
+  wallet_balance_minor?: number;
+  wallet_balance_display?: string | null;
+  wallet_charge_minor?: number;
+  wallet_shortfall_minor?: number;
+  dd_charge_minor?: number;
   summary?: string;
   block_reason?: string | null;
   block_reason_code?: string | null;

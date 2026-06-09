@@ -11,9 +11,6 @@ export function poundsToPence(pounds) {
 }
 
 const SETTINGS_WRITABLE_KEYS = [
-  'fx_aud_multiplier',
-  'fx_cad_multiplier',
-  'fx_usd_multiplier',
   'connection_fee_pence',
   'connection_fee_label',
   'connection_fee_enabled',

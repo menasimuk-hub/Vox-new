@@ -47,6 +47,9 @@ class Organisation(Base):
     survey_credits_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     interview_credits_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     wallet_balance_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Fixed billing currency (GBP/USD/CAD/AUD); resolved from country on first billing action.
+    billing_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    credit_limit_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scheduling_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     hubspot_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled_services_json: Mapped[str | None] = mapped_column(Text, nullable=True)

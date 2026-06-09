@@ -42,82 +42,216 @@ def list_plans(db: Session = Depends(get_db)):
 
 @router.get("/pricing")
 def get_public_pricing(
+    currency: str = "auto",
     market: str = "auto",
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
     from app.models.organisation import Organisation
-    from app.services.pricing_market_service import PricingMarketService
+    from app.services.billing_currency import SUPPORTED_CURRENCIES, resolve_org_currency
     from app.services.voxbulk_pricing_service import VoxbulkPricingService
 
     VoxbulkPricingService.ensure_seeded(db)
     org_id = principal.org_id if principal else None
     org = db.get(Organisation, org_id) if org_id else None
-    resolved = PricingMarketService.resolve_market_param(db, org=org, market=market)
-    payload = VoxbulkPricingService.public_pricing_payload(db, market=resolved, org_id=org_id)
+    requested = str(currency if currency != "auto" else market).strip().upper()
+    resolved = requested if requested in SUPPORTED_CURRENCIES else resolve_org_currency(db, org)
+    payload = VoxbulkPricingService.public_pricing_payload(db, currency=resolved, org_id=org_id)
     payload["org_country"] = str(org.country or "").strip() if org else None
-    payload["org_market"] = resolved
-    payload["market_label"] = PricingMarketService.market_label(resolved)
+    payload["org_currency"] = resolved
+    payload["org_market"] = resolved.lower()
     return payload
 
 
 @router.get("/pricing/public")
-def get_public_pricing_anonymous(market: str = "gbp", db: Session = Depends(get_db)):
+def get_public_pricing_anonymous(currency: str = "GBP", market: str = "", db: Session = Depends(get_db)):
     from app.services.voxbulk_pricing_service import VoxbulkPricingService
 
     VoxbulkPricingService.ensure_seeded(db)
-    return VoxbulkPricingService.public_pricing_payload(db, market=market, org_id=None)
+    resolved = str(market or currency or "GBP").strip().upper() or "GBP"
+    return VoxbulkPricingService.public_pricing_payload(db, currency=resolved, org_id=None)
 
 
 @router.get("/wallet")
 def get_wallet(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.models.organisation import Organisation
+    from app.services.wallet_service import WalletService
 
     org = db.get(Organisation, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    return WalletService.wallet_dict(db, org)
+
+
+@router.get("/wallet/transactions")
+def list_wallet_transactions(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.wallet_service import WalletService
+
+    rows = WalletService.list_transactions(db, principal.org_id, limit=limit)
+    return {"ok": True, "transactions": [WalletService.transaction_to_dict(r) for r in rows]}
+
+
+@router.get("/wallet/topup/options")
+def wallet_topup_options(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    """Enabled card processors and suggested top-up amounts for the org currency."""
+    from app.models.organisation import Organisation
+    from app.services.airwallex_payment_service import AirwallexPaymentService
+    from app.services.billing_currency import money_display, resolve_org_currency
+    from app.services.stripe_payment_service import StripePaymentService
+    from app.services.voxbulk_pricing_service import VoxbulkPricingService
+    from app.services.wallet_service import WalletService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    currency = resolve_org_currency(db, org)
+    providers = []
+    if StripePaymentService.is_available(db):
+        providers.append({"id": "stripe", "label": "Card (Stripe)", "publishable_key": StripePaymentService.publishable_key(db)})
+    if AirwallexPaymentService.is_available(db):
+        providers.append({"id": "airwallex", "label": "Card (Airwallex)"})
+    tiers = [
+        VoxbulkPricingService.topup_tier_to_dict(t, currency=currency)
+        for t in VoxbulkPricingService.list_topup_tiers(db, active_only=True)
+    ]
     return {
-        "wallet_balance_pence": int(org.wallet_balance_pence or 0),
-        "wallet_balance_gbp": f"£{(int(org.wallet_balance_pence or 0) / 100):.2f}",
+        "ok": True,
+        "currency": currency,
+        "providers": providers,
+        "suggested_amounts": tiers,
+        "min_amount_minor": WalletService.MIN_TOPUP_MINOR,
+        "min_amount_display": money_display(WalletService.MIN_TOPUP_MINOR, currency),
+        **WalletService.wallet_dict(db, org),
     }
 
 
-@router.post("/wallet/topup")
-def wallet_topup(
+@router.post("/wallet/topup/intent")
+def wallet_topup_intent(
     payload: dict,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    """Create a Stripe/Airwallex PaymentIntent for a wallet top-up."""
     from app.models.organisation import Organisation
-    from app.services.voxbulk_pricing_service import VoxbulkPricingService
+    from app.services.airwallex_payment_service import (
+        AirwallexConfigError,
+        AirwallexPaymentService,
+        AirwallexProviderError,
+    )
+    from app.services.stripe_payment_service import (
+        StripeConfigError,
+        StripePaymentService,
+        StripeProviderError,
+    )
+    from app.services.wallet_service import WalletService
 
     org = db.get(Organisation, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    amount = int(payload.get("amount_pence") or 0)
+    provider = str(payload.get("provider") or "").strip().lower()
+    amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
+    if amount < WalletService.MIN_TOPUP_MINOR:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Minimum top-up is 5.00")
+    if amount > 1_000_000:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Maximum top-up is 10,000.00")
+    try:
+        if provider == "stripe":
+            return {"ok": True, **StripePaymentService.create_topup_intent(db, org, amount_minor=amount)}
+        if provider == "airwallex":
+            return {"ok": True, **AirwallexPaymentService.create_topup_intent(db, org, amount_minor=amount)}
+    except (StripeConfigError, AirwallexConfigError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except (StripeProviderError, AirwallexProviderError) as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="provider must be stripe or airwallex")
+
+
+@router.post("/wallet/topup/confirm")
+def wallet_topup_confirm(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Server-side verification of a completed top-up payment; credits the wallet once."""
+    from app.models.organisation import Organisation
+    from app.services.airwallex_payment_service import (
+        AirwallexConfigError,
+        AirwallexPaymentService,
+        AirwallexProviderError,
+    )
+    from app.services.stripe_payment_service import (
+        StripeConfigError,
+        StripePaymentService,
+        StripeProviderError,
+    )
+    from app.services.wallet_service import WalletService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    provider = str(payload.get("provider") or "").strip().lower()
+    intent_id = str(payload.get("payment_intent_id") or "").strip()
+    try:
+        if provider == "stripe":
+            result = StripePaymentService.confirm_topup(db, org, payment_intent_id=intent_id)
+        elif provider == "airwallex":
+            result = AirwallexPaymentService.confirm_topup(db, org, payment_intent_id=intent_id)
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="provider must be stripe or airwallex")
+    except (StripeConfigError, AirwallexConfigError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except (StripeProviderError, AirwallexProviderError) as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+    db.refresh(org)
+    return {**result, **WalletService.wallet_dict(db, org)}
+
+
+@router.post("/wallet/topup")
+def wallet_topup_test_cash(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Dev/testing only: credit the wallet without a card payment."""
+    from app.models.organisation import Organisation
+    from app.services.wallet_service import WalletError, WalletService
+
+    settings = get_settings()
+    if not settings.test_cash_billing_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use /billing/wallet/topup/intent with Stripe or Airwallex to top up.",
+        )
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
     tier_id = str(payload.get("tier_id") or "").strip() or None
     if tier_id:
         tier = db.get(TopupTier, tier_id)
         if tier is None or not tier.is_active:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid top-up tier")
         amount = int(tier.credit_gbp_pence or 0) + int(tier.bonus_credit_pence or 0)
-    if amount < 500:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Minimum top-up is £5.00")
-    settings = get_settings()
-    if not settings.test_cash_billing_allowed and not payload.get("payment_confirmed"):
-        return {
-            "ok": False,
-            "awaiting_payment": True,
-            "amount_pence": amount,
-            "message": "Payment integration required — use test cash billing in dev or confirm payment.",
-        }
-    org = VoxbulkPricingService.deposit_wallet(db, org, amount)
-    return {
-        "ok": True,
-        "wallet_balance_pence": int(org.wallet_balance_pence or 0),
-        "wallet_balance_gbp": f"£{(int(org.wallet_balance_pence or 0) / 100):.2f}",
-        "credited_pence": amount,
-    }
+    if amount < WalletService.MIN_TOPUP_MINOR:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Minimum top-up is 5.00")
+    try:
+        WalletService.credit(
+            db,
+            org,
+            amount_minor=amount,
+            kind="topup",
+            provider="manual",
+            description="Test cash top-up (dev)",
+            created_by_user_id=principal.user_id,
+        )
+    except WalletError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    db.refresh(org)
+    return {"ok": True, "credited_pence": amount, **WalletService.wallet_dict(db, org)}
 
 
 @router.get("/payment-options", response_model=PaymentOptionsOut)
@@ -151,7 +285,9 @@ def change_subscription_plan(
 ):
     """Request a plan change via cash/testing — awaits admin approval before activation."""
     try:
-        sub, plan, direction = BillingService.change_plan(
+        from app.services.billing_lifecycle_service import BillingLifecycleService
+
+        sub, plan, direction, extra = BillingLifecycleService.change_subscription_plan(
             db,
             org_id=principal.org_id,
             plan_id=(payload.plan_id or "").strip() or None,
@@ -160,13 +296,18 @@ def change_subscription_plan(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
+    awaiting_admin = sub.status == "pending_payment" and sub.payment_provider == "manual_cash"
+    if sub and not awaiting_admin and direction in {"upgrade", "same"}:
+        UsageWalletService.sync_plan_limits(db, org_id=principal.org_id, plan=plan, subscription=sub)
+
     return {
         "ok": True,
         "direction": direction,
-        "awaiting_admin_approval": True,
+        "awaiting_admin_approval": awaiting_admin,
         "subscription": SubscriptionOut.model_validate(sub),
         "plan": PlanOut.model_validate(plan),
-        "pending_plan": PlanOut.model_validate(plan),
+        "pending_plan": PlanOut.model_validate(plan) if awaiting_admin or direction == "downgrade" else None,
+        "billing": extra,
     }
 
 
@@ -467,6 +608,17 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
         "current_plan": PlanOut.model_validate(current_plan) if current_plan else None,
         "subscription": SubscriptionOut.model_validate(sub) if sub else None,
     }
+
+
+@router.get("/access")
+def get_billing_access(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.models.organisation import Organisation
+    from app.services.billing_access_service import BillingAccessService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    return BillingAccessService.access_summary(db, org)
 
 
 @router.get("/invoices")

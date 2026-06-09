@@ -50,6 +50,8 @@ const PROVIDERS = [
   { key: 'elevenlabs', label: 'ElevenLabs' },
   { key: 'vapi', label: 'Vapi' },
   { key: 'gocardless', label: 'GoCardless' },
+  { key: 'stripe', label: 'Stripe' },
+  { key: 'airwallex', label: 'Airwallex' },
   { key: 'zoom', label: 'Zoom' },
   { key: 'calendly', label: 'Calendly' },
   { key: 'cronofy', label: 'Cronofy' },
@@ -617,6 +619,8 @@ export default function Integrations() {
   const [deepgramTestResult, setDeepgramTestResult] = useState('')
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
   const [gocardlessTestResult, setGocardlessTestResult] = useState('')
+  const [stripeTestResult, setStripeTestResult] = useState('')
+  const [airwallexTestResult, setAirwallexTestResult] = useState('')
   const [vapiTestResult, setVapiTestResult] = useState('')
   const [elevenLabsTestResult, setElevenLabsTestResult] = useState('')
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
@@ -751,6 +755,18 @@ export default function Integrations() {
             (lower.includes('voxbulk.com') && !lower.includes('dashboard.voxbulk.com'))
           if (looksInvalid) delete config[key]
         }
+      }
+      if (providerKey === 'stripe') {
+        const secretKey = String(draft.secret_key_draft || '').trim()
+        if (secretKey) config.secret_key = secretKey
+        const webhookSecret = String(draft.webhook_secret_draft || '').trim()
+        if (webhookSecret) config.webhook_secret = webhookSecret
+      }
+      if (providerKey === 'airwallex') {
+        const apiKey = String(draft.api_key_draft || '').trim()
+        if (apiKey) config.api_key = apiKey
+        const webhookSecret = String(draft.webhook_secret_draft || '').trim()
+        if (webhookSecret) config.webhook_secret = webhookSecret
       }
       if (providerKey === 'telnyx') {
         if (config.default_outbound_number && !config.from_phone_number) config.from_phone_number = config.default_outbound_number
@@ -1073,6 +1089,31 @@ export default function Integrations() {
     } catch (e) {
       setGocardlessTestResult('')
       setProviderError(e?.message || 'GoCardless test failed')
+    }
+  }
+
+  const testStripe = async () => {
+    setProviderError('')
+    setStripeTestResult('Testing Stripe…')
+    try {
+      const result = await apiFetch('/admin/integrations/stripe/test', { method: 'POST' })
+      const currencies = (result.currencies || []).join(', ') || 'no balances'
+      setStripeTestResult(`Stripe OK (${result.environment || 'test'}) — ${currencies}`)
+    } catch (e) {
+      setStripeTestResult('')
+      setProviderError(e?.message || 'Stripe test failed')
+    }
+  }
+
+  const testAirwallex = async () => {
+    setProviderError('')
+    setAirwallexTestResult('Testing Airwallex…')
+    try {
+      const result = await apiFetch('/admin/integrations/airwallex/test', { method: 'POST' })
+      setAirwallexTestResult(`Airwallex OK (${result.environment || 'demo'})`)
+    } catch (e) {
+      setAirwallexTestResult('')
+      setProviderError(e?.message || 'Airwallex test failed')
     }
   }
 
@@ -2278,6 +2319,93 @@ export default function Integrations() {
                       </button>
                     </div>
                     {gocardlessTestResult ? <div className='note' style={{ marginTop: 8 }}>{gocardlessTestResult}</div> : null}
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'stripe' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Stripe card payments</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('stripe', e.target.checked)} />
+                      <span>Enable Stripe wallet top-ups</span>
+                    </label>
+                    <div className='note'>Used for customer wallet top-ups by card. Customers see Stripe at checkout only when this is enabled and configured.</div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Secret key</label>
+                      <input className='input' type='password' value={String(activeDraft.secret_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), secret_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.secret_key ? 'Leave blank to keep current key' : 'sk_test_… or sk_live_…'} />
+                      <div className='muted' style={{ fontSize: 12 }}>Encrypted in the backend and never returned to the browser. Live/test mode is detected from the key.</div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Publishable key</label>
+                      <input className='input' value={String(activeConfig.publishable_key || '')} onChange={(e) => setProviderField('stripe', 'publishable_key', e.target.value)} placeholder='pk_test_… or pk_live_…' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Webhook signing secret</label>
+                      <input className='input' type='password' value={String(activeDraft.webhook_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), webhook_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.webhook_secret ? 'Leave blank to keep current secret' : 'whsec_…'} />
+                      <div className='muted' style={{ fontSize: 12 }}>Endpoint: https://api.voxbulk.com/webhooks/stripe — subscribe to payment_intent.succeeded.</div>
+                    </div>
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('stripe')} disabled={providerSaving}>
+                        {providerSaving ? 'Saving…' : 'Save Stripe'}
+                      </button>
+                      <button className='btn soft' onClick={testStripe} disabled={providerSaving || !activeSummary.configured}>
+                        Test connection
+                      </button>
+                    </div>
+                    {stripeTestResult ? <div className='note' style={{ marginTop: 8 }}>{stripeTestResult}</div> : null}
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'airwallex' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Airwallex card payments</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('airwallex', e.target.checked)} />
+                      <span>Enable Airwallex wallet top-ups</span>
+                    </label>
+                    <div className='note'>Used for customer wallet top-ups by card. Customers see Airwallex at checkout only when this is enabled and configured.</div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Environment</label>
+                      <select className='input' value={String(activeConfig.environment || 'demo')} onChange={(e) => setProviderField('airwallex', 'environment', e.target.value)}>
+                        <option value='demo'>Demo (sandbox)</option>
+                        <option value='production'>Production</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client ID</label>
+                      <input className='input' value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('airwallex', 'client_id', e.target.value)} placeholder='Airwallex client ID' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>API key</label>
+                      <input className='input' type='password' value={String(activeDraft.api_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, airwallex: { ...(s.airwallex || {}), api_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.api_key ? 'Leave blank to keep current key' : 'Paste API key'} />
+                      <div className='muted' style={{ fontSize: 12 }}>Encrypted in the backend and never returned to the browser.</div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Webhook secret</label>
+                      <input className='input' type='password' value={String(activeDraft.webhook_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, airwallex: { ...(s.airwallex || {}), webhook_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.webhook_secret ? 'Leave blank to keep current secret' : 'Paste webhook secret'} />
+                      <div className='muted' style={{ fontSize: 12 }}>Endpoint: https://api.voxbulk.com/webhooks/airwallex — subscribe to payment_intent.succeeded.</div>
+                    </div>
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('airwallex')} disabled={providerSaving}>
+                        {providerSaving ? 'Saving…' : 'Save Airwallex'}
+                      </button>
+                      <button className='btn soft' onClick={testAirwallex} disabled={providerSaving || !activeSummary.configured}>
+                        Test connection
+                      </button>
+                    </div>
+                    {airwallexTestResult ? <div className='note' style={{ marginTop: 8 }}>{airwallexTestResult}</div> : null}
                   </div>
                 </div>
               </div>

@@ -66,6 +66,29 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:12px;color:#64748b;">— VOXBULK Billing</p>
 </body></html>""",
     },
+    "usage_warning_100": {
+        "title": "Usage alert (100%)",
+        "subject": "VOXBULK allowance fully used — {{usage_summary}}",
+        "body": """<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
+  <p>Hi <strong>{{organisation_name}}</strong>,</p>
+  <p>You have <strong>fully used</strong> an included allowance on your <strong>{{plan_code}}</strong> plan.</p>
+  <div style="margin:16px 0;padding:16px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;font-size:14px;">
+    {{usage_details_html}}
+  </div>
+  <p style="font-size:13px;color:#64748b;">Billing period ends {{period_end}}. Further usage may be invoiced as overage or charged at launch.</p>
+  <p style="font-size:12px;color:#64748b;">— VOXBULK Billing</p>
+</body></html>""",
+    },
+    "payment_receipt": {
+        "title": "Payment receipt",
+        "subject": "Payment received — {{invoice_number}}",
+        "body": """<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
+  <p>Hi,</p>
+  <p>We have received your payment of <strong>{{total}}</strong> for invoice <strong>{{invoice_number}}</strong>.</p>
+  <p style="font-size:13px;color:#64748b;">Your invoice PDF is attached for your records.</p>
+  <p style="font-size:12px;color:#64748b;">— VOXBULK Billing</p>
+</body></html>""",
+    },
     "interview_scheduling_invite": {
         "title": "Interview scheduling invite",
         "subject": "Next step — {{role}}",

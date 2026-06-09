@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 PROVIDER = "gocardless"
 
 # Payment actions that should generate a payment_failed email (via record_payment_status).
+MANDATE_CANCEL_ACTIONS = frozenset({"cancelled", "canceled", "failed", "expired", "blocked"})
+
 PAYMENT_FAILURE_ACTIONS = frozenset(
     {
         "failed",
@@ -250,6 +252,7 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
         "payment_failed_handled": 0,
         "payment_success_handled": 0,
         "invoice_handled": 0,
+        "mandate_handled": 0,
         "errors": [],
     }
 
@@ -345,6 +348,11 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                 line_description = plan_name or description
 
                 try:
+                    from app.services.billing_access_service import BillingAccessService
+                    from app.services.billing_lifecycle_service import BillingLifecycleService
+
+                    BillingAccessService.mark_first_payment_confirmed(db, org_id=org_id)
+                    BillingLifecycleService.handle_dd_payment_success(db, payment_id=payment_id)
                     invoice, created, emailed = InvoiceService.issue_from_payment(
                         db,
                         org_id=org_id,
@@ -397,8 +405,74 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                     summary["errors"].append(str(exc)[:500])
                 continue
 
+            if resource_type == "mandates" and action in MANDATE_CANCEL_ACTIONS:
+                mandate_id = str(links.get("mandate") or event_id or "").strip()
+                try:
+                    from app.services.billing_access_service import BillingAccessService
+
+                    result = BillingAccessService.handle_mandate_cancelled(
+                        db, org_id=org_id, mandate_id=mandate_id or None
+                    )
+                    summary["mandate_handled"] += 1
+                    summary["processed"] += 1
+                    logger.info(
+                        "gocardless_mandate_cancelled",
+                        extra={"org_id": org_id, "mandate_id": mandate_id, "result": result},
+                    )
+                except Exception as exc:
+                    summary["errors"].append(str(exc)[:500])
+                continue
+
             if resource_type == "payments" and action in PAYMENT_FAILURE_ACTIONS and ext_pay:
                 st = _payment_status_for_action(action)
+                dd_recovery: dict[str, Any] | None = None
+                if payment_id:
+                    try:
+                        from app.services.billing_lifecycle_service import BillingLifecycleService
+
+                        dd_recovery = BillingLifecycleService.handle_dd_payment_failure(
+                            db,
+                            payment_id=payment_id,
+                            org_id=org_id,
+                            client_email=client_email,
+                            failure_reason=_failure_reason(raw),
+                        )
+                    except Exception:
+                        logger.exception(
+                            "dd_recovery_failure_handler_error",
+                            extra={"payment_id": payment_id, "org_id": org_id},
+                        )
+                fail_vars: dict[str, Any] = {
+                    "resource_type": resource_type,
+                    "action": action,
+                    "payment_id": payment_id,
+                }
+                if dd_recovery and dd_recovery.get("invoice_id"):
+                    from app.services.billing_lifecycle_service import BillingLifecycleService
+
+                    invoice = BillingLifecycleService.find_invoice_by_payment_id(db, payment_id)
+                    if invoice is not None:
+                        amount = int(
+                            invoice.subtotal_pence
+                            if invoice.subtotal_pence is not None
+                            else invoice.amount_gbp_pence or 0
+                        )
+                        from app.services.billing_currency import money_display
+
+                        fail_vars.update(
+                            {
+                                "invoice_number": invoice.invoice_number or invoice.external_invoice_id,
+                                "amount": money_display(amount, invoice.currency or "GBP"),
+                                "mandate_update_url": BillingLifecycleService._mandate_update_url(db, org_id),
+                                "retry_count": str(dd_recovery.get("dd_retry_count") or ""),
+                            }
+                        )
+                try:
+                    from app.services.billing_access_service import BillingAccessService
+
+                    BillingAccessService.handle_first_payment_failure(db, org_id=org_id)
+                except Exception:
+                    logger.exception("first_payment_failure_handler_error org_id=%s", org_id)
                 row, _created, sent = BillingEventEmailService.record_payment_status(
                     db,
                     provider=PROVIDER,
@@ -407,11 +481,7 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                     client_email=client_email,
                     status=st,
                     failure_reason=_failure_reason(raw),
-                    variables={
-                        "resource_type": resource_type,
-                        "action": action,
-                        "payment_id": payment_id,
-                    },
+                    variables=fail_vars,
                 )
                 summary["payment_failed_handled"] += 1
                 summary["processed"] += 1

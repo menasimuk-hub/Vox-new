@@ -66,3 +66,48 @@ async def gocardless_webhook(request: Request, db: Session = Depends(get_db)):
     if created:
         handle_gocardless_webhook.delay(event_id=event.id)
     return {"status": "ok"}
+
+
+@router.post("/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    from app.services.stripe_payment_service import (
+        StripeConfigError,
+        StripePaymentService,
+        StripeProviderError,
+    )
+
+    body = await request.body()
+    sig = request.headers.get("Stripe-Signature")
+    if not sig:
+        raise _missing_sig()
+    try:
+        event = StripePaymentService.verify_webhook_signature(db, payload=body, signature_header=sig)
+    except (StripeConfigError, StripeProviderError) as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
+    WebhookEventService.persist_received(
+        db, provider="stripe", raw_body=body, external_event_id=str(event.get("id") or "") or None, signature_valid=True
+    )
+    return StripePaymentService.handle_webhook_event(db, event)
+
+
+@router.post("/airwallex")
+async def airwallex_webhook(request: Request, db: Session = Depends(get_db)):
+    from app.services.airwallex_payment_service import (
+        AirwallexConfigError,
+        AirwallexPaymentService,
+        AirwallexProviderError,
+    )
+
+    body = await request.body()
+    timestamp = request.headers.get("x-timestamp") or ""
+    sig = request.headers.get("x-signature") or ""
+    if not sig or not timestamp:
+        raise _missing_sig()
+    try:
+        event = AirwallexPaymentService.verify_webhook_signature(db, payload=body, timestamp=timestamp, signature=sig)
+    except (AirwallexConfigError, AirwallexProviderError) as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
+    WebhookEventService.persist_received(
+        db, provider="airwallex", raw_body=body, external_event_id=str(event.get("id") or "") or None, signature_valid=True
+    )
+    return AirwallexPaymentService.handle_webhook_event(db, event)

@@ -63,12 +63,14 @@ def get_pricing_overview(db: Session = Depends(get_db), _admin=Depends(require_c
         for row in VoxbulkPricingService.list_custom_pricing(db):
             org = db.get(Organisation, row.org_id)
             custom.append(VoxbulkPricingService.custom_pricing_to_dict(row, org))
+        from app.services.billing_currency import SUPPORTED_CURRENCIES
+
         return {
             "settings": VoxbulkPricingService.settings_to_dict(settings),
             "plans": plans,
             "topup_tiers": tiers,
             "custom_pricing": custom,
-            "fx_multipliers": VoxbulkPricingService.fx_multipliers(settings),
+            "supported_currencies": list(SUPPORTED_CURRENCIES),
         }
 
     return _run_pricing_db(db, work)
@@ -214,7 +216,7 @@ def delete_custom_pricing(pricing_id: str, db: Session = Depends(get_db), _admin
 
 @router.get("/preview")
 def pricing_preview(
-    market: str = Query("gbp"),
+    currency: str = Query("GBP"),
     duration_min: int = Query(12),
     interview_count: int = Query(100),
     credit_pence: int = Query(5000),
@@ -222,30 +224,144 @@ def pricing_preview(
     _admin=Depends(require_cap(CAP_BILLING)),
 ):
     def work() -> dict[str, Any]:
+        from app.services.plan_price_service import PlanPriceService
+
         settings = VoxbulkPricingService.get_settings(db)
+        unit = PlanPriceService.get_currency_settings(db, currency)
         plans = PlanAdminService.list_plans(db, active_only=True)
         estimates = []
         for p in plans:
             if getattr(p, "is_enterprise", False):
                 estimates.append({"plan_code": p.code, "plan_name": p.name, "is_enterprise": True})
                 continue
-            per_min = int(p.overage_per_min_pence or settings.interview_per_min_pence)
-            conn = int(settings.connection_fee_pence or 0) if settings.connection_fee_enabled else 0
+            price = PlanPriceService.get_price(db, p.id, currency)
+            per_min = int(price.per_min_minor or 0) if price else int(unit.interview_per_min_minor or 0)
+            conn = int(unit.connection_fee_minor or 0)
             est = VoxbulkPricingService.estimate_interview_batch(
                 per_min_pence=per_min,
                 duration_min=duration_min,
                 interview_count=interview_count,
                 connection_fee_pence=conn,
-                market=market,
-                settings=settings,
+                currency=currency,
             )
             estimates.append({"plan_code": p.code, "plan_name": p.name, **est})
         return {
-            "market": market,
+            "currency": currency.upper(),
             "estimates": estimates,
             "topup_breakdown": VoxbulkPricingService.topup_breakdown(
-                credit_pence=credit_pence, settings=settings, market=market
+                credit_pence=credit_pence, settings=settings, currency=currency
             ),
         }
 
     return _run_pricing_db(db, work)
+
+
+# ------------------------------------------------------------------ per-currency plan prices
+
+
+@router.get("/plan-prices")
+def list_all_plan_prices(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.billing_currency import SUPPORTED_CURRENCIES
+        from app.services.plan_price_service import PlanPriceService
+
+        PlanPriceService.ensure_seeded(db)
+        plans = PlanAdminService.list_plans(db)
+        out = []
+        for p in plans:
+            prices = {row.currency: PlanPriceService.price_to_dict(row) for row in PlanPriceService.list_for_plan(db, p.id)}
+            out.append(
+                {
+                    "plan_id": p.id,
+                    "plan_code": p.code,
+                    "plan_name": p.name,
+                    "is_enterprise": bool(getattr(p, "is_enterprise", False)),
+                    "is_active": bool(p.is_active),
+                    "sort_order": int(p.sort_order or 100),
+                    "prices": prices,
+                }
+            )
+        currency_settings = [
+            PlanPriceService.currency_settings_to_dict(PlanPriceService.get_currency_settings(db, c))
+            for c in SUPPORTED_CURRENCIES
+        ]
+        return {
+            "ok": True,
+            "supported_currencies": list(SUPPORTED_CURRENCIES),
+            "plans": out,
+            "currency_settings": currency_settings,
+        }
+
+    return _run_pricing_db(db, work)
+
+
+@router.put("/plan-prices/{plan_id}/{currency}")
+def upsert_plan_price(
+    plan_id: str,
+    currency: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.plan_price_service import PlanPriceError, PlanPriceService
+
+    try:
+        row = PlanPriceService.upsert_price(db, plan_id=plan_id, currency=currency, payload=payload)
+    except PlanPriceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return PlanPriceService.price_to_dict(row)
+
+
+@router.get("/currency-settings")
+def list_currency_settings(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    from app.services.billing_currency import SUPPORTED_CURRENCIES
+    from app.services.plan_price_service import PlanPriceService
+
+    return {
+        "ok": True,
+        "currency_settings": [
+            PlanPriceService.currency_settings_to_dict(PlanPriceService.get_currency_settings(db, c))
+            for c in SUPPORTED_CURRENCIES
+        ],
+    }
+
+
+@router.put("/currency-settings/{currency}")
+def update_currency_settings(
+    currency: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.plan_price_service import PlanPriceError, PlanPriceService
+
+    try:
+        row = PlanPriceService.update_currency_settings(db, currency, payload)
+    except PlanPriceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return PlanPriceService.currency_settings_to_dict(row)
+
+
+# ------------------------------------------------------------------ billing settings (company / VAT / invoice numbering)
+
+
+@router.get("/billing-settings")
+def get_billing_settings(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    from app.services.billing_settings_service import BillingSettingsService
+
+    return BillingSettingsService.to_dict(BillingSettingsService.get(db))
+
+
+@router.put("/billing-settings")
+def update_billing_settings(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_settings_service import BillingSettingsService
+
+    try:
+        row = BillingSettingsService.update(db, payload)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return BillingSettingsService.to_dict(row)

@@ -152,6 +152,8 @@ const BLOCK_REASON_MESSAGES: Record<string, string> = {
 
   payment_required: "Purchase a package or add survey credits to launch.",
 
+  wallet_insufficient: "Wallet balance is too low — top up to launch.",
+
 };
 
 
@@ -404,6 +406,12 @@ export function billingCheckErrorMessage(
   if (phase === "error") {
 
     return errorMessage || BLOCK_REASON_MESSAGES.billing_check_failed;
+
+  }
+
+  if (phase === "ready" && eligibility?.launch_action === "topup_required") {
+
+    return mapBillingBlockReason(eligibility) || BLOCK_REASON_MESSAGES.wallet_insufficient;
 
   }
 

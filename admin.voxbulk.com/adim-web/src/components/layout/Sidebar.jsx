@@ -109,6 +109,8 @@ const NAV = [
       ['ElevenLabs', '/integrations/elevenlabs'],
       ['Vapi', '/integrations/vapi'],
       ['GoCardless', '/integrations/gocardless'],
+      ['Stripe', '/integrations/stripe'],
+      ['Airwallex', '/integrations/airwallex'],
       ['Zoom', '/integrations/zoom'],
       ['Calendly', '/integrations/calendly'],
       ['Cronofy', '/integrations/cronofy'],

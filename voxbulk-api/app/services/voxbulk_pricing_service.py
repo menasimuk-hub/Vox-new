@@ -12,13 +12,15 @@ from sqlalchemy.orm import Session
 from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.pricing import OrgCustomPricing, PricingGlobalSettings, TopupTier
-from app.models.platform_service import PlatformService, ServicePricingRule
+from app.services.billing_currency import (
+    SUPPORTED_CURRENCIES,
+    currency_symbol,
+    money_display as currency_money_display,
+    normalize_currency,
+)
 from app.services.platform_catalog_service import PlatformCatalogService
 
 logger = logging.getLogger(__name__)
-
-MARKETS = ("gbp", "aud", "cad", "usd")
-MARKET_SYMBOLS = {"gbp": "£", "aud": "A$", "cad": "CA$", "usd": "$"}
 
 
 class VoxbulkPricingError(ValueError):
@@ -55,31 +57,10 @@ class VoxbulkPricingService:
         raise VoxbulkPricingError("Pricing settings unavailable")
 
     @staticmethod
-    def fx_multipliers(settings: PricingGlobalSettings) -> dict[str, float]:
-        return {
-            "gbp": 1.0,
-            "aud": float(settings.fx_aud_multiplier or 1.95),
-            "cad": float(settings.fx_cad_multiplier or 1.71),
-            "usd": float(settings.fx_usd_multiplier or 1.26),
-        }
-
-    @staticmethod
-    def convert_pence(pence: int | None, market: str, settings: PricingGlobalSettings) -> int | None:
-        if pence is None:
-            return None
-        fx = VoxbulkPricingService.fx_multipliers(settings)
-        m = str(market or "gbp").lower()
-        return int(round(int(pence) * fx.get(m, 1.0)))
-
-    @staticmethod
-    def money_display(pence: int | None, market: str = "gbp", settings: PricingGlobalSettings | None = None) -> str:
-        if pence is None:
-            return "Custom"
-        sym = MARKET_SYMBOLS.get(str(market or "gbp").lower(), "£")
-        val = int(pence)
-        if settings is not None and market != "gbp":
-            val = VoxbulkPricingService.convert_pence(val, market, settings) or 0
-        return f"{sym}{(val / 100):.2f}"
+    def money_display(pence: int | None, currency: str = "GBP", settings: PricingGlobalSettings | None = None) -> str:
+        """Display a minor-unit amount in its currency. No FX conversion — VoxBulk prices
+        are set explicitly per currency (see PlanPriceService)."""
+        return currency_money_display(pence, currency)
 
     @staticmethod
     def compute_plan_allowances(plan: Plan, settings: PricingGlobalSettings) -> dict[str, Any]:
@@ -136,56 +117,36 @@ class VoxbulkPricingService:
         return out
 
     @staticmethod
-    def plan_to_public_dict(row: Plan, *, market: str = "gbp", settings: PricingGlobalSettings) -> dict[str, Any]:
-        fx = VoxbulkPricingService.fx_multipliers(settings)
-        m = str(market or "gbp").lower()
-        mult = fx.get(m, 1.0)
-        per_min = int(getattr(row, "per_min_pence", 0) or row.overage_per_min_pence or 0)
-        extra_min = int(row.overage_per_min_pence or 0)
-        conn = int(settings.connection_fee_pence or 0) if settings.connection_fee_enabled else 0
+    def plan_to_public_dict(db: Session, row: Plan, *, currency: str = "GBP") -> dict[str, Any]:
+        """Public plan payload priced in an explicit per-market currency (plan_prices table)."""
+        from app.services.plan_price_service import PlanPriceService
+
+        code = normalize_currency(currency)
+        out = PlanPriceService.plan_public_dict(db, row, currency=code)
+        per_min = int(out.get("per_min_minor") or 0)
+        conn = int(out.get("connection_fee_minor") or 0)
         typical_low = conn + per_min * 10
         typical_high = conn + per_min * 15
-        price = row.price_gbp_pence
-        calc = VoxbulkPricingService.compute_plan_allowances(row, settings) if not row.is_enterprise else {}
-        return {
-            "id": row.id,
-            "code": row.code,
-            "name": row.name,
-            "price_gbp_pence": price,
-            "price_display_pence": None if price is None else int(round(price * mult)),
-            "price_display": VoxbulkPricingService.money_display(price, m, settings),
-            "interval": row.interval,
-            "description": row.description,
-            "features": VoxbulkPricingService._parse_features(row.features_json),
-            "minutes_included": int(calc.get("minutes_included", row.calls_included or 0)),
-            "whatsapp_included": int(calc.get("whatsapp_included", row.whatsapp_included or 0)),
-            "cv_scans_included": int(calc.get("cv_scans_included", getattr(row, "cv_scans_included", 0) or 0)),
-            "per_min_pence": per_min,
-            "per_min_display": VoxbulkPricingService.money_display(per_min, m, settings),
-            "extra_per_min_pence": extra_min,
-            "extra_per_min_display": VoxbulkPricingService.money_display(extra_min, m, settings),
-            "wa_unit_pence": int(settings.wa_survey_package_fee_pence or 0),
-            "wa_unit_display": VoxbulkPricingService.money_display(int(settings.wa_survey_package_fee_pence or 0), m, settings),
-            "wa_survey_extra_pence": int(settings.wa_survey_extra_pence or 49),
-            "wa_survey_extra_display": VoxbulkPricingService.money_display(int(settings.wa_survey_extra_pence or 49), m, settings),
-            "cv_unit_pence": int(settings.ats_cv_scan_fee_pence or 0),
-            "cv_unit_display": VoxbulkPricingService.money_display(int(settings.ats_cv_scan_fee_pence or 0), m, settings),
-            "minutes_formula": calc.get("minutes_formula"),
-            "wa_formula": calc.get("wa_formula"),
-            "cv_formula": calc.get("cv_formula"),
-            "connection_fee_pence": conn,
-            "connection_fee_display": VoxbulkPricingService.money_display(conn, m, settings),
-            "typical_call_low_pence": int(round(typical_low * mult)),
-            "typical_call_high_pence": int(round(typical_high * mult)),
-            "typical_call_low_display": VoxbulkPricingService.money_display(typical_low, m, settings),
-            "typical_call_high_display": VoxbulkPricingService.money_display(typical_high, m, settings),
-            "is_featured": bool(getattr(row, "is_featured", False)),
-            "is_enterprise": bool(getattr(row, "is_enterprise", False)),
-            "is_payg": str(row.code or "").lower() == "payg",
-            "is_active": bool(row.is_active),
-            "sort_order": int(row.sort_order or 100),
-            "market": m,
-        }
+        out.update(
+            {
+                # Legacy key aliases kept for the dashboard/frontpage payloads
+                "price_gbp_pence": out.get("monthly_price_minor"),
+                "price_display_pence": out.get("monthly_price_minor"),
+                "per_min_pence": per_min,
+                "extra_per_min_pence": int(out.get("extra_per_min_minor") or 0),
+                "wa_unit_pence": int(out.get("wa_unit_minor") or 0),
+                "wa_survey_extra_pence": int(out.get("wa_extra_minor") or 0),
+                "wa_survey_extra_display": out.get("wa_extra_display"),
+                "cv_unit_pence": int(out.get("cv_unit_minor") or 0),
+                "connection_fee_pence": conn,
+                "typical_call_low_pence": typical_low,
+                "typical_call_high_pence": typical_high,
+                "typical_call_low_display": currency_money_display(typical_low, code),
+                "typical_call_high_display": currency_money_display(typical_high, code),
+                "market": code.lower(),
+            }
+        )
+        return out
 
     @staticmethod
     def _parse_features(raw: str | None) -> list[str]:
@@ -204,9 +165,6 @@ class VoxbulkPricingService:
         package_fee = int(row.wa_survey_package_fee_pence or 0)
         extra = int(row.wa_survey_extra_pence or 49)
         return {
-            "fx_aud_multiplier": float(row.fx_aud_multiplier),
-            "fx_cad_multiplier": float(row.fx_cad_multiplier),
-            "fx_usd_multiplier": float(row.fx_usd_multiplier),
             "connection_fee_pence": int(row.connection_fee_pence or 0),
             "connection_fee_label": row.connection_fee_label,
             "connection_fee_enabled": bool(row.connection_fee_enabled),
@@ -245,9 +203,6 @@ class VoxbulkPricingService:
             "estimator_default_interview_count",
         }
         for key in (
-            "fx_aud_multiplier",
-            "fx_cad_multiplier",
-            "fx_usd_multiplier",
             "connection_fee_pence",
             "connection_fee_label",
             "connection_fee_enabled",
@@ -276,23 +231,22 @@ class VoxbulkPricingService:
         return list(db.execute(q).scalars().all())
 
     @staticmethod
-    def topup_tier_to_dict(row: TopupTier, *, market: str = "gbp", settings: PricingGlobalSettings | None = None) -> dict[str, Any]:
-        settings = settings or None
+    def topup_tier_to_dict(row: TopupTier, *, currency: str = "GBP", settings: PricingGlobalSettings | None = None) -> dict[str, Any]:
         credit = int(row.credit_gbp_pence or 0)
         bonus = int(row.bonus_credit_pence or 0)
         total = credit + bonus
-        out: dict[str, Any] = {
+        code = normalize_currency(currency)
+        return {
             "id": row.id,
             "credit_gbp_pence": credit,
+            "credit_minor": credit,
             "bonus_credit_pence": bonus,
             "total_credit_pence": total,
             "is_active": bool(row.is_active),
             "sort_order": int(row.sort_order or 100),
+            "credit_display": currency_money_display(credit, code),
+            "total_credit_display": currency_money_display(total, code),
         }
-        if settings is not None:
-            out["credit_display"] = VoxbulkPricingService.money_display(credit, market, settings)
-            out["total_credit_display"] = VoxbulkPricingService.money_display(total, market, settings)
-        return out
 
     @staticmethod
     def create_topup_tier(db: Session, payload: dict[str, Any]) -> TopupTier:
@@ -478,70 +432,14 @@ class VoxbulkPricingService:
         return int(connection_fee_pence or 0) + max(int(duration_min or 0), 0) * int(per_min_pence or 0)
 
     @staticmethod
-    def quote_wa_survey_launch(
-        *,
-        recipient_count: int,
-        wa_remaining: int,
-        wa_survey_extra_pence: int,
-        has_subscription: bool,
-    ) -> dict[str, Any]:
-        """Price a WA survey launch by recipient allowance + extra rate."""
-        count = max(int(recipient_count or 0), 0)
-        remaining = max(int(wa_remaining or 0), 0)
-        extra_rate = max(int(wa_survey_extra_pence or 0), 0)
-        covered = min(remaining, count) if has_subscription else 0
-        extra_recipients = max(0, count - covered)
-        extra_pence = extra_recipients * extra_rate
-        total_pence = extra_pence if has_subscription else count * extra_rate
-        return {
-            "recipient_count": count,
-            "covered_recipients": covered,
-            "extra_recipients": extra_recipients,
-            "wa_survey_extra_pence": extra_rate,
-            "extra_cost_pence": extra_pence,
-            "extra_cost_display": VoxbulkPricingService.money_display(extra_pence),
-            "total_pence": total_pence,
-            "total_gbp": VoxbulkPricingService.money_display(total_pence),
-            "pricing_source": "wa_survey_extra",
-        }
-
-    @staticmethod
-    def quote_phone_survey_launch(
-        db: Session,
-        *,
-        org_id: str,
-        recipient_count: int,
-        duration_min: int | None = None,
-    ) -> dict[str, Any]:
-        settings = VoxbulkPricingService.get_settings(db)
-        rates = VoxbulkPricingService.resolve_rates_for_org(db, org_id)
-        duration = max(int(duration_min or settings.estimator_default_duration_min or 12), 1)
-        per_call = VoxbulkPricingService.interview_call_cost_pence(
-            per_min_pence=int(rates["interview_per_min_pence"]),
-            duration_min=duration,
-            connection_fee_pence=int(rates["connection_fee_pence"]),
-        )
-        count = max(int(recipient_count or 0), 0)
-        total = per_call * count
-        return {
-            "recipient_count": count,
-            "duration_minutes": duration,
-            "per_call_pence": per_call,
-            "per_call_display": VoxbulkPricingService.money_display(per_call),
-            "total_pence": total,
-            "total_gbp": VoxbulkPricingService.money_display(total),
-            "pricing_source": "interview_per_minute",
-        }
-
-    @staticmethod
     def estimate_interview_batch(
         *,
         per_min_pence: int,
         duration_min: int,
         interview_count: int,
         connection_fee_pence: int,
-        market: str = "gbp",
-        settings: PricingGlobalSettings,
+        currency: str = "GBP",
+        settings: PricingGlobalSettings | None = None,
     ) -> dict[str, Any]:
         per_call = VoxbulkPricingService.interview_call_cost_pence(
             per_min_pence=per_min_pence,
@@ -549,12 +447,12 @@ class VoxbulkPricingService:
             connection_fee_pence=connection_fee_pence,
         )
         total = per_call * max(int(interview_count or 0), 0)
-        m = str(market or "gbp").lower()
+        code = normalize_currency(currency)
         return {
             "per_call_pence": per_call,
-            "per_call_display": VoxbulkPricingService.money_display(per_call, m, settings),
+            "per_call_display": currency_money_display(per_call, code),
             "total_pence": total,
-            "total_display": VoxbulkPricingService.money_display(total, m, settings),
+            "total_display": currency_money_display(total, code),
             "duration_min": duration_min,
             "interview_count": interview_count,
         }
@@ -565,7 +463,7 @@ class VoxbulkPricingService:
         credit_pence: int,
         settings: PricingGlobalSettings,
         per_min_pence: int | None = None,
-        market: str = "gbp",
+        currency: str = "GBP",
     ) -> dict[str, Any]:
         per_min = int(per_min_pence or settings.interview_per_min_pence or 35)
         conn = int(settings.connection_fee_pence or 0) if settings.connection_fee_enabled else 0
@@ -580,10 +478,10 @@ class VoxbulkPricingService:
         wa_surveys = wa_fee > 0 and credit // wa_fee or 0
         cv_scans = ats_fee > 0 and credit // ats_fee or 0
         call_minutes = per_min > 0 and max(0, (credit - conn * interviews)) // per_min if interviews else (per_min > 0 and credit // per_min or 0)
-        m = str(market or "gbp").lower()
+        code = normalize_currency(currency)
         return {
             "credit_pence": credit,
-            "credit_display": VoxbulkPricingService.money_display(credit, m, settings),
+            "credit_display": currency_money_display(credit, code),
             "estimated_interviews": int(interviews),
             "estimated_wa_survey_recipients": int(wa_surveys),
             "estimated_cv_scans": int(cv_scans),
@@ -592,42 +490,54 @@ class VoxbulkPricingService:
         }
 
     @staticmethod
-    def public_pricing_payload(db: Session, *, market: str = "gbp", org_id: str | None = None) -> dict[str, Any]:
-        settings = VoxbulkPricingService.get_settings(db)
+    def public_pricing_payload(db: Session, *, currency: str = "GBP", org_id: str | None = None) -> dict[str, Any]:
+        """Public pricing in a single explicit currency (no FX — admin-set per-market prices)."""
         from app.services.plan_admin_service import PlanAdminService
+        from app.services.plan_price_service import PlanPriceService
 
+        settings = VoxbulkPricingService.get_settings(db)
+        code = normalize_currency(currency)
+        PlanPriceService.ensure_seeded(db)
         plans = [p for p in PlanAdminService.list_plans(db, active_only=True) if getattr(p, "service_kind", "") == "voxbulk"]
         if not plans:
             plans = PlanAdminService.list_plans(db, active_only=True)
         custom = VoxbulkPricingService.get_org_custom_pricing(db, org_id) if org_id else None
-        rates = VoxbulkPricingService.resolve_rates_for_org(db, org_id, plan=None)
-        m = str(market or "gbp").lower()
-        fx = VoxbulkPricingService.fx_multipliers(settings)
-        plan_rows = [VoxbulkPricingService.plan_to_public_dict(p, market=m, settings=settings) for p in plans if p.is_active]
+        org = db.get(Organisation, org_id) if org_id else None
+        rates = PlanPriceService.rates_for_org(db, org) if org is not None else None
+
+        unit = PlanPriceService.get_currency_settings(db, code)
+        per_min = int(rates["interview_per_min_minor"]) if rates else int(unit.interview_per_min_minor or 0)
+        conn = int(rates["connection_fee_minor"]) if rates else int(unit.connection_fee_minor or 0)
+        wa_pkg = int(rates["wa_package_fee_minor"]) if rates else int(unit.wa_package_fee_minor or 0)
+        wa_extra = int(rates["wa_extra_minor"]) if rates else int(unit.wa_extra_minor or 0)
+        cv_fee = int(rates["cv_scan_fee_minor"]) if rates else int(unit.cv_scan_fee_minor or 0)
+
+        plan_rows = [VoxbulkPricingService.plan_to_public_dict(db, p, currency=code) for p in plans if p.is_active]
         tiers = [
-            VoxbulkPricingService.topup_tier_to_dict(t, market=m, settings=settings)
+            VoxbulkPricingService.topup_tier_to_dict(t, currency=code)
             for t in VoxbulkPricingService.list_topup_tiers(db, active_only=True)
         ]
         services = {
-            "interview_per_min_pence": rates["interview_per_min_pence"],
-            "interview_per_min_display": VoxbulkPricingService.money_display(rates["interview_per_min_pence"], m, settings),
-            "connection_fee_pence": rates["connection_fee_pence"],
-            "connection_fee_display": VoxbulkPricingService.money_display(rates["connection_fee_pence"], m, settings),
+            "interview_per_min_pence": per_min,
+            "interview_per_min_display": currency_money_display(per_min, code),
+            "connection_fee_pence": conn,
+            "connection_fee_display": currency_money_display(conn, code),
             "connection_fee_label": settings.connection_fee_label,
-            "connection_fee_enabled": bool(settings.connection_fee_enabled),
-            "wa_survey_package_fee_pence": rates["wa_survey_package_fee_pence"],
-            "wa_survey_package_fee_display": VoxbulkPricingService.money_display(rates["wa_survey_package_fee_pence"], m, settings),
-            "wa_survey_extra_pence": rates["wa_survey_extra_pence"],
-            "wa_survey_extra_display": VoxbulkPricingService.money_display(rates["wa_survey_extra_pence"], m, settings),
-            "whatsapp_survey_fee_pence": rates["wa_survey_package_fee_pence"],
-            "whatsapp_survey_display": VoxbulkPricingService.money_display(rates["wa_survey_package_fee_pence"], m, settings),
-            "ats_cv_scan_fee_pence": rates["ats_cv_scan_fee_pence"],
-            "ats_cv_scan_display": VoxbulkPricingService.money_display(rates["ats_cv_scan_fee_pence"], m, settings),
+            "connection_fee_enabled": conn > 0,
+            "wa_survey_package_fee_pence": wa_pkg,
+            "wa_survey_package_fee_display": currency_money_display(wa_pkg, code),
+            "wa_survey_extra_pence": wa_extra,
+            "wa_survey_extra_display": currency_money_display(wa_extra, code),
+            "whatsapp_survey_fee_pence": wa_pkg,
+            "whatsapp_survey_display": currency_money_display(wa_pkg, code),
+            "ats_cv_scan_fee_pence": cv_fee,
+            "ats_cv_scan_display": currency_money_display(cv_fee, code),
         }
         return {
-            "market": m,
-            "currency_symbol": MARKET_SYMBOLS.get(m, "£"),
-            "fx_multipliers": fx,
+            "currency": code,
+            "market": code.lower(),
+            "supported_currencies": list(SUPPORTED_CURRENCIES),
+            "currency_symbol": currency_symbol(code),
             "settings": VoxbulkPricingService.settings_to_dict(settings),
             "plans": plan_rows,
             "services": services,

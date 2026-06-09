@@ -60,7 +60,9 @@ import PricingPlans from './pages/pricing/PricingPlans'
 import PricingConnectionFee from './pages/pricing/PricingConnectionFee'
 import PricingServices from './pages/pricing/PricingServices'
 import PricingTopups from './pages/pricing/PricingTopups'
-import PricingFxRates from './pages/pricing/PricingFxRates'
+import PricingPlanPrices from './pages/pricing/PricingPlanPrices'
+import PricingCurrencyRates from './pages/pricing/PricingCurrencyRates'
+import PricingInvoiceSettings from './pages/pricing/PricingInvoiceSettings'
 import PricingEstimator from './pages/pricing/PricingEstimator'
 import PricingCustomOrg from './pages/pricing/PricingCustomOrg'
 import ServiceOrdersAdmin from './pages/ServiceOrdersAdmin'
@@ -154,6 +156,8 @@ export default function App() {
         <Route path='/integrations/elevenlabs' element={<Integrations />} />
         <Route path='/integrations/vapi' element={<Integrations />} />
         <Route path='/integrations/gocardless' element={<Integrations />} />
+        <Route path='/integrations/stripe' element={<Integrations />} />
+        <Route path='/integrations/airwallex' element={<Integrations />} />
         <Route path='/integrations/zoom' element={<Integrations />} />
         <Route path='/integrations/calendly' element={<Integrations />} />
         <Route path='/integrations/cronofy' element={<Integrations />} />
@@ -187,7 +191,10 @@ export default function App() {
           <Route path='connection-fee' element={<PricingConnectionFee />} />
           <Route path='services' element={<PricingServices />} />
           <Route path='topups' element={<PricingTopups />} />
-          <Route path='fx' element={<PricingFxRates />} />
+          <Route path='plan-prices' element={<PricingPlanPrices />} />
+          <Route path='currency-rates' element={<PricingCurrencyRates />} />
+          <Route path='invoice-settings' element={<PricingInvoiceSettings />} />
+          <Route path='fx' element={<Navigate to='/pricing/currency-rates' replace />} />
           <Route path='estimator' element={<PricingEstimator />} />
           <Route path='custom' element={<PricingCustomOrg />} />
         </Route>

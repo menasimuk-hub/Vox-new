@@ -34,5 +34,6 @@ class OrgUsagePeriod(Base):
     overage_invoiced_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_overage_invoice_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     warned_at_80: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    warned_at_100: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

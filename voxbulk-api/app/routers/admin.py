@@ -374,6 +374,38 @@ def test_gocardless_connection(db: Session = Depends(get_db), _admin=Depends(req
     return result
 
 
+@router.post("/integrations/stripe/test")
+def test_stripe_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.stripe_payment_service import StripeConfigError, StripePaymentService, StripeProviderError
+
+    try:
+        return StripePaymentService.test_connection(db)
+    except StripeConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except StripeProviderError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Stripe test failed: {e}") from e
+
+
+@router.post("/integrations/airwallex/test")
+def test_airwallex_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.airwallex_payment_service import (
+        AirwallexConfigError,
+        AirwallexPaymentService,
+        AirwallexProviderError,
+    )
+
+    try:
+        return AirwallexPaymentService.test_connection(db)
+    except AirwallexConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except AirwallexProviderError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Airwallex test failed: {e}") from e
+
+
 @router.get("/billing/subscriptions")
 def admin_list_subscriptions(
     limit: int = 200,
@@ -2736,6 +2768,95 @@ def admin_get_billing_invoice_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="invoice-{number}.pdf"'},
     )
+
+
+@router.post("/billing/invoices/{invoice_id}/dispute")
+def admin_dispute_billing_invoice(
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_lifecycle_service import BillingLifecycleService
+    from app.services.invoice_service import InvoiceService
+
+    try:
+        row = BillingLifecycleService.set_invoice_disputed(
+            db, invoice_id=invoice_id, note=str(payload.get("note") or "").strip() or None
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return InvoiceService.invoice_to_dict(db, row)
+
+
+@router.post("/billing/invoices/{invoice_id}/resolve-dispute")
+def admin_resolve_billing_invoice_dispute(
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_lifecycle_service import BillingLifecycleService
+    from app.services.invoice_service import InvoiceService
+
+    try:
+        row = BillingLifecycleService.clear_invoice_dispute(
+            db, invoice_id=invoice_id, note=str(payload.get("note") or "").strip() or None
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return InvoiceService.invoice_to_dict(db, row)
+
+
+@router.post("/billing/invoices/{invoice_id}/bank-refund")
+def admin_bank_refund_billing_invoice(
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_lifecycle_service import BillingLifecycleService
+
+    try:
+        credit_note = BillingLifecycleService.record_bank_refund(
+            db,
+            invoice_id=invoice_id,
+            note=str(payload.get("note") or "").strip() or None,
+            created_by_user_id=getattr(principal, "user_id", None),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {
+        "ok": True,
+        "credit_note_id": credit_note.id,
+        "credit_note_number": credit_note.credit_note_number,
+        "refund_method": credit_note.refund_method,
+        "amount_minor": credit_note.amount_minor,
+    }
+
+
+@router.post("/billing/organisations/{org_id}/wallet-credit")
+def admin_wallet_credit_org(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_lifecycle_service import BillingLifecycleService
+
+    amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
+    reason = str(payload.get("reason") or "Admin wallet credit").strip()
+    try:
+        result = BillingLifecycleService.admin_wallet_credit(
+            db,
+            org_id=org_id,
+            amount_minor=amount,
+            reason=reason,
+            created_by_user_id=getattr(principal, "user_id", None),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {"ok": True, **result}
 
 
 @router.post("/billing/invoices/{invoice_id}/resend-email")

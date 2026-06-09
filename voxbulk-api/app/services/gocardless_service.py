@@ -685,29 +685,22 @@ class BillingService:
         raise GoCardlessProviderError(f"GoCardless API error {response.status_code}: {detail}")
 
     @staticmethod
-    def collect_mandate_payment(
-        db: Session,
-        *,
-        org_id: str,
-        amount_pence: int,
-        description: str,
-        metadata: dict[str, str] | None = None,
-    ) -> dict[str, Any] | None:
-        """Charge an existing GoCardless direct-debit mandate (subscription customers)."""
-        charge_pence = max(0, int(amount_pence or 0))
-        if charge_pence <= 0:
-            return None
-
+    def resolve_org_mandate_id(db: Session, org_id: str) -> str | None:
+        """Resolve the active GoCardless mandate for an org (stored, or via the GC subscription)."""
         sub = BillingService.get_subscription(db, org_id)
         if sub is None or str(sub.payment_provider or "").strip().lower() != "gocardless":
-            return None
-        ext_sub_id = str(sub.external_subscription_id or "").strip()
-        if not ext_sub_id:
             return None
         status = str(sub.status or "").strip().lower()
         if status not in {"active", "trial", "past_due"}:
             return None
+        stored = str(getattr(sub, "mandate_id", None) or "").strip()
+        mandate_status = str(getattr(sub, "mandate_status", None) or "").strip().lower()
+        if stored and mandate_status not in {"cancelled", "failed", "expired"}:
+            return stored
 
+        ext_sub_id = str(sub.external_subscription_id or "").strip()
+        if not ext_sub_id:
+            return None
         config = BillingService._get_gocardless_config(db)
         headers = BillingService._gocardless_headers(config["access_token"])
         with httpx.Client(timeout=20) as client:
@@ -715,14 +708,46 @@ class BillingService:
         BillingService._raise_for_gocardless_error(sub_response)
         subscription_payload = sub_response.json().get("subscriptions") or {}
         mandate_id = str((subscription_payload.get("links") or {}).get("mandate") or "").strip()
-        if not mandate_id:
-            raise GoCardlessProviderError("GoCardless subscription has no mandate link")
+        if mandate_id and not stored:
+            sub.mandate_id = mandate_id
+            sub.mandate_status = sub.mandate_status or "active"
+            db.add(sub)
+            db.commit()
+        return mandate_id or None
 
+    @staticmethod
+    def has_active_mandate(db: Session, org_id: str) -> bool:
+        try:
+            return bool(BillingService.resolve_org_mandate_id(db, org_id))
+        except (GoCardlessConfigError, GoCardlessProviderError):
+            return False
+
+    @staticmethod
+    def collect_mandate_payment(
+        db: Session,
+        *,
+        org_id: str,
+        amount_pence: int,
+        description: str,
+        currency: str = "GBP",
+        metadata: dict[str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Charge an existing GoCardless direct-debit mandate (subscription customers)."""
+        charge_pence = max(0, int(amount_pence or 0))
+        if charge_pence <= 0:
+            return None
+
+        mandate_id = BillingService.resolve_org_mandate_id(db, org_id)
+        if not mandate_id:
+            return None
+
+        config = BillingService._get_gocardless_config(db)
+        headers = BillingService._gocardless_headers(config["access_token"])
         meta_fields = {"org_id": org_id, **(metadata or {})}
         payment_payload = {
             "payments": {
                 "amount": charge_pence,
-                "currency": "GBP",
+                "currency": str(currency or "GBP").upper()[:3],
                 "description": str(description or "VOXBULK usage overage")[:255],
                 "links": {"mandate": mandate_id},
                 "metadata": BillingService._gocardless_metadata(**meta_fields),
@@ -983,18 +1008,35 @@ class BillingService:
             },
         )
 
+        mandate_scheme = None
+        try:
+            with httpx.Client(timeout=20) as client:
+                mandate_response = client.get(
+                    f"{config['api_base']}/mandates/{mandate_id}",
+                    headers=BillingService._gocardless_headers(config["access_token"]),
+                )
+            if mandate_response.status_code < 400:
+                mandate_payload = mandate_response.json().get("mandates") or {}
+                mandate_scheme = str(mandate_payload.get("scheme") or "").strip() or None
+        except Exception:
+            logger.warning("gocardless_mandate_scheme_lookup_failed mandate_id=%s", mandate_id)
+
         now = datetime.utcnow()
         sub = BillingService.get_subscription(db, org_id)
         if sub is None:
             sub = Subscription(org_id=org_id, plan_id=plan.id)
         sub.plan_id = plan.id
-        sub.status = "active"
         sub.current_period_end = now + timedelta(days=30)
         sub.payment_provider = "gocardless"
         sub.payment_mode = str(config["environment"])
         sub.external_customer_id = customer_id or None
         sub.external_subscription_id = external_subscription_id or None
         sub.updated_at = now
+        from app.services.billing_access_service import BillingAccessService
+
+        BillingAccessService.apply_mandate_setup_access(
+            db, sub=sub, mandate_id=mandate_id, scheme=mandate_scheme
+        )
         db.add(sub)
 
         row.status = "completed"
@@ -1083,291 +1125,7 @@ class BillingService:
 
         return {"ok": True, "status": "completed", "subscription": sub, "plan": plan}
 
-    @staticmethod
-    def _service_order_browser_return_url(session_token: str, *, order_billing: str) -> str:
-        from urllib.parse import urlencode
-
-        api_origin = BillingService._api_public_origin().rstrip("/")
-        query = urlencode({"session_token": session_token, "order_billing": order_billing})
-        return f"{api_origin}/service-orders/gocardless/browser-return?{query}"
-
-    @staticmethod
-    def _service_order_success_url(config: dict[str, Any], service_code: str, session_token: str) -> str:
-        configured = BillingService._configured_redirect_url(config, "success_redirect_url")
-        if configured and "order_billing=" in configured:
-            return configured
-        return BillingService._service_order_browser_return_url(session_token, order_billing="success")
-
-    @staticmethod
-    def _service_order_cancel_url(config: dict[str, Any], service_code: str, session_token: str) -> str:
-        configured = BillingService._configured_redirect_url(config, "cancel_redirect_url")
-        if configured and "order_billing=" in configured:
-            return configured
-        return BillingService._service_order_browser_return_url(session_token, order_billing="cancelled")
-
-    @staticmethod
-    def start_service_order_gocardless_flow(
-        db: Session,
-        *,
-        org_id: str,
-        user_id: str,
-        order_id: str,
-    ) -> dict[str, Any]:
-        from app.services.platform_catalog_service import ServiceOrderService
-
-        order = ServiceOrderService.get_order(db, order_id, org_id=org_id)
-        if order is None:
-            raise ValueError("Order not found")
-        if order.status not in {"quoted", "draft"} or order.quote_total_pence <= 0:
-            raise ValueError("Generate a quote before paying")
-        if order.payment_status == "approved":
-            raise ValueError("Order is already paid")
-
-        user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
-        if user is None:
-            raise ValueError("Unknown user")
-
-        config = BillingService._get_gocardless_config(db)
-        session_token = secrets.token_urlsafe(32)
-        success_url = BillingService._service_order_success_url(config, order.service_code, session_token)
-        cancel_url = BillingService._service_order_cancel_url(config, order.service_code, session_token)
-        amount_gbp = f"£{(order.quote_total_pence / 100):.2f}"
-        payload = {
-            "redirect_flows": {
-                "description": f"VOXBULK.COM {order.service_code} order — {amount_gbp}",
-                "session_token": session_token,
-                "success_redirect_url": success_url,
-                "prefilled_customer": {"email": user.email},
-                "metadata": BillingService._gocardless_metadata(
-                    org_id=org_id,
-                    service_order_id=order.id,
-                    client_email=user.email,
-                ),
-            }
-        }
-
-        with httpx.Client(timeout=20) as client:
-            response = client.post(
-                f"{config['api_base']}/redirect_flows",
-                headers=BillingService._gocardless_headers(config["access_token"]),
-                json=payload,
-            )
-        BillingService._raise_for_gocardless_error(response)
-        body = response.json()
-        flow = body.get("redirect_flows") or {}
-        redirect_flow_id = str(flow.get("id") or "").strip()
-        authorization_url = str(flow.get("redirect_url") or "").strip()
-        if not redirect_flow_id or not authorization_url:
-            raise GoCardlessProviderError("GoCardless did not return a redirect flow URL")
-
-        row = BillingRedirectFlow(
-            org_id=org_id,
-            user_id=user_id,
-            plan_id=None,
-            service_order_id=order.id,
-            redirect_flow_id=redirect_flow_id,
-            session_token=session_token,
-            environment=str(config["environment"]),
-            status="created",
-            authorization_url=authorization_url,
-        )
-        db.add(row)
-        db.commit()
-        db.refresh(row)
-        return {
-            "ok": True,
-            "environment": row.environment,
-            "redirect_flow_id": redirect_flow_id,
-            "authorization_url": authorization_url,
-            "cancel_url": cancel_url,
-            "order_id": order.id,
-        }
-
-    @staticmethod
-    def complete_order_browser_return(
-        db: Session,
-        *,
-        session_token: str,
-        order_billing: str,
-    ) -> str:
-        """Resolve a service-order GoCardless return hop to a dashboard URL."""
-        from urllib.parse import urlencode
-
-        from app.models.service_order import ServiceOrder
-
-        token = str(session_token or "").strip()
-        billing_state = str(order_billing or "success").strip().lower()
-        if billing_state not in {"success", "cancelled"}:
-            billing_state = "success"
-        origin = BillingService._resolved_dashboard_origin()
-
-        if not token:
-            query = urlencode({"order_billing": "error"})
-            return f"{origin}/interviews/new?{query}"
-
-        row = (
-            db.execute(
-                select(BillingRedirectFlow)
-                .where(
-                    BillingRedirectFlow.session_token == token,
-                    BillingRedirectFlow.service_order_id.is_not(None),
-                )
-                .order_by(BillingRedirectFlow.created_at.desc())
-                .limit(1)
-            )
-            .scalars()
-            .first()
-        )
-        if row is None:
-            query = urlencode({"order_billing": "error"})
-            return f"{origin}/interviews/new?{query}"
-
-        path = "interviews/new"
-        if row.service_order_id:
-            order = db.get(ServiceOrder, row.service_order_id)
-            if order is not None and str(order.service_code or "") == "survey":
-                path = "surveys/new"
-
-        params: dict[str, str] = {"order_billing": billing_state}
-        if billing_state == "success":
-            params["redirect_flow_id"] = row.redirect_flow_id
-            if row.service_order_id:
-                params["order_id"] = str(row.service_order_id)
-        query = urlencode(params)
-        return f"{origin}/{path}?{query}"
-
-    @staticmethod
-    def complete_service_order_gocardless_flow(
-        db: Session,
-        *,
-        org_id: str,
-        user_id: str,
-        redirect_flow_id: str,
-    ) -> dict[str, Any]:
-        from app.services.platform_catalog_service import ServiceOrderService
-
-        flow_id = str(redirect_flow_id or "").strip()
-        if not flow_id:
-            raise ValueError("redirect_flow_id required")
-
-        row = (
-            db.execute(
-                select(BillingRedirectFlow)
-                .where(
-                    BillingRedirectFlow.redirect_flow_id == flow_id,
-                    BillingRedirectFlow.org_id == org_id,
-                    BillingRedirectFlow.user_id == user_id,
-                    BillingRedirectFlow.service_order_id.is_not(None),
-                )
-                .order_by(BillingRedirectFlow.created_at.desc())
-                .limit(1)
-            )
-            .scalars()
-            .first()
-        )
-        if row is None:
-            raise ValueError("Service order redirect flow not found")
-
-        order = ServiceOrderService.get_order(db, row.service_order_id or "", org_id=org_id)
-        if order is None:
-            raise ValueError("Order not found")
-
-        if row.status == "completed" and order.payment_status == "approved":
-            return {"ok": True, "status": "completed", "order": ServiceOrderService.order_to_dict(order)}
-
-        config = BillingService._get_gocardless_config(db)
-        with httpx.Client(timeout=20) as client:
-            complete_response = client.post(
-                f"{config['api_base']}/redirect_flows/{flow_id}/actions/complete",
-                headers=BillingService._gocardless_headers(config["access_token"]),
-                json={"data": {"session_token": row.session_token}},
-            )
-        BillingService._raise_for_gocardless_error(complete_response)
-        completed_flow = (complete_response.json().get("redirect_flows") or {})
-        links = completed_flow.get("links") or {}
-        mandate_id = str(links.get("mandate") or "").strip()
-        if not mandate_id:
-            raise GoCardlessProviderError("GoCardless did not return a mandate")
-
-        from app.models.organisation import Organisation
-        from app.services.pricing_market_service import PricingMarketService
-
-        org = db.get(Organisation, org_id)
-        charge_pence, currency, _market = PricingMarketService.charge_pence_for_order(
-            db,
-            gbp_pence=int(order.quote_total_pence or 0),
-            org=org,
-        )
-
-        payment_payload = {
-            "payments": {
-                "amount": charge_pence,
-                "currency": currency,
-                "description": f"VOXBULK {order.service_code} — {order.title}"[:255],
-                "links": {"mandate": mandate_id},
-                "metadata": BillingService._gocardless_metadata(
-                    org_id=org_id,
-                    service_order_id=order.id,
-                    client_email=str((completed_flow.get("prefilled_customer") or {}).get("email") or ""),
-                ),
-            }
-        }
-        with httpx.Client(timeout=20) as client:
-            payment_response = client.post(
-                f"{config['api_base']}/payments",
-                headers=BillingService._gocardless_headers(config["access_token"]),
-                json=payment_payload,
-            )
-        BillingService._raise_for_gocardless_error(payment_response)
-        provider_payment = payment_response.json().get("payments") or {}
-
-        now = datetime.utcnow()
-        order.payment_method = "gocardless"
-        order.payment_status = "approved"
-        order.payment_note = f"GoCardless sandbox payment {provider_payment.get('id') or ''}".strip()
-        order.status = "paid"
-        order.updated_at = now
-        db.add(order)
-
-        row.status = "completed"
-        row.completed_at = now
-        row.updated_at = now
-        db.add(row)
-        db.commit()
-        db.refresh(order)
-
-        try:
-            from app.models.user import User
-            from app.services.invoice_service import InvoiceService
-
-            user = db.get(User, user_id)
-            prefilled_email = str((completed_flow.get("prefilled_customer") or {}).get("email") or "").strip()
-            client_email = prefilled_email or (org.contact_email if org else "") or (user.email if user else "")
-            payment_id = str(provider_payment.get("id") or "").strip()
-            if client_email and payment_id:
-                InvoiceService.issue_from_payment(
-                    db,
-                    org_id=org_id,
-                    client_email=client_email,
-                    subtotal_pence=charge_pence,
-                    currency=currency,
-                    description=f"{order.title} — {order.service_code}",
-                    provider="gocardless",
-                    external_invoice_id=payment_id,
-                    payment_reference=payment_id,
-                    payment_method="gocardless",
-                    status="paid",
-                    line_items=[
-                        {
-                            "description": order.title or order.service_code,
-                            "quantity": 1,
-                            "unit_pence": int(order.quote_total_pence or 0),
-                            "total_pence": int(order.quote_total_pence or 0),
-                        }
-                    ],
-                )
-        except Exception:
-            pass
-
-        return {"ok": True, "status": "completed", "order": ServiceOrderService.order_to_dict(order)}
+    # Per-order GoCardless redirect checkout removed — PAYG launches are paid from the
+    # wallet (Stripe/Airwallex top-ups) and subscription extras are collected via the
+    # existing mandate (see LaunchBillingService).
 

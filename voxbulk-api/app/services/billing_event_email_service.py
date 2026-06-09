@@ -287,6 +287,20 @@ class BillingEventEmailService:
         return row, created, False
 
     @staticmethod
+    def send_payment_receipt(db: Session, *, invoice: BillingInvoice) -> tuple[bool, str | None]:
+        org = db.get(Organisation, invoice.org_id)
+        vars_plain = InvoiceDocumentService.build_variables(db, invoice=invoice, org=org)
+        attachments = BillingEventEmailService._invoice_pdf_attachment(db, invoice)
+        from app.services.product_email_triggers import ProductEmailTriggers
+
+        return ProductEmailTriggers.notify_payment_receipt(
+            db,
+            to_email=invoice.client_email,
+            extra_variables=vars_plain,
+            attachments=attachments,
+        )
+
+    @staticmethod
     def issue_payment_invoice(
         db: Session,
         *,

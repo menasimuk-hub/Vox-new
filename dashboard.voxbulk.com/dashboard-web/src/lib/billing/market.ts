@@ -38,20 +38,9 @@ export function marketCurrencySymbol(market: string): string {
   return symbols[String(market || "gbp").toLowerCase()] || "£";
 }
 
-export function formatQuoteDisplay(
-  pence: number | null | undefined,
-  market: string,
-  settings?: { fx_cad_multiplier?: number; fx_aud_multiplier?: number; fx_usd_multiplier?: number },
-): string {
+export function formatQuoteDisplay(pence: number | null | undefined, market: string): string {
+  // Amounts from the API are already in the org currency (explicit per-currency pricing, no FX).
   const base = Math.max(0, Number(pence || 0));
-  const m = String(market || "gbp").toLowerCase();
-  const fx: Record<string, number> = {
-    gbp: 1,
-    cad: Number(settings?.fx_cad_multiplier || 1.71),
-    aud: Number(settings?.fx_aud_multiplier || 1.95),
-    usd: Number(settings?.fx_usd_multiplier || 1.26),
-  };
-  const converted = m === "gbp" ? base : Math.round(base * (fx[m] || 1));
-  const sym = marketCurrencySymbol(m);
-  return `${sym}${(converted / 100).toFixed(2)}`;
+  const sym = marketCurrencySymbol(market);
+  return `${sym}${(base / 100).toFixed(2)}`;
 }

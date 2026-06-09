@@ -11,7 +11,7 @@ import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { downloadAuthenticatedFile } from "@/lib/api";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
-import { useBillingInvoices, useBillingSubscription, useBillingUsage } from "@/lib/queries";
+import { useBillingAccess, useBillingInvoices, useBillingSubscription, useBillingUsage, useWalletTransactions } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/account/billing")({
@@ -79,6 +79,8 @@ function BillingPage() {
   const subQ = useBillingSubscription();
   const usageQ = useBillingUsage();
   const invoicesQ = useBillingInvoices();
+  const accessQ = useBillingAccess();
+  const walletTxQ = useWalletTransactions(30);
 
   const plan = subQ.data?.plan || usageQ.data?.current_plan || session?.subscription?.plan;
   const subscription = subQ.data?.subscription || usageQ.data?.subscription;
@@ -130,6 +132,16 @@ function BillingPage() {
           <div>
             <p className="font-medium text-foreground">Billing data could not be loaded</p>
             <p className="text-muted-foreground">{billingErrorDetail}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {!billingLoadError && accessQ.data && accessQ.data.can_launch === false && accessQ.data.launch_block_reason ? (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+          <div>
+            <p className="font-medium text-foreground">Campaign launches are blocked</p>
+            <p className="text-muted-foreground">{accessQ.data.launch_block_reason}</p>
           </div>
         </div>
       ) : null}
@@ -252,6 +264,56 @@ function BillingPage() {
           </div>
         )}
       </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Wallet activity</CardTitle>
+          <CardDescription>Top-ups and launch charges from your pay-as-you-go wallet.</CardDescription>
+        </CardHeader>
+        <CardContent className="px-0">
+          {walletTxQ.isLoading ? (
+            <div className="p-6">
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : (walletTxQ.data?.transactions || []).length === 0 ? (
+            <p className="p-8 text-center text-sm text-muted-foreground">
+              No wallet transactions yet. Top up on{" "}
+              <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
+                Packages & pricing
+              </Link>
+              .
+            </p>
+          ) : (
+            <div className="table-scroll">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6">Date</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Kind</TableHead>
+                    <TableHead className="pr-6 text-right">Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(walletTxQ.data?.transactions || []).map((tx) => (
+                    <TableRow key={String(tx.id)}>
+                      <TableCell className="pl-6 text-xs text-muted-foreground">
+                        {tx.created_at ? new Date(String(tx.created_at)).toLocaleString() : "—"}
+                      </TableCell>
+                      <TableCell className="max-w-[240px] truncate text-xs">{String(tx.description || tx.kind || "—")}</TableCell>
+                      <TableCell className="text-xs capitalize">{String(tx.kind || "—").replace(/_/g, " ")}</TableCell>
+                      <TableCell className={`pr-6 text-right tabular-nums ${tx.direction === "credit" ? "text-green-700 dark:text-green-400" : ""}`}>
+                        {tx.direction === "credit" ? "+" : "−"}
+                        {String(tx.amount_display || "")}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
