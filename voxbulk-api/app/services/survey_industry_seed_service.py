@@ -15,6 +15,20 @@ from app.models.survey_type import SurveyType
 from app.services.industry_service import IndustryService
 from app.services.survey_system_template_service import SurveySystemTemplateService
 
+# Legacy DEFAULT_INDUSTRIES rows superseded by INDUSTRY_CATALOG — hide from customer wizard.
+LEGACY_INDUSTRY_SLUGS_TO_HIDE: frozenset[str] = frozenset(
+    {
+        "healthcare",
+        "ecommerce",
+        "finance",
+        "hospitality",
+        "education",
+        "saas",
+        "services",
+        "general",
+    }
+)
+
 INDUSTRY_CATALOG: list[dict[str, Any]] = [
     {
         "slug": "healthcare_dental",
@@ -113,7 +127,7 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
             "Would recommend",
             "Check-out experience",
             "Room temperature control",
-            "Wi‑Fi quality",
+            "Wi-Fi quality",
             "Bed comfort",
             "Bathroom cleanliness",
             "Parking experience",
@@ -293,24 +307,78 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
         "services": [
             "Advice clarity",
             "Product suitability",
-            "Adviser rating",
-            "Value for money",
+            "Adviser professionalism",
             "Response time",
-            "Would recommend",
+            "Value for money",
             "Onboarding experience",
-            "Billing transparency",
-            "Referral likelihood",
+            "Would recommend",
+            "Communication quality",
             "Trust & confidence",
+            "Compliance & transparency",
+            "Digital platform rating",
+            "Application process",
+            "Mortgage/loan handling",
+            "Claims experience",
+            "Renewal process",
+            "Documentation clarity",
+            "Fee transparency",
+            "Switch/transfer experience",
             "Complaint handling",
-            "Digital banking experience",
-            "Loan/mortgage process",
-            "Investment communication",
-            "Fee clarity",
-            "Branch experience",
-            "Phone support quality",
-            "Document delivery speed",
-            "Regulatory communication clarity",
             "Overall service rating",
+        ],
+    },
+    {
+        "slug": "logistics_delivery",
+        "name": "Logistics & Delivery",
+        "sort_order": 106,
+        "services": [
+            "Delivery speed",
+            "Packaging condition",
+            "Driver attitude",
+            "Delivery accuracy",
+            "Communication/tracking",
+            "Would recommend",
+            "Collection experience",
+            "Returns process",
+            "Value for money",
+            "Repeat use intent",
+            "Safe place delivery rating",
+            "Missed delivery handling",
+            "Customer service quality",
+            "App/portal experience",
+            "Proof of delivery satisfaction",
+            "Fragile item handling",
+            "Same-day service rating",
+            "International delivery rating",
+            "Business account experience",
+            "Overall delivery rating",
+        ],
+    },
+    {
+        "slug": "events_entertainment",
+        "name": "Events & Entertainment",
+        "sort_order": 107,
+        "services": [
+            "Event organisation",
+            "Venue quality",
+            "Staff friendliness",
+            "Value for money",
+            "Would recommend",
+            "Return intent",
+            "Ticketing/booking experience",
+            "Queue management",
+            "Food & drink quality",
+            "Parking & transport",
+            "Safety & security feel",
+            "Speaker/performer rating",
+            "Sound & AV quality",
+            "Networking opportunity",
+            "Programme/schedule quality",
+            "Signage & navigation",
+            "Accessibility provision",
+            "Merchandise experience",
+            "Post-event communication",
+            "Overall event rating",
         ],
     },
     {
@@ -327,13 +395,17 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
             "Manager fairness",
             "Recognition",
             "Team collaboration",
-            "Inclusion",
+            "Inclusion & belonging",
             "Career progression",
             "Training quality",
             "Goal clarity",
             "Role clarity",
             "Job satisfaction",
             "Internal communication",
+            "Pay & benefits fairness",
+            "Remote/hybrid flexibility",
+            "Psychological safety",
+            "Overall employee experience",
         ],
     },
 ]
@@ -384,8 +456,11 @@ class SurveyIndustrySeedService:
             service_rows: list[dict[str, str]] = []
             services_created: list[str] = []
             services_skipped: list[str] = []
+            services_updated: list[str] = []
+            expected_slugs: set[str] = set()
             for sort_idx, service_name in enumerate(item.get("services") or [], start=1):
                 service_slug = _service_slug(service_name)
+                expected_slugs.add(service_slug)
                 st = db.execute(
                     select(SurveyType).where(
                         SurveyType.industry_id == row.id,
@@ -415,15 +490,45 @@ class SurveyIndustrySeedService:
                 else:
                     types_existing += 1
                     services_skipped.append(str(service_name))
+                    changed = False
+                    if st.name != str(service_name):
+                        st.name = str(service_name)
+                        changed = True
+                    desc = f"{service_name} feedback for {item['name']}."
+                    if st.description != desc:
+                        st.description = desc
+                        changed = True
+                    if int(st.sort_order or 0) != sort_idx * 10:
+                        st.sort_order = sort_idx * 10
+                        changed = True
+                    if not st.is_active:
+                        st.is_active = True
+                        changed = True
+                    if changed:
+                        st.updated_at = now
+                        db.add(st)
+                        services_updated.append(str(service_name))
                 service_rows.append({"id": st.id, "slug": st.slug, "name": st.name})
+
+            for orphan in db.execute(
+                select(SurveyType).where(SurveyType.industry_id == row.id)
+            ).scalars():
+                if orphan.slug in expected_slugs:
+                    continue
+                if orphan.is_active:
+                    orphan.is_active = False
+                    orphan.updated_at = now
+                    db.add(orphan)
 
             industry_details.append(
                 {
                     "slug": row.slug,
                     "name": row.name,
                     "status": "created" if industry_was_created else "existing",
+                    "active_service_count": len(expected_slugs),
                     "services_created": services_created,
                     "services_skipped": services_skipped,
+                    "services_updated": services_updated,
                 }
             )
 
@@ -435,6 +540,15 @@ class SurveyIndustrySeedService:
                     "service_count": len(service_rows),
                 }
             )
+
+        for legacy_slug in LEGACY_INDUSTRY_SLUGS_TO_HIDE:
+            legacy = db.execute(select(Industry).where(Industry.slug == legacy_slug)).scalar_one_or_none()
+            if legacy is None:
+                continue
+            if not bool(getattr(legacy, "is_hidden", False)):
+                legacy.is_hidden = True
+                legacy.updated_at = now
+                db.add(legacy)
 
         db.commit()
         system = SurveySystemTemplateService.list_admin(db)

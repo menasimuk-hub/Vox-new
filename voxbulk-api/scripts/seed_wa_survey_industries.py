@@ -42,12 +42,16 @@ def main() -> None:
     for row in result.get("industry_details") or []:
         created = row.get("services_created") or []
         skipped = row.get("services_skipped") or []
-        print(f"  {row.get('name')} ({row.get('slug')})")
+        updated = row.get("services_updated") or []
+        active = row.get("active_service_count")
+        print(f"  {row.get('name')} ({row.get('slug')}) — {active} active catalog types")
         if created:
             print(f"    + created ({len(created)}): {', '.join(created[:5])}{'…' if len(created) > 5 else ''}")
+        if updated:
+            print(f"    ~ updated ({len(updated)}): {', '.join(updated[:5])}{'…' if len(updated) > 5 else ''}")
         if skipped:
-            print(f"    · skipped ({len(skipped)}): {', '.join(skipped[:5])}{'…' if len(skipped) > 5 else ''}")
-        if not created and not skipped:
+            print(f"    · unchanged ({len(skipped)}): {', '.join(skipped[:5])}{'…' if len(skipped) > 5 else ''}")
+        if not created and not skipped and not updated:
             print("    (no services defined)")
         print("")
 
