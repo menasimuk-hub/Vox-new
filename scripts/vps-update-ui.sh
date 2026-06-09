@@ -13,8 +13,9 @@ PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
 VOX_ADMIN_DIST="${VOX_ADMIN_DIST:-/www/wwwroot/admin.voxbulk.com}"
 VOX_DASH_DIST="${VOX_DASH_DIST:-/www/wwwroot/dashboard.voxbulk.com}"
 
-echo "=== VoxBulk UI-only deploy ==="
-echo "Git: $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')"
+echo "=== VoxBulk UI-only deploy (no git pull) ==="
+echo "WARN: This script does NOT pull from GitHub. Run git pull first, or use scripts/vps-sync-all-ui.sh"
+echo "Git: $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo '?') @ $(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 echo "Admin wwwroot: $VOX_ADMIN_DIST"
 echo "Dashboard wwwroot: $VOX_DASH_DIST"
 echo ""
@@ -66,4 +67,15 @@ if grep -q 'tabler-icons' "$VOX_DASH_DIST/index.html" 2>/dev/null; then
   echo "FAIL: dashboard still OLD theme (tabler-icons in index.html)"
   exit 1
 fi
+# shellcheck source=lib/vps-git-sync.sh
+source "$ROOT/scripts/lib/vps-git-sync.sh"
+if [[ -f "$VOX_DASH_DIST/build-info.json" ]]; then
+  vox_verify_build_info_sha "$ROOT" "$VOX_DASH_DIST" "dashboard" || {
+    echo "FAIL: build-info SHA mismatch — git pull may not have run before this script"
+    exit 1
+  }
+  echo "Dashboard build-info.json:"
+  cat "$VOX_DASH_DIST/build-info.json"
+fi
+
 echo "OK — hard refresh browser: Ctrl+Shift+R"

@@ -4,170 +4,127 @@
 
 **Pushing from your PC updates GitHub only.** The VPS still serves old built files until you run a deploy script **on the server** (Baota → Terminal).
 
-## Sync customer dashboard (most common)
+## Correct branch (survey + interview work)
 
-Your Create Survey changes are on branch **`feat/wa-survey-template-library`** until merged to `main`.
+Active feature branch:
+
+```text
+fix/wa-interview-platform-templates
+```
+
+Always pass it explicitly until merged to `main`:
 
 ```bash
 cd /www/voxbulk
-chmod +x scripts/vps-sync-dashboard.sh
-VOX_GIT_BRANCH=feat/wa-survey-template-library bash scripts/vps-sync-dashboard.sh
+VOX_GIT_BRANCH=fix/wa-interview-platform-templates bash scripts/vps-sync-all-ui.sh
 ```
 
-After `main` has your merge:
+## Recommended: full UI sync (admin + dashboard)
 
 ```bash
 cd /www/voxbulk
-bash scripts/vps-sync-dashboard.sh
+chmod +x scripts/vps-sync-all-ui.sh deploy-vps.sh vox.sh
+VOX_GIT_BRANCH=fix/wa-interview-platform-templates bash scripts/vps-sync-all-ui.sh
 ```
 
-Hard refresh browser: **Ctrl+Shift+R** on https://dashboard.voxbulk.com/surveys/new
+This script:
 
-## One-command full update (API + admin + dashboard + migrations)
+1. `git fetch` + **checkout branch** + `git pull --ff-only`
+2. Builds admin + dashboard (+ public if present)
+3. Rsyncs to `/www/wwwroot/admin.voxbulk.com` and `/www/wwwroot/dashboard.voxbulk.com`
+4. Restarts services
+5. **Fails if `build-info.json` git_sha ≠ repo HEAD** (proves deploy worked)
 
-```bash
-cd /www/voxbulk          # repo root (Baota path)
-chmod +x deploy-vps.sh vox.sh scripts/vps-update-ui.sh scripts/vps-sync-dashboard.sh
-VOX_GIT_BRANCH=feat/wa-survey-template-library ./deploy-vps.sh
+On success you see:
+
+```text
+══════════════════════════════════════════════════════════════
+  DEPLOY COMPLETE
+══════════════════════════════════════════════════════════════
 ```
 
-Default branch is `main`. Override with `VOX_GIT_BRANCH=your-branch`.
-
-**UI only** (all frontends, skip migrations):
+## Full deploy (API + migrations + all UIs)
 
 ```bash
 cd /www/voxbulk
-git pull origin feat/wa-survey-template-library   # or main
+VOX_GIT_BRANCH=fix/wa-interview-platform-templates ./deploy-vps.sh
+```
+
+`deploy-vps.sh` now **checks out** `VOX_GIT_BRANCH` before pull (old bug: it pulled into whatever branch VPS was on, often `main`).
+
+## Confirm deploy worked
+
+Hard refresh: **Ctrl+Shift+R**
+
+```text
+https://dashboard.voxbulk.com/build-info.json
+```
+
+`git_sha` must match the commit printed at end of deploy, e.g. `17fdba6` (not an older SHA like `0e4e93d` or `6bd607d`).
+
+Also check:
+
+```text
+https://admin.voxbulk.com/build-info.json
+```
+
+## Dashboard only (not recommended)
+
+```bash
+VOX_GIT_BRANCH=fix/wa-interview-platform-templates bash scripts/vps-sync-dashboard.sh
+```
+
+**Warning:** admin stays stale. Prefer `vps-sync-all-ui.sh`.
+
+## UI only, no git pull (after manual git pull)
+
+```bash
+cd /www/voxbulk
+git fetch origin fix/wa-interview-platform-templates
+git checkout fix/wa-interview-platform-templates
+git pull --ff-only origin fix/wa-interview-platform-templates
 bash scripts/vps-update-ui.sh
 ```
 
-## First-time VPS setup
+## Troubleshooting stale build-info.json
 
-```bash
-git clone https://github.com/menasimuk-hub/Vox-new.git Vox
-cd Vox
-python3 -m venv voxbulk-api/.venv
-cp voxbulk-api/.env.example voxbulk-api/.env   # edit DATABASE_URL, secrets
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `git_sha` stuck on old commit | Wrong branch or pull failed silently | Run `vps-sync-all-ui.sh` with `VOX_GIT_BRANCH=fix/wa-interview-platform-templates` |
+| Deploy says OK but SHA wrong | nginx serves different wwwroot | Confirm `VOX_DASH_DIST=/www/wwwroot/dashboard.voxbulk.com` |
+| `git pull` fails | Untracked brand files block merge | `VOX_FORCE_PULL=1 VOX_GIT_BRANCH=fix/wa-interview-platform-templates bash scripts/vps-sync-all-ui.sh` |
+| Built_at updates but SHA same | `VOX_SKIP_GIT=1` or no new commits on branch | `git log -1 --oneline` on VPS must match GitHub |
 
-# Optional: nginx static roots
-export VOX_ADMIN_DIST=/var/www/admin.voxbulk.com
-export VOX_DASH_DIST=/var/www/dashboard.voxbulk.com
-export VOX_PUBLIC_DIST=/var/www/voxbulk.com
-
-# Baota / aaPanel (this VPS) — nginx serves from wwwroot, NOT from repo dist:
-# export VOX_ADMIN_DIST=/www/wwwroot/admin.voxbulk.com
-# export VOX_DASH_DIST=/www/wwwroot/dashboard.voxbulk.com
-# export VOX_PUBLIC_DIST=/www/wwwroot/voxbulk.com
-
-./deploy-vps.sh
-```
-
-## Celery worker (required for WA voice-note transcription)
-
-Voice notes stay **`pending`** until a Celery worker runs `survey.transcribe_voice_note`. Redis must be up (`redis-cli ping` → `PONG`).
-
-**One-time setup** (replaces legacy `retover-celery`):
+Check VPS repo state:
 
 ```bash
 cd /www/voxbulk
-git pull origin fix/wa-interview-platform-templates   # or main after merge
-chmod +x scripts/vps-setup-celery.sh scripts/run-celery-worker.sh
-sudo bash scripts/vps-setup-celery.sh
+git branch --show-current
+git log -1 --oneline
+git fetch origin fix/wa-interview-platform-templates
+git rev-parse --short HEAD
+git rev-parse --short origin/fix/wa-interview-platform-templates
+# These two SHAs must match before build
 ```
 
-**Check status:**
+## Git remote
 
-```bash
-supervisorctl status voxbulk-celery    # want RUNNING
-./vox.sh status                        # includes Celery + Redis
-tail -f /tmp/voxbulk-celery.log
-```
-
-**After Celery is running**, retry stuck voice notes in Admin → WA Survey insights (or `POST /admin/wa-survey/voice-notes/{job_id}/retry`).
-
-## Git remote (important)
-
-**Canonical repo:** `https://github.com/menasimuk-hub/Vox-new.git` (`origin` → `main`)
+**Canonical repo:** `https://github.com/menasimuk-hub/Vox-new.git`
 
 Do **not** use `menasimuk-hub/Vox` (legacy duplicate).
 
-```bash
-git pull origin main
-./deploy-vps.sh
-```
+## Baota / aaPanel wwwroot paths
 
-## Migrations in this release
-
-- `0046_messaging_templates` — WhatsApp/SMS/email template tables
-- `0047_email_template_html_defaults` — system email HTML bodies
-- `0048_kb_file_scope` — lead / sales / org KB libraries
-
-## Baota / aaPanel VPS (wwwroot)
-
-After `npm run build`, **copy admin dist and dashboard `dist/client` to wwwroot**:
-
-```bash
-rsync -a --exclude='.user.ini' /www/voxbulk/admin.voxbulk.com/adim-web/dist/ /www/wwwroot/admin.voxbulk.com/
-rsync -a --exclude='.user.ini' /www/voxbulk/dashboard.voxbulk.com/dashboard-web/dist/client/ /www/wwwroot/dashboard.voxbulk.com/
-```
-
-See also: `dashboard.voxbulk.com/dashboard-web/BUILD-VPS.md`
-
-Verify dashboard: view source — must **not** contain `tabler-icons` (old theme).
-
-## Troubleshooting
-
-| Problem | Fix |
-|---------|-----|
-| **API 502 / dashboard login broken after deploy** | Baota terminal: `cd /www/voxbulk && bash scripts/vps-recover-api.sh` — usually a Python import/syntax error in latest pull (see `/tmp/voxbulk-api.log`) |
-| **Deploy must not restart a broken API** | Latest `deploy-vps.sh` runs `python -c "import main"` before restart and requires `/health` after |
-| `alembic` not found | Script uses `python -m alembic` inside `.venv` |
-| API 404 on `/admin/messaging/*` | `./vox.sh restart` after pull |
-| Port 8000 in use | `./vox.sh stop` then redeploy |
-| `./vox.sh status` says API not responding but uvicorn running | API still starting (wait 10–20s) or check `/tmp/voxbulk-api.log`; set `TRUSTED_HOSTS=api.voxbulk.com,localhost,127.0.0.1` in `voxbulk-api/.env` |
-| `retover-celery: FATAL can't find command celery` | Legacy config — run `sudo bash scripts/vps-setup-celery.sh` to install `voxbulk-celery` |
-| Voice notes stuck `pending` | Celery worker not running — `supervisorctl status voxbulk-celery` must be RUNNING; then retry jobs in admin |
-| KB files wrong library | Re-upload on Lead or Sales page (scoped upload) |
-| `git pull` unrelated histories | `git fetch origin && git reset --hard origin/main` (destroys local VPS edits) |
-| `untracked working tree files would be overwritten` (brand `*.png`) | Remove untracked PNGs under `admin/.../public/brand/` and `dashboard/.../public/brand/`, then `git pull origin main` — or run latest `./deploy-vps.sh` (auto-clears before pull) |
-| Admin blank after deploy | Set `VOX_ADMIN_DIST` and point nginx `root` to `dist` |
-| Dashboard shows old orange theme | Wrong rsync: use `dist/client/` not `dist/`. Rebuild + rsync — see `dashboard-web/BUILD-VPS.md` |
-| Dashboard 502 after nginx change | Run `cd dashboard-web && npm run build && ./vox.sh restart`; check `/tmp/voxbulk-dashboard.log` |
-| Email templates Not Found | Run migrate + restart API |
+| App | Build output | wwwroot |
+|-----|--------------|---------|
+| Admin | `admin.voxbulk.com/adim-web/dist/` | `/www/wwwroot/admin.voxbulk.com` |
+| Dashboard | `dashboard.voxbulk.com/dashboard-web/dist/client/` | `/www/wwwroot/dashboard.voxbulk.com` |
 
 ## Skip flags
 
 ```bash
-VOX_SKIP_GIT=1 ./deploy-vps.sh      # deploy current files only
-VOX_SKIP_BUILD=1 ./deploy-vps.sh    # API + migrate only
-VOX_SKIP_MIGRATE=1 ./deploy-vps.sh  # no DB changes
-```
-
-## Production incident recovery (provider console)
-
-If SSH login fails but the provider console (Baota / aaPanel) still works:
-
-1. **SSH port 22 is usually still open** — login failures are often wrong password, key-only auth, or fail2ban after repeated attempts. Check Baota → Security → SSH / fail2ban.
-2. **API down (502 on api.voxbulk.com)** — open Baota **Terminal** and run:
-
-```bash
-cd /www/voxbulk
-git pull origin main
-bash scripts/vps-recover-api.sh
-```
-
-3. **Static sites show blank/404 but API OK** — restore wwwroot backup created by deploy:
-
-```bash
-# Example — path is printed during deploy
-sudo cp -a /www/wwwroot/dashboard.voxbulk.com.backup-YYYYMMDD-HHMMSS/* /www/wwwroot/dashboard.voxbulk.com/
-```
-
-4. **Rollback code** (destroys VPS-local edits):
-
-```bash
-cd /www/voxbulk
-git fetch origin main
-git reset --hard origin/main
-./deploy-vps.sh
+VOX_SKIP_GIT=1 ./deploy-vps.sh      # rebuild current tree only — SHA won't change
+VOX_SKIP_BUILD=1 ./deploy-vps.sh    # API only — UI stays stale
+VOX_SKIP_MIGRATE=1 ./deploy-vps.sh
+VOX_FORCE_PULL=1 ./deploy-vps.sh    # stash + retry pull
 ```

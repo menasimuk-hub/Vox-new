@@ -23,4 +23,5 @@ voxbulk-api/data/cv_intake/
 voxbulk-api/data/org_logos/
 voxbulk-api/build_info.json
 dashboard.voxbulk.com/dashboard-web/public/build-info.json
+admin.voxbulk.com/adim-web/public/build-info.json
 dashboard.voxbulk.com/dashboard-web/.lovable/

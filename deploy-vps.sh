@@ -30,8 +30,11 @@ PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
 VOX_SH="$ROOT/vox.sh"
 
 GIT_REMOTE="${VOX_GIT_REMOTE:-origin}"
-GIT_BRANCH="${VOX_GIT_BRANCH:-main}"
+GIT_BRANCH="${VOX_GIT_BRANCH:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
 DEPLOY_LOG="${VOX_DEPLOY_LOG:-/tmp/voxbulk-deploy.log}"
+
+# shellcheck source=scripts/lib/vps-git-sync.sh
+source "$ROOT/scripts/lib/vps-git-sync.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -77,36 +80,9 @@ _clear_untracked_pull_conflicts() {
 }
 
 git_pull() {
-  if [[ "${VOX_SKIP_GIT:-0}" == "1" ]]; then
-    warn "VOX_SKIP_GIT=1 — skipping git pull"
-    return
-  fi
-  info "Pulling $GIT_REMOTE/$GIT_BRANCH …"
-  cd "$ROOT"
-  git fetch "$GIT_REMOTE" "$GIT_BRANCH"
-  # Prefer merge; if unrelated histories, warn and stop (do not force)
-  if ! git merge-base "HEAD" "$GIT_REMOTE/$GIT_BRANCH" >/dev/null 2>&1; then
-    fail "Git histories unrelated. On VPS run: git fetch $GIT_REMOTE && git reset --hard $GIT_REMOTE/$GIT_BRANCH (only if you accept overwriting local VPS changes)"
-  fi
-  if ! git diff --quiet deploy-vps.sh vox.sh 2>/dev/null; then
-    warn "Local edits to deploy-vps.sh or vox.sh — resetting so git pull can proceed"
-    git checkout -- deploy-vps.sh vox.sh
-  fi
-  if ! git diff --quiet && [[ "${VOX_FORCE_PULL:-0}" == "1" ]]; then
-    warn "VOX_FORCE_PULL=1 — stashing other local changes before pull"
-    git stash push -u -m "voxbulk-deploy-auto-stash $(date -Iseconds)"
-  fi
+  info "Syncing git → $GIT_REMOTE/$GIT_BRANCH (checkout + ff-only pull) …"
   _clear_untracked_pull_conflicts
-  if ! git pull --ff-only "$GIT_REMOTE" "$GIT_BRANCH"; then
-    if [[ "${VOX_FORCE_PULL:-0}" == "1" ]]; then
-      warn "VOX_FORCE_PULL=1 — stashing all local/untracked changes and retrying pull"
-      git stash push -u -m "voxbulk-deploy-force-pull $(date -Iseconds)" || true
-      _clear_untracked_pull_conflicts
-      git pull --ff-only "$GIT_REMOTE" "$GIT_BRANCH" || fail "git pull failed after stash — run: git status; git reset --hard $GIT_REMOTE/$GIT_BRANCH"
-    else
-      fail "git pull failed — remove untracked brand/logo files blocking merge, or run: VOX_FORCE_PULL=1 ./deploy-vps.sh"
-    fi
-  fi
+  VOX_GIT_BRANCH="$GIT_BRANCH" vox_git_sync "$ROOT" || fail "git sync failed — try: VOX_FORCE_PULL=1 VOX_GIT_BRANCH=$GIT_BRANCH ./deploy-vps.sh"
 }
 
 api_deps_and_migrate() {
@@ -309,12 +285,19 @@ PY
     dash_js=$(grep -oE '/assets/[^"]+\.js' "$VOX_DASH_DIST/index.html" 2>/dev/null | head -1 || true)
     if [[ -n "$dash_js" && -f "$VOX_DASH_DIST${dash_js}" ]]; then
       if grep -q 'tabler-icons' "$VOX_DASH_DIST/index.html" 2>/dev/null; then
-        warn "  Dashboard wwwroot still OLD theme (tabler-icons) — rebuild and rsync dist/client/"
+        fail "Dashboard wwwroot still OLD theme (tabler-icons) — rebuild and rsync dist/client/"
       else
         info "  Dashboard static OK: index.html → $dash_js (new UI)"
       fi
     else
-      warn "  Dashboard wwwroot broken — run: cd dashboard-web && npm run build && rsync dist/client/ → $VOX_DASH_DIST"
+      fail "Dashboard wwwroot broken — run: bash scripts/vps-sync-all-ui.sh"
+    fi
+    if [[ -f "$VOX_DASH_DIST/build-info.json" ]]; then
+      vox_verify_build_info_sha "$ROOT" "$VOX_DASH_DIST" "dashboard" || fail "Dashboard build-info SHA mismatch — deploy did not publish current commit"
+      info "  Dashboard build-info.json:"
+      cat "$VOX_DASH_DIST/build-info.json"
+    else
+      fail "Missing $VOX_DASH_DIST/build-info.json — npm prebuild sync:build-info did not run"
     fi
   fi
 
@@ -407,6 +390,7 @@ main() {
   exec > >(tee -a "$DEPLOY_LOG") 2>&1
   info "VOXBULK deploy started $(date -Iseconds)"
   info "Log: $DEPLOY_LOG"
+  info "Target branch: $GIT_BRANCH"
   preflight
   git_pull
   write_build_info
@@ -417,7 +401,7 @@ main() {
   restart_services
   post_checks
   print_notes
-  info "Deploy finished OK"
+  vox_print_deploy_banner COMPLETE "$ROOT"
 }
 
 main "$@"
