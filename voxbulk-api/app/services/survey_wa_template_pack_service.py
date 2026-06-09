@@ -60,7 +60,9 @@ from app.services.survey_whatsapp_template_service import (
     _body_preview,
     _dumps,
     _extract_example_values,
+    _normalize_draft_components,
     _now,
+    build_meta_body_component,
     survey_template_to_dict,
 )
 
@@ -734,12 +736,7 @@ def build_components_from_generated(item: dict[str, Any]) -> list[dict[str, Any]
     if header:
         components.append({"type": "HEADER", "format": "TEXT", "text": header[:60]})
 
-    body_component: dict[str, Any] = {"type": "BODY", "text": body}
-    if var_ids:
-        body_example = examples[: max(1, len(var_ids))]
-        if not body_example:
-            body_example = ["Alex"]
-        body_component["example"] = {"body_text": [body_example]}
+    body_component = build_meta_body_component(body, example_values=examples if var_ids else None)
     components.append(body_component)
     if footer:
         components.append({"type": "FOOTER", "text": footer[:60]})
@@ -2216,7 +2213,7 @@ class SurveyWaTemplatePackService:
             industry_id=resolve_survey_type_industry_id(survey_type),
             survey_type_id=survey_type.id,
             body_preview=_body_preview(components),
-            draft_components_json=_dumps(components),
+            draft_components_json=_dumps(_normalize_draft_components(components)),
             example_values_json=_dumps([str(v) for v in examples]),
             local_sync_status=SYNC_DRAFT,
             active_for_survey=True,

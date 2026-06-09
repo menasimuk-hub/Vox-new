@@ -379,10 +379,12 @@ def _meta_example_is_valid(example: Any, *, field: str) -> bool:
     rows = example.get(field)
     if not isinstance(rows, list) or not rows:
         return False
+    if field == "header_text":
+        return any(str(v).strip() for v in rows)
     first = rows[0]
-    if not isinstance(first, list) or not first:
-        return False
-    return any(str(v).strip() for v in first)
+    if isinstance(first, list):
+        return any(str(v).strip() for v in first)
+    return any(str(v).strip() for v in rows)
 
 
 def _normalize_draft_components(components: list[Any] | None) -> list[Any]:
@@ -422,37 +424,96 @@ def _example_values_for_storage(
     return values[: max(var_ids)]
 
 
+def _body_placeholder_error(text: str) -> str | None:
+    """Return a validation error when body placeholders are not Meta positional {{1}} style."""
+    body = str(text or "")
+    if "{{" not in body:
+        return None
+    var_ids = _meta_var_ids_in_text(body)
+    for match in re.finditer(r"\{\{([^}]+)\}\}", body):
+        inner = str(match.group(1) or "").strip()
+        if not inner.isdigit():
+            return (
+                f"Body contains invalid placeholder {{{{{inner}}}}}. "
+                "Use only positional variables like {{1}}, {{2}} — or remove all braces."
+            )
+    if not var_ids:
+        return None
+    expected = list(range(1, max(var_ids) + 1))
+    unique = sorted(set(var_ids))
+    if unique != expected:
+        return f"Body variables must run {{1}}..{{{max(expected)}}} with no gaps — found {unique}."
+    stripped = body.strip()
+    if re.match(r"^\{\{\d+\}\}", stripped):
+        return "WhatsApp variables cannot be at the start of the body text."
+    if re.search(r"\{\{\d+\}\}\s*$", stripped):
+        return "WhatsApp variables cannot be at the end of the body text."
+    return None
+
+
+def _build_meta_header_component(comp: dict[str, Any], *, examples: list[str]) -> dict[str, Any]:
+    text = str(comp.get("text") or "").strip()
+    header: dict[str, Any] = {
+        "type": "HEADER",
+        "format": str(comp.get("format") or "TEXT").upper(),
+        "text": text,
+    }
+    var_ids = _meta_var_ids_in_text(text)
+    if var_ids:
+        header["example"] = {"header_text": _pad_example_values(examples, max(var_ids))}
+    return header
+
+
+def _build_meta_buttons_component(comp: dict[str, Any]) -> dict[str, Any]:
+    buttons_in = comp.get("buttons") if isinstance(comp.get("buttons"), list) else []
+    buttons_out: list[dict[str, Any]] = []
+    for btn in buttons_in:
+        if not isinstance(btn, dict):
+            continue
+        cloned = dict(btn)
+        kind = str(cloned.get("type") or "").upper()
+        if kind == "URL" and "{{" in str(cloned.get("url") or ""):
+            if not isinstance(cloned.get("example"), list) or not cloned.get("example"):
+                cloned["example"] = ["Sample"]
+        buttons_out.append(cloned)
+    return {"type": "BUTTONS", "buttons": buttons_out}
+
+
 def ensure_meta_examples_on_components(
     components: list[Any] | None,
     example_values: list[str] | None = None,
     *,
     row: TelnyxWhatsappTemplate | None = None,
 ) -> list[Any]:
-    """Ensure Meta/Telnyx-required example fields exist on BODY/HEADER before push."""
+    """Rebuild Meta/Telnyx-compatible components with required example fields before push."""
     if not isinstance(components, list):
         return []
     examples = _resolve_example_values(components, row=row, override=example_values)
     out: list[Any] = []
+    body_count = 0
     for comp in components:
         if not isinstance(comp, dict):
             continue
-        cloned = dict(comp)
-        ctype = str(cloned.get("type") or "").upper()
+        ctype = str(comp.get("type") or "").upper()
         if ctype == "BODY":
-            text = str(cloned.get("text") or "")
+            body_count += 1
+            text = str(comp.get("text") or "").strip()
+            if not text:
+                raise SurveyWhatsappTemplateError("Template BODY text is empty.")
+            layout_error = _body_placeholder_error(text)
+            if layout_error:
+                raise SurveyWhatsappTemplateError(layout_error)
             var_ids = _meta_var_ids_in_text(text)
-            if var_ids:
-                body_example = _pad_example_values(examples, max(var_ids))
-            else:
-                body_example = [META_STATIC_BODY_SAMPLE]
-            cloned["example"] = {"body_text": [body_example]}
+            body_examples = examples if var_ids else None
+            out.append(build_meta_body_component(text, example_values=body_examples))
         elif ctype == "HEADER":
-            text = str(cloned.get("text") or "")
-            var_ids = _meta_var_ids_in_text(text)
-            if var_ids:
-                header_example = _pad_example_values(examples, max(var_ids))
-                cloned["example"] = {"header_text": [header_example]}
-        out.append(cloned)
+            out.append(_build_meta_header_component(comp, examples=examples))
+        elif ctype == "BUTTONS":
+            out.append(_build_meta_buttons_component(comp))
+        else:
+            out.append(dict(comp))
+    if body_count != 1:
+        raise SurveyWhatsappTemplateError("Template must contain exactly one BODY component.")
     return out
 
 
@@ -460,15 +521,21 @@ def _assert_meta_ready_components(components: list[Any] | None) -> None:
     """Raise when any BODY/HEADER component would fail Meta's example requirement."""
     if not isinstance(components, list):
         raise SurveyWhatsappTemplateError("Template has no components to push")
+    body_seen = 0
     for comp in components:
         if not isinstance(comp, dict):
             continue
         ctype = str(comp.get("type") or "").upper()
         if ctype == "BODY":
-            if not _meta_example_is_valid(comp.get("example"), field="body_text"):
+            body_seen += 1
+            example = comp.get("example")
+            if not isinstance(example, dict) or "body_text" not in example:
                 raise SurveyWhatsappTemplateError(
-                    "Template BODY is missing a Meta example value. Save the template again or run "
-                    "scripts/repair_wa_survey_template_drafts.py, then sync to Telnyx."
+                    "Internal error: BODY example missing after Meta preparation — contact support."
+                )
+            if not _meta_example_is_valid(example, field="body_text"):
+                raise SurveyWhatsappTemplateError(
+                    "Internal error: BODY example is invalid after Meta preparation — contact support."
                 )
         elif ctype == "HEADER":
             text = str(comp.get("text") or "")
@@ -476,6 +543,8 @@ def _assert_meta_ready_components(components: list[Any] | None) -> None:
                 raise SurveyWhatsappTemplateError(
                     "Template HEADER is missing Meta example values for its variables."
                 )
+    if body_seen != 1:
+        raise SurveyWhatsappTemplateError("Template must contain exactly one BODY component.")
 
 
 _QUESTION_DRAFT_BODIES: dict[str, str] = {
@@ -1447,6 +1516,12 @@ class SurveyWhatsappTemplateService:
                 status_code=e.response.status_code if e.response is not None else None,
                 telnyx_request_mode="create_or_update_template",
             )
+            body_comp = next(
+                (c for c in components if isinstance(c, dict) and str(c.get("type") or "").upper() == "BODY"),
+                None,
+            )
+            if isinstance(body_comp, dict):
+                error_payload["prepared_body_component"] = body_comp
             raise SurveyWhatsappTemplateError(
                 str(error_payload.get("admin_guidance") or error_payload.get("message")),
                 payload=error_payload,
