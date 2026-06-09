@@ -749,6 +749,7 @@ def survey_template_to_dict(
     payload = {
         **base,
         "display_name": row.display_name or row.name,
+        "customer_description": str(row.customer_description or "").strip() or None,
         "parent_template_id": row.parent_template_id,
         "approval_status": str(row.status or "UNKNOWN").upper(),
         "sync_status_label": sync_status.replace("_", " ").title(),
@@ -918,6 +919,9 @@ class SurveyWhatsappTemplateService:
     def save_draft(db: Session, row: TelnyxWhatsappTemplate, payload: dict[str, Any]) -> TelnyxWhatsappTemplate:
         if "display_name" in payload:
             row.display_name = str(payload.get("display_name") or row.display_name or row.name).strip() or row.name
+        if "customer_description" in payload:
+            desc = str(payload.get("customer_description") or "").strip()
+            row.customer_description = desc or None
         if "language" in payload and str(payload.get("language") or "").strip():
             lang_code, lang_error = normalize_wa_template_language(str(payload.get("language")), db=db)
             if lang_error:

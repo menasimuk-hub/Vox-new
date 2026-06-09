@@ -36,6 +36,7 @@ class TelnyxWhatsappTemplate(Base):
     pack_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("survey_template_packs.id"), nullable=True, index=True)
     parent_template_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("telnyx_whatsapp_templates.id"), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    customer_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_components_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     example_values_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     local_sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")

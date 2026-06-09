@@ -543,65 +543,67 @@ class SurveySystemTemplateService:
         return int(row.id) if row is not None else None
 
     @staticmethod
-    def resolve_tell_us_more_template_id(db: Session) -> int | None:
+    def _config_privacy_mode(config: dict[str, Any] | None) -> str:
+        cfg = config or {}
+        if cfg.get("privacy_mode") is not None:
+            return normalize_privacy_mode(cfg.get("privacy_mode"))
+        return PRIVACY_MODE_ON if bool(cfg.get("anonymous_responses")) else PRIVACY_MODE_OFF
+
+    @staticmethod
+    def resolve_system_template_for_kind(
+        db: Session,
+        kind: str,
+        config: dict[str, Any] | None = None,
+    ) -> TelnyxWhatsappTemplate | None:
+        """Resolve active system template for kind, filtered by named vs anonymous survey mode."""
+        kind = normalize_system_template_kind(kind)
+        privacy = SurveySystemTemplateService._config_privacy_mode(config)
         SurveySystemTemplateService.ensure_system_survey_types(db)
         st = db.execute(
-            select(SurveyType).where(SurveyType.system_template_kind == "tell_us_more").limit(1)
+            select(SurveyType).where(SurveyType.system_template_kind == kind).limit(1)
         ).scalar_one_or_none()
         if st is None:
             return None
-        row = db.execute(
-            select(TelnyxWhatsappTemplate)
-            .join(SurveyTypeTemplate, SurveyTypeTemplate.template_id == TelnyxWhatsappTemplate.id)
-            .where(
-                SurveyTypeTemplate.survey_type_id == st.id,
-                TelnyxWhatsappTemplate.active_for_survey.is_(True),
-            )
-            .order_by(TelnyxWhatsappTemplate.id.asc())
-            .limit(1)
-        ).scalar_one_or_none()
+        rows = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate)
+                .join(SurveyTypeTemplate, SurveyTypeTemplate.template_id == TelnyxWhatsappTemplate.id)
+                .where(
+                    SurveyTypeTemplate.survey_type_id == st.id,
+                    TelnyxWhatsappTemplate.active_for_survey.is_(True),
+                )
+                .order_by(TelnyxWhatsappTemplate.id.asc())
+            ).scalars()
+        )
+        for row in rows:
+            if resolve_row_privacy_mode(row) == privacy:
+                return row
+        return None
+
+    @staticmethod
+    def resolve_tell_us_more_template_id(
+        db: Session,
+        config: dict[str, Any] | None = None,
+    ) -> int | None:
+        row = SurveySystemTemplateService.resolve_system_template_for_kind(db, "tell_us_more", config)
         return int(row.id) if row is not None else None
 
     @staticmethod
-    def resolve_final_feedback_template_id(db: Session) -> int | None:
-        SurveySystemTemplateService.ensure_system_survey_types(db)
-        st = db.execute(
-            select(SurveyType).where(SurveyType.system_template_kind == "final_feedback").limit(1)
-        ).scalar_one_or_none()
-        if st is None:
-            return None
-        row = db.execute(
-            select(TelnyxWhatsappTemplate)
-            .join(SurveyTypeTemplate, SurveyTypeTemplate.template_id == TelnyxWhatsappTemplate.id)
-            .where(
-                SurveyTypeTemplate.survey_type_id == st.id,
-                TelnyxWhatsappTemplate.active_for_survey.is_(True),
-            )
-            .order_by(TelnyxWhatsappTemplate.id.asc())
-            .limit(1)
-        ).scalar_one_or_none()
+    def resolve_final_feedback_template_id(
+        db: Session,
+        config: dict[str, Any] | None = None,
+    ) -> int | None:
+        row = SurveySystemTemplateService.resolve_system_template_for_kind(db, "final_feedback", config)
         return int(row.id) if row is not None else None
 
     @staticmethod
-    def resolve_final_feedback_prompt(db: Session) -> str:
+    def resolve_final_feedback_prompt(
+        db: Session,
+        config: dict[str, Any] | None = None,
+    ) -> str:
         from app.services.survey_wa_final_feedback_service import DEFAULT_OPEN_TEXT_PROMPT
 
-        SurveySystemTemplateService.ensure_system_survey_types(db)
-        st = db.execute(
-            select(SurveyType).where(SurveyType.system_template_kind == "final_feedback").limit(1)
-        ).scalar_one_or_none()
-        if st is None:
-            return DEFAULT_OPEN_TEXT_PROMPT
-        row = db.execute(
-            select(TelnyxWhatsappTemplate)
-            .join(SurveyTypeTemplate, SurveyTypeTemplate.template_id == TelnyxWhatsappTemplate.id)
-            .where(
-                SurveyTypeTemplate.survey_type_id == st.id,
-                TelnyxWhatsappTemplate.active_for_survey.is_(True),
-            )
-            .order_by(TelnyxWhatsappTemplate.id.asc())
-            .limit(1)
-        ).scalar_one_or_none()
+        row = SurveySystemTemplateService.resolve_system_template_for_kind(db, "final_feedback", config)
         if row is None:
             return DEFAULT_OPEN_TEXT_PROMPT
         body = str(row.body_preview or "").strip()
@@ -702,6 +704,7 @@ class SurveySystemTemplateService:
         language = str(body.get("language") or "en_US").strip() or "en_US"
         category = str(body.get("category") or "UTILITY").strip() or "UTILITY"
         display_name = str(body.get("display_name") or "").strip() or KIND_LABELS[kind].rstrip("s")
+        customer_description = str(body.get("customer_description") or "").strip() or None
         privacy_mode = normalize_privacy_mode(
             body.get("privacy_mode") or body.get("variant_type") or PRIVACY_MODE_OFF
         )
@@ -727,6 +730,7 @@ class SurveySystemTemplateService:
             row,
             {
                 "display_name": display_name,
+                "customer_description": customer_description,
                 "components": components,
                 "category": category,
             },
