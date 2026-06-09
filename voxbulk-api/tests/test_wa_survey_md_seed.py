@@ -45,6 +45,31 @@ def test_parse_md_survey_pack_reads_blocks():
     assert pack.questions[0].wizard_description == pack.questions[0].body
 
 
+def test_parse_multi_industry_md_reads_sections():
+    from app.services.survey_wa_md_seed_service import parse_multi_industry_md_survey_pack
+
+    sample = """\
+Healthcare & Dental
+
+Post-visit satisfaction
+😊 Overall, how satisfied were you with your recent visit?
+A) Dissatisfied B) Satisfied C) Very satisfied
+
+Employee Survey
+
+Morale
+📈 How would you describe the current mood and spirit within our team?
+A) Low B) Moderate C) High
+"""
+    pack = parse_multi_industry_md_survey_pack(sample)
+    assert not pack.parse_errors
+    assert len(pack.sections) == 2
+    assert pack.sections[0].industry_slug == "healthcare_dental"
+    assert pack.sections[0].questions[0].name == "Post-visit satisfaction"
+    assert pack.sections[1].industry_slug == "employee_survey"
+    assert pack.sections[1].questions[0].name == "Morale"
+
+
 def test_seed_from_markdown_file_creates_templates():
     md_path = Path(__file__).resolve().parents[1] / "seed-data/wa-survey/employee-experience.md"
     with get_sessionmaker()() as db:
