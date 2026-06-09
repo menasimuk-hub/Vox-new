@@ -84,16 +84,49 @@ def test_orphan_system_template_appears_in_grouped_list(db):
     assert int(row.id) in ids
 
 
-def test_create_draft_noname_variant(db):
+def test_create_draft_anonymous_variant(db):
     result = SurveySystemTemplateService.create_draft(
         db,
         kind="welcome",
         payload={"display_name": "Quiet welcome", "privacy_mode": "on"},
     )
-    assert result["template"]["variant_label"] == "Noname"
+    assert result["template"]["variant_label"] == "Anonymous"
+    assert result["template"]["privacy_mode"] == "on"
     grouped = SurveySystemTemplateService.list_grouped_admin(db)
     labels = {item["variant_label"] for item in grouped["templates"]["welcome"]}
-    assert "Noname" in labels
+    assert "Anonymous" in labels
+
+
+def test_save_draft_persists_anonymous_privacy_mode(db):
+    survey_type = SurveySystemTemplateService.survey_type_for_kind(db, "welcome")
+    row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+    SurveySystemTemplateService._ensure_system_mapping(db, survey_type=survey_type, template=row)
+    db.commit()
+
+    updated = SurveyWhatsappTemplateService.save_draft(
+        db,
+        row,
+        {"display_name": "Anonymous welcome", "privacy_mode": "Anonymous"},
+    )
+    db.refresh(updated)
+
+    assert updated.display_name == "Anonymous welcome"
+    assert updated.privacy_mode == "on"
+    assert updated.variant_type == "anonymous"
+
+    reloaded = SurveyWhatsappTemplateService.get_template(db, updated.id)
+    assert reloaded is not None
+    assert reloaded.privacy_mode == "on"
+    assert reloaded.variant_type == "anonymous"
+
+    admin_row = SurveySystemTemplateService._admin_template_row(
+        db,
+        reloaded,
+        kind="welcome",
+        survey_type=survey_type,
+    )
+    assert admin_row["variant_label"] == "Anonymous"
+    assert admin_row["privacy_mode"] == "on"
 
 
 def test_save_generated_appears_in_grouped_welcome(db):

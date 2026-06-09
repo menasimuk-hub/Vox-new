@@ -60,6 +60,7 @@ from app.services.wa_template_privacy import (
     PRIVACY_MODE_OFF,
     PRIVACY_MODE_ON,
     normalize_privacy_mode,
+    privacy_mode_to_variant,
     resolve_mapping_privacy_mode,
     resolve_row_privacy_mode,
 )
@@ -916,12 +917,35 @@ class SurveyWhatsappTemplateService:
         return row
 
     @staticmethod
+    def _apply_privacy_mode_to_row(row: TelnyxWhatsappTemplate, privacy_mode: str) -> None:
+        pm = normalize_privacy_mode(privacy_mode)
+        row.privacy_mode = pm
+        row.variant_type = privacy_mode_to_variant(pm)
+
+    @staticmethod
+    def _sync_template_privacy_mappings(db: Session, row: TelnyxWhatsappTemplate) -> None:
+        pm = resolve_row_privacy_mode(row)
+        is_anonymous = pm == PRIVACY_MODE_ON
+        for mapping in SurveyTypeTemplateService.list_for_template(db, row.id):
+            mapping.privacy_mode = pm
+            mapping.usable_as_standard = not is_anonymous
+            mapping.usable_as_anonymous = is_anonymous
+            if is_anonymous:
+                mapping.is_default_standard = False
+            else:
+                mapping.is_default_anonymous = False
+            mapping.updated_at = _now()
+            db.add(mapping)
+
+    @staticmethod
     def save_draft(db: Session, row: TelnyxWhatsappTemplate, payload: dict[str, Any]) -> TelnyxWhatsappTemplate:
         if "display_name" in payload:
             row.display_name = str(payload.get("display_name") or row.display_name or row.name).strip() or row.name
         if "customer_description" in payload:
             desc = str(payload.get("customer_description") or "").strip()
             row.customer_description = desc or None
+        if "privacy_mode" in payload:
+            SurveyWhatsappTemplateService._apply_privacy_mode_to_row(row, str(payload.get("privacy_mode") or ""))
         if "language" in payload and str(payload.get("language") or "").strip():
             lang_code, lang_error = normalize_wa_template_language(str(payload.get("language")), db=db)
             if lang_error:
@@ -951,6 +975,8 @@ class SurveyWhatsappTemplateService:
         row.local_sync_status = _refresh_local_sync_status(row)
         row.updated_at = _now()
         db.add(row)
+        if "privacy_mode" in payload:
+            SurveyWhatsappTemplateService._sync_template_privacy_mappings(db, row)
         db.commit()
         db.refresh(row)
         return row

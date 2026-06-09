@@ -18,41 +18,61 @@ from app.services.survey_system_template_service import SurveySystemTemplateServ
 INDUSTRY_CATALOG: list[dict[str, Any]] = [
     {
         "slug": "healthcare_dental",
-        "name": "Healthcare & dental",
+        "name": "Healthcare & Dental",
         "sort_order": 10,
         "services": [
-            "Post-visit",
-            "Wait time",
+            "Post-visit satisfaction",
+            "Wait time rating",
             "Staff attitude",
             "Cleanliness",
             "Treatment outcome",
-            "Pricing",
+            "Pricing fairness",
             "Would recommend",
             "Return intent",
             "Booking experience",
-            "Communication",
+            "Communication clarity",
+            "Appointment availability",
+            "Pain management satisfaction",
+            "Explanation of treatment",
+            "Waiting area comfort",
+            "Reception staff rating",
+            "Follow-up care quality",
+            "Hygienist satisfaction",
+            "Parking & accessibility",
+            "Online/app experience",
+            "Overall care rating",
         ],
     },
     {
         "slug": "recruitment_staffing",
-        "name": "Recruitment & staffing",
+        "name": "Recruitment & Staffing",
         "sort_order": 20,
         "services": [
             "Candidate experience",
-            "Interview process",
+            "Interview process rating",
             "Consultant rating",
             "Placement satisfaction",
-            "Communication",
+            "Communication quality",
             "Employer satisfaction",
             "Speed of placement",
             "Professionalism",
             "Would recommend",
             "Job match quality",
+            "CV support quality",
+            "Onboarding support",
+            "Candidate quality (employer)",
+            "Time-to-hire satisfaction",
+            "Post-placement check-in",
+            "Salary negotiation support",
+            "Interview preparation quality",
+            "Transparency of process",
+            "Long-term fit rating",
+            "Overall service rating",
         ],
     },
     {
         "slug": "hospitality_food",
-        "name": "Hospitality & food",
+        "name": "Hospitality & Food",
         "sort_order": 30,
         "services": [
             "Food quality",
@@ -65,11 +85,21 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
             "Return intent",
             "Would recommend",
             "Portion size",
+            "Dietary/allergy handling",
+            "Drink quality",
+            "Menu variety",
+            "Wait for table",
+            "Bill accuracy",
+            "Noise level",
+            "Outdoor seating experience",
+            "Takeaway packaging",
+            "Delivery experience",
+            "Overall dining rating",
         ],
     },
     {
         "slug": "hotel_accommodation",
-        "name": "Hotel & accommodation",
+        "name": "Hotel & Accommodation",
         "sort_order": 40,
         "services": [
             "Check-in experience",
@@ -78,15 +108,25 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
             "Staff friendliness",
             "Value for money",
             "Noise & comfort",
-            "Facilities",
+            "Facilities rating",
             "Return intent",
             "Would recommend",
             "Check-out experience",
+            "Room temperature control",
+            "Wi‑Fi quality",
+            "Bed comfort",
+            "Bathroom cleanliness",
+            "Parking experience",
+            "Concierge/help desk rating",
+            "Pool/gym facilities",
+            "In-room dining",
+            "Evening turndown service",
+            "Overall stay rating",
         ],
     },
     {
         "slug": "property_lettings",
-        "name": "Property & lettings",
+        "name": "Property & Lettings",
         "sort_order": 50,
         "services": [
             "Viewing experience",
@@ -99,16 +139,26 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
             "Renewal intent",
             "Agent professionalism",
             "Issue resolution",
+            "Safety & security perception",
+            "Deposit handling",
+            "Inventory accuracy",
+            "Move-out process",
+            "Tenant communication quality",
+            "Emergency response speed",
+            "Online portal experience",
+            "Referencing process",
+            "Rent review fairness",
+            "Overall tenancy rating",
         ],
     },
     {
         "slug": "retail_ecommerce",
-        "name": "Retail & e-commerce",
+        "name": "Retail & E-Commerce",
         "sort_order": 60,
         "services": [
             "Product quality",
             "Delivery experience",
-            "Packaging",
+            "Packaging quality",
             "Returns process",
             "Value for money",
             "Staff helpfulness",
@@ -116,6 +166,16 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
             "Would recommend",
             "Repeat purchase intent",
             "Website experience",
+            "Order accuracy",
+            "Delivery speed",
+            "Checkout experience",
+            "Product description accuracy",
+            "Customer service rating",
+            "Loyalty programme value",
+            "In-store experience",
+            "Click & collect experience",
+            "Refund speed",
+            "Overall shopping rating",
         ],
     },
     {
@@ -133,11 +193,21 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
             "Value for money",
             "Would recommend",
             "Turnaround time",
+            "MOT experience",
+            "Courtesy car availability",
+            "Parts quality",
+            "Diagnostic accuracy",
+            "Invoice clarity",
+            "Warranty handling",
+            "Collection/drop-off experience",
+            "Upsell pressure rating",
+            "Post-service follow-up",
+            "Overall garage rating",
         ],
     },
     {
         "slug": "education_training",
-        "name": "Education & training",
+        "name": "Education & Training",
         "sort_order": 80,
         "services": [
             "Course quality",
@@ -145,38 +215,58 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
             "Learning outcome",
             "Facilities",
             "Value for money",
-            "Course material",
+            "Course material quality",
             "Would recommend",
             "Booking experience",
             "Support quality",
             "Return intent",
+            "Post-course resources",
+            "Group size satisfaction",
+            "Pace of delivery",
+            "Online learning experience",
+            "Assessment fairness",
+            "Certificate/accreditation value",
+            "Pre-course communication",
+            "Trainer knowledge depth",
+            "Practical vs theory balance",
+            "Overall course rating",
         ],
     },
     {
         "slug": "legal_accountancy",
-        "name": "Legal & accountancy",
+        "name": "Legal & Accountancy",
         "sort_order": 90,
         "services": [
             "Communication clarity",
             "Matter handling",
             "Value for money",
-            "Case outcome",
+            "Case/matter outcome",
             "Staff professionalism",
             "Response time",
             "Would recommend",
             "Onboarding experience",
             "Billing transparency",
             "Referral likelihood",
+            "Expectation vs outcome",
+            "Document handling",
+            "Jargon avoidance",
+            "Deadline adherence",
+            "Partner/senior access",
+            "Digital tools experience",
+            "Tax return satisfaction",
+            "Court/hearing preparation",
+            "Confidentiality confidence",
+            "Overall service rating",
         ],
     },
     {
         "slug": "fitness_wellness",
-        "name": "Fitness & wellness",
+        "name": "Fitness & Wellness",
         "sort_order": 100,
         "services": [
             "Session quality",
             "Trainer attitude",
-            "Facilities",
+            "Facilities rating",
             "Cleanliness",
             "Value for money",
             "Class variety",
@@ -184,6 +274,43 @@ INDUSTRY_CATALOG: list[dict[str, Any]] = [
             "Staff friendliness",
             "Would recommend",
             "Membership value",
+            "Equipment availability",
+            "Changing room quality",
+            "App/online portal rating",
+            "Personal training value",
+            "Class size satisfaction",
+            "Parking & access",
+            "Nutrition/supplement advice",
+            "Injury support handling",
+            "Peak time crowding",
+            "Overall experience rating",
+        ],
+    },
+    {
+        "slug": "financial_services",
+        "name": "Financial Services",
+        "sort_order": 105,
+        "services": [
+            "Advice clarity",
+            "Product suitability",
+            "Adviser rating",
+            "Value for money",
+            "Response time",
+            "Would recommend",
+            "Onboarding experience",
+            "Billing transparency",
+            "Referral likelihood",
+            "Trust & confidence",
+            "Complaint handling",
+            "Digital banking experience",
+            "Loan/mortgage process",
+            "Investment communication",
+            "Fee clarity",
+            "Branch experience",
+            "Phone support quality",
+            "Document delivery speed",
+            "Regulatory communication clarity",
+            "Overall service rating",
         ],
     },
     {
@@ -227,12 +354,14 @@ class SurveyIndustrySeedService:
         types_created = 0
         types_existing = 0
         industries_out: list[dict[str, Any]] = []
+        industry_details: list[dict[str, Any]] = []
 
         for item in INDUSTRY_CATALOG:
             slug = str(item["slug"])
             if IndustryService.is_slug_tombstoned(db, slug):
                 continue
             row = db.execute(select(Industry).where(Industry.slug == slug)).scalar_one_or_none()
+            industry_was_created = False
             if row is None:
                 row = Industry(
                     id=str(uuid.uuid4()),
@@ -248,10 +377,13 @@ class SurveyIndustrySeedService:
                 db.add(row)
                 db.flush()
                 industries_created += 1
+                industry_was_created = True
             else:
                 industries_existing += 1
 
             service_rows: list[dict[str, str]] = []
+            services_created: list[str] = []
+            services_skipped: list[str] = []
             for sort_idx, service_name in enumerate(item.get("services") or [], start=1):
                 service_slug = _service_slug(service_name)
                 st = db.execute(
@@ -279,9 +411,21 @@ class SurveyIndustrySeedService:
                     db.add(st)
                     db.flush()
                     types_created += 1
+                    services_created.append(str(service_name))
                 else:
                     types_existing += 1
+                    services_skipped.append(str(service_name))
                 service_rows.append({"id": st.id, "slug": st.slug, "name": st.name})
+
+            industry_details.append(
+                {
+                    "slug": row.slug,
+                    "name": row.name,
+                    "status": "created" if industry_was_created else "existing",
+                    "services_created": services_created,
+                    "services_skipped": services_skipped,
+                }
+            )
 
             industries_out.append(
                 {
@@ -301,5 +445,6 @@ class SurveyIndustrySeedService:
             "survey_types_created": types_created,
             "survey_types_existing": types_existing,
             "industries": industries_out,
+            "industry_details": industry_details,
             "system_industry": system,
         }

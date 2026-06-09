@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Seed WA Survey industries, service tags, and hidden system templates.
+"""Idempotent seed for WA Survey industries and service tags (survey types).
+
+Safe to run multiple times on VPS — skips existing industries and survey types.
 
 Usage:
   cd voxbulk-api
@@ -23,11 +25,29 @@ def main() -> None:
     SessionLocal = get_sessionmaker()
     with SessionLocal() as db:
         result = SurveyIndustrySeedService.ensure_catalog(db)
-    print("OK — WA Survey industry catalog ready")
-    print(f"  Industries created: {result['industries_created']} (existing: {result['industries_existing']})")
-    print(f"  Service types created: {result['survey_types_created']} (existing: {result['survey_types_existing']})")
-    for row in result.get("industries") or []:
-        print(f"  - {row['name']} ({row['slug']}): {row['service_count']} services")
+
+    print("=" * 60)
+    print("  WA SURVEY INDUSTRY SEED COMPLETE")
+    print("=" * 60)
+    print(f"  Industries created:    {result['industries_created']}")
+    print(f"  Industries skipped:    {result['industries_existing']}")
+    print(f"  Survey types created:  {result['survey_types_created']}")
+    print(f"  Survey types skipped:  {result['survey_types_existing']}")
+    print("")
+
+    for row in result.get("industry_details") or []:
+        created = row.get("services_created") or []
+        skipped = row.get("services_skipped") or []
+        print(f"  {row.get('name')} ({row.get('slug')})")
+        if created:
+            print(f"    + created ({len(created)}): {', '.join(created[:5])}{'…' if len(created) > 5 else ''}")
+        if skipped:
+            print(f"    · skipped ({len(skipped)}): {', '.join(skipped[:5])}{'…' if len(skipped) > 5 else ''}")
+        if not created and not skipped:
+            print("    (no services defined)")
+        print("")
+
+    print("Done — re-run anytime; existing rows are never overwritten.")
 
 
 if __name__ == "__main__":

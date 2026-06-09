@@ -117,7 +117,7 @@ def _variant_label(row: TelnyxWhatsappTemplate) -> str:
     variant = str(row.variant_type or "standard").strip().lower()
     privacy = resolve_row_privacy_mode(row)
     if variant == "anonymous" or privacy == PRIVACY_MODE_ON:
-        return "Noname"
+        return "Anonymous"
     return "Named"
 
 
@@ -733,6 +733,7 @@ class SurveySystemTemplateService:
                 "customer_description": customer_description,
                 "components": components,
                 "category": category,
+                "privacy_mode": privacy_mode,
             },
         )
         row.step_role = _step_role_for_kind(kind)

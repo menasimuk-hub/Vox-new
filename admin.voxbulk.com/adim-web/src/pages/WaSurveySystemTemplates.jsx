@@ -14,7 +14,7 @@ const KIND_OPTIONS = [
 
 const PRIVACY_OPTIONS = [
   { value: 'off', label: 'Named' },
-  { value: 'on', label: 'Noname' },
+  { value: 'on', label: 'Anonymous' },
 ]
 
 function kindLabel(kind) {
@@ -46,7 +46,7 @@ function variantBadgeClass(label) {
 function draftVariantLabel(tpl) {
   const variant = String(tpl?.variant_type || '').toLowerCase()
   const privacy = String(tpl?.privacy_mode || '').toLowerCase()
-  if (variant === 'anonymous' || privacy === 'on') return 'Noname'
+  if (variant === 'anonymous' || privacy === 'on') return 'Anonymous'
   return 'Named'
 }
 
@@ -609,7 +609,7 @@ export default function WaSurveySystemTemplates() {
                 </select>
               </label>
               <label className="field">
-                <span>Named / Noname</span>
+                <span>Named / Anonymous</span>
                 <select className="input" value={createModal.privacy_mode} onChange={(e) => setCreateModal({ ...createModal, privacy_mode: e.target.value })}>
                   {PRIVACY_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
