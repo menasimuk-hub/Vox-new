@@ -4,15 +4,8 @@ import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import { buildWaSurveySimulatorUrl } from '../lib/waSurveySimulatorLink'
 import { resolveTelnyxSyncLabel, telnyxSyncPillClass, validateCategoryBeforeSync } from '../lib/waSurveyTelnyxSync'
-import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
 import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
 import WaSurveyTemplatePackModal from '../components/WaSurveyTemplatePackModal'
-
-const LENGTH_OPTIONS = [
-  { value: 'short', label: 'Short (4 questions)' },
-  { value: 'standard', label: 'Standard (5 questions)' },
-  { value: 'detailed', label: 'Detailed (6 questions)' },
-]
 
 function mappingLabel(tpl) {
   const parts = []
@@ -50,7 +43,6 @@ export default function WaSurveyTypeEdit() {
   const { typeId } = useParams()
   const isSimulatorAlias = typeId === 'simulator'
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
@@ -62,13 +54,8 @@ export default function WaSurveyTypeEdit() {
   const [modalTemplateId, setModalTemplateId] = useState(null)
   const [modalTemplate, setModalTemplate] = useState(null)
   const [packModalOpen, setPackModalOpen] = useState(false)
-  const [genPreview, setGenPreview] = useState(null)
-  const [genVariant, setGenVariant] = useState('standard')
-  const [genLength, setGenLength] = useState('standard')
   const [templateSearch, setTemplateSearch] = useState('')
   const [templatePrivacyFilter, setTemplatePrivacyFilter] = useState('off')
-  const [readiness, setReadiness] = useState(null)
-  const [readinessLoading, setReadinessLoading] = useState(false)
 
   const clearFeedback = () => {
     setError('')
@@ -130,51 +117,6 @@ export default function WaSurveyTypeEdit() {
     load()
   }, [load])
 
-  const loadReadiness = useCallback(async () => {
-    setReadinessLoading(true)
-    try {
-      const qs = `?privacy_mode=${encodeURIComponent(templatePrivacyFilter)}`
-      const data = await apiFetch(
-        `/admin/wa-survey/types/${encodeURIComponent(typeId)}/readiness${qs}`
-      )
-      setReadiness(data)
-    } catch (e) {
-      setReadiness(null)
-    } finally {
-      setReadinessLoading(false)
-    }
-  }, [typeId, templatePrivacyFilter])
-
-  useEffect(() => {
-    if (typeId && !isSimulatorAlias) loadReadiness()
-  }, [loadReadiness, typeId, isSimulatorAlias])
-
-  const saveTypeSettings = async () => {
-    if (!surveyType) return
-    setSaving(true)
-    clearFeedback()
-    try {
-      const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          name: surveyType.name,
-          description: surveyType.description,
-          is_active: surveyType.is_active,
-          default_length: surveyType.default_length,
-          min_length: surveyType.min_length,
-          max_length: surveyType.max_length,
-          supports_anonymous: surveyType.supports_anonymous,
-        }),
-      })
-      setSurveyType(data.type)
-      showOk({ message: 'Survey settings saved.' })
-    } catch (e) {
-      showError(e, 'Save failed')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const syncTemplates = async () => {
     setWorking('sync')
     clearFeedback()
@@ -212,7 +154,6 @@ export default function WaSurveyTypeEdit() {
       }
       showOk(result, 'Template removed from this survey type.')
       await load()
-      await loadReadiness()
     } catch (e) {
       const hint =
         e?.status === 404
@@ -237,7 +178,6 @@ export default function WaSurveyTypeEdit() {
       })
       showOk(result, nextActive ? 'Template enabled.' : 'Template hidden from surveys.')
       await load()
-      await loadReadiness()
     } catch (e) {
       showError(e, 'Could not update template visibility')
     } finally {
@@ -314,28 +254,6 @@ export default function WaSurveyTypeEdit() {
     }
   }
 
-  const runGeneratePreview = async () => {
-    setWorking('generate')
-    clearFeedback()
-    try {
-      const data = await apiFetch('/admin/wa-survey/generate-preview', {
-        method: 'POST',
-        body: JSON.stringify({
-          survey_type_id: typeId,
-          variant: genVariant,
-          length: genLength,
-          goal: surveyType?.description || surveyType?.name,
-        }),
-      })
-      setGenPreview(data)
-      showOk({ message: 'Generate preview ready.', template_name: data.wa_template_name })
-    } catch (e) {
-      showError(e, 'Generate preview failed — ensure an APPROVED template exists for this variant.')
-    } finally {
-      setWorking('')
-    }
-  }
-
   const filteredTemplates = useMemo(
     () => templates.filter((tpl) => matchesTemplateSearch(tpl, templateSearch)),
     [templates, templateSearch]
@@ -349,9 +267,6 @@ export default function WaSurveyTypeEdit() {
   if (loading && !surveyType) {
     return <p className="muted">Loading…</p>
   }
-
-  const previewData = genPreview?.template_preview
-  const flowSteps = genPreview?.flow_steps || []
 
   return (
     <>
@@ -412,9 +327,6 @@ export default function WaSurveyTypeEdit() {
           <button type="button" className="btn" onClick={pushAllToTelnyx} disabled={working === 'push-all'} title="Push every linked template — use row Sync for one template only">
             {working === 'push-all' ? 'Syncing all…' : 'Sync all to Telnyx'}
           </button>
-          <button type="button" className="btn primary" onClick={saveTypeSettings} disabled={saving}>
-            Save settings
-          </button>
         </div>
       </div>
 
@@ -430,173 +342,6 @@ export default function WaSurveyTypeEdit() {
           {msgDetail ? <pre className="waSurveyFeedbackDetail">{msgDetail}</pre> : null}
         </div>
       ) : null}
-
-      <div className="waSurveyEditGrid">
-        <section className="card">
-          <div className="cardHead"><h2>Survey settings</h2></div>
-          <div className="cardBody grid2">
-            <label className="msgFieldBlock">
-              <span className="label">Name</span>
-              <input className="input" value={surveyType?.name || ''} onChange={(e) => setSurveyType((s) => ({ ...s, name: e.target.value }))} />
-            </label>
-            <label className="msgFieldBlock">
-              <span className="label">Default length</span>
-              <select className="input" value={surveyType?.default_length || 'standard'} onChange={(e) => setSurveyType((s) => ({ ...s, default_length: e.target.value }))}>
-                {LENGTH_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="msgFieldBlock span2">
-              <span className="label">Description</span>
-              <textarea className="input" rows={3} value={surveyType?.description || ''} onChange={(e) => setSurveyType((s) => ({ ...s, description: e.target.value }))} />
-            </label>
-            <label className="checkRow">
-              <input type="checkbox" checked={surveyType?.is_active !== false} onChange={(e) => setSurveyType((s) => ({ ...s, is_active: e.target.checked }))} />
-              Active
-            </label>
-            <label className="checkRow">
-              <input type="checkbox" checked={surveyType?.supports_anonymous !== false} onChange={(e) => setSurveyType((s) => ({ ...s, supports_anonymous: e.target.checked }))} />
-              Anonymous variant enabled
-            </label>
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="cardHead">
-            <h2>Generate preview</h2>
-          </div>
-          <div className="cardBody grid2">
-            <label className="msgFieldBlock">
-              <span className="label">Variant</span>
-              <select className="input" value={genVariant} onChange={(e) => setGenVariant(e.target.value)}>
-                <option value="standard">Standard</option>
-                <option value="anonymous">Anonymous</option>
-              </select>
-            </label>
-            <label className="msgFieldBlock">
-              <span className="label">Length</span>
-              <select className="input" value={genLength} onChange={(e) => setGenLength(e.target.value)}>
-                {LENGTH_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
-            <div className="span2">
-              <button type="button" className="btn" onClick={runGeneratePreview} disabled={working === 'generate'}>
-                Generate preview
-              </button>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <section className="card">
-        <div className="cardHead waSurveyTemplatesHead">
-          <div>
-            <h2>Publish readiness</h2>
-            <p className="muted waSurveyTemplatesMeta">
-              Privacy {templatePrivacyFilter === 'on' ? 'on' : 'off'} — refresh when filter changes
-            </p>
-          </div>
-          <button type="button" className="btn sm" onClick={() => void loadReadiness()} disabled={readinessLoading}>
-            {readinessLoading ? 'Checking…' : 'Refresh'}
-          </button>
-        </div>
-        <div className="cardBody">
-          {readinessLoading && !readiness ? (
-            <p className="muted">Loading readiness…</p>
-          ) : readiness ? (
-            <>
-              <p style={{ marginBottom: 12 }}>
-                <span className={`pill ${readiness.ok ? 'ok' : 'error'}`}>
-                  {readiness.ok ? 'Ready' : 'Not ready'}
-                </span>
-                {readiness.published_flow ? (
-                  <span className="muted" style={{ marginLeft: 8 }}>
-                    Published flow: {readiness.published_flow.name} v{readiness.published_flow.version}
-                  </span>
-                ) : null}
-                {readiness.ai_assisted_node_count ? (
-                  <span className="muted" style={{ marginLeft: 8 }}>
-                    AI-assisted nodes: {readiness.ai_assisted_node_count}
-                  </span>
-                ) : null}
-              </p>
-              {(readiness.errors || []).length ? (
-                <div className="alert error" style={{ marginBottom: 12 }}>
-                  <strong>Errors</strong>
-                  <ul className="waSurveyReadinessList">
-                    {(readiness.errors || []).map((line) => (
-                      <li key={line}>{line}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {(readiness.warnings || []).length ? (
-                <div className="alert warn">
-                  <strong>Warnings</strong>
-                  <ul className="waSurveyReadinessList">
-                    {(readiness.warnings || []).map((line) => (
-                      <li key={line}>{line}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {(readiness.step_bank?.missing_roles || []).length ? (
-                <p className="muted">Missing step roles: {(readiness.step_bank.missing_roles || []).join(', ')}</p>
-              ) : null}
-            </>
-          ) : (
-            <p className="muted">Could not load readiness.</p>
-          )}
-        </div>
-      </section>
-
-      <section className="card">
-        <div className="cardHead">
-          <h2>Outcome templates (happy / neutral / unhappy)</h2>
-          <p className="muted waSurveyTemplatesMeta">
-            Graph completions use these bank templates; non-APPROVED rows use text fallback at runtime.
-          </p>
-        </div>
-        <div className="cardBody">
-          <div className="tableWrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Outcome</th>
-                  <th>Template</th>
-                  <th>Status</th>
-                  <th>Runtime action</th>
-                  <th>Fallback?</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(readiness?.outcome_matrix || []).length ? (readiness.outcome_matrix || []).map((row) => (
-                  <tr key={row.outcome_key}>
-                    <td><strong>{row.outcome_key}</strong></td>
-                    <td>{row.template_name || <span className="muted">—</span>}</td>
-                    <td>
-                      {row.status ? (
-                        <span className={`pill ${row.approved ? 'ok' : 'warn'}`}>{row.status}</span>
-                      ) : (
-                        <span className="muted">Missing</span>
-                      )}
-                    </td>
-                    <td>{row.action_type || '—'}</td>
-                    <td>{row.will_text_fallback ? <span className="pill warn">Yes</span> : <span className="pill ok">No</span>}</td>
-                  </tr>
-                )) : (
-                  <tr>
-                    <td colSpan={5} className="muted">Load readiness to see outcome assignment.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
 
       <section className="card">
         <div className="cardHead waSurveyTemplatesHead">
@@ -738,24 +483,6 @@ export default function WaSurveyTypeEdit() {
           </div>
         </div>
       </section>
-
-      {genPreview ? (
-        <section className="card waSurveyPreviewCard">
-          <div className="cardHead"><h2>Generated flow preview</h2></div>
-          <div className="cardBody">
-            <WaSurveyPhonePreview
-              businessName="Northgate Dental"
-              renderedBody={previewData?.rendered_body || ''}
-              footer={previewData?.footer || ''}
-              buttons={previewData?.buttons || []}
-              flowSteps={flowSteps}
-              disclaimer={previewData?.disclaimer}
-              templateName={genPreview?.wa_template_name}
-              approvalStatus="APPROVED"
-            />
-          </div>
-        </section>
-      ) : null}
 
       <WaSurveyTemplatePackModal
         surveyTypeId={typeId}
