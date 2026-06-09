@@ -443,9 +443,9 @@ def ensure_meta_examples_on_components(
             var_ids = _meta_var_ids_in_text(text)
             if var_ids:
                 body_example = _pad_example_values(examples, max(var_ids))
-                cloned["example"] = {"body_text": [body_example]}
-            elif not _meta_example_is_valid(cloned.get("example"), field="body_text"):
-                cloned["example"] = {"body_text": [[META_STATIC_BODY_SAMPLE]]}
+            else:
+                body_example = [META_STATIC_BODY_SAMPLE]
+            cloned["example"] = {"body_text": [body_example]}
         elif ctype == "HEADER":
             text = str(cloned.get("text") or "")
             var_ids = _meta_var_ids_in_text(text)
@@ -454,6 +454,28 @@ def ensure_meta_examples_on_components(
                 cloned["example"] = {"header_text": [header_example]}
         out.append(cloned)
     return out
+
+
+def _assert_meta_ready_components(components: list[Any] | None) -> None:
+    """Raise when any BODY/HEADER component would fail Meta's example requirement."""
+    if not isinstance(components, list):
+        raise SurveyWhatsappTemplateError("Template has no components to push")
+    for comp in components:
+        if not isinstance(comp, dict):
+            continue
+        ctype = str(comp.get("type") or "").upper()
+        if ctype == "BODY":
+            if not _meta_example_is_valid(comp.get("example"), field="body_text"):
+                raise SurveyWhatsappTemplateError(
+                    "Template BODY is missing a Meta example value. Save the template again or run "
+                    "scripts/repair_wa_survey_template_drafts.py, then sync to Telnyx."
+                )
+        elif ctype == "HEADER":
+            text = str(comp.get("text") or "")
+            if _meta_var_ids_in_text(text) and not _meta_example_is_valid(comp.get("example"), field="header_text"):
+                raise SurveyWhatsappTemplateError(
+                    "Template HEADER is missing Meta example values for its variables."
+                )
 
 
 _QUESTION_DRAFT_BODIES: dict[str, str] = {
@@ -1293,6 +1315,7 @@ class SurveyWhatsappTemplateService:
             raise SurveyWhatsappTemplateError("Template has no components to push")
 
         components = ensure_meta_examples_on_components(raw_components, row=row)
+        _assert_meta_ready_components(components)
 
         category = normalize_wa_template_category(row.category, required=True)
 
