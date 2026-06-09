@@ -3,8 +3,12 @@
 
 Safe to run multiple times on VPS — skips existing industries and survey types.
 
-Usage:
-  cd voxbulk-api
+Usage (VPS — must use project venv, not system python3):
+  cd /www/voxbulk/voxbulk-api
+  bash scripts/seed_wa_survey_industries.sh
+
+  # or manually:
+  source .venv/bin/activate
   python scripts/seed_wa_survey_industries.py
 """
 

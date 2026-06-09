@@ -120,6 +120,17 @@ Do **not** use `menasimuk-hub/Vox` (legacy duplicate).
 | Admin | `admin.voxbulk.com/adim-web/dist/` | `/www/wwwroot/admin.voxbulk.com` |
 | Dashboard | `dashboard.voxbulk.com/dashboard-web/dist/client/` | `/www/wwwroot/dashboard.voxbulk.com` |
 
+## Seed WA survey industries (VPS)
+
+Do **not** use bare `python3` — system SQLAlchemy is too old (`DeclarativeBase` import fails). Use the API venv:
+
+```bash
+cd /www/voxbulk/voxbulk-api
+bash scripts/seed_wa_survey_industries.sh
+```
+
+If `.venv` is missing, run `./deploy-vps.sh` once first (creates venv + installs deps).
+
 ## Skip flags
 
 ```bash
