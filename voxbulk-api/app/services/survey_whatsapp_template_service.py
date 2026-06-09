@@ -256,6 +256,12 @@ def _content_hash(components: list[Any] | None) -> str | None:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:64]
 
 
+def _sync_content_hash(components: list[Any] | None) -> str | None:
+    """Hash template content for sync comparison (ignores Meta-only BODY examples)."""
+    normalized = _normalize_draft_components(components if isinstance(components, list) else None)
+    return _content_hash(normalized)
+
+
 def _extract_example_values(components: list[Any] | None) -> list[str]:
     if not isinstance(components, list):
         return []
@@ -730,15 +736,17 @@ def telnyx_sync_ui_label(row: TelnyxWhatsappTemplate, *, syncing: bool = False) 
     if syncing:
         return TELNYX_SYNC_SYNCING
     content_sync = _refresh_local_sync_status(row)
-    if content_sync == SYNC_LOCAL_CHANGES and not _is_local_row(row):
-        return TELNYX_SYNC_OUT_OF_SYNC
     if row.last_push_error and (_is_local_row(row) or str(row.local_sync_status or "") == SYNC_ERROR):
         return TELNYX_SYNC_FAILED
     if _is_local_row(row):
         return TELNYX_SYNC_NOT_SYNCED
     status = str(row.status or "").upper()
     if status == "PENDING":
+        if content_sync == SYNC_LOCAL_CHANGES:
+            return TELNYX_SYNC_OUT_OF_SYNC
         return TELNYX_SYNC_PENDING
+    if content_sync == SYNC_LOCAL_CHANGES and not _is_local_row(row):
+        return TELNYX_SYNC_OUT_OF_SYNC
     if status == "APPROVED":
         return TELNYX_SYNC_APPROVED
     if status == "REJECTED":
@@ -885,7 +893,7 @@ def _try_link_existing_remote_template(
     if remote_item is None:
         return None
 
-    _apply_remote_telnyx_item(row, remote_item)
+    _apply_remote_telnyx_item(row, remote_item, overwrite_draft=True)
     remote_lang = str(remote_item.get("language") or "").strip()
     if remote_lang:
         row.language = remote_lang
@@ -905,7 +913,12 @@ def _try_link_existing_remote_template(
     return _push_success_response(db, row, telnyx_request_mode="link_existing_remote_template", linked=True)
 
 
-def _apply_remote_telnyx_item(row: TelnyxWhatsappTemplate, item: dict[str, Any]) -> None:
+def _apply_remote_telnyx_item(
+    row: TelnyxWhatsappTemplate,
+    item: dict[str, Any],
+    *,
+    overwrite_draft: bool = False,
+) -> None:
     record_id = str(item.get("id") or "").strip()
     send_id = _send_template_id_from_api_item(item)
     if record_id:
@@ -922,8 +935,9 @@ def _apply_remote_telnyx_item(row: TelnyxWhatsappTemplate, item: dict[str, Any])
     components = item.get("components")
     if isinstance(components, list):
         row.components_json = _dumps(components)
-        row.draft_components_json = row.components_json
-        row.remote_content_hash = _content_hash(components)
+        if overwrite_draft:
+            row.draft_components_json = _dumps(_normalize_draft_components(components))
+        row.remote_content_hash = _sync_content_hash(components)
         row.body_preview = _body_preview(components)
         row.example_values_json = _dumps(_extract_example_values(components))
     row.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
@@ -939,15 +953,28 @@ def _refresh_local_sync_status(row: TelnyxWhatsappTemplate) -> str:
     remote = _loads(row.components_json)
     if _is_local_row(row):
         return SYNC_DRAFT if isinstance(draft, list) and draft else SYNC_LOCAL_CHANGES
-    draft_hash = _content_hash(draft if isinstance(draft, list) else None)
-    remote_hash = row.remote_content_hash or _content_hash(remote if isinstance(remote, list) else None)
+    draft_hash = _sync_content_hash(draft if isinstance(draft, list) else None)
+    remote_hash = row.remote_content_hash or _sync_content_hash(remote if isinstance(remote, list) else None)
     if draft_hash and remote_hash and draft_hash != remote_hash:
         return SYNC_LOCAL_CHANGES
-    if remote_hash and row.remote_content_hash and remote_hash != row.remote_content_hash:
+    live_remote_hash = _sync_content_hash(remote if isinstance(remote, list) else None)
+    if live_remote_hash and row.remote_content_hash and live_remote_hash != row.remote_content_hash:
         return SYNC_REMOTE_CHANGED
     if row.last_push_error:
         return SYNC_ERROR
     return SYNC_IN_SYNC
+
+
+def _persist_normalized_draft(db: Session, row: TelnyxWhatsappTemplate, components: list[Any]) -> list[Any]:
+    """Normalize draft components in DB (strip invalid Meta examples) before push/sync."""
+    normalized = _normalize_draft_components(components)
+    if _dumps(normalized) != str(row.draft_components_json or ""):
+        row.draft_components_json = _dumps(normalized)
+        row.example_values_json = _dumps(_example_values_for_storage(normalized))
+        row.updated_at = _now()
+        db.add(row)
+        db.flush()
+    return normalized
 
 
 def survey_template_to_dict(
@@ -1383,6 +1410,28 @@ class SurveyWhatsappTemplateService:
         if not raw_components:
             raise SurveyWhatsappTemplateError("Template has no components to push")
 
+        raw_components = _persist_normalized_draft(db, row, raw_components)
+
+        if not _is_local_row(row):
+            draft_sync_hash = _sync_content_hash(raw_components)
+            remote_sync_hash = row.remote_content_hash or _sync_content_hash(_loads(row.components_json))
+            if remote_sync_hash and draft_sync_hash and remote_sync_hash == draft_sync_hash:
+                record_id = str(row.telnyx_record_id or "").strip()
+                if record_id:
+                    try:
+                        remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)
+                        _apply_remote_telnyx_item(row, remote_item, overwrite_draft=False)
+                        return _push_success_response(
+                            db,
+                            row,
+                            telnyx_request_mode="refresh_remote_status",
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "survey_wa_template_refresh_before_push_failed",
+                            extra={"template_id": row.id, "error": str(exc)},
+                        )
+
         components = ensure_meta_examples_on_components(raw_components, row=row)
         _assert_meta_ready_components(components)
 
@@ -1409,9 +1458,9 @@ class SurveyWhatsappTemplateService:
 
         approval = str(row.status or "").upper()
         if approval == "APPROVED" and not _is_local_row(row):
-            remote_hash = row.remote_content_hash
-            draft_hash = _content_hash(components)
-            if remote_hash and draft_hash and remote_hash != draft_hash:
+            remote_sync_hash = row.remote_content_hash or _sync_content_hash(_loads(row.components_json))
+            draft_sync_hash = _sync_content_hash(raw_components)
+            if remote_sync_hash and draft_sync_hash and remote_sync_hash != draft_sync_hash:
                 raise SurveyWhatsappTemplateError(
                     "This template is APPROVED on Meta. Content changes require a new template submission — "
                     "clone this template or create a new variant, then Push to Telnyx."
@@ -1437,27 +1486,8 @@ class SurveyWhatsappTemplateService:
 
         lang_code = lang_code or default_wa_template_language(db)
 
-        if not _is_local_row(row):
-            draft_hash = _content_hash(components)
-            remote_hash = row.remote_content_hash or _content_hash(_loads(row.components_json))
-            if remote_hash and draft_hash and remote_hash == draft_hash:
-                record_id = str(row.telnyx_record_id or "").strip()
-                if record_id:
-                    try:
-                        remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)
-                        _apply_remote_telnyx_item(row, remote_item)
-                        return _push_success_response(
-                            db,
-                            row,
-                            telnyx_request_mode="refresh_remote_status",
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "survey_wa_template_refresh_before_push_failed",
-                            extra={"template_id": row.id, "error": str(exc)},
-                        )
-
         if _is_local_row(row):
+            remote_items: list[dict[str, Any]] | None
             try:
                 remote_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
             except Exception as exc:
@@ -1465,7 +1495,7 @@ class SurveyWhatsappTemplateService:
                     "survey_wa_template_prefetch_remote_failed",
                     extra={"template_id": row.id, "error": str(exc)},
                 )
-                remote_items = None
+                remote_items = []
             linked = _try_link_existing_remote_template(
                 db,
                 row,
@@ -1482,17 +1512,37 @@ class SurveyWhatsappTemplateService:
             "waba_id": waba_id,
             "components": components,
         }
+        record_id = str(row.telnyx_record_id or "").strip()
+        use_patch = (
+            bool(record_id)
+            and not record_id.startswith(_LOCAL_ID_PREFIX)
+            and approval in {"APPROVED", "REJECTED"}
+        )
+        telnyx_request_mode = "patch_template" if use_patch else "create_or_update_template"
         logger.info(
             "survey_wa_template_push_start",
-            extra={"template_id": row.id, "template_name": row.name, "variant": row.variant_type},
+            extra={
+                "template_id": row.id,
+                "template_name": row.name,
+                "variant": row.variant_type,
+                "telnyx_request_mode": telnyx_request_mode,
+            },
         )
         try:
             with httpx.Client(timeout=45.0, verify=httpx_ssl_verify()) as client:
-                response = client.post(
-                    TELNYX_WHATSAPP_TEMPLATES_URL,
-                    headers=_telnyx_headers(api_key),
-                    json=payload,
-                )
+                headers = _telnyx_headers(api_key)
+                if use_patch:
+                    response = client.patch(
+                        f"{TELNYX_WHATSAPP_TEMPLATES_URL}/{record_id}",
+                        headers=headers,
+                        json={"components": components},
+                    )
+                else:
+                    response = client.post(
+                        TELNYX_WHATSAPP_TEMPLATES_URL,
+                        headers=headers,
+                        json=payload,
+                    )
                 response.raise_for_status()
                 body = response.json()
         except httpx.HTTPStatusError as e:
@@ -1514,7 +1564,7 @@ class SurveyWhatsappTemplateService:
                 language=row.language,
                 provider_error=detail,
                 status_code=e.response.status_code if e.response is not None else None,
-                telnyx_request_mode="create_or_update_template",
+                telnyx_request_mode=telnyx_request_mode,
             )
             body_comp = next(
                 (c for c in components if isinstance(c, dict) and str(c.get("type") or "").upper() == "BODY"),
@@ -1538,19 +1588,19 @@ class SurveyWhatsappTemplateService:
         if not isinstance(item, dict):
             raise SurveyWhatsappTemplateError("Telnyx returned an unexpected response")
 
-        _apply_remote_telnyx_item(row, item)
+        _apply_remote_telnyx_item(row, item, overwrite_draft=False)
         record_id = str(row.telnyx_record_id or "").strip()
         if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
             try:
                 remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)
-                _apply_remote_telnyx_item(row, remote_item)
+                _apply_remote_telnyx_item(row, remote_item, overwrite_draft=False)
             except Exception as exc:
                 logger.warning(
                     "survey_wa_template_refresh_after_push_failed",
                     extra={"template_id": row.id, "telnyx_record_id": record_id, "error": str(exc)},
                 )
 
-        return _push_success_response(db, row, telnyx_request_mode="create_or_update_template")
+        return _push_success_response(db, row, telnyx_request_mode=telnyx_request_mode)
 
     @staticmethod
     def refresh_telnyx_status(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:
@@ -1579,7 +1629,7 @@ class SurveyWhatsappTemplateService:
                 ),
             ) from exc
 
-        _apply_remote_telnyx_item(row, remote_item)
+        _apply_remote_telnyx_item(row, remote_item, overwrite_draft=False)
         row.last_push_error = None
         row.local_sync_status = _refresh_local_sync_status(row)
         row.synced_at = _now()
@@ -1861,7 +1911,7 @@ class SurveyWhatsappTemplateService:
 
                 components = item.get("components")
                 components_json = _dumps(components) if components is not None else None
-                remote_hash = _content_hash(components if isinstance(components, list) else None)
+                remote_hash = _sync_content_hash(components if isinstance(components, list) else None)
                 send_id = _send_template_id_from_api_item(item)
 
                 existing = db.execute(
@@ -1925,11 +1975,13 @@ class SurveyWhatsappTemplateService:
                 ):
                     linked += 1
 
-                draft_hash = _content_hash(_loads(existing.draft_components_json))
+                draft_hash = _sync_content_hash(_loads(existing.draft_components_json))
                 if draft_hash and remote_hash and draft_hash != remote_hash:
                     existing.local_sync_status = SYNC_REMOTE_CHANGED
                 else:
-                    existing.draft_components_json = components_json
+                    existing.draft_components_json = _dumps(
+                        _normalize_draft_components(components if isinstance(components, list) else None)
+                    )
                     existing.local_sync_status = SYNC_IN_SYNC
             except Exception as exc:
                 failed += 1

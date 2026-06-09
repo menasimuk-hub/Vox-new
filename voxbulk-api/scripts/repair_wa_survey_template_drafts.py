@@ -37,6 +37,7 @@ from app.services.survey_whatsapp_template_service import (
     _loads,
     _meta_example_is_valid,
     _normalize_draft_components,
+    _refresh_local_sync_status,
 )
 
 
@@ -110,6 +111,7 @@ def main() -> int:
                 continue
             row.draft_components_json = _dumps(normalized)
             row.example_values_json = _dumps(_example_values_for_storage(normalized))
+            row.local_sync_status = _refresh_local_sync_status(row)
             db.add(row)
 
         if not args.dry_run and repaired:

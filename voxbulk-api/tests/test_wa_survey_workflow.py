@@ -414,6 +414,46 @@ def test_push_to_telnyx_injects_body_example_when_missing(monkeypatch):
         assert body["example"]["body_text"] == [["Sample"]]
 
 
+def test_sync_content_hash_ignores_meta_only_body_example():
+    from app.services.survey_whatsapp_template_service import (
+        SYNC_IN_SYNC,
+        SYNC_LOCAL_CHANGES,
+        _sync_content_hash,
+        _refresh_local_sync_status,
+        telnyx_sync_ui_label,
+        TELNYX_SYNC_PENDING,
+    )
+
+    draft = [{"type": "BODY", "text": "How was your visit?"}]
+    remote = [
+        {
+            "type": "BODY",
+            "text": "How was your visit?",
+            "example": {"body_text": [["Sample"]]},
+        }
+    ]
+    assert _sync_content_hash(draft) == _sync_content_hash(remote)
+
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+        row.telnyx_record_id = "telnyx-record-1"
+        row.status = "PENDING"
+        row.draft_components_json = json.dumps(draft)
+        row.components_json = json.dumps(remote)
+        row.remote_content_hash = _sync_content_hash(remote)
+        db.add(row)
+        db.commit()
+
+        assert _refresh_local_sync_status(row) == SYNC_IN_SYNC
+        assert telnyx_sync_ui_label(row) == TELNYX_SYNC_PENDING
+
+        row.draft_components_json = json.dumps([{"type": "BODY", "text": "Changed body text"}])
+        db.add(row)
+        db.commit()
+        assert _refresh_local_sync_status(row) == SYNC_LOCAL_CHANGES
+
+
 def test_preview_renders_placeholders():
     with get_sessionmaker()() as db:
         survey_type = _seed_survey_type(db)
