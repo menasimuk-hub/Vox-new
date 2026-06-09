@@ -6,7 +6,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.industry import Industry
@@ -328,3 +329,146 @@ class SurveyTypeService:
     @staticmethod
     def question_count_for_length(length_key: str) -> int:
         return LENGTH_OPTIONS.get(str(length_key or "").strip().lower(), 5)
+
+    @staticmethod
+    def delete_type(db: Session, row: SurveyType) -> dict[str, Any]:
+        """Delete a survey type, its flows, packs, templates (Telnyx + DB), and mappings."""
+        from app.models.survey_flow import SurveyFlowDefinition
+        from app.models.survey_session import SurveySession
+        from app.models.survey_template_pack import SurveyTemplatePack
+        from app.services.telnyx_whatsapp_template_sync_service import (
+            TelnyxWhatsappTemplateSyncError,
+            TelnyxWhatsappTemplateSyncService,
+        )
+
+        if str(row.system_template_kind or "").strip():
+            raise ValueError("System survey template types cannot be deleted.")
+
+        type_id = str(row.id)
+        type_name = str(row.name or "")
+        warnings: list[str] = []
+
+        flows = list(
+            db.execute(
+                select(SurveyFlowDefinition).where(SurveyFlowDefinition.survey_type_id == type_id)
+            ).scalars()
+        )
+        flow_ids = [flow.id for flow in flows]
+        if flow_ids:
+            db.execute(
+                update(SurveySession)
+                .where(SurveySession.flow_definition_id.in_(flow_ids))
+                .values(flow_definition_id=None)
+            )
+        db.execute(
+            update(SurveySession).where(SurveySession.survey_type_id == type_id).values(survey_type_id=None)
+        )
+        db.flush()
+
+        for flow in flows:
+            db.delete(flow)
+
+        for pack in db.execute(
+            select(SurveyTemplatePack).where(SurveyTemplatePack.survey_type_id == type_id)
+        ).scalars():
+            db.delete(pack)
+
+        template_ids: set[int] = set()
+        for mapping in SurveyTypeTemplateService.list_for_survey_type(db, type_id):
+            template_ids.add(int(mapping.template_id))
+        for tpl in db.execute(
+            select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.survey_type_id == type_id)
+        ).scalars():
+            template_ids.add(int(tpl.id))
+
+        db.execute(delete(SurveyTypeTemplate).where(SurveyTypeTemplate.survey_type_id == type_id))
+        db.flush()
+
+        deleted_templates = 0
+        telnyx_deleted = 0
+        for tid in sorted(template_ids):
+            tpl = db.get(TelnyxWhatsappTemplate, tid)
+            if tpl is None:
+                continue
+            record_id = str(tpl.telnyx_record_id or "").strip()
+            if record_id and not record_id.startswith("local-"):
+                try:
+                    TelnyxWhatsappTemplateSyncService.delete_remote_template(db, record_id)
+                    telnyx_deleted += 1
+                except TelnyxWhatsappTemplateSyncError as exc:
+                    warnings.append(f"{tpl.name}: Telnyx delete failed; removed locally ({exc})")
+            for mapping in SurveyTypeTemplateService.list_for_template(db, int(tpl.id)):
+                db.delete(mapping)
+            db.delete(tpl)
+            deleted_templates += 1
+        db.flush()
+
+        db.execute(
+            update(TelnyxWhatsappTemplate)
+            .where(TelnyxWhatsappTemplate.survey_type_id == type_id)
+            .values(survey_type_id=None)
+        )
+
+        db.delete(row)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise ValueError(
+                "Could not delete survey type — linked survey data still references it. "
+                "Remove or archive related survey orders first."
+            ) from exc
+
+        result: dict[str, Any] = {
+            "ok": True,
+            "deleted_survey_type_id": type_id,
+            "deleted_survey_type_name": type_name,
+            "deleted_templates": deleted_templates,
+            "telnyx_deleted": telnyx_deleted,
+        }
+        if warnings:
+            result["warnings"] = warnings
+        return result
+
+    @staticmethod
+    def delete_types_bulk(db: Session, type_ids: list[str]) -> dict[str, Any]:
+        ids = [str(tid or "").strip() for tid in type_ids if str(tid or "").strip()]
+        if not ids:
+            raise ValueError("Select at least one survey type to delete.")
+
+        deleted: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        errors: list[str] = []
+
+        for type_id in ids:
+            row = SurveyTypeService.get_type(db, type_id)
+            if row is None:
+                errors.append(f"{type_id}: not found")
+                continue
+            try:
+                result = SurveyTypeService.delete_type(db, row)
+                deleted.append(
+                    {
+                        "survey_type_id": type_id,
+                        "deleted_templates": result.get("deleted_templates", 0),
+                        "telnyx_deleted": result.get("telnyx_deleted", 0),
+                    }
+                )
+                for warning in result.get("warnings") or []:
+                    warnings.append(f"{row.name}: {warning}")
+            except ValueError as exc:
+                errors.append(f"{row.name}: {exc}")
+
+        if not deleted and errors:
+            raise ValueError(errors[0] if len(errors) == 1 else "; ".join(errors))
+
+        payload: dict[str, Any] = {
+            "ok": True,
+            "deleted_count": len(deleted),
+            "deleted": deleted,
+        }
+        if warnings:
+            payload["warnings"] = warnings
+        if errors:
+            payload["errors"] = errors
+        return payload

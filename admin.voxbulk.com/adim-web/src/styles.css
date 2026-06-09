@@ -2058,6 +2058,51 @@ textarea.input{
   font-size:15px;
 }
 
+.waIndustrySettingsCard .cardBody.grid-3 .field .input{
+  padding:7px 10px;
+  font-size:13px;
+}
+
+.waIndustrySettingsCard .cardBody.grid-3 .field.span-2{
+  grid-column:span 2;
+}
+
+.waIndustryTypesBulkBar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+
+.waIndustryTypesTable{
+  font-size:13px;
+}
+
+.waIndustryTypesTable th,
+.waIndustryTypesTable td{
+  padding:8px 10px;
+  vertical-align:middle;
+}
+
+.waIndustryTypesCheckCol{
+  width:36px;
+  text-align:center;
+}
+
+.waIndustryTypesActions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  white-space:nowrap;
+}
+
+.waIndustryTypeSlug{
+  font-size:11px;
+  margin-top:2px;
+}
+
 .waIndustryAddTypeForm{
   display:grid;
   grid-template-columns:1fr 1fr auto;

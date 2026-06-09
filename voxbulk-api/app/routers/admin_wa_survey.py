@@ -268,6 +268,33 @@ def update_survey_type(
     return {"ok": True, "type": survey_type_to_dict(updated, template_counts=counts)}
 
 
+@router.delete("/types/{type_id}")
+def delete_survey_type(
+    type_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = SurveyTypeService.get_type(db, type_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    try:
+        return SurveyTypeService.delete_type(db, row)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/types/bulk-delete")
+def bulk_delete_survey_types(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        return SurveyTypeService.delete_types_bulk(db, list(payload.get("type_ids") or []))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/types/{type_id}/cleanup-template-links")
 def cleanup_survey_type_template_links(
     type_id: str,
