@@ -256,10 +256,11 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   const [instruction, setInstruction] = useState('')
   const [purpose, setPurpose] = useState('')
   const [categoryHint, setCategoryHint] = useState('UTILITY')
+  const [packMode, setPackMode] = useState('survey_questions')
   const [industries, setIndustries] = useState([])
   const [selectedIndustryId, setSelectedIndustryId] = useState(industryId || '')
   const [privacyMode, setPrivacyMode] = useState('off')
-  const [templateCountInput, setTemplateCountInput] = useState('5')
+  const [templateCountInput, setTemplateCountInput] = useState('8')
 
   const resolveTemplateCount = (raw = templateCountInput) => {
     const n = parseInt(String(raw).trim(), 10)
@@ -291,6 +292,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
     setInstruction('')
     setPurpose('')
     setCategoryHint('UTILITY')
+    setPackMode('survey_questions')
     setSelectedIndustryId(industryId || '')
     setPrivacyMode('off')
     setTemplateCountInput('5')
@@ -302,7 +304,8 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
   useEffect(() => {
     if (!open) reset()
     else {
-      setTemplateCountInput('5')
+      setTemplateCountInput('8')
+      setPackMode('survey_questions')
       if (industryId) setSelectedIndustryId(industryId)
     }
   }, [open, industryId])
@@ -393,6 +396,8 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
           privacy_mode: privacyMode,
           template_count: resolveTemplateCount(),
           theme_variant: categoryHint || undefined,
+          template_count: resolveTemplateCount(),
+          pack_mode: packMode,
         }),
       })
       const stamped = {
@@ -608,6 +613,7 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
           current_template: item.template || null,
           sibling_summaries: siblingContext(item.index),
           seen_names: seenNames(item.index),
+          pack_mode: packMode,
         }),
       })
       mergeItem(data.item)
@@ -716,8 +722,8 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
       <div className="waTplGen-shell">
         <header className="waTplGen-header">
           <div className="logo"><i className="ti ti-brand-whatsapp" /></div>
-          <h1>WA Template <span>Generator</span></h1>
-          <span className="badge">⚡ AI Powered</span>
+          <h1>WA Survey <span>Questions</span></h1>
+          <span className="badge">In-flow steps only</span>
           <div className="waTplGen-header-actions">
             <button type="button" className="waTplGen-close" onClick={onClose}>Close</button>
           </div>
@@ -754,6 +760,23 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                 <input type="text" value={surveyTypeName} readOnly />
               </div>
               <div className="waTplGen-field">
+                <label>Generation mode</label>
+                <select
+                  value={packMode}
+                  onChange={(e) => {
+                    setPackMode(e.target.value)
+                    if (pack) clearGeneratedPack()
+                  }}
+                  disabled={Boolean(pack)}
+                >
+                  <option value="survey_questions">Survey questions (recommended)</option>
+                  <option value="full_step_bank">Full step bank (start + completions)</option>
+                </select>
+                <span className="waTplGen-field-hint">
+                  Survey questions = rating, yes/no, follow-ups — not “Start survey” welcome templates.
+                </span>
+              </div>
+              <div className="waTplGen-field">
                 <label>Template count</label>
                 <input
                   type="number"
@@ -774,7 +797,7 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                   aria-describedby="waTplGenTemplateCountHelp"
                 />
                 <span id="waTplGenTemplateCountHelp" className="waTplGen-field-hint">
-                  How many templates OpenAI should generate (1–50). Default 5.
+                  How many question templates to generate (1–50). Default 8 middle steps.
                   {pack ? ' Change the count and click Generate again for a new pack.' : ''}
                 </span>
               </div>
@@ -816,7 +839,7 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
                 onClick={generatePack}
               >
                 <div className="spinner" />
-                <span className="btn-text"><i className="ti ti-wand" /> {working === 'generate' ? 'Generating…' : 'Generate with OpenAI'}</span>
+                <span className="btn-text"><i className="ti ti-wand" /> {working === 'generate' ? 'Generating…' : 'Generate survey questions'}</span>
               </button>
               {pack ? (
                 <button type="button" className="waTplGen-secondary-btn" disabled={working === 'save-all'} onClick={saveAllValid}>
@@ -831,10 +854,12 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
           {items.length > 0 ? (
             <div>
               <div className="waTplGen-section-hdr">
-                <h2>Generated Templates</h2>
+                <h2>Generated templates</h2>
                 <span className="waTplGen-count-badge">{items.length} templates</span>
               </div>
-              <p className="waTplGen-subtitle">{surveyTypeName} · OpenAI step bank · edit with tools below each card</p>
+              <p className="waTplGen-subtitle">
+                {surveyTypeName} · {packMode === 'survey_questions' ? 'Survey question steps' : 'Full step bank'} · edit body, buttons, and variables on each card
+              </p>
               <div className="waTplGen-templates-grid">
                 {items.map((item) => (
                   <WaPackGenCard
@@ -857,7 +882,10 @@ ${footer ? `<div class="ftr">${footer.replace(/</g, '&lt;')}</div>` : ''}
             </div>
           ) : (
             <div className="waTplGen-empty">
-              <p>Configure purpose and instructions above, then generate 10 WhatsApp survey templates.</p>
+              <p>
+                Choose generation mode above, then generate in-flow survey question templates.
+                Use <strong>Create template manually</strong> on the survey type page if you prefer to write your own copy, buttons, and variables without AI.
+              </p>
             </div>
           )}
         </div>

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from sqlalchemy import func, select
 
@@ -540,3 +542,38 @@ def test_push_after_pack_save(monkeypatch):
         row = db.get(TelnyxWhatsappTemplate, saved["templates"][0]["id"])
         result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
         assert result["ok"] is True
+
+
+def test_survey_question_slot_plan_excludes_start():
+    from app.services.survey_wa_template_pack_service import (
+        PACK_MODE_SURVEY_QUESTIONS,
+        normalize_pack_mode,
+        pack_slot_plan_for_mode,
+        survey_question_slot_plan,
+    )
+
+    plan = survey_question_slot_plan(5)
+    assert len(plan) == 5
+    assert all(slot["step_role"] not in {"start", "completion"} for slot in plan)
+    assert normalize_pack_mode("questions") == PACK_MODE_SURVEY_QUESTIONS
+    assert pack_slot_plan_for_mode(3, pack_mode=PACK_MODE_SURVEY_QUESTIONS)[0]["step_role"] == "rating"
+
+
+def test_create_question_draft_is_middle_step_not_start():
+    with get_sessionmaker()() as db:
+        st = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_question_draft(db, survey_type=st, step_role="yes_no")
+        assert row.step_role == "yes_no"
+        components = json.loads(row.draft_components_json or "[]")
+        button_texts = [
+            str(b.get("text") or "")
+            for comp in components
+            if str(comp.get("type") or "").upper() == "BUTTONS"
+            for b in (comp.get("buttons") or [])
+        ]
+        assert "Start survey" not in button_texts
+        body = next(
+            (str(c.get("text") or "") for c in components if str(c.get("type") or "").upper() == "BODY"),
+            "",
+        )
+        assert "start a short survey" not in body.lower()

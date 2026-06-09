@@ -32,6 +32,7 @@ from app.services.survey_wa_template_pack_service import (
     SurveyWaTemplatePackError,
     SurveyWaTemplatePackService,
     clamp_pack_count,
+    normalize_pack_mode,
 )
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
@@ -332,6 +333,7 @@ def generate_template_pack(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
     body = payload or {}
     template_count = clamp_pack_count(body.get("template_count") or body.get("count"))
+    pack_mode = normalize_pack_mode(body.get("pack_mode") or body.get("generation_mode"))
     try:
         return SurveyWaTemplatePackService.generate_pack(
             db,
@@ -343,6 +345,7 @@ def generate_template_pack(
             template_count=template_count,
             industry_id=str(body.get("industry_id") or "").strip() or None,
             org_id=str(body.get("org_id") or body.get("organisation_id") or "").strip() or None,
+            pack_mode=pack_mode,
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
@@ -402,6 +405,7 @@ def regenerate_template_pack_item(
             privacy_mode=str(body.get("privacy_mode") or "off"),
             industry_id=str(body.get("industry_id") or "").strip() or None,
             org_id=str(body.get("org_id") or body.get("organisation_id") or "").strip() or None,
+            pack_mode=normalize_pack_mode(body.get("pack_mode") or body.get("generation_mode")),
         )
     except SurveyWaTemplatePackError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
@@ -424,6 +428,32 @@ def create_standard_template(
         language=str(body.get("language") or "en_US"),
         category=str(body.get("category") or "UTILITY"),
     )
+    return {"ok": True, "template": survey_template_to_dict(template)}
+
+
+@router.post("/types/{type_id}/templates/custom")
+def create_custom_template(
+    type_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = SurveyTypeService.get_type(db, type_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
+    body = payload or {}
+    try:
+        template = SurveyWhatsappTemplateService.create_question_draft(
+            db,
+            survey_type=row,
+            step_role=str(body.get("step_role") or "rating"),
+            display_name=str(body.get("display_name") or body.get("name") or "").strip() or None,
+            language=str(body.get("language") or "en_GB"),
+            category=str(body.get("category") or "UTILITY"),
+            privacy_mode=str(body.get("privacy_mode") or "off"),
+        )
+    except SurveyWhatsappTemplateError as e:
+        _raise_wa_survey_error(e)
     return {"ok": True, "template": survey_template_to_dict(template)}
 
 

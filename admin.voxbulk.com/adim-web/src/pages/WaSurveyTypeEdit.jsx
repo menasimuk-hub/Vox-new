@@ -7,6 +7,18 @@ import { resolveTelnyxSyncLabel, telnyxSyncPillClass, validateCategoryBeforeSync
 import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
 import WaSurveyTemplatePackModal from '../components/WaSurveyTemplatePackModal'
 
+const MIDDLE_STEP_ROLES = [
+  'rating',
+  'yes_no',
+  'helpfulness',
+  'abc_choice',
+  'reason',
+  'final_feedback_text',
+  'feeling_word',
+  'follow_up',
+  'improvement',
+]
+
 function mappingLabel(tpl) {
   const parts = []
   if (tpl.is_default_standard) parts.push('Default standard')
@@ -56,6 +68,7 @@ export default function WaSurveyTypeEdit() {
   const [packModalOpen, setPackModalOpen] = useState(false)
   const [templateSearch, setTemplateSearch] = useState('')
   const [templatePrivacyFilter, setTemplatePrivacyFilter] = useState('off')
+  const [manualStepRole, setManualStepRole] = useState('rating')
 
   const clearFeedback = () => {
     setError('')
@@ -235,18 +248,22 @@ export default function WaSurveyTypeEdit() {
     }
   }
 
-  const createStandard = async () => {
+  const createManualTemplate = async () => {
     setWorking('create')
     clearFeedback()
     try {
-      const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/standard`, {
+      const data = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/custom`, {
         method: 'POST',
-        body: '{}',
+        body: JSON.stringify({
+          step_role: manualStepRole,
+          privacy_mode: templatePrivacyFilter,
+          display_name: `${surveyType?.name || 'Survey'} — ${manualStepRole.replace(/_/g, ' ')}`,
+        }),
       })
       setTemplates((rows) => [...rows, data.template])
       setModalTemplate(data.template)
       setModalTemplateId(data.template.id)
-      showOk({ message: 'Standard template draft created and linked.', template_name: data.template?.name })
+      showOk({ message: 'Blank survey question template created — edit body, buttons, and variables below.', template_name: data.template?.name })
     } catch (e) {
       showError(e, 'Could not create template')
     } finally {
@@ -351,6 +368,8 @@ export default function WaSurveyTypeEdit() {
               {templateSearchActive
                 ? `${filteredTemplates.length} of ${templates.length} shown`
                 : `${templates.length} linked template${templates.length === 1 ? '' : 's'}`}
+              {' · '}
+              Create manually or generate survey question templates with OpenAI (not start/welcome messages).
             </p>
           </div>
           <div className="waSurveyTemplatesActions">
@@ -363,6 +382,17 @@ export default function WaSurveyTypeEdit() {
               <option value="off">Privacy Off templates</option>
               <option value="on">Privacy On templates</option>
             </select>
+            <select
+              className="input"
+              value={manualStepRole}
+              onChange={(e) => setManualStepRole(e.target.value)}
+              aria-label="Question type for manual create"
+              title="Step role for a new blank template"
+            >
+              {MIDDLE_STEP_ROLES.map((role) => (
+                <option key={role} value={role}>{role.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
             <input
               className="input waSurveyTemplateSearch"
               type="search"
@@ -370,11 +400,11 @@ export default function WaSurveyTypeEdit() {
               value={templateSearch}
               onChange={(e) => setTemplateSearch(e.target.value)}
             />
-            <button type="button" className="btn sm" onClick={() => setPackModalOpen(true)}>
-              Generate with OpenAI
+            <button type="button" className="btn sm primary" onClick={createManualTemplate} disabled={working === 'create'}>
+              {working === 'create' ? 'Creating…' : 'Create template manually'}
             </button>
-            <button type="button" className="btn sm" onClick={createStandard} disabled={working === 'create'}>
-              Add standard draft
+            <button type="button" className="btn sm" onClick={() => setPackModalOpen(true)}>
+              Generate survey questions (AI)
             </button>
             <Link
               className="btn sm primary"
@@ -395,6 +425,7 @@ export default function WaSurveyTypeEdit() {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Step</th>
                   <th>Status</th>
                   <th>Category</th>
                   <th>Mapping</th>
@@ -409,6 +440,7 @@ export default function WaSurveyTypeEdit() {
                 {filteredTemplates.length ? filteredTemplates.map((tpl) => (
                   <tr key={tpl.id} className={tpl.active_for_survey === false ? 'waIndustryRowMuted' : ''}>
                     <td>{tpl.display_name || tpl.name}</td>
+                    <td>{tpl.step_role ? tpl.step_role.replace(/_/g, ' ') : '—'}</td>
                     <td>
                       <span className={`pill ${tpl.active_for_survey === false ? 'muted' : 'ok'}`}>
                         {tpl.active_for_survey === false ? 'Hidden' : 'Active'}
@@ -471,10 +503,10 @@ export default function WaSurveyTypeEdit() {
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={9} className="muted">
+                    <td colSpan={10} className="muted">
                       {templates.length
                         ? 'No templates match your search.'
-                        : 'No templates linked yet — add a standard draft or sync from Telnyx.'}
+                        : 'No templates yet — create one manually or generate survey questions with AI.'}
                     </td>
                   </tr>
                 )}

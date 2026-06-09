@@ -16,6 +16,20 @@ import {
 import { VAR_LABELS, ensureExampleValues, substituteTemplateVars, varIndexesFromText } from '../lib/waSurveyTemplateVars'
 import '../styles/waTemplateEditor.css'
 
+const MIDDLE_STEP_ROLE_OPTIONS = [
+  'rating',
+  'yes_no',
+  'helpfulness',
+  'abc_choice',
+  'reason',
+  'final_feedback_text',
+  'feeling_word',
+  'follow_up',
+  'improvement',
+  'start',
+  'completion',
+]
+
 function parseComponents(raw) {
   if (Array.isArray(raw)) return raw
   if (typeof raw === 'string') {
@@ -159,6 +173,7 @@ function applyTemplateDraft(setDraft, tpl) {
     button_type: buttonMeta.button_type,
     buttons: buttonMeta.buttons.length ? buttonMeta.buttons : [emptyButton()],
     example_values: tpl?.example_values || ['Alex'],
+    step_role: tpl?.step_role || 'rating',
   })
 }
 
@@ -270,6 +285,7 @@ export default function WaSurveyTemplateModal({
           active_for_survey: draft.active_for_survey !== false,
           components,
           example_values: ensureExampleValues(draft.body, '', draft.example_values),
+          step_role: draft.step_role || null,
         }),
       })
       setTemplate(data.template)
@@ -404,6 +420,7 @@ export default function WaSurveyTemplateModal({
           active_for_survey: draft.active_for_survey !== false,
           components,
           example_values: ensureExampleValues(draft.body, '', draft.example_values),
+          step_role: draft.step_role || null,
         }),
       })
       setTemplate(data.template)
@@ -719,6 +736,28 @@ export default function WaSurveyTemplateModal({
               </div>
 
               <div className="waTplEd-edit-panel">
+                <div className="waTplEd-field-card">
+                  <div className="waTplEd-field-hdr">
+                    <div className="waTplEd-ficon"><i className="ti ti-list-check" /></div>
+                    <span className="waTplEd-ftitle">Survey step role</span>
+                    <span className="waTplEd-fbadge">flow step</span>
+                  </div>
+                  <div className="waTplEd-field-body">
+                    <select
+                      className="waTplEd-select"
+                      value={draft.step_role || 'rating'}
+                      onChange={(e) => patchDraft({ step_role: e.target.value })}
+                    >
+                      {MIDDLE_STEP_ROLE_OPTIONS.map((role) => (
+                        <option key={role} value={role}>{role.replace(/_/g, ' ')}</option>
+                      ))}
+                    </select>
+                    <p className="waTplEd-hint" style={{ marginTop: 8 }}>
+                      Use middle steps (rating, yes/no, …) for survey questions. Start/completion belong in global system templates.
+                    </p>
+                  </div>
+                </div>
+
                 <div className="waTplEd-field-card">
                   <div className="waTplEd-field-hdr">
                     <div className="waTplEd-ficon"><i className="ti ti-forms" /></div>

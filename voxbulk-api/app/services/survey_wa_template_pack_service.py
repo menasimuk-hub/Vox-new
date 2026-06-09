@@ -390,6 +390,18 @@ def _fill_example_values(out: dict[str, Any]) -> None:
 
 
 OUTCOME_COMPLETION_KEYS = ("happy", "neutral", "unhappy")
+PACK_MODE_SURVEY_QUESTIONS = "survey_questions"
+PACK_MODE_FULL_STEP_BANK = "full_step_bank"
+DEFAULT_PACK_MODE = PACK_MODE_SURVEY_QUESTIONS
+
+
+def normalize_pack_mode(raw: str | None) -> str:
+    mode = str(raw or DEFAULT_PACK_MODE).strip().lower()
+    if mode in {PACK_MODE_SURVEY_QUESTIONS, "questions", "middle", "library"}:
+        return PACK_MODE_SURVEY_QUESTIONS
+    if mode in {PACK_MODE_FULL_STEP_BANK, "full", "step_bank", "full_pack"}:
+        return PACK_MODE_FULL_STEP_BANK
+    return DEFAULT_PACK_MODE
 
 
 def clamp_pack_count(raw: int | str | None) -> int:
@@ -418,6 +430,18 @@ def pack_slot_plan(count: int) -> list[dict[str, Any]]:
     for outcome_key in OUTCOME_COMPLETION_KEYS[:completions]:
         slots.append({"step_role": "completion", "outcome_key": outcome_key})
     return slots
+
+
+def survey_question_slot_plan(count: int) -> list[dict[str, Any]]:
+    """Middle-step survey question slots only — no start invite or completion thank-you."""
+    count = clamp_pack_count(count)
+    return [{"step_role": MIDDLE_STEP_ROLES[i % len(MIDDLE_STEP_ROLES)]} for i in range(count)]
+
+
+def pack_slot_plan_for_mode(count: int, *, pack_mode: str = DEFAULT_PACK_MODE) -> list[dict[str, Any]]:
+    if normalize_pack_mode(pack_mode) == PACK_MODE_SURVEY_QUESTIONS:
+        return survey_question_slot_plan(count)
+    return pack_slot_plan(count)
 
 
 def build_pack_json_schema(count: int) -> dict[str, Any]:
@@ -944,15 +968,53 @@ def validate_generated_template(
     return normalized, []
 
 
-def _validate_pack_composition(items: list[dict[str, Any]], *, template_count: int = PACK_SIZE) -> list[str]:
+def _validate_pack_composition(
+    items: list[dict[str, Any]],
+    *,
+    template_count: int = PACK_SIZE,
+    pack_mode: str = DEFAULT_PACK_MODE,
+) -> list[str]:
     """Validate pack matches the requested template count and slot plan."""
-    from app.services.survey_step_bank_service import MIDDLE_STEP_ROLES
-
+    mode = normalize_pack_mode(pack_mode)
     count = clamp_pack_count(template_count)
     errors: list[str] = []
     if len(items) != count:
         errors.append(f"Expected {count} templates, got {len(items)}")
-    plan = pack_slot_plan(count)
+    plan = pack_slot_plan_for_mode(count, pack_mode=mode)
+    if mode == PACK_MODE_SURVEY_QUESTIONS:
+        roles_seen: set[str] = set()
+        for idx, slot in enumerate(plan):
+            if idx >= len(items):
+                errors.append(f"Missing template for slot {idx + 1}")
+                continue
+            item = items[idx]
+            role = normalize_step_role(str(item.get("step_role") or ""))
+            expected_role = slot["step_role"]
+            if role != expected_role:
+                errors.append(f"Template {idx + 1} should be step_role={expected_role}, got {role}")
+            if role in ("start", "completion"):
+                errors.append(f"Template {idx + 1} must not be step_role={role} in survey question mode")
+            if role in roles_seen:
+                errors.append(f"Duplicate step_role in pack: {role}")
+            roles_seen.add(role)
+            if str(item.get("outcome_key") or "").strip():
+                errors.append(f"Template {idx + 1} must not set outcome_key in survey question mode")
+            lib_errors = validate_library_middle_step_copy(
+                body=str(item.get("body") or ""),
+                header=str(item.get("header") or ""),
+                step_role=role,
+            )
+            for line in lib_errors:
+                errors.append(f"Template {idx + 1}: {line}")
+            button_labels = [
+                str(b.get("text") or "").strip().lower()
+                for b in (item.get("buttons") or [])
+                if isinstance(b, dict)
+            ]
+            if any(label in {"start survey", "start", "begin survey"} for label in button_labels):
+                errors.append(f"Template {idx + 1} must not use a Start survey button")
+        return errors
+
     if count == PACK_SIZE:
         roles_seen: set[str] = set()
         outcomes_seen: set[str] = set()
@@ -1089,6 +1151,84 @@ def _pack_structure_block(*, template_count: int = PACK_SIZE) -> str:
         else:
             lines.append(f"  {idx}. step_role={slot['step_role']}")
     return "\n".join(lines) + "\n"
+
+
+def _survey_questions_structure_block(*, template_count: int = DEFAULT_PACK_COUNT) -> str:
+    count = clamp_pack_count(template_count)
+    plan = survey_question_slot_plan(count)
+    lines = [
+        f"SURVEY QUESTIONS — return exactly {count} MIDDLE-STEP templates in this order:",
+        "These are in-flow survey questions — NOT the opening welcome and NOT thank-you closings.",
+        "NEVER generate step_role=start or step_role=completion.",
+        'NEVER use a "Start survey" quick_reply button — the customer already started from the welcome template.',
+    ]
+    for idx, slot in enumerate(plan, start=1):
+        lines.append(f"  {idx}. step_role={slot['step_role']}")
+    return "\n".join(lines) + "\n"
+
+
+def _survey_questions_system_prompt(
+    *,
+    privacy_mode: str = PRIVACY_MODE_OFF,
+    instruction: str = "",
+    purpose: str = "",
+    template_count: int = DEFAULT_PACK_COUNT,
+) -> str:
+    count = clamp_pack_count(template_count)
+    return (
+        "You are an expert WhatsApp Business template copywriter for VoxBulk customer satisfaction surveys. "
+        f"Write exactly {count} reusable Meta/Telnyx-compatible MIDDLE-STEP question templates for the WA Survey library. "
+        "The welcome/opening message is sent separately from Global System Templates — do NOT generate it again. "
+        "British English. Professional, natural, mobile-first. One focused in-flow question per template.\n\n"
+        f"{_meta_compliance_rules_block(privacy_mode=privacy_mode)}"
+        f"{_library_middle_step_copy_rules_block()}"
+        "MANDATORY RULES:\n"
+        "• Every template is a survey QUESTION step — never an invite to start a survey.\n"
+        "• step_role must be one of the middle roles listed below — never start or completion.\n"
+        "• outcome_key must be null on every template.\n"
+        "• Do NOT greet (no Hi/Hello/Hey). Do NOT use {{1}} or name variables.\n"
+        "• Do NOT say thanks for booking/visiting or welcome the user.\n"
+        "• rating / yes_no / helpfulness / abc_choice / feeling_word → quick_reply buttons (max 3).\n"
+        "• reason / follow_up / improvement / final_feedback_text → button_type none (free-text reply).\n"
+        "• Never label buttons 'Start survey' unless step_role is start (you must not use start).\n\n"
+        f"{_reference_copy_rules_block(instruction=instruction, purpose=purpose)}"
+        f"{_emoji_rules_block(template_count=count)}"
+        f"{_survey_questions_structure_block(template_count=count)}"
+        "template_name: unique lowercase snake_case, no voxbulk_survey prefix.\n"
+        "category UTILITY. Footer exactly as required for privacy mode."
+    )
+
+
+def _survey_questions_user_prompt(
+    *,
+    survey_type: SurveyType,
+    industry: Industry,
+    purpose: str,
+    instruction: str,
+    privacy_mode: str = PRIVACY_MODE_OFF,
+    template_count: int = DEFAULT_PACK_COUNT,
+) -> str:
+    count = clamp_pack_count(template_count)
+    topic = str(survey_type.name or survey_type.slug).strip()
+    parts = [
+        f"Industry: {industry.name}",
+        f"Survey type: {survey_type.name}",
+        f"Survey topic: {topic}",
+        f"Description: {survey_type.description or survey_type.name}",
+        f"Privacy Mode: {'On (anonymous)' if normalize_privacy_mode(privacy_mode) == PRIVACY_MODE_ON else 'Off (identified)'}",
+        (
+            f"Write {count} distinct MIDDLE-STEP WhatsApp questions about “{topic}” for {industry.name}. "
+            "Each template asks one clear question with appropriate quick_reply buttons or free-text reply. "
+            "No welcome, no start CTA, no thank-you closing."
+        ),
+        f"Slot plan: {survey_question_slot_plan(count)}",
+    ]
+    if purpose.strip():
+        parts.append(f"Purpose focus: {purpose.strip()}")
+    if instruction.strip():
+        parts.append(f"Admin instruction: {instruction.strip()}")
+    parts.append(f"Generate exactly {count} templates as JSON.")
+    return "\n".join(parts)
 
 
 def _pack_system_prompt(
@@ -1412,8 +1552,18 @@ def _build_pack_item_row(
     purpose: str = "",
     company_name: str | None = None,
     apply_company_name_rules: bool = True,
+    pack_mode: str = DEFAULT_PACK_MODE,
 ) -> dict[str, Any]:
+    mode = normalize_pack_mode(pack_mode)
     coerced = coerce_meta_template_fields(item, privacy_mode=privacy_mode)
+    expected_role = normalize_step_role(
+        str(coerced.get("step_role") or coerced.get("purpose") or "")
+    )
+    if mode == PACK_MODE_SURVEY_QUESTIONS:
+        slot_plan = survey_question_slot_plan(max(idx + 1, 1))
+        slot_role = normalize_step_role(str(slot_plan[idx]["step_role"])) if idx < len(slot_plan) else expected_role
+        coerced = normalize_library_middle_template(coerced, step_role=slot_role or expected_role)
+        apply_company_name_rules = False
     normalized, errors = validate_generated_template(
         coerced,
         survey_type=survey_type,
@@ -1431,6 +1581,16 @@ def _build_pack_item_row(
     }
     if not normalized:
         return row
+    if mode == PACK_MODE_SURVEY_QUESTIONS:
+        lib_errors = validate_library_middle_step_copy(
+            body=normalized.get("body") or "",
+            header=normalized.get("header") or "",
+            step_role=str(normalized.get("step_role") or ""),
+        )
+        if lib_errors:
+            row["valid"] = False
+            row["errors"] = errors + lib_errors
+            return row
     name_key = normalized["template_name"]
     if name_key in seen_names:
         dup = errors + [f"duplicate template_name {name_key}"]
@@ -1473,9 +1633,11 @@ class SurveyWaTemplatePackService:
         template_count: int = DEFAULT_PACK_COUNT,
         industry_id: str | None = None,
         org_id: str | None = None,
+        pack_mode: str = DEFAULT_PACK_MODE,
     ) -> dict[str, Any]:
         privacy_mode = normalize_privacy_mode(privacy_mode)
         pack_count = clamp_pack_count(template_count)
+        mode = normalize_pack_mode(pack_mode)
         company_name = resolve_wa_survey_company_name(db, org_id=org_id)
         try:
             industry = load_industry_for_prompt(db, survey_type)
@@ -1483,25 +1645,45 @@ class SurveyWaTemplatePackService:
             raise SurveyWaTemplatePackError(str(e)) from e
         if industry_id and str(industry_id).strip() != industry.id:
             raise SurveyWaTemplatePackError("Industry does not match survey type")
+        if mode == PACK_MODE_SURVEY_QUESTIONS:
+            system_prompt = _survey_questions_system_prompt(
+                privacy_mode=privacy_mode,
+                instruction=instruction,
+                purpose=purpose,
+                template_count=pack_count,
+            )
+            user_prompt = _survey_questions_user_prompt(
+                survey_type=survey_type,
+                industry=industry,
+                purpose=purpose,
+                instruction=instruction,
+                privacy_mode=privacy_mode,
+                template_count=pack_count,
+            )
+            apply_company_rules = False
+        else:
+            system_prompt = _pack_system_prompt(
+                privacy_mode=privacy_mode,
+                instruction=instruction,
+                purpose=purpose,
+                company_name=company_name,
+                template_count=pack_count,
+            )
+            user_prompt = _pack_user_prompt(
+                survey_type=survey_type,
+                industry=industry,
+                purpose=purpose,
+                instruction=instruction,
+                privacy_mode=privacy_mode,
+                company_name=company_name,
+                template_count=pack_count,
+            )
+            apply_company_rules = True
         try:
             raw, meta = OpenAIProviderService.responses_json(
                 db,
-                system_prompt=_pack_system_prompt(
-                    privacy_mode=privacy_mode,
-                    instruction=instruction,
-                    purpose=purpose,
-                    company_name=company_name,
-                    template_count=pack_count,
-                ),
-                user_prompt=_pack_user_prompt(
-                    survey_type=survey_type,
-                    industry=industry,
-                    purpose=purpose,
-                    instruction=instruction,
-                    privacy_mode=privacy_mode,
-                    company_name=company_name,
-                    template_count=pack_count,
-                ),
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 json_schema=build_pack_json_schema(pack_count),
                 schema_name="wa_survey_template_pack",
                 max_output_tokens=16000,
@@ -1533,6 +1715,8 @@ class SurveyWaTemplatePackService:
                 instruction=instruction,
                 purpose=purpose,
                 company_name=company_name,
+                apply_company_name_rules=apply_company_rules,
+                pack_mode=mode,
             )
             if row.get("valid") and row.get("template"):
                 validated.append(row)
@@ -1542,10 +1726,12 @@ class SurveyWaTemplatePackService:
         composition_errors = _validate_pack_composition(
             [r["template"] for r in validated if r.get("template")],
             template_count=pack_count,
+            pack_mode=mode,
         )
 
         return {
             "ok": True,
+            "pack_mode": mode,
             "industry_id": industry.id,
             "industry_slug": industry.slug,
             "industry_name": industry.name,
@@ -1700,10 +1886,12 @@ class SurveyWaTemplatePackService:
         privacy_mode: str = PRIVACY_MODE_OFF,
         industry_id: str | None = None,
         org_id: str | None = None,
+        pack_mode: str = DEFAULT_PACK_MODE,
     ) -> dict[str, Any]:
         privacy_mode = normalize_privacy_mode(
             privacy_mode or (current_template or {}).get("privacy_mode") or PRIVACY_MODE_OFF
         )
+        mode = normalize_pack_mode(pack_mode)
         company_name = resolve_wa_survey_company_name(db, org_id=org_id)
         try:
             industry = load_industry_for_prompt(db, survey_type)
@@ -1711,37 +1899,83 @@ class SurveyWaTemplatePackService:
             raise SurveyWaTemplatePackError(str(e)) from e
         if industry_id and str(industry_id).strip() != industry.id:
             raise SurveyWaTemplatePackError("Industry does not match survey type")
-        try:
-            raw, meta = OpenAIProviderService.responses_json(
-                db,
-                system_prompt=_single_template_system_prompt(
-                    privacy_mode=privacy_mode,
-                    instruction=instruction,
-                    purpose=purpose,
-                    company_name=company_name,
-                ),
-                user_prompt=_single_template_user_prompt(
-                    survey_type=survey_type,
-                    industry=industry,
-                    purpose=purpose,
-                    instruction=instruction,
-                    slot_hint=slot_hint,
-                    current_template=current_template,
-                    sibling_summaries=sibling_summaries,
-                    privacy_mode=privacy_mode,
-                    company_name=company_name,
-                ),
-                json_schema=WA_SINGLE_TEMPLATE_JSON_SCHEMA,
-                schema_name="wa_survey_template_single",
-                max_output_tokens=4000,
-                temperature=0.72,
-            )
-        except ValueError as e:
-            raise SurveyWaTemplatePackError(str(e)) from e
 
-        item = raw.get("template")
-        if not isinstance(item, dict):
-            raise SurveyWaTemplatePackError("OpenAI response missing template object")
+        slot_role = normalize_step_role(
+            str(
+                (current_template or {}).get("step_role")
+                or slot_hint
+                or survey_question_slot_plan(max(int(index), 0) + 1)[int(index)]["step_role"]
+            )
+        )
+        if mode == PACK_MODE_SURVEY_QUESTIONS:
+            library_instruction = BULK_LIBRARY_MIDDLE_INSTRUCTION
+            if instruction.strip():
+                library_instruction = f"{library_instruction}\n{instruction.strip()}"
+            purpose_text = purpose.strip() or str(survey_type.name or "").strip()
+            try:
+                raw, meta = OpenAIProviderService.responses_json(
+                    db,
+                    system_prompt=_library_template_system_prompt(
+                        step_role=slot_role,
+                        privacy_mode=privacy_mode,
+                        instruction=library_instruction,
+                        purpose=purpose_text,
+                    ),
+                    user_prompt=_library_template_user_prompt(
+                        survey_type=survey_type,
+                        industry=industry,
+                        step_role=slot_role,
+                        purpose=purpose_text,
+                        instruction=library_instruction,
+                    ),
+                    json_schema=WA_SINGLE_TEMPLATE_JSON_SCHEMA,
+                    schema_name="wa_survey_library_template",
+                    max_output_tokens=4000,
+                    temperature=0.72,
+                )
+            except ValueError as e:
+                raise SurveyWaTemplatePackError(str(e)) from e
+            item = raw.get("template")
+            if not isinstance(item, dict):
+                raise SurveyWaTemplatePackError("OpenAI response missing template object")
+            item = normalize_library_middle_template(
+                {**item, "step_role": slot_role, "outcome_key": None},
+                step_role=slot_role,
+            )
+            apply_company_rules = False
+            company_name = None
+        else:
+            try:
+                raw, meta = OpenAIProviderService.responses_json(
+                    db,
+                    system_prompt=_single_template_system_prompt(
+                        privacy_mode=privacy_mode,
+                        instruction=instruction,
+                        purpose=purpose,
+                        company_name=company_name,
+                    ),
+                    user_prompt=_single_template_user_prompt(
+                        survey_type=survey_type,
+                        industry=industry,
+                        purpose=purpose,
+                        instruction=instruction,
+                        slot_hint=slot_hint,
+                        current_template=current_template,
+                        sibling_summaries=sibling_summaries,
+                        privacy_mode=privacy_mode,
+                        company_name=company_name,
+                    ),
+                    json_schema=WA_SINGLE_TEMPLATE_JSON_SCHEMA,
+                    schema_name="wa_survey_template_single",
+                    max_output_tokens=4000,
+                    temperature=0.72,
+                )
+            except ValueError as e:
+                raise SurveyWaTemplatePackError(str(e)) from e
+            item = raw.get("template")
+            if not isinstance(item, dict):
+                raise SurveyWaTemplatePackError("OpenAI response missing template object")
+            apply_company_rules = True
 
         names = {str(n) for n in (seen_names or []) if str(n).strip()}
         if current_template and current_template.get("template_name"):
@@ -1756,6 +1990,8 @@ class SurveyWaTemplatePackService:
             instruction=instruction,
             purpose=purpose,
             company_name=company_name,
+            apply_company_name_rules=apply_company_rules,
+            pack_mode=mode,
         )
         return {
             "ok": True,
@@ -1763,6 +1999,7 @@ class SurveyWaTemplatePackService:
             "openai": meta,
             "privacy_mode": privacy_mode,
             "company_name": company_name,
+            "pack_mode": mode,
         }
 
     @staticmethod

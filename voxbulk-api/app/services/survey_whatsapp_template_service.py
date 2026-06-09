@@ -393,6 +393,69 @@ def ensure_meta_examples_on_components(
     return out
 
 
+_QUESTION_DRAFT_BODIES: dict[str, str] = {
+    "rating": "How would you rate your overall experience?",
+    "yes_no": "Would you recommend us to a friend?",
+    "helpfulness": "How helpful was our team today?",
+    "abc_choice": "Which best describes your visit?",
+    "reason": "What stood out most during your visit?",
+    "final_feedback_text": "Is there anything else you would like to share?",
+    "feeling_word": "How did your experience feel overall?",
+    "follow_up": "Is there anything we should clarify?",
+    "improvement": "What could we improve for next time?",
+}
+
+
+def _question_button_components(step_role: str) -> list[dict[str, Any]]:
+    from app.services.survey_step_bank_service import normalize_step_role
+
+    role = normalize_step_role(step_role)
+    button_map: dict[str, list[dict[str, str]]] = {
+        "rating": [
+            {"type": "QUICK_REPLY", "text": "Poor"},
+            {"type": "QUICK_REPLY", "text": "Okay"},
+            {"type": "QUICK_REPLY", "text": "Excellent"},
+        ],
+        "yes_no": [
+            {"type": "QUICK_REPLY", "text": "Yes"},
+            {"type": "QUICK_REPLY", "text": "No"},
+        ],
+        "helpfulness": [
+            {"type": "QUICK_REPLY", "text": "Very helpful"},
+            {"type": "QUICK_REPLY", "text": "Partly helpful"},
+            {"type": "QUICK_REPLY", "text": "Not helpful"},
+        ],
+        "abc_choice": [
+            {"type": "QUICK_REPLY", "text": "Option A"},
+            {"type": "QUICK_REPLY", "text": "Option B"},
+            {"type": "QUICK_REPLY", "text": "Option C"},
+        ],
+        "feeling_word": [
+            {"type": "QUICK_REPLY", "text": "Great"},
+            {"type": "QUICK_REPLY", "text": "Okay"},
+            {"type": "QUICK_REPLY", "text": "Poor"},
+        ],
+    }
+    return button_map.get(role, [])
+
+
+def _default_question_components(*, step_role: str) -> list[dict[str, Any]]:
+    from app.services.survey_step_bank_service import MIDDLE_STEP_ROLES, normalize_step_role
+
+    role = normalize_step_role(step_role)
+    if role not in MIDDLE_STEP_ROLES:
+        role = "rating"
+    body = _QUESTION_DRAFT_BODIES.get(role, "How was your experience?")
+    components: list[dict[str, Any]] = [
+        {"type": "BODY", "text": body, "example": {"body_text": [[]]}},
+        {"type": "FOOTER", "text": STANDARD_OPT_OUT_FOOTER},
+    ]
+    buttons = _question_button_components(role)
+    if buttons:
+        components.append({"type": "BUTTONS", "buttons": buttons})
+    return components
+
+
 def _default_standard_components(*, org_label: str = "Northgate Dental", first_name: str = "Alex") -> list[dict[str, Any]]:
     return [
         {
@@ -917,6 +980,77 @@ class SurveyWhatsappTemplateService:
         return row
 
     @staticmethod
+    def create_question_draft(
+        db: Session,
+        *,
+        survey_type: SurveyType,
+        step_role: str = "rating",
+        display_name: str | None = None,
+        language: str | None = None,
+        category: str = "UTILITY",
+        privacy_mode: str = PRIVACY_MODE_OFF,
+    ) -> TelnyxWhatsappTemplate:
+        from app.services.survey_step_bank_service import MIDDLE_STEP_ROLES, normalize_step_role
+
+        role = normalize_step_role(step_role)
+        if role not in MIDDLE_STEP_ROLES:
+            raise SurveyWhatsappTemplateError(
+                f"step_role must be a survey question role ({', '.join(MIDDLE_STEP_ROLES)}), not {role!r}"
+            )
+        pm = normalize_privacy_mode(privacy_mode)
+        now = _now()
+        local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"
+        components = _default_question_components(step_role=role)
+        if pm == PRIVACY_MODE_ON:
+            components = _apply_anonymous_wording(components)
+        lang_raw = str(language or default_wa_template_language(db)).strip()
+        lang_code, lang_error = normalize_wa_template_language(lang_raw, db=db)
+        if lang_error:
+            raise SurveyWhatsappTemplateError(lang_error)
+        label = (display_name or f"{survey_type.name} — {role.replace('_', ' ').title()}").strip()
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id=local_id,
+            template_id=local_id,
+            name=_telnyx_name_for(survey_type.slug, f"{role}_{uuid.uuid4().hex[:6]}"),
+            display_name=label[:128],
+            language=lang_code or default_wa_template_language(db),
+            category=category,
+            status="LOCAL_DRAFT",
+            variant_type=privacy_mode_to_variant(pm),
+            privacy_mode=pm,
+            survey_type_id=survey_type.id,
+            step_role=role,
+            body_preview=_body_preview(components),
+            draft_components_json=_dumps(components),
+            example_values_json=_dumps([]),
+            local_sync_status=SYNC_DRAFT,
+            active_for_survey=True,
+            created_at=now,
+            updated_at=now,
+            synced_at=now,
+        )
+        db.add(row)
+        db.flush()
+        if pm == PRIVACY_MODE_ON:
+            SurveyTypeTemplateService.upsert_mapping(
+                db,
+                survey_type_id=survey_type.id,
+                template_id=row.id,
+                usable_as_anonymous=True,
+                privacy_mode=pm,
+            )
+        else:
+            SurveyTypeTemplateService.upsert_mapping(
+                db,
+                survey_type_id=survey_type.id,
+                template_id=row.id,
+                usable_as_standard=True,
+                privacy_mode=pm,
+            )
+        db.refresh(row)
+        return row
+
+    @staticmethod
     def _apply_privacy_mode_to_row(row: TelnyxWhatsappTemplate, privacy_mode: str) -> None:
         pm = normalize_privacy_mode(privacy_mode)
         row.privacy_mode = pm
@@ -958,6 +1092,9 @@ class SurveyWhatsappTemplateService:
             row.category = normalize_wa_template_category(payload.get("category"), required=False)
         if "active_for_survey" in payload:
             row.active_for_survey = bool(payload["active_for_survey"])
+        if "step_role" in payload:
+            raw_role = str(payload.get("step_role") or "").strip().lower()
+            row.step_role = raw_role[:32] or None
         components = payload.get("components")
         if isinstance(components, list):
             examples = payload.get("example_values")
