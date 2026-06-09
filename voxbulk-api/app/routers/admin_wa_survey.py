@@ -173,6 +173,18 @@ def delete_industry(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/industries/{industry_id}/templates/push-all")
+def push_all_industry_templates_to_telnyx(
+    industry_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        return SurveyWhatsappTemplateService.push_all_for_industry(db, industry_id)
+    except SurveyWhatsappTemplateError as e:
+        _raise_wa_survey_error(e)
+
+
 @router.post("/industries/{industry_id}/status")
 def set_industry_status(
     industry_id: str,

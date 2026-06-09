@@ -1569,6 +1569,67 @@ class SurveyWhatsappTemplateService:
         }
 
     @staticmethod
+    def push_all_for_industry(db: Session, industry_id: str) -> dict[str, Any]:
+        from app.services.industry_service import IndustryService
+        from app.services.survey_type_service import SurveyTypeService
+
+        industry = IndustryService.get_industry(db, industry_id)
+        if industry is None:
+            raise SurveyWhatsappTemplateError("Industry not found")
+
+        survey_types = SurveyTypeService.list_types(db, industry_id=industry_id)
+        if not survey_types:
+            return {
+                "ok": True,
+                "pushed": 0,
+                "skipped": 0,
+                "error_count": 0,
+                "errors": [],
+                "results": [],
+                "survey_type_count": 0,
+                "message": "No survey types in this industry",
+            }
+
+        total_pushed = 0
+        total_skipped = 0
+        errors: list[dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
+
+        for item in survey_types:
+            type_id = str(item.get("id") or "").strip()
+            type_name = str(item.get("name") or type_id)
+            if not type_id:
+                continue
+            summary = SurveyWhatsappTemplateService.push_all_for_survey_type(db, type_id)
+            total_pushed += int(summary.get("pushed") or 0)
+            total_skipped += int(summary.get("skipped") or 0)
+            for err in summary.get("errors") or []:
+                errors.append({**err, "survey_type_id": type_id, "survey_type_name": type_name})
+            results.append(
+                {
+                    "survey_type_id": type_id,
+                    "survey_type_name": type_name,
+                    "pushed": summary.get("pushed") or 0,
+                    "skipped": summary.get("skipped") or 0,
+                    "error_count": summary.get("error_count") or 0,
+                    "message": summary.get("message"),
+                }
+            )
+
+        return {
+            "ok": len(errors) == 0,
+            "pushed": total_pushed,
+            "skipped": total_skipped,
+            "error_count": len(errors),
+            "errors": errors,
+            "results": results,
+            "survey_type_count": len(survey_types),
+            "message": f"Pushed {total_pushed} template(s) across {len(survey_types)} survey type(s)"
+            + (f", {len(errors)} failed" if errors else "")
+            + (f", {total_skipped} skipped" if total_skipped else ""),
+        }
+
+    @staticmethod
     def _ensure_mapping_for_sync(
         db: Session,
         *,
