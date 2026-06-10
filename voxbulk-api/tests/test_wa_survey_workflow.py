@@ -510,6 +510,72 @@ def test_push_to_telnyx_links_remote_then_patches_with_body_example(monkeypatch)
         assert row.telnyx_record_id == "remote-uuid-1"
 
 
+def test_push_to_telnyx_approved_in_sync_refreshes_only(monkeypatch):
+    from app.services.survey_whatsapp_template_service import _sync_content_hash
+
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+        body_text = "How was your visit?"
+        draft = [{"type": "BODY", "text": body_text}]
+        remote = [
+            {
+                "type": "BODY",
+                "text": body_text,
+                "example": {"body_text": [["Sample"]]},
+            }
+        ]
+        row.telnyx_record_id = "telnyx-approved-1"
+        row.template_id = "777"
+        row.status = "APPROVED"
+        row.draft_components_json = json.dumps(draft)
+        row.components_json = json.dumps(remote)
+        row.remote_content_hash = _sync_content_hash(remote)
+        db.add(row)
+        db.commit()
+
+        patch_called = {"value": False}
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def patch(self, url, headers=None, json=None):
+                patch_called["value"] = True
+                raise AssertionError("PATCH must not run for APPROVED templates")
+
+            def post(self, url, headers=None, json=None):
+                raise AssertionError("POST must not run for APPROVED templates")
+
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.httpx.Client",
+            lambda *a, **k: FakeClient(),
+        )
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id",
+            lambda db, rid: {
+                "id": rid,
+                "template_id": "777",
+                "status": "APPROVED",
+                "components": remote,
+            },
+        )
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",
+            lambda db: {"api_key": "test-key", "whatsapp_waba_id": "waba-123"},
+        )
+
+        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+        assert patch_called["value"] is False
+        assert result["approval_status"] == "APPROVED"
+
+
 def test_sync_content_hash_ignores_meta_only_body_example():
     from app.services.survey_whatsapp_template_service import (
         SYNC_IN_SYNC,

@@ -11,7 +11,9 @@ Usage (local):
 
 VPS:
   cd /www/voxbulk/voxbulk-api && bash scripts/repair_wa_survey_template_drafts.sh
-  cd /www/voxbulk/voxbulk-api && bash scripts/repair_wa_survey_template_drafts.sh --industry-slug employee_survey
+  cd /www/voxbulk/voxbulk-api && bash scripts/repair_wa_survey_template_drafts.sh --industry-slug hospitality_food
+  cd /www/voxbulk/voxbulk-api && .venv/bin/python scripts/repair_wa_survey_template_drafts.py \\
+    --template-name voxbulk_survey_food_quality_hospitality_food_food_quality_rating --reset-from-remote
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from app.services.survey_whatsapp_template_service import (
     _meta_example_is_valid,
     _normalize_draft_components,
     _refresh_local_sync_status,
+    _sync_content_hash,
 )
 
 
@@ -63,16 +66,27 @@ def _iter_templates(db, *, industry_slug: str | None, template_name: str | None)
         industry = db.execute(select(Industry).where(Industry.slug == slug)).scalar_one_or_none()
         if industry is None:
             raise SystemExit(f"Industry not found for slug={slug!r}")
-        type_ids = [
-            row.id
-            for row in db.execute(
+        type_ids = list(
+            db.scalars(
                 select(SurveyType.id).where(SurveyType.industry_id == industry.id)
-            ).scalars()
-        ]
+            )
+        )
         if not type_ids:
             return []
         stmt = stmt.where(TelnyxWhatsappTemplate.survey_type_id.in_(type_ids))
     return list(db.execute(stmt).scalars())
+
+
+def _reset_draft_from_remote(row: TelnyxWhatsappTemplate) -> bool:
+    remote = _loads(row.components_json)
+    if not isinstance(remote, list) or not remote:
+        return False
+    normalized = _normalize_draft_components(remote)
+    row.draft_components_json = _dumps(normalized)
+    row.example_values_json = _dumps(_example_values_for_storage(normalized))
+    row.remote_content_hash = _sync_content_hash(remote)
+    row.local_sync_status = _refresh_local_sync_status(row)
+    return True
 
 
 def main() -> int:
@@ -80,6 +94,11 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Report only — no DB writes")
     parser.add_argument("--industry-slug", default="", help="Limit to one industry slug")
     parser.add_argument("--template-name", default="", help="Limit to one Meta template name")
+    parser.add_argument(
+        "--reset-from-remote",
+        action="store_true",
+        help="Copy Telnyx/Meta-approved components into the local draft (use when push is blocked on APPROVED templates)",
+    )
     args = parser.parse_args()
 
     with get_sessionmaker()() as db:
@@ -90,9 +109,24 @@ def main() -> int:
         )
         scanned = 0
         repaired = 0
+        reset = 0
         invalid_before = 0
 
         for row in rows:
+            label = row.display_name or row.name
+            if args.reset_from_remote:
+                remote = _loads(row.components_json)
+                if not isinstance(remote, list) or not remote:
+                    print(f"skip reset-from-remote {row.name} ({label}) — no remote components stored")
+                    continue
+                reset += 1
+                print(f"{'[dry-run] ' if args.dry_run else ''}reset-from-remote {row.name} ({label})")
+                if args.dry_run:
+                    continue
+                _reset_draft_from_remote(row)
+                db.add(row)
+                continue
+
             draft = _loads(row.draft_components_json)
             if not isinstance(draft, list) or not draft:
                 continue
@@ -105,7 +139,6 @@ def main() -> int:
             if not changed and not had_invalid:
                 continue
             repaired += 1
-            label = row.display_name or row.name
             print(f"{'[dry-run] ' if args.dry_run else ''}repair {row.name} ({label})")
             if args.dry_run:
                 continue
@@ -114,14 +147,20 @@ def main() -> int:
             row.local_sync_status = _refresh_local_sync_status(row)
             db.add(row)
 
-        if not args.dry_run and repaired:
+        if not args.dry_run and (repaired or reset):
             db.commit()
 
-        print(
-            f"\nDone — scanned {scanned} draft(s), "
-            f"invalid BODY example before repair: {invalid_before}, "
-            f"{'would repair' if args.dry_run else 'repaired'}: {repaired}"
-        )
+        if args.reset_from_remote:
+            print(
+                f"\nDone — {'would reset' if args.dry_run else 'reset'} "
+                f"{reset} draft(s) from stored Telnyx/Meta components"
+            )
+        else:
+            print(
+                f"\nDone — scanned {scanned} draft(s), "
+                f"invalid BODY example before repair: {invalid_before}, "
+                f"{'would repair' if args.dry_run else 'repaired'}: {repaired}"
+            )
     return 0
 
 

@@ -1503,6 +1503,26 @@ class SurveyWhatsappTemplateService:
 
         raw_components = _persist_normalized_draft(db, row, raw_components)
 
+        approval = str(row.status or "").upper()
+        if approval == "APPROVED" and not _is_local_row(row):
+            remote_sync_hash = row.remote_content_hash or _sync_content_hash(_loads(row.components_json))
+            draft_sync_hash = _sync_content_hash(raw_components)
+            if remote_sync_hash and draft_sync_hash and remote_sync_hash != draft_sync_hash:
+                raise SurveyWhatsappTemplateError(
+                    "This template is APPROVED on Meta. Local draft content differs from the approved version — "
+                    "either reset the draft from Telnyx (repair_wa_survey_template_drafts.py --reset-from-remote) "
+                    "or clone/rename the template if you need new copy, then Push to Telnyx.",
+                    payload={
+                        "message": (
+                            "This template is APPROVED on Meta. Local draft content differs from the approved version."
+                        ),
+                        "template_name": row.name,
+                        "requires_draft_reset_or_clone": True,
+                        "approval_status": approval,
+                    },
+                )
+            return SurveyWhatsappTemplateService.refresh_telnyx_status(db, row)
+
         components = prepare_components_for_telnyx_push(raw_components, row=row)
         body_comp = _body_component_from_prepared(components)
         if body_comp is not None:
@@ -1535,16 +1555,6 @@ class SurveyWhatsappTemplateService:
                 "Open Admin → Integrations → Telnyx → WhatsApp and set WhatsApp Business Account ID "
                 "(Meta WABA id from Telnyx Portal → Messaging → WhatsApp), or connect a WABA on your Telnyx account."
             )
-
-        approval = str(row.status or "").upper()
-        if approval == "APPROVED" and not _is_local_row(row):
-            remote_sync_hash = row.remote_content_hash or _sync_content_hash(_loads(row.components_json))
-            draft_sync_hash = _sync_content_hash(raw_components)
-            if remote_sync_hash and draft_sync_hash and remote_sync_hash != draft_sync_hash:
-                raise SurveyWhatsappTemplateError(
-                    "This template is APPROVED on Meta. Content changes require a new template submission — "
-                    "clone this template or create a new variant, then Push to Telnyx."
-                )
 
         lang_code, lang_error = normalize_wa_template_language(row.language, db=db)
         if lang_error:
