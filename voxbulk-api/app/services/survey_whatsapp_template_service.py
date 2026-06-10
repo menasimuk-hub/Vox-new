@@ -896,6 +896,40 @@ def _remote_name_candidates_for_row(row: TelnyxWhatsappTemplate) -> list[str]:
     return deduped
 
 
+def fix_survey_template_draft_body_variables(
+    components: list[Any] | None,
+    *,
+    row: TelnyxWhatsappTemplate | None = None,
+) -> list[Any]:
+    """Normalize stored survey draft components.
+
+    - Static BODY (no {{1}} variables): type + text only — no example values.
+    - Variable BODY: keep/rebuild a valid Meta example for each placeholder.
+    """
+    if not isinstance(components, list):
+        return []
+
+    out: list[Any] = []
+    for comp in components:
+        if not isinstance(comp, dict):
+            continue
+        ctype = str(comp.get("type") or "").upper()
+        if ctype == "BODY":
+            text = str(comp.get("text") or "").strip()
+            if not text:
+                continue
+            var_ids = _meta_var_ids_in_text(text)
+            if var_ids:
+                examples = _resolve_example_values([comp], row=row)
+                out.append(build_meta_body_component(text, example_values=examples))
+            else:
+                out.append({"type": "BODY", "text": text})
+        else:
+            out.append(dict(comp))
+
+    return _normalize_draft_components(out)
+
+
 def prepare_components_for_telnyx_push(
     components: list[Any] | None,
     *,

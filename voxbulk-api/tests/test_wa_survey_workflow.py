@@ -295,6 +295,32 @@ def test_sync_updates_existing_not_duplicated(monkeypatch):
         assert count == 1
 
 
+def test_fix_survey_template_draft_body_variables_clears_static_example():
+    from app.services.survey_whatsapp_template_service import fix_survey_template_draft_body_variables
+
+    raw = [
+        {
+            "type": "BODY",
+            "text": "How was your viewing experience?",
+            "example": {"body_text": [["Sample"]]},
+        },
+        {"type": "FOOTER", "text": "Reply STOP to opt out"},
+    ]
+    fixed = fix_survey_template_draft_body_variables(raw)
+    body = next(c for c in fixed if c.get("type") == "BODY")
+    assert "example" not in body
+    assert body["text"] == "How was your viewing experience?"
+
+
+def test_fix_survey_template_draft_body_variables_keeps_variable_examples():
+    from app.services.survey_whatsapp_template_service import fix_survey_template_draft_body_variables
+
+    raw = [{"type": "BODY", "text": "Hi {{1}}, thanks for visiting."}]
+    fixed = fix_survey_template_draft_body_variables(raw)
+    body = next(c for c in fixed if c.get("type") == "BODY")
+    assert body["example"]["body_text"] == [["Alex"]]
+
+
 def test_prepare_components_for_telnyx_push_strips_invalid_body_example():
     from app.services.survey_whatsapp_template_service import prepare_components_for_telnyx_push
 
