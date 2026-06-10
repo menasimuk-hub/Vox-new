@@ -1224,7 +1224,7 @@ export function SurveyLaunchQuoteModal({
           block_reason_code: eligibility.block_reason_code,
           block_reason: eligibility.block_reason,
           package_id: eligibility.package_id,
-          billing: eligibility.billing,
+          billing: eligibility?.billing,
         },
         null,
         2,
@@ -1261,27 +1261,27 @@ export function SurveyLaunchQuoteModal({
                   <p>
                     Package remaining:{" "}
                     <span className="font-medium">
-                      {eligibility.billing.package_remaining_display ||
-                        String(eligibility.billing.package_remaining ?? 0)}
+                      {eligibility?.billing?.package_remaining_display ||
+                        String(eligibility?.billing?.package_remaining ?? 0)}
                     </span>
                   </p>
                   <p>
-                    Est. WA left: <span className="font-medium">{eligibility.billing.estimated_wa_surveys ?? 0}</span>
+                    Est. WA left: <span className="font-medium">{eligibility?.billing?.estimated_wa_surveys ?? 0}</span>
                   </p>
                   <p>
-                    Est. AI min left: <span className="font-medium">{eligibility.billing.estimated_ai_minutes ?? 0}</span>
+                    Est. AI min left: <span className="font-medium">{eligibility?.billing?.estimated_ai_minutes ?? 0}</span>
                   </p>
                 </div>
               ) : typeof eligibility?.billing?.whatsapp_included === "number" ? (
                 <div className="mt-3 grid gap-1 text-xs sm:grid-cols-3">
                   <p>
-                    Included WA: <span className="font-medium">{eligibility.billing.whatsapp_included}</span>
+                    Included WA: <span className="font-medium">{eligibility?.billing?.whatsapp_included}</span>
                   </p>
                   <p>
-                    Used WA: <span className="font-medium">{eligibility.billing.whatsapp_used ?? 0}</span>
+                    Used WA: <span className="font-medium">{eligibility?.billing?.whatsapp_used ?? 0}</span>
                   </p>
                   <p>
-                    Remaining WA: <span className="font-medium">{eligibility.billing.whatsapp_remaining ?? 0}</span>
+                    Remaining WA: <span className="font-medium">{eligibility?.billing?.whatsapp_remaining ?? 0}</span>
                   </p>
                 </div>
               ) : null}
@@ -1359,37 +1359,37 @@ export function SurveyLaunchQuoteModal({
                 {eligibility?.billing?.has_active_subscription ? (
                   <QuoteRow
                     label="Package"
-                    value={`Active${eligibility.billing.plan_name ? ` · ${eligibility.billing.plan_name}` : ""}`}
+                    value={`Active${eligibility?.billing?.plan_name ? ` · ${eligibility?.billing?.plan_name}` : ""}`}
                   />
                 ) : (
                   <QuoteRow label="Package" value="No active subscription package" />
                 )}
                 {typeof eligibility?.billing?.whatsapp_included === "number" ? (
                   <QuoteRow
-                    label={eligibility.billing.shared_package_pool ? "Package allowance" : "Included WA"}
-                    value={`${eligibility.billing.shared_package_pool ? eligibility.billing.package_included ?? eligibility.billing.whatsapp_included : eligibility.billing.whatsapp_included}`}
+                    label={eligibility?.billing?.shared_package_pool ? "Package allowance" : "Included WA"}
+                    value={`${eligibility?.billing?.shared_package_pool ? eligibility?.billing?.package_included ?? eligibility?.billing?.whatsapp_included : eligibility?.billing?.whatsapp_included}`}
                   />
                 ) : null}
                 {typeof eligibility?.billing?.whatsapp_used === "number" ? (
                   <QuoteRow
-                    label={eligibility.billing.shared_package_pool ? "Package used (WA + AI)" : "Used WA"}
-                    value={`${eligibility.billing.shared_package_pool ? eligibility.billing.package_used ?? eligibility.billing.whatsapp_used : eligibility.billing.whatsapp_used}`}
+                    label={eligibility?.billing?.shared_package_pool ? "Package used (WA + AI)" : "Used WA"}
+                    value={`${eligibility?.billing?.shared_package_pool ? eligibility?.billing?.package_used ?? eligibility?.billing?.whatsapp_used : eligibility?.billing?.whatsapp_used}`}
                   />
                 ) : null}
-                {eligibility.billing?.shared_package_pool ? (
-                  typeof eligibility.billing.package_remaining === "number" ? (
-                    <QuoteRow label="Package remaining" value={`${eligibility.billing.package_remaining}`} />
+                {eligibility?.billing?.shared_package_pool ? (
+                  typeof eligibility?.billing?.package_remaining === "number" ? (
+                    <QuoteRow label="Package remaining" value={`${eligibility?.billing?.package_remaining}`} />
                   ) : null
                 ) : typeof eligibility?.billing?.whatsapp_remaining === "number" ? (
-                  <QuoteRow label="Remaining WA" value={`${eligibility.billing.whatsapp_remaining}`} />
+                  <QuoteRow label="Remaining WA" value={`${eligibility?.billing?.whatsapp_remaining}`} />
                 ) : null}
-                {eligibility.billing?.shared_package_pool ? (
+                {eligibility?.billing?.shared_package_pool ? (
                   <>
-                    {typeof eligibility.billing.channel_whatsapp_used === "number" ? (
-                      <QuoteRow label="WA used (breakdown)" value={`${eligibility.billing.channel_whatsapp_used}`} />
+                    {typeof eligibility?.billing?.channel_whatsapp_used === "number" ? (
+                      <QuoteRow label="WA used (breakdown)" value={`${eligibility?.billing?.channel_whatsapp_used}`} />
                     ) : null}
-                    {typeof eligibility.billing.channel_calls_used === "number" ? (
-                      <QuoteRow label="AI minutes used (breakdown)" value={`${eligibility.billing.channel_calls_used}`} />
+                    {typeof eligibility?.billing?.channel_calls_used === "number" ? (
+                      <QuoteRow label="AI minutes used (breakdown)" value={`${eligibility?.billing?.channel_calls_used}`} />
                     ) : null}
                   </>
                 ) : null}
@@ -1412,7 +1412,7 @@ export function SurveyLaunchQuoteModal({
                   <QuoteRow label="Remaining after launch (AI min)" value={`${eligibility.remaining_call_minutes_after_launch}`} />
                 ) : null}
                 {typeof eligibility?.billing?.survey_credits === "number" ? (
-                  <QuoteRow label="Survey promo credits" value={`${eligibility.billing.survey_credits}`} />
+                  <QuoteRow label="Survey promo credits" value={`${eligibility?.billing?.survey_credits}`} />
                 ) : null}
                 {eligibility?.wallet_balance_display ? (
                   <QuoteRow label="Wallet balance" value={eligibility.wallet_balance_display} />

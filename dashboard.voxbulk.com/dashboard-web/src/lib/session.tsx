@@ -117,13 +117,13 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
     const params = readBillingReturnParams();
 
-    if (!params.billing && !params.orderBilling) return;
+    if (!params?.billing && !params?.orderBilling) return;
 
     ran.current = true;
 
 
 
-    if (params.orderBilling === "cancelled") {
+    if (params?.orderBilling === "cancelled") {
 
       clearBillingReturnState("order");
 
@@ -137,7 +137,7 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
 
 
-    if (params.billing === "cancelled") {
+    if (params?.billing === "cancelled") {
 
       clearBillingReturnState("subscription");
 
@@ -151,7 +151,7 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
 
 
-    if (params.billing === "error" || params.orderBilling === "error") {
+    if (params?.billing === "error" || params?.orderBilling === "error") {
 
       clearBillingQuery();
 
@@ -163,7 +163,7 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
 
 
-    if (params.orderBilling === "success") {
+    if (params?.orderBilling === "success") {
 
       const redirectFlowId = resolveRedirectFlowId(params, "order");
       const paidOrderId = params.orderId || (() => {
@@ -268,7 +268,7 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
 
 
-    if (params.billing !== "success") return;
+    if (params?.billing !== "success") return;
 
     const redirectFlowId = resolveRedirectFlowId(params, "subscription");
 
