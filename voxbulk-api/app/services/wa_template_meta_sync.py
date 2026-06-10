@@ -283,10 +283,10 @@ def admin_guidance_for_meta_error(
     if kind == META_ERROR_MISSING_BODY_EXAMPLE:
         return (
             f"Meta rejected template “{template_name}” because the BODY component was sent without a valid "
-            "example. On the VPS, pull the latest API code, restart the service, then run "
-            "voxbulk-api/scripts/diagnose_wa_template_push.sh for this template — the prepared BODY must "
-            'include "example": {"body_text": [["Sample"]]}. If diagnose looks OK but push still fails, '
-            "use Sync to Telnyx (PATCH) instead of creating a duplicate template."
+            "example. If the template is still PENDING Meta review, use Sync to refresh status only — "
+            "PATCH is not supported while pending. After pulling the latest API code and restarting, "
+            "sync again; it should refresh approval status without PATCH. "
+            "For content edits on REJECTED templates, push again after the fix deploys."
         )
     if meta_user_message:
         return str(meta_user_message)

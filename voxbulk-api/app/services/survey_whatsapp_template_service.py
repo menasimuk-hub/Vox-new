@@ -898,6 +898,102 @@ def _patch_remote_template_on_telnyx(
     return _push_success_response(db, row, telnyx_request_mode="patch_template"), None
 
 
+def _raise_patch_push_error(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    components: list[Any],
+    patch_error: str,
+) -> None:
+    row.last_push_error = patch_error
+    row.local_sync_status = SYNC_ERROR
+    row.updated_at = _now()
+    db.add(row)
+    db.commit()
+    error_payload = enrich_template_push_error_payload(
+        message=f"Push to Telnyx failed for “{row.display_name or row.name}”.",
+        template_name=row.name,
+        language=row.language,
+        provider_error=patch_error,
+        status_code=502,
+        telnyx_request_mode="patch_template",
+    )
+    body_comp = _body_component_from_prepared(components)
+    if isinstance(body_comp, dict):
+        error_payload["prepared_body_component"] = body_comp
+    raise SurveyWhatsappTemplateError(
+        str(error_payload.get("admin_guidance") or error_payload.get("message")),
+        payload=error_payload,
+    )
+
+
+def _push_existing_remote_template(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    raw_components: list[Any],
+    components: list[Any],
+    api_key: str,
+    record_id: str | None = None,
+) -> dict[str, Any]:
+    """Refresh or PATCH a template that already exists on Telnyx.
+
+    Telnyx/Meta only accept PATCH updates for APPROVED or REJECTED templates.
+    PENDING templates must use GET refresh to update approval status — PATCH often
+    fails with Meta error 2388043 even when BODY examples are present.
+    """
+    remote_sync_hash = row.remote_content_hash or _sync_content_hash(_loads(row.components_json))
+    draft_sync_hash = _sync_content_hash(raw_components)
+    content_in_sync = bool(
+        remote_sync_hash and draft_sync_hash and remote_sync_hash == draft_sync_hash
+    )
+    remote_status = str(row.status or "").upper()
+
+    if content_in_sync or remote_status == "PENDING":
+        result = SurveyWhatsappTemplateService.refresh_telnyx_status(db, row)
+        if remote_status == "PENDING" and not content_in_sync:
+            db.refresh(row)
+            post_remote_hash = _sync_content_hash(_loads(row.components_json))
+            post_draft_hash = _sync_content_hash(_effective_components(row))
+            if post_remote_hash and post_draft_hash and post_remote_hash != post_draft_hash:
+                raise SurveyWhatsappTemplateError(
+                    "Template is PENDING Meta review and local draft differs from the submitted version. "
+                    "Wait for Meta approval, or run repair_wa_survey_template_drafts.py --reset-from-remote.",
+                    payload={
+                        "message": (
+                            "Template is PENDING Meta review and local draft differs from the submitted version."
+                        ),
+                        "template_name": row.name,
+                        "requires_draft_reset_or_clone": True,
+                        "approval_status": str(row.status or "").upper(),
+                    },
+                )
+        return result
+
+    if remote_status != "REJECTED":
+        raise SurveyWhatsappTemplateError(
+            f"Template is {remote_status or 'UNKNOWN'} on Telnyx/Meta. "
+            "Only REJECTED templates can be edited via PATCH; use Sync to refresh approval status.",
+            payload={
+                "template_name": row.name,
+                "approval_status": remote_status,
+            },
+        )
+
+    patched, patch_error = _patch_remote_template_on_telnyx(
+        db,
+        row,
+        components=components,
+        api_key=api_key,
+        record_id=record_id,
+    )
+    if patched is not None:
+        return patched
+    if patch_error:
+        _raise_patch_push_error(db, row, components=components, patch_error=patch_error)
+    raise SurveyWhatsappTemplateError("Telnyx PATCH failed with no error detail.")
+
+
 def _push_success_response(
     db: Session,
     row: TelnyxWhatsappTemplate,
@@ -1597,36 +1693,14 @@ class SurveyWhatsappTemplateService:
         has_remote_id = bool(record_id) and not record_id.startswith(_LOCAL_ID_PREFIX)
 
         if has_remote_id:
-            patched, patch_error = _patch_remote_template_on_telnyx(
+            return _push_existing_remote_template(
                 db,
                 row,
+                raw_components=raw_components,
                 components=components,
                 api_key=api_key,
                 record_id=record_id,
             )
-            if patched is not None:
-                return patched
-            if patch_error:
-                row.last_push_error = patch_error
-                row.local_sync_status = SYNC_ERROR
-                row.updated_at = _now()
-                db.add(row)
-                db.commit()
-                error_payload = enrich_template_push_error_payload(
-                    message=f"Push to Telnyx failed for “{row.display_name or row.name}”.",
-                    template_name=row.name,
-                    language=row.language,
-                    provider_error=patch_error,
-                    status_code=502,
-                    telnyx_request_mode="patch_template",
-                )
-                body_comp = _body_component_from_prepared(components)
-                if isinstance(body_comp, dict):
-                    error_payload["prepared_body_component"] = body_comp
-                raise SurveyWhatsappTemplateError(
-                    str(error_payload.get("admin_guidance") or error_payload.get("message")),
-                    payload=error_payload,
-                )
 
         payload = {
             "name": str(row.name or "").strip(),
@@ -1660,35 +1734,13 @@ class SurveyWhatsappTemplateService:
             meta = parse_meta_error_from_provider_detail(detail)
             if meta.get("subcode") == META_SUBCODE_CONTENT_ALREADY_EXISTS or meta.get("kind") == "content_already_exists":
                 if _link_existing_remote_template(db, row, language=lang_code):
-                    patched, patch_error = _patch_remote_template_on_telnyx(
+                    return _push_existing_remote_template(
                         db,
                         row,
+                        raw_components=raw_components,
                         components=components,
                         api_key=api_key,
                     )
-                    if patched is not None:
-                        return patched
-                    if patch_error:
-                        row.last_push_error = patch_error
-                        row.local_sync_status = SYNC_ERROR
-                        row.updated_at = _now()
-                        db.add(row)
-                        db.commit()
-                        error_payload = enrich_template_push_error_payload(
-                            message=f"Push to Telnyx failed for “{row.display_name or row.name}”.",
-                            template_name=row.name,
-                            language=row.language,
-                            provider_error=patch_error,
-                            status_code=502,
-                            telnyx_request_mode="patch_template",
-                        )
-                        body_comp = _body_component_from_prepared(components)
-                        if isinstance(body_comp, dict):
-                            error_payload["prepared_body_component"] = body_comp
-                        raise SurveyWhatsappTemplateError(
-                            str(error_payload.get("admin_guidance") or error_payload.get("message")),
-                            payload=error_payload,
-                        ) from e
             row.last_push_error = detail
             row.local_sync_status = SYNC_ERROR
             row.updated_at = _now()
