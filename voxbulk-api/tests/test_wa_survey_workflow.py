@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 from sqlalchemy import func, select
 
@@ -358,7 +359,7 @@ def test_push_to_telnyx_builds_payload(monkeypatch):
         result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
         assert result["ok"] is True
         assert captured["payload"]["waba_id"] == "waba-123"
-        assert captured["payload"]["category"] == "MARKETING"
+        assert captured["payload"]["category"] == "UTILITY"
         assert captured["payload"]["components"]
 
 
@@ -588,6 +589,161 @@ def test_resolve_template_sync_branch_pending_remote_is_status_refresh():
     branch, err = resolve_template_sync_branch(row, [{"type": "BODY", "text": "Hello"}])
     assert branch == SYNC_BRANCH_STATUS_REFRESH
     assert err is None
+
+
+def test_resolve_template_sync_branch_local_draft_with_remote_id_is_status_refresh():
+    from app.services.survey_whatsapp_template_service import (
+        SYNC_BRANCH_STATUS_REFRESH,
+        resolve_template_sync_branch,
+    )
+
+    row = TelnyxWhatsappTemplate(
+        telnyx_record_id="remote-pending-1",
+        template_id="1",
+        name="voxbulk_survey_viewing_experience_abc_54a96f",
+        status="LOCAL_DRAFT",
+        draft_components_json=json.dumps([{"type": "BODY", "text": "How was the viewing?"}]),
+        components_json=json.dumps([{"type": "BODY", "text": "How was the viewing?"}]),
+    )
+    branch, err = resolve_template_sync_branch(row, [{"type": "BODY", "text": "How was the viewing?"}])
+    assert branch == SYNC_BRANCH_STATUS_REFRESH
+    assert err is None
+
+
+def test_push_recovers_from_missing_body_example_when_remote_pending(monkeypatch):
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+        row.name = "voxbulk_survey_viewing_experience_abc_54a96f"
+        row.draft_components_json = json.dumps(
+            [
+                {"type": "BODY", "text": "How was the viewing experience?"},
+                {"type": "FOOTER", "text": "Reply STOP to opt out"},
+            ]
+        )
+        db.add(row)
+        db.commit()
+
+        remote_item = {
+            "id": "remote-uuid-viewing",
+            "template_id": "901",
+            "name": row.name,
+            "language": "en_GB",
+            "status": "PENDING",
+            "category": "UTILITY",
+            "components": [{"type": "BODY", "text": "How was the viewing experience?"}],
+        }
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+            lambda db: [remote_item],
+        )
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id",
+            lambda db, rid: {**remote_item, "id": rid, "status": "APPROVED"},
+        )
+
+        post_calls = {"count": 0}
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, headers=None, json=None):
+                post_calls["count"] += 1
+                raise httpx.HTTPStatusError(
+                    "meta rejected",
+                    request=httpx.Request("POST", url),
+                    response=httpx.Response(
+                        422,
+                        json={
+                            "errors": [
+                                {
+                                    "detail": (
+                                        'meta api error: {"error":{"error_subcode":2388043,'
+                                        '"error_user_msg":"missing example"}}'
+                                    )
+                                }
+                            ]
+                        },
+                    ),
+                )
+
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.httpx.Client",
+            lambda *a, **k: FakeClient(),
+        )
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",
+            lambda db: {"api_key": "test-key", "whatsapp_waba_id": "waba-123"},
+        )
+
+        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+        assert post_calls["count"] == 0
+        assert result["ok"] is True
+        assert result["sync_branch"] == "status_refresh_only"
+        db.refresh(row)
+        assert row.telnyx_record_id == "remote-uuid-viewing"
+
+
+def test_push_all_for_survey_type_reuses_prefetched_remote_list(monkeypatch):
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+        row.name = "voxbulk_survey_bulk_prefetch_test"
+        body = [{"type": "BODY", "text": "Bulk prefetch test"}]
+        row.draft_components_json = json.dumps(body)
+        db.add(row)
+        db.commit()
+
+        fetch_calls = {"count": 0}
+
+        def fake_fetch(db):
+            fetch_calls["count"] += 1
+            return [
+                {
+                    "id": "remote-pending-bulk",
+                    "template_id": "555",
+                    "name": row.name,
+                    "language": "en_GB",
+                    "status": "PENDING",
+                    "components": body,
+                }
+            ]
+
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+            fake_fetch,
+        )
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id",
+            lambda db, rid: {
+                "id": rid,
+                "template_id": "555",
+                "name": row.name,
+                "language": "en_GB",
+                "status": "APPROVED",
+                "components": body,
+            },
+        )
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",
+            lambda db: {"api_key": "test-key", "whatsapp_waba_id": "waba-123"},
+        )
+
+        prefetched = [{"id": "remote-pending-bulk", "name": row.name, "language": "en_GB", "status": "PENDING"}]
+        summary = SurveyWhatsappTemplateService.push_all_for_survey_type(
+            db,
+            survey_type.id,
+            remote_items=prefetched,
+        )
+        assert summary["pushed"] == 1
+        assert fetch_calls["count"] == 0
 
 
 def test_push_to_telnyx_approved_in_sync_refreshes_only(monkeypatch):

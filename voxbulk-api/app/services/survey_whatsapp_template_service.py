@@ -50,6 +50,7 @@ from app.services.telnyx_voice_service import (
 )
 from app.services.wa_template_meta_sync import (
     META_SUBCODE_CONTENT_ALREADY_EXISTS,
+    META_SUBCODE_MISSING_BODY_EXAMPLE,
     default_wa_template_language,
     enrich_template_push_error_payload,
     normalize_wa_template_language,
@@ -715,7 +716,9 @@ def _effective_components(row: TelnyxWhatsappTemplate) -> list[Any]:
 
 
 def _is_local_row(row: TelnyxWhatsappTemplate) -> bool:
-    rid = str(row.telnyx_record_id or "")
+    rid = str(row.telnyx_record_id or "").strip()
+    if rid and not rid.startswith(_LOCAL_ID_PREFIX):
+        return False
     return rid.startswith(_LOCAL_ID_PREFIX) or str(row.status or "").upper() == "LOCAL_DRAFT"
 
 
@@ -757,7 +760,7 @@ def resolve_template_sync_branch(
     if has_remote and in_sync:
         return SYNC_BRANCH_STATUS_REFRESH, None
 
-    if not has_remote or _is_local_row(row):
+    if not has_remote:
         return SYNC_BRANCH_FIRST_PUSH, None
 
     if status in {"", "UNKNOWN"}:
@@ -1076,6 +1079,142 @@ def _link_existing_remote_template(
         },
     )
     return True
+
+
+def _prefetch_remote_templates_for_push(
+    db: Session,
+    *,
+    remote_items: list[dict[str, Any]] | None = None,
+    template_id: str | None = None,
+) -> list[dict[str, Any]]:
+    if remote_items is not None:
+        return remote_items
+    try:
+        return TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+    except Exception as exc:
+        logger.warning(
+            "survey_wa_template_prefetch_remote_failed",
+            extra={"template_id": template_id, "error": str(exc)},
+        )
+        return []
+
+
+def _resolve_push_language(db: Session, row: TelnyxWhatsappTemplate) -> tuple[str, str | None]:
+    lang_code, lang_error = normalize_wa_template_language(row.language, db=db)
+    if lang_error:
+        return "", lang_error
+    resolved = lang_code or default_wa_template_language(db)
+    if resolved != row.language:
+        row.language = resolved
+        db.add(row)
+        db.flush()
+    return resolved, None
+
+
+def _try_link_remote_and_resolve_branch(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    raw_components: list[Any],
+    language: str,
+    remote_items: list[dict[str, Any]],
+) -> tuple[str, str | None, bool]:
+    linked = False
+    if not _has_remote_telnyx_id(row):
+        linked = _link_existing_remote_template(
+            db,
+            row,
+            language=language,
+            remote_items=remote_items,
+        )
+        if linked:
+            db.commit()
+            db.refresh(row)
+    branch, branch_error = resolve_template_sync_branch(row, raw_components)
+    return branch, branch_error, linked
+
+
+def _push_result_for_sync_branch(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    branch: str,
+    branch_error: str | None,
+    raw_components: list[Any],
+) -> dict[str, Any] | None:
+    if branch == SYNC_BRANCH_STATUS_REFRESH:
+        pending_before = str(row.status or "").upper() == "PENDING"
+        result = SurveyWhatsappTemplateService.refresh_telnyx_status(db, row)
+        if pending_before:
+            db.refresh(row)
+            if str(row.status or "").upper() == "PENDING" and not _content_in_sync(row, raw_components):
+                raise SurveyWhatsappTemplateError(
+                    "Template is PENDING Meta review and local draft differs from the submitted version. "
+                    "Wait for Meta approval, or run repair_wa_survey_template_drafts.py --reset-from-remote.",
+                    payload={
+                        "message": (
+                            "Template is PENDING Meta review and local draft differs from the submitted version."
+                        ),
+                        "template_name": row.name,
+                        "requires_draft_reset_or_clone": True,
+                        "approval_status": str(row.status or "").upper(),
+                        "sync_branch": branch,
+                    },
+                )
+        return _attach_sync_branch(result, branch)
+    if branch == SYNC_BRANCH_APPROVED_UPDATE:
+        raise SurveyWhatsappTemplateError(
+            branch_error
+            or "This template is APPROVED on Meta. Local draft content differs from the approved version — "
+            "either reset the draft from Telnyx (repair_wa_survey_template_drafts.py --reset-from-remote) "
+            "or clone/rename the template if you need new copy, then Push to Telnyx.",
+            payload={
+                "message": branch_error
+                or "This template is APPROVED on Meta. Local draft content differs from the approved version.",
+                "template_name": row.name,
+                "requires_draft_reset_or_clone": True,
+                "approval_status": str(row.status or "").upper(),
+                "sync_branch": branch,
+            },
+        )
+    return None
+
+
+def _recover_push_after_provider_conflict(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    raw_components: list[Any],
+    language: str,
+    remote_items: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """When Meta reports duplicate content or missing example on an existing template, link and refresh."""
+    items = _prefetch_remote_templates_for_push(
+        db,
+        remote_items=remote_items,
+        template_id=str(row.id or ""),
+    )
+    if not _link_existing_remote_template(db, row, language=language, remote_items=items):
+        return None
+    db.commit()
+    db.refresh(row)
+    linked_branch, branch_error = resolve_template_sync_branch(row, raw_components)
+    logger.info(
+        "survey_wa_template_sync_branch_after_provider_conflict",
+        extra={
+            "template_id": row.id,
+            "template_name": row.name,
+            "sync_branch": linked_branch,
+            "approval_status": str(row.status or "").upper(),
+        },
+    )
+    return _push_result_for_sync_branch(
+        db,
+        row,
+        branch=linked_branch,
+        branch_error=branch_error,
+        raw_components=raw_components,
+    )
 
 
 def _try_link_existing_remote_template(
@@ -1588,14 +1727,55 @@ class SurveyWhatsappTemplateService:
         return row
 
     @staticmethod
-    def push_to_telnyx(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+    def push_to_telnyx(
+        db: Session,
+        row: TelnyxWhatsappTemplate,
+        *,
+        remote_items: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         raw_components = _effective_components(row)
         if not raw_components:
             raise SurveyWhatsappTemplateError("Template has no components to push")
 
         raw_components = _persist_normalized_draft(db, row, raw_components)
 
-        branch, branch_error = resolve_template_sync_branch(row, raw_components)
+        lang_code, lang_error = _resolve_push_language(db, row)
+        if lang_error:
+            raise SurveyWhatsappTemplateError(
+                lang_error,
+                payload=enrich_template_push_error_payload(
+                    message=lang_error,
+                    template_name=row.name,
+                    language=str(row.language or ""),
+                    provider_error=None,
+                    status_code=422,
+                    telnyx_request_mode="create_or_update_template",
+                ),
+            )
+
+        prefetched = _prefetch_remote_templates_for_push(
+            db,
+            remote_items=remote_items,
+            template_id=str(row.id or ""),
+        )
+        branch, branch_error, linked = _try_link_remote_and_resolve_branch(
+            db,
+            row,
+            raw_components=raw_components,
+            language=lang_code,
+            remote_items=prefetched,
+        )
+        if linked:
+            logger.info(
+                "survey_wa_template_linked_existing_remote_before_branch",
+                extra={
+                    "template_id": row.id,
+                    "template_name": row.name,
+                    "telnyx_record_id": row.telnyx_record_id,
+                    "approval_status": str(row.status or "").upper(),
+                },
+            )
+
         logger.info(
             "survey_wa_template_sync_branch",
             extra={
@@ -1607,21 +1787,6 @@ class SurveyWhatsappTemplateService:
             },
         )
 
-        if branch == SYNC_BRANCH_APPROVED_UPDATE:
-            raise SurveyWhatsappTemplateError(
-                "This template is APPROVED on Meta. Local draft content differs from the approved version — "
-                "either reset the draft from Telnyx (repair_wa_survey_template_drafts.py --reset-from-remote) "
-                "or clone/rename the template if you need new copy, then Push to Telnyx.",
-                payload={
-                    "message": branch_error
-                    or "This template is APPROVED on Meta. Local draft content differs from the approved version.",
-                    "template_name": row.name,
-                    "requires_draft_reset_or_clone": True,
-                    "approval_status": str(row.status or "").upper(),
-                    "sync_branch": branch,
-                },
-            )
-
         if branch == SYNC_BRANCH_UNKNOWN:
             raise SurveyWhatsappTemplateError(
                 branch_error or "Cannot sync template — unknown Telnyx/Meta status.",
@@ -1632,26 +1797,15 @@ class SurveyWhatsappTemplateService:
                 },
             )
 
-        if branch == SYNC_BRANCH_STATUS_REFRESH:
-            pending_before = str(row.status or "").upper() == "PENDING"
-            result = SurveyWhatsappTemplateService.refresh_telnyx_status(db, row)
-            if pending_before:
-                db.refresh(row)
-                if str(row.status or "").upper() == "PENDING" and not _content_in_sync(row, raw_components):
-                    raise SurveyWhatsappTemplateError(
-                        "Template is PENDING Meta review and local draft differs from the submitted version. "
-                        "Wait for Meta approval, or run repair_wa_survey_template_drafts.py --reset-from-remote.",
-                        payload={
-                            "message": (
-                                "Template is PENDING Meta review and local draft differs from the submitted version."
-                            ),
-                            "template_name": row.name,
-                            "requires_draft_reset_or_clone": True,
-                            "approval_status": str(row.status or "").upper(),
-                            "sync_branch": branch,
-                        },
-                    )
-            return _attach_sync_branch(result, branch)
+        refresh_result = _push_result_for_sync_branch(
+            db,
+            row,
+            branch=branch,
+            branch_error=branch_error,
+            raw_components=raw_components,
+        )
+        if refresh_result is not None:
+            return refresh_result
 
         components = prepare_components_for_telnyx_push(raw_components, row=row)
         body_comp = _body_component_from_prepared(components)
@@ -1687,66 +1841,6 @@ class SurveyWhatsappTemplateService:
                 "(Meta WABA id from Telnyx Portal → Messaging → WhatsApp), or connect a WABA on your Telnyx account."
             )
 
-        lang_code, lang_error = normalize_wa_template_language(row.language, db=db)
-        if lang_error:
-            raise SurveyWhatsappTemplateError(
-                lang_error,
-                payload=enrich_template_push_error_payload(
-                    message=lang_error,
-                    template_name=row.name,
-                    language=str(row.language or ""),
-                    provider_error=None,
-                    status_code=422,
-                    telnyx_request_mode="create_or_update_template",
-                ),
-            )
-        if lang_code and lang_code != row.language:
-            row.language = lang_code
-            db.add(row)
-            db.flush()
-
-        lang_code = lang_code or default_wa_template_language(db)
-
-        if _is_local_row(row):
-            try:
-                remote_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
-            except Exception as exc:
-                logger.warning(
-                    "survey_wa_template_prefetch_remote_failed",
-                    extra={"template_id": row.id, "error": str(exc)},
-                )
-                remote_items = []
-            if _link_existing_remote_template(
-                db,
-                row,
-                language=lang_code,
-                remote_items=remote_items,
-            ):
-                branch, branch_error = resolve_template_sync_branch(row, raw_components)
-                logger.info(
-                    "survey_wa_template_sync_branch_after_link",
-                    extra={
-                        "template_id": row.id,
-                        "template_name": row.name,
-                        "sync_branch": branch,
-                        "approval_status": str(row.status or "").upper(),
-                    },
-                )
-                if branch == SYNC_BRANCH_STATUS_REFRESH:
-                    return _attach_sync_branch(
-                        SurveyWhatsappTemplateService.refresh_telnyx_status(db, row),
-                        branch,
-                    )
-                if branch == SYNC_BRANCH_APPROVED_UPDATE:
-                    raise SurveyWhatsappTemplateError(
-                        branch_error or "Approved template content differs from local draft.",
-                        payload={
-                            "template_name": row.name,
-                            "sync_branch": branch,
-                            "requires_draft_reset_or_clone": True,
-                        },
-                    )
-
         payload = {
             "name": str(row.name or "").strip(),
             "category": category,
@@ -1778,22 +1872,23 @@ class SurveyWhatsappTemplateService:
         except httpx.HTTPStatusError as e:
             detail = _telnyx_http_error_detail(e)
             meta = parse_meta_error_from_provider_detail(detail)
-            if meta.get("subcode") == META_SUBCODE_CONTENT_ALREADY_EXISTS or meta.get("kind") == "content_already_exists":
-                if _link_existing_remote_template(db, row, language=lang_code):
-                    linked_branch, _ = resolve_template_sync_branch(row, raw_components)
-                    logger.info(
-                        "survey_wa_template_sync_branch_after_content_exists",
-                        extra={
-                            "template_id": row.id,
-                            "template_name": row.name,
-                            "sync_branch": linked_branch,
-                        },
-                    )
-                    if linked_branch == SYNC_BRANCH_STATUS_REFRESH:
-                        return _attach_sync_branch(
-                            SurveyWhatsappTemplateService.refresh_telnyx_status(db, row),
-                            linked_branch,
-                        )
+            recoverable = {
+                META_SUBCODE_CONTENT_ALREADY_EXISTS,
+                META_SUBCODE_MISSING_BODY_EXAMPLE,
+            }
+            if meta.get("subcode") in recoverable or meta.get("kind") in {
+                "content_already_exists",
+                "missing_body_example",
+            }:
+                recovered = _recover_push_after_provider_conflict(
+                    db,
+                    row,
+                    raw_components=raw_components,
+                    language=lang_code,
+                    remote_items=prefetched,
+                )
+                if recovered is not None:
+                    return recovered
             row.last_push_error = detail
             row.local_sync_status = SYNC_ERROR
             row.updated_at = _now()
@@ -1906,10 +2001,17 @@ class SurveyWhatsappTemplateService:
         }
 
     @staticmethod
-    def push_all_for_survey_type(db: Session, survey_type_id: str) -> dict[str, Any]:
+    def push_all_for_survey_type(
+        db: Session,
+        survey_type_id: str,
+        *,
+        remote_items: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         survey_type = db.get(SurveyType, survey_type_id)
         if survey_type is None:
             raise SurveyWhatsappTemplateError("Survey type not found")
+
+        prefetched = _prefetch_remote_templates_for_push(db, remote_items=remote_items)
 
         results: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
@@ -1937,7 +2039,11 @@ class SurveyWhatsappTemplateService:
             template_id = row.id
             template_name = row.name
             try:
-                result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+                result = SurveyWhatsappTemplateService.push_to_telnyx(
+                    db,
+                    row,
+                    remote_items=prefetched,
+                )
                 pushed += 1
                 results.append(
                     {
@@ -1991,6 +2097,8 @@ class SurveyWhatsappTemplateService:
                 "message": "No survey types in this industry",
             }
 
+        prefetched = _prefetch_remote_templates_for_push(db)
+
         total_pushed = 0
         total_skipped = 0
         errors: list[dict[str, Any]] = []
@@ -2001,7 +2109,11 @@ class SurveyWhatsappTemplateService:
             type_name = str(item.get("name") or type_id)
             if not type_id:
                 continue
-            summary = SurveyWhatsappTemplateService.push_all_for_survey_type(db, type_id)
+            summary = SurveyWhatsappTemplateService.push_all_for_survey_type(
+                db,
+                type_id,
+                remote_items=prefetched,
+            )
             total_pushed += int(summary.get("pushed") or 0)
             total_skipped += int(summary.get("skipped") or 0)
             for err in summary.get("errors") or []:
