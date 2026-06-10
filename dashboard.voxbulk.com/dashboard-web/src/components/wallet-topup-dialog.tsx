@@ -108,9 +108,12 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
     try {
       const intent = await intentM.mutateAsync({ provider: providerId, amount_minor: amountMinor });
       if (providerId === "stripe") {
+        if (!intent.publishable_key || !intent.client_secret || !intent.payment_intent_id) {
+          throw new Error("Stripe is not configured. Ask support to enable Stripe in admin integrations.");
+        }
         await loadScript("https://js.stripe.com/v3");
         if (!window.Stripe) throw new Error("Stripe.js failed to load");
-        const stripe = window.Stripe(String(intent.publishable_key || ""));
+        const stripe = window.Stripe(String(intent.publishable_key));
         const elements = stripe.elements({ clientSecret: intent.client_secret });
         const paymentElement = elements.create("payment");
         if (mountRef.current) {

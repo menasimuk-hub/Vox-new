@@ -111,6 +111,12 @@ export type BillingSubscription = {
     name?: string;
     price_pence?: number;
   } | null;
+  pending_plan?: {
+    id?: string;
+    name?: string;
+  } | null;
+  test_cash_billing_enabled?: boolean;
+  gocardless_checkout_available?: boolean;
   payment_options?: Record<string, unknown>;
 };
 

@@ -109,17 +109,6 @@ export function useBillingWallet() {
   });
 }
 
-export function useWalletTopup() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { amount_pence?: number; tier_id?: string }) =>
-      apiFetch("/billing/wallet/topup", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: queryKeys.billingWallet });
-    },
-  });
-}
-
 export type WalletTopupOptions = {
   ok: boolean;
   currency: string;

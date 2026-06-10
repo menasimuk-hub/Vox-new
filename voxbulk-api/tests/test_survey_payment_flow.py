@@ -11,6 +11,25 @@ from app.models.user import User
 from app.services.platform_catalog_service import PlatformCatalogService
 
 
+def _credit_wallet(org_id: str, amount_minor: int) -> None:
+    from app.core.database import get_sessionmaker
+    from app.models.organisation import Organisation
+    from app.services.wallet_service import WalletService
+
+    with get_sessionmaker()() as db:
+        org = db.get(Organisation, org_id)
+        assert org is not None
+        WalletService.credit(
+            db,
+            org,
+            amount_minor=amount_minor,
+            kind="topup",
+            provider="manual",
+            description="Test wallet seed",
+        )
+        db.commit()
+
+
 def _seed_user(app_client, *, email: str = "survey_pay@example.com", superuser: bool = False):
     with get_sessionmaker()() as db:
         PlatformCatalogService.ensure_defaults(db)
@@ -106,10 +125,8 @@ def test_payg_launch_blocked_until_wallet_topup(app_client):
     launch = app_client.post(f"/service-orders/{order_id}/survey/launch", headers=headers, json={"run_mode": "now"})
     assert launch.status_code in {400, 402}
 
-    # Top up the wallet (dev test-cash path) and relaunch.
-    topup = app_client.post("/billing/wallet/topup", json={"amount_minor": 5000}, headers=headers)
-    assert topup.status_code == 200, topup.text
-    assert int(topup.json()["wallet_balance_pence"]) == 5000
+    # Seed wallet balance for launch test (customer API no longer allows free top-up).
+    _credit_wallet(_org_id, 5000)
 
     refreshed = app_client.get(f"/service-orders/{order_id}/launch-eligibility?refresh=1", headers=headers)
     assert refreshed.status_code == 200, refreshed.text
@@ -154,3 +171,10 @@ def test_wallet_topup_options_lists_currency(app_client):
     assert body["ok"] is True
     assert body["currency"] in {"GBP", "USD", "CAD", "AUD"}
     assert isinstance(body["providers"], list)
+
+
+def test_wallet_legacy_free_topup_endpoint_disabled(app_client):
+    headers, _org_id = _seed_user(app_client, email="survey_topup_legacy_block@example.com")
+    res = app_client.post("/billing/wallet/topup", json={"amount_minor": 5000}, headers=headers)
+    assert res.status_code == 403, res.text
+    assert "disabled" in res.json()["detail"].lower()

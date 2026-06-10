@@ -190,7 +190,8 @@ class Settings(BaseSettings):
 
     @property
     def test_cash_billing_allowed(self) -> bool:
-        return bool(self.enable_test_cash_billing) or str(self.env).lower() in {"dev", "development", "local"}
+        """Explicit opt-in only — never inferred from ENV=development (prevents free wallet top-ups)."""
+        return bool(self.enable_test_cash_billing)
 
 
 @lru_cache(maxsize=1)

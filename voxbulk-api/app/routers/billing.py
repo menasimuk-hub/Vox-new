@@ -12,7 +12,6 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_principal
 from app.models.billing_redirect_flow import BillingRedirectFlow
 from app.models.plan import Plan
-from app.models.pricing import TopupTier
 from app.schemas.dashboard import (
     BillingRedirectCompleteIn,
     BillingRedirectCompleteOut,
@@ -211,47 +210,16 @@ def wallet_topup_confirm(
 
 
 @router.post("/wallet/topup")
-def wallet_topup_test_cash(
-    payload: dict,
-    db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+def wallet_topup_legacy_removed(
+    _payload: dict,
+    _db: Session = Depends(get_db),
+    _principal=Depends(get_current_principal),
 ):
-    """Dev/testing only: credit the wallet without a card payment."""
-    from app.models.organisation import Organisation
-    from app.services.wallet_service import WalletError, WalletService
-
-    settings = get_settings()
-    if not settings.test_cash_billing_allowed:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Use /billing/wallet/topup/intent with Stripe or Airwallex to top up.",
-        )
-    org = db.get(Organisation, principal.org_id)
-    if org is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
-    tier_id = str(payload.get("tier_id") or "").strip() or None
-    if tier_id:
-        tier = db.get(TopupTier, tier_id)
-        if tier is None or not tier.is_active:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid top-up tier")
-        amount = int(tier.credit_gbp_pence or 0) + int(tier.bonus_credit_pence or 0)
-    if amount < WalletService.MIN_TOPUP_MINOR:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Minimum top-up is 5.00")
-    try:
-        WalletService.credit(
-            db,
-            org,
-            amount_minor=amount,
-            kind="topup",
-            provider="manual",
-            description="Test cash top-up (dev)",
-            created_by_user_id=principal.user_id,
-        )
-    except WalletError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    db.refresh(org)
-    return {"ok": True, "credited_pence": amount, **WalletService.wallet_dict(db, org)}
+    """Removed — wallet top-up must go through Stripe/Airwallex card payment."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Free wallet top-up is disabled. Use POST /billing/wallet/topup/intent then complete card payment with Stripe or Airwallex.",
+    )
 
 
 @router.get("/payment-options", response_model=PaymentOptionsOut)
