@@ -125,6 +125,8 @@ function KpiCards({ org }) {
   const callPct = pctUsed(org.calls_used, org.calls_included)
   const waPct = pctUsed(org.wa_used, org.wa_included)
   const smsPct = pctUsed(org.sms_used, org.sms_included)
+  const sharedPool = Boolean(org.shared_package_pool)
+  const pkgPct = org.package_included ? pctUsed(org.package_used, org.package_included) : 0
   const walletLow = Number(org.wallet_pence || 0) < 5000
 
   return (
@@ -141,26 +143,41 @@ function KpiCards({ org }) {
         <div className="occ-kpi-card-value large">{org.plan || '—'}</div>
         <div className="occ-kpi-card-sub">{org.subscription_status || '—'}</div>
       </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">AI calls remaining</div>
-        <div className="occ-kpi-card-value">{fmtN(org.calls_remaining)}</div>
-        <div className="occ-kpi-card-sub">
-          {fmtN(org.calls_used)} of {fmtN(org.calls_included)} used
+      {sharedPool ? (
+        <div className="occ-kpi-card" style={{ borderColor: 'var(--occ-blue-border, #bfdbfe)', background: 'var(--occ-blue-bg, #eff6ff)' }}>
+          <div className="occ-kpi-card-label">Package remaining (WA + AI)</div>
+          <div className="occ-kpi-card-value">{fmtN(org.package_remaining)}</div>
+          <div className="occ-kpi-card-sub">
+            {fmtN(org.package_used)} of {fmtN(org.package_included)} used · WA {fmtN(org.wa_used)} · AI {fmtN(org.calls_used)} min
+          </div>
+          <div className="occ-kpi-card-bar">
+            <div className={`occ-kpi-card-bar-fill ${barClass(pkgPct)}`} style={{ width: `${pkgPct}%` }} />
+          </div>
         </div>
-        <div className="occ-kpi-card-bar">
-          <div className={`occ-kpi-card-bar-fill ${barClass(callPct)}`} style={{ width: `${callPct}%` }} />
-        </div>
-      </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">WhatsApp remaining</div>
-        <div className="occ-kpi-card-value">{fmtN(org.wa_remaining)}</div>
-        <div className="occ-kpi-card-sub">
-          {fmtN(org.wa_used)} of {fmtN(org.wa_included)} used
-        </div>
-        <div className="occ-kpi-card-bar">
-          <div className={`occ-kpi-card-bar-fill ${barClass(waPct)}`} style={{ width: `${waPct}%` }} />
-        </div>
-      </div>
+      ) : (
+        <>
+          <div className="occ-kpi-card">
+            <div className="occ-kpi-card-label">AI calls remaining</div>
+            <div className="occ-kpi-card-value">{fmtN(org.calls_remaining)}</div>
+            <div className="occ-kpi-card-sub">
+              {fmtN(org.calls_used)} of {fmtN(org.calls_included)} used
+            </div>
+            <div className="occ-kpi-card-bar">
+              <div className={`occ-kpi-card-bar-fill ${barClass(callPct)}`} style={{ width: `${callPct}%` }} />
+            </div>
+          </div>
+          <div className="occ-kpi-card">
+            <div className="occ-kpi-card-label">WhatsApp remaining</div>
+            <div className="occ-kpi-card-value">{fmtN(org.wa_remaining)}</div>
+            <div className="occ-kpi-card-sub">
+              {fmtN(org.wa_used)} of {fmtN(org.wa_included)} used
+            </div>
+            <div className="occ-kpi-card-bar">
+              <div className={`occ-kpi-card-bar-fill ${barClass(waPct)}`} style={{ width: `${waPct}%` }} />
+            </div>
+          </div>
+        </>
+      )}
       <div className="occ-kpi-card">
         <div className="occ-kpi-card-label">SMS remaining</div>
         <div className="occ-kpi-card-value">{fmtN(org.sms_remaining)}</div>

@@ -115,7 +115,7 @@ class UsageWalletService:
         breakdown = UsageWalletService._overage_breakdown_pence(row, db, org_id)
         est_overage_pence = int(breakdown.get("total_overage_pence") or 0)
 
-        return {
+        summary = {
             "period_start": row.period_start.isoformat(),
             "period_end": row.period_end.isoformat(),
             "status": row.status,
@@ -159,14 +159,19 @@ class UsageWalletService:
                 pct(x, y) >= 80 for x, y in ((calls_used, calls_included), (wa_used, wa_included), (sms_used, sms_included))
             ),
         }
+        if db is not None and org_id:
+            from app.services.package_entitlement_service import PackageEntitlementService
+
+            ent = PackageEntitlementService.for_usage_row(row, plan_code=row.plan_code)
+            summary = PackageEntitlementService.merge_into_summary(summary, ent)
+            if ent.get("shared_package_pool"):
+                summary["warn_at_80"] = float(ent.get("package_percent") or 0) >= 80
+        return summary
 
     @staticmethod
     def _overage_breakdown_pence(row: OrgUsagePeriod, db: Session | None = None, org_id: str | None = None) -> dict[str, int]:
-        calls_overage = max(0, int(row.calls_used or 0) - int(row.calls_included or 0))
-        call_pence = calls_overage * int(row.overage_per_min_pence or 0)
-        wa_used = int(row.whatsapp_used or 0)
-        wa_included = int(row.whatsapp_included or 0)
-        wa_overage_units = max(0, wa_used - wa_included)
+        from app.services.package_entitlement_service import PackageEntitlementService
+
         wa_extra_pence = 49
         if db is not None and org_id:
             try:
@@ -176,6 +181,31 @@ class UsageWalletService:
                 wa_extra_pence = int(rates.get("wa_survey_extra_pence") or 49)
             except Exception:
                 pass
+
+        if PackageEntitlementService.shared_pool_active(row, row.plan_code):
+            included = PackageEntitlementService.package_included_units(row)
+            calls_used = int(row.calls_used or 0)
+            wa_used = int(row.whatsapp_used or 0)
+            wa_covered = min(wa_used, included)
+            calls_covered = min(calls_used, max(0, included - wa_covered))
+            calls_overage = max(0, calls_used - calls_covered)
+            wa_overage_units = max(0, wa_used - wa_covered)
+            call_pence = calls_overage * int(row.overage_per_min_pence or 0)
+            wa_pence = wa_overage_units * wa_extra_pence
+            return {
+                "call_minutes_overage": calls_overage,
+                "call_overage_pence": call_pence,
+                "wa_recipient_overage": wa_overage_units,
+                "wa_overage_pence": wa_pence,
+                "total_overage_pence": call_pence + wa_pence,
+                "wa_extra_pence": wa_extra_pence,
+            }
+
+        calls_overage = max(0, int(row.calls_used or 0) - int(row.calls_included or 0))
+        call_pence = calls_overage * int(row.overage_per_min_pence or 0)
+        wa_used = int(row.whatsapp_used or 0)
+        wa_included = int(row.whatsapp_included or 0)
+        wa_overage_units = max(0, wa_used - wa_included)
         wa_pence = wa_overage_units * wa_extra_pence
         return {
             "call_minutes_overage": calls_overage,

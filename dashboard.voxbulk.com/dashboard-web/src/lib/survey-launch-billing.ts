@@ -204,6 +204,10 @@ export function isWhatsAppAllowanceExhausted(
 
   const billing = eligibility.billing;
 
+  if (billing?.shared_package_pool) {
+    return Boolean(billing.has_whatsapp_allowance && (billing.package_remaining ?? 0) <= 0);
+  }
+
   return Boolean(billing?.has_whatsapp_allowance && (billing.whatsapp_remaining ?? 0) <= 0);
 
 }

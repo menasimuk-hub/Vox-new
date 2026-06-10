@@ -498,9 +498,21 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
     wallet_pence = int(org.wallet_balance_pence or 0)
     promo = OrgServiceCreditService.balances_dict(org)
 
-    def _meter(key: str, label: str, used: int, included: int, *, unit: str = "") -> dict:
+    def _meter(
+        key: str,
+        label: str,
+        used: int,
+        included: int,
+        *,
+        unit: str = "",
+        informational: bool = False,
+        remaining_override: int | None = None,
+    ) -> dict:
         pct = round((used / included) * 100, 1) if included > 0 else 0.0
-        remaining = max(0, included - used) if included > 0 else None
+        if remaining_override is not None:
+            remaining = remaining_override
+        else:
+            remaining = max(0, included - used) if included > 0 else None
         return {
             "key": key,
             "label": label,
@@ -510,56 +522,109 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
             "percent": pct,
             "unit": unit,
             "unlimited": included <= 0,
+            "informational": informational,
         }
 
     calls = (usage_payload or {}).get("calls") or {}
     whatsapp = (usage_payload or {}).get("whatsapp") or {}
     sms = (usage_payload or {}).get("sms") or {}
     pack = (usage_payload or {}).get("pack_credits") or {}
+    package = (usage_payload or {}).get("package") or {}
+    shared_pool = bool(package.get("shared_package_pool"))
 
-    meters = [
-        _meter("calls", "AI call minutes", int(calls.get("used") or 0), int(calls.get("included") or 0), unit="min"),
-        _meter("whatsapp", "WA survey recipients", int(whatsapp.get("used") or 0), int(whatsapp.get("included") or 0), unit="recipients"),
-        _meter("sms", "SMS messages", int(sms.get("used") or 0), int(sms.get("included") or 0)),
-        _meter("cv_scans", "CV scans (ATS)", cv_used, cv_included),
-        _meter(
-            "pack_credits",
-            "Promo pack credits",
-            int(pack.get("used") or 0),
-            int(pack.get("included") or 0),
-        ),
-        {
-            "key": "wallet",
-            "label": "Wallet balance",
-            "used": wallet_pence,
-            "included": 0,
-            "remaining": wallet_pence,
-            "percent": 0.0,
-            "unit": "gbp",
-            "unlimited": True,
-            "display_gbp": f"£{wallet_pence / 100:.2f}",
-        },
-        {
-            "key": "interview_credits",
-            "label": "Interview promo credits",
-            "used": 0,
-            "included": int(promo.get("interview_credits") or 0),
-            "remaining": int(promo.get("interview_credits") or 0),
-            "percent": 0.0,
-            "unit": "credits",
-            "unlimited": False,
-        },
-        {
-            "key": "survey_credits",
-            "label": "Survey promo credits",
-            "used": 0,
-            "included": int(promo.get("survey_credits") or 0),
-            "remaining": int(promo.get("survey_credits") or 0),
-            "percent": 0.0,
-            "unit": "credits",
-            "unlimited": False,
-        },
-    ]
+    meters: list[dict] = []
+    if shared_pool:
+        meters.append(
+            _meter(
+                "package",
+                "Package allowance (WA + AI)",
+                int(package.get("used") or 0),
+                int(package.get("included") or 0),
+                unit="units",
+            )
+        )
+        meters.append(
+            _meter(
+                "whatsapp",
+                "WA survey recipients (breakdown)",
+                int(whatsapp.get("used") or 0),
+                int(whatsapp.get("included") or 0),
+                unit="recipients",
+                informational=True,
+                remaining_override=int(whatsapp.get("remaining") or 0),
+            )
+        )
+        meters.append(
+            _meter(
+                "calls",
+                "AI call minutes (breakdown)",
+                int(calls.get("used") or 0),
+                int(calls.get("included") or 0),
+                unit="min",
+                informational=True,
+                remaining_override=int(calls.get("remaining") or 0),
+            )
+        )
+    else:
+        meters.extend(
+            [
+                _meter("calls", "AI call minutes", int(calls.get("used") or 0), int(calls.get("included") or 0), unit="min"),
+                _meter(
+                    "whatsapp",
+                    "WA survey recipients",
+                    int(whatsapp.get("used") or 0),
+                    int(whatsapp.get("included") or 0),
+                    unit="recipients",
+                ),
+            ]
+        )
+    meters.extend(
+        [
+            _meter("sms", "SMS messages", int(sms.get("used") or 0), int(sms.get("included") or 0)),
+            _meter("cv_scans", "CV scans (ATS)", cv_used, cv_included),
+            _meter(
+                "pack_credits",
+                "Promo pack credits",
+                int(pack.get("used") or 0),
+                int(pack.get("included") or 0),
+            ),
+        ]
+    )
+    meters.extend(
+        [
+            {
+                "key": "wallet",
+                "label": "Wallet balance",
+                "used": wallet_pence,
+                "included": 0,
+                "remaining": wallet_pence,
+                "percent": 0.0,
+                "unit": "gbp",
+                "unlimited": True,
+                "display_gbp": f"£{wallet_pence / 100:.2f}",
+            },
+            {
+                "key": "interview_credits",
+                "label": "Interview promo credits",
+                "used": 0,
+                "included": int(promo.get("interview_credits") or 0),
+                "remaining": int(promo.get("interview_credits") or 0),
+                "percent": 0.0,
+                "unit": "credits",
+                "unlimited": False,
+            },
+            {
+                "key": "survey_credits",
+                "label": "Survey promo credits",
+                "used": 0,
+                "included": int(promo.get("survey_credits") or 0),
+                "remaining": int(promo.get("survey_credits") or 0),
+                "percent": 0.0,
+                "unit": "credits",
+                "unlimited": False,
+            },
+        ]
+    )
 
     return {
         "ok": True,

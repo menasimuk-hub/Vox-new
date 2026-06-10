@@ -1056,6 +1056,13 @@ export type SurveyLaunchEligibility = {
     survey_credits?: number;
     has_whatsapp_allowance?: boolean;
     whatsapp_used?: number;
+    shared_package_pool?: boolean;
+    package_included?: number;
+    package_used?: number;
+    package_remaining?: number;
+    calls_remaining?: number;
+    channel_whatsapp_used?: number;
+    channel_calls_used?: number;
   };
 };
 

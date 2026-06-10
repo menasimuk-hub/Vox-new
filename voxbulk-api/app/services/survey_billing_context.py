@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
 from app.services.gocardless_service import BillingService
+from app.services.package_entitlement_service import PackageEntitlementService
 from app.services.usage_wallet_service import UsageWalletService
 
 ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trial", "past_due"})
@@ -20,16 +21,26 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
     has_dd_subscription = sub is not None and status in ACTIVE_SUBSCRIPTION_STATUSES
 
     usage = UsageWalletService.get_current(db, org.id)
-    wa_included = int(usage.whatsapp_included or 0) if usage else 0
-    wa_used = int(usage.whatsapp_used or 0) if usage else 0
-    wa_remaining = max(0, wa_included - wa_used) if wa_included > 0 else 0
-    usage_status = str(usage.status or "").strip().lower() if usage else ""
-    has_whatsapp_allowance = usage is not None and wa_included > 0 and usage_status in {"active", "trial"}
+    entitlement = PackageEntitlementService.for_org(db, org, usage)
 
-    calls_included = int(usage.calls_included or 0) if usage else 0
-    calls_used = int(usage.calls_used or 0) if usage else 0
-    calls_remaining = max(0, calls_included - calls_used) if calls_included > 0 else 0
-    has_call_allowance = usage is not None and calls_included > 0 and usage_status in {"active", "trial"}
+    if entitlement.get("shared_package_pool"):
+        wa_included = int(entitlement.get("package_included") or 0)
+        wa_used = int(entitlement.get("package_used") or 0)
+        wa_remaining = int(entitlement.get("package_remaining") or 0)
+        calls_included = wa_included
+        calls_used = wa_used
+        calls_remaining = wa_remaining
+    else:
+        wa_included = int(usage.whatsapp_included or 0) if usage else 0
+        wa_used = int(usage.whatsapp_used or 0) if usage else 0
+        wa_remaining = max(0, wa_included - wa_used) if wa_included > 0 else 0
+        calls_included = int(usage.calls_included or 0) if usage else 0
+        calls_used = int(usage.calls_used or 0) if usage else 0
+        calls_remaining = max(0, calls_included - calls_used) if calls_included > 0 else 0
+
+    usage_status = str(usage.status or "").strip().lower() if usage else ""
+    has_whatsapp_allowance = usage is not None and (wa_included > 0 or int(usage.whatsapp_included or 0) > 0) and usage_status in {"active", "trial"}
+    has_call_allowance = usage is not None and (calls_included > 0 or int(usage.calls_included or 0) > 0) and usage_status in {"active", "trial"}
 
     survey_credits = int(org.survey_credits_balance or 0)
     plan_code = str(plan.code or "").strip().lower() if plan else None
@@ -57,4 +68,10 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
         "has_call_allowance": has_call_allowance,
         "survey_credits": survey_credits,
         "payg_allowed": True,
+        "shared_package_pool": bool(entitlement.get("shared_package_pool")),
+        "package_included": int(entitlement.get("package_included") or 0),
+        "package_used": int(entitlement.get("package_used") or 0),
+        "package_remaining": int(entitlement.get("package_remaining") or 0),
+        "channel_calls_used": int(entitlement.get("calls_used") or calls_used),
+        "channel_whatsapp_used": int(entitlement.get("whatsapp_used") or wa_used),
     }

@@ -29,6 +29,7 @@ type UsageMeter = {
   unit?: string;
   unlimited?: boolean;
   display_gbp?: string;
+  informational?: boolean;
 };
 
 function moneyFromPence(pence?: number) {
@@ -49,13 +50,19 @@ function fmtPeriod(start?: string | null, end?: string | null) {
 function meterDisplay(m: UsageMeter) {
   if (m.key === "wallet") return m.display_gbp || moneyFromPence(m.remaining ?? m.used);
   if (m.unit === "credits") return String(m.remaining ?? m.included ?? 0);
+  if (m.key === "package") {
+    const left = m.remaining ?? Math.max(0, (m.included ?? 0) - (m.used ?? 0));
+    return `${left} remaining`;
+  }
+  if (m.informational) return `${m.used ?? 0} used this period`;
   if (m.unlimited || (m.included ?? 0) <= 0) return `${m.used ?? 0} used`;
   return `${m.used ?? 0} / ${m.included ?? 0}`;
 }
 
 function meterSub(m: UsageMeter) {
   if (m.key === "wallet") return "Pay-as-you-go balance";
-  if (m.key === "whatsapp") return "Interview WhatsApp: included · extra survey recipients invoiced at plan rate";
+  if (m.key === "package") return `${m.used ?? 0} of ${m.included ?? 0} package units used (WA + AI)`;
+  if (m.informational) return "Channel breakdown — allowance follows shared package above";
   if (m.unit === "credits") return "Promo credits remaining";
   if (m.unlimited || (m.included ?? 0) <= 0) return "No plan allowance";
   const left = m.remaining ?? Math.max(0, (m.included ?? 0) - (m.used ?? 0));
@@ -111,6 +118,8 @@ function BillingPage() {
 
   const inv = useTableSort(invoiceRows, "date", "desc");
   const usageMeters = meters.filter((m) => !["wallet", "interview_credits", "survey_credits"].includes(m.key));
+  const packageMeter = usageMeters.find((m) => m.key === "package");
+  const channelMeters = usageMeters.filter((m) => m.key !== "package");
   const balanceMeters = meters.filter((m) => ["wallet", "interview_credits", "survey_credits"].includes(m.key));
 
   return (
@@ -221,21 +230,37 @@ function BillingPage() {
             No usage meters yet for this billing period. If you recently subscribed, refresh in a moment or contact support.
           </p>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {usageMeters.map((m) => (
-              <Card key={m.key}>
+          <div className="space-y-4">
+            {packageMeter ? (
+              <Card className="border-primary/30">
                 <CardContent className="space-y-3 p-4">
                   <div>
-                    <p className="text-xs text-muted-foreground">{m.label}</p>
-                    <p className="text-xl font-semibold tabular-nums">{meterDisplay(m)}</p>
-                    <p className="text-[11px] text-muted-foreground">{meterSub(m)}</p>
+                    <p className="text-xs text-muted-foreground">{packageMeter.label}</p>
+                    <p className="text-2xl font-semibold tabular-nums">{meterDisplay(packageMeter)}</p>
+                    <p className="text-[11px] text-muted-foreground">{meterSub(packageMeter)}</p>
                   </div>
-                  {!m.unlimited && (m.included ?? 0) > 0 ? (
-                    <Progress value={Math.min(100, m.percent ?? 0)} className="h-2" />
+                  {!packageMeter.unlimited && (packageMeter.included ?? 0) > 0 ? (
+                    <Progress value={Math.min(100, packageMeter.percent ?? 0)} className="h-2" />
                   ) : null}
                 </CardContent>
               </Card>
-            ))}
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {channelMeters.map((m) => (
+                <Card key={m.key} className={m.informational ? "opacity-90" : undefined}>
+                  <CardContent className="space-y-3 p-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground">{m.label}</p>
+                      <p className="text-xl font-semibold tabular-nums">{meterDisplay(m)}</p>
+                      <p className="text-[11px] text-muted-foreground">{meterSub(m)}</p>
+                    </div>
+                    {!m.informational && !m.unlimited && (m.included ?? 0) > 0 ? (
+                      <Progress value={Math.min(100, m.percent ?? 0)} className="h-2" />
+                    ) : null}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         )}
       </section>

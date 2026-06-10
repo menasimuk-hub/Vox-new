@@ -280,6 +280,18 @@ class SurveyLaunchEligibilityService:
         included = int(billing.get("whatsapp_included") or 0)
 
         if method == "allowance":
+            pkg_remaining = int(billing.get("package_remaining") or wa_remaining)
+            summary_text = (
+                f"Shared package allowance: {int(billing.get('package_included') or included)} units. "
+                f"This launch uses {recipient_count} recipient{'s' if recipient_count != 1 else ''} "
+                f"({max(0, pkg_remaining - covered)} package units remaining after launch)."
+                if billing.get("shared_package_pool")
+                else (
+                    f"Plan includes: {included} WA survey recipients/month. "
+                    f"This launch uses {recipient_count} recipient{'s' if recipient_count != 1 else ''} "
+                    f"({max(0, wa_remaining - covered)} remaining after launch)."
+                )
+            )
             base.update(
                 {
                     "can_launch": True,
@@ -287,11 +299,7 @@ class SurveyLaunchEligibilityService:
                     "mode": "subscription_whatsapp" if can_invoice else "included",
                     "launch_action": "launch",
                     "amount_due_display": money_display(0, currency),
-                    "summary": (
-                        f"Plan includes: {included} WA survey recipients/month. "
-                        f"This launch uses {recipient_count} recipient{'s' if recipient_count != 1 else ''} "
-                        f"({max(0, wa_remaining - covered)} remaining after launch)."
-                    ),
+                    "summary": summary_text,
                 }
             )
         elif method == "direct_debit":
