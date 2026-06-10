@@ -11,6 +11,8 @@ import {
   resolveSyncStatus,
   telnyxSyncPillClass,
   templateNeedsResync,
+  templateSyncButtonLabel,
+  templateSyncIsStatusRefreshOnly,
   validateCategoryBeforeSync,
 } from '../lib/waSurveyTelnyxSync'
 import { VAR_LABELS, ensureExampleValues, substituteTemplateVars, varIndexesFromText } from '../lib/waSurveyTemplateVars'
@@ -217,6 +219,8 @@ export default function WaSurveyTemplateModal({
   const lastSynced = formatLastSyncedAt(template?.last_synced_at || template?.last_pushed_at)
   const needsResync = templateNeedsResync(template) || isDirty
   const canRefreshStatus = template && !template.is_local_only
+  const syncStatusRefreshOnly = templateSyncIsStatusRefreshOnly(template)
+  const syncButtonLabel = templateSyncButtonLabel(template, { isDirty, syncing })
 
   const patchDraft = (updater) => {
     setIsDirty(true)
@@ -495,11 +499,21 @@ export default function WaSurveyTemplateModal({
       showError({ message: categoryError }, categoryError)
       return
     }
+    if (syncStatusRefreshOnly && isDirty) {
+      showError(
+        {
+          message:
+            'This template is waiting on Meta review. Save your draft locally, or reset from Telnyx — content cannot be uploaded while status is pending.',
+        },
+        'Cannot upload content while pending Meta review',
+      )
+      return
+    }
     setWorking('push')
     setSyncing(true)
     clearFeedback()
     try {
-      if (isDirty) {
+      if (isDirty && !syncStatusRefreshOnly) {
         let components = draft.components?.length ? [...draft.components] : []
         components = updateBodyInComponents(components, draft.body, draft.example_values)
         components = updateFooterInComponents(components, draft.footer)
@@ -523,7 +537,12 @@ export default function WaSurveyTemplateModal({
       const syncMessage = data.sync_message || data.message || TELNYX_SYNC_LABELS.SYNCED
       if (data.template) applyTemplateDraft(setDraft, data.template)
       setIsDirty(false)
-      showToast(syncMessage)
+      const mode = data.sync_branch || data.telnyx_request_mode
+      if (mode === 'status_refresh_only') {
+        showToast(`${syncMessage} (status refresh only)`)
+      } else {
+        showToast(syncMessage)
+      }
       onSaved?.()
     } catch (e) {
       showError(e, TELNYX_SYNC_LABELS.FAILED)
@@ -632,9 +651,14 @@ export default function WaSurveyTemplateModal({
               className={`waTplEd-tb-btn sync-btn${syncing ? ' syncing' : ''}`}
               onClick={pushTemplate}
               disabled={working === 'push' || syncing}
+              title={
+                syncStatusRefreshOnly
+                  ? 'Fetch latest approval status from Telnyx/Meta — no content upload'
+                  : 'Upload template content to Telnyx/Meta'
+              }
             >
-              <i className="ti ti-cloud-upload" />
-              {syncing ? 'Syncing…' : 'Sync this to Telnyx'}
+              <i className={syncStatusRefreshOnly ? 'ti ti-refresh' : 'ti ti-cloud-upload'} />
+              {syncButtonLabel}
             </button>
             <div className="waTplEd-divider" />
             <button
@@ -680,6 +704,13 @@ export default function WaSurveyTemplateModal({
                 {working === 'save' ? 'Saving…' : `Use language ${syncFix.suggestedLanguage}`}
               </button>
             ) : null}
+          </div>
+        ) : null}
+
+        {!loading && draft && syncStatusRefreshOnly ? (
+          <div className="waTplEd-alert" style={{ margin: '0 1.25rem 0.75rem' }}>
+            Meta is reviewing this template. <strong>Refresh status</strong> checks Telnyx for approval updates —
+            it does not send content changes.
           </div>
         ) : null}
 

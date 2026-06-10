@@ -494,11 +494,13 @@ def test_push_to_telnyx_links_remote_then_refreshes_when_pending(monkeypatch):
         assert result["ok"] is True
         assert patch_called["value"] is False
         assert result["approval_status"] == "APPROVED"
+        assert result["sync_branch"] == "status_refresh_only"
+        assert result["telnyx_request_mode"] == "status_refresh_only"
         db.refresh(row)
         assert row.telnyx_record_id == "remote-uuid-1"
 
 
-def test_push_to_telnyx_rejected_existing_remote_patches_with_body_example(monkeypatch):
+def test_push_to_telnyx_rejected_existing_remote_resubmits_via_post(monkeypatch):
     from app.services.survey_whatsapp_template_service import _loads, _sync_content_hash
 
     with get_sessionmaker()() as db:
@@ -531,7 +533,7 @@ def test_push_to_telnyx_rejected_existing_remote_patches_with_body_example(monke
                         "id": "remote-rejected-1",
                         "template_id": "888",
                         "status": "PENDING",
-                        "components": captured["patch_payload"]["components"],
+                        "components": captured["post_payload"]["components"],
                     }
                 }
 
@@ -546,11 +548,11 @@ def test_push_to_telnyx_rejected_existing_remote_patches_with_body_example(monke
                 return False
 
             def patch(self, url, headers=None, json=None):
-                captured["patch_payload"] = json
-                return FakeResponse()
+                raise AssertionError("PATCH must not run for rejected recovery — use POST")
 
             def post(self, url, headers=None, json=None):
-                raise AssertionError("POST must not run when REJECTED template is PATCHed")
+                captured["post_payload"] = json
+                return FakeResponse()
 
         monkeypatch.setattr(
             "app.services.survey_whatsapp_template_service.httpx.Client",
@@ -563,9 +565,29 @@ def test_push_to_telnyx_rejected_existing_remote_patches_with_body_example(monke
 
         result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
         assert result["ok"] is True
-        assert result["telnyx_request_mode"] == "patch_template"
-        body = captured["patch_payload"]["components"][0]
+        assert result["sync_branch"] == "rejected_recovery"
+        assert result["telnyx_request_mode"] == "create_or_update_template"
+        body = captured["post_payload"]["components"][0]
         assert body["example"]["body_text"] == [["Sample"]]
+
+
+def test_resolve_template_sync_branch_pending_remote_is_status_refresh():
+    from app.services.survey_whatsapp_template_service import (
+        SYNC_BRANCH_STATUS_REFRESH,
+        resolve_template_sync_branch,
+    )
+
+    row = TelnyxWhatsappTemplate(
+        telnyx_record_id="remote-1",
+        template_id="1",
+        name="voxbulk_survey_test",
+        status="PENDING",
+        draft_components_json=json.dumps([{"type": "BODY", "text": "Hello"}]),
+        components_json=json.dumps([{"type": "BODY", "text": "Hello"}]),
+    )
+    branch, err = resolve_template_sync_branch(row, [{"type": "BODY", "text": "Hello"}])
+    assert branch == SYNC_BRANCH_STATUS_REFRESH
+    assert err is None
 
 
 def test_push_to_telnyx_approved_in_sync_refreshes_only(monkeypatch):
@@ -632,6 +654,8 @@ def test_push_to_telnyx_approved_in_sync_refreshes_only(monkeypatch):
         result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
         assert patch_called["value"] is False
         assert result["approval_status"] == "APPROVED"
+        assert result["sync_branch"] == "status_refresh_only"
+        assert result["telnyx_request_mode"] == "status_refresh_only"
 
 
 def test_sync_content_hash_ignores_meta_only_body_example():

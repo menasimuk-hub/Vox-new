@@ -62,6 +62,25 @@ export function templateNeedsResync(template) {
   ].includes(label)
 }
 
+/** True when Sync should only refresh Telnyx/Meta approval status (no content upload). */
+export function templateSyncIsStatusRefreshOnly(template) {
+  const status = String(template?.approval_status || template?.status || '').toUpperCase()
+  const remoteId = String(template?.telnyx_template_id || template?.telnyx_record_id || '').trim()
+  const hasRemote = remoteId && !remoteId.startsWith('local-')
+  if (!hasRemote) return false
+  if (status === 'PENDING') return true
+  if (status === 'APPROVED' && !templateNeedsResync(template)) return true
+  if (status === 'REJECTED' && !templateNeedsResync(template)) return true
+  return false
+}
+
+export function templateSyncButtonLabel(template, { isDirty = false, syncing = false } = {}) {
+  if (syncing) return 'Syncing…'
+  if (templateSyncIsStatusRefreshOnly(template)) return 'Refresh status'
+  if (isDirty) return 'Save & sync to Telnyx'
+  return 'Sync this to Telnyx'
+}
+
 export function telnyxSyncPillClass(label) {
   switch (label) {
     case TELNYX_SYNC_LABELS.APPROVED:
