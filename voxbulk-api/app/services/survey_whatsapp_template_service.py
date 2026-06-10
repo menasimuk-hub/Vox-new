@@ -857,10 +857,10 @@ def _patch_remote_template_on_telnyx(
     components: list[Any],
     api_key: str,
     record_id: str | None = None,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, str | None]:
     rid = str(record_id or row.telnyx_record_id or "").strip()
     if not rid or rid.startswith(_LOCAL_ID_PREFIX):
-        return None
+        return None, None
     try:
         with httpx.Client(timeout=45.0, verify=httpx_ssl_verify()) as client:
             response = client.patch(
@@ -871,6 +871,7 @@ def _patch_remote_template_on_telnyx(
             response.raise_for_status()
             body = response.json()
     except httpx.HTTPStatusError as exc:
+        detail = _telnyx_http_error_detail(exc)
         logger.warning(
             "survey_wa_template_patch_failed",
             extra={
@@ -878,22 +879,23 @@ def _patch_remote_template_on_telnyx(
                 "template_name": row.name,
                 "telnyx_record_id": rid,
                 "status_code": exc.response.status_code if exc.response is not None else None,
-                "error": _telnyx_http_error_detail(exc),
+                "error": detail,
             },
         )
-        return None
+        return None, detail
     except Exception as exc:
+        detail = str(exc)
         logger.warning(
             "survey_wa_template_patch_failed",
-            extra={"template_id": row.id, "template_name": row.name, "telnyx_record_id": rid, "error": str(exc)},
+            extra={"template_id": row.id, "template_name": row.name, "telnyx_record_id": rid, "error": detail},
         )
-        return None
+        return None, detail
 
     item = body.get("data") if isinstance(body, dict) else None
     if not isinstance(item, dict):
-        return None
+        return None, "Telnyx returned an unexpected PATCH response"
     _apply_remote_telnyx_item(row, item, overwrite_draft=False)
-    return _push_success_response(db, row, telnyx_request_mode="patch_template")
+    return _push_success_response(db, row, telnyx_request_mode="patch_template"), None
 
 
 def _push_success_response(
@@ -930,14 +932,14 @@ def _push_success_response(
     }
 
 
-def _try_link_existing_remote_template(
+def _link_existing_remote_template(
     db: Session,
     row: TelnyxWhatsappTemplate,
     *,
     language: str,
     remote_items: list[dict[str, Any]] | None = None,
-) -> dict[str, Any] | None:
-    """Link a local/unlinked row to an already-existing Telnyx/Meta template."""
+) -> bool:
+    """Attach a local/unlinked row to an already-existing Telnyx/Meta template record."""
     remote_item = TelnyxWhatsappTemplateSyncService.find_remote_template(
         db,
         names=_remote_name_candidates_for_row(row),
@@ -959,7 +961,7 @@ def _try_link_existing_remote_template(
             if remote_item is not None:
                 break
     if remote_item is None:
-        return None
+        return False
 
     _apply_remote_telnyx_item(row, remote_item, overwrite_draft=True)
     remote_lang = str(remote_item.get("language") or "").strip()
@@ -969,6 +971,9 @@ def _try_link_existing_remote_template(
         from app.services.sales_whatsapp_telnyx_service import template_key_for_telnyx_name
 
         row.sales_template_key = template_key_for_telnyx_name(str(remote_item.get("name") or row.name))
+    row.updated_at = _now()
+    db.add(row)
+    db.flush()
     logger.info(
         "survey_wa_template_linked_existing_remote",
         extra={
@@ -978,6 +983,24 @@ def _try_link_existing_remote_template(
             "status": row.status,
         },
     )
+    return True
+
+
+def _try_link_existing_remote_template(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    language: str,
+    remote_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Link a local/unlinked row to an already-existing Telnyx/Meta template."""
+    if not _link_existing_remote_template(
+        db,
+        row,
+        language=language,
+        remote_items=remote_items,
+    ):
+        return None
     return _push_success_response(db, row, telnyx_request_mode="link_existing_remote_template", linked=True)
 
 
@@ -1543,8 +1566,8 @@ class SurveyWhatsappTemplateService:
 
         lang_code = lang_code or default_wa_template_language(db)
 
+        remote_items: list[dict[str, Any]] | None = None
         if _is_local_row(row):
-            remote_items: list[dict[str, Any]] | None
             try:
                 remote_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
             except Exception as exc:
@@ -1553,20 +1576,18 @@ class SurveyWhatsappTemplateService:
                     extra={"template_id": row.id, "error": str(exc)},
                 )
                 remote_items = []
-            linked = _try_link_existing_remote_template(
+            _link_existing_remote_template(
                 db,
                 row,
                 language=lang_code,
                 remote_items=remote_items,
             )
-            if linked is not None:
-                return linked
 
         record_id = str(row.telnyx_record_id or "").strip()
         has_remote_id = bool(record_id) and not record_id.startswith(_LOCAL_ID_PREFIX)
 
         if has_remote_id:
-            patched = _patch_remote_template_on_telnyx(
+            patched, patch_error = _patch_remote_template_on_telnyx(
                 db,
                 row,
                 components=components,
@@ -1575,6 +1596,27 @@ class SurveyWhatsappTemplateService:
             )
             if patched is not None:
                 return patched
+            if patch_error:
+                row.last_push_error = patch_error
+                row.local_sync_status = SYNC_ERROR
+                row.updated_at = _now()
+                db.add(row)
+                db.commit()
+                error_payload = enrich_template_push_error_payload(
+                    message=f"Push to Telnyx failed for “{row.display_name or row.name}”.",
+                    template_name=row.name,
+                    language=row.language,
+                    provider_error=patch_error,
+                    status_code=502,
+                    telnyx_request_mode="patch_template",
+                )
+                body_comp = _body_component_from_prepared(components)
+                if isinstance(body_comp, dict):
+                    error_payload["prepared_body_component"] = body_comp
+                raise SurveyWhatsappTemplateError(
+                    str(error_payload.get("admin_guidance") or error_payload.get("message")),
+                    payload=error_payload,
+                )
 
         payload = {
             "name": str(row.name or "").strip(),
@@ -1607,9 +1649,8 @@ class SurveyWhatsappTemplateService:
             detail = _telnyx_http_error_detail(e)
             meta = parse_meta_error_from_provider_detail(detail)
             if meta.get("subcode") == META_SUBCODE_CONTENT_ALREADY_EXISTS or meta.get("kind") == "content_already_exists":
-                linked = _try_link_existing_remote_template(db, row, language=lang_code)
-                if linked is not None:
-                    patched = _patch_remote_template_on_telnyx(
+                if _link_existing_remote_template(db, row, language=lang_code):
+                    patched, patch_error = _patch_remote_template_on_telnyx(
                         db,
                         row,
                         components=components,
@@ -1617,7 +1658,27 @@ class SurveyWhatsappTemplateService:
                     )
                     if patched is not None:
                         return patched
-                    return linked
+                    if patch_error:
+                        row.last_push_error = patch_error
+                        row.local_sync_status = SYNC_ERROR
+                        row.updated_at = _now()
+                        db.add(row)
+                        db.commit()
+                        error_payload = enrich_template_push_error_payload(
+                            message=f"Push to Telnyx failed for “{row.display_name or row.name}”.",
+                            template_name=row.name,
+                            language=row.language,
+                            provider_error=patch_error,
+                            status_code=502,
+                            telnyx_request_mode="patch_template",
+                        )
+                        body_comp = _body_component_from_prepared(components)
+                        if isinstance(body_comp, dict):
+                            error_payload["prepared_body_component"] = body_comp
+                        raise SurveyWhatsappTemplateError(
+                            str(error_payload.get("admin_guidance") or error_payload.get("message")),
+                            payload=error_payload,
+                        ) from e
             row.last_push_error = detail
             row.local_sync_status = SYNC_ERROR
             row.updated_at = _now()

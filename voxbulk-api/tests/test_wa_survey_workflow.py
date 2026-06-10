@@ -430,6 +430,86 @@ def test_push_to_telnyx_injects_body_example_when_missing(monkeypatch):
         assert body["example"]["body_text"] == [["Sample"]]
 
 
+def test_push_to_telnyx_links_remote_then_patches_with_body_example(monkeypatch):
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+        row.name = "voxbulk_survey_food_quality_hospitality_food_food_quality_rating"
+        row.draft_components_json = json.dumps(
+            [
+                {"type": "BODY", "text": "How was the food quality on your visit?"},
+                {"type": "FOOTER", "text": "Reply STOP to opt out"},
+            ]
+        )
+        db.add(row)
+        db.commit()
+
+        remote_item = {
+            "id": "remote-uuid-1",
+            "template_id": "888",
+            "name": row.name,
+            "language": "en_GB",
+            "status": "PENDING",
+            "category": "MARKETING",
+            "components": [{"type": "BODY", "text": "How was the food quality on your visit?"}],
+        }
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+            lambda db: [remote_item],
+        )
+
+        captured: dict[str, Any] = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                patched = captured.get("patch_payload") or {}
+                return {
+                    "data": {
+                        **remote_item,
+                        "components": patched.get("components") or remote_item["components"],
+                    }
+                }
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def patch(self, url, headers=None, json=None):
+                captured["patch_payload"] = json
+                return FakeResponse()
+
+            def post(self, url, headers=None, json=None):
+                captured["post_payload"] = json
+                raise AssertionError("POST should not run when remote template was linked and PATCH succeeded")
+
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.httpx.Client",
+            lambda *a, **k: FakeClient(),
+        )
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",
+            lambda db: {"api_key": "test-key", "whatsapp_waba_id": "waba-123"},
+        )
+
+        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+        assert result["ok"] is True
+        assert result["telnyx_request_mode"] == "patch_template"
+        assert "post_payload" not in captured
+        body = captured["patch_payload"]["components"][0]
+        assert body["example"]["body_text"] == [["Sample"]]
+        db.refresh(row)
+        assert row.telnyx_record_id == "remote-uuid-1"
+
+
 def test_sync_content_hash_ignores_meta_only_body_example():
     from app.services.survey_whatsapp_template_service import (
         SYNC_IN_SYNC,

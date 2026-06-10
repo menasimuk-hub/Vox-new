@@ -104,10 +104,12 @@ _META_TEMPLATE_LANGUAGES = frozenset(
 META_ERROR_LANGUAGE_DELETION_LOCK = "language_deletion_lock"
 META_ERROR_LANGUAGE_UNSUPPORTED = "language_not_supported"
 META_ERROR_CONTENT_ALREADY_EXISTS = "content_already_exists"
+META_ERROR_MISSING_BODY_EXAMPLE = "missing_body_example"
 
 META_SUBCODE_LANGUAGE_DELETION_LOCK = 2388023
 META_SUBCODE_LANGUAGE_UNSUPPORTED = 2388049
 META_SUBCODE_CONTENT_ALREADY_EXISTS = 2388024
+META_SUBCODE_MISSING_BODY_EXAMPLE = 2388043
 
 
 def default_wa_template_language(db: Session | None = None) -> str:
@@ -235,6 +237,10 @@ def parse_meta_error_from_provider_detail(detail: str | None) -> dict[str, Any]:
         out["kind"] = META_ERROR_LANGUAGE_UNSUPPORTED
     elif subcode == META_SUBCODE_CONTENT_ALREADY_EXISTS:
         out["kind"] = META_ERROR_CONTENT_ALREADY_EXISTS
+    elif subcode == META_SUBCODE_MISSING_BODY_EXAMPLE:
+        out["kind"] = META_ERROR_MISSING_BODY_EXAMPLE
+    elif "missing expected field(s) (example)" in text.lower():
+        out["kind"] = META_ERROR_MISSING_BODY_EXAMPLE
     elif "language is being deleted" in text.lower():
         out["kind"] = META_ERROR_LANGUAGE_DELETION_LOCK
     elif "language is not supported" in text.lower():
@@ -273,6 +279,14 @@ def admin_guidance_for_meta_error(
             f"Template “{template_name}” already exists on Telnyx/Meta for this language. "
             "The system should link to the existing remote template instead of creating a duplicate — "
             "try Sync again or use Sync from Telnyx to refresh approval status."
+        )
+    if kind == META_ERROR_MISSING_BODY_EXAMPLE:
+        return (
+            f"Meta rejected template “{template_name}” because the BODY component was sent without a valid "
+            "example. On the VPS, pull the latest API code, restart the service, then run "
+            "voxbulk-api/scripts/diagnose_wa_template_push.sh for this template — the prepared BODY must "
+            'include "example": {"body_text": [["Sample"]]}. If diagnose looks OK but push still fails, '
+            "use Sync to Telnyx (PATCH) instead of creating a duplicate template."
         )
     if meta_user_message:
         return str(meta_user_message)
