@@ -210,7 +210,9 @@ class InvoiceDocumentService:
     @staticmethod
     def _append_pay_cta(html: str, *, invoice: BillingInvoice, dashboard_origin: str) -> str:
         st = str(invoice.status or "").lower()
-        if st in {"paid", "void", "cancelled", "refunded", "credited"} or st == "collecting":
+        if st in {"paid", "void", "cancelled", "refunded", "credited"}:
+            return html
+        if st == "collecting" or (st == "pending" and getattr(invoice, "dd_payment_id", None)):
             return html
         pay_url = f"{dashboard_origin.rstrip('/')}/account/billing?pay={invoice.id}"
         cta = (
@@ -328,6 +330,27 @@ class InvoiceService:
     def get_for_org(db: Session, *, invoice_id: str, org_id: str) -> BillingInvoice | None:
         return db.execute(
             select(BillingInvoice).where(BillingInvoice.id == invoice_id, BillingInvoice.org_id == org_id)
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def resolve_for_admin(db: Session, invoice_key: str) -> BillingInvoice | None:
+        """Find invoice by UUID, invoice number, or external id (admin billing routes)."""
+        key = str(invoice_key or "").strip()
+        if not key:
+            return None
+        row = db.get(BillingInvoice, key)
+        if row is not None:
+            return row
+        return db.execute(
+            select(BillingInvoice)
+            .where(
+                sa.or_(
+                    BillingInvoice.invoice_number == key,
+                    BillingInvoice.external_invoice_id == key,
+                )
+            )
+            .order_by(BillingInvoice.created_at.desc())
+            .limit(1)
         ).scalar_one_or_none()
 
     @staticmethod

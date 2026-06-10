@@ -429,6 +429,9 @@ export default function OrgControlCenter() {
   const occ = (path, options) =>
     apiFetch(`/admin/organisations/${encodeURIComponent(selectedId)}/control-center${path}`, options)
 
+  const billingInvoice = (invoiceId, path, options = {}) =>
+    apiFetch(`/admin/billing/invoices/${encodeURIComponent(invoiceId)}${path}`, options)
+
   const setSuspended = async (orgId, suspended) => {
     setActionBusy(orgId)
     try {
@@ -516,10 +519,10 @@ export default function OrgControlCenter() {
   }
 
   const collectInvoice = async (invoiceId, method = 'wallet') => {
-    if (!selectedId || !invoiceId) return
+    if (!invoiceId) return
     setActionBusy(`collect-${invoiceId}`)
     try {
-      await occ(`/invoices/${encodeURIComponent(invoiceId)}/collect`, {
+      await billingInvoice(invoiceId, '/collect', {
         method: 'POST',
         body: JSON.stringify({ method }),
       })
@@ -640,7 +643,7 @@ export default function OrgControlCenter() {
 
   const markInvoicePaid = async (invoiceId) => {
     try {
-      await occ(`/invoices/${encodeURIComponent(invoiceId)}/mark-paid`, { method: 'POST', body: '{}' })
+      await billingInvoice(invoiceId, '/mark-paid', { method: 'POST', body: '{}' })
       pushToast('Invoice marked paid', 'success')
       await refreshAll()
     } catch (e) {
@@ -677,7 +680,7 @@ export default function OrgControlCenter() {
   }
 
   const saveEditInvoice = async () => {
-    if (!selectedId || !editInvoice?.id) return
+    if (!editInvoice?.id) return
     const gbp = Number(editInvoiceAmount)
     if (!Number.isFinite(gbp) || gbp <= 0) {
       pushToast('Enter a positive amount', 'warning')
@@ -685,7 +688,7 @@ export default function OrgControlCenter() {
     }
     setModalBusy(true)
     try {
-      await occ(`/invoices/${encodeURIComponent(editInvoice.id)}`, {
+      await billingInvoice(editInvoice.id, '', {
         method: 'PATCH',
         body: JSON.stringify({
           amount_minor: Math.round(gbp * 100),
@@ -709,7 +712,7 @@ export default function OrgControlCenter() {
     if (!reason) return
     setActionBusy(`void-${invoiceId}`)
     try {
-      await occ(`/invoices/${encodeURIComponent(invoiceId)}/void`, {
+      await billingInvoice(invoiceId, '/void', {
         method: 'POST',
         body: JSON.stringify({ reason }),
       })

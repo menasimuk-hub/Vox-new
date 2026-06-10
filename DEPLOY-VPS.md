@@ -64,6 +64,18 @@ VOX_HARD_RESET=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
 
 This discards local edits on the server and resets to the latest GitHub commit, then rebuilds everything.
 
+If **Void invoice** returns plain **Not Found** (not “Invoice not found”), the static UI updated but the **API was not restarted**. Fix:
+
+```bash
+cd /www/voxbulk
+./vox.sh restart
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  -H "Host: api.voxbulk.com" -H "Content-Type: application/json" \
+  -d '{"reason":"check"}' \
+  http://127.0.0.1:8000/admin/billing/invoices/00000000-0000-0000-0000-000000000001/void
+# Must NOT be 404 (401/403/422 is OK — route exists)
+```
+
 ---
 
 ## Step 3 — Confirm deploy worked

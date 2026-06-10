@@ -3378,14 +3378,15 @@ def admin_bank_refund_billing_invoice(
 
 
 def _admin_billing_invoice_row(db: Session, invoice_id: str):
-    from app.models.billing_invoice import BillingInvoice
+    from app.services.invoice_service import InvoiceService
 
-    row = db.get(BillingInvoice, invoice_id)
+    row = InvoiceService.resolve_for_admin(db, invoice_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
     return row
 
 
+# BILLING_INVOICE_VOID_ROUTE_V1 — deploy marker: POST /admin/billing/invoices/{id}/void
 @router.patch("/billing/invoices/{invoice_id}")
 def admin_edit_billing_invoice(
     invoice_id: str,
@@ -3404,7 +3405,7 @@ def admin_edit_billing_invoice(
         return OrgControlCenterActionsService.edit_invoice(
             db,
             row.org_id,
-            invoice_id,
+            row.id,
             payload=body,
             actor_user_id=actor_id,
             actor_email=actor_email,
@@ -3416,7 +3417,7 @@ def admin_edit_billing_invoice(
 @router.post("/billing/invoices/{invoice_id}/void")
 def admin_void_billing_invoice(
     invoice_id: str,
-    payload: dict,
+    payload: dict | None = None,
     db: Session = Depends(get_db),
     principal=Depends(require_cap(CAP_BILLING)),
 ):
@@ -3424,12 +3425,13 @@ def admin_void_billing_invoice(
 
     row = _admin_billing_invoice_row(db, invoice_id)
     actor_id, actor_email = _control_center_actor(principal)
+    body = dict(payload or {})
     try:
         return OrgControlCenterActionsService.void_invoice(
             db,
             row.org_id,
-            invoice_id,
-            reason=str(payload.get("reason") or payload.get("note") or "").strip() or None,
+            row.id,
+            reason=str(body.get("reason") or body.get("note") or "").strip() or None,
             actor_user_id=actor_id,
             actor_email=actor_email,
         )
@@ -3453,7 +3455,7 @@ def admin_mark_billing_invoice_paid(
         return OrgControlCenterActionsService.mark_invoice_paid(
             db,
             row.org_id,
-            invoice_id,
+            row.id,
             note=note,
             actor_user_id=actor_id,
             actor_email=actor_email,
@@ -3478,7 +3480,7 @@ def admin_collect_billing_invoice(
         return OrgControlCenterActionsService.collect_invoice_payment(
             db,
             row.org_id,
-            invoice_id,
+            row.id,
             method=method,
             actor_user_id=actor_id,
             actor_email=actor_email,

@@ -331,6 +331,19 @@ PY
   fi
 
   # New routes added in recent releases
+  info "Verifying billing invoice lifecycle routes (expect 401/403, not 404) …"
+  for path in \
+    "/admin/billing/invoices/00000000-0000-0000-0000-000000000001/void" \
+    "/admin/billing/invoices/00000000-0000-0000-0000-000000000001"
+  do
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Host: api.voxbulk.com" -H "Content-Type: application/json" -d '{"reason":"deploy-check"}' "http://127.0.0.1:8000${path}" 2>/dev/null || echo "000")
+    if [[ "$code" == "404" ]]; then
+      fail "Billing route missing ($code): POST $path — API not restarted after pull. Run: cd $ROOT && ./vox.sh restart"
+    else
+      info "  Route registered ($code): POST $path"
+    fi
+  done
+
   local checks=(
     "/health"
     "/public/brand"

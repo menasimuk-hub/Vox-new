@@ -21,7 +21,9 @@ from app.services.wallet_service import InsufficientWalletBalance, WalletService
 
 logger = logging.getLogger(__name__)
 
-PAYABLE_STATUSES = frozenset({"issued", "due", "open", "failed", "past_due", "pending", "draft"})
+PAYABLE_STATUSES = frozenset(
+    {"issued", "due", "open", "failed", "past_due", "pending", "draft", "overdue", "unpaid", "sent"}
+)
 AUTO_COLLECT_STATUSES = frozenset({"collecting"})
 
 

@@ -15,8 +15,8 @@ from app.services.org_audit_service import OrgAuditService
 
 LOCKED_STATUSES = frozenset({"paid", "refunded", "credited", "void", "cancelled", "disputed"})
 COLLECTION_STATUSES = frozenset({"collecting", "pending"})
-EDITABLE_STATUSES = frozenset({"draft", "open", "issued", "due", "failed", "past_due"})
-VOIDABLE_STATUSES = frozenset({"draft", "open", "issued", "due", "failed", "past_due"})
+EDITABLE_STATUSES = frozenset({"draft", "open", "issued", "due", "failed", "past_due", "overdue", "unpaid", "sent"})
+VOIDABLE_STATUSES = frozenset({"draft", "open", "issued", "due", "failed", "past_due", "overdue", "unpaid", "sent"})
 
 
 class InvoiceLifecycleError(ValueError):

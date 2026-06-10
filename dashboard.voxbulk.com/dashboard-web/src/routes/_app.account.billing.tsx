@@ -47,6 +47,11 @@ function invoiceKind(description?: string | null, provider?: string | null) {
   return "Invoice";
 }
 
+function canShowPayAction(rawStatus: string) {
+  const st = String(rawStatus || "").toLowerCase();
+  return !["paid", "collecting", "void", "cancelled", "refunded", "credited"].includes(st);
+}
+
 function billingErrorMessage(err: unknown) {
   if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message);
   return "Could not load billing data. Try refreshing the page.";
@@ -123,7 +128,7 @@ function BillingPage() {
   React.useEffect(() => {
     if (!payInvoiceId || invoicesQ.isLoading || !invoicesQ.data?.length) return;
     const match = invoicesQ.data.find((row) => row.id === payInvoiceId);
-    if (match && (match.payable ?? match.payment_context?.payable)) {
+    if (match && canShowPayAction(String(match.status || "issued").toLowerCase())) {
       setPayInvoice(match);
     }
   }, [payInvoiceId, invoicesQ.isLoading, invoicesQ.data]);
@@ -402,12 +407,10 @@ function BillingPage() {
                           >
                             <Download className="size-3.5" /> Download
                           </Button>
-                          {i.rawStatus !== "paid" && i.rawStatus !== "collecting" && i.payable ? (
+                          {canShowPayAction(i.rawStatus) ? (
                             <Button size="sm" variant="default" className="gap-1" onClick={() => setPayInvoice(i.raw)}>
                               <CreditCard className="size-3.5" /> Pay
                             </Button>
-                          ) : i.rawStatus !== "paid" && i.paymentContext?.next_steps?.[0] ? (
-                            <span className="max-w-[140px] text-left text-[11px] text-muted-foreground">{i.paymentContext.next_steps[0]}</span>
                           ) : null}
                         </div>
                       </TableCell>
