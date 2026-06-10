@@ -498,6 +498,19 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
     wallet_pence = int(org.wallet_balance_pence or 0)
     promo = OrgServiceCreditService.balances_dict(org)
 
+    from app.services.billing_monitor_service import BillingMonitorService
+
+    billing_monitor = BillingMonitorService.build_for_org(
+        db,
+        org,
+        usage_row=row,
+        pending_overage_pence=pending_overage_pence,
+    )
+    commercial = billing_monitor.get("commercial") or {}
+    estimates = billing_monitor.get("capacity_estimates") or {}
+    actual = billing_monitor.get("actual_usage") or {}
+    shared_pool = bool(billing_monitor.get("shared_package_pool"))
+
     def _meter(
         key: str,
         label: str,
@@ -507,13 +520,16 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
         unit: str = "",
         informational: bool = False,
         remaining_override: int | None = None,
+        display_gbp: str | None = None,
+        estimate_source: str | None = None,
+        sublabel: str | None = None,
     ) -> dict:
         pct = round((used / included) * 100, 1) if included > 0 else 0.0
         if remaining_override is not None:
             remaining = remaining_override
         else:
             remaining = max(0, included - used) if included > 0 else None
-        return {
+        meter = {
             "key": key,
             "label": label,
             "used": used,
@@ -524,45 +540,32 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
             "unlimited": included <= 0,
             "informational": informational,
         }
+        if display_gbp is not None:
+            meter["display_gbp"] = display_gbp
+        if estimate_source:
+            meter["estimate_source"] = estimate_source
+        if sublabel:
+            meter["sublabel"] = sublabel
+        return meter
 
     calls = (usage_payload or {}).get("calls") or {}
     whatsapp = (usage_payload or {}).get("whatsapp") or {}
     sms = (usage_payload or {}).get("sms") or {}
     pack = (usage_payload or {}).get("pack_credits") or {}
-    package = (usage_payload or {}).get("package") or {}
-    shared_pool = bool(package.get("shared_package_pool"))
 
     meters: list[dict] = []
     if shared_pool:
+        pkg_used = int(commercial.get("package_used_units") or 0)
+        pkg_included = int(commercial.get("package_included_units") or 0)
         meters.append(
             _meter(
                 "package",
-                "Package allowance (WA + AI)",
-                int(package.get("used") or 0),
-                int(package.get("included") or 0),
-                unit="units",
-            )
-        )
-        meters.append(
-            _meter(
-                "whatsapp",
-                "WA survey recipients (breakdown)",
-                int(whatsapp.get("used") or 0),
-                int(whatsapp.get("included") or 0),
-                unit="recipients",
-                informational=True,
-                remaining_override=int(whatsapp.get("remaining") or 0),
-            )
-        )
-        meters.append(
-            _meter(
-                "calls",
-                "AI call minutes (breakdown)",
-                int(calls.get("used") or 0),
-                int(calls.get("included") or 0),
-                unit="min",
-                informational=True,
-                remaining_override=int(calls.get("remaining") or 0),
+                "Package remaining",
+                pkg_used,
+                pkg_included,
+                unit="commercial",
+                display_gbp=str(commercial.get("package_remaining_display") or "£0.00"),
+                sublabel=f"{commercial.get('package_used_display')} used of {commercial.get('package_included_display')}",
             )
         )
     else:
@@ -578,9 +581,53 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
                 ),
             ]
         )
+
     meters.extend(
         [
-            _meter("sms", "SMS messages", int(sms.get("used") or 0), int(sms.get("included") or 0)),
+            _meter(
+                "whatsapp_actual",
+                "WhatsApp usage this period",
+                int(actual.get("whatsapp_used") or 0),
+                0,
+                unit="recipients",
+                informational=True,
+            ),
+            _meter(
+                "calls_actual",
+                "AI usage this period",
+                int(actual.get("calls_used") or 0),
+                0,
+                unit="min",
+                informational=True,
+            ),
+            _meter(
+                "sms_actual",
+                "SMS usage this period",
+                int(actual.get("sms_used") or 0),
+                int(sms.get("included") or 0),
+                unit="messages",
+                informational=True,
+            ),
+            _meter(
+                "estimated_wa",
+                "Estimated WA surveys left",
+                int(estimates.get("estimated_wa_surveys") or 0),
+                0,
+                unit="surveys",
+                informational=True,
+                estimate_source=str(estimates.get("source") or "none"),
+                sublabel=str(estimates.get("label") or estimates.get("disclaimer") or ""),
+            ),
+            _meter(
+                "estimated_ai",
+                "Estimated AI minutes left",
+                int(estimates.get("estimated_ai_minutes") or 0),
+                0,
+                unit="min",
+                informational=True,
+                estimate_source=str(estimates.get("source") or "none"),
+                sublabel=str(estimates.get("label") or estimates.get("disclaimer") or ""),
+            ),
             _meter("cv_scans", "CV scans (ATS)", cv_used, cv_included),
             _meter(
                 "pack_credits",
@@ -601,7 +648,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
                 "percent": 0.0,
                 "unit": "gbp",
                 "unlimited": True,
-                "display_gbp": f"£{wallet_pence / 100:.2f}",
+                "display_gbp": commercial.get("wallet_balance_display") or f"£{wallet_pence / 100:.2f}",
             },
             {
                 "key": "interview_credits",
@@ -629,9 +676,10 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
     return {
         "ok": True,
         "usage": usage_payload,
+        "billing_monitor": billing_monitor,
         "meters": meters,
         "wallet_balance_pence": wallet_pence,
-        "wallet_balance_gbp": f"£{wallet_pence / 100:.2f}",
+        "wallet_balance_gbp": commercial.get("wallet_balance_display") or f"£{wallet_pence / 100:.2f}",
         "promo_credits": promo,
         "overage_pending_pence": pending_overage_pence,
         "overage_pending_gbp": f"£{pending_overage_pence / 100:.2f}",
@@ -640,6 +688,10 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
         "period_end": (usage_payload or {}).get("period_end"),
         "current_plan": PlanOut.model_validate(current_plan) if current_plan else None,
         "subscription": SubscriptionOut.model_validate(sub) if sub else None,
+        "open_invoices_count": int((billing_monitor.get("status") or {}).get("open_invoices_count") or 0),
+        "payment_status": (billing_monitor.get("status") or {}).get("payment_status"),
+        "next_action": (billing_monitor.get("status") or {}).get("next_action"),
+        "next_action_label": (billing_monitor.get("status") or {}).get("next_action_label"),
     }
 
 
@@ -651,7 +703,15 @@ def get_billing_access(db: Session = Depends(get_db), principal=Depends(get_curr
     org = db.get(Organisation, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    return BillingAccessService.access_summary(db, org)
+    from app.services.billing_monitor_service import BillingMonitorService
+
+    summary = BillingAccessService.access_summary(db, org)
+    monitor = BillingMonitorService.build_for_org(db, org)
+    status_block = monitor.get("status") or {}
+    summary["next_action"] = status_block.get("next_action")
+    summary["next_action_label"] = status_block.get("next_action_label")
+    summary["billing_monitor"] = monitor
+    return summary
 
 
 @router.get("/invoices")

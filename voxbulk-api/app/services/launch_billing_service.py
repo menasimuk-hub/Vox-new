@@ -1,10 +1,10 @@
 """Campaign launch billing — allowance → wallet → Direct Debit orchestration.
 
 VoxBulk pricing model:
-- Subscription customers: plan allowance covers launches first; any extra is invoiced and
-  collected via the GoCardless mandate (Direct Debit).
-- PAYG customers: launches are paid from the wallet only (topped up via Stripe/Airwallex).
-  Launch is blocked when the wallet balance is insufficient.
+- Plan allowance covers launches first.
+- Billable extras: wallet is charged when balance is sufficient (subscription or PAYG).
+- Remaining billable amount on subscription: invoiced and collected via Direct Debit.
+- PAYG without sufficient wallet: launch blocked until top-up.
 """
 
 from __future__ import annotations
@@ -133,7 +133,7 @@ class LaunchBillingService:
         collect_by_dd: bool,
         base: dict[str, Any],
     ) -> dict[str, Any]:
-        """Split the billable amount across wallet and Direct Debit, in that order."""
+        """Split the billable amount across wallet first, then Direct Debit for subscription."""
         from app.services.wallet_service import WalletService
 
         wallet_balance = WalletService.balance_minor(org)
@@ -145,17 +145,16 @@ class LaunchBillingService:
             method = "allowance"
             can_launch = True
             block_reason = None
-        elif collect_by_dd:
-            # Subscription customers: extras are invoiced and collected by Direct Debit at launch.
-            wallet_charge = 0
-            dd_charge = total
-            method = "direct_debit"
-            can_launch = True
-            block_reason = None
         elif wallet_balance >= total:
             wallet_charge = total
             dd_charge = 0
             method = "wallet"
+            can_launch = True
+            block_reason = None
+        elif collect_by_dd:
+            wallet_charge = 0
+            dd_charge = total
+            method = "direct_debit"
             can_launch = True
             block_reason = None
         else:

@@ -4,7 +4,6 @@ import { AlertTriangle, Download, FileText, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
@@ -12,25 +11,13 @@ import { downloadAuthenticatedFile } from "@/lib/api";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
 import { useBillingAccess, useBillingInvoices, useBillingSubscription, useBillingUsage, useWalletTransactions } from "@/lib/queries";
+import type { BillingMonitorPayload } from "@/lib/types/api";
 import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/account/billing")({
   head: () => ({ meta: [{ title: "Billing — VoxBulk" }] }),
   component: BillingPage,
 });
-
-type UsageMeter = {
-  key: string;
-  label: string;
-  used?: number;
-  included?: number;
-  remaining?: number | null;
-  percent?: number;
-  unit?: string;
-  unlimited?: boolean;
-  display_gbp?: string;
-  informational?: boolean;
-};
 
 function moneyFromPence(pence?: number) {
   return `£${((Number(pence || 0)) / 100).toFixed(2)}`;
@@ -47,28 +34,6 @@ function fmtPeriod(start?: string | null, end?: string | null) {
   }
 }
 
-function meterDisplay(m: UsageMeter) {
-  if (m.key === "wallet") return m.display_gbp || moneyFromPence(m.remaining ?? m.used);
-  if (m.unit === "credits") return String(m.remaining ?? m.included ?? 0);
-  if (m.key === "package") {
-    const left = m.remaining ?? Math.max(0, (m.included ?? 0) - (m.used ?? 0));
-    return `${left} remaining`;
-  }
-  if (m.informational) return `${m.used ?? 0} used this period`;
-  if (m.unlimited || (m.included ?? 0) <= 0) return `${m.used ?? 0} used`;
-  return `${m.used ?? 0} / ${m.included ?? 0}`;
-}
-
-function meterSub(m: UsageMeter) {
-  if (m.key === "wallet") return "Pay-as-you-go balance";
-  if (m.key === "package") return `${m.used ?? 0} of ${m.included ?? 0} package units used (WA + AI)`;
-  if (m.informational) return "Channel breakdown — allowance follows shared package above";
-  if (m.unit === "credits") return "Promo credits remaining";
-  if (m.unlimited || (m.included ?? 0) <= 0) return "No plan allowance";
-  const left = m.remaining ?? Math.max(0, (m.included ?? 0) - (m.used ?? 0));
-  return `${left} remaining this period`;
-}
-
 function invoiceKind(description?: string | null, provider?: string | null) {
   const text = `${description || ""} ${provider || ""}`.toLowerCase();
   if (text.includes("overage") || text.includes("usage")) return "Extra usage";
@@ -81,6 +46,18 @@ function billingErrorMessage(err: unknown) {
   return "Could not load billing data. Try refreshing the page.";
 }
 
+function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <Card>
+      <CardContent className="space-y-1 p-4">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-xl font-semibold tabular-nums">{value}</p>
+        {sub ? <p className="text-[11px] text-muted-foreground">{sub}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function BillingPage() {
   const { session } = useSession();
   const subQ = useBillingSubscription();
@@ -91,10 +68,22 @@ function BillingPage() {
 
   const plan = subQ.data?.plan || usageQ.data?.current_plan || session?.subscription?.plan;
   const subscription = subQ.data?.subscription || usageQ.data?.subscription;
-  const meters = (usageQ.data?.meters || []) as UsageMeter[];
-  const period = fmtPeriod(usageQ.data?.period_start, usageQ.data?.period_end);
-  const overagePending = Number(usageQ.data?.overage_pending_pence || 0);
+  const monitor = (usageQ.data?.billing_monitor || {}) as BillingMonitorPayload;
+  const commercial = monitor.commercial || {};
+  const estimates = monitor.capacity_estimates || {};
+  const actual = monitor.actual_usage || {};
+  const status = monitor.status || {};
+
+  const period = fmtPeriod(
+    status.billing_period_start || usageQ.data?.period_start,
+    status.billing_period_end || usageQ.data?.period_end,
+  );
+  const overagePending = Number(status.overage_pending_pence ?? usageQ.data?.overage_pending_pence ?? 0);
   const estimatedOverage = usageQ.data?.estimated_overage_gbp;
+  const openInvoices = Number(status.open_invoices_count ?? usageQ.data?.open_invoices_count ?? 0);
+  const nextActionLabel = status.next_action_label || usageQ.data?.next_action_label;
+  const paymentStatus = status.payment_status || usageQ.data?.payment_status || subscription?.status || "—";
+
   const billingLoadError = subQ.isError || usageQ.isError || invoicesQ.isError;
   const billingErrorDetail =
     (usageQ.error && billingErrorMessage(usageQ.error)) ||
@@ -117,17 +106,14 @@ function BillingPage() {
   }));
 
   const inv = useTableSort(invoiceRows, "date", "desc");
-  const usageMeters = meters.filter((m) => !["wallet", "interview_credits", "survey_credits"].includes(m.key));
-  const packageMeter = usageMeters.find((m) => m.key === "package");
-  const channelMeters = usageMeters.filter((m) => m.key !== "package");
-  const balanceMeters = meters.filter((m) => ["wallet", "interview_credits", "survey_credits"].includes(m.key));
+  const exhausted = Number(commercial.package_remaining_pence || 0) <= 0 && Number(commercial.wallet_balance_pence || 0) <= 0;
 
   return (
     <div className="flex w-full flex-col gap-6 pb-12">
       <PageHeader
         eyebrow="Account"
         title="Billing"
-        description="Plan usage, balances, and invoices for your organisation."
+        description="Commercial balance, actual usage, and approximate capacity for your organisation."
         actions={
           <Button asChild variant="outline" size="sm">
             <Link to="/account/packages">Packages & pricing</Link>
@@ -155,139 +141,129 @@ function BillingPage() {
         </div>
       ) : null}
 
+      {!billingLoadError && nextActionLabel && (exhausted || status.next_action === "top_up_wallet") ? (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+          <div>
+            <p className="font-medium text-foreground">{exhausted ? "No remaining package balance" : "Billing notice"}</p>
+            <p className="text-muted-foreground">{nextActionLabel}</p>
+            {status.next_action === "top_up_wallet" ? (
+              <Link to="/account/packages" className="mt-2 inline-block text-primary underline-offset-4 hover:underline">
+                Top up wallet to continue
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {!billingLoadError && !subQ.isLoading && !usageQ.isLoading && !plan ? (
         <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           No active plan is linked to this organisation yet. Choose a package on{" "}
           <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
             Packages & pricing
           </Link>
-          . ATS and interview usage still appear here once a plan or wallet balance is active.
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2">
-          <CardHeader className="pb-2">
-            <CardDescription>Current plan</CardDescription>
-            <CardTitle className="text-2xl">
-              {subQ.isLoading && usageQ.isLoading
-                ? "Loading…"
-                : `${plan?.name || "—"} · ${moneyFromPence(plan?.price_gbp_pence ?? (plan as { price_pence?: number })?.price_pence)}/mo`}
-            </CardTitle>
-            {period ? <p className="text-xs text-muted-foreground">Billing period: {period}</p> : null}
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-3 text-sm">
-            <StatusBadge
-              tone={subscription?.status === "active" ? "approved-script" : "draft-script"}
-              label={String(subscription?.status || "—")}
-            />
-            <span className="text-muted-foreground">
-              Change or downgrade your plan on{" "}
-              <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
-                Packages & pricing
-              </Link>
-              .
-            </span>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Extra usage</CardDescription>
-            <CardTitle className="text-2xl">{overagePending > 0 ? moneyFromPence(overagePending) : estimatedOverage ? `~£${estimatedOverage}` : "£0.00"}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">
-              {overagePending > 0
-                ? "An invoice is being prepared for usage above your plan allowance."
-                : "Extra recipients: billed at your plan rate after WA survey allowance is used. AI phone survey: connection + minutes."}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {overagePending >= 100 ? (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
-          <div>
-            <p className="font-medium text-foreground">Extra usage invoice pending</p>
-            <p className="text-muted-foreground">
-              You have {moneyFromPence(overagePending)} of uninvoiced overage. A new invoice will appear below once issued.
-            </p>
-          </div>
+          .
         </div>
       ) : null}
 
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Plan usage this period</h2>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Billing overview</h2>
         {usageQ.isLoading ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-28" />
+            {Array.from({ length: 7 }).map((_, i) => (
+              <Skeleton key={i} className="h-24" />
             ))}
           </div>
-        ) : usageMeters.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No usage meters yet for this billing period. If you recently subscribed, refresh in a moment or contact support.
-          </p>
         ) : (
-          <div className="space-y-4">
-            {packageMeter ? (
-              <Card className="border-primary/30">
-                <CardContent className="space-y-3 p-4">
-                  <div>
-                    <p className="text-xs text-muted-foreground">{packageMeter.label}</p>
-                    <p className="text-2xl font-semibold tabular-nums">{meterDisplay(packageMeter)}</p>
-                    <p className="text-[11px] text-muted-foreground">{meterSub(packageMeter)}</p>
-                  </div>
-                  {!packageMeter.unlimited && (packageMeter.included ?? 0) > 0 ? (
-                    <Progress value={Math.min(100, packageMeter.percent ?? 0)} className="h-2" />
-                  ) : null}
-                </CardContent>
-              </Card>
-            ) : null}
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {channelMeters.map((m) => (
-                <Card key={m.key} className={m.informational ? "opacity-90" : undefined}>
-                  <CardContent className="space-y-3 p-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground">{m.label}</p>
-                      <p className="text-xl font-semibold tabular-nums">{meterDisplay(m)}</p>
-                      <p className="text-[11px] text-muted-foreground">{meterSub(m)}</p>
-                    </div>
-                    {!m.informational && !m.unlimited && (m.included ?? 0) > 0 ? (
-                      <Progress value={Math.min(100, m.percent ?? 0)} className="h-2" />
-                    ) : null}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <KpiCard
+              label="Wallet balance"
+              value={commercial.wallet_balance_display || usageQ.data?.wallet_balance_gbp || moneyFromPence(commercial.wallet_balance_pence)}
+              sub="Actual money available"
+            />
+            <KpiCard
+              label="Current plan"
+              value={plan?.name || "—"}
+              sub={plan ? `${moneyFromPence(plan?.price_gbp_pence ?? (plan as { price_pence?: number })?.price_pence)}/mo` : undefined}
+            />
+            <KpiCard
+              label="Package remaining"
+              value={commercial.package_remaining_display || moneyFromPence(commercial.package_remaining_pence)}
+              sub={
+                commercial.package_used_display
+                  ? `${commercial.package_used_display} used of ${commercial.package_included_display || "—"}`
+                  : "Commercial entitlement balance"
+              }
+            />
+            <KpiCard label="Payment status" value={String(paymentStatus)} sub={period ? `Period: ${period}` : undefined} />
+            <KpiCard
+              label="Extra usage risk"
+              value={status.overage_risk ? "At risk" : "Normal"}
+              sub={overagePending > 0 ? `${moneyFromPence(overagePending)} pending invoice` : estimatedOverage ? `~£${estimatedOverage} estimated` : "No extra usage pending"}
+            />
+            <KpiCard label="Open invoices" value={String(openInvoices)} sub="Outstanding invoices" />
           </div>
         )}
       </section>
 
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Balances & promo credits</h2>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actual usage this period</h2>
         {usageQ.isLoading ? (
-          <div className="grid gap-3 sm:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-24" />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-20" />
             ))}
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-3">
-            {balanceMeters.map((m) => (
-              <Card key={m.key}>
-                <CardContent className="flex items-center gap-3 p-4">
-                  {m.key === "wallet" ? <Wallet className="size-5 text-primary" /> : <FileText className="size-5 text-primary" />}
-                  <div>
-                    <p className="text-xs text-muted-foreground">{m.label}</p>
-                    <p className="text-lg font-semibold tabular-nums">{meterDisplay(m)}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <KpiCard label="WhatsApp usage" value={String(actual.whatsapp_used ?? 0)} sub="Recipients sent this period" />
+            <KpiCard label="AI usage" value={String(actual.calls_used ?? 0)} sub="Call minutes this period" />
+            <KpiCard label="SMS usage" value={String(actual.sms_used ?? 0)} sub="Messages this period" />
+            <KpiCard label="Survey credits" value={String(actual.survey_credits ?? 0)} sub="Promo credits" />
+            <KpiCard label="Interview credits" value={String(actual.interview_credits ?? 0)} sub="Promo credits" />
           </div>
         )}
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Approximate capacity left</h2>
+        <p className="mb-3 text-xs text-muted-foreground">{estimates.disclaimer || "Approximate capacity only — not used for billing or invoicing."}</p>
+        {usageQ.isLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Skeleton className="h-20" />
+            <Skeleton className="h-20" />
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <KpiCard
+              label="Estimated WA surveys left"
+              value={String(estimates.estimated_wa_surveys ?? 0)}
+              sub={estimates.label || (estimates.source === "wallet" ? "Estimated from wallet" : estimates.source === "package" ? "Estimated from plan" : "No remaining balance")}
+            />
+            <KpiCard
+              label="Estimated AI minutes left"
+              value={String(estimates.estimated_ai_minutes ?? 0)}
+              sub={estimates.label || (estimates.source === "wallet" ? "Estimated from wallet" : estimates.source === "package" ? "Estimated from plan" : "No remaining balance")}
+            />
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Balances</h2>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <Wallet className="size-5 text-primary" />
+              <div>
+                <p className="text-xs text-muted-foreground">Wallet balance</p>
+                <p className="text-lg font-semibold tabular-nums">
+                  {commercial.wallet_balance_display || usageQ.data?.wallet_balance_gbp || moneyFromPence(commercial.wallet_balance_pence)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </section>
 
       <Card>
@@ -354,43 +330,43 @@ function BillingPage() {
             <p className="p-8 text-center text-sm text-muted-foreground">No invoices yet. Plan renewals and extra usage will appear here.</p>
           ) : (
             <div className="table-scroll">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortHeader label="Invoice" sortKey="id" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} className="pl-6" />
-                  <SortHeader label="Type" sortKey="kind" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
-                  <TableHead>Description</TableHead>
-                  <SortHeader label="Date" sortKey="date" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
-                  <SortHeader label="Amount" sortKey="amount" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
-                  <SortHeader label="Status" sortKey="status" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
-                  <TableHead className="pr-6 text-right" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {inv.sorted.map((i) => (
-                  <TableRow key={i.invoiceId}>
-                    <TableCell className="pl-6 font-mono text-xs">{i.id}</TableCell>
-                    <TableCell className="text-xs">{i.kind}</TableCell>
-                    <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">{i.description}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{i.date}</TableCell>
-                    <TableCell className="tabular-nums">{i.amount}</TableCell>
-                    <TableCell>
-                      <StatusBadge tone={badgeToneFromStatus(i.status)} label={i.status} />
-                    </TableCell>
-                    <TableCell className="pr-6 text-right">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="gap-1"
-                        onClick={() => void downloadAuthenticatedFile(`/billing/invoices/${encodeURIComponent(i.invoiceId)}/pdf`, `invoice-${i.id}.pdf`)}
-                      >
-                        <Download className="size-3.5" /> PDF
-                      </Button>
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortHeader label="Invoice" sortKey="id" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} className="pl-6" />
+                    <SortHeader label="Type" sortKey="kind" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
+                    <TableHead>Description</TableHead>
+                    <SortHeader label="Date" sortKey="date" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
+                    <SortHeader label="Amount" sortKey="amount" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
+                    <SortHeader label="Status" sortKey="status" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
+                    <TableHead className="pr-6 text-right" />
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {inv.sorted.map((i) => (
+                    <TableRow key={i.invoiceId}>
+                      <TableCell className="pl-6 font-mono text-xs">{i.id}</TableCell>
+                      <TableCell className="text-xs">{i.kind}</TableCell>
+                      <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">{i.description}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{i.date}</TableCell>
+                      <TableCell className="tabular-nums">{i.amount}</TableCell>
+                      <TableCell>
+                        <StatusBadge tone={badgeToneFromStatus(i.status)} label={i.status} />
+                      </TableCell>
+                      <TableCell className="pr-6 text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="gap-1"
+                          onClick={() => void downloadAuthenticatedFile(`/billing/invoices/${encodeURIComponent(i.invoiceId)}/pdf`, `invoice-${i.id}.pdf`)}
+                        >
+                          <Download className="size-3.5" /> PDF
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>

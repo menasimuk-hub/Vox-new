@@ -1063,6 +1063,11 @@ export type SurveyLaunchEligibility = {
     calls_remaining?: number;
     channel_whatsapp_used?: number;
     channel_calls_used?: number;
+    package_remaining_display?: string | null;
+    estimated_wa_surveys?: number;
+    estimated_ai_minutes?: number;
+    estimate_source?: string | null;
+    estimate_label?: string | null;
   };
 };
 

@@ -175,10 +175,13 @@ class UsageWalletService:
         wa_extra_pence = 49
         if db is not None and org_id:
             try:
-                from app.services.voxbulk_pricing_service import VoxbulkPricingService
+                from app.models.organisation import Organisation
+                from app.services.plan_price_service import PlanPriceService
 
-                rates = VoxbulkPricingService.resolve_rates_for_org(db, org_id)
-                wa_extra_pence = int(rates.get("wa_survey_extra_pence") or 49)
+                org = db.get(Organisation, org_id)
+                if org is not None:
+                    rates = PlanPriceService.rates_for_org(db, org)
+                    wa_extra_pence = int(rates.get("wa_extra_minor") or 49)
             except Exception:
                 pass
 
@@ -280,7 +283,25 @@ class UsageWalletService:
         return round((used / included) * 100, 1)
 
     @staticmethod
-    def _channels_at_or_above(row: OrgUsagePeriod, threshold: float = 80.0) -> list[tuple[str, int, int, float]]:
+    def _channels_at_or_above(
+        row: OrgUsagePeriod,
+        threshold: float = 80.0,
+        *,
+        db: Session | None = None,
+        org_id: str | None = None,
+    ) -> list[tuple[str, int, int, float]]:
+        from app.services.package_entitlement_service import PackageEntitlementService
+
+        if PackageEntitlementService.shared_pool_active(row, row.plan_code):
+            included = PackageEntitlementService.package_included_units(row)
+            used = PackageEntitlementService.package_used_units(row)
+            if included <= 0:
+                return []
+            pct = UsageWalletService._usage_percent(used, included)
+            if pct >= threshold:
+                return [("Package (WA + AI)", used, included, pct)]
+            return []
+
         out: list[tuple[str, int, int, float]] = []
         checks = (
             ("Calls", int(row.calls_used or 0), int(row.calls_included or 0)),
@@ -301,7 +322,7 @@ class UsageWalletService:
         if row is None or row.warned_at_100:
             return False
 
-        hot = UsageWalletService._channels_at_or_above(row, 100.0)
+        hot = UsageWalletService._channels_at_or_above(row, 100.0, db=db, org_id=org_id)
         if not hot:
             return False
 
@@ -347,7 +368,7 @@ class UsageWalletService:
         if row is None or row.warned_at_80:
             return False
 
-        hot = UsageWalletService._channels_at_or_above(row, 80.0)
+        hot = UsageWalletService._channels_at_or_above(row, 80.0, db=db, org_id=org_id)
         if not hot:
             return False
 

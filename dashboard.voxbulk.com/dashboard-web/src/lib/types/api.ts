@@ -120,8 +120,48 @@ export type BillingSubscription = {
   payment_options?: Record<string, unknown>;
 };
 
+export type BillingMonitorPayload = {
+  shared_package_pool?: boolean;
+  commercial?: {
+    package_remaining_pence?: number;
+    package_remaining_display?: string;
+    package_used_pence?: number;
+    package_used_display?: string;
+    package_included_pence?: number;
+    package_included_display?: string;
+    wallet_balance_pence?: number;
+    wallet_balance_display?: string;
+    primary_source?: string;
+  };
+  capacity_estimates?: {
+    estimated_wa_surveys?: number;
+    estimated_ai_minutes?: number;
+    source?: string;
+    label?: string;
+    disclaimer?: string;
+  };
+  actual_usage?: {
+    whatsapp_used?: number;
+    calls_used?: number;
+    sms_used?: number;
+    survey_credits?: number;
+    interview_credits?: number;
+  };
+  status?: {
+    payment_status?: string;
+    billing_period_start?: string | null;
+    billing_period_end?: string | null;
+    open_invoices_count?: number;
+    overage_pending_pence?: number;
+    overage_risk?: boolean;
+    next_action?: string;
+    next_action_label?: string;
+  };
+};
+
 export type UsageSummary = {
   usage?: Record<string, unknown> | null;
+  billing_monitor?: BillingMonitorPayload;
   meters?: Array<{
     key: string;
     label: string;
@@ -132,6 +172,9 @@ export type UsageSummary = {
     unit?: string;
     unlimited?: boolean;
     display_gbp?: string;
+    informational?: boolean;
+    estimate_source?: string;
+    sublabel?: string;
   }>;
   wallet_balance_pence?: number;
   wallet_balance_gbp?: string;
@@ -143,6 +186,10 @@ export type UsageSummary = {
   period_end?: string | null;
   current_plan?: { name?: string; price_gbp_pence?: number; code?: string } | null;
   subscription?: { status?: string } | null;
+  open_invoices_count?: number;
+  payment_status?: string;
+  next_action?: string;
+  next_action_label?: string;
 };
 
 export type Invoice = {

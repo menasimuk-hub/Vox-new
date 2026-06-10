@@ -1240,9 +1240,27 @@ export function SurveyLaunchQuoteModal({
 
           {allowanceExhausted && allowanceNotice ? (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-950 dark:text-amber-50">
-              <p className="font-medium">WhatsApp allowance fully used</p>
+              <p className="font-medium">
+                {eligibility?.billing?.shared_package_pool ? "Package allowance fully used" : "WhatsApp allowance fully used"}
+              </p>
               <p className="mt-1">{allowanceNotice}</p>
-              {typeof eligibility?.billing?.whatsapp_included === "number" ? (
+              {eligibility?.billing?.shared_package_pool ? (
+                <div className="mt-3 grid gap-1 text-xs sm:grid-cols-3">
+                  <p>
+                    Package remaining:{" "}
+                    <span className="font-medium">
+                      {eligibility.billing.package_remaining_display ||
+                        String(eligibility.billing.package_remaining ?? 0)}
+                    </span>
+                  </p>
+                  <p>
+                    Est. WA left: <span className="font-medium">{eligibility.billing.estimated_wa_surveys ?? 0}</span>
+                  </p>
+                  <p>
+                    Est. AI min left: <span className="font-medium">{eligibility.billing.estimated_ai_minutes ?? 0}</span>
+                  </p>
+                </div>
+              ) : typeof eligibility?.billing?.whatsapp_included === "number" ? (
                 <div className="mt-3 grid gap-1 text-xs sm:grid-cols-3">
                   <p>
                     Included WA: <span className="font-medium">{eligibility.billing.whatsapp_included}</span>
@@ -1376,7 +1394,10 @@ export function SurveyLaunchQuoteModal({
                   <QuoteRow label="Additional WhatsApp usage required" value={`${eligibility.shortfall_units}`} />
                 ) : null}
                 {typeof eligibility?.remaining_whatsapp_after_launch === "number" ? (
-                  <QuoteRow label="Remaining after launch" value={`${eligibility.remaining_whatsapp_after_launch}`} />
+                  <QuoteRow label="Remaining after launch (WA)" value={`${eligibility.remaining_whatsapp_after_launch}`} />
+                ) : null}
+                {typeof eligibility?.remaining_call_minutes_after_launch === "number" ? (
+                  <QuoteRow label="Remaining after launch (AI min)" value={`${eligibility.remaining_call_minutes_after_launch}`} />
                 ) : null}
                 {typeof eligibility?.billing?.survey_credits === "number" ? (
                   <QuoteRow label="Survey promo credits" value={`${eligibility.billing.survey_credits}`} />

@@ -126,8 +126,13 @@ function KpiCards({ org }) {
   const waPct = pctUsed(org.wa_used, org.wa_included)
   const smsPct = pctUsed(org.sms_used, org.sms_included)
   const sharedPool = Boolean(org.shared_package_pool)
-  const pkgPct = org.package_included ? pctUsed(org.package_used, org.package_included) : 0
+  const pkgPct = org.package_included_units
+    ? pctUsed(org.package_used_units, org.package_included_units)
+    : org.package_included
+      ? pctUsed(org.package_used, org.package_included)
+      : 0
   const walletLow = Number(org.wallet_pence || 0) < 5000
+  const estimateLabel = org.estimate_label || (org.estimate_source === 'wallet' ? 'Estimated from wallet' : org.estimate_source === 'package' ? 'Estimated from plan' : '')
 
   return (
     <div className="occ-kpi-grid">
@@ -145,10 +150,11 @@ function KpiCards({ org }) {
       </div>
       {sharedPool ? (
         <div className="occ-kpi-card" style={{ borderColor: 'var(--occ-blue-border, #bfdbfe)', background: 'var(--occ-blue-bg, #eff6ff)' }}>
-          <div className="occ-kpi-card-label">Package remaining (WA + AI)</div>
-          <div className="occ-kpi-card-value">{fmtN(org.package_remaining)}</div>
+          <div className="occ-kpi-card-label">Package remaining</div>
+          <div className="occ-kpi-card-value">{org.package_remaining_display || fmtMoneyPence(org.package_remaining_pence, org)}</div>
           <div className="occ-kpi-card-sub">
-            {fmtN(org.package_used)} of {fmtN(org.package_included)} used · WA {fmtN(org.wa_used)} · AI {fmtN(org.calls_used)} min
+            {org.package_used_display || fmtMoneyPence(org.package_used_pence, org)} used of{' '}
+            {org.package_included_display || fmtMoneyPence(org.package_included_pence, org)}
           </div>
           <div className="occ-kpi-card-bar">
             <div className={`occ-kpi-card-bar-fill ${barClass(pkgPct)}`} style={{ width: `${pkgPct}%` }} />
@@ -178,6 +184,16 @@ function KpiCards({ org }) {
           </div>
         </>
       )}
+      <div className="occ-kpi-card">
+        <div className="occ-kpi-card-label">Est. WA surveys left</div>
+        <div className="occ-kpi-card-value">{fmtN(org.estimated_wa_surveys)}</div>
+        <div className="occ-kpi-card-sub">{estimateLabel || 'Approximate capacity only'}</div>
+      </div>
+      <div className="occ-kpi-card">
+        <div className="occ-kpi-card-label">Est. AI minutes left</div>
+        <div className="occ-kpi-card-value">{fmtN(org.estimated_ai_minutes)}</div>
+        <div className="occ-kpi-card-sub">{estimateLabel || 'Approximate capacity only'}</div>
+      </div>
       <div className="occ-kpi-card">
         <div className="occ-kpi-card-label">SMS remaining</div>
         <div className="occ-kpi-card-value">{fmtN(org.sms_remaining)}</div>
@@ -822,8 +838,9 @@ export default function OrgControlCenter() {
                 <th>Status</th>
                 <th onClick={() => sortTable('plan')}>Plan</th>
                 <th onClick={() => sortTable('wallet')}>Wallet</th>
-                <th>Calls rem.</th>
-                <th>WA rem.</th>
+                <th>Package rem.</th>
+                <th>Est. WA</th>
+                <th>Est. AI</th>
                 <th onClick={() => sortTable('usage_pct')}>Usage</th>
                 <th>Payment</th>
                 <th>Campaigns</th>
@@ -834,15 +851,16 @@ export default function OrgControlCenter() {
             <tbody>
               {!filteredItems.length ? (
                 <tr>
-                  <td colSpan={13}>
+                  <td colSpan={14}>
                     <div className="occ-empty-state">No organisations match your filters.</div>
                   </td>
                 </tr>
               ) : (
                 filteredItems.map((o) => {
                   const selected = selectedId === o.id
-                  const callsRem = Number(o.calls_remaining || 0)
-                  const waRem = Number(o.wa_remaining || 0)
+                  const pkgRem = o.shared_package_pool
+                    ? o.package_remaining_display || fmtMoneyPence(o.package_remaining_pence, o)
+                    : '—'
                   return (
                     <tr key={o.id} className={selected ? 'selected' : ''} onClick={() => selectOrg(o.id)}>
                       <td className="occ-mono">{o.id.slice(0, 8)}…</td>
@@ -856,8 +874,9 @@ export default function OrgControlCenter() {
                         <span className="occ-badge occ-badge-gray">{o.plan || '—'}</span>
                       </td>
                       <td className="occ-mono">{o.wallet_display || fmtMoneyPence(o.wallet_pence)}</td>
-                      <td className="occ-mono">{fmtN(callsRem)}</td>
-                      <td className="occ-mono">{fmtN(waRem)}</td>
+                      <td className="occ-mono">{pkgRem}</td>
+                      <td className="occ-mono">{fmtN(o.estimated_wa_surveys)}</td>
+                      <td className="occ-mono">{fmtN(o.estimated_ai_minutes)}</td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                           <div className="occ-usage-bar">
@@ -1209,7 +1228,32 @@ export default function OrgControlCenter() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="occ-info-block">
-                <div className="occ-info-block-title">Current usage</div>
+                <div className="occ-info-block-title">Commercial balance</div>
+                <div className="occ-info-row">
+                  <span className="occ-info-row-label">Package remaining</span>
+                  <span className="occ-info-row-value">
+                    {org?.package_remaining_display || fmtMoneyPence(org?.package_remaining_pence, org)}
+                  </span>
+                </div>
+                <div className="occ-info-row">
+                  <span className="occ-info-row-label">Wallet balance</span>
+                  <span className="occ-info-row-value">{org?.wallet_display || fmtMoneyPence(org?.wallet_pence, org)}</span>
+                </div>
+                <div className="occ-info-row">
+                  <span className="occ-info-row-label">Est. WA / AI left</span>
+                  <span className="occ-info-row-value">
+                    {fmtN(org?.estimated_wa_surveys)} / {fmtN(org?.estimated_ai_minutes)} ({org?.estimate_label || '—'})
+                  </span>
+                </div>
+                {org?.next_action_label ? (
+                  <div className="occ-info-row">
+                    <span className="occ-info-row-label">Next step</span>
+                    <span className="occ-info-row-value">{org.next_action_label}</span>
+                  </div>
+                ) : null}
+              </div>
+              <div className="occ-info-block">
+                <div className="occ-info-block-title">Actual usage this period</div>
                 <div className="occ-info-row">
                   <span className="occ-info-row-label">AI calls</span>
                   <span className="occ-info-row-value">

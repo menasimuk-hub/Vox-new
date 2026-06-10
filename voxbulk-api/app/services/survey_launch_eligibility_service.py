@@ -281,17 +281,20 @@ class SurveyLaunchEligibilityService:
 
         if method == "allowance":
             pkg_remaining = int(billing.get("package_remaining") or wa_remaining)
-            summary_text = (
-                f"Shared package allowance: {int(billing.get('package_included') or included)} units. "
-                f"This launch uses {recipient_count} recipient{'s' if recipient_count != 1 else ''} "
-                f"({max(0, pkg_remaining - covered)} package units remaining after launch)."
-                if billing.get("shared_package_pool")
-                else (
+            if billing.get("shared_package_pool"):
+                pkg_display = billing.get("package_remaining_display") or f"{pkg_remaining} units"
+                summary_text = (
+                    f"Package remaining: {pkg_display}. "
+                    f"This launch uses {recipient_count} recipient{'s' if recipient_count != 1 else ''} "
+                    f"({max(0, pkg_remaining - covered)} package units remaining after launch). "
+                    f"Approximate capacity estimates are for guidance only."
+                )
+            else:
+                summary_text = (
                     f"Plan includes: {included} WA survey recipients/month. "
                     f"This launch uses {recipient_count} recipient{'s' if recipient_count != 1 else ''} "
                     f"({max(0, wa_remaining - covered)} remaining after launch)."
                 )
-            )
             base.update(
                 {
                     "can_launch": True,
@@ -334,9 +337,15 @@ class SurveyLaunchEligibilityService:
                     "mode": "wallet",
                     "launch_action": "launch",
                     "summary": (
-                        f"Pay as you go: {extra} recipient{'s' if extra != 1 else ''} × {rate_display} "
-                        f"= {est.get('total_display')} — charged to your wallet at launch "
+                        f"Package allowance exhausted — {extra} recipient{'s' if extra != 1 else ''} × {rate_display} "
+                        f"= {est.get('total_display')} charged to your wallet at launch "
                         f"({est.get('wallet_balance_display')} available)."
+                        if billing.get("shared_package_pool")
+                        else (
+                            f"Pay as you go: {extra} recipient{'s' if extra != 1 else ''} × {rate_display} "
+                            f"= {est.get('total_display')} — charged to your wallet at launch "
+                            f"({est.get('wallet_balance_display')} available)."
+                        )
                     ),
                 }
             )
@@ -398,17 +407,26 @@ class SurveyLaunchEligibilityService:
 
         method = str(est.get("payment_method") or "")
         if method == "allowance":
+            if billing.get("shared_package_pool"):
+                pkg_display = billing.get("package_remaining_display") or f"{int(billing.get('package_remaining') or 0)} units"
+                summary = (
+                    f"Package remaining: {pkg_display}. "
+                    f"This launch uses {estimated_minutes} minute{'s' if estimated_minutes != 1 else ''} "
+                    f"({remaining_after} package units remaining after launch)."
+                )
+            else:
+                summary = (
+                    f"Plan includes {calls_included} call minutes/month. "
+                    f"This launch uses {estimated_minutes} minute{'s' if estimated_minutes != 1 else ''} "
+                    f"({remaining_after} remaining after launch)."
+                )
             base.update(
                 {
                     "can_launch": True,
                     "payment_required": False,
                     "mode": "subscription_phone_included",
                     "launch_action": "launch",
-                    "summary": (
-                        f"Plan includes {calls_included} call minutes/month. "
-                        f"This launch uses {estimated_minutes} minute{'s' if estimated_minutes != 1 else ''} "
-                        f"({remaining_after} remaining after launch)."
-                    ),
+                    "summary": summary,
                 }
             )
         elif method == "direct_debit":

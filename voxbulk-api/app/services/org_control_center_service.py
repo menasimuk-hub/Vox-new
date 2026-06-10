@@ -39,60 +39,54 @@ def _payment_status_from_invoices(invoices: list) -> str:
 
 def _usage_metrics(db: Session, org: Organisation, usage_row) -> dict[str, Any]:
     profile = resolve_org_billing_profile(db, org)
+    from app.services.billing_monitor_service import BillingMonitorService
+
     if usage_row is None:
+        monitor = BillingMonitorService.build_for_org(db, org, usage_row=None, pending_overage_pence=0)
+        flat = BillingMonitorService.flatten_for_admin(monitor)
         return {
+            **flat,
             "calls_included": 0,
-            "calls_used": 0,
             "calls_remaining": 0,
             "wa_included": 0,
-            "wa_used": 0,
             "wa_remaining": 0,
             "sms_included": 0,
-            "sms_used": 0,
             "sms_remaining": 0,
-            "usage_pct": 0,
-            "overage_risk": False,
             "allow_overage": profile.get("allow_overage", True),
             "period_start": None,
             "period_end": None,
             "billing_currency": profile.get("billing_currency"),
             "currency_symbol": profile.get("currency_symbol"),
+            "billing_monitor": monitor,
         }
+
     summary = UsageWalletService.summary_dict(usage_row, db, org.id if org else None)
+    total_overage = UsageWalletService._calc_overage_pence(usage_row, db, org.id)
+    pending_overage = max(0, total_overage - int(usage_row.overage_invoiced_pence or 0))
+    monitor = BillingMonitorService.build_for_org(db, org, usage_row=usage_row, pending_overage_pence=pending_overage)
+    flat = BillingMonitorService.flatten_for_admin(monitor)
     calls = summary.get("calls") or {}
     wa = summary.get("whatsapp") or {}
     sms = summary.get("sms") or {}
-    pkg = summary.get("package") or {}
-    shared_pool = bool(pkg.get("shared_package_pool"))
-    if shared_pool:
-        percents = [float(pkg.get("percent") or 0)]
-    else:
-        percents = [int(calls.get("percent") or 0), int(wa.get("percent") or 0), int(sms.get("percent") or 0)]
-    usage_pct = max(percents) if percents else 0
     allow_overage = bool(getattr(org, "allow_overage", True))
-    overage_risk = allow_overage and (usage_pct >= 80 or float(summary.get("estimated_overage_gbp") or 0) > 0)
     return {
+        **flat,
         "calls_included": int(calls.get("included") or 0),
-        "calls_used": int(calls.get("used") or 0),
         "calls_remaining": int(calls.get("remaining") or 0),
         "wa_included": int(wa.get("included") or 0),
-        "wa_used": int(wa.get("used") or 0),
         "wa_remaining": int(wa.get("remaining") or 0),
         "sms_included": int(sms.get("included") or 0),
-        "sms_used": int(sms.get("used") or 0),
         "sms_remaining": int(sms.get("remaining") or 0),
-        "shared_package_pool": shared_pool,
-        "package_included": int(pkg.get("included") or 0),
-        "package_used": int(pkg.get("used") or 0),
-        "package_remaining": int(pkg.get("remaining") or 0),
-        "usage_pct": int(round(usage_pct)) if shared_pool else usage_pct,
-        "overage_risk": overage_risk,
         "allow_overage": allow_overage,
         "period_start": summary.get("period_start"),
         "period_end": summary.get("period_end"),
-        "estimated_overage_gbp": summary.get("estimated_overage_gbp"),
         "billing_currency": profile.get("billing_currency"),
         "currency_symbol": profile.get("currency_symbol"),
+        "billing_monitor": monitor,
+        # Legacy aliases for shared pool list rows
+        "package_remaining": int(flat.get("package_remaining_units") or 0),
+        "package_included": int(flat.get("package_included_units") or 0),
+        "package_used": int(flat.get("package_used_units") or 0),
     }
 
 

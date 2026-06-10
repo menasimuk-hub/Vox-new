@@ -50,6 +50,12 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
     is_payg_plan = plan_code in PAYG_PLAN_CODES or (plan is None and not has_whatsapp_allowance)
     can_launch_and_invoice = has_whatsapp_allowance or (has_dd_subscription and not is_payg_plan)
 
+    from app.services.billing_monitor_service import BillingMonitorService
+
+    billing_monitor = BillingMonitorService.build_for_org(db, org, usage_row=usage)
+    commercial = billing_monitor.get("commercial") or {}
+    estimates = billing_monitor.get("capacity_estimates") or {}
+
     return {
         "has_active_subscription": has_dd_subscription or has_whatsapp_allowance,
         "has_dd_subscription": has_dd_subscription,
@@ -59,6 +65,7 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
         "subscription_status": status or usage_status or None,
         "plan_name": plan.name if plan else (str(usage.plan_code or "").strip().title() if usage and usage.plan_code else None),
         "plan_code": plan_code or (str(usage.plan_code or "").strip().lower() if usage else None),
+        "launch_allowance_units": int(entitlement.get("package_remaining") or wa_remaining) if entitlement.get("shared_package_pool") else wa_remaining,
         "whatsapp_included": wa_included,
         "whatsapp_used": wa_used,
         "whatsapp_remaining": wa_remaining,
@@ -72,6 +79,14 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
         "package_included": int(entitlement.get("package_included") or 0),
         "package_used": int(entitlement.get("package_used") or 0),
         "package_remaining": int(entitlement.get("package_remaining") or 0),
+        "package_remaining_pence": int(commercial.get("package_remaining_pence") or 0),
+        "package_remaining_display": commercial.get("package_remaining_display"),
+        "wallet_balance_display": commercial.get("wallet_balance_display"),
         "channel_calls_used": int(entitlement.get("calls_used") or calls_used),
         "channel_whatsapp_used": int(entitlement.get("whatsapp_used") or wa_used),
+        "estimated_wa_surveys": int(estimates.get("estimated_wa_surveys") or 0),
+        "estimated_ai_minutes": int(estimates.get("estimated_ai_minutes") or 0),
+        "estimate_source": estimates.get("source"),
+        "estimate_label": estimates.get("label"),
+        "billing_monitor": billing_monitor,
     }

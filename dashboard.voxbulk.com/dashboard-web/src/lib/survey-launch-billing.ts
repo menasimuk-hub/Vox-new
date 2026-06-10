@@ -292,9 +292,10 @@ export function buildWhatsAppAllowanceNotice(
   }
 
   if (isWhatsAppAllowanceExhausted(eligibility)) {
-
+    if (billing?.shared_package_pool) {
+      return `No remaining package balance. ${formatExtraRecipientsLine(extraRate)} Extra usage will be invoiced or charged from wallet when you launch.`;
+    }
     return `${formatPlanIncludesRecipients(included)} ${formatExtraRecipientsLine(extraRate)}`;
-
   }
 
   return null;
