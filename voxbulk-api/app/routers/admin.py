@@ -3377,6 +3377,116 @@ def admin_bank_refund_billing_invoice(
     }
 
 
+def _admin_billing_invoice_row(db: Session, invoice_id: str):
+    from app.models.billing_invoice import BillingInvoice
+
+    row = db.get(BillingInvoice, invoice_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return row
+
+
+@router.patch("/billing/invoices/{invoice_id}")
+def admin_edit_billing_invoice(
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    row = _admin_billing_invoice_row(db, invoice_id)
+    actor_id, actor_email = _control_center_actor(principal)
+    body = dict(payload or {})
+    if body.get("amount_minor") is None and body.get("amount_pence") is not None:
+        body["amount_minor"] = body.get("amount_pence")
+    try:
+        return OrgControlCenterActionsService.edit_invoice(
+            db,
+            row.org_id,
+            invoice_id,
+            payload=body,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/billing/invoices/{invoice_id}/void")
+def admin_void_billing_invoice(
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    row = _admin_billing_invoice_row(db, invoice_id)
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.void_invoice(
+            db,
+            row.org_id,
+            invoice_id,
+            reason=str(payload.get("reason") or payload.get("note") or "").strip() or None,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/billing/invoices/{invoice_id}/mark-paid")
+def admin_mark_billing_invoice_paid(
+    invoice_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    row = _admin_billing_invoice_row(db, invoice_id)
+    actor_id, actor_email = _control_center_actor(principal)
+    note = str((payload or {}).get("note") or "").strip() or None
+    try:
+        return OrgControlCenterActionsService.mark_invoice_paid(
+            db,
+            row.org_id,
+            invoice_id,
+            note=note,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/billing/invoices/{invoice_id}/collect")
+def admin_collect_billing_invoice(
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    row = _admin_billing_invoice_row(db, invoice_id)
+    method = str(payload.get("method") or "wallet").strip().lower()
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.collect_invoice_payment(
+            db,
+            row.org_id,
+            invoice_id,
+            method=method,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/billing/organisations/{org_id}/wallet-credit")
 def admin_wallet_credit_org(
     org_id: str,

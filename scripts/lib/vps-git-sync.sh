@@ -7,6 +7,7 @@
 #   VOX_GIT_BRANCH   (default: current branch, else main)
 #   VOX_SKIP_GIT=1   skip fetch/checkout/pull
 #   VOX_FORCE_PULL=1 stash and retry on pull failure
+#   VOX_HARD_RESET=1 discard local changes and reset to remote branch
 
 vox_git_sync() {
   local root="${1:?repo root required}"
@@ -34,6 +35,18 @@ vox_git_sync() {
   if ! git rev-parse --verify "$remote_ref" >/dev/null 2>&1; then
     echo "[git] FAIL: $remote_ref not found — check branch name and GitHub push" >&2
     return 1
+  fi
+
+  local local_sha remote_sha
+  local_sha=$(git rev-parse --short HEAD 2>/dev/null || echo "?")
+  remote_sha=$(git rev-parse --short "$remote_ref")
+  echo "[git] local HEAD=$local_sha  remote $remote_ref=$remote_sha"
+
+  if [[ "${VOX_HARD_RESET:-0}" == "1" ]]; then
+    echo "[git] VOX_HARD_RESET=1 — git reset --hard $remote_ref"
+    git reset --hard "$remote_ref"
+    echo "[git] OK at $(git rev-parse --short HEAD) — $(git log -1 --format='%s')"
+    return 0
   fi
 
   echo "[git] checkout $branch"

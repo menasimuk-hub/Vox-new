@@ -19,6 +19,9 @@ import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/account/billing")({
   head: () => ({ meta: [{ title: "Billing — VoxBulk" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    pay: typeof search.pay === "string" ? search.pay : undefined,
+  }),
   component: BillingPage,
 });
 
@@ -63,6 +66,7 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
 
 function BillingPage() {
   const { session } = useSession();
+  const { pay: payInvoiceId } = Route.useSearch();
   const subQ = useBillingSubscription();
   const usageQ = useBillingUsage();
   const invoicesQ = useBillingInvoices();
@@ -115,6 +119,14 @@ function BillingPage() {
 
   const inv = useTableSort(invoiceRows, "date", "desc");
   const exhausted = Number(commercial.package_remaining_pence || 0) <= 0 && Number(commercial.wallet_balance_pence || 0) <= 0;
+
+  React.useEffect(() => {
+    if (!payInvoiceId || invoicesQ.isLoading || !invoicesQ.data?.length) return;
+    const match = invoicesQ.data.find((row) => row.id === payInvoiceId);
+    if (match && (match.payable ?? match.payment_context?.payable)) {
+      setPayInvoice(match);
+    }
+  }, [payInvoiceId, invoicesQ.isLoading, invoicesQ.data]);
 
   return (
     <div className="flex w-full flex-col gap-6 pb-12">
@@ -390,19 +402,11 @@ function BillingPage() {
                           >
                             <Download className="size-3.5" /> Download
                           </Button>
-                          {i.rawStatus === "paid" ? (
-                            <span className="inline-flex items-center rounded-md bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                              Paid
-                            </span>
-                          ) : i.rawStatus === "collecting" ? (
-                            <span className="inline-flex items-center rounded-md bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 dark:bg-amber-900/30 dark:text-amber-300">
-                              Collecting
-                            </span>
-                          ) : i.payable ? (
+                          {i.rawStatus !== "paid" && i.rawStatus !== "collecting" && i.payable ? (
                             <Button size="sm" variant="default" className="gap-1" onClick={() => setPayInvoice(i.raw)}>
                               <CreditCard className="size-3.5" /> Pay
                             </Button>
-                          ) : i.paymentContext?.next_steps?.[0] ? (
+                          ) : i.rawStatus !== "paid" && i.paymentContext?.next_steps?.[0] ? (
                             <span className="max-w-[140px] text-left text-[11px] text-muted-foreground">{i.paymentContext.next_steps[0]}</span>
                           ) : null}
                         </div>

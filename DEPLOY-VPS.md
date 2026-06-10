@@ -55,6 +55,15 @@ cd /www/voxbulk
 VOX_FORCE_PULL=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
 ```
 
+If the VPS repo is stuck on an old commit (build-info `git_sha` does not match GitHub):
+
+```bash
+cd /www/voxbulk
+VOX_HARD_RESET=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
+```
+
+This discards local edits on the server and resets to the latest GitHub commit, then rebuilds everything.
+
 ---
 
 ## Step 3 — Confirm deploy worked

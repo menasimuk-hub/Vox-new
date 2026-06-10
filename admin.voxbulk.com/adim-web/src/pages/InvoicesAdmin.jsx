@@ -259,8 +259,8 @@ export default function InvoicesAdmin() {
     }
   }
 
-  const occInvoice = (orgId, path, options = {}) =>
-    apiFetch(`/admin/organisations/${encodeURIComponent(orgId)}/control-center${path}`, options)
+  const billingInvoice = (invoiceId, path, options = {}) =>
+    apiFetch(`/admin/billing/invoices/${encodeURIComponent(invoiceId)}${path}`, options)
 
   const openEditInvoice = (row) => {
     setEditInvoice(row)
@@ -270,7 +270,7 @@ export default function InvoicesAdmin() {
   }
 
   const saveEditInvoice = async () => {
-    if (!editInvoice?.org_id || !editInvoice?.id) return
+    if (!editInvoice?.id) return
     const gbp = Number(editAmount)
     if (!Number.isFinite(gbp) || gbp <= 0) {
       setError('Enter a positive amount')
@@ -279,7 +279,7 @@ export default function InvoicesAdmin() {
     setEditBusy(true)
     setError('')
     try {
-      await occInvoice(editInvoice.org_id, `/invoices/${encodeURIComponent(editInvoice.id)}`, {
+      await billingInvoice(editInvoice.id, '', {
         method: 'PATCH',
         body: JSON.stringify({
           amount_minor: Math.round(gbp * 100),
@@ -297,13 +297,13 @@ export default function InvoicesAdmin() {
   }
 
   const voidInvoice = async (row) => {
-    if (!row?.org_id) return
+    if (!row?.id) return
     const reason = window.prompt('Reason for voiding this invoice (required for audit):', 'Voided by support')
     if (!reason) return
     setBusy(row.id)
     setError('')
     try {
-      await occInvoice(row.org_id, `/invoices/${encodeURIComponent(row.id)}/void`, {
+      await billingInvoice(row.id, '/void', {
         method: 'POST',
         body: JSON.stringify({ reason }),
       })
@@ -316,11 +316,11 @@ export default function InvoicesAdmin() {
   }
 
   const markInvoicePaid = async (row) => {
-    if (!row?.org_id) return
+    if (!row?.id) return
     setBusy(row.id)
     setError('')
     try {
-      await occInvoice(row.org_id, `/invoices/${encodeURIComponent(row.id)}/mark-paid`, { method: 'POST', body: '{}' })
+      await billingInvoice(row.id, '/mark-paid', { method: 'POST', body: '{}' })
       await loadInvoices()
     } catch (e) {
       setError(e?.message || 'Mark paid failed')
@@ -330,11 +330,11 @@ export default function InvoicesAdmin() {
   }
 
   const collectInvoiceWallet = async (row) => {
-    if (!row?.org_id) return
+    if (!row?.id) return
     setBusy(row.id)
     setError('')
     try {
-      await occInvoice(row.org_id, `/invoices/${encodeURIComponent(row.id)}/collect`, {
+      await billingInvoice(row.id, '/collect', {
         method: 'POST',
         body: JSON.stringify({ method: 'wallet' }),
       })

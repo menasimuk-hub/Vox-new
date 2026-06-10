@@ -9,6 +9,7 @@
 # Optional env overrides:
 #   VOX_GIT_REMOTE=origin           git remote name (default: origin → menasimuk-hub/Vox-new)
 #   VOX_GIT_BRANCH=feature/billing-system   branch to pull (billing + Stripe wallet)
+#   VOX_HARD_RESET=1               discard local edits and reset to remote branch
 #   VOX_SKIP_GIT=1                 skip git pull (deploy current tree only)
 #   VOX_SKIP_BUILD=1               skip npm build (API + migrate only — UI will stay stale!)
 #   VOX_SKIP_MIGRATE=1             skip alembic upgrade
@@ -81,8 +82,15 @@ _clear_untracked_pull_conflicts() {
 
 git_pull() {
   info "Syncing git → $GIT_REMOTE/$GIT_BRANCH (checkout + ff-only pull) …"
+  local remote_sha
+  remote_sha=$(git -C "$ROOT" ls-remote "$GIT_REMOTE" "refs/heads/$GIT_BRANCH" 2>/dev/null | awk '{print $1}' | head -1)
+  if [[ -n "$remote_sha" ]]; then
+    info "GitHub $GIT_BRANCH tip: ${remote_sha:0:7}"
+  else
+    warn "Could not read remote SHA for $GIT_REMOTE/$GIT_BRANCH — check network and branch name"
+  fi
   _clear_untracked_pull_conflicts
-  VOX_GIT_BRANCH="$GIT_BRANCH" vox_git_sync "$ROOT" || fail "git sync failed — try: VOX_FORCE_PULL=1 VOX_GIT_BRANCH=$GIT_BRANCH ./deploy-vps.sh"
+  VOX_GIT_BRANCH="$GIT_BRANCH" vox_git_sync "$ROOT" || fail "git sync failed — try: VOX_HARD_RESET=1 VOX_GIT_BRANCH=$GIT_BRANCH ./deploy-vps.sh"
 }
 
 api_deps_and_migrate() {
@@ -309,6 +317,13 @@ PY
     else
       warn "  Admin wwwroot broken: index.html JS ($js) missing — browser will show blank page"
       warn "  Fix: cd $ADMIN_DIR && npm run build && rsync dist/ → $VOX_ADMIN_DIST"
+    fi
+    if [[ -f "$VOX_ADMIN_DIST/build-info.json" ]]; then
+      vox_verify_build_info_sha "$ROOT" "$VOX_ADMIN_DIST" "admin" || fail "Admin build-info SHA mismatch — deploy did not publish current commit"
+      info "  Admin build-info.json:"
+      cat "$VOX_ADMIN_DIST/build-info.json"
+    else
+      fail "Missing $VOX_ADMIN_DIST/build-info.json — npm prebuild sync:build-info did not run"
     fi
     local health_code
     health_code=$(curl -s -o /dev/null -w "%{http_code}" https://admin.voxbulk.com/health 2>/dev/null || echo "000")

@@ -201,10 +201,27 @@ class InvoiceDocumentService:
             "line_items_html": _line_items_html(line_items, currency),
             "notes": "Thank you for your business. Please retain this invoice for your records.",
             "first_name": first_name,
-            "dashboard_invoice_url": f"{dashboard_origin}/billing#invoice-{invoice.id}",
+            "dashboard_invoice_url": f"{dashboard_origin}/account/billing?pay={invoice.id}",
+            "pay_invoice_url": f"{dashboard_origin}/account/billing?pay={invoice.id}",
         }
         vars_.update(InvoiceDocumentService._company_defaults(db))
         return vars_
+
+    @staticmethod
+    def _append_pay_cta(html: str, *, invoice: BillingInvoice, dashboard_origin: str) -> str:
+        st = str(invoice.status or "").lower()
+        if st in {"paid", "void", "cancelled", "refunded", "credited"} or st == "collecting":
+            return html
+        pay_url = f"{dashboard_origin.rstrip('/')}/account/billing?pay={invoice.id}"
+        cta = (
+            f'<div style="margin-top:28px;padding:16px 20px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">'
+            f'<p style="margin:0 0 12px;font-size:14px;color:#374151;">This invoice is unpaid. Pay securely from your VoxBulk account.</p>'
+            f'<a href="{pay_url}" style="display:inline-block;padding:10px 18px;background:#111827;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:14px;">Pay invoice</a>'
+            f"</div>"
+        )
+        if "</body>" in html.lower():
+            return re.sub(r"</body>", f"{cta}</body>", html, count=1, flags=re.IGNORECASE)
+        return html + cta
 
     @staticmethod
     def render_html(db: Session, *, invoice: BillingInvoice, org: Organisation | None = None) -> str:
@@ -215,7 +232,9 @@ class InvoiceDocumentService:
         if re.search(r"\{\{[a-z_#]", html):
             logger.warning("invoice_document_unresolved_placeholders_fallback_to_default")
             html = substitute_placeholders(INVOICE_DOCUMENT_BODY, variables)
-        return html
+        settings = get_settings()
+        dashboard_origin = str(getattr(settings, "dashboard_app_origin", None) or "http://localhost:5175")
+        return InvoiceDocumentService._append_pay_cta(html, invoice=invoice, dashboard_origin=dashboard_origin)
 
     @staticmethod
     def render_pdf(db: Session, *, invoice: BillingInvoice, org: Organisation | None = None) -> bytes:
