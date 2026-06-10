@@ -62,6 +62,32 @@ function buildInvoiceTags(row) {
   return tags
 }
 
+function resolveInvoiceLifecycle(inv) {
+  if (inv?.lifecycle) return inv.lifecycle
+  const st = String(inv?.status || '').toLowerCase()
+  const ddActive = st === 'collecting' || (st === 'pending' && inv?.dd_payment_id)
+  const locked = ['paid', 'void', 'cancelled', 'refunded', 'disputed', 'credited'].includes(st) || Boolean(inv?.disputed)
+  if (ddActive) {
+    return {
+      can_edit: false,
+      can_void: false,
+      is_locked: true,
+      lock_reason: 'Direct Debit collection is in progress.',
+      suggested_action_label: 'Stop DD collection before editing or voiding.',
+    }
+  }
+  if (locked) {
+    return {
+      can_edit: false,
+      can_void: false,
+      is_locked: true,
+      lock_reason: st === 'paid' ? 'Paid invoices cannot be edited or voided.' : 'This invoice is locked.',
+      suggested_action_label: 'Use credit note, refund, or reissue instead.',
+    }
+  }
+  return { can_edit: true, can_void: true, is_locked: false, lock_reason: null, suggested_action_label: null }
+}
+
 export default function InvoicesAdmin() {
   const [tab, setTab] = useState('invoices')
   const [invoices, setInvoices] = useState([])
@@ -74,6 +100,11 @@ export default function InvoicesAdmin() {
   const [templateSaving, setTemplateSaving] = useState(false)
   const [templateMsg, setTemplateMsg] = useState('')
   const [vatDraft, setVatDraft] = useState({ country_code: '', country_name: '', vat_rate_percent: '0', notes: '' })
+  const [editInvoice, setEditInvoice] = useState(null)
+  const [editAmount, setEditAmount] = useState('')
+  const [editDue, setEditDue] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [editBusy, setEditBusy] = useState(false)
 
   const previewHtml = useMemo(
     () => substitutePlaceholders(templateDraft.body, buildEmailTestVariables('invoice_document')),
@@ -228,6 +259,93 @@ export default function InvoicesAdmin() {
     }
   }
 
+  const occInvoice = (orgId, path, options = {}) =>
+    apiFetch(`/admin/organisations/${encodeURIComponent(orgId)}/control-center${path}`, options)
+
+  const openEditInvoice = (row) => {
+    setEditInvoice(row)
+    setEditAmount(String((row.subtotal_pence ?? row.amount_gbp_pence ?? 0) / 100))
+    setEditDue(row.due_date ? String(row.due_date).slice(0, 10) : '')
+    setEditDesc(row.description || '')
+  }
+
+  const saveEditInvoice = async () => {
+    if (!editInvoice?.org_id || !editInvoice?.id) return
+    const gbp = Number(editAmount)
+    if (!Number.isFinite(gbp) || gbp <= 0) {
+      setError('Enter a positive amount')
+      return
+    }
+    setEditBusy(true)
+    setError('')
+    try {
+      await occInvoice(editInvoice.org_id, `/invoices/${encodeURIComponent(editInvoice.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          amount_minor: Math.round(gbp * 100),
+          due_date: editDue || undefined,
+          description: editDesc.trim() || undefined,
+        }),
+      })
+      setEditInvoice(null)
+      await loadInvoices()
+    } catch (e) {
+      setError(e?.message || 'Invoice edit failed')
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
+  const voidInvoice = async (row) => {
+    if (!row?.org_id) return
+    const reason = window.prompt('Reason for voiding this invoice (required for audit):', 'Voided by support')
+    if (!reason) return
+    setBusy(row.id)
+    setError('')
+    try {
+      await occInvoice(row.org_id, `/invoices/${encodeURIComponent(row.id)}/void`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+      await loadInvoices()
+    } catch (e) {
+      setError(e?.message || 'Void failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const markInvoicePaid = async (row) => {
+    if (!row?.org_id) return
+    setBusy(row.id)
+    setError('')
+    try {
+      await occInvoice(row.org_id, `/invoices/${encodeURIComponent(row.id)}/mark-paid`, { method: 'POST', body: '{}' })
+      await loadInvoices()
+    } catch (e) {
+      setError(e?.message || 'Mark paid failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const collectInvoiceWallet = async (row) => {
+    if (!row?.org_id) return
+    setBusy(row.id)
+    setError('')
+    try {
+      await occInvoice(row.org_id, `/invoices/${encodeURIComponent(row.id)}/collect`, {
+        method: 'POST',
+        body: JSON.stringify({ method: 'wallet' }),
+      })
+      await loadInvoices()
+    } catch (e) {
+      setError(e?.message || 'Collect payment failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
   const saveTemplate = async () => {
     setTemplateSaving(true)
     setTemplateMsg('')
@@ -310,6 +428,9 @@ export default function InvoicesAdmin() {
   const renderInvoiceRow = (row) => {
     const number = row.invoice_number || row.external_invoice_id
     const isBusy = busy === row.id
+    const lifecycle = resolveInvoiceLifecycle(row)
+    const st = String(row.status || '').toLowerCase()
+    const isPaid = st === 'paid'
     return (
       <tr key={row.id} className="invoiceListRow">
         <td>
@@ -354,29 +475,65 @@ export default function InvoicesAdmin() {
           {truncate(row.description, 36)}
         </td>
         <td className="invoiceListActions">
-          <div className="actions invoiceRowActions">
-            <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => viewHtml(row.id)} title="View HTML">
-              <i className="ti ti-eye" />
+          <div className="actions invoiceRowActions" style={{ flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4 }}>
+            <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => viewHtml(row.id)} title="View invoice">
+              View
             </button>
             <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => downloadPdf(row.id, number)} title="Download PDF">
-              <i className="ti ti-download" />
+              PDF
             </button>
-            <button type="button" className="btn primary xs" disabled={isBusy} onClick={() => resendEmail(row.id)} title="Resend email">
-              <i className="ti ti-send" />
+            {lifecycle.can_edit ? (
+              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => openEditInvoice(row)} title="Edit invoice">
+                Edit
+              </button>
+            ) : null}
+            {lifecycle.can_void ? (
+              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => voidInvoice(row)} title="Void invoice">
+                Void
+              </button>
+            ) : lifecycle.is_locked ? (
+              <button
+                type="button"
+                className="btn soft xs"
+                title={lifecycle.suggested_action_label || lifecycle.lock_reason || ''}
+                onClick={() => setError(lifecycle.suggested_action_label || lifecycle.lock_reason || 'Invoice is locked')}
+              >
+                Locked
+              </button>
+            ) : null}
+            {!isPaid ? (
+              <>
+                <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => collectInvoiceWallet(row)} title="Collect from wallet">
+                  Collect
+                </button>
+                <button type="button" className="btn primary xs" disabled={isBusy} onClick={() => markInvoicePaid(row)} title="Mark paid">
+                  Mark paid
+                </button>
+              </>
+            ) : (
+              <span className="pill p-green">Paid</span>
+            )}
+            <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => resendEmail(row.id)} title="Resend email">
+              Resend
             </button>
-            {!row.disputed && String(row.status || '').toLowerCase() !== 'refunded' ? (
+            {row.org_id ? (
+              <Link className="btn soft xs" to="/organisations/all-users" title="Open Organisation Control Center">
+                OCC
+              </Link>
+            ) : null}
+            {!row.disputed && st !== 'refunded' ? (
               <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => disputeInvoice(row)} title="Mark disputed">
-                <i className="ti ti-flag" />
+                Dispute
               </button>
             ) : null}
             {row.disputed ? (
               <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => resolveDispute(row)} title="Resolve dispute">
-                <i className="ti ti-flag-off" />
+                Resolve
               </button>
             ) : null}
-            {String(row.status || '').toLowerCase() !== 'refunded' ? (
+            {st !== 'refunded' ? (
               <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => bankRefund(row)} title="Log bank refund">
-                <i className="ti ti-cash-banknote" />
+                Refund
               </button>
             ) : null}
           </div>
@@ -391,6 +548,9 @@ export default function InvoicesAdmin() {
         <div>
           <h1>Invoices</h1>
           <p>All billing invoices, printable PDF template, and VAT rates by country.</p>
+          <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            Use <strong>Edit</strong> / <strong>Void</strong> on unpaid rows below, or open <Link to="/organisations/all-users">Organisation Control Center</Link> → select org → <strong>Invoices</strong> tab for wallet credits and full billing controls.
+          </p>
         </div>
         <div className="actions">
           {tab === 'invoices' ? (
@@ -628,6 +788,32 @@ export default function InvoicesAdmin() {
             </div>
           </div>
         </>
+      ) : null}
+
+      {editInvoice ? (
+        <div className="card" style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ width: 'min(420px, 92vw)' }}>
+            <div className="cardHead"><h3>Edit invoice {editInvoice.invoice_number || editInvoice.id?.slice(0, 8)}</h3></div>
+            <div className="cardBody invoiceFilterGrid">
+              <label className="msgFieldBlockTight">
+                <span className="label">Amount (£ ex VAT)</span>
+                <input className="input" type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
+              </label>
+              <label className="msgFieldBlockTight">
+                <span className="label">Due date</span>
+                <input className="input" type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)} />
+              </label>
+              <label className="msgFieldBlockTight">
+                <span className="label">Description</span>
+                <input className="input" type="text" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
+              </label>
+              <div className="actions">
+                <button type="button" className="btn soft" onClick={() => setEditInvoice(null)} disabled={editBusy}>Cancel</button>
+                <button type="button" className="btn primary" onClick={saveEditInvoice} disabled={editBusy}>{editBusy ? 'Saving…' : 'Save'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
       ) : null}
     </>
   )

@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, CreditCard, Download, Wallet } from "lucide-react";
+import { AlertTriangle, CreditCard, Download, Eye, Wallet } from "lucide-react";
 import * as React from "react";
 
 import { InvoicePayDialog } from "@/components/invoice-pay-dialog";
@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
-import { downloadAuthenticatedFile } from "@/lib/api";
+import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab } from "@/lib/api";
 import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
@@ -351,7 +351,7 @@ function BillingPage() {
                     <SortHeader label="Date" sortKey="date" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
                     <SortHeader label="Amount" sortKey="amount" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
                     <SortHeader label="Status" sortKey="status" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
-                    <TableHead className="pr-6 text-right" />
+                    <TableHead className="pr-6 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -366,22 +366,45 @@ function BillingPage() {
                         <StatusBadge tone={badgeToneFromStatus(i.rawStatus)} label={i.status} />
                       </TableCell>
                       <TableCell className="pr-6 text-right">
-                        <div className="flex justify-end gap-1">
-                          {i.payable ? (
-                            <Button size="sm" variant="default" className="gap-1" onClick={() => setPayInvoice(i.raw)}>
-                              <CreditCard className="size-3.5" /> Pay now
-                            </Button>
-                          ) : i.paymentContext?.next_steps?.[0] ? (
-                            <span className="max-w-[160px] text-left text-[11px] text-muted-foreground">{i.paymentContext.next_steps[0]}</span>
-                          ) : null}
+                        <div className="flex flex-wrap items-center justify-end gap-1">
                           <Button
                             size="sm"
-                            variant="ghost"
+                            variant="outline"
                             className="gap-1"
-                            onClick={() => void downloadAuthenticatedFile(`/billing/invoices/${encodeURIComponent(i.invoiceId)}/pdf`, `invoice-${i.id}.pdf`)}
+                            onClick={() =>
+                              void openAuthenticatedHtmlInTab(`/billing/invoices/${encodeURIComponent(i.invoiceId)}/html`)
+                            }
                           >
-                            <Download className="size-3.5" /> PDF
+                            <Eye className="size-3.5" /> View
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1"
+                            onClick={() =>
+                              void downloadAuthenticatedFile(
+                                `/billing/invoices/${encodeURIComponent(i.invoiceId)}/pdf`,
+                                `invoice-${i.id}.pdf`,
+                              )
+                            }
+                          >
+                            <Download className="size-3.5" /> Download
+                          </Button>
+                          {i.rawStatus === "paid" ? (
+                            <span className="inline-flex items-center rounded-md bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                              Paid
+                            </span>
+                          ) : i.rawStatus === "collecting" ? (
+                            <span className="inline-flex items-center rounded-md bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 dark:bg-amber-900/30 dark:text-amber-300">
+                              Collecting
+                            </span>
+                          ) : i.payable ? (
+                            <Button size="sm" variant="default" className="gap-1" onClick={() => setPayInvoice(i.raw)}>
+                              <CreditCard className="size-3.5" /> Pay
+                            </Button>
+                          ) : i.paymentContext?.next_steps?.[0] ? (
+                            <span className="max-w-[140px] text-left text-[11px] text-muted-foreground">{i.paymentContext.next_steps[0]}</span>
+                          ) : null}
                         </div>
                       </TableCell>
                     </TableRow>

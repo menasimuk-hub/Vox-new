@@ -84,6 +84,32 @@ function statusBadge(status) {
   return <span className={`occ-badge ${map[s] || 'occ-badge-gray'}`}>{s || '—'}</span>
 }
 
+function resolveInvoiceLifecycle(inv) {
+  if (inv?.lifecycle) return inv.lifecycle
+  const st = String(inv?.status || '').toLowerCase()
+  const ddActive = st === 'collecting' || (st === 'pending' && inv?.dd_payment_id)
+  const locked = ['paid', 'void', 'cancelled', 'refunded', 'disputed', 'credited'].includes(st) || Boolean(inv?.disputed)
+  if (ddActive) {
+    return {
+      can_edit: false,
+      can_void: false,
+      is_locked: true,
+      lock_reason: 'Direct Debit collection is in progress.',
+      suggested_action_label: 'Stop DD collection before editing or voiding.',
+    }
+  }
+  if (locked) {
+    return {
+      can_edit: false,
+      can_void: false,
+      is_locked: true,
+      lock_reason: st === 'paid' ? 'Paid invoices cannot be edited or voided.' : 'This invoice is locked.',
+      suggested_action_label: 'Use credit note, refund, or reissue instead.',
+    }
+  }
+  return { can_edit: true, can_void: true, is_locked: false, lock_reason: null, suggested_action_label: null }
+}
+
 function channelLabel(channel) {
   const ch = String(channel || '').toLowerCase()
   if (ch === 'whatsapp') return 'WhatsApp'
@@ -1318,6 +1344,17 @@ export default function OrgControlCenter() {
           </div>
 
           <div className={`occ-tab-content ${activeTab === 'billing' ? 'active' : ''}`}>
+            <p className="occ-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+              Wallet credits, plan changes, and overage settings. To edit or void invoices, open the{' '}
+              <button
+                type="button"
+                style={{ background: 'none', border: 'none', padding: 0, textDecoration: 'underline', cursor: 'pointer', font: 'inherit', color: 'inherit' }}
+                onClick={() => setActiveTab('invoices')}
+              >
+                Invoices
+              </button>{' '}
+              tab.
+            </p>
             <div className="occ-two-col">
               <div className="occ-plan-card">
                 <div className="occ-plan-name">{org?.plan_name || org?.plan || '—'}</div>
@@ -1410,6 +1447,9 @@ export default function OrgControlCenter() {
           </div>
 
           <div className={`occ-tab-content ${activeTab === 'invoices' ? 'active' : ''}`}>
+            <p className="occ-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+              <strong>Edit</strong> and <strong>Void</strong> unpaid invoices here. Paid, collecting, and disputed invoices are locked — use reissue, refund, or credit instead.
+            </p>
             <div className="occ-invoice-summary">
               <div className="occ-inv-stat">
                 <div className="occ-inv-stat-label">Total billed ({org?.billing_currency || 'GBP'})</div>
@@ -1450,13 +1490,15 @@ export default function OrgControlCenter() {
                       </td>
                     </tr>
                   ) : (
-                    invoices.map((inv) => (
+                    invoices.map((inv) => {
+                      const lifecycle = resolveInvoiceLifecycle(inv)
+                      return (
                       <tr key={inv.id}>
                         <td className="occ-mono">{inv.invoice_number || inv.id?.slice(0, 8)}</td>
                         <td className="occ-mono">{inv.total_gbp || moneyDisplay(org, inv.amount_gbp_pence)}</td>
                         <td>{statusBadge(inv.status)}</td>
-                        <td className="occ-text-xs" title={inv.lifecycle?.lock_reason || ''}>
-                          {inv.lifecycle?.is_locked ? 'Locked' : inv.lifecycle?.can_edit ? 'Editable' : 'Open'}
+                        <td className="occ-text-xs" title={lifecycle.lock_reason || ''}>
+                          {lifecycle.is_locked ? 'Locked' : lifecycle.can_edit ? 'Editable' : 'Open'}
                         </td>
                         <td>{statusBadge(inv.invoice_email_status || (inv.emailed_at ? 'sent' : 'pending'))}</td>
                         <td>{inv.due_date ? fmtWhen(inv.due_date) : '—'}</td>
@@ -1469,21 +1511,21 @@ export default function OrgControlCenter() {
                             <button type="button" className="occ-btn-xs" onClick={() => resendInvoice(inv.id)}>
                               Resend
                             </button>
-                            {inv.lifecycle?.can_edit ? (
+                            {lifecycle.can_edit ? (
                               <button type="button" className="occ-btn-xs" onClick={() => openEditInvoice(inv)}>
                                 Edit
                               </button>
-                            ) : inv.lifecycle?.is_locked ? (
+                            ) : lifecycle.is_locked ? (
                               <button
                                 type="button"
                                 className="occ-btn-xs"
-                                title={inv.lifecycle?.suggested_action_label || inv.lifecycle?.lock_reason || ''}
-                                onClick={() => pushToast(inv.lifecycle?.suggested_action_label || inv.lifecycle?.lock_reason || 'Invoice is locked', 'warning')}
+                                title={lifecycle.suggested_action_label || lifecycle.lock_reason || ''}
+                                onClick={() => pushToast(lifecycle.suggested_action_label || lifecycle.lock_reason || 'Invoice is locked', 'warning')}
                               >
                                 Locked
                               </button>
                             ) : null}
-                            {inv.lifecycle?.can_void ? (
+                            {lifecycle.can_void ? (
                               <button
                                 type="button"
                                 className="occ-btn-xs danger"
@@ -1505,11 +1547,13 @@ export default function OrgControlCenter() {
                                   Mark paid
                                 </button>
                               </>
-                            ) : null}
+                            ) : (
+                              <span className="occ-badge occ-badge-green">Paid</span>
+                            )}
                           </div>
                         </td>
                       </tr>
-                    ))
+                    )})
                   )}
                 </tbody>
               </table>
