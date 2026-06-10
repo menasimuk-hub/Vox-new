@@ -93,6 +93,16 @@ class InterviewLaunchService:
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved before launch")
 
+        from app.services.service_order_payment_workflow_service import (
+            ServiceOrderPaymentWorkflowError,
+            ServiceOrderPaymentWorkflowService,
+        )
+
+        try:
+            ServiceOrderPaymentWorkflowService.assert_launch_ready(db, order)
+        except ServiceOrderPaymentWorkflowError as e:
+            raise ValueError(str(e)) from e
+
         from app.services.uk_compliance_service import UkComplianceService
         from app.services.uk_compliance_audit_service import UkComplianceAuditService
 

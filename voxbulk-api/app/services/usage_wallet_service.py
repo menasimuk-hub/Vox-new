@@ -95,7 +95,7 @@ class UsageWalletService:
         return UsageWalletService.bootstrap_from_promo(db, org_id=org_id, promo=fake, subscription=subscription)
 
     @staticmethod
-    def summary_dict(row: OrgUsagePeriod) -> dict:
+    def summary_dict(row: OrgUsagePeriod, db: Session | None = None, org_id: str | None = None) -> dict:
         def pct(used: int, included: int) -> float:
             if included <= 0:
                 return 0.0
@@ -112,9 +112,8 @@ class UsageWalletService:
         pack_used = int(row.pack_credits_used or 0)
         pack_included = int(row.pack_credits_included or 0)
 
-        overage_calls = max(0, calls_used - calls_included)
-        wa_overage_units = max(0, wa_used - wa_included)
-        est_overage_pence = overage_calls * int(row.overage_per_min_pence or 0) + wa_overage_units * 49
+        breakdown = UsageWalletService._overage_breakdown_pence(row, db, org_id)
+        est_overage_pence = int(breakdown.get("total_overage_pence") or 0)
 
         return {
             "period_start": row.period_start.isoformat(),
@@ -122,17 +121,40 @@ class UsageWalletService:
             "status": row.status,
             "plan_code": row.plan_code,
             "promo_code": row.promo_code,
-            "calls": {"used": calls_used, "included": calls_included, "percent": pct(calls_used, calls_included)},
-            "whatsapp": {"used": wa_used, "included": wa_included, "percent": pct(wa_used, wa_included)},
-            "sms": {"used": sms_used, "included": sms_included, "percent": pct(sms_used, sms_included)},
-            "cv_scans": {"used": cv_used, "included": cv_included, "percent": pct(cv_used, cv_included)},
+            "calls": {
+                "used": calls_used,
+                "included": calls_included,
+                "remaining": max(0, calls_included - calls_used),
+                "percent": pct(calls_used, calls_included),
+            },
+            "whatsapp": {
+                "used": wa_used,
+                "included": wa_included,
+                "remaining": max(0, wa_included - wa_used),
+                "percent": pct(wa_used, wa_included),
+            },
+            "sms": {
+                "used": sms_used,
+                "included": sms_included,
+                "remaining": max(0, sms_included - sms_used),
+                "percent": pct(sms_used, sms_included),
+            },
+            "cv_scans": {
+                "used": cv_used,
+                "included": cv_included,
+                "remaining": max(0, cv_included - cv_used),
+                "percent": pct(cv_used, cv_included),
+            },
             "pack_credits": {
                 "used": pack_used,
                 "included": pack_included,
+                "remaining": max(0, pack_included - pack_used),
                 "expires_at": row.pack_credits_expires_at.isoformat() if row.pack_credits_expires_at else None,
             },
             "overage_per_min_pence": int(row.overage_per_min_pence or 0),
+            "wa_overage_unit_pence": int(breakdown.get("wa_extra_pence") or 49),
             "estimated_overage_gbp": round(est_overage_pence / 100, 2),
+            "estimated_overage_pence": est_overage_pence,
             "warn_at_80": any(
                 pct(x, y) >= 80 for x, y in ((calls_used, calls_included), (wa_used, wa_included), (sms_used, sms_included))
             ),

@@ -4,6 +4,7 @@ import { CheckCircle2, Lock, Pencil, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import { InterviewEditActionBar } from "@/components/interview-edit-action-bar";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -185,6 +186,9 @@ function InterviewManagePage() {
         }
         actions={
           <>
+            {!readOnly ? (
+              <InterviewEditActionBar order={order} onSave={() => void onSave()} savePending={saveDraftM.isPending || patchM.isPending} />
+            ) : null}
             <Button variant="ghost" asChild>
               <Link to="/interviews">← Back</Link>
             </Button>

@@ -354,6 +354,18 @@ class InvoiceService:
         ).scalar_one_or_none()
 
     @staticmethod
+    def get_for_order(db: Session, *, order_id: str) -> BillingInvoice | None:
+        oid = str(order_id or "").strip()
+        if not oid:
+            return None
+        return db.execute(
+            select(BillingInvoice)
+            .where(BillingInvoice.order_id == oid)
+            .order_by(BillingInvoice.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+    @staticmethod
     def issue_from_payment(
         db: Session,
         *,

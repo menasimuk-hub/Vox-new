@@ -469,7 +469,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
     current_plan = BillingService.resolve_active_plan(db, principal.org_id)
     sub = BillingService.get_subscription(db, principal.org_id)
 
-    usage_payload = UsageWalletService.summary_dict(row) if row else None
+    usage_payload = UsageWalletService.summary_dict(row, db, principal.org_id) if row else None
     pending_overage_pence = 0
     if row is not None:
         total_overage = UsageWalletService._calc_overage_pence(row, db, principal.org_id)
@@ -485,7 +485,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
                 )
                 row = UsageWalletService.get_current(db, principal.org_id)
                 if row is not None:
-                    usage_payload = UsageWalletService.summary_dict(row)
+                    usage_payload = UsageWalletService.summary_dict(row, db, principal.org_id)
                     total_overage = UsageWalletService._calc_overage_pence(row, db, principal.org_id)
                     pending_overage_pence = max(0, total_overage - int(row.overage_invoiced_pence or 0))
             except Exception:

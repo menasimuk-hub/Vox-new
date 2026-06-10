@@ -1621,6 +1621,32 @@ def admin_occ_suspend(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/organisations/{org_id}/control-center/delete-account")
+def admin_occ_delete_account(
+    org_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.account_deletion_service import AccountDeletionError, AccountDeletionService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    body = payload if isinstance(payload, dict) else {}
+    confirm = str(body.get("confirm") or "").strip().upper()
+    if confirm != "DELETE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Type DELETE in confirm field')
+    try:
+        return AccountDeletionService.execute_org_deletion(
+            db,
+            org_id,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+            reason=str(body.get("reason") or "").strip() or None,
+        )
+    except AccountDeletionError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/organisations/{org_id}")
 def admin_get_organisation(org_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     from app.services.market_zone import country_to_zone, format_wallet_pence, zone_label

@@ -531,3 +531,32 @@ def delete_my_logo(db: Session = Depends(get_db), principal=Depends(get_current_
         OrgAuditService.record_for_user(db, org_id=principal.org_id, user=user, action="profile.logo_removed", detail=None)
     return {"ok": True}
 
+
+@router.post("/me/delete-account")
+def request_delete_my_account(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.user import User
+    from app.services.account_deletion_service import AccountDeletionError, AccountDeletionService
+
+    user = db.get(User, principal.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    body = payload if isinstance(payload, dict) else {}
+    confirm = str(body.get("confirm") or "").strip().upper()
+    if confirm != "DELETE":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Type DELETE in confirm field to proceed',
+        )
+    try:
+        return AccountDeletionService.request_user_deletion(
+            db,
+            user,
+            reason=str(body.get("reason") or "").strip() or None,
+        )
+    except AccountDeletionError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Coins, Copy, Save, Square, Trash2 } from "lucide-react";
+import { Coins, Copy, Play, Save, Square, Trash2 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 
@@ -15,7 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { useDeleteOrder, useDuplicateSurveyOrder, useStopSurveyOrder } from "@/lib/queries";
+import { useDeleteOrder, useDuplicateSurveyOrder, useLaunchSurveyCampaign, useStopSurveyOrder } from "@/lib/queries";
 import type { ServiceOrder } from "@/lib/types/api";
 
 type SurveyEditActionBarProps = {
@@ -37,6 +37,7 @@ export function SurveyEditActionBar({
 }: SurveyEditActionBarProps) {
   const navigate = useNavigate();
   const stopM = useStopSurveyOrder();
+  const launchM = useLaunchSurveyCampaign();
   const deleteM = useDeleteOrder();
   const duplicateM = useDuplicateSurveyOrder();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -48,6 +49,16 @@ export function SurveyEditActionBar({
   const paymentStatus = String(order.payment_status || "").toLowerCase();
   const needsPay = ["unpaid", "quoted", "pending_approval"].includes(paymentStatus);
   const runningLike = ["running", "paused", "scheduled"].includes(status);
+  const canRun = paymentStatus === "approved" && !runningLike && !["completed", "cancelled"].includes(status);
+
+  const onRun = async () => {
+    try {
+      await launchM.mutateAsync({ orderId: order.id, run_mode: "now" });
+      toast.success("Survey launched");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Launch failed");
+    }
+  };
 
   const onStop = async () => {
     try {
@@ -97,6 +108,11 @@ export function SurveyEditActionBar({
         {needsPay ? (
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPayOpen(true)}>
             <Coins className="size-4" /> Pay
+          </Button>
+        ) : null}
+        {canRun ? (
+          <Button size="sm" className="gap-1.5" onClick={() => void onRun()} disabled={launchM.isPending}>
+            <Play className="size-4" /> Run
           </Button>
         ) : null}
         <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void onDuplicate()} disabled={duplicateM.isPending}>

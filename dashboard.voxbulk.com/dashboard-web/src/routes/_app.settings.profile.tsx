@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useServices } from "@/lib/services";
 import { useDeleteOrgLogo, useOrganisation, useUpdateOrganisation, useUploadOrgLogo } from "@/lib/queries";
+import { apiFetch } from "@/lib/api";
 import { PROFILE_COUNTRIES } from "@/lib/billing/market";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 
@@ -34,6 +35,8 @@ function ProfileSettings() {
   const [contactPhone, setContactPhone] = React.useState("");
   const [website, setWebsite] = React.useState("");
   const [country, setCountry] = React.useState("United Kingdom");
+  const [deleteConfirm, setDeleteConfirm] = React.useState("");
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
   const logoPreview = useOrgLogoPreview(orgQ.data?.logo_url);
 
   React.useEffect(() => {
@@ -90,6 +93,26 @@ function ProfileSettings() {
   const onCountryChange = (value: string) => {
     setCountry(value);
     void onSave({ country: value });
+  };
+
+  const onDeleteAccount = async () => {
+    if (deleteConfirm.trim().toUpperCase() !== "DELETE") {
+      toast.error('Type DELETE to confirm account deletion');
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      await apiFetch("/organisations/me/delete-account", {
+        method: "POST",
+        body: JSON.stringify({ confirm: "DELETE" }),
+      });
+      toast.success("Deletion request submitted — your account will be archived");
+      setDeleteConfirm("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not submit deletion request");
+    } finally {
+      setDeleteBusy(false);
+    }
   };
 
   return (
@@ -156,6 +179,19 @@ function ProfileSettings() {
               </div>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-destructive/30">
+        <CardHeader><CardTitle className="text-destructive">Delete my account</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Request deletion of your organisation account. Invoices and legally required billing records are retained; personal data is anonymized.
+          </p>
+          <Field label='Type DELETE to confirm' value={deleteConfirm} onChange={setDeleteConfirm} />
+          <Button variant="destructive" disabled={deleteBusy} onClick={() => void onDeleteAccount()}>
+            {deleteBusy ? "Submitting…" : "Delete my account"}
+          </Button>
         </CardContent>
       </Card>
 

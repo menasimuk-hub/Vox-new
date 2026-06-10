@@ -264,6 +264,15 @@ class LaunchBillingService:
         db.add(order)
         db.commit()
         db.refresh(order)
+        from app.services.service_order_payment_workflow_service import ServiceOrderPaymentWorkflowService
+
+        if wallet_charge > 0 and not dd_charge:
+            try:
+                ServiceOrderPaymentWorkflowService.confirm_payment_and_issue_invoice(db, order)
+            except Exception:
+                logger.exception("wallet_launch_invoice_failed order_id=%s", order.id)
+        elif invoice is not None:
+            ServiceOrderPaymentWorkflowService.link_payment_invoice(db, order, invoice.id)
         logger.info(
             "launch_billing_charged order_id=%s org_id=%s method=%s wallet=%s dd=%s",
             order.id, org.id, method, wallet_charge, dd_charge,

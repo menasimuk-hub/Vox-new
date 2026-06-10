@@ -1366,14 +1366,21 @@ class ServiceOrderService:
         db.add(order)
         db.commit()
         db.refresh(order)
-        try:
-            from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+        from app.services.service_order_payment_workflow_service import (
+            ServiceOrderPaymentWorkflowError,
+            ServiceOrderPaymentWorkflowService,
+        )
 
-            OrgControlCenterActionsService.issue_order_payment_invoice(db, order)
+        try:
+            ServiceOrderPaymentWorkflowService.confirm_payment_and_issue_invoice(db, order)
+        except ServiceOrderPaymentWorkflowError as e:
+            raise ValueError(str(e)) from e
         except Exception:
             import logging
 
             logging.getLogger(__name__).exception("admin_approve_payment_invoice_failed order_id=%s", order.id)
+            raise ValueError("Payment approved but invoice could not be issued — check billing email") from None
+        db.refresh(order)
         return order
 
     @staticmethod
@@ -1424,6 +1431,15 @@ class ServiceOrderService:
     def start_order(db: Session, order: ServiceOrder) -> ServiceOrder:
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved by admin before starting")
+        from app.services.service_order_payment_workflow_service import (
+            ServiceOrderPaymentWorkflowError,
+            ServiceOrderPaymentWorkflowService,
+        )
+
+        try:
+            ServiceOrderPaymentWorkflowService.assert_launch_ready(db, order)
+        except ServiceOrderPaymentWorkflowError as e:
+            raise ValueError(str(e)) from e
         if order.service_code == "survey":
             from app.models.organisation import Organisation
             from app.services.survey_launch_eligibility_service import (

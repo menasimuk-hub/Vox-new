@@ -39,6 +39,8 @@ class ServiceOrder(Base):
     payment_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
     payment_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     admin_decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payment_invoice_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    payment_invoice_issued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     report_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 

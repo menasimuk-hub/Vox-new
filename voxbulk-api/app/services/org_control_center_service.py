@@ -58,7 +58,7 @@ def _usage_metrics(db: Session, org: Organisation, usage_row) -> dict[str, Any]:
             "billing_currency": profile.get("billing_currency"),
             "currency_symbol": profile.get("currency_symbol"),
         }
-    summary = UsageWalletService.summary_dict(usage_row)
+    summary = UsageWalletService.summary_dict(usage_row, db, org.id if org else None)
     calls = summary.get("calls") or {}
     wa = summary.get("whatsapp") or {}
     sms = summary.get("sms") or {}
@@ -330,7 +330,7 @@ class OrgControlCenterService:
                 usage_row = UsageWalletService.bootstrap_from_plan(db, org_id=org_id, subscription=sub)
 
         usage = _usage_metrics(db, org, usage_row)
-        usage_full = UsageWalletService.summary_dict(usage_row) if usage_row else None
+        usage_full = UsageWalletService.summary_dict(usage_row, db, org_id) if usage_row else None
 
         sub = db.execute(
             select(Subscription)

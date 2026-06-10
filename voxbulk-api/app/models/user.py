@@ -17,6 +17,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deletion_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", index=True)
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    anonymized_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     phone_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     phone_e164: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)

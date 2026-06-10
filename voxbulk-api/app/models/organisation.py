@@ -51,6 +51,10 @@ class Organisation(Base):
     # Fixed billing currency (GBP/USD/CAD/AUD); resolved from country on first billing action.
     billing_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     allow_overage: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    deletion_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", index=True)
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    anonymized_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     credit_limit_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scheduling_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     hubspot_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)

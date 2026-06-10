@@ -43,6 +43,16 @@ class SurveyLaunchService:
         if order.payment_status != "approved":
             raise SurveyLaunchEligibilityError("Payment must be approved before launch")
 
+        from app.services.service_order_payment_workflow_service import (
+            ServiceOrderPaymentWorkflowError,
+            ServiceOrderPaymentWorkflowService,
+        )
+
+        try:
+            ServiceOrderPaymentWorkflowService.assert_launch_ready(db, order)
+        except ServiceOrderPaymentWorkflowError as e:
+            raise SurveyLaunchEligibilityError(str(e)) from e
+
         SurveyLaunchEligibilityService.consume_launch_allowance(db, order, org)
 
         if run_now:
