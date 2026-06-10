@@ -1928,12 +1928,11 @@ class SurveyWhatsappTemplateService:
 
             label = telnyx_sync_ui_label(row)
             content_sync = _refresh_local_sync_status(row)
-            if label == TELNYX_SYNC_APPROVED and content_sync == SYNC_IN_SYNC:
+            approval = str(row.status or "").upper()
+            if approval not in {"PENDING", "REJECTED"} and label == TELNYX_SYNC_APPROVED and content_sync == SYNC_IN_SYNC:
                 skipped += 1
                 continue
-            if label == TELNYX_SYNC_PENDING and content_sync == SYNC_IN_SYNC:
-                skipped += 1
-                continue
+            # PENDING/REJECTED templates still run push_to_telnyx — it refreshes status or resubmits safely.
 
             template_id = row.id
             template_name = row.name
