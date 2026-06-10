@@ -359,7 +359,7 @@ def _resolve_example_values(
 
 
 def build_meta_body_component(text: str, *, example_values: list[str] | None = None) -> dict[str, Any]:
-    """Build a Meta/Telnyx-compatible BODY component (example required even without variables)."""
+    """Build a Meta/Telnyx-compatible BODY component (example only when body uses {{1}} variables)."""
     body = str(text or "").strip()
     var_ids = _meta_var_ids_in_text(body)
     component: dict[str, Any] = {"type": "BODY", "text": body}
@@ -368,9 +368,7 @@ def build_meta_body_component(text: str, *, example_values: list[str] | None = N
         if not examples:
             examples = _pad_example_values([], max(var_ids))
         body_example = _pad_example_values(examples, max(var_ids))
-    else:
-        body_example = [META_STATIC_BODY_SAMPLE]
-    component["example"] = {"body_text": [body_example]}
+        component["example"] = {"body_text": [body_example]}
     return component
 
 
@@ -541,14 +539,21 @@ def _assert_meta_ready_components(components: list[Any] | None) -> None:
         ctype = str(comp.get("type") or "").upper()
         if ctype == "BODY":
             body_seen += 1
-            example = comp.get("example")
-            if not isinstance(example, dict) or "body_text" not in example:
+            text = str(comp.get("text") or "")
+            var_ids = _meta_var_ids_in_text(text)
+            if var_ids:
+                example = comp.get("example")
+                if not isinstance(example, dict) or "body_text" not in example:
+                    raise SurveyWhatsappTemplateError(
+                        "Internal error: BODY example missing after Meta preparation — contact support."
+                    )
+                if not _meta_example_is_valid(example, field="body_text"):
+                    raise SurveyWhatsappTemplateError(
+                        "Internal error: BODY example is invalid after Meta preparation — contact support."
+                    )
+            elif comp.get("example") is not None:
                 raise SurveyWhatsappTemplateError(
-                    "Internal error: BODY example missing after Meta preparation — contact support."
-                )
-            if not _meta_example_is_valid(example, field="body_text"):
-                raise SurveyWhatsappTemplateError(
-                    "Internal error: BODY example is invalid after Meta preparation — contact support."
+                    "Internal error: static BODY must not include Meta example values — contact support."
                 )
         elif ctype == "HEADER":
             text = str(comp.get("text") or "")
@@ -1775,6 +1780,9 @@ class SurveyWhatsappTemplateService:
                     "approval_status": str(row.status or "").upper(),
                 },
             )
+            if branch == SYNC_BRANCH_APPROVED_UPDATE:
+                branch = SYNC_BRANCH_STATUS_REFRESH
+                branch_error = None
 
         logger.info(
             "survey_wa_template_sync_branch",

@@ -232,6 +232,10 @@ def test_push_links_existing_remote_template_instead_of_create(monkeypatch):
         lambda db: remote,
     )
     monkeypatch.setattr(
+        "app.services.survey_whatsapp_template_service.TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id",
+        lambda db, rid: {**remote[0], "id": rid},
+    )
+    monkeypatch.setattr(
         "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",
         lambda db: {"api_key": "test-key", "whatsapp_waba_id": "waba-123"},
     )
@@ -246,8 +250,6 @@ def test_push_links_existing_remote_template_instead_of_create(monkeypatch):
 
         result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
         assert result["ok"] is True
-        assert result["linked_existing_remote"] is True
-        assert result["telnyx_request_mode"] == "link_existing_remote_template"
         assert row.telnyx_record_id == "019job-closed-remote"
         assert row.status == "APPROVED"
-        assert "Linked to existing Telnyx template" in result["message"]
+        assert result["sync_branch"] == "status_refresh_only"

@@ -308,7 +308,17 @@ def test_prepare_components_for_telnyx_push_strips_invalid_body_example():
     ]
     prepared = prepare_components_for_telnyx_push(raw)
     body = next(c for c in prepared if c.get("type") == "BODY")
-    assert body["example"]["body_text"] == [["Sample"]]
+    assert "example" not in body
+    assert body["text"] == "How was your visit?"
+
+
+def test_prepare_components_for_telnyx_push_injects_example_for_variables():
+    from app.services.survey_whatsapp_template_service import prepare_components_for_telnyx_push
+
+    raw = [{"type": "BODY", "text": "Hi {{1}}, thanks for visiting."}]
+    prepared = prepare_components_for_telnyx_push(raw)
+    body = next(c for c in prepared if c.get("type") == "BODY")
+    assert body["example"]["body_text"] == [["Alex"]]
 
 
 def test_push_to_telnyx_builds_payload(monkeypatch):
@@ -428,7 +438,7 @@ def test_push_to_telnyx_injects_body_example_when_missing(monkeypatch):
         SurveyWhatsappTemplateService.push_to_telnyx(db, row)
         body = captured["payload"]["components"][0]
         assert body["type"] == "BODY"
-        assert body["example"]["body_text"] == [["Sample"]]
+        assert "example" not in body
 
 
 def test_push_to_telnyx_links_remote_then_refreshes_when_pending(monkeypatch):
@@ -569,7 +579,7 @@ def test_push_to_telnyx_rejected_existing_remote_resubmits_via_post(monkeypatch)
         assert result["sync_branch"] == "rejected_recovery"
         assert result["telnyx_request_mode"] == "create_or_update_template"
         body = captured["post_payload"]["components"][0]
-        assert body["example"]["body_text"] == [["Sample"]]
+        assert "example" not in body
 
 
 def test_resolve_template_sync_branch_pending_remote_is_status_refresh():

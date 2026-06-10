@@ -282,11 +282,10 @@ def admin_guidance_for_meta_error(
         )
     if kind == META_ERROR_MISSING_BODY_EXAMPLE:
         return (
-            f"Meta rejected template “{template_name}” because the BODY component was sent without a valid "
-            "example. If the template is still PENDING Meta review, use Sync to refresh status only — "
-            "PATCH is not supported while pending. After pulling the latest API code and restarting, "
-            "sync again; it should refresh approval status without PATCH. "
-            "For content edits on REJECTED templates, push again after the fix deploys."
+            f"Meta rejected template “{template_name}” because the BODY example/variables are invalid. "
+            "Survey question templates (abc_choice, rating, etc.) must use plain body text with no {{1}} "
+            "variables and no example values — only welcome/system templates use named variables. "
+            "Remove any variables or sample values from the BODY, save, then sync again."
         )
     if meta_user_message:
         return str(meta_user_message)

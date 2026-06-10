@@ -59,10 +59,19 @@ def main() -> int:
         body = next(c for c in prepared if str(c.get("type") or "").upper() == "BODY")
         print("\nPrepared BODY (sent to Telnyx):")
         print(json.dumps(body, indent=2, ensure_ascii=False))
-        if "example" not in body:
-            print("\nERROR: prepared BODY has no example key", file=sys.stderr)
+        import re
+
+        var_ids = [int(m.group(1)) for m in re.finditer(r"\{\{(\d+)\}\}", str(body.get("text") or ""))]
+        if var_ids:
+            if "example" not in body:
+                print("\nERROR: BODY with variables has no example key", file=sys.stderr)
+                return 1
+            print("\nOK — variable BODY includes Meta example values.")
+        elif "example" in body:
+            print("\nERROR: static BODY must not include example values", file=sys.stderr)
             return 1
-        print("\nOK — BODY includes Meta example.")
+        else:
+            print("\nOK — static BODY has no variables or example values.")
     return 0
 
 
