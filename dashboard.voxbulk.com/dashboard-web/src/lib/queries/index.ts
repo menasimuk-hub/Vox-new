@@ -181,6 +181,26 @@ export function useBillingInvoices() {
   });
 }
 
+export function usePayInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { invoiceId: string; method?: string }) =>
+      apiFetch<{ ok: boolean; method?: string; invoice?: Invoice }>(
+        `/billing/invoices/${encodeURIComponent(args.invoiceId)}/pay`,
+        {
+          method: "POST",
+          body: JSON.stringify({ method: args.method || "wallet" }),
+        },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.billingInvoices });
+      void qc.invalidateQueries({ queryKey: queryKeys.billingUsage });
+      void qc.invalidateQueries({ queryKey: ["billing", "wallet"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.homeSummary });
+    },
+  });
+}
+
 export function useBillingAccess() {
   return useQuery({
     queryKey: queryKeys.billingAccess,

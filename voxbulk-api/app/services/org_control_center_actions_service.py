@@ -23,7 +23,7 @@ from app.services.org_service_credit_service import OrgServiceCreditError, OrgSe
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.promo_offer_service import PromoOfferError, PromoOfferService
 from app.services.usage_wallet_service import UsageWalletService
-from app.services.wallet_service import WalletService
+from app.services.wallet_service import InsufficientWalletBalance, WalletService
 
 _FAILED_RECIPIENT = frozenset({"failed", "error", "cancelled", "rejected", "no_answer", "busy"})
 
@@ -68,6 +68,187 @@ class OrgControlCenterActionsService:
         )
         org = db.get(Organisation, org_id)
         return {"ok": True, **result, **WalletService.wallet_dict(db, org)}
+
+    @staticmethod
+    def debit_wallet(
+        db: Session,
+        org_id: str,
+        *,
+        amount_minor: int,
+        reason: str,
+        actor_user_id: str | None = None,
+        actor_email: str | None = None,
+    ) -> dict[str, Any]:
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise ValueError("Organisation not found")
+        amount = int(amount_minor or 0)
+        if amount <= 0:
+            raise ValueError("amount_minor must be positive")
+        try:
+            tx = WalletService.debit(
+            db,
+            org,
+            amount_minor=amount,
+            kind="admin_debit",
+            description=(reason or "Admin wallet debit")[:255],
+            created_by_user_id=actor_user_id,
+            metadata={"trigger": "admin_debit"},
+        )
+        except InsufficientWalletBalance as exc:
+            raise ValueError(str(exc)) from exc
+        OrgAuditService.record_admin(
+            db,
+            org_id=org_id,
+            event_type="wallet.debit",
+            action=f"Wallet debited — {amount / 100:.2f}",
+            entity_type="wallet_transaction",
+            entity_id=tx.id,
+            detail=reason,
+            metadata={"amount_minor": amount, "transaction_id": tx.id},
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
+        )
+        return {"ok": True, "wallet_transaction": WalletService.transaction_to_dict(tx), **WalletService.wallet_dict(db, org)}
+
+    @staticmethod
+    def refund_wallet(
+        db: Session,
+        org_id: str,
+        *,
+        amount_minor: int,
+        reason: str,
+        invoice_id: str | None = None,
+        order_id: str | None = None,
+        actor_user_id: str | None = None,
+        actor_email: str | None = None,
+    ) -> dict[str, Any]:
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise ValueError("Organisation not found")
+        currency = resolve_org_currency(db, org)
+        result = BillingLifecycleService.issue_wallet_refund(
+            db,
+            org,
+            amount_minor=amount_minor,
+            currency=currency,
+            reason=reason or "Admin wallet refund",
+            invoice_id=invoice_id,
+            order_id=order_id,
+            trigger="admin_refund",
+            created_by_user_id=actor_user_id,
+        )
+        OrgAuditService.record_admin(
+            db,
+            org_id=org_id,
+            event_type="wallet.refund",
+            action=f"Wallet refunded — {int(amount_minor or 0) / 100:.2f}",
+            entity_type="wallet_transaction",
+            entity_id=result.get("wallet_transaction_id"),
+            detail=reason,
+            metadata={"amount_minor": amount_minor, **result},
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
+        )
+        return {"ok": True, **result, **WalletService.wallet_dict(db, org)}
+
+    @staticmethod
+    def reverse_wallet_transaction(
+        db: Session,
+        org_id: str,
+        transaction_id: str,
+        *,
+        reason: str,
+        actor_user_id: str | None = None,
+        actor_email: str | None = None,
+    ) -> dict[str, Any]:
+        from app.models.wallet_transaction import WalletTransaction
+
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise ValueError("Organisation not found")
+        tx = db.get(WalletTransaction, transaction_id)
+        if tx is None or tx.org_id != org_id:
+            raise ValueError("Wallet transaction not found")
+        amount = int(tx.amount_minor or 0)
+        if amount <= 0:
+            raise ValueError("Invalid transaction amount")
+        note = (reason or "Admin reversal")[:255]
+        if tx.direction == "debit":
+            result = BillingLifecycleService.issue_wallet_refund(
+                db,
+                org,
+                amount_minor=amount,
+                currency=tx.currency or resolve_org_currency(db, org),
+                reason=f"Reversal of {tx.id[:8]} — {note}",
+                order_id=tx.order_id,
+                invoice_id=tx.invoice_id,
+                trigger="admin_reversal",
+                created_by_user_id=actor_user_id,
+            )
+            event = "wallet.reversal_credit"
+        else:
+            reversed_tx = WalletService.debit(
+                db,
+                org,
+                amount_minor=amount,
+                kind="admin_reversal",
+                description=f"Reversal of credit {tx.id[:8]} — {note}"[:255],
+                order_id=tx.order_id,
+                invoice_id=tx.invoice_id,
+                created_by_user_id=actor_user_id,
+                metadata={"reversed_transaction_id": tx.id},
+            )
+            result = {"wallet_transaction_id": reversed_tx.id, "wallet_transaction": WalletService.transaction_to_dict(reversed_tx)}
+            event = "wallet.reversal_debit"
+        OrgAuditService.record_admin(
+            db,
+            org_id=org_id,
+            event_type=event,
+            action=f"Wallet transaction reversed — {tx.id[:8]}",
+            entity_type="wallet_transaction",
+            entity_id=result.get("wallet_transaction_id"),
+            detail=note,
+            metadata={"reversed_transaction_id": tx.id, "amount_minor": amount, **result},
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
+        )
+        return {"ok": True, **result, **WalletService.wallet_dict(db, org)}
+
+    @staticmethod
+    def collect_invoice_payment(
+        db: Session,
+        org_id: str,
+        invoice_id: str,
+        *,
+        method: str = "wallet",
+        actor_user_id: str | None = None,
+        actor_email: str | None = None,
+    ) -> dict[str, Any]:
+        from app.services.invoice_payment_service import InvoicePaymentError, InvoicePaymentService
+
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise ValueError("Organisation not found")
+        invoice = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=org_id)
+        if invoice is None:
+            raise ValueError("Invoice not found")
+        try:
+            result = InvoicePaymentService.pay_invoice(db, org, invoice, method=method, user_id=actor_user_id)
+        except InvoicePaymentError as exc:
+            raise ValueError(str(exc)) from exc
+        OrgAuditService.record_admin(
+            db,
+            org_id=org_id,
+            event_type="invoice.collect",
+            action=f"Invoice payment collected — {invoice.invoice_number or invoice.id[:8]}",
+            entity_type="invoice",
+            entity_id=invoice.id,
+            metadata={"method": method},
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
+        )
+        return result
 
     @staticmethod
     def adjust_credits(
@@ -239,6 +420,63 @@ class OrgControlCenterActionsService:
         return {"ok": True, "invoice": InvoiceService.invoice_to_dict(db, invoice), "emailed": sent}
 
     @staticmethod
+    def edit_invoice(
+        db: Session,
+        org_id: str,
+        invoice_id: str,
+        *,
+        payload: dict[str, Any],
+        actor_user_id: str | None = None,
+        actor_email: str | None = None,
+    ) -> dict[str, Any]:
+        from app.services.invoice_lifecycle_service import InvoiceLifecycleError, InvoiceLifecycleService
+
+        invoice = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=org_id)
+        if invoice is None:
+            raise ValueError("Invoice not found")
+        try:
+            updated = InvoiceLifecycleService.edit_invoice(
+                db,
+                invoice,
+                description=payload.get("description"),
+                due_date=payload.get("due_date"),
+                amount_minor=int(payload["amount_minor"]) if payload.get("amount_minor") is not None else None,
+                client_email=payload.get("client_email"),
+                actor_user_id=actor_user_id,
+                actor_email=actor_email,
+            )
+        except InvoiceLifecycleError as exc:
+            raise ValueError(str(exc)) from exc
+        return {"ok": True, "invoice": InvoiceService.invoice_to_dict(db, updated)}
+
+    @staticmethod
+    def void_invoice(
+        db: Session,
+        org_id: str,
+        invoice_id: str,
+        *,
+        reason: str | None = None,
+        actor_user_id: str | None = None,
+        actor_email: str | None = None,
+    ) -> dict[str, Any]:
+        from app.services.invoice_lifecycle_service import InvoiceLifecycleError, InvoiceLifecycleService
+
+        invoice = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=org_id)
+        if invoice is None:
+            raise ValueError("Invoice not found")
+        try:
+            updated = InvoiceLifecycleService.void_invoice(
+                db,
+                invoice,
+                reason=reason,
+                actor_user_id=actor_user_id,
+                actor_email=actor_email,
+            )
+        except InvoiceLifecycleError as exc:
+            raise ValueError(str(exc)) from exc
+        return {"ok": True, "invoice": InvoiceService.invoice_to_dict(db, updated)}
+
+    @staticmethod
     def mark_invoice_paid(
         db: Session,
         org_id: str,
@@ -254,6 +492,9 @@ class OrgControlCenterActionsService:
         invoice.status = "paid"
         invoice.payment_reference = (note or invoice.payment_reference or "manual")[:128]
         db.add(invoice)
+        from app.services.invoice_payment_service import InvoicePaymentService
+
+        InvoicePaymentService._sync_linked_order_after_payment(db, invoice)
         db.commit()
         db.refresh(invoice)
         OrgAuditService.record_admin(

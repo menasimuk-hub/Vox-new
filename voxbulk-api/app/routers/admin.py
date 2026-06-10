@@ -1334,6 +1334,103 @@ def admin_occ_wallet_credit(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/organisations/{org_id}/control-center/wallet/debit")
+def admin_occ_wallet_debit(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
+    reason = str(payload.get("reason") or payload.get("note") or "Admin wallet debit").strip()
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.debit_wallet(
+            db, org_id, amount_minor=amount, reason=reason, actor_user_id=actor_id, actor_email=actor_email
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/wallet/refund")
+def admin_occ_wallet_refund(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
+    reason = str(payload.get("reason") or payload.get("note") or "Admin wallet refund").strip()
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.refund_wallet(
+            db,
+            org_id,
+            amount_minor=amount,
+            reason=reason,
+            invoice_id=str(payload.get("invoice_id") or "").strip() or None,
+            order_id=str(payload.get("order_id") or "").strip() or None,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/wallet/transactions/{transaction_id}/reverse")
+def admin_occ_reverse_wallet_transaction(
+    org_id: str,
+    transaction_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    reason = str(payload.get("reason") or payload.get("note") or "Admin wallet reversal").strip()
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.reverse_wallet_transaction(
+            db,
+            org_id,
+            transaction_id,
+            reason=reason,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/invoices/{invoice_id}/collect")
+def admin_occ_collect_invoice(
+    org_id: str,
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    method = str(payload.get("method") or "wallet").strip().lower()
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.collect_invoice_payment(
+            db,
+            org_id,
+            invoice_id,
+            method=method,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/organisations/{org_id}/control-center/credits/adjust")
 def admin_occ_adjust_credits(
     org_id: str,
@@ -1445,6 +1542,57 @@ def admin_occ_mark_invoice_paid(
             org_id,
             invoice_id,
             note=str(payload.get("note") or "").strip() or None,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.patch("/organisations/{org_id}/control-center/invoices/{invoice_id}")
+def admin_occ_edit_invoice(
+    org_id: str,
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    body = dict(payload or {})
+    if body.get("amount_minor") is None and body.get("amount_pence") is not None:
+        body["amount_minor"] = body.get("amount_pence")
+    try:
+        return OrgControlCenterActionsService.edit_invoice(
+            db,
+            org_id,
+            invoice_id,
+            payload=body,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/invoices/{invoice_id}/void")
+def admin_occ_void_invoice(
+    org_id: str,
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.void_invoice(
+            db,
+            org_id,
+            invoice_id,
+            reason=str(payload.get("reason") or payload.get("note") or "").strip() or None,
             actor_user_id=actor_id,
             actor_email=actor_email,
         )

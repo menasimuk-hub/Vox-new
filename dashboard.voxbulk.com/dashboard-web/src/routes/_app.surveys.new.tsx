@@ -1246,9 +1246,8 @@ function CreateSurvey() {
               order={orderQ.data}
               onSave={onSaveDraft}
               savePending={savePending}
-              onPay={onOpenWalletTopup}
-              payBusy={payBusy}
-              gcAvailable={false}
+              onOpenLaunch={() => void onOpenLaunch("now")}
+              launchPending={launchM.isPending || payBusy}
             />
           ) : undefined
         }

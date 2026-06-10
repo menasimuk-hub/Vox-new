@@ -57,6 +57,13 @@ export type ServiceOrder = {
   status: string;
   payment_status?: string | null;
   status_label?: string;
+  workflow_state?: string;
+  workflow_label?: string;
+  pay_action?: string | null;
+  can_launch?: boolean;
+  can_pay?: boolean;
+  is_running?: boolean;
+  quote_total_pence?: number;
   recipient_count?: number;
   quote_total_gbp?: string;
   report?: ServiceOrderReport | null;
@@ -192,6 +199,39 @@ export type UsageSummary = {
   next_action_label?: string;
 };
 
+export type InvoicePaymentContext = {
+  payable?: boolean;
+  partial_wallet_supported?: boolean;
+  amount_due_minor?: number;
+  amount_due_display?: string;
+  payment_status?: string;
+  payment_method?: string | null;
+  dd_status?: string | null;
+  kind?: string | null;
+  order_id?: string | null;
+  methods?: Array<Record<string, unknown>>;
+  available_methods?: Array<Record<string, unknown>>;
+  next_steps?: string[];
+  wallet_balance_minor?: number;
+  wallet_balance_display?: string;
+  wallet_shortfall_minor?: number;
+  wallet_shortfall_display?: string | null;
+  card_available?: boolean;
+  mandate_active?: boolean;
+  lifecycle?: InvoiceLifecyclePolicy;
+};
+
+export type InvoiceLifecyclePolicy = {
+  can_edit?: boolean;
+  can_void?: boolean;
+  is_locked?: boolean;
+  lock_reason?: string | null;
+  suggested_action?: string | null;
+  suggested_action_label?: string | null;
+  editable_fields?: string[];
+  status?: string;
+};
+
 export type Invoice = {
   id: string;
   invoice_number?: string;
@@ -202,6 +242,11 @@ export type Invoice = {
   status?: string;
   description?: string | null;
   provider?: string | null;
+  kind?: string | null;
+  order_id?: string | null;
+  payable?: boolean;
+  payment_context?: InvoicePaymentContext;
+  lifecycle?: InvoiceLifecyclePolicy;
 };
 
 export type BillingPlan = {

@@ -61,6 +61,9 @@ export function PaymentModal({
   open,
   onOpenChange,
   amount = "£412.00",
+  title,
+  description,
+  primaryLabel,
   busy,
   gcAvailable = true,
   onPayGoCardless,
@@ -68,27 +71,36 @@ export function PaymentModal({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   amount?: string;
+  title?: string;
+  description?: string;
+  primaryLabel?: string;
   busy?: boolean;
   gcAvailable?: boolean;
   onPayGoCardless?: () => void | Promise<void>;
 }) {
+  const dialogTitle = title || `Pay quote · ${amount}`;
+  const dialogDescription =
+    description || "Review what you are paying for, then complete payment to unlock launch.";
+  const payLabel = primaryLabel || `Pay to launch · ${amount}`;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Pay {amount}</DialogTitle>
-          <DialogDescription>Pay securely with GoCardless direct debit to launch your campaign.</DialogDescription>
+          <DialogTitle>{dialogTitle}</DialogTitle>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
           <PayBtn
             icon={<CreditCard className="size-4" />}
-            title="Pay with GoCardless"
-            sub="Direct debit · secure checkout"
-            disabled={!gcAvailable || busy}
+            title={payLabel}
+            sub={gcAvailable ? "Direct debit · secure checkout" : "Payment method unavailable"}
+            disabled={!gcAvailable || busy || !onPayGoCardless}
             onClick={() => void onPayGoCardless?.()}
           />
           {!gcAvailable && (
-            <p className="text-xs text-muted-foreground">GoCardless is not configured. Contact support or check admin integrations.</p>
+            <p className="text-xs text-muted-foreground">
+              GoCardless per-order checkout is no longer used. Open launch to pay from your package allowance, wallet, or subscription Direct Debit.
+            </p>
           )}
         </div>
         <DialogFooter>
@@ -1463,12 +1475,12 @@ export function SurveyLaunchQuoteModal({
               ) : needsWalletTopup && onTopUpWallet ? (
                 <Button type="button" className="gap-1.5" disabled={actionBusy} onClick={onTopUpWallet}>
                   <CreditCard className="size-4" />
-                  Top up wallet
+                  Top up wallet{amountDue ? ` · need ${amountDue}` : ""}
                 </Button>
               ) : canPayLaunch ? (
                 <Button type="button" className="gap-1.5" disabled={!canPay} onClick={() => void handlePayLaunch()}>
                   <CreditCard className="size-4" />
-                  {actionBusy ? "Redirecting…" : `Pay ${amountDue || ""} & launch`}
+                  {actionBusy ? "Redirecting…" : `Pay to launch · ${amountDue || "quote"}`}
                 </Button>
               ) : launchAction === "blocked" ? (
                 <Button type="button" variant="outline" asChild>

@@ -1,6 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, Download, FileText, Wallet } from "lucide-react";
+import { AlertTriangle, CreditCard, Download, Wallet } from "lucide-react";
+import * as React from "react";
 
+import { InvoicePayDialog } from "@/components/invoice-pay-dialog";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,10 +10,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { downloadAuthenticatedFile } from "@/lib/api";
+import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
 import { useBillingAccess, useBillingInvoices, useBillingSubscription, useBillingUsage, useWalletTransactions } from "@/lib/queries";
-import type { BillingMonitorPayload } from "@/lib/types/api";
+import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
 import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/account/billing")({
@@ -65,6 +68,7 @@ function BillingPage() {
   const invoicesQ = useBillingInvoices();
   const accessQ = useBillingAccess();
   const walletTxQ = useWalletTransactions(30);
+  const [payInvoice, setPayInvoice] = React.useState<Invoice | null>(null);
 
   const plan = subQ.data?.plan || usageQ.data?.current_plan || session?.subscription?.plan;
   const subscription = subQ.data?.subscription || usageQ.data?.subscription;
@@ -102,7 +106,11 @@ function BillingPage() {
         ? new Date(String(inv.created_at)).toLocaleDateString()
         : "—",
     amount: inv.total_gbp || moneyFromPence(inv.total_pence),
-    status: String(inv.status || "issued").replace(/^\w/, (c) => c.toUpperCase()),
+    status: invoiceStatusLabel(inv.status),
+    rawStatus: String(inv.status || "issued").toLowerCase(),
+    payable: Boolean(inv.payable ?? inv.payment_context?.payable),
+    paymentContext: inv.payment_context,
+    raw: inv,
   }));
 
   const inv = useTableSort(invoiceRows, "date", "desc");
@@ -292,6 +300,7 @@ function BillingPage() {
                     <TableHead className="pl-6">Date</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Kind</TableHead>
+                    <TableHead className="hidden xl:table-cell">Related</TableHead>
                     <TableHead className="pr-6 text-right">Amount</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -306,6 +315,9 @@ function BillingPage() {
                       <TableCell className={`pr-6 text-right tabular-nums ${tx.direction === "credit" ? "text-green-700 dark:text-green-400" : ""}`}>
                         {tx.direction === "credit" ? "+" : "−"}
                         {String(tx.amount_display || "")}
+                      </TableCell>
+                      <TableCell className="hidden pr-6 text-xs text-muted-foreground xl:table-cell">
+                        {tx.invoice_id ? `Invoice ${String(tx.invoice_id).slice(0, 8)}` : tx.order_id ? `Order ${String(tx.order_id).slice(0, 8)}` : "—"}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -351,17 +363,26 @@ function BillingPage() {
                       <TableCell className="text-xs text-muted-foreground">{i.date}</TableCell>
                       <TableCell className="tabular-nums">{i.amount}</TableCell>
                       <TableCell>
-                        <StatusBadge tone={badgeToneFromStatus(i.status)} label={i.status} />
+                        <StatusBadge tone={badgeToneFromStatus(i.rawStatus)} label={i.status} />
                       </TableCell>
                       <TableCell className="pr-6 text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="gap-1"
-                          onClick={() => void downloadAuthenticatedFile(`/billing/invoices/${encodeURIComponent(i.invoiceId)}/pdf`, `invoice-${i.id}.pdf`)}
-                        >
-                          <Download className="size-3.5" /> PDF
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          {i.payable ? (
+                            <Button size="sm" variant="default" className="gap-1" onClick={() => setPayInvoice(i.raw)}>
+                              <CreditCard className="size-3.5" /> Pay now
+                            </Button>
+                          ) : i.paymentContext?.next_steps?.[0] ? (
+                            <span className="max-w-[160px] text-left text-[11px] text-muted-foreground">{i.paymentContext.next_steps[0]}</span>
+                          ) : null}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="gap-1"
+                            onClick={() => void downloadAuthenticatedFile(`/billing/invoices/${encodeURIComponent(i.invoiceId)}/pdf`, `invoice-${i.id}.pdf`)}
+                          >
+                            <Download className="size-3.5" /> PDF
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -371,6 +392,17 @@ function BillingPage() {
           )}
         </CardContent>
       </Card>
+
+      <InvoicePayDialog
+        invoice={payInvoice}
+        open={Boolean(payInvoice)}
+        onOpenChange={(open) => !open && setPayInvoice(null)}
+        onPaid={() => {
+          void invoicesQ.refetch();
+          void usageQ.refetch();
+          void walletTxQ.refetch();
+        }}
+      />
     </div>
   );
 }

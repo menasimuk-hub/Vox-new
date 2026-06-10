@@ -248,11 +248,17 @@ class InvoiceService:
             return f"{prefix}{int(count) + 1:04d}"
 
     @staticmethod
-    def invoice_to_dict(db: Session, invoice: BillingInvoice, *, include_org_name: bool = True) -> dict[str, Any]:
+    def invoice_to_dict(
+        db: Session,
+        invoice: BillingInvoice,
+        *,
+        include_org_name: bool = True,
+        enrich_payment: bool = False,
+    ) -> dict[str, Any]:
         org = db.get(Organisation, invoice.org_id) if include_org_name else None
         currency = invoice.currency or "GBP"
         total = int(invoice.amount_gbp_pence or 0)
-        return {
+        base = {
             "id": invoice.id,
             "invoice_number": invoice.invoice_number or invoice.external_invoice_id,
             "external_invoice_id": invoice.external_invoice_id,
@@ -289,6 +295,15 @@ class InvoiceService:
             "total_pence": total,
             "total_gbp": _money(total, currency),
         }
+        if enrich_payment:
+            org = db.get(Organisation, invoice.org_id)
+            if org is not None:
+                from app.services.invoice_payment_service import InvoicePaymentService
+
+                return InvoicePaymentService.enrich_invoice_dict(db, org, invoice, base)
+        from app.services.invoice_lifecycle_service import InvoiceLifecycleService
+
+        return InvoiceLifecycleService.enrich_invoice_dict(base, invoice)
 
     @staticmethod
     def get_for_org(db: Session, *, invoice_id: str, org_id: str) -> BillingInvoice | None:

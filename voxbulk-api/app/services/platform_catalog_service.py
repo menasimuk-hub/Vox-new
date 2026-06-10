@@ -522,6 +522,9 @@ class ServiceOrderService:
             "created_at": order.created_at.isoformat() if order.created_at else None,
             "updated_at": order.updated_at.isoformat() if order.updated_at else None,
         }
+        from app.services.service_order_workflow_service import ServiceOrderWorkflowService
+
+        out.update(ServiceOrderWorkflowService.visible_state(order))
         if include_recipients:
             if order.service_code == "interview":
                 from app.services.interview_activity_service import InterviewActivityService

@@ -92,20 +92,57 @@ class StripePaymentService:
 
     @staticmethod
     def create_topup_intent(db: Session, org: Organisation, *, amount_minor: int) -> dict[str, Any]:
-        currency = resolve_org_currency(db, org, persist=True)
-        intent = StripePaymentService._request(
+        return StripePaymentService._create_payment_intent(
             db,
-            "POST",
-            "/payment_intents",
-            data={
-                "amount": int(amount_minor),
-                "currency": currency.lower(),
-                "automatic_payment_methods[enabled]": "true",
-                "metadata[voxbulk_org_id]": org.id,
-                "metadata[voxbulk_kind]": "wallet_topup",
-                "description": f"VoxBulk wallet top-up — {org.name}",
-            },
+            org,
+            amount_minor=amount_minor,
+            kind="wallet_topup",
+            description=f"VoxBulk wallet top-up — {org.name}",
+            metadata_extra=None,
         )
+
+    @staticmethod
+    def create_invoice_payment_intent(
+        db: Session,
+        org: Organisation,
+        *,
+        invoice_id: str,
+        amount_minor: int,
+        invoice_number: str | None = None,
+    ) -> dict[str, Any]:
+        label = invoice_number or invoice_id[:8]
+        return StripePaymentService._create_payment_intent(
+            db,
+            org,
+            amount_minor=amount_minor,
+            kind="invoice_payment",
+            description=f"Invoice payment — {label}",
+            metadata_extra={"voxbulk_invoice_id": invoice_id},
+        )
+
+    @staticmethod
+    def _create_payment_intent(
+        db: Session,
+        org: Organisation,
+        *,
+        amount_minor: int,
+        kind: str,
+        description: str,
+        metadata_extra: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        currency = resolve_org_currency(db, org, persist=True)
+        data: dict[str, Any] = {
+            "amount": int(amount_minor),
+            "currency": currency.lower(),
+            "automatic_payment_methods[enabled]": "true",
+            "metadata[voxbulk_org_id]": org.id,
+            "metadata[voxbulk_kind]": kind,
+            "description": description[:255],
+        }
+        if metadata_extra:
+            for key, value in metadata_extra.items():
+                data[f"metadata[{key}]"] = value
+        intent = StripePaymentService._request(db, "POST", "/payment_intents", data=data)
         return {
             "provider": "stripe",
             "payment_intent_id": str(intent.get("id") or ""),
@@ -151,6 +188,59 @@ class StripePaymentService:
         )
         StripePaymentService._issue_topup_invoice(db, org, amount_minor=amount, reference=pid, provider="stripe")
         return {"ok": True, "status": status, "credited": True, "amount_minor": amount}
+
+    @staticmethod
+    def confirm_invoice_payment(
+        db: Session,
+        org: Organisation,
+        *,
+        invoice_id: str,
+        payment_intent_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Verify Stripe PaymentIntent for invoice settlement and mark invoice paid once."""
+        from app.models.billing_invoice import BillingInvoice
+        from app.services.invoice_payment_service import InvoicePaymentError, InvoicePaymentService
+
+        pid = str(payment_intent_id or "").strip()
+        if not pid:
+            raise StripeProviderError("payment_intent_id required")
+        intent = StripePaymentService.retrieve_intent(db, pid)
+        meta = intent.get("metadata") or {}
+        if str(meta.get("voxbulk_org_id") or "") != org.id:
+            raise StripeProviderError("Payment does not belong to this organisation")
+        if str(meta.get("voxbulk_kind") or "") != "invoice_payment":
+            raise StripeProviderError("Payment is not for invoice settlement")
+        if str(meta.get("voxbulk_invoice_id") or "") != str(invoice_id):
+            raise StripeProviderError("Payment does not match this invoice")
+
+        invoice = db.get(BillingInvoice, invoice_id)
+        if invoice is None or invoice.org_id != org.id:
+            raise StripeProviderError("Invoice not found")
+        if not InvoicePaymentService.is_payable(invoice):
+            raise StripeProviderError("This invoice is no longer payable")
+
+        status = str(intent.get("status") or "")
+        if status != "succeeded":
+            return {"ok": False, "status": status, "paid": False}
+
+        amount = int(intent.get("amount_received") or intent.get("amount") or 0)
+        due = InvoicePaymentService.amount_due_minor(invoice)
+        if amount < due:
+            raise StripeProviderError("Card payment amount is less than invoice due")
+
+        if str(invoice.payment_reference or "") == pid and str(invoice.status or "").lower() == "paid":
+            return {"ok": True, "status": status, "paid": True, "duplicate": True, "invoice_id": invoice.id}
+
+        return InvoicePaymentService.mark_paid_from_card(
+            db,
+            org,
+            invoice,
+            provider="stripe",
+            provider_reference=pid,
+            amount_minor=amount,
+            user_id=user_id,
+        )
 
     @staticmethod
     def _issue_topup_invoice(db: Session, org: Organisation, *, amount_minor: int, reference: str, provider: str) -> None:
@@ -209,12 +299,36 @@ class StripePaymentService:
         pid = str(intent.get("id") or "")
         meta = intent.get("metadata") or {}
         org_id = str(meta.get("voxbulk_org_id") or "")
-        if not org_id or str(meta.get("voxbulk_kind") or "") != "wallet_topup":
-            return {"ok": True, "ignored": True, "reason": "not_a_wallet_topup"}
+        payment_kind = str(meta.get("voxbulk_kind") or "")
         org = db.get(Organisation, org_id)
         if org is None:
             logger.warning("stripe_webhook_unknown_org org_id=%s intent=%s", org_id, pid)
             return {"ok": True, "ignored": True, "reason": "org_not_found"}
+
+        if payment_kind == "invoice_payment":
+            from app.models.billing_invoice import BillingInvoice
+            from app.services.invoice_payment_service import InvoicePaymentService
+
+            invoice_id = str(meta.get("voxbulk_invoice_id") or "")
+            invoice = db.get(BillingInvoice, invoice_id)
+            if invoice is None or invoice.org_id != org.id:
+                return {"ok": True, "ignored": True, "reason": "invoice_not_found"}
+            if str(invoice.status or "").lower() == "paid":
+                return {"ok": True, "paid": True, "duplicate": True}
+            amount = int(intent.get("amount_received") or intent.get("amount") or 0)
+            InvoicePaymentService.mark_paid_from_card(
+                db,
+                org,
+                invoice,
+                provider="stripe",
+                provider_reference=pid,
+                amount_minor=amount,
+                user_id=None,
+            )
+            return {"ok": True, "paid": True, "invoice_id": invoice_id}
+
+        if payment_kind != "wallet_topup":
+            return {"ok": True, "ignored": True, "reason": "unsupported_kind"}
         if WalletService.has_transaction_for_reference(db, provider="stripe", provider_reference=pid):
             return {"ok": True, "credited": False, "duplicate": True}
         amount = int(intent.get("amount_received") or intent.get("amount") or 0)

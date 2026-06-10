@@ -723,7 +723,7 @@ def list_my_invoices(
     from app.services.invoice_service import InvoiceService
 
     rows = InvoiceService.list_for_org(db, org_id=principal.org_id, limit=limit)
-    return [InvoiceService.invoice_to_dict(db, r) for r in rows]
+    return [InvoiceService.invoice_to_dict(db, r, enrich_payment=True) for r in rows]
 
 
 @router.get("/invoices/{invoice_id}")
@@ -737,7 +737,98 @@ def get_my_invoice(
     row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=principal.org_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
-    return InvoiceService.invoice_to_dict(db, row)
+    return InvoiceService.invoice_to_dict(db, row, enrich_payment=True)
+
+
+@router.get("/invoices/{invoice_id}/payment-options")
+def get_invoice_payment_options(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.invoice_payment_service import InvoicePaymentService
+    from app.services.invoice_service import InvoiceService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=principal.org_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return InvoicePaymentService.payment_context(db, org, row)
+
+
+@router.post("/invoices/{invoice_id}/pay")
+def pay_my_invoice(
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.invoice_payment_service import InvoicePaymentError, InvoicePaymentService
+    from app.services.invoice_service import InvoiceService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=principal.org_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    method = str(payload.get("method") or "wallet").strip().lower()
+    try:
+        return InvoicePaymentService.pay_invoice(db, org, row, method=method, user_id=getattr(principal, "user_id", None))
+    except InvoicePaymentError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/invoices/{invoice_id}/pay/card/intent")
+def invoice_card_payment_intent(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.invoice_payment_service import InvoicePaymentError, InvoicePaymentService
+    from app.services.invoice_service import InvoiceService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=principal.org_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    try:
+        return InvoicePaymentService.create_card_payment_intent(db, org, row)
+    except InvoicePaymentError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/invoices/{invoice_id}/pay/card/confirm")
+def invoice_card_payment_confirm(
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.invoice_payment_service import InvoicePaymentError, InvoicePaymentService
+    from app.services.invoice_service import InvoiceService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=principal.org_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    intent_id = str(payload.get("payment_intent_id") or "").strip()
+    try:
+        return InvoicePaymentService.confirm_card_payment(
+            db, org, row, payment_intent_id=intent_id, user_id=getattr(principal, "user_id", None)
+        )
+    except InvoicePaymentError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/invoices/{invoice_id}/html")

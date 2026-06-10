@@ -271,8 +271,13 @@ export default function OrgControlCenter() {
   const [promoCode, setPromoCode] = useState('')
   const [allowOverage, setAllowOverage] = useState(true)
   const [invoiceNote, setInvoiceNote] = useState('')
+  const [editInvoice, setEditInvoice] = useState(null)
+  const [editInvoiceAmount, setEditInvoiceAmount] = useState('')
+  const [editInvoiceDue, setEditInvoiceDue] = useState('')
+  const [editInvoiceDesc, setEditInvoiceDesc] = useState('')
   const [toasts, setToasts] = useState([])
   const [walletHistory, setWalletHistory] = useState([])
+  const [walletModalMode, setWalletModalMode] = useState('credit')
   const [actionBusy, setActionBusy] = useState('')
 
   const pushToast = useCallback((message, type = '') => {
@@ -439,20 +444,65 @@ export default function OrgControlCenter() {
     }
     setModalBusy(true)
     try {
-      await occ('/wallet/credit', {
+      const path =
+        walletModalMode === 'debit'
+          ? '/wallet/debit'
+          : walletModalMode === 'refund'
+            ? '/wallet/refund'
+            : '/wallet/credit'
+      await occ(path, {
         method: 'POST',
         body: JSON.stringify({
           amount_minor: Math.round(gbp * 100),
           reason: fundNote.trim() || undefined,
         }),
       })
-      pushToast('Wallet credited', 'success')
+      pushToast(
+        walletModalMode === 'debit' ? 'Wallet debited' : walletModalMode === 'refund' ? 'Wallet refunded' : 'Wallet credited',
+        'success',
+      )
       setModal(null)
       await refreshAll()
     } catch (e) {
-      pushToast(e?.message || 'Wallet credit failed', 'danger')
+      pushToast(e?.message || 'Wallet update failed', 'danger')
     } finally {
       setModalBusy(false)
+    }
+  }
+
+  const reverseWalletTx = async (transactionId) => {
+    if (!selectedId || !transactionId) return
+    const reason = window.prompt('Reason for reversal (required for audit trail):', fundNote.trim() || 'Admin reversal')
+    if (!reason) return
+    setActionBusy(`reverse-${transactionId}`)
+    try {
+      await occ(`/wallet/transactions/${encodeURIComponent(transactionId)}/reverse`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+      pushToast('Wallet transaction reversed', 'success')
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Reversal failed', 'danger')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const collectInvoice = async (invoiceId, method = 'wallet') => {
+    if (!selectedId || !invoiceId) return
+    setActionBusy(`collect-${invoiceId}`)
+    try {
+      await occ(`/invoices/${encodeURIComponent(invoiceId)}/collect`, {
+        method: 'POST',
+        body: JSON.stringify({ method }),
+      })
+      pushToast('Invoice payment collected', 'success')
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Collect payment failed', 'danger')
+    } finally {
+      setActionBusy('')
     }
   }
 
@@ -589,6 +639,60 @@ export default function OrgControlCenter() {
       await refreshAll()
     } catch (e) {
       pushToast(e?.message || 'Reissue failed', 'danger')
+    }
+  }
+
+  const openEditInvoice = (inv) => {
+    setEditInvoice(inv)
+    setEditInvoiceAmount(String((inv.subtotal_pence ?? inv.amount_gbp_pence ?? 0) / 100))
+    setEditInvoiceDue(inv.due_date ? String(inv.due_date).slice(0, 10) : '')
+    setEditInvoiceDesc(inv.description || '')
+    setModal('editInvoice')
+  }
+
+  const saveEditInvoice = async () => {
+    if (!selectedId || !editInvoice?.id) return
+    const gbp = Number(editInvoiceAmount)
+    if (!Number.isFinite(gbp) || gbp <= 0) {
+      pushToast('Enter a positive amount', 'warning')
+      return
+    }
+    setModalBusy(true)
+    try {
+      await occ(`/invoices/${encodeURIComponent(editInvoice.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          amount_minor: Math.round(gbp * 100),
+          due_date: editInvoiceDue || undefined,
+          description: editInvoiceDesc.trim() || undefined,
+        }),
+      })
+      pushToast('Invoice updated', 'success')
+      setModal(null)
+      setEditInvoice(null)
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Invoice edit failed', 'danger')
+    } finally {
+      setModalBusy(false)
+    }
+  }
+
+  const voidInvoice = async (invoiceId) => {
+    const reason = window.prompt('Reason for voiding this invoice (required for audit):', 'Voided by support')
+    if (!reason) return
+    setActionBusy(`void-${invoiceId}`)
+    try {
+      await occ(`/invoices/${encodeURIComponent(invoiceId)}/void`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+      pushToast('Invoice voided', 'success')
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Void failed', 'danger')
+    } finally {
+      setActionBusy('')
     }
   }
 
@@ -1049,8 +1153,14 @@ export default function OrgControlCenter() {
                 <div className="occ-info-block">
                   <div className="occ-info-block-title">Quick actions</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <button type="button" className="occ-btn" onClick={() => openModal('funds')}>
-                      Add funds / credits
+                    <button type="button" className="occ-btn" onClick={() => { setWalletModalMode('credit'); openModal('funds') }}>
+                      Add wallet funds
+                    </button>
+                    <button type="button" className="occ-btn" onClick={() => { setWalletModalMode('debit'); openModal('funds') }}>
+                      Remove wallet funds
+                    </button>
+                    <button type="button" className="occ-btn" onClick={() => { setWalletModalMode('refund'); openModal('funds') }}>
+                      Refund wallet
                     </button>
                     <button type="button" className="occ-btn" onClick={() => openModal('package')}>
                       Change plan
@@ -1084,7 +1194,7 @@ export default function OrgControlCenter() {
                     <th>Recipients</th>
                     <th>Quote</th>
                     <th>Pay status</th>
-                    <th>Status</th>
+                    <th>Workflow</th>
                     <th>Created</th>
                     <th>Actions</th>
                   </tr>
@@ -1105,7 +1215,7 @@ export default function OrgControlCenter() {
                         <td className="occ-mono">{fmtN(ord.recipient_count)}</td>
                         <td className="occ-mono">{fmtMoneyPence(ord.quote_total_pence)}</td>
                         <td>{statusBadge(ord.payment_status)}</td>
-                        <td>{statusBadge(ord.status)}</td>
+                        <td>{statusBadge(ord.workflow_label || ord.workflow_state || ord.status)}</td>
                         <td style={{ fontSize: 12, color: 'var(--occ-text3)' }}>{fmtWhen(ord.created_at)}</td>
                         <td>
                           <Link className="occ-btn-xs" to={`/billing/service-orders?order=${ord.id}`}>
@@ -1282,10 +1392,14 @@ export default function OrgControlCenter() {
                     <div key={tx.id} className="occ-info-row">
                       <span className="occ-info-row-label">
                         {tx.kind} · {fmtWhen(tx.created_at)}
+                        {tx.invoice_id ? ` · inv ${String(tx.invoice_id).slice(0, 8)}` : tx.order_id ? ` · ord ${String(tx.order_id).slice(0, 8)}` : ''}
                       </span>
-                      <span className="occ-info-row-value">
+                      <span className="occ-info-row-value" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         {tx.direction === 'credit' ? '+' : '-'}
                         {tx.amount_display || fmtMoneyPence(tx.amount_minor, org)}
+                        <button type="button" className="occ-btn-xs" disabled={actionBusy === `reverse-${tx.id}`} onClick={() => reverseWalletTx(tx.id)}>
+                          Reverse
+                        </button>
                       </span>
                     </div>
                   ))
@@ -1321,6 +1435,7 @@ export default function OrgControlCenter() {
                     <th>Invoice</th>
                     <th>Amount</th>
                     <th>Status</th>
+                    <th>Lifecycle</th>
                     <th>Email status</th>
                     <th>Due</th>
                     <th>Issued</th>
@@ -1330,7 +1445,7 @@ export default function OrgControlCenter() {
                 <tbody>
                   {!invoices.length ? (
                     <tr>
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <div className="occ-empty-state">No invoices found.</div>
                       </td>
                     </tr>
@@ -1340,6 +1455,9 @@ export default function OrgControlCenter() {
                         <td className="occ-mono">{inv.invoice_number || inv.id?.slice(0, 8)}</td>
                         <td className="occ-mono">{inv.total_gbp || moneyDisplay(org, inv.amount_gbp_pence)}</td>
                         <td>{statusBadge(inv.status)}</td>
+                        <td className="occ-text-xs" title={inv.lifecycle?.lock_reason || ''}>
+                          {inv.lifecycle?.is_locked ? 'Locked' : inv.lifecycle?.can_edit ? 'Editable' : 'Open'}
+                        </td>
                         <td>{statusBadge(inv.invoice_email_status || (inv.emailed_at ? 'sent' : 'pending'))}</td>
                         <td>{inv.due_date ? fmtWhen(inv.due_date) : '—'}</td>
                         <td>{fmtWhen(inv.created_at)}</td>
@@ -1351,13 +1469,42 @@ export default function OrgControlCenter() {
                             <button type="button" className="occ-btn-xs" onClick={() => resendInvoice(inv.id)}>
                               Resend
                             </button>
+                            {inv.lifecycle?.can_edit ? (
+                              <button type="button" className="occ-btn-xs" onClick={() => openEditInvoice(inv)}>
+                                Edit
+                              </button>
+                            ) : inv.lifecycle?.is_locked ? (
+                              <button
+                                type="button"
+                                className="occ-btn-xs"
+                                title={inv.lifecycle?.suggested_action_label || inv.lifecycle?.lock_reason || ''}
+                                onClick={() => pushToast(inv.lifecycle?.suggested_action_label || inv.lifecycle?.lock_reason || 'Invoice is locked', 'warning')}
+                              >
+                                Locked
+                              </button>
+                            ) : null}
+                            {inv.lifecycle?.can_void ? (
+                              <button
+                                type="button"
+                                className="occ-btn-xs danger"
+                                disabled={actionBusy === `void-${inv.id}`}
+                                onClick={() => voidInvoice(inv.id)}
+                              >
+                                Void
+                              </button>
+                            ) : null}
                             <button type="button" className="occ-btn-xs" onClick={() => reissueInvoice(inv.id)}>
                               Reissue
                             </button>
                             {String(inv.status).toLowerCase() !== 'paid' ? (
-                              <button type="button" className="occ-btn-xs success" onClick={() => markInvoicePaid(inv.id)}>
-                                Mark paid
-                              </button>
+                              <>
+                                <button type="button" className="occ-btn-xs" disabled={actionBusy === `collect-${inv.id}`} onClick={() => collectInvoice(inv.id, 'wallet')}>
+                                  Collect (wallet)
+                                </button>
+                                <button type="button" className="occ-btn-xs success" onClick={() => markInvoicePaid(inv.id)}>
+                                  Mark paid
+                                </button>
+                              </>
                             ) : null}
                           </div>
                         </td>
@@ -1430,8 +1577,16 @@ export default function OrgControlCenter() {
 
             {modal === 'funds' ? (
               <>
-                <div className="occ-modal-title">Add wallet funds</div>
-                <div className="occ-modal-sub">Credit wallet in {org?.billing_currency || 'org billing currency'}.</div>
+                <div className="occ-modal-title">
+                  {walletModalMode === 'debit' ? 'Remove wallet funds' : walletModalMode === 'refund' ? 'Refund wallet' : 'Add wallet funds'}
+                </div>
+                <div className="occ-modal-sub">
+                  {walletModalMode === 'debit'
+                    ? 'Debit wallet balance with an audit note.'
+                    : walletModalMode === 'refund'
+                      ? 'Credit wallet as a refund with an audit note.'
+                      : `Credit wallet in ${org?.billing_currency || 'org billing currency'}.`}
+                </div>
                 <label className="occ-modal-label">Amount (£)</label>
                 <input className="occ-modal-input" type="number" min="0" step="0.01" value={fundAmount} onChange={(e) => setFundAmount(e.target.value)} />
                 <label className="occ-modal-label">Reason</label>
@@ -1468,6 +1623,27 @@ export default function OrgControlCenter() {
                   </button>
                   <button type="button" className="occ-btn primary" disabled={modalBusy} onClick={applyPlanChange}>
                     Confirm change
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {modal === 'editInvoice' ? (
+              <>
+                <div className="occ-modal-title">Edit invoice</div>
+                <div className="occ-modal-sub">Only unpaid invoices before collection can be edited.</div>
+                <label className="occ-modal-label">Amount (£ ex VAT subtotal)</label>
+                <input className="occ-modal-input" type="number" min="0" step="0.01" value={editInvoiceAmount} onChange={(e) => setEditInvoiceAmount(e.target.value)} />
+                <label className="occ-modal-label">Due date</label>
+                <input className="occ-modal-input" type="date" value={editInvoiceDue} onChange={(e) => setEditInvoiceDue(e.target.value)} />
+                <label className="occ-modal-label">Description</label>
+                <input className="occ-modal-input" type="text" value={editInvoiceDesc} onChange={(e) => setEditInvoiceDesc(e.target.value)} />
+                <div className="occ-modal-footer">
+                  <button type="button" className="occ-btn" onClick={() => setModal(null)}>
+                    Cancel
+                  </button>
+                  <button type="button" className="occ-btn primary" disabled={modalBusy} onClick={saveEditInvoice}>
+                    Save changes
                   </button>
                 </div>
               </>
