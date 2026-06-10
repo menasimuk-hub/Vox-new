@@ -420,7 +420,7 @@ def _pdf_additional_details_section(items: list[Any]) -> str:
     if not bullets:
         return ""
     rows = "".join(f"<li>{_e(item)}</li>" for item in bullets)
-    return f"""<div class="section"><div class="section-title">Additional candidate details</div>
+    return f"""<div class="section"><div class="section-title">Additional comments</div>
     <ul style="margin:0;padding-left:18px;line-height:1.6">{rows}</ul></div>"""
 
 
@@ -473,7 +473,6 @@ def _build_pdf_html(payload: dict[str, Any], *, cv_text: str | None = None) -> s
   </div>
   {_pdf_score_table(scores)}
   {_campaign_brief_section(payload.get("campaign_brief"), pdf=True)}
-  {_call_outcome_section(payload.get("call_outcome"), pdf=True)}
   <div class="section"><div class="section-title">ATS score breakdown</div>
     {_pdf_criteria_rows(ats.get('criteria') or [])}
   </div>
@@ -482,7 +481,6 @@ def _build_pdf_html(payload: dict[str, Any], *, cv_text: str | None = None) -> s
     {highlight}{concern}
   </div>
   {_pdf_qa_section(interview.get('key_answers') or [])}
-  {_pdf_additional_details_section(interview.get('additional_candidate_details') or [])}
   <div class="section"><div class="section-title">Recommendation</div>
     <div class="rec-banner {rec_class}">
       <div class="rec-verdict">{_e(interview.get('recommendation_verdict'))}</div>
@@ -490,6 +488,7 @@ def _build_pdf_html(payload: dict[str, Any], *, cv_text: str | None = None) -> s
     </div>
     {points_html}
   </div>
+  {_pdf_additional_details_section(interview.get('additional_candidate_details') or [])}
   {cv_block}
   <div class="report-footer"><div>VOXBULK</div><div>Generated {_e(payload.get('generated_at'))} · Confidential</div></div>
 </div></body></html>"""
@@ -677,7 +676,7 @@ def _screen_additional_details_section(items: list[Any]) -> str:
         return ""
     rows = "".join(f"<li>{_e(item)}</li>" for item in bullets)
     return f"""<div class="section">
-      {_section_header("Additional Candidate Details", ICON_QA, "blue")}
+      {_section_header("Additional comments", ICON_QA, "blue")}
       <ul class="rec-points" style="display:block;padding-left:18px;line-height:1.6">{rows}</ul>
     </div>"""
 
@@ -761,8 +760,6 @@ def _build_screen_html(payload: dict[str, Any], *, cv_text: str | None = None) -
 
   {_campaign_brief_section(payload.get("campaign_brief"))}
 
-  {_call_outcome_section(payload.get("call_outcome"))}
-
   <div class="section">
     {_section_header("ATS Score Breakdown", ICON_ATS, "blue")}
     {_screen_criteria_rows(ats.get("criteria") or [])}
@@ -778,7 +775,6 @@ def _build_screen_html(payload: dict[str, Any], *, cv_text: str | None = None) -
   </div>
 
   {qa_divider}{qa_block}
-  {extra_divider}{extra_block}
 
   <div class="divider"></div>
 
@@ -793,6 +789,8 @@ def _build_screen_html(payload: dict[str, Any], *, cv_text: str | None = None) -
     </div>
     {_screen_rec_points(interview)}
   </div>
+
+  {extra_divider}{extra_block}
 
   {cv_block}
 

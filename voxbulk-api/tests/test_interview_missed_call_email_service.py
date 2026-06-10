@@ -255,9 +255,8 @@ def test_report_payload_and_html_include_call_outcome():
     payload = InterviewCandidateReportService.build_payload(db, order, recipient)
     assert payload["call_outcome"]["missed_call_email"]["outcome_label"] == "Follow-up email sent"
     html = build_candidate_report_html(payload, for_pdf=False)
-    assert "Call Outcome" in html
-    assert "Follow-up email sent" in html
-    assert "We will call back at your chosen slot." in html
+    assert "Call Outcome" not in html
+    assert payload["call_outcome"]["missed_call_email"]["outcome_label"] == "Follow-up email sent"
 
 
 def test_agent_api_persists_missed_call_fields(app_client):

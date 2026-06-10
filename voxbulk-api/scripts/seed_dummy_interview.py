@@ -14,6 +14,7 @@ import argparse
 import json
 import random
 import sys
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -35,7 +36,7 @@ from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.user import User
-from app.services.interview_analysis_service import ANALYSIS_VERSION, refresh_order_interview_report
+from app.services.interview_analysis_service import INTERVIEW_ANALYSIS_VERSION, refresh_order_interview_report
 from app.services.interview_intake_service import (
     intake_contacts_merge,
     intake_summary,
@@ -99,6 +100,31 @@ def _demo_contacts() -> list[dict[str, str | None]]:
         {"name": "Grace Kim", "phone": "+447700900107", "email": "grace.k@example.com"},
         {"name": "Henry Walsh", "phone": "+447700900108", "email": "henry.w@example.com"},
     ]
+
+
+def _generate_contacts(count: int) -> list[dict[str, str | None]]:
+    """Synthetic candidates for bulk report testing."""
+    if count <= 0:
+        return []
+    first_names = ["Alice", "Bob", "Carol", "David", "Elena", "Grace", "Henry", "Ivy", "James", "Kate"]
+    last_names = ["Chen", "Martinez", "Singh", "Okonkwo", "Rossi", "Kim", "Walsh", "Patel", "Brown", "Taylor"]
+    contacts: list[dict[str, str | None]] = []
+    batch = int(datetime.utcnow().timestamp()) % 80000 + 10000
+    for i in range(count):
+        first = first_names[i % len(first_names)]
+        last = last_names[(i // len(first_names)) % len(last_names)]
+        if count > len(first_names):
+            name = f"{first} {last} ({uuid.uuid4().hex[:6]})"
+        else:
+            name = f"{first} {last}"
+        contacts.append(
+            {
+                "name": name,
+                "phone": f"+4477000{batch + i:05d}",
+                "email": f"candidate{i + 1:03d}@example.com",
+            }
+        )
+    return contacts
 
 
 def _add_missing_phone_candidate(db, order: ServiceOrder) -> None:
@@ -181,8 +207,20 @@ def _recipient_analysis(row_number: int, name: str) -> dict:
         f"Agent: Hello {name}, thanks for joining.\n"
         f"Candidate: Happy to speak about the {ROLE} role.\n"
         + "\n".join(f"Agent: {q}\nCandidate: [detailed response]" for q in SCREENING_QUESTIONS)
+        + "\nAgent: Is there anything else you would like to add?\n"
+        f"Candidate: Just that I am available to start within two weeks.\n"
         + "\nAgent: Thank you, we will be in touch."
     )
+    additional_pool = [
+        "Available to start within two weeks",
+        "Has a full UK driving licence",
+        "Speaks English and Spanish fluently",
+        "Prefers hybrid working from Manchester",
+        "Interested in mentoring junior developers",
+        "Can work occasional weekends if needed",
+    ]
+    additional_count = rng.randint(1, 3)
+    additional_candidate_details = rng.sample(additional_pool, k=min(additional_count, len(additional_pool)))
     return {
         "analysis": {
             "short_summary": f"{name} completed screening with score {score}.",
@@ -192,10 +230,11 @@ def _recipient_analysis(row_number: int, name: str) -> dict:
             "strengths": ["Clear communication", "Relevant stack experience"],
             "concerns": [] if score >= 80 else ["Limited leadership examples"],
             "key_answers": answers,
+            "additional_candidate_details": additional_candidate_details,
             "completion_quality": "complete",
         },
         "analysis_saved_at": datetime.utcnow().isoformat(),
-        "analysis_version": ANALYSIS_VERSION,
+        "analysis_version": INTERVIEW_ANALYSIS_VERSION,
         "duration_seconds": duration,
         "transcript": transcript,
         "terminal_status": "completed",
@@ -276,7 +315,7 @@ def _mark_order_finished(db, order: ServiceOrder) -> ServiceOrder:
     now = datetime.utcnow()
     config = json.loads(order.config_json or "{}")
     recipients = ServiceOrderService.get_recipients(db, order.id)
-    top_ids = [r.id for r in recipients if r.status == "completed"][:5]
+    top_ids = [r.id for r in recipients if r.status == "completed"][:10]
     config["top_10_recipient_ids"] = top_ids
     config["shortlist_saved_at"] = now.isoformat()
     order.config_json = json.dumps(config, ensure_ascii=False)
@@ -500,8 +539,10 @@ def create_demo_order(
     org_name: str,
     complete: bool,
     completed: int,
+    contacts: int | None = None,
 ) -> ServiceOrder:
     now = datetime.utcnow()
+    contact_count = contacts if contacts is not None else len(_demo_contacts())
     order = ServiceOrderService.create_order(
         db,
         org_id=org_id,
@@ -510,8 +551,9 @@ def create_demo_order(
         title=f"Demo {ROLE} screening · {now.strftime('%b %Y')}",
         config=_demo_config(org_name),
     )
-    intake_contacts_merge(db, order, _demo_contacts())
-    _add_missing_phone_candidate(db, order)
+    intake_contacts_merge(db, order, _generate_contacts(contact_count))
+    if contact_count < 40:
+        _add_missing_phone_candidate(db, order)
     db.refresh(order)
     _enrich_cv_data(db, order)
     db.refresh(order)
@@ -549,6 +591,7 @@ def main() -> None:
     parser.add_argument("--email", default="user@user.com", help="Dashboard user email")
     parser.add_argument("--complete", action="store_true", help="Also approve payment and seed completed results")
     parser.add_argument("--completed", type=int, default=6, help="How many candidates get completed call results")
+    parser.add_argument("--contacts", type=int, default=None, help="Number of candidate contacts to seed (default: 7)")
     parser.add_argument("--repair", metavar="ORDER_ID", help="Fix an existing interview order")
     parser.add_argument(
         "--demo-set",
@@ -596,6 +639,7 @@ def main() -> None:
             org_name=org_name,
             complete=args.complete,
             completed=args.completed,
+            contacts=args.contacts,
         )
         print(f"\nUser: {args.email} | Org: {org_name}")
         print_audit(db, order)

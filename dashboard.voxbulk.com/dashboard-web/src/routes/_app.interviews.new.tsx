@@ -346,6 +346,7 @@ function CreateInterview() {
   const [uploading, setUploading] = React.useState(false);
   const [activityCandidate, setActivityCandidate] = React.useState<CandidateRow | null>(null);
   const [wizardStep, setWizardStep] = React.useState(1);
+  const [step1FieldsTouched, setStep1FieldsTouched] = React.useState(false);
   const goWizardNext = () => setWizardStep((s) => Math.min(INTERVIEW_WIZARD_STEPS.length, s + 1));
   const goWizardPrev = () => setWizardStep((s) => Math.max(1, s - 1));
   const goWizardTo = (n: number) => setWizardStep(n);
@@ -1005,6 +1006,7 @@ function CreateInterview() {
 
   const onGenerateScript = async () => {
     if (!criteria.trim()) {
+      setStep1FieldsTouched(true);
       toast.error("Add screening criteria before generating the AI script");
       return;
     }
@@ -1055,6 +1057,7 @@ function CreateInterview() {
 
   const onApproveScript = async () => {
     if (!script.trim()) {
+      setStep1FieldsTouched(true);
       toast.error("Generate or paste a script before approving");
       return;
     }
@@ -1388,6 +1391,8 @@ function CreateInterview() {
   const missingScript = !script.trim();
   const missingScriptApproval = !scriptIsApproved && Boolean(script.trim());
   const missingCallingWindow = !callingStart || !callingEnd;
+  const showCriteriaError = step1FieldsTouched && missingCriteria;
+  const showScriptError = step1FieldsTouched && (missingScript || missingScriptApproval);
 
   const canWizardNext = React.useMemo(() => {
     if (wizardStep === 1) return setupErrors.length === 0;
@@ -1401,6 +1406,7 @@ function CreateInterview() {
 
   const onWizardNext = () => {
     if (wizardStep === 1 && setupErrors.length > 0) {
+      setStep1FieldsTouched(true);
       toast.error(setupErrors.length === 1 ? setupErrors[0] : `Complete Step 1 first: ${setupErrors[0]}`);
       return;
     }
@@ -1418,6 +1424,7 @@ function CreateInterview() {
   const onWizardStepClick = (step: number) => {
     if (step === wizardStep) return;
     if (step > 1 && wizardStep === 1 && setupErrors.length > 0) {
+      setStep1FieldsTouched(true);
       toast.error(setupErrors.length === 1 ? setupErrors[0] : `Complete Step 1 first: ${setupErrors[0]}`);
       return;
     }
@@ -1802,15 +1809,15 @@ function CreateInterview() {
             )}
           </Field>
           <div className="md:col-span-2 space-y-1.5">
-            <Label className={`text-xs ${missingCriteria ? "text-destructive" : ""}`}>Screening criteria</Label>
-            <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration, 3+ years experience, willing to travel…" className={inputErrorClass(missingCriteria)} />
+            <Label className={`text-xs ${showCriteriaError ? "text-destructive" : ""}`}>Screening criteria</Label>
+            <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration, 3+ years experience, willing to travel…" className={inputErrorClass(showCriteriaError)} />
             <p className="text-[11px] text-muted-foreground">
               Write anything relevant — must-haves, deal-breakers, or extra context. The AI uses this on the call and in your report.
             </p>
-            {missingCriteria ? <p className="text-[11px] text-destructive">Add screening criteria before generating questions</p> : null}
+            {showCriteriaError ? <p className="text-[11px] text-destructive">Add screening criteria before generating questions</p> : null}
           </div>
           <div className="md:col-span-2 space-y-1.5">
-            <Label className={`text-xs ${missingScript || missingScriptApproval ? "text-destructive" : ""}`}>Interview questions</Label>
+            <Label className={`text-xs ${showScriptError ? "text-destructive" : ""}`}>Interview questions</Label>
             <Textarea
               rows={8}
               value={questionsText}
@@ -1828,13 +1835,13 @@ function CreateInterview() {
                 }
               }}
               placeholder="Write your own numbered questions, or click Generate AI questions for a draft…"
-              className={inputErrorClass(missingScript || missingScriptApproval)}
+              className={inputErrorClass(showScriptError)}
             />
             <p className="text-[11px] text-muted-foreground">
               Same job questions for every candidate (from your criteria). Questions 1–2 are templates — the AI asks each person different CV questions on the call. Approve when the job script is right.
             </p>
-            {missingScript ? <p className="text-[11px] text-destructive">Generate or paste a script, then approve it</p> : null}
-            {!missingScript && missingScriptApproval ? <p className="text-[11px] text-destructive">Click Approve script when you are happy with it</p> : null}
+            {step1FieldsTouched && missingScript ? <p className="text-[11px] text-destructive">Generate or paste a script, then approve it</p> : null}
+            {step1FieldsTouched && !missingScript && missingScriptApproval ? <p className="text-[11px] text-destructive">Click Approve script when you are happy with it</p> : null}
           </div>
           <div className="md:col-span-2 flex flex-wrap gap-2">
             <Button variant="outline" className="gap-1.5" onClick={() => void onGenerateScript()} disabled={generateM.isPending}>

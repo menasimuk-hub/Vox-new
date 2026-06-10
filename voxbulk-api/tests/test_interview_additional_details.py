@@ -58,6 +58,10 @@ def test_report_renders_additional_candidate_details_section():
         "generated_at": "03 Jan 2026",
     }
     html = build_candidate_report_html(payload, for_pdf=False)
-    assert "Additional Candidate Details" in html
+    assert "Additional comments" in html
+    assert "Additional Candidate Details" not in html
+    rec_idx = html.index("Recommendation")
+    comments_idx = html.index("Additional comments")
+    assert comments_idx > rec_idx
     assert "Speaks Arabic and English" in html
     assert "Has own car for site visits" in html

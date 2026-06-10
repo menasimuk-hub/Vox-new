@@ -78,7 +78,7 @@ Return ONLY valid JSON with this exact shape:
   ],
   "standout_quote": "best direct quote from candidate or empty string",
   "skill_gap": "main unverified skill gap for final round or empty string",
-  "additional_candidate_details": ["brief bullet — useful facts volunteered outside formal Q&A, e.g. languages, licences, availability, transport, tools/skills"],
+  "additional_candidate_details": ["brief bullet — useful facts volunteered outside formal Q&A, closing remarks when asked if there is anything else to add, e.g. languages, licences, availability, transport, tools/skills"],
   "completion_quality": one of "complete", "partial", "declined", "unclear"
 }
 
@@ -87,7 +87,7 @@ Rules:
 - Base score and recommendation on role fit and screening criteria in the prompt.
 - Do not invent facts not in the transcript.
 - Provide 4-6 competency objects covering communication, problem solving, technical knowledge, leadership, culture, judgement.
-- additional_candidate_details: include only materially useful facts the candidate volunteered outside the formal script questions (skills, certifications, availability, languages, transport, work permits if mentioned). Do not repeat items already captured in key_answers, strengths, or concerns. Return [] if none."""
+- additional_candidate_details: include only materially useful facts the candidate volunteered outside the formal script questions, including anything they add when asked if there is anything else they would like to add at the end of the call (skills, certifications, availability, languages, transport, work permits if mentioned). Do not repeat items already captured in key_answers, strengths, or concerns. Return [] if none."""
 
 
 def _parse_analysis_json(text: str) -> dict[str, Any]:
