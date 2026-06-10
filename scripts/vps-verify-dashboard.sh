@@ -26,6 +26,23 @@ fi
 echo "[OK] index.html looks like NEW dashboard (no tabler-icons)"
 grep -oE '/assets/[^"]+\.(js|css)' "$WWWROOT/index.html" | head -3
 
+# Wallet top-up must use Stripe intent flow — old UI POSTs /billing/wallet/topup (free credit).
+LEGACY_TOPUP=0
+while IFS= read -r js; do
+  [[ -f "$WWWROOT$js" ]] || continue
+  if grep -q '/billing/wallet/topup"' "$WWWROOT$js" 2>/dev/null \
+    && ! grep -q '/billing/wallet/topup/intent' "$WWWROOT$js" 2>/dev/null; then
+    LEGACY_TOPUP=1
+    echo "[FAIL] OLD wallet top-up in $js (calls free /billing/wallet/topup)"
+  fi
+done < <(grep -oE '/assets/[^"]+\.js' "$WWWROOT/index.html" | head -20)
+
+if [[ "$LEGACY_TOPUP" -eq 1 ]]; then
+  echo "Fix: cd $ROOT && VOX_GIT_BRANCH=feature/billing-system bash scripts/vps-sync-all-ui.sh"
+  exit 1
+fi
+echo "[OK] Dashboard JS uses Stripe wallet top-up (no legacy free endpoint)"
+
 SURVEY_JS=$(grep -oE '/assets/_app\.surveys\.new-[^"]+\.js' "$WWWROOT/index.html" | head -1 || true)
 if [[ -n "$SURVEY_JS" && -f "$WWWROOT$SURVEY_JS" ]]; then
   if grep -q 'hospitality_food' "$WWWROOT$SURVEY_JS"; then

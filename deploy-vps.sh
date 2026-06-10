@@ -8,7 +8,7 @@
 #
 # Optional env overrides:
 #   VOX_GIT_REMOTE=origin           git remote name (default: origin → menasimuk-hub/Vox-new)
-#   VOX_GIT_BRANCH=main            branch to pull (use fix/wa-interview-platform-templates for feature deploys)
+#   VOX_GIT_BRANCH=feature/billing-system   branch to pull (billing + Stripe wallet)
 #   VOX_SKIP_GIT=1                 skip git pull (deploy current tree only)
 #   VOX_SKIP_BUILD=1               skip npm build (API + migrate only — UI will stay stale!)
 #   VOX_SKIP_MIGRATE=1             skip alembic upgrade
