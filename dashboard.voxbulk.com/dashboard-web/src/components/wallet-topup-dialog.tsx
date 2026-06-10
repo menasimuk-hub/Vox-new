@@ -115,7 +115,10 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
         if (!window.Stripe) throw new Error("Stripe.js failed to load");
         const stripe = window.Stripe(String(intent.publishable_key));
         const elements = stripe.elements({ clientSecret: intent.client_secret });
-        const paymentElement = elements.create("payment");
+        const paymentElement = elements.create("payment", {
+          layout: "tabs",
+          wallets: { applePay: "never", googlePay: "never" },
+        });
         if (mountRef.current) {
           mountRef.current.innerHTML = "";
           paymentElement.mount(mountRef.current);
@@ -204,8 +207,8 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="top-[4dvh] flex max-h-[min(92dvh,36rem)] w-[calc(100%-2rem)] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:top-[50%] sm:max-w-md sm:-translate-y-1/2">
+        <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
             <Wallet className="size-5 text-primary" /> Top up wallet
           </DialogTitle>
@@ -215,7 +218,7 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
         </DialogHeader>
 
         {!provider ? (
-          <div className="space-y-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Amount ({symbol})</label>
               <Input
@@ -265,14 +268,16 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
             )}
           </div>
         ) : (
-          <div className="space-y-4">
-            <div ref={mountRef} className="min-h-24" />
-            {!paymentReady && (
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" /> Preparing secure payment…
-              </p>
-            )}
-            <div className="flex items-center justify-between gap-2">
+          <>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+              <div ref={mountRef} className="min-h-[8rem] [&_.StripeElement]:max-w-full" />
+              {!paymentReady && (
+                <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" /> Preparing secure payment…
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center justify-between gap-2 border-t bg-background px-6 py-4">
               <Button variant="ghost" disabled={paying} onClick={() => { cleanupRef.current?.(); cleanupRef.current = null; setProvider(null); setPaymentReady(false); }}>
                 Back
               </Button>
@@ -283,7 +288,7 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
                 </Button>
               ) : null}
             </div>
-          </div>
+          </>
         )}
       </DialogContent>
     </Dialog>
