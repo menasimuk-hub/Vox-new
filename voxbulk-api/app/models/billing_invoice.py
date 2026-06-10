@@ -47,4 +47,7 @@ class BillingInvoice(Base):
     dd_next_retry_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     emailed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    invoice_email_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    invoice_email_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    invoice_email_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

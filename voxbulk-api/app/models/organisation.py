@@ -38,6 +38,7 @@ class Organisation(Base):
     county_state: Mapped[str | None] = mapped_column(String(120), nullable=True)
     postcode: Mapped[str | None] = mapped_column(String(40), nullable=True)
     country: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    country_code: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
 
     contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -49,6 +50,7 @@ class Organisation(Base):
     wallet_balance_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Fixed billing currency (GBP/USD/CAD/AUD); resolved from country on first billing action.
     billing_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    allow_overage: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     credit_limit_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scheduling_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     hubspot_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -48,6 +48,7 @@ const NAV = [
     'Organisations',
     [
       ['All organisations', '/organisations'],
+      ['All users', '/organisations/all-users'],
       ['GB users', '/organisations/zone/gb'],
       ['USA users', '/organisations/zone/us'],
       ['Canada users', '/organisations/zone/ca'],

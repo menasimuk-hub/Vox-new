@@ -281,6 +281,9 @@ class InvoiceService:
                 invoice.dd_next_retry_at.isoformat() if getattr(invoice, "dd_next_retry_at", None) else None
             ),
             "emailed_at": invoice.emailed_at.isoformat() if invoice.emailed_at else None,
+            "invoice_email_status": getattr(invoice, "invoice_email_status", None) or ("sent" if invoice.emailed_at else "pending"),
+            "invoice_email_last_error": getattr(invoice, "invoice_email_last_error", None),
+            "invoice_email_attempts": int(getattr(invoice, "invoice_email_attempts", 0) or 0),
             "issued_at": invoice.created_at.isoformat() if invoice.created_at else None,
             "created_at": invoice.created_at.isoformat() if invoice.created_at else None,
             "total_pence": total,

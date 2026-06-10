@@ -483,6 +483,10 @@ class UsageWalletService:
         if row is None:
             return None
 
+        org = db.get(Organisation, org_id)
+        if org is not None and not bool(getattr(org, "allow_overage", True)):
+            return None
+
         total_overage = UsageWalletService._calc_overage_pence(row, db, org_id)
         already = int(row.overage_invoiced_pence or 0)
         delta = total_overage - already

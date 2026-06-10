@@ -1366,6 +1366,14 @@ class ServiceOrderService:
         db.add(order)
         db.commit()
         db.refresh(order)
+        try:
+            from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+            OrgControlCenterActionsService.issue_order_payment_invoice(db, order)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("admin_approve_payment_invoice_failed order_id=%s", order.id)
         return order
 
     @staticmethod

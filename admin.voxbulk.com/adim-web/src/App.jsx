@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import Organisations from './pages/Organisations'
 import ZoneOrganisations from './pages/ZoneOrganisations'
 import OrganisationDetail from './pages/OrganisationDetail'
+import OrgControlCenter from './pages/OrgControlCenter'
 import OrganisationProfile from './pages/OrganisationProfile'
 import Categories from './pages/Categories'
 import OperationsQueue from './pages/OperationsQueue'
@@ -99,6 +100,7 @@ export default function App() {
         <Route path='/dashboard/llm-call-spend' element={<Navigate to='/dashboard' replace />} />
 
         <Route path='/organisations' element={<Organisations />} />
+        <Route path='/organisations/all-users' element={<OrgControlCenter />} />
         <Route path='/organisations/profile' element={<OrganisationProfile />} />
         <Route path='/organisations/categories' element={<Categories />} />
         <Route path='/organisations/zone/:zone' element={<ZoneOrganisations />} />

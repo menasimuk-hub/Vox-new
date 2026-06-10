@@ -1257,6 +1257,370 @@ def admin_list_organisations(
     ]
 
 
+@router.get("/organisations/control-center")
+def admin_org_control_center_list(
+    limit: int = 200,
+    offset: int = 0,
+    search: str | None = None,
+    country: str | None = None,
+    status: str | None = None,
+    plan_code: str | None = None,
+    payment_status: str | None = None,
+    campaign_status: str | None = None,
+    channel: str | None = None,
+    overage_only: bool = False,
+    invoices_due_only: bool = False,
+    running_campaigns_only: bool = False,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_service import OrgControlCenterService
+
+    return OrgControlCenterService.list_rows(
+        db,
+        limit=limit,
+        offset=offset,
+        search=search,
+        country=country,
+        status=status,
+        plan_code=plan_code,
+        payment_status=payment_status,
+        campaign_status=campaign_status,
+        channel=channel,
+        overage_only=overage_only,
+        invoices_due_only=invoices_due_only,
+        running_campaigns_only=running_campaigns_only,
+    )
+
+
+@router.get("/organisations/{org_id}/control-center")
+def admin_org_control_center_detail(
+    org_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_service import OrgControlCenterService
+
+    detail = OrgControlCenterService.get_detail(db, org_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    return detail
+
+
+def _control_center_actor(principal) -> tuple[str | None, str | None]:
+    return (
+        getattr(principal, "user_id", None),
+        getattr(principal, "email", None),
+    )
+
+
+@router.post("/organisations/{org_id}/control-center/wallet/credit")
+def admin_occ_wallet_credit(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
+    reason = str(payload.get("reason") or payload.get("note") or "Admin wallet credit").strip()
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.credit_wallet(
+            db, org_id, amount_minor=amount, reason=reason, actor_user_id=actor_id, actor_email=actor_email
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/credits/adjust")
+def admin_occ_adjust_credits(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.adjust_credits(
+            db,
+            org_id,
+            service_code=str(payload.get("service_code") or "survey"),
+            delta=int(payload.get("delta") or 0),
+            reason=str(payload.get("reason") or "").strip(),
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/promo/apply")
+def admin_occ_apply_promo(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.apply_promo(
+            db,
+            org_id,
+            promo_code=str(payload.get("promo_code") or "").strip(),
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.patch("/organisations/{org_id}/control-center/overage")
+def admin_occ_set_overage(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.set_allow_overage(
+            db,
+            org_id,
+            allow_overage=bool(payload.get("allow_overage")),
+            reason=str(payload.get("reason") or "").strip() or None,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/invoices")
+def admin_occ_create_invoice(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.create_invoice(
+            db,
+            org_id,
+            amount_minor=int(payload.get("amount_minor") or payload.get("amount_pence") or 0),
+            invoice_type=str(payload.get("invoice_type") or payload.get("kind") or "manual"),
+            due_date=str(payload.get("due_date") or "") or None,
+            note=str(payload.get("note") or payload.get("description") or "").strip() or None,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/invoices/{invoice_id}/mark-paid")
+def admin_occ_mark_invoice_paid(
+    org_id: str,
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.mark_invoice_paid(
+            db,
+            org_id,
+            invoice_id,
+            note=str(payload.get("note") or "").strip() or None,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/invoices/{invoice_id}/resend")
+def admin_occ_resend_invoice(
+    org_id: str,
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.resend_invoice_email(
+            db, org_id, invoice_id, actor_user_id=actor_id, actor_email=actor_email
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/invoices/{invoice_id}/reissue")
+def admin_occ_reissue_invoice(
+    org_id: str,
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.reissue_invoice(
+            db, org_id, invoice_id, actor_user_id=actor_id, actor_email=actor_email
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/organisations/{org_id}/control-center/invoices/{invoice_id}/pdf")
+def admin_occ_invoice_pdf(
+    org_id: str,
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from fastapi.responses import Response
+
+    from app.models.billing_invoice import BillingInvoice
+    from app.models.organisation import Organisation
+    from app.services.invoice_service import InvoiceDocumentService
+
+    invoice = db.get(BillingInvoice, invoice_id)
+    if invoice is None or invoice.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    org = db.get(Organisation, org_id)
+    pdf_bytes = InvoiceDocumentService.render_pdf(db, invoice=invoice, org=org)
+    number = invoice.invoice_number or invoice.id
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="invoice-{number}.pdf"'},
+    )
+
+
+@router.post("/organisations/{org_id}/control-center/campaigns/{order_id}/{action}")
+def admin_occ_campaign_action(
+    org_id: str,
+    order_id: str,
+    action: str,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.campaign_action(
+            db, org_id, order_id, action, actor_user_id=actor_id, actor_email=actor_email
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/campaigns/stop-all")
+def admin_occ_stop_all_campaigns(
+    org_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    return OrgControlCenterActionsService.stop_all_campaigns(
+        db, org_id, actor_user_id=actor_id, actor_email=actor_email
+    )
+
+
+@router.post("/organisations/{org_id}/control-center/campaigns/{order_id}/retry-failed")
+def admin_occ_retry_failed(
+    org_id: str,
+    order_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.retry_failed_recipients(
+            db, org_id, order_id, actor_user_id=actor_id, actor_email=actor_email
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/campaigns/purge-queue")
+def admin_occ_purge_queue(
+    org_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    return OrgControlCenterActionsService.purge_queued_campaigns(
+        db, org_id, actor_user_id=actor_id, actor_email=actor_email
+    )
+
+
+@router.patch("/organisations/{org_id}/control-center/notes")
+def admin_occ_save_notes(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    return OrgControlCenterActionsService.save_profile_notes(
+        db,
+        org_id,
+        profile_notes=payload.get("profile_notes"),
+        actor_user_id=actor_id,
+        actor_email=actor_email,
+    )
+
+
+@router.patch("/organisations/{org_id}/control-center/suspend")
+def admin_occ_suspend(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.set_suspended(
+            db,
+            org_id,
+            suspended=bool(payload.get("is_suspended")),
+            reason=str(payload.get("reason") or "").strip() or None,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/organisations/{org_id}")
 def admin_get_organisation(org_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     from app.services.market_zone import country_to_zone, format_wallet_pence, zone_label
@@ -1416,6 +1780,10 @@ def admin_patch_organisation(org_id: str, payload: dict, db: Session = Depends(g
             setattr(org, field, str(v).strip() if v is not None and str(v).strip() != "" else None)
     if "is_suspended" in payload:
         org.is_suspended = bool(payload.get("is_suspended"))
+    if "country" in payload:
+        from app.services.org_billing_profile_service import sync_org_country_code
+
+        sync_org_country_code(db, org, commit=False)
     db.add(org)
     db.commit()
     db.refresh(org)
