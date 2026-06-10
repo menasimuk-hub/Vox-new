@@ -25,7 +25,7 @@ from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     _effective_components,
     _loads,
-    ensure_meta_examples_on_components,
+    prepare_components_for_telnyx_push,
 )
 
 
@@ -51,7 +51,7 @@ def main() -> int:
         print(json.dumps(_loads(row.draft_components_json) or raw, indent=2, ensure_ascii=False))
 
         try:
-            prepared = ensure_meta_examples_on_components(raw, row=row)
+            prepared = prepare_components_for_telnyx_push(raw, row=row)
         except SurveyWhatsappTemplateError as exc:
             print(f"\nPREPARE ERROR: {exc}", file=sys.stderr)
             return 1

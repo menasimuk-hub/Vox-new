@@ -828,6 +828,74 @@ def _remote_name_candidates_for_row(row: TelnyxWhatsappTemplate) -> list[str]:
     return deduped
 
 
+def prepare_components_for_telnyx_push(
+    components: list[Any] | None,
+    *,
+    row: TelnyxWhatsappTemplate | None = None,
+    example_values: list[str] | None = None,
+) -> list[Any]:
+    """Normalize and rebuild components so every Telnyx/Meta push includes a valid BODY example."""
+    normalized = _normalize_draft_components(components if isinstance(components, list) else None)
+    prepared = ensure_meta_examples_on_components(normalized, example_values, row=row)
+    _assert_meta_ready_components(prepared)
+    return prepared
+
+
+def _body_component_from_prepared(components: list[Any] | None) -> dict[str, Any] | None:
+    if not isinstance(components, list):
+        return None
+    for comp in components:
+        if isinstance(comp, dict) and str(comp.get("type") or "").upper() == "BODY":
+            return comp
+    return None
+
+
+def _patch_remote_template_on_telnyx(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    components: list[Any],
+    api_key: str,
+    record_id: str | None = None,
+) -> dict[str, Any] | None:
+    rid = str(record_id or row.telnyx_record_id or "").strip()
+    if not rid or rid.startswith(_LOCAL_ID_PREFIX):
+        return None
+    try:
+        with httpx.Client(timeout=45.0, verify=httpx_ssl_verify()) as client:
+            response = client.patch(
+                f"{TELNYX_WHATSAPP_TEMPLATES_URL}/{rid}",
+                headers=_telnyx_headers(api_key),
+                json={"components": components},
+            )
+            response.raise_for_status()
+            body = response.json()
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "survey_wa_template_patch_failed",
+            extra={
+                "template_id": row.id,
+                "template_name": row.name,
+                "telnyx_record_id": rid,
+                "status_code": exc.response.status_code if exc.response is not None else None,
+                "error": _telnyx_http_error_detail(exc),
+            },
+        )
+        return None
+    except Exception as exc:
+        logger.warning(
+            "survey_wa_template_patch_failed",
+            extra={"template_id": row.id, "template_name": row.name, "telnyx_record_id": rid, "error": str(exc)},
+        )
+        return None
+
+    item = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(item, dict):
+        return None
+    _apply_remote_telnyx_item(row, item, overwrite_draft=False)
+    return _push_success_response(db, row, telnyx_request_mode="patch_template")
+
+
 def _push_success_response(
     db: Session,
     row: TelnyxWhatsappTemplate,
@@ -1412,28 +1480,17 @@ class SurveyWhatsappTemplateService:
 
         raw_components = _persist_normalized_draft(db, row, raw_components)
 
-        if not _is_local_row(row):
-            draft_sync_hash = _sync_content_hash(raw_components)
-            remote_sync_hash = row.remote_content_hash or _sync_content_hash(_loads(row.components_json))
-            if remote_sync_hash and draft_sync_hash and remote_sync_hash == draft_sync_hash:
-                record_id = str(row.telnyx_record_id or "").strip()
-                if record_id:
-                    try:
-                        remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)
-                        _apply_remote_telnyx_item(row, remote_item, overwrite_draft=False)
-                        return _push_success_response(
-                            db,
-                            row,
-                            telnyx_request_mode="refresh_remote_status",
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "survey_wa_template_refresh_before_push_failed",
-                            extra={"template_id": row.id, "error": str(exc)},
-                        )
-
-        components = ensure_meta_examples_on_components(raw_components, row=row)
-        _assert_meta_ready_components(components)
+        components = prepare_components_for_telnyx_push(raw_components, row=row)
+        body_comp = _body_component_from_prepared(components)
+        if body_comp is not None:
+            logger.info(
+                "survey_wa_template_push_prepared_body",
+                extra={
+                    "template_id": row.id,
+                    "template_name": row.name,
+                    "body_example": body_comp.get("example"),
+                },
+            )
 
         category = normalize_wa_template_category(row.category, required=True)
 
@@ -1505,6 +1562,20 @@ class SurveyWhatsappTemplateService:
             if linked is not None:
                 return linked
 
+        record_id = str(row.telnyx_record_id or "").strip()
+        has_remote_id = bool(record_id) and not record_id.startswith(_LOCAL_ID_PREFIX)
+
+        if has_remote_id:
+            patched = _patch_remote_template_on_telnyx(
+                db,
+                row,
+                components=components,
+                api_key=api_key,
+                record_id=record_id,
+            )
+            if patched is not None:
+                return patched
+
         payload = {
             "name": str(row.name or "").strip(),
             "category": category,
@@ -1512,13 +1583,7 @@ class SurveyWhatsappTemplateService:
             "waba_id": waba_id,
             "components": components,
         }
-        record_id = str(row.telnyx_record_id or "").strip()
-        use_patch = (
-            bool(record_id)
-            and not record_id.startswith(_LOCAL_ID_PREFIX)
-            and approval in {"APPROVED", "REJECTED"}
-        )
-        telnyx_request_mode = "patch_template" if use_patch else "create_or_update_template"
+        telnyx_request_mode = "create_or_update_template"
         logger.info(
             "survey_wa_template_push_start",
             extra={
@@ -1531,18 +1596,11 @@ class SurveyWhatsappTemplateService:
         try:
             with httpx.Client(timeout=45.0, verify=httpx_ssl_verify()) as client:
                 headers = _telnyx_headers(api_key)
-                if use_patch:
-                    response = client.patch(
-                        f"{TELNYX_WHATSAPP_TEMPLATES_URL}/{record_id}",
-                        headers=headers,
-                        json={"components": components},
-                    )
-                else:
-                    response = client.post(
-                        TELNYX_WHATSAPP_TEMPLATES_URL,
-                        headers=headers,
-                        json=payload,
-                    )
+                response = client.post(
+                    TELNYX_WHATSAPP_TEMPLATES_URL,
+                    headers=headers,
+                    json=payload,
+                )
                 response.raise_for_status()
                 body = response.json()
         except httpx.HTTPStatusError as e:
@@ -1551,6 +1609,14 @@ class SurveyWhatsappTemplateService:
             if meta.get("subcode") == META_SUBCODE_CONTENT_ALREADY_EXISTS or meta.get("kind") == "content_already_exists":
                 linked = _try_link_existing_remote_template(db, row, language=lang_code)
                 if linked is not None:
+                    patched = _patch_remote_template_on_telnyx(
+                        db,
+                        row,
+                        components=components,
+                        api_key=api_key,
+                    )
+                    if patched is not None:
+                        return patched
                     return linked
             row.last_push_error = detail
             row.local_sync_status = SYNC_ERROR

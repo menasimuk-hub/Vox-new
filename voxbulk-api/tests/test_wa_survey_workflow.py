@@ -294,6 +294,22 @@ def test_sync_updates_existing_not_duplicated(monkeypatch):
         assert count == 1
 
 
+def test_prepare_components_for_telnyx_push_strips_invalid_body_example():
+    from app.services.survey_whatsapp_template_service import prepare_components_for_telnyx_push
+
+    raw = [
+        {
+            "type": "BODY",
+            "text": "How was your visit?",
+            "example": {"body_text": [[]]},
+        },
+        {"type": "FOOTER", "text": "Reply STOP to opt out"},
+    ]
+    prepared = prepare_components_for_telnyx_push(raw)
+    body = next(c for c in prepared if c.get("type") == "BODY")
+    assert body["example"]["body_text"] == [["Sample"]]
+
+
 def test_push_to_telnyx_builds_payload(monkeypatch):
     with get_sessionmaker()() as db:
         survey_type = _seed_survey_type(db)
