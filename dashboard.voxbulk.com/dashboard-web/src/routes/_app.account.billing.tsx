@@ -1,21 +1,23 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, CreditCard, Download, Eye, Wallet } from "lucide-react";
+import { AlertTriangle, CreditCard, Download, Eye, Loader2 } from "lucide-react";
 import * as React from "react";
+import { toast } from "sonner";
 
 import { InvoicePayDialog } from "@/components/invoice-pay-dialog";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab } from "@/lib/api";
+import { startGoCardlessMandateUpdate } from "@/lib/billing/gocardless";
 import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
 import { useBillingAccess, useBillingInvoices, useBillingSubscription, useBillingUsage, useWalletTransactions } from "@/lib/queries";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
-import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/account/billing")({
   head: () => ({ meta: [{ title: "Billing — VoxBulk" }] }),
@@ -25,19 +27,10 @@ export const Route = createFileRoute("/_app/account/billing")({
   component: BillingPage,
 });
 
+const PAGE_SIZE = 10;
+
 function moneyFromPence(pence?: number) {
   return `£${((Number(pence || 0)) / 100).toFixed(2)}`;
-}
-
-function fmtPeriod(start?: string | null, end?: string | null) {
-  if (!start || !end) return null;
-  try {
-    const a = new Date(start).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-    const b = new Date(end).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-    return `${a} – ${b}`;
-  } catch {
-    return null;
-  }
 }
 
 function invoiceKind(description?: string | null, provider?: string | null) {
@@ -45,6 +38,18 @@ function invoiceKind(description?: string | null, provider?: string | null) {
   if (text.includes("overage") || text.includes("usage")) return "Extra usage";
   if (text.includes("subscription") || text.includes("plan") || provider === "gocardless") return "Subscription";
   return "Invoice";
+}
+
+function walletRowKind(kind?: string | null, direction?: string | null) {
+  const k = String(kind || "").toLowerCase();
+  if (k === "topup" || direction === "credit") return "Top-up";
+  return "Receipt";
+}
+
+function ledgerKindPriority(type: string) {
+  if (type === "Top-up") return 0;
+  if (type === "Receipt") return 1;
+  return 2;
 }
 
 function canShowPayAction(rawStatus: string) {
@@ -69,33 +74,57 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
   );
 }
 
+function UsageMeterBar({
+  label,
+  used,
+  included,
+}: {
+  label: string;
+  used: number;
+  included: number;
+}) {
+  const pct = included > 0 ? Math.min(100, Math.round((used / included) * 100)) : 0;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="tabular-nums text-foreground">
+          {used.toLocaleString()} / {included > 0 ? included.toLocaleString() : "—"}
+        </span>
+      </div>
+      <Progress value={pct} className="h-2" />
+    </div>
+  );
+}
+
 function BillingPage() {
-  const { session } = useSession();
   const { pay: payInvoiceId } = Route.useSearch();
   const subQ = useBillingSubscription();
   const usageQ = useBillingUsage();
   const invoicesQ = useBillingInvoices();
   const accessQ = useBillingAccess();
-  const walletTxQ = useWalletTransactions(30);
+  const walletTxQ = useWalletTransactions(100);
   const [payInvoice, setPayInvoice] = React.useState<Invoice | null>(null);
+  const [ledgerPage, setLedgerPage] = React.useState(1);
+  const [mandateBusy, setMandateBusy] = React.useState(false);
 
-  const plan = subQ.data?.plan || usageQ.data?.current_plan || session?.subscription?.plan;
-  const subscription = subQ.data?.subscription || usageQ.data?.subscription;
+  const plan = subQ.data?.plan || usageQ.data?.current_plan;
   const monitor = (usageQ.data?.billing_monitor || {}) as BillingMonitorPayload;
   const commercial = monitor.commercial || {};
   const estimates = monitor.capacity_estimates || {};
-  const actual = monitor.actual_usage || {};
   const status = monitor.status || {};
+  const nextInvoice = status.next_invoice || {};
+  const sharedPool = Boolean(monitor.shared_package_pool);
+  const meters = usageQ.data?.meters || [];
 
-  const period = fmtPeriod(
-    status.billing_period_start || usageQ.data?.period_start,
-    status.billing_period_end || usageQ.data?.period_end,
-  );
+  const callsMeter = meters.find((m) => m.key === "calls");
+  const waMeter = meters.find((m) => m.key === "whatsapp");
+  const packageMeter = meters.find((m) => m.key === "package");
+
   const overagePending = Number(status.overage_pending_pence ?? usageQ.data?.overage_pending_pence ?? 0);
-  const estimatedOverage = usageQ.data?.estimated_overage_gbp;
   const openInvoices = Number(status.open_invoices_count ?? usageQ.data?.open_invoices_count ?? 0);
   const nextActionLabel = status.next_action_label || usageQ.data?.next_action_label;
-  const paymentStatus = status.payment_status || usageQ.data?.payment_status || subscription?.status || "—";
+  const exhausted = Number(commercial.package_remaining_pence || 0) <= 0 && Number(commercial.wallet_balance_pence || 0) <= 0;
 
   const billingLoadError = subQ.isError || usageQ.isError || invoicesQ.isError;
   const billingErrorDetail =
@@ -104,26 +133,73 @@ function BillingPage() {
     (invoicesQ.error && billingErrorMessage(invoicesQ.error)) ||
     "";
 
-  const invoiceRows = (invoicesQ.data || []).map((inv) => ({
-    invoiceId: inv.id,
-    id: inv.invoice_number || inv.id,
-    kind: invoiceKind(inv.description, inv.provider),
-    description: inv.description || "—",
-    date: inv.issued_at
-      ? new Date(inv.issued_at).toLocaleDateString()
-      : inv.created_at
-        ? new Date(String(inv.created_at)).toLocaleDateString()
-        : "—",
-    amount: inv.total_gbp || moneyFromPence(inv.total_pence),
-    status: invoiceStatusLabel(inv.status),
-    rawStatus: String(inv.status || "issued").toLowerCase(),
-    payable: Boolean(inv.payable ?? inv.payment_context?.payable),
-    paymentContext: inv.payment_context,
-    raw: inv,
-  }));
+  const invoiceRows = (invoicesQ.data || []).map((inv) => {
+    const dateRaw = inv.issued_at || inv.created_at;
+    const dateObj = dateRaw ? new Date(String(dateRaw)) : null;
+    return {
+      ledgerId: `inv-${inv.id}`,
+      invoiceId: inv.id,
+      id: inv.invoice_number || inv.id,
+      kind: invoiceKind(inv.description, inv.provider),
+      kindPriority: ledgerKindPriority(invoiceKind(inv.description, inv.provider)),
+      description: inv.description || "—",
+      date: dateObj ? dateObj.toLocaleDateString() : "—",
+      dateSort: dateObj ? dateObj.getTime() : 0,
+      amount: inv.total_gbp || moneyFromPence(inv.total_pence),
+      status: invoiceStatusLabel(inv.status),
+      rawStatus: String(inv.status || "issued").toLowerCase(),
+      payable: Boolean(inv.payable ?? inv.payment_context?.payable),
+      paymentContext: inv.payment_context,
+      raw: inv,
+      isInvoice: true as const,
+    };
+  });
 
-  const inv = useTableSort(invoiceRows, "date", "desc");
-  const exhausted = Number(commercial.package_remaining_pence || 0) <= 0 && Number(commercial.wallet_balance_pence || 0) <= 0;
+  const walletRows = (walletTxQ.data?.transactions || []).map((tx) => {
+    const dateRaw = tx.created_at;
+    const dateObj = dateRaw ? new Date(String(dateRaw)) : null;
+    const kind = walletRowKind(String(tx.kind || ""), String(tx.direction || ""));
+    const signed =
+      tx.direction === "credit"
+        ? `+${String(tx.amount_display || "")}`
+        : `−${String(tx.amount_display || "")}`;
+    return {
+      ledgerId: `tx-${String(tx.id)}`,
+      invoiceId: "",
+      id: String(tx.id).slice(0, 8),
+      kind,
+      kindPriority: ledgerKindPriority(kind),
+      description: String(tx.description || tx.kind || "—"),
+      date: dateObj ? dateObj.toLocaleString() : "—",
+      dateSort: dateObj ? dateObj.getTime() : 0,
+      amount: signed,
+      status: String(tx.status || "—"),
+      rawStatus: "",
+      payable: false,
+      paymentContext: undefined,
+      raw: undefined,
+      isInvoice: false as const,
+    };
+  });
+
+  const defaultLedger = React.useMemo(() => {
+    return [...walletRows, ...invoiceRows].sort((a, b) => {
+      if (a.kindPriority !== b.kindPriority) return a.kindPriority - b.kindPriority;
+      return b.dateSort - a.dateSort;
+    });
+  }, [walletRows, invoiceRows]);
+
+  const ledger = useTableSort(defaultLedger, "dateSort", "desc");
+  const sortedLedger =
+    ledger.sortKey === "dateSort" && ledger.sortDir === "desc"
+      ? defaultLedger
+      : ledger.sorted;
+  const totalLedgerPages = Math.max(1, Math.ceil(sortedLedger.length / PAGE_SIZE));
+  const ledgerPageRows = sortedLedger.slice((ledgerPage - 1) * PAGE_SIZE, ledgerPage * PAGE_SIZE);
+
+  React.useEffect(() => {
+    setLedgerPage(1);
+  }, [ledger.sortKey, ledger.sortDir, defaultLedger.length]);
 
   React.useEffect(() => {
     if (!payInvoiceId || invoicesQ.isLoading || !invoicesQ.data?.length) return;
@@ -133,12 +209,26 @@ function BillingPage() {
     }
   }, [payInvoiceId, invoicesQ.isLoading, invoicesQ.data]);
 
+  const onUpdateMandate = async () => {
+    setMandateBusy(true);
+    try {
+      await startGoCardlessMandateUpdate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start Direct Debit update");
+      setMandateBusy(false);
+    }
+  };
+
+  const planPrice = plan
+    ? moneyFromPence(plan?.price_gbp_pence ?? (plan as { price_pence?: number })?.price_pence)
+    : "—";
+
   return (
     <div className="flex w-full flex-col gap-6 pb-12">
       <PageHeader
         eyebrow="Account"
         title="Billing"
-        description="Commercial balance, actual usage, and approximate capacity for your organisation."
+        description="Commercial balance, usage, and invoices for your organisation."
         actions={
           <Button asChild variant="outline" size="sm">
             <Link to="/account/packages">Packages & pricing</Link>
@@ -194,65 +284,111 @@ function BillingPage() {
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Billing overview</h2>
         {usageQ.isLoading ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {Array.from({ length: 7 }).map((_, i) => (
-              <Skeleton key={i} className="h-24" />
-            ))}
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Skeleton className="h-44" />
+            <Skeleton className="h-44" />
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Current plan</CardDescription>
+                <CardTitle className="text-2xl">
+                  {plan?.name || "—"}
+                  {plan ? ` · ${planPrice}/mo` : ""}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {sharedPool && packageMeter ? (
+                  <UsageMeterBar
+                    label="Package usage"
+                    used={Number(packageMeter.used || 0)}
+                    included={Number(packageMeter.included || 0)}
+                  />
+                ) : (
+                  <>
+                    <UsageMeterBar
+                      label="AI minutes used"
+                      used={Number(callsMeter?.used ?? 0)}
+                      included={Number(callsMeter?.included ?? 0)}
+                    />
+                    <UsageMeterBar
+                      label="WhatsApp messages"
+                      used={Number(waMeter?.used ?? 0)}
+                      included={Number(waMeter?.included ?? 0)}
+                    />
+                  </>
+                )}
+                <Button asChild size="sm">
+                  <Link to="/account/packages">Change plan</Link>
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Next invoice</CardDescription>
+                <CardTitle className="text-2xl tabular-nums">
+                  {String(nextInvoice.amount_display || "—")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Charged on {String(nextInvoice.charge_date_display || "—")}
+                  {nextInvoice.payment_method_label && nextInvoice.payment_method_label !== "—"
+                    ? ` · ${nextInvoice.payment_method_label}`
+                    : ""}
+                </p>
+                {nextInvoice.can_update_mandate ? (
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto p-0 text-primary"
+                    disabled={mandateBusy}
+                    onClick={() => void onUpdateMandate()}
+                  >
+                    {mandateBusy ? (
+                      <>
+                        <Loader2 className="mr-1 inline size-3.5 animate-spin" /> Redirecting…
+                      </>
+                    ) : (
+                      "Update Direct Debit"
+                    )}
+                  </Button>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {!usageQ.isLoading ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <KpiCard
+              label="Extra usage"
+              value={
+                overagePending > 0
+                  ? moneyFromPence(overagePending)
+                  : status.overage_risk
+                    ? "At risk"
+                    : "Normal"
+              }
+              sub={overagePending > 0 ? "Pending invoice" : "No extra usage pending"}
+            />
+            <KpiCard label="Open invoices" value={String(openInvoices)} sub="Outstanding invoices" />
             <KpiCard
               label="Wallet balance"
               value={commercial.wallet_balance_display || usageQ.data?.wallet_balance_gbp || moneyFromPence(commercial.wallet_balance_pence)}
               sub="Actual money available"
             />
-            <KpiCard
-              label="Current plan"
-              value={plan?.name || "—"}
-              sub={plan ? `${moneyFromPence(plan?.price_gbp_pence ?? (plan as { price_pence?: number })?.price_pence)}/mo` : undefined}
-            />
-            <KpiCard
-              label="Package remaining"
-              value={commercial.package_remaining_display || moneyFromPence(commercial.package_remaining_pence)}
-              sub={
-                commercial.package_used_display
-                  ? `${commercial.package_used_display} used of ${commercial.package_included_display || "—"}`
-                  : "Commercial entitlement balance"
-              }
-            />
-            <KpiCard label="Payment status" value={String(paymentStatus)} sub={period ? `Period: ${period}` : undefined} />
-            <KpiCard
-              label="Extra usage risk"
-              value={status.overage_risk ? "At risk" : "Normal"}
-              sub={overagePending > 0 ? `${moneyFromPence(overagePending)} pending invoice` : estimatedOverage ? `~£${estimatedOverage} estimated` : "No extra usage pending"}
-            />
-            <KpiCard label="Open invoices" value={String(openInvoices)} sub="Outstanding invoices" />
           </div>
-        )}
-      </section>
-
-      <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actual usage this period</h2>
-        {usageQ.isLoading ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-20" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <KpiCard label="WhatsApp usage" value={String(actual.whatsapp_used ?? 0)} sub="Recipients sent this period" />
-            <KpiCard label="AI usage" value={String(actual.calls_used ?? 0)} sub="Call minutes this period" />
-            <KpiCard label="SMS usage" value={String(actual.sms_used ?? 0)} sub="Messages this period" />
-            <KpiCard label="Survey credits" value={String(actual.survey_credits ?? 0)} sub="Promo credits" />
-            <KpiCard label="Interview credits" value={String(actual.interview_credits ?? 0)} sub="Promo credits" />
-          </div>
-        )}
+        ) : null}
       </section>
 
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Approximate capacity left</h2>
-        <p className="mb-3 text-xs text-muted-foreground">{estimates.disclaimer || "Approximate capacity only — not used for billing or invoicing."}</p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          {estimates.disclaimer || "Approximate capacity only — not used for billing or invoicing."}
+        </p>
         {usageQ.isLoading ? (
           <div className="grid gap-3 sm:grid-cols-2">
             <Skeleton className="h-20" />
@@ -263,162 +399,121 @@ function BillingPage() {
             <KpiCard
               label="Estimated WA surveys left"
               value={String(estimates.estimated_wa_surveys ?? 0)}
-              sub={estimates.label || (estimates.source === "wallet" ? "Estimated from wallet" : estimates.source === "package" ? "Estimated from plan" : "No remaining balance")}
+              sub={estimates.label || "Estimated from plan or wallet"}
             />
             <KpiCard
               label="Estimated AI minutes left"
               value={String(estimates.estimated_ai_minutes ?? 0)}
-              sub={estimates.label || (estimates.source === "wallet" ? "Estimated from wallet" : estimates.source === "package" ? "Estimated from plan" : "No remaining balance")}
+              sub={estimates.label || "Estimated from plan or wallet"}
             />
           </div>
         )}
       </section>
 
-      <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Balances</h2>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Card>
-            <CardContent className="flex items-center gap-3 p-4">
-              <Wallet className="size-5 text-primary" />
-              <div>
-                <p className="text-xs text-muted-foreground">Wallet balance</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {commercial.wallet_balance_display || usageQ.data?.wallet_balance_gbp || moneyFromPence(commercial.wallet_balance_pence)}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
       <Card>
         <CardHeader>
-          <CardTitle>Wallet activity</CardTitle>
-          <CardDescription>Top-ups and launch charges from your pay-as-you-go wallet.</CardDescription>
+          <CardTitle>Invoices & payments</CardTitle>
+          <CardDescription>Top-ups, receipts, subscription charges, and extra usage.</CardDescription>
         </CardHeader>
         <CardContent className="px-0">
-          {walletTxQ.isLoading ? (
+          {invoicesQ.isLoading || walletTxQ.isLoading ? (
             <div className="p-6">
               <Skeleton className="h-10 w-full" />
             </div>
-          ) : (walletTxQ.data?.transactions || []).length === 0 ? (
+          ) : sortedLedger.length === 0 ? (
             <p className="p-8 text-center text-sm text-muted-foreground">
-              No wallet transactions yet. Top up on{" "}
-              <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
-                Packages & pricing
-              </Link>
-              .
+              No billing activity yet. Plan renewals, top-ups, and extra usage will appear here.
             </p>
           ) : (
-            <div className="table-scroll">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-6">Date</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Kind</TableHead>
-                    <TableHead className="hidden xl:table-cell">Related</TableHead>
-                    <TableHead className="pr-6 text-right">Amount</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(walletTxQ.data?.transactions || []).map((tx) => (
-                    <TableRow key={String(tx.id)}>
-                      <TableCell className="pl-6 text-xs text-muted-foreground">
-                        {tx.created_at ? new Date(String(tx.created_at)).toLocaleString() : "—"}
-                      </TableCell>
-                      <TableCell className="max-w-[240px] truncate text-xs">{String(tx.description || tx.kind || "—")}</TableCell>
-                      <TableCell className="text-xs capitalize">{String(tx.kind || "—").replace(/_/g, " ")}</TableCell>
-                      <TableCell className={`pr-6 text-right tabular-nums ${tx.direction === "credit" ? "text-green-700 dark:text-green-400" : ""}`}>
-                        {tx.direction === "credit" ? "+" : "−"}
-                        {String(tx.amount_display || "")}
-                      </TableCell>
-                      <TableCell className="hidden pr-6 text-xs text-muted-foreground xl:table-cell">
-                        {tx.invoice_id ? `Invoice ${String(tx.invoice_id).slice(0, 8)}` : tx.order_id ? `Order ${String(tx.order_id).slice(0, 8)}` : "—"}
-                      </TableCell>
+            <>
+              <div className="table-scroll">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <SortHeader label="Reference" sortKey="id" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} className="pl-6" />
+                      <SortHeader label="Type" sortKey="kind" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} />
+                      <TableHead>Description</TableHead>
+                      <SortHeader label="Date" sortKey="dateSort" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} />
+                      <SortHeader label="Amount" sortKey="amount" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} />
+                      <SortHeader label="Status" sortKey="status" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} />
+                      <TableHead className="pr-6 text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Invoices</CardTitle>
-          <CardDescription>Subscription charges and extra usage beyond your plan allowance.</CardDescription>
-        </CardHeader>
-        <CardContent className="px-0">
-          {invoicesQ.isLoading ? (
-            <div className="p-6">
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : inv.sorted.length === 0 ? (
-            <p className="p-8 text-center text-sm text-muted-foreground">No invoices yet. Plan renewals and extra usage will appear here.</p>
-          ) : (
-            <div className="table-scroll">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <SortHeader label="Invoice" sortKey="id" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} className="pl-6" />
-                    <SortHeader label="Type" sortKey="kind" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
-                    <TableHead>Description</TableHead>
-                    <SortHeader label="Date" sortKey="date" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
-                    <SortHeader label="Amount" sortKey="amount" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
-                    <SortHeader label="Status" sortKey="status" active={inv.sortKey} dir={inv.sortDir} onToggle={inv.toggleSort} />
-                    <TableHead className="pr-6 text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {inv.sorted.map((i) => (
-                    <TableRow key={i.invoiceId}>
-                      <TableCell className="pl-6 font-mono text-xs">{i.id}</TableCell>
-                      <TableCell className="text-xs">{i.kind}</TableCell>
-                      <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">{i.description}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{i.date}</TableCell>
-                      <TableCell className="tabular-nums">{i.amount}</TableCell>
-                      <TableCell>
-                        <StatusBadge tone={badgeToneFromStatus(i.rawStatus)} label={i.status} />
-                      </TableCell>
-                      <TableCell className="pr-6 text-right">
-                        <div className="flex flex-wrap items-center justify-end gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-1"
-                            onClick={() =>
-                              void openAuthenticatedHtmlInTab(`/billing/invoices/${encodeURIComponent(i.invoiceId)}/html`)
-                            }
-                          >
-                            <Eye className="size-3.5" /> View
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-1"
-                            onClick={() =>
-                              void downloadAuthenticatedFile(
-                                `/billing/invoices/${encodeURIComponent(i.invoiceId)}/pdf`,
-                                `invoice-${i.id}.pdf`,
-                              )
-                            }
-                          >
-                            <Download className="size-3.5" /> Download
-                          </Button>
-                          {canShowPayAction(i.rawStatus) ? (
-                            <Button size="sm" variant="default" className="gap-1" onClick={() => setPayInvoice(i.raw)}>
-                              <CreditCard className="size-3.5" /> Pay
-                            </Button>
+                  </TableHeader>
+                  <TableBody>
+                    {ledgerPageRows.map((row) => (
+                      <TableRow key={row.ledgerId}>
+                        <TableCell className="pl-6 font-mono text-xs">{row.id}</TableCell>
+                        <TableCell className="text-xs">{row.kind}</TableCell>
+                        <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">{row.description}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{row.date}</TableCell>
+                        <TableCell className="tabular-nums">{row.amount}</TableCell>
+                        <TableCell>
+                          {row.isInvoice ? (
+                            <StatusBadge tone={badgeToneFromStatus(row.rawStatus)} label={row.status} />
+                          ) : (
+                            <span className="text-xs capitalize text-muted-foreground">{row.status}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="pr-6 text-right">
+                          {row.isInvoice && row.raw ? (
+                            <div className="flex flex-wrap items-center justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1"
+                                onClick={() =>
+                                  void openAuthenticatedHtmlInTab(`/billing/invoices/${encodeURIComponent(row.invoiceId)}/html`)
+                                }
+                              >
+                                <Eye className="size-3.5" /> View
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1"
+                                onClick={() =>
+                                  void downloadAuthenticatedFile(
+                                    `/billing/invoices/${encodeURIComponent(row.invoiceId)}/pdf`,
+                                    `invoice-${row.id}.pdf`,
+                                  )
+                                }
+                              >
+                                <Download className="size-3.5" /> Download
+                              </Button>
+                              {canShowPayAction(row.rawStatus) ? (
+                                <Button size="sm" variant="default" className="gap-1" onClick={() => setPayInvoice(row.raw!)}>
+                                  <CreditCard className="size-3.5" /> Pay
+                                </Button>
+                              ) : null}
+                            </div>
                           ) : null}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {sortedLedger.length > PAGE_SIZE ? (
+                <div className="flex items-center justify-between border-t border-border px-6 py-3 text-sm">
+                  <span className="text-muted-foreground">
+                    Page {ledgerPage} of {totalLedgerPages} · {sortedLedger.length} records
+                  </span>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" disabled={ledgerPage <= 1} onClick={() => setLedgerPage((p) => p - 1)}>
+                      Previous
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={ledgerPage >= totalLedgerPages}
+                      onClick={() => setLedgerPage((p) => p + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </>
           )}
         </CardContent>
       </Card>

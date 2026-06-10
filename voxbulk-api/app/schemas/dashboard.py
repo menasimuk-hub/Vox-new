@@ -44,6 +44,8 @@ class SubscriptionOut(BaseModel):
     payment_mode: str | None = None
     external_customer_id: str | None = None
     external_subscription_id: str | None = None
+    mandate_id: str | None = None
+    mandate_status: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
 

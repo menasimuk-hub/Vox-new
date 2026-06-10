@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -78,6 +79,97 @@ class BillingMonitorService:
             return "extra_usage_invoiced", "Extra usage will be invoiced via Direct Debit when you launch"
 
         return "top_up_wallet", "Top up wallet to continue"
+
+    @staticmethod
+    def _build_next_invoice(
+        db: Session,
+        org: Organisation,
+        *,
+        sub,
+        plan,
+    ) -> dict[str, Any]:
+        from app.services.provider_settings import ProviderSettingsService
+
+        currency = resolve_org_currency(db, org)
+        gc_cfg, gc_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="gocardless")
+        gc_available = bool(gc_enabled and str(gc_cfg.get("access_token") or "").strip())
+        mandate_id = BillingService.resolve_org_mandate_id(db, org.id) if sub else None
+        can_update_mandate = bool(
+            gc_available
+            and sub is not None
+            and str(sub.payment_provider or "").strip().lower() == "gocardless"
+            and mandate_id
+        )
+
+        empty = {
+            "amount_pence": None,
+            "amount_display": "—",
+            "charge_date": None,
+            "charge_date_display": "—",
+            "payment_method_label": "—",
+            "can_update_mandate": can_update_mandate,
+        }
+
+        if sub is None or plan is None:
+            return empty
+
+        sub_status = str(sub.status or "").strip().lower()
+        if sub_status not in {"active", "trial", "past_due", "pending_first_payment"}:
+            return empty
+
+        amount_pence = int(getattr(plan, "price_gbp_pence", None) or 0)
+        charge_dt = getattr(sub, "current_period_end", None)
+        charge_date = charge_dt.isoformat() if charge_dt else None
+        charge_date_display = "—"
+        if charge_dt:
+            try:
+                charge_date_display = charge_dt.strftime("%d %b %Y")
+            except Exception:
+                charge_date_display = str(charge_dt)
+
+        payment_method_label = BillingMonitorService._resolve_payment_method_label(db, sub, mandate_id=mandate_id)
+
+        return {
+            "amount_pence": amount_pence if amount_pence > 0 else None,
+            "amount_display": money_display(amount_pence, currency) if amount_pence > 0 else "—",
+            "charge_date": charge_date,
+            "charge_date_display": charge_date_display,
+            "payment_method_label": payment_method_label or "—",
+            "can_update_mandate": can_update_mandate,
+        }
+
+    @staticmethod
+    def _resolve_payment_method_label(db: Session, sub, *, mandate_id: str | None = None) -> str:
+        provider = str(getattr(sub, "payment_provider", None) or "").strip().lower()
+        if provider != "gocardless":
+            return "—"
+        mid = str(mandate_id or getattr(sub, "mandate_id", None) or "").strip()
+        if not mid:
+            mid = BillingService.resolve_org_mandate_id(db, sub.org_id) or ""
+        if not mid:
+            return "Direct Debit · GoCardless"
+        try:
+            config = BillingService._get_gocardless_config(db)
+            headers = BillingService._gocardless_headers(config["access_token"])
+            with httpx.Client(timeout=15) as client:
+                mandate_resp = client.get(f"{config['api_base']}/mandates/{mid}", headers=headers)
+            if mandate_resp.status_code >= 400:
+                return "Direct Debit · GoCardless"
+            mandate_payload = mandate_resp.json().get("mandates") or {}
+            bank_id = str((mandate_payload.get("links") or {}).get("customer_bank_account") or "").strip()
+            if not bank_id:
+                return "Direct Debit · GoCardless"
+            with httpx.Client(timeout=15) as client:
+                bank_resp = client.get(f"{config['api_base']}/customer_bank_accounts/{bank_id}", headers=headers)
+            if bank_resp.status_code >= 400:
+                return "Direct Debit · GoCardless"
+            bank_payload = bank_resp.json().get("customer_bank_accounts") or {}
+            ending = str(bank_payload.get("account_number_ending") or "").strip()
+            if ending:
+                return f"Direct Debit · •• {ending}"
+        except Exception:
+            pass
+        return "Direct Debit · GoCardless"
 
     @staticmethod
     def build_for_org(
@@ -179,6 +271,8 @@ class BillingMonitorService:
 
         open_invoices = BillingMonitorService._open_invoices_count(db, org.id)
 
+        next_invoice = BillingMonitorService._build_next_invoice(db, org, sub=sub, plan=plan)
+
         return {
             "shared_package_pool": shared_pool,
             "currency": currency,
@@ -224,6 +318,7 @@ class BillingMonitorService:
                 "next_action_label": next_action_label,
                 "can_launch": bool(access.get("can_launch")),
                 "launch_block_reason": access.get("launch_block_reason"),
+                "next_invoice": next_invoice,
             },
             "plan_name": plan.name if plan else None,
             "plan_code": str(plan.code or "").strip().lower() if plan else (str(usage_row.plan_code or "").strip().lower() if usage_row else None),

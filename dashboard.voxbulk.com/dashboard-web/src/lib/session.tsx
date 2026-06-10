@@ -25,6 +25,7 @@ import {
   clearBillingReturnState,
 
   completeGoCardlessOrderPayment,
+  completeGoCardlessMandateUpdate,
   completeGoCardlessSubscription,
   GC_ORDER_ID_KEY,
   readBillingReturnParams,
@@ -147,6 +148,34 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
       return;
 
+    }
+
+    if (params?.billing === "mandate_cancelled") {
+      clearBillingReturnState("mandate");
+      clearBillingQuery();
+      toast.message("Direct Debit update cancelled — your existing mandate is unchanged.");
+      return;
+    }
+
+    if (params?.billing === "mandate_success") {
+      const redirectFlowId = resolveRedirectFlowId(params, "mandate");
+      if (!redirectFlowId) {
+        toast.error("Direct Debit update completed but checkout session was not found.");
+        clearBillingQuery();
+        return;
+      }
+      void (async () => {
+        try {
+          await completeGoCardlessMandateUpdate(redirectFlowId);
+          clearBillingReturnState("mandate");
+          clearBillingQuery();
+          toast.success("Direct Debit details updated successfully.");
+          onComplete();
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Could not complete Direct Debit update");
+        }
+      })();
+      return;
     }
 
 

@@ -13,10 +13,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { orderPayButton } from "@/lib/billing/order-pay-labels";
-import { useDeleteOrder, useDuplicateSurveyOrder, useLaunchSurveyCampaign, useStopSurveyOrder } from "@/lib/queries";
+import { orderHasPayableQuote, orderPayButton } from "@/lib/billing/order-pay-labels";
+import { useBillingUsage, useDeleteOrder, useDuplicateSurveyOrder, useLaunchSurveyCampaign, useStopSurveyOrder } from "@/lib/queries";
 import type { ServiceOrder } from "@/lib/types/api";
+import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 
 type SurveyEditActionBarProps = {
   order: ServiceOrder | null | undefined;
@@ -39,13 +50,20 @@ export function SurveyEditActionBar({
   const deleteM = useDeleteOrder();
   const duplicateM = useDuplicateSurveyOrder();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [topupOpen, setTopupOpen] = React.useState(false);
+  const usageQ = useBillingUsage();
 
   if (!order?.id) return null;
 
   const status = String(order.status || "").toLowerCase();
   const paymentStatus = String(order.payment_status || "").toLowerCase();
   const pay = orderPayButton(order);
-  const needsPayAction = pay.action === "launch" && paymentStatus !== "approved";
+  const payableQuote = orderHasPayableQuote(order);
+  const needsPayAction = pay.action === "launch" && paymentStatus !== "approved" && payableQuote;
+  const needsTopUp =
+    String(usageQ.data?.next_action || "") === "top_up_wallet" &&
+    paymentStatus !== "approved" &&
+    !["completed", "cancelled"].includes(status);
   const runningLike = ["running", "paused", "scheduled"].includes(status);
   const canRun = paymentStatus === "approved" && !runningLike && !["completed", "cancelled"].includes(status);
 
@@ -121,6 +139,22 @@ export function SurveyEditActionBar({
           >
             <Coins className="size-4" /> {pay.label}
           </Button>
+        ) : pay.action === "launch" && paymentStatus !== "approved" && !payableQuote ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            title={pay.hint}
+            disabled={launchPending}
+            onClick={() => void onOpenLaunch?.()}
+          >
+            <Coins className="size-4" /> {pay.label}
+          </Button>
+        ) : null}
+        {needsTopUp ? (
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setTopupOpen(true)}>
+            <Coins className="size-4" /> Top up wallet
+          </Button>
         ) : null}
         {canRun ? (
           <Button size="sm" className="gap-1.5" onClick={() => void onRun()} disabled={launchM.isPending}>
@@ -161,6 +195,8 @@ export function SurveyEditActionBar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <WalletTopupDialog open={topupOpen} onOpenChange={setTopupOpen} onToppedUp={() => void usageQ.refetch()} />
     </>
   );
 }

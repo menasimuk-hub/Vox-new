@@ -1173,9 +1173,11 @@ export function SurveyLaunchQuoteModal({
             ? pricingBreakdown?.totalDue || amountDue || "—"
             : eligibility?.summary || eligibility?.extra_cost_display || amountDue || "—";
 
+  const amountDuePence = Number(eligibility?.amount_due_pence ?? 0);
   const canLaunch = canLaunchNow && readinessErrors.length === 0 && !actionBusy && billingPhase === "ready";
+  const hasPayableAmount = amountDuePence > 0 || (Boolean(amountDue) && amountDue !== "£0.00" && amountDue !== "—");
   const canPay =
-    canPayLaunch && readinessErrors.length === 0 && !actionBusy && billingPhase === "ready" && Boolean(amountDue) && gcAvailable;
+    canPayLaunch && readinessErrors.length === 0 && !actionBusy && billingPhase === "ready" && hasPayableAmount && gcAvailable;
 
   React.useEffect(() => {
     if (open) {

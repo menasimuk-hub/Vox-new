@@ -83,11 +83,16 @@ def get_promo_credits(db: Session = Depends(get_db), principal=Depends(get_curre
 
 
 @router.get("/template.csv")
-def download_recipient_template(_principal=Depends(get_current_principal)):
+def download_recipient_template(
+    for_: str | None = None,
+    _principal=Depends(get_current_principal),
+):
+    for_survey = str(for_ or "").strip().lower() in {"survey", "wa", "whatsapp"}
+    filename = "voxbulk-survey-contacts-template.csv" if for_survey else "voxbulk-contacts-template.csv"
     return PlainTextResponse(
-        ServiceOrderService.recipient_template_csv(),
+        ServiceOrderService.recipient_template_csv(for_survey=for_survey),
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="voxbulk-contacts-template.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

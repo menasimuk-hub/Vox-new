@@ -14,7 +14,6 @@ import {
 import { toast } from "sonner";
 
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
-import { SurveyUploadConsent } from "@/components/create-wizard/survey-upload-consent";
 import { UploadedContactsTable } from "@/components/create-wizard/uploaded-contacts-table";
 import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
@@ -244,11 +243,11 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       );
     }
     if (step === 4) {
-      return props.contactsCount > 0 && props.uploadTypeAck && props.uploadConsent;
+      return contactsSkipped || props.contactsCount > 0;
     }
     if (step === 5) return previewSlides.length > 0;
     return true;
-  }, [step, props]);
+  }, [step, props, contactsSkipped, previewSlides.length]);
 
   const goNext = async () => {
     if (!canNext) {
@@ -257,8 +256,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       else if (step === 2 && props.serviceTagErrors[0]) toast.error(props.serviceTagErrors[0]);
       else if (step === 3 && props.step3SelectionErrors[0]) toast.error(props.step3SelectionErrors[0]);
       else if (step === 3) toast.error("Pick welcome, thank-you, and one template for each survey type");
-      else if (step === 4 && props.contactsCount <= 0) toast.error("Upload at least one contact before continuing");
-      else if (step === 4) toast.error("Confirm survey type and upload consent before continuing");
+      else if (step === 4 && props.contactsCount <= 0 && !contactsSkipped) toast.error("Upload at least one contact before continuing");
       return;
     }
     if (false && step === 1 && props.onEnsureDraft) {
@@ -555,7 +553,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
               />
 
               <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-background/40 p-4">
-                <p className="text-sm font-medium">Final feedback</p>
+                <p className="text-sm font-medium">Tell us more about your experience</p>
                 <Switch
                   checked={props.allowFinalAdditionalFeedback}
                   onCheckedChange={props.setAllowFinalAdditionalFeedback}
@@ -597,13 +595,6 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 error={props.recipientsError}
               />
 
-              <SurveyUploadConsent
-                channel="whatsapp"
-                typeAck={props.uploadTypeAck}
-                setTypeAck={props.setUploadTypeAck}
-                uploadConsent={props.uploadConsent}
-                setUploadConsent={props.setUploadConsent}
-              />
               {contactsSkipped ? (
                 <p className="text-xs text-muted-foreground">Contacts skipped — you can upload a list later from the survey order.</p>
               ) : null}
@@ -673,7 +664,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         skippable={step === 4}
         onSkip={() => {
           setContactsSkipped(true);
-          goNext();
+          setStep((s) => Math.min(WA_STEPS.length, s + 1));
         }}
         skipLabel="Skip for now"
         hideFinishOnLastStep

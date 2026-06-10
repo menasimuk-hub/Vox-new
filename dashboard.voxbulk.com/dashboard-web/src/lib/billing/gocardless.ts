@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api";
 
 export const GC_FLOW_KEY = "voxbulk_gc_redirect_flow_id";
+export const GC_MANDATE_FLOW_KEY = "voxbulk_gc_mandate_redirect_flow_id";
 export const GC_ORDER_FLOW_KEY = "voxbulk_gc_order_redirect_flow_id";
 export const GC_ORDER_ID_KEY = "voxbulk_gc_order_id";
 
@@ -25,9 +26,13 @@ export function readBillingReturnParams(): BillingReturnParams {
   }
 }
 
-export function resolveRedirectFlowId(params: BillingReturnParams, kind: "subscription" | "order") {
+export function resolveRedirectFlowId(
+  params: BillingReturnParams,
+  kind: "subscription" | "order" | "mandate",
+) {
   if (params.redirectFlowId) return params.redirectFlowId;
-  const key = kind === "order" ? GC_ORDER_FLOW_KEY : GC_FLOW_KEY;
+  const key =
+    kind === "order" ? GC_ORDER_FLOW_KEY : kind === "mandate" ? GC_MANDATE_FLOW_KEY : GC_FLOW_KEY;
   try {
     return (sessionStorage.getItem(key) || "").trim();
   } catch {
@@ -35,9 +40,10 @@ export function resolveRedirectFlowId(params: BillingReturnParams, kind: "subscr
   }
 }
 
-export function clearBillingReturnState(kind?: "subscription" | "order" | "all") {
+export function clearBillingReturnState(kind?: "subscription" | "order" | "mandate" | "all") {
   try {
     if (!kind || kind === "all" || kind === "subscription") sessionStorage.removeItem(GC_FLOW_KEY);
+    if (!kind || kind === "all" || kind === "mandate") sessionStorage.removeItem(GC_MANDATE_FLOW_KEY);
     if (!kind || kind === "all" || kind === "order") sessionStorage.removeItem(GC_ORDER_FLOW_KEY);
     if (!kind || kind === "all" || kind === "order") sessionStorage.removeItem(GC_ORDER_ID_KEY);
   } catch {
@@ -81,6 +87,34 @@ export async function completeGoCardlessSubscription(redirectFlowId: string) {
     method: "POST",
     body: JSON.stringify({ redirect_flow_id: redirectFlowId }),
   });
+}
+
+export async function startGoCardlessMandateUpdate() {
+  const result = await apiFetch<{
+    redirect_flow_id?: string;
+    authorization_url?: string;
+    environment?: string;
+  }>("/billing/subscription/gocardless/mandate/start", {
+    method: "POST",
+    body: "{}",
+  });
+  const redirectFlowId = result?.redirect_flow_id;
+  const authorizationUrl = result?.authorization_url;
+  if (!redirectFlowId || !authorizationUrl) {
+    throw new Error("GoCardless did not return a checkout URL");
+  }
+  sessionStorage.setItem(GC_MANDATE_FLOW_KEY, redirectFlowId);
+  window.location.assign(authorizationUrl);
+}
+
+export async function completeGoCardlessMandateUpdate(redirectFlowId: string) {
+  return apiFetch<{ ok?: boolean; status?: string; mandate_id?: string }>(
+    "/billing/subscription/gocardless/mandate/complete",
+    {
+      method: "POST",
+      body: JSON.stringify({ redirect_flow_id: redirectFlowId }),
+    },
+  );
 }
 
 export async function startGoCardlessOrderPayment(orderId: string) {

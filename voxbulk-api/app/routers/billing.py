@@ -408,6 +408,63 @@ def complete_gocardless_checkout(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
 
 
+@router.post("/subscription/gocardless/mandate/start")
+def start_gocardless_mandate_update(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Start GoCardless hosted flow to replace the org's Direct Debit mandate."""
+    try:
+        res = BillingService.start_mandate_update_redirect_flow(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+        )
+        return {
+            "ok": True,
+            "environment": str(res["environment"]),
+            "redirect_flow_id": str(res["redirect_flow_id"]),
+            "authorization_url": str(res["authorization_url"]),
+            "cancel_url": str(res.get("cancel_url") or ""),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessProviderError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
+@router.post("/subscription/gocardless/mandate/complete")
+def complete_gocardless_mandate_update(
+    payload: BillingRedirectCompleteIn,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Complete mandate update redirect flow and apply the new mandate."""
+    try:
+        res = BillingService.complete_mandate_update_redirect_flow(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            redirect_flow_id=payload.redirect_flow_id,
+        )
+        sub = res.get("subscription")
+        return {
+            "ok": True,
+            "status": str(res["status"]),
+            "subscription": SubscriptionOut.model_validate(sub) if sub else None,
+            "mandate_id": res.get("mandate_id"),
+            "previous_mandate_cancelled": bool(res.get("previous_mandate_cancelled")),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except GoCardlessProviderError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+
+
 @router.get("/subscription/gocardless/browser-return")
 def gocardless_browser_return(
     session_token: str,
@@ -434,18 +491,21 @@ def gocardless_browser_return(
     )
     origin = BillingService._resolved_dashboard_origin()
     billing_state = str(billing or "success").strip().lower()
-    if billing_state not in {"success", "cancelled"}:
+    mandate_flow = billing_state in {"mandate_success", "mandate_cancelled"}
+    if billing_state not in {"success", "cancelled", "mandate_success", "mandate_cancelled"}:
         billing_state = "success"
+
+    dashboard_url = BillingService._dashboard_billing_url if mandate_flow else BillingService._dashboard_packages_url
 
     if row is None:
         query = urlencode({"billing": "error"})
-        return RedirectResponse(url=BillingService._dashboard_packages_url(origin, query=query), status_code=302)
+        return RedirectResponse(url=dashboard_url(origin, query=query), status_code=302)
 
     params = {"billing": billing_state}
-    if billing_state == "success":
+    if billing_state in {"success", "mandate_success"}:
         params["redirect_flow_id"] = row.redirect_flow_id
     query = urlencode(params)
-    return RedirectResponse(url=BillingService._dashboard_packages_url(origin, query=query), status_code=302)
+    return RedirectResponse(url=dashboard_url(origin, query=query), status_code=302)
 
 
 @router.get("/usage-summary")

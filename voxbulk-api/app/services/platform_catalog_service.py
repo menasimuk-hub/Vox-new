@@ -312,14 +312,24 @@ class PlatformCatalogService:
 
 class ServiceOrderService:
     RECIPIENT_TEMPLATE_HEADERS = ["name", "phone", "email"]
+    SURVEY_RECIPIENT_TEMPLATE_HEADERS = ["name", "phone", "language"]
 
     @staticmethod
-    def recipient_template_csv() -> str:
+    def recipient_template_csv(*, for_survey: bool = False) -> str:
+        headers = (
+            ServiceOrderService.SURVEY_RECIPIENT_TEMPLATE_HEADERS
+            if for_survey
+            else ServiceOrderService.RECIPIENT_TEMPLATE_HEADERS
+        )
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(ServiceOrderService.RECIPIENT_TEMPLATE_HEADERS)
-        writer.writerow(["Sarah Ahmed", "+447700900123", "sarah@example.com"])
-        writer.writerow(["James Lee", "+447700900456", ""])
+        writer.writerow(headers)
+        if for_survey:
+            writer.writerow(["Sarah Ahmed", "+447700900123", "en"])
+            writer.writerow(["James Lee", "+447700900456", ""])
+        else:
+            writer.writerow(["Sarah Ahmed", "+447700900123", "sarah@example.com"])
+            writer.writerow(["James Lee", "+447700900456", ""])
         return buf.getvalue()
 
     @staticmethod
@@ -385,7 +395,8 @@ class ServiceOrderService:
             or ""
         )
         email = data.get("email") or data.get("emailaddress") or data.get("mail") or data.get("emailid") or ""
-        return str(name or "").strip(), str(phone or "").strip(), str(email or "").strip()
+        language = data.get("language") or data.get("locale") or data.get("lang") or ""
+        return str(name or "").strip(), str(phone or "").strip(), str(email or "").strip(), str(language or "").strip()
 
     @staticmethod
     def _parse_recipient_spreadsheet(content: bytes, *, filename: str, kind: str) -> list[dict[str, str]]:
@@ -442,12 +453,15 @@ class ServiceOrderService:
 
     @staticmethod
     def _row_from_dict(data: dict[str, str], row_number: int) -> dict[str, str] | None:
-        name, phone, email = ServiceOrderService._row_field_values(data)
+        name, phone, email, language = ServiceOrderService._row_field_values(data)
         if not name and not phone:
             return None
         if not name or not phone:
             raise ValueError(f"Row {row_number}: name and phone are required")
-        return {"name": name, "phone": phone, "email": email or None}
+        row: dict[str, str] = {"name": name, "phone": phone, "email": email or None}
+        if language:
+            row["language"] = language
+        return row
 
     @staticmethod
     def order_to_dict(
@@ -1199,6 +1213,10 @@ class ServiceOrderService:
             raise ValueError("Cannot change recipients after payment is approved")
         db.execute(delete(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id))
         for i, row in enumerate(rows, start=1):
+            result_json = None
+            language = str(row.get("language") or "").strip()
+            if language:
+                result_json = json.dumps({"language": language}, ensure_ascii=False)
             db.add(
                 ServiceOrderRecipient(
                     order_id=order.id,
@@ -1206,6 +1224,7 @@ class ServiceOrderService:
                     name=row["name"],
                     phone=row["phone"],
                     email=row.get("email"),
+                    result_json=result_json,
                     status="pending",
                 )
             )

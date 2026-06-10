@@ -4,6 +4,16 @@ import { toast } from "sonner";
 
 import { WizardAlert } from "@/components/create-wizard/wizard-alert";
 import { Summary } from "@/components/create-wizard/summary";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -199,6 +209,7 @@ export type SurveyWaPreviewCarouselProps = {
   previewFirstName?: string;
   onSendTest: (input: { testPhone: string; welcomeTemplateId: string; firstName: string }) => Promise<void>;
   sendTestPending?: boolean;
+  testCostHint?: string;
 };
 
 export function SurveyWaPreviewCarousel({
@@ -218,8 +229,10 @@ export function SurveyWaPreviewCarousel({
   previewFirstName = "there",
   onSendTest,
   sendTestPending,
+  testCostHint = "This test WhatsApp may be charged to your package allowance or wallet.",
 }: SurveyWaPreviewCarouselProps) {
   const [slide, setSlide] = React.useState(0);
+  const [testConfirmOpen, setTestConfirmOpen] = React.useState(false);
   const total = slides.length;
   const current = slides[slide];
 
@@ -397,7 +410,7 @@ export function SurveyWaPreviewCarousel({
                           size="sm"
                           className="gap-1.5"
                           disabled={sendTestPending || !(testPhone.trim() || defaultTestPhone)}
-                          onClick={() => void handleSendTest()}
+                          onClick={() => setTestConfirmOpen(true)}
                         >
                           {sendTestPending ? (
                             <Loader2 className="size-3.5 animate-spin" />
@@ -415,6 +428,30 @@ export function SurveyWaPreviewCarousel({
           </div>
         </div>
       </CardContent>
+
+      <AlertDialog open={testConfirmOpen} onOpenChange={setTestConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send test WhatsApp?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {testCostHint} Confirm to send the test conversation to your number.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={sendTestPending}
+              onClick={(e) => {
+                e.preventDefault();
+                setTestConfirmOpen(false);
+                void handleSendTest();
+              }}
+            >
+              {sendTestPending ? "Sending…" : "Send test"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

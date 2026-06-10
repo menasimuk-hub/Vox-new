@@ -151,6 +151,12 @@ export function SurveyWaLaunchStep({
           </label>
         </RadioGroup>
 
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Summary label="Recipients" value={`${contactsCount}`} />
+          <Summary label="Mode" value={modeSummary} />
+          <Summary label="Estimated cost" value={costHint || "See launch summary"} />
+        </div>
+
         <label
           className={cn(
             "flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition",
@@ -165,12 +171,6 @@ export function SurveyWaLaunchStep({
             </p>
           </div>
         </label>
-
-        <div className="grid gap-2 sm:grid-cols-3">
-          <Summary label="Recipients" value={`${contactsCount}`} />
-          <Summary label="Mode" value={modeSummary} />
-          <Summary label="Estimated cost" value={costHint || "See launch summary"} />
-        </div>
 
         <div className="flex justify-end">
           <Button size="lg" className="gap-1.5" disabled={!canLaunch || launchPending} onClick={onLaunch}>

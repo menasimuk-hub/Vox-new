@@ -476,6 +476,7 @@ function CreateSurvey() {
       }
       if (purpose === "launch" && launchConsent) {
         draftConfig.launch_consent_at = nowIso;
+        draftConfig.upload_consent_at = draftConfig.upload_consent_at || nowIso;
       }
       const patchBody = buildSurveyDraftPatchBody(surveyName, draftConfig, {
         scheduled_start_at: startAt || null,
@@ -1200,16 +1201,6 @@ function CreateSurvey() {
       }
       await apiUploadFiles(`/service-orders/${encodeURIComponent(id)}/recipients/upload`, Array.from(files), "file");
       await qc.refetchQueries({ queryKey: queryKeys.orderRecipients(id) });
-      if (uploadTypeAck && uploadConsent) {
-        const nowIso = new Date().toISOString();
-        await patchM.mutateAsync({
-          orderId: id,
-          body: buildSurveyDraftPatchBody(surveyName, {
-            ...buildDraftConfig(),
-            upload_consent_at: nowIso,
-          }),
-        });
-      }
       toast.success("Contacts uploaded");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
@@ -1221,7 +1212,11 @@ function CreateSurvey() {
 
   const onDownloadTemplate = async () => {
     try {
-      await downloadAuthenticatedFile("/service-orders/template.csv", "voxbulk-contacts-template.csv");
+      const suffix = channel === "whatsapp" ? "?for=survey" : "";
+      await downloadAuthenticatedFile(
+        `/service-orders/template.csv${suffix}`,
+        channel === "whatsapp" ? "voxbulk-survey-contacts-template.csv" : "voxbulk-contacts-template.csv",
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Download failed");
     }

@@ -22,6 +22,8 @@ class BillingRedirectFlow(Base):
     environment: Mapped[str] = mapped_column(String(20), nullable=False, default="sandbox")
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="created")
     authorization_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    flow_purpose: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    previous_mandate_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

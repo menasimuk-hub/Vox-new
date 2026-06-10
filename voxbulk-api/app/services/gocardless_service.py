@@ -607,6 +607,15 @@ class BillingService:
         return "http://127.0.0.1:8000"
 
     @staticmethod
+    def _dashboard_billing_path() -> str:
+        return "/account/billing"
+
+    @staticmethod
+    def _dashboard_billing_url(origin: str, *, query: str = "") -> str:
+        base = f"{str(origin or '').rstrip('/')}{BillingService._dashboard_billing_path()}"
+        return f"{base}?{query}" if query else base
+
+    @staticmethod
     def _gocardless_browser_return_url(session_token: str, *, billing: str) -> str:
         from urllib.parse import urlencode
 
@@ -1124,6 +1133,241 @@ class BillingService:
                 )
 
         return {"ok": True, "status": "completed", "subscription": sub, "plan": plan}
+
+    @staticmethod
+    def _fetch_gocardless_mandate_status(db: Session, mandate_id: str) -> str:
+        mid = str(mandate_id or "").strip()
+        if not mid:
+            return ""
+        config = BillingService._get_gocardless_config(db)
+        with httpx.Client(timeout=20) as client:
+            response = client.get(
+                f"{config['api_base']}/mandates/{mid}",
+                headers=BillingService._gocardless_headers(config["access_token"]),
+            )
+        if response.status_code >= 400:
+            return ""
+        payload = response.json().get("mandates") or {}
+        return str(payload.get("status") or "").strip().lower()
+
+    @staticmethod
+    def _cancel_gocardless_mandate(db: Session, mandate_id: str) -> bool:
+        mid = str(mandate_id or "").strip()
+        if not mid:
+            return True
+        try:
+            config = BillingService._get_gocardless_config(db)
+            with httpx.Client(timeout=20) as client:
+                response = client.post(
+                    f"{config['api_base']}/mandates/{mid}/actions/cancel",
+                    headers=BillingService._gocardless_headers(config["access_token"]),
+                    json={},
+                )
+            if response.status_code >= 400:
+                logger.warning(
+                    "gocardless_mandate_cancel_failed mandate_id=%s status=%s",
+                    mid,
+                    response.status_code,
+                )
+                return False
+            return True
+        except Exception:
+            logger.exception("gocardless_mandate_cancel_exception mandate_id=%s", mid)
+            return False
+
+    @staticmethod
+    def start_mandate_update_redirect_flow(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        sub = BillingService.get_subscription(db, org_id)
+        if sub is None:
+            raise ValueError("No subscription found")
+        if str(sub.payment_provider or "").strip().lower() != "gocardless":
+            raise ValueError("Direct Debit is not configured for this subscription")
+
+        previous_mandate_id = str(getattr(sub, "mandate_id", None) or "").strip()
+        mandate_status = str(getattr(sub, "mandate_status", None) or "").strip().lower()
+        if not previous_mandate_id or mandate_status in {"cancelled", "failed", "expired"}:
+            previous_mandate_id = BillingService.resolve_org_mandate_id(db, org_id) or ""
+        if not previous_mandate_id:
+            raise ValueError("No active Direct Debit mandate to update")
+
+        plan = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
+        if plan is None:
+            raise ValueError("Plan not found")
+
+        user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+        if user is None:
+            raise ValueError("Unknown user")
+
+        config = BillingService._get_gocardless_config(db)
+        session_token = secrets.token_urlsafe(32)
+        success_url = BillingService._gocardless_browser_return_url(session_token, billing="mandate_success")
+        cancel_url = BillingService._gocardless_browser_return_url(session_token, billing="mandate_cancelled")
+        payload = {
+            "redirect_flows": {
+                "description": "Update Direct Debit details",
+                "session_token": session_token,
+                "success_redirect_url": success_url,
+                "prefilled_customer": {"email": user.email},
+                "metadata": BillingService._gocardless_metadata(
+                    org_id=org_id,
+                    plan_id=plan.id,
+                    client_email=user.email,
+                ),
+            }
+        }
+
+        with httpx.Client(timeout=20) as client:
+            response = client.post(
+                f"{config['api_base']}/redirect_flows",
+                headers=BillingService._gocardless_headers(config["access_token"]),
+                json=payload,
+            )
+        BillingService._raise_for_gocardless_error(response)
+        body = response.json()
+        flow = body.get("redirect_flows") or {}
+        redirect_flow_id = str(flow.get("id") or "").strip()
+        authorization_url = str(flow.get("redirect_url") or "").strip()
+        if not redirect_flow_id or not authorization_url:
+            raise GoCardlessProviderError("GoCardless did not return a redirect flow URL")
+
+        row = BillingRedirectFlow(
+            org_id=org_id,
+            user_id=user_id,
+            plan_id=plan.id,
+            redirect_flow_id=redirect_flow_id,
+            session_token=session_token,
+            environment=str(config["environment"]),
+            status="created",
+            authorization_url=authorization_url,
+            flow_purpose="mandate_update",
+            previous_mandate_id=previous_mandate_id,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return {
+            "ok": True,
+            "environment": row.environment,
+            "redirect_flow_id": redirect_flow_id,
+            "authorization_url": authorization_url,
+            "cancel_url": cancel_url,
+        }
+
+    @staticmethod
+    def complete_mandate_update_redirect_flow(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str,
+        redirect_flow_id: str,
+    ) -> dict[str, Any]:
+        flow_id = str(redirect_flow_id or "").strip()
+        if not flow_id:
+            raise ValueError("redirect_flow_id required")
+
+        row = (
+            db.execute(
+                select(BillingRedirectFlow)
+                .where(
+                    BillingRedirectFlow.redirect_flow_id == flow_id,
+                    BillingRedirectFlow.org_id == org_id,
+                    BillingRedirectFlow.user_id == user_id,
+                    BillingRedirectFlow.flow_purpose == "mandate_update",
+                )
+                .order_by(BillingRedirectFlow.created_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            raise ValueError("Mandate update redirect flow not found")
+
+        sub = BillingService.get_subscription(db, org_id)
+        if sub is None:
+            raise ValueError("Subscription not found")
+
+        if row.status == "completed":
+            return {"ok": True, "status": "completed", "subscription": sub}
+
+        previous_mandate_id = str(row.previous_mandate_id or "").strip()
+        config = BillingService._get_gocardless_config(db)
+        with httpx.Client(timeout=20) as client:
+            complete_response = client.post(
+                f"{config['api_base']}/redirect_flows/{flow_id}/actions/complete",
+                headers=BillingService._gocardless_headers(config["access_token"]),
+                json={"data": {"session_token": row.session_token}},
+            )
+        if complete_response.status_code >= 400:
+            BillingService._log_gocardless_http_failure(
+                "mandate_update_complete",
+                redirect_flow_id=flow_id,
+                response=complete_response,
+            )
+        BillingService._raise_for_gocardless_error(complete_response)
+
+        completed_flow = (complete_response.json().get("redirect_flows") or {})
+        links = completed_flow.get("links") or {}
+        new_mandate_id = str(links.get("mandate") or "").strip()
+        if not new_mandate_id:
+            raise GoCardlessProviderError("GoCardless did not return a mandate")
+
+        mandate_status = BillingService._fetch_gocardless_mandate_status(db, new_mandate_id)
+        if mandate_status not in {"active", "pending_submission", "submitted"}:
+            raise GoCardlessProviderError(f"Mandate is not active yet (status={mandate_status or 'unknown'})")
+
+        mandate_scheme = None
+        try:
+            with httpx.Client(timeout=20) as client:
+                mandate_response = client.get(
+                    f"{config['api_base']}/mandates/{new_mandate_id}",
+                    headers=BillingService._gocardless_headers(config["access_token"]),
+                )
+            if mandate_response.status_code < 400:
+                mandate_payload = mandate_response.json().get("mandates") or {}
+                mandate_scheme = str(mandate_payload.get("scheme") or "").strip() or None
+        except Exception:
+            logger.warning("gocardless_mandate_scheme_lookup_failed mandate_id=%s", new_mandate_id)
+
+        from app.services.billing_access_service import BillingAccessService
+
+        BillingAccessService.apply_mandate_setup_access(
+            db, sub=sub, mandate_id=new_mandate_id, scheme=mandate_scheme
+        )
+
+        old_cancelled = True
+        if previous_mandate_id and previous_mandate_id != new_mandate_id:
+            old_cancelled = BillingService._cancel_gocardless_mandate(db, previous_mandate_id)
+            if not old_cancelled:
+                logger.warning(
+                    "gocardless_old_mandate_cancel_skipped org_id=%s old=%s new=%s",
+                    org_id,
+                    previous_mandate_id,
+                    new_mandate_id,
+                )
+
+        now = datetime.utcnow()
+        row.status = "completed"
+        row.completed_at = now
+        row.updated_at = now
+        row.error_message = None
+        db.add(row)
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
+
+        return {
+            "ok": True,
+            "status": "completed",
+            "subscription": sub,
+            "mandate_id": new_mandate_id,
+            "previous_mandate_cancelled": old_cancelled,
+        }
 
     # Per-order GoCardless redirect checkout removed — PAYG launches are paid from the
     # wallet (Stripe/Airwallex top-ups) and subscription extras are collected via the

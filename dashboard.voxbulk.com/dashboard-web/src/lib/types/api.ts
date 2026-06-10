@@ -160,9 +160,18 @@ export type BillingMonitorPayload = {
     billing_period_end?: string | null;
     open_invoices_count?: number;
     overage_pending_pence?: number;
+    overage_pending_display?: string;
     overage_risk?: boolean;
     next_action?: string;
     next_action_label?: string;
+    next_invoice?: {
+      amount_pence?: number | null;
+      amount_display?: string;
+      charge_date?: string | null;
+      charge_date_display?: string;
+      payment_method_label?: string;
+      can_update_mandate?: boolean;
+    };
   };
 };
 

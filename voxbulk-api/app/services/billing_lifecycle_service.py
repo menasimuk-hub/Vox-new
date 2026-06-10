@@ -197,7 +197,7 @@ class BillingLifecycleService:
         from app.services.gocardless_service import BillingService
 
         origin = BillingService._resolved_dashboard_origin()
-        return BillingService._dashboard_packages_url(origin, query="billing=update_mandate")
+        return BillingService._dashboard_billing_url(origin, query="billing=update_mandate")
 
     @staticmethod
     def handle_dd_payment_failure(
