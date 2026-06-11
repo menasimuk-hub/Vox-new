@@ -58,11 +58,26 @@ fi
 echo ""
 
 echo "--- API health ---"
-if curl -sf http://127.0.0.1:8000/health/build >/dev/null 2>&1; then
+HEALTH_JSON=""
+for attempt in 1 2 3 4 5; do
+  HEALTH_JSON="$(curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health/build 2>/dev/null \
+    || curl -sf http://127.0.0.1:8000/health/build 2>/dev/null \
+    || true)"
+  if [[ -n "$HEALTH_JSON" ]]; then
+    break
+  fi
+  sleep 2
+done
+if [[ -n "$HEALTH_JSON" ]]; then
   pass "/health/build reachable"
-  curl -s http://127.0.0.1:8000/health/build | "$PYTHON" -m json.tool 2>/dev/null | head -n 20 || true
+  echo "$HEALTH_JSON" | "$PYTHON" -m json.tool 2>/dev/null | head -n 20 || echo "$HEALTH_JSON"
+  if echo "$HEALTH_JSON" | grep -q '"deploy_ok": true'; then
+    pass "deploy_ok true in /health/build"
+  else
+    warn "deploy_ok not true — API process may be stale"
+  fi
 else
-  fail "/health/build not reachable"
+  fail "/health/build not reachable (tried Host: api.voxbulk.com and plain localhost)"
 fi
 echo ""
 

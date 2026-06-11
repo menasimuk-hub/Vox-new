@@ -4,7 +4,7 @@
 #
 # Usage:
 #   cd /www/voxbulk
-#   VOX_GIT_BRANCH=feature/billing-system bash scripts/vps-sync-all-ui.sh
+#   VOX_GIT_BRANCH=fix/admin-finance-hardening bash scripts/vps-sync-all-ui.sh
 #
 # Skip git pull (rebuild current tree only):
 #   VOX_SKIP_GIT=1 bash scripts/vps-sync-all-ui.sh
