@@ -99,6 +99,7 @@ export default function OrganisationProfile() {
   const [financeBusy, setFinanceBusy] = useState(false)
 
   const [suspendSaving, setSuspendSaving] = useState(false)
+  const [hardDeleteBusy, setHardDeleteBusy] = useState('')
 
   const [newUserEmail, setNewUserEmail] = useState('')
   const [newUserPassword, setNewUserPassword] = useState('')
@@ -476,13 +477,21 @@ export default function OrganisationProfile() {
   }
 
   const hardDeleteUser = async (userId, email) => {
-    if (!orgId) return
+    if (!orgId) {
+      window.alert('No organisation selected. Open an org from Organisations list first.')
+      return
+    }
     const typed = window.prompt(
-      `TEST ONLY — permanently delete ${email}, billing records, and this org if they are the sole member.\n\nType HARD_DELETE to confirm:`,
+      `TEST ONLY — permanently delete ${email}, billing records, and this org if they are the sole member.\n\nType exactly: HARD_DELETE`,
     )
-    if (String(typed || '').trim() !== 'HARD_DELETE') return
+    if (typed === null) return
+    if (String(typed).trim() !== 'HARD_DELETE') {
+      window.alert('Cancelled. You must type exactly: HARD_DELETE')
+      return
+    }
+    setHardDeleteBusy(userId)
     try {
-      await apiFetch(`/admin/organisations/${orgId}/users/${encodeURIComponent(userId)}/hard-delete-test`, {
+      const res = await apiFetch(`/admin/organisations/${orgId}/users/${userId}/hard-delete-test`, {
         method: 'POST',
         body: JSON.stringify({
           confirm: 'HARD_DELETE',
@@ -490,11 +499,13 @@ export default function OrganisationProfile() {
           delete_service_orders: true,
         }),
       })
-      window.alert(`Hard deleted ${email}`)
+      window.alert(`Hard deleted ${email}${res?.report?.solo_orgs?.length ? '\n\nOrg cleanup: see server report.' : ''}`)
       await refreshUsers()
       await refreshOrg()
     } catch (e) {
-      window.alert(e?.message || 'Hard delete failed')
+      window.alert(`Hard delete failed:\n\n${e?.message || 'Unknown error'}`)
+    } finally {
+      setHardDeleteBusy('')
     }
   }
 
@@ -1002,9 +1013,10 @@ export default function OrganisationProfile() {
                                   type='button'
                                   className='btn soft'
                                   style={{ padding: '4px 10px', fontSize: 12, color: 'var(--red)' }}
-                                  onClick={() => hardDeleteUser(u.user_id, u.email)}
+                                  disabled={hardDeleteBusy === u.user_id}
+                                  onClick={() => void hardDeleteUser(u.user_id, u.email)}
                                 >
-                                  Hard delete (TEST)
+                                  {hardDeleteBusy === u.user_id ? 'Deleting…' : 'Hard delete (TEST)'}
                                 </button>
                               </>
                             )}

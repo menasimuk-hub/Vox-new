@@ -2717,11 +2717,13 @@ def admin_set_org_user_blocked(
 def admin_hard_delete_org_user_test(
     org_id: str,
     user_id: str,
-    payload: dict | None = None,
+    payload: dict,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
     """DEV/OPS TEST — wipe billing, detach FK refs, hard-delete user; delete solo org if applicable."""
+    from sqlalchemy.exc import IntegrityError
+
     from app.services.user_hard_delete_service import HARD_DELETE_CONFIRM, UserHardDeleteError, hard_delete_user
 
     body = payload if isinstance(payload, dict) else {}
@@ -2741,6 +2743,15 @@ def admin_hard_delete_org_user_test(
         db.commit()
         return {"ok": True, "report": report}
     except UserHardDeleteError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Database blocked delete: {getattr(e.orig, 'args', (str(e),))[0]}",
+        ) from e
+    except Exception as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

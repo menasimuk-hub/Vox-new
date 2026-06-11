@@ -13,7 +13,24 @@ from app.models.billing_redirect_flow import BillingRedirectFlow
 from app.models.billing_refund_review import BillingRefundReview
 from app.models.call_log import CallLog
 from app.models.credit_note import CreditNote
-from app.models.customer_feedback import FeedbackUsagePeriod
+from app.models.agent_service_assignment import AgentServiceAssignment
+from app.models.appointment import Appointment
+from app.models.branch import Branch
+from app.models.customer_feedback import (
+    FeedbackLocation,
+    FeedbackResponse,
+    FeedbackSession,
+    FeedbackUsagePeriod,
+)
+from app.models.organisation_ai_config import (
+    OrganisationAIIdentity,
+    OrganisationComplianceConfig,
+    OrganisationServiceCatalogItem,
+    OrganisationWorkflowConfig,
+)
+from app.models.organisation_invite import OrganisationInvite
+from app.models.patient import Patient
+from app.models.whatsapp_log import WhatsAppLog
 from app.models.membership import OrganisationMembership
 from app.models.notification import Notification
 from app.models.oauth_identity import OAuthIdentity
@@ -230,7 +247,7 @@ def _delete_service_orders_for_org(db: Session, org_id: str) -> int:
     return len(order_ids)
 
 
-def purge_org_residuals_for_delete(db: Session, org_id: str, *, delete_service_orders: bool) -> dict[str, int]:
+def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_service_orders: bool) -> dict[str, int]:
     order_count = int(
         db.execute(select(func.count()).select_from(ServiceOrder).where(ServiceOrder.org_id == org_id)).scalar_one() or 0
     )
@@ -240,6 +257,32 @@ def purge_org_residuals_for_delete(db: Session, org_id: str, *, delete_service_o
         )
     orders_deleted = _delete_service_orders_for_org(db, org_id) if order_count and delete_service_orders else 0
 
+    db.execute(delete(SurveySession).where(SurveySession.org_id == org_id))
+    db.execute(delete(InterviewBookingToken).where(InterviewBookingToken.org_id == org_id))
+    db.execute(delete(FeedbackResponse).where(FeedbackResponse.org_id == org_id))
+    db.execute(delete(FeedbackSession).where(FeedbackSession.org_id == org_id))
+    db.execute(delete(FeedbackLocation).where(FeedbackLocation.org_id == org_id))
+    db.execute(delete(WhatsAppLog).where(WhatsAppLog.org_id == org_id))
+    db.execute(delete(Appointment).where(Appointment.org_id == org_id))
+    db.execute(delete(Patient).where(Patient.org_id == org_id))
+    db.execute(delete(CallLog).where(CallLog.org_id == org_id))
+    db.execute(delete(RecoveryJob).where(RecoveryJob.org_id == org_id))
+    db.execute(delete(OnboardingRequest).where(OnboardingRequest.org_id == org_id))
+    db.execute(delete(Notification).where(Notification.organisation_id == org_id))
+    db.execute(delete(OrganisationInvite).where(OrganisationInvite.org_id == org_id))
+    db.execute(delete(Branch).where(Branch.org_id == org_id))
+    db.execute(delete(OrganisationAIIdentity).where(OrganisationAIIdentity.org_id == org_id))
+    db.execute(delete(OrganisationComplianceConfig).where(OrganisationComplianceConfig.org_id == org_id))
+    db.execute(delete(OrganisationServiceCatalogItem).where(OrganisationServiceCatalogItem.org_id == org_id))
+    db.execute(delete(OrganisationWorkflowConfig).where(OrganisationWorkflowConfig.org_id == org_id))
+    db.execute(delete(AgentServiceAssignment).where(AgentServiceAssignment.org_id == org_id))
+    db.execute(
+        update(PlatformComplianceAuditEvent)
+        .where(PlatformComplianceAuditEvent.org_id == org_id)
+        .values(org_id=None)
+    )
+    db.execute(delete(PromoRedemption).where(PromoRedemption.org_id == org_id))
+
     tickets = _delete_support_tickets_for_org(db, org_id)
     db.execute(delete(OrganisationAuditEvent).where(OrganisationAuditEvent.org_id == org_id))
     db.execute(delete(AccountDeletionRequest).where(AccountDeletionRequest.org_id == org_id))
@@ -247,10 +290,21 @@ def purge_org_residuals_for_delete(db: Session, org_id: str, *, delete_service_o
     db.execute(delete(OrganisationMembership).where(OrganisationMembership.org_id == org_id))
 
     org = db.get(Organisation, org_id)
+    org_deleted = False
     if org is not None:
         db.delete(org)
+        db.flush()
+        org_deleted = True
 
-    return {"service_orders_deleted": orders_deleted, "support_tickets_deleted": tickets}
+    return {
+        "service_orders_deleted": orders_deleted,
+        "support_tickets_deleted": tickets,
+        "org_deleted": org_deleted,
+    }
+
+
+def purge_org_residuals_for_delete(db: Session, org_id: str, *, delete_service_orders: bool) -> dict[str, int]:
+    return _purge_org_children_for_test_delete(db, org_id, delete_service_orders=delete_service_orders)
 
 
 def solo_org_candidate(db: Session, org_id: str, user_id: str) -> tuple[bool, str | None]:
