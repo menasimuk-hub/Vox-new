@@ -246,6 +246,14 @@ async def lifespan(app: FastAPI):
         logger.exception("ensure_system_templates failed")
     try:
         from app.core.database import get_sessionmaker
+        from app.services.platform_services_settings_service import ensure_row
+
+        with get_sessionmaker()() as db:
+            ensure_row(db)
+    except Exception:
+        logger.exception("platform_services_settings failed")
+    try:
+        from app.core.database import get_sessionmaker
         from app.services.customer_feedback.seed_service import FeedbackSeedService
 
         with get_sessionmaker()() as db:

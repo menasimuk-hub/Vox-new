@@ -52,7 +52,7 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
     from app.services.platform_catalog_service import ServiceOrderService
 
     org = OrganisationService.get_org(db, principal.org_id)
-    _, _, visible = org_service_maps(org) if org else ({}, {}, {})
+    _, _, visible = org_service_maps(org, db) if org else ({}, {}, {})
 
     rows = list(
         db.execute(select(ServiceOrder).where(ServiceOrder.org_id == principal.org_id)).scalars().all()
@@ -100,7 +100,7 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
 
     return {
         "enabled_services": visible,
-        "allowed_services": org_service_maps(org)[0] if org else {},
+        "allowed_services": org_service_maps(org, db)[0] if org else {},
         "visible_services": visible,
         "interview": {
             "live": int_live,

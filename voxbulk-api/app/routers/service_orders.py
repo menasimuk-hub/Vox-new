@@ -42,7 +42,7 @@ def _require_org_service(db: Session, org_id: str, service_code: str) -> Organis
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     key = service_code_to_enabled_key(service_code)
     if key:
-        _, _, visible = org_service_maps(org)
+        _, _, visible = org_service_maps(org, db)
         if not is_service_enabled(visible, key):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

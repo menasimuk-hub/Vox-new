@@ -36,6 +36,7 @@ class OrganisationOut(BaseModel):
 class EnabledServicesUpdate(BaseModel):
     interview: bool | None = None
     survey: bool | None = None
+    customer_feedback: bool | None = None
     recovery: bool | None = None
     follow_up: bool | None = None
 

@@ -2012,13 +2012,16 @@ def admin_get_org_allowed_services(
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    allowed, enabled, visible = org_service_maps(org)
+    allowed, enabled, visible = org_service_maps(org, db)
+    from app.services.org_enabled_services import org_uses_platform_default_allowed
+
     return {
         "org_id": org.id,
         "org_name": org.name,
         "allowed_services": allowed,
         "enabled_services": enabled,
         "visible_services": visible,
+        "uses_platform_default_allowed": org_uses_platform_default_allowed(org),
     }
 
 
@@ -2043,6 +2046,7 @@ def admin_patch_org_allowed_services(
         AtLeastOneServiceRequiredError,
         merge_admin_allowed_services,
         org_service_maps,
+        org_uses_platform_default_allowed,
         serialize_allowed_services,
         serialize_enabled_services,
     )
@@ -2050,7 +2054,7 @@ def admin_patch_org_allowed_services(
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    allowed, enabled, _ = org_service_maps(org)
+    allowed, enabled, _ = org_service_maps(org, db)
     try:
         allowed, enabled = merge_admin_allowed_services(allowed, enabled, payload or {})
     except AtLeastOneServiceRequiredError as e:
@@ -2060,13 +2064,87 @@ def admin_patch_org_allowed_services(
     db.add(org)
     db.commit()
     db.refresh(org)
-    allowed, enabled, visible = org_service_maps(org)
+    allowed, enabled, visible = org_service_maps(org, db)
     return {
         "ok": True,
         "allowed_services": allowed,
         "enabled_services": enabled,
         "visible_services": visible,
+        "uses_platform_default_allowed": org_uses_platform_default_allowed(org),
     }
+
+
+@router.get("/platform/default-allowed-services")
+def admin_get_platform_default_allowed_services(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.platform_services_settings_service import ensure_row, get_platform_default_allowed
+
+    ensure_row(db)
+    return {"ok": True, "default_allowed_services": get_platform_default_allowed(db)}
+
+
+@router.patch("/platform/default-allowed-services")
+def admin_patch_platform_default_allowed_services(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_enabled_services import AtLeastOneServiceRequiredError
+    from app.services.platform_services_settings_service import (
+        get_platform_default_allowed,
+        push_platform_default_to_orgs,
+        update_platform_default_allowed,
+    )
+
+    services = payload.get("services") if isinstance(payload.get("services"), dict) else payload
+    try:
+        default_allowed = update_platform_default_allowed(db, services or {})
+    except AtLeastOneServiceRequiredError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    reset_all = bool(payload.get("reset_all_orgs_to_platform_default"))
+    pushed = 0
+    if reset_all:
+        pushed = push_platform_default_to_orgs(db, org_ids=None, clear_overrides_only=True)
+    return {
+        "ok": True,
+        "default_allowed_services": default_allowed,
+        "orgs_reset_to_platform_default": pushed,
+    }
+
+
+@router.patch("/organisations/bulk-allowed-services")
+def admin_bulk_patch_org_allowed_services(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_enabled_services import AtLeastOneServiceRequiredError
+    from app.services.platform_services_settings_service import bulk_patch_org_allowed_services
+
+    apply_to_all = bool(payload.get("apply_to_all"))
+    org_ids = None if apply_to_all else payload.get("org_ids")
+    if org_ids is not None and not isinstance(org_ids, list):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="org_ids must be a list")
+    if org_ids is not None:
+        org_ids = [str(x).strip() for x in org_ids if str(x).strip()]
+        if not org_ids and not apply_to_all:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Select at least one organisation")
+    services = payload.get("services") if isinstance(payload.get("services"), dict) else payload
+    reset_to_platform = bool(payload.get("reset_to_platform_default"))
+    if not reset_to_platform and not isinstance(services, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="services patch required")
+    try:
+        updated = bulk_patch_org_allowed_services(
+            db,
+            org_ids=org_ids,
+            services_patch=None if reset_to_platform else services,
+            reset_to_platform_default=reset_to_platform,
+        )
+    except AtLeastOneServiceRequiredError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {"ok": True, "updated_count": updated}
 
 
 @router.patch("/organisations/{org_id}")

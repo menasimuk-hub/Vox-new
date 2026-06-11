@@ -32,9 +32,9 @@ from app.services.recovery_service import OrganisationService
 router = APIRouter(prefix="/organisations", tags=["organisations"])
 
 
-def _org_response(org) -> dict:
+def _org_response(org, db: Session) -> dict:
     data = OrganisationOut.model_validate(org).model_dump()
-    allowed, enabled, visible = org_service_maps(org)
+    allowed, enabled, visible = org_service_maps(org, db)
     data["allowed_services"] = allowed
     data["enabled_services"] = enabled
     data["visible_services"] = visible
@@ -126,7 +126,7 @@ def get_my_org(
     org = OrganisationService.get_org(db, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    return _org_response(org)
+    return _org_response(org, db)
 
 
 @router.patch("/me", response_model=OrganisationOut)
@@ -136,7 +136,7 @@ def update_my_org(
     principal=Depends(get_current_principal),
 ):
     org = OrganisationService.update_org_profile(db, principal.org_id, **payload.model_dump(exclude_unset=True))
-    return _org_response(org)
+    return _org_response(org, db)
 
 
 @router.patch("/me/enabled-services")
@@ -151,8 +151,12 @@ def update_enabled_services(
     org = OrganisationService.get_org(db, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    allowed, enabled, _ = org_service_maps(org)
-    patch = {k: getattr(body, k) for k in ("interview", "survey", "recovery", "follow_up") if getattr(body, k, None) is not None}
+    allowed, enabled, _ = org_service_maps(org, db)
+    patch = {
+        k: getattr(body, k)
+        for k in ("interview", "survey", "customer_feedback", "recovery", "follow_up")
+        if getattr(body, k, None) is not None
+    }
     try:
         enabled = merge_user_enabled_services(allowed, enabled, patch)
     except AtLeastOneServiceRequiredError as e:
@@ -175,7 +179,7 @@ def update_enabled_services(
             action="settings.services_updated",
             detail=json.dumps(patch, ensure_ascii=False),
         )
-    _, enabled, visible = org_service_maps(org)
+    allowed, enabled, visible = org_service_maps(org, db)
     return {"ok": True, "enabled_services": enabled, "allowed_services": allowed, "visible_services": visible}
 
 

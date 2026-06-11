@@ -16,16 +16,17 @@ DEFAULT_ENABLED_SERVICES: dict[str, bool] = {
 SERVICE_KEYS = tuple(DEFAULT_ENABLED_SERVICES.keys())
 
 
-def parse_enabled_services(raw: str | None) -> dict[str, bool]:
-    out = dict(DEFAULT_ENABLED_SERVICES)
+def parse_enabled_services(raw: str | None, *, platform_default: dict[str, bool] | None = None) -> dict[str, bool]:
+    base = dict(platform_default) if platform_default is not None else dict(DEFAULT_ENABLED_SERVICES)
     if not raw:
-        return out
+        return base
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
-        return out
+        return base
     if not isinstance(data, dict):
-        return out
+        return base
+    out = dict(base)
     for key in SERVICE_KEYS:
         if key in data:
             out[key] = bool(data[key])
@@ -149,9 +150,24 @@ def service_code_to_enabled_key(service_code: str) -> str | None:
     return mapping.get(code)
 
 
-def org_service_maps(org) -> tuple[dict[str, bool], dict[str, bool], dict[str, bool]]:
-    allowed = parse_allowed_services(getattr(org, "allowed_services_json", None))
+def org_service_maps(org, db=None) -> tuple[dict[str, bool], dict[str, bool], dict[str, bool]]:
+    platform_default = None
+    if db is not None:
+        from app.services.platform_services_settings_service import get_platform_default_allowed
+
+        platform_default = get_platform_default_allowed(db)
+    raw_allowed = getattr(org, "allowed_services_json", None)
+    uses_platform_default = raw_allowed is None or not str(raw_allowed).strip()
+    allowed = parse_allowed_services(
+        None if uses_platform_default else raw_allowed,
+        platform_default=platform_default,
+    )
     enabled = parse_enabled_services(getattr(org, "enabled_services_json", None))
     enabled = clamp_enabled_to_allowed(allowed, enabled)
     visible = effective_services(allowed, enabled)
     return allowed, enabled, visible
+
+
+def org_uses_platform_default_allowed(org) -> bool:
+    raw = getattr(org, "allowed_services_json", None)
+    return raw is None or not str(raw).strip()

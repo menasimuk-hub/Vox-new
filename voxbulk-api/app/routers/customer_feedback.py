@@ -22,7 +22,7 @@ def _require_feedback_enabled(db: Session, org_id: str) -> None:
     org = db.get(Organisation, org_id)
     if org is None:
         raise HTTPException(status_code=404, detail="Organisation not found")
-    _allowed, _enabled, visible = org_service_maps(org)
+    _allowed, _enabled, visible = org_service_maps(org, db)
     if not is_service_enabled(visible, "customer_feedback"):
         raise HTTPException(status_code=403, detail="Customer feedback is not enabled for this organisation.")
 

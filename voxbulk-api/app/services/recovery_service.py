@@ -60,7 +60,7 @@ class OrganisationService:
                 serialize_enabled_services,
             )
 
-            allowed, enabled, _ = org_service_maps(org)
+            allowed, enabled, _ = org_service_maps(org, db)
             try:
                 enabled = merge_user_enabled_services(allowed, enabled, fields["enabled_services"])
             except (AtLeastOneServiceRequiredError, ValueError) as e:
@@ -75,7 +75,7 @@ class OrganisationService:
                 serialize_enabled_services,
             )
 
-            allowed, enabled, _ = org_service_maps(org)
+            allowed, enabled, _ = org_service_maps(org, db)
             try:
                 allowed, enabled = merge_admin_allowed_services(allowed, enabled, fields["allowed_services"])
             except AtLeastOneServiceRequiredError as e:
