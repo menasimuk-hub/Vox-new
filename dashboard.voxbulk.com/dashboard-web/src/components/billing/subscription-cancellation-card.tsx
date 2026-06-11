@@ -17,7 +17,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
 import { useBillingSubscriptionCancellation } from "@/lib/queries";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusBadge, type BadgeTone } from "@/components/status-badge";
 
 type CancellationPayload = {
   status?: string;
@@ -46,6 +46,18 @@ function cancellationLabel(status?: string) {
   if (s === "cancelled") return "Cancelled";
   if (s === "requested") return "Cancellation requested";
   if (s === "reversed") return "Active";
+  return "Active";
+}
+
+function cancellationBadgeTone(status: string, cancelled: boolean): BadgeTone {
+  if (cancelled) return "archived";
+  if (status === "scheduled" || status === "requested") return "scheduled";
+  return "live";
+}
+
+function cancellationBadgeLabel(status: string, cancelled: boolean) {
+  if (cancelled) return "Cancelled";
+  if (status === "scheduled" || status === "requested") return "Scheduled";
   return "Active";
 }
 
@@ -90,7 +102,10 @@ export function SubscriptionCancellationCard({ planName }: { planName?: string |
           <CardDescription>Subscription</CardDescription>
           <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
             {cancellationLabel(status)}
-            <StatusBadge status={scheduled ? "scheduled" : cancelled ? "cancelled" : "active"} />
+            <StatusBadge
+              tone={cancellationBadgeTone(status, cancelled)}
+              label={cancellationBadgeLabel(status, cancelled)}
+            />
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
