@@ -61,8 +61,22 @@ class SubscriptionCancellationError(ValueError):
 
 class SubscriptionCancellationService:
     @staticmethod
-    def get_subscription(db: Session, org_id: str) -> Subscription | None:
-        return BillingAccessService.get_subscription(db, org_id)
+    def get_subscription(db: Session, org_id: str, *, service_code: str = "voxbulk") -> Subscription | None:
+        return BillingAccessService.get_subscription(db, org_id, service_code=service_code)
+
+    @staticmethod
+    def _cancel_gocardless_if_needed(db: Session, sub: Subscription) -> bool:
+        if str(sub.payment_provider or "").lower() != "gocardless":
+            return False
+        if not str(sub.external_subscription_id or "").strip():
+            return False
+        try:
+            from app.services.gocardless_service import BillingService
+
+            return BillingService.cancel_subscription_for_sub(db, sub)
+        except Exception:
+            logger.exception("gocardless_subscription_cancel_failed subscription_id=%s", sub.id)
+            return False
 
     @staticmethod
     def get_plan(db: Session, plan_id: str | None) -> Plan | None:
@@ -238,11 +252,12 @@ class SubscriptionCancellationService:
         cancellation_type: str = CANCEL_TYPE_PERIOD_END,
         reason: str | None = None,
         requested_refund_type: str = REFUND_TYPE_NONE,
+        service_code: str = "voxbulk",
     ) -> dict[str, Any]:
         org = db.get(Organisation, org_id)
         if org is None:
             raise SubscriptionCancellationError("Organisation not found")
-        sub = SubscriptionCancellationService.get_subscription(db, org_id)
+        sub = SubscriptionCancellationService.get_subscription(db, org_id, service_code=service_code)
         if sub is None:
             raise SubscriptionCancellationError("No subscription found")
         plan = SubscriptionCancellationService.get_plan(db, sub.plan_id)
@@ -253,7 +268,10 @@ class SubscriptionCancellationService:
             raise SubscriptionCancellationError("Only cancel at period end is available for self-service. Contact support for immediate cancellation.")
 
         refund_pref = str(requested_refund_type or REFUND_TYPE_NONE).strip().lower()
-        if refund_pref not in {REFUND_TYPE_NONE, REFUND_TYPE_WALLET, REFUND_TYPE_PAYMENT_METHOD, REFUND_TYPE_EITHER}:
+        allowed_refunds = {REFUND_TYPE_NONE, REFUND_TYPE_PAYMENT_METHOD}
+        if service_code == "voxbulk":
+            allowed_refunds |= {REFUND_TYPE_WALLET, REFUND_TYPE_EITHER}
+        if refund_pref not in allowed_refunds:
             raise SubscriptionCancellationError("Invalid refund preference")
 
         now = datetime.utcnow()
@@ -354,6 +372,7 @@ class SubscriptionCancellationService:
         )
         db.commit()
         db.refresh(sub)
+        SubscriptionCancellationService._cancel_gocardless_if_needed(db, sub)
         if refund_review:
             db.refresh(refund_review)
         return SubscriptionCancellationService.cancellation_dict(db, org, sub, plan, refund_review=refund_review)
@@ -422,9 +441,10 @@ class SubscriptionCancellationService:
         org_id: str,
         admin_user_id: str | None,
         note: str | None = None,
+        service_code: str = "voxbulk",
     ) -> dict[str, Any]:
         org = db.get(Organisation, org_id)
-        sub = SubscriptionCancellationService.get_subscription(db, org_id)
+        sub = SubscriptionCancellationService.get_subscription(db, org_id, service_code=service_code)
         if org is None or sub is None:
             raise SubscriptionCancellationError("Subscription not found")
         if str(sub.cancellation_status or CANCELLATION_NONE) not in {CANCELLATION_SCHEDULED, CANCELLATION_REQUESTED}:
@@ -629,7 +649,11 @@ class SubscriptionCancellationService:
             wallet_result = None
             review = SubscriptionCancellationService.get_open_refund_review(db, sub.org_id) if org else None
             refund_type = str(sub.requested_refund_type or "").lower()
-            should_auto_wallet = refund_type in {REFUND_TYPE_WALLET, REFUND_TYPE_EITHER}
+            should_auto_wallet = (
+                str(sub.service_code or "voxbulk") == "voxbulk"
+                and refund_type in {REFUND_TYPE_WALLET, REFUND_TYPE_EITHER}
+            )
+            SubscriptionCancellationService._cancel_gocardless_if_needed(db, sub)
             if org and plan and should_auto_wallet:
                 outstanding = BillingAccessService.outstanding_invoice_minor(db, org.id)
                 if outstanding > 0:
@@ -876,6 +900,8 @@ class SubscriptionCancellationService:
         now = datetime.utcnow()
 
         wallet_result = None
+        if issue_wallet_credit and review.wallet_transaction_id:
+            raise SubscriptionCancellationError("Wallet credit already issued for this refund review.")
         if issue_wallet_credit and sub and org:
             outstanding = BillingAccessService.outstanding_invoice_minor(db, org.id)
             if outstanding > 0:

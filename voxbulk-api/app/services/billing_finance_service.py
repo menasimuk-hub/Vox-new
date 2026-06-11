@@ -89,10 +89,7 @@ class BillingFinanceService:
             if sub.cancel_at_period_end:
                 sub.amount_next_payment_minor = 0
             elif sub.next_billing_date:
-                rates = PlanPriceService.rates_for_org(db, org, plan=plan)
-                sub.amount_next_payment_minor = int(
-                    rates.get("monthly_price_minor") or plan.price_gbp_pence or 0
-                )
+                _currency, sub.amount_next_payment_minor = PlanPriceService.monthly_minor_for_org(db, org, plan)
         db.add(sub)
         if commit:
             db.commit()
@@ -113,8 +110,7 @@ class BillingFinanceService:
         currency = resolve_org_currency(db, org) if org else "GBP"
         amount_minor = int(sub.amount_next_payment_minor or 0)
         if not amount_minor and plan and org and not sub.cancel_at_period_end:
-            rates = PlanPriceService.rates_for_org(db, org, plan=plan)
-            amount_minor = int(rates.get("monthly_price_minor") or plan.price_gbp_pence or 0)
+            _currency, amount_minor = PlanPriceService.monthly_minor_for_org(db, org, plan)
         next_billing = sub.next_billing_date
         if not next_billing and sub.cancel_at_period_end and sub.cancellation_effective_at:
             next_billing = sub.cancellation_effective_at
@@ -166,9 +162,7 @@ class BillingFinanceService:
         pro_rata = BillingLifecycleService.calculate_pro_rata_minor(
             db, org=org, sub=sub, old_plan=old_plan, new_plan=new_plan
         )
-        currency = resolve_org_currency(db, org)
-        rates_new = PlanPriceService.rates_for_org(db, org, plan=new_plan)
-        new_monthly = int(rates_new.get("monthly_price_minor") or new_plan.price_gbp_pence or 0)
+        currency, new_monthly = PlanPriceService.monthly_minor_for_org(db, org, new_plan)
         return {
             "org_id": org_id,
             "current_plan_code": old_plan.code if old_plan else None,

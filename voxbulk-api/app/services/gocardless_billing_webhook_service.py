@@ -403,7 +403,7 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                     from app.services.billing_lifecycle_service import BillingLifecycleService
                     from app.services.payment_event_service import PaymentEventService
 
-                    BillingAccessService.mark_first_payment_confirmed(db, org_id=org_id)
+                    BillingAccessService.mark_first_payment_confirmed(db, org_id=org_id, sub=sub)
                     BillingLifecycleService.handle_dd_payment_success(db, payment_id=payment_id)
                     invoice, created, emailed = InvoiceService.issue_from_payment(
                         db,

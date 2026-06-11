@@ -9,6 +9,8 @@ from app.services.billing_currency import (
     normalize_currency,
     resolve_org_currency,
 )
+from app.models.plan import Plan
+from app.services.plan_price_service import PlanPriceService
 from app.services.recovery_service import OrganisationService
 
 
@@ -91,3 +93,23 @@ def test_profile_country_does_not_change_currency_when_locked():
         OrganisationService.update_org_profile(db, org.id, country="Germany")
         db.refresh(org)
         assert org.billing_currency == "GBP"
+
+
+def test_monthly_minor_for_org_eur_without_plan_price_is_zero():
+    with get_sessionmaker()() as db:
+        org = Organisation(name="EUR No Price", country="Germany", billing_currency="EUR")
+        db.add(org)
+        db.flush()
+        plan = Plan(
+            code="test_eur_plan",
+            name="Test EUR",
+            price_gbp_pence=12900,
+            interval="monthly",
+            service_kind="voxbulk",
+            is_active=True,
+        )
+        db.add(plan)
+        db.commit()
+        currency, monthly = PlanPriceService.monthly_minor_for_org(db, org, plan)
+        assert currency == "EUR"
+        assert monthly == 0

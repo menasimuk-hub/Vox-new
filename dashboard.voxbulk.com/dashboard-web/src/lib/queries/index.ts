@@ -66,6 +66,7 @@ export const queryKeys = {
   feedbackSurveyTypes: (industryId: string) => ["customer-feedback", "catalog", "survey-types", industryId] as const,
   feedbackResults: (filters: Record<string, string>) => ["customer-feedback", "results", filters] as const,
   feedbackPackages: ["customer-feedback", "packages"] as const,
+  feedbackSubscriptionCancellation: ["customer-feedback", "subscription", "cancellation"] as const,
   feedbackSubscription: ["customer-feedback", "subscription"] as const,
 };
 
@@ -383,6 +384,7 @@ export function useBillingAccess() {
         credit_limit_display?: string;
         pending_first_payment?: boolean;
         subscription_status?: string | null;
+        allow_overage?: boolean;
       }>("/billing/access"),
     refetchOnMount: "always",
   });
@@ -1600,6 +1602,36 @@ export function useFeedbackSubscription() {
       return data;
     },
     refetchOnMount: "always",
+  });
+}
+
+export function useFeedbackSubscriptionCancellation() {
+  return useQuery({
+    queryKey: queryKeys.feedbackSubscriptionCancellation,
+    queryFn: () => apiFetch("/customer-feedback/subscription/cancellation"),
+    refetchOnMount: "always",
+  });
+}
+
+export function useSetBillingOverage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (allow_overage: boolean) =>
+      apiFetch<{ ok?: boolean; allow_overage?: boolean }>("/billing/overage", {
+        method: "PATCH",
+        body: JSON.stringify({ allow_overage }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.billingAccess });
+      void qc.invalidateQueries({ queryKey: queryKeys.billingUsage });
+    },
+  });
+}
+
+export async function changeFeedbackPlan(planId: string) {
+  return apiFetch<{ ok?: boolean; subscription?: FeedbackSubscription }>("/customer-feedback/subscription/change-plan", {
+    method: "POST",
+    body: JSON.stringify({ plan_id: planId }),
   });
 }
 

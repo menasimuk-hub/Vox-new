@@ -152,6 +152,7 @@ class BillingAccessService:
             "mandate_status": getattr(sub, "mandate_status", None) if sub else None,
             "subscription_status": sub.status if sub else None,
             "pending_first_payment": BillingAccessService.pending_first_payment_blocks_dd(db, org.id),
+            "allow_overage": bool(getattr(org, "allow_overage", True)),
         }
 
     @staticmethod
@@ -186,8 +187,8 @@ class BillingAccessService:
         return sub
 
     @staticmethod
-    def mark_first_payment_confirmed(db: Session, *, org_id: str) -> None:
-        sub = BillingAccessService.get_subscription(db, org_id)
+    def mark_first_payment_confirmed(db: Session, *, org_id: str, sub: Subscription | None = None) -> None:
+        sub = sub or BillingAccessService.get_subscription(db, org_id)
         if sub is None:
             return
         now = datetime.utcnow()
@@ -220,10 +221,16 @@ class BillingAccessService:
 
     @staticmethod
     def handle_mandate_cancelled(db: Session, *, org_id: str, mandate_id: str | None = None) -> dict[str, Any]:
-        sub = BillingAccessService.get_subscription(db, org_id)
+        mid = str(mandate_id or "").strip()
+        sub = None
+        if mid:
+            sub = db.execute(
+                select(Subscription).where(Subscription.mandate_id == mid).limit(1)
+            ).scalar_one_or_none()
+        if sub is None:
+            sub = BillingAccessService.get_subscription(db, org_id)
         if sub is None:
             return {"updated": False}
-        mid = str(mandate_id or "").strip()
         if mid and sub.mandate_id and sub.mandate_id != mid:
             return {"updated": False, "reason": "mandate_mismatch"}
         now = datetime.utcnow()

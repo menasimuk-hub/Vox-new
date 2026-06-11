@@ -156,13 +156,8 @@ class BillingMonitorService:
         if sub_status not in {"active", "trial", "past_due", "pending_first_payment"}:
             return empty
 
-        rates = PlanPriceService.rates_for_org(db, org, plan=plan)
-        amount_pence = int(
-            sub.amount_next_payment_minor
-            or rates.get("monthly_price_minor")
-            or getattr(plan, "price_gbp_pence", None)
-            or 0
-        )
+        _currency, plan_amount = PlanPriceService.monthly_minor_for_org(db, org, plan)
+        amount_pence = int(sub.amount_next_payment_minor or plan_amount or 0)
         charge_dt = (
             getattr(sub, "next_billing_date", None)
             or getattr(sub, "current_period_end", None)

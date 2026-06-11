@@ -205,6 +205,30 @@ def test_dispute_pauses_dd_retry_scheduling():
         assert row.status == "disputed"
 
 
+def test_monthly_billing_skips_gocardless_managed_subscription():
+    org_id, _, _email = _seed_org_with_wallet()
+    with get_sessionmaker()() as db:
+        plan = db.execute(select(Plan).limit(1)).scalar_one()
+        sub = Subscription(
+            org_id=org_id,
+            plan_id=plan.id,
+            status="active",
+            payment_provider="gocardless",
+            external_subscription_id="SB_SKIP_TEST",
+            mandate_id="MD_SKIP_TEST",
+            mandate_status="active",
+            current_period_end=datetime.utcnow() - timedelta(hours=1),
+        )
+        db.add(sub)
+        db.commit()
+
+    with patch("app.services.gocardless_service.BillingService.collect_mandate_payment") as collect_mock:
+        with get_sessionmaker()() as db:
+            stats = BillingLifecycleService.process_due_monthly_billing(db)
+            assert stats["skipped"] >= 1
+            collect_mock.assert_not_called()
+
+
 def test_monthly_billing_creates_subscription_invoice():
     org_id, _, email = _seed_org_with_wallet()
     with get_sessionmaker()() as db:

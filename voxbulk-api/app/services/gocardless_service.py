@@ -719,14 +719,24 @@ class BillingService:
 
     @staticmethod
     def _org_plan_billing_amount(db: Session, org_id: str, plan: Plan) -> tuple[str, int]:
-        from app.services.billing_currency import resolve_org_currency
+        org = db.get(Organisation, org_id)
         from app.services.plan_price_service import PlanPriceService
 
-        org = db.get(Organisation, org_id)
-        rates = PlanPriceService.rates_for_org(db, org, plan=plan)
-        currency = str(rates.get("currency") or resolve_org_currency(db, org) or "GBP").upper()[:3]
-        monthly_minor = int(rates.get("monthly_price_minor") or plan.price_gbp_pence or 0)
-        return currency, monthly_minor
+        return PlanPriceService.monthly_minor_for_org(db, org, plan)
+
+    @staticmethod
+    def cancel_subscription_for_sub(db: Session, sub) -> bool:
+        """Cancel the GoCardless recurring subscription linked to a local subscription row."""
+        ext_id = str(getattr(sub, "external_subscription_id", None) or "").strip()
+        if not ext_id:
+            return False
+        ok = BillingService._cancel_gocardless_subscription(db, ext_id)
+        if ok:
+            sub.external_subscription_id = None
+            sub.updated_at = datetime.utcnow()
+            db.add(sub)
+            db.commit()
+        return ok
 
     @staticmethod
     def cancel_gocardless_payment(db: Session, payment_id: str) -> bool:

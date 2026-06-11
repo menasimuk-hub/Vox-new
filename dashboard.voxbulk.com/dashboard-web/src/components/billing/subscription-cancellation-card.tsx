@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +18,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
 import { REFUND_TIMING_BANK, REFUND_TIMING_PROCESSING } from "@/lib/billing/refund-timing";
-import { queryKeys, useBillingSubscriptionCancellation } from "@/lib/queries";
+import { queryKeys } from "@/lib/queries";
 import { StatusBadge, type BadgeTone } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
 
@@ -69,9 +69,54 @@ function useInvalidateBillingQueries() {
   }, [qc]);
 }
 
-function useSubscriptionCancellationState() {
-  const cancelQ = useBillingSubscriptionCancellation();
-  const invalidateBilling = useInvalidateBillingQueries();
+type CancellationService = "voxbulk" | "feedback";
+
+function cancellationConfig(service: CancellationService) {
+  if (service === "feedback") {
+    return {
+      queryKey: queryKeys.feedbackSubscriptionCancellation,
+      getPath: "/customer-feedback/subscription/cancellation",
+      postPath: "/customer-feedback/subscription/cancellation",
+      reversePath: "/customer-feedback/subscription/cancellation/reverse",
+      refundPrefs: ["none", "payment_method_refund"] as const,
+      invalidate: async (qc: ReturnType<typeof useQueryClient>) => {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscriptionCancellation }),
+          qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
+          qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
+        ]);
+      },
+    };
+  }
+  return {
+    queryKey: queryKeys.billingSubscriptionCancellation,
+    getPath: "/billing/subscription/cancellation",
+    postPath: "/billing/subscription/cancellation",
+    reversePath: "/billing/subscription/cancellation/reverse",
+    refundPrefs: ["none", "wallet_credit", "payment_method_refund", "either"] as const,
+    invalidate: async (qc: ReturnType<typeof useQueryClient>) => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionCancellation }),
+        qc.invalidateQueries({ queryKey: queryKeys.billingSubscription }),
+        qc.invalidateQueries({ queryKey: queryKeys.billingWallet }),
+        qc.invalidateQueries({ queryKey: queryKeys.billingRequests }),
+        qc.invalidateQueries({ queryKey: ["billing", "wallet", "transactions"] }),
+      ]);
+    },
+  };
+}
+
+function useSubscriptionCancellationState(service: CancellationService = "voxbulk") {
+  const config = cancellationConfig(service);
+  const qc = useQueryClient();
+  const cancelQ = useQuery({
+    queryKey: config.queryKey,
+    queryFn: () => apiFetch(config.getPath),
+    refetchOnMount: "always",
+  });
+  const invalidateBilling = React.useCallback(async () => {
+    await config.invalidate(qc);
+  }, [config, qc]);
   const [open, setOpen] = React.useState(false);
   const [reverseOpen, setReverseOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -88,7 +133,7 @@ function useSubscriptionCancellationState() {
   const submit = async () => {
     setBusy(true);
     try {
-      await apiFetch("/billing/subscription/cancellation", {
+      await apiFetch(config.postPath, {
         method: "POST",
         body: JSON.stringify({
           cancellation_type: "period_end",
@@ -110,7 +155,7 @@ function useSubscriptionCancellationState() {
   const reverseCancellation = async () => {
     setBusy(true);
     try {
-      await apiFetch("/billing/subscription/cancellation/reverse", { method: "POST", body: "{}" });
+      await apiFetch(config.reversePath, { method: "POST", body: "{}" });
       toast.success("Cancellation removed — your subscription will continue");
       setReverseOpen(false);
       await invalidateBilling();
@@ -139,6 +184,7 @@ function useSubscriptionCancellationState() {
     setReason,
     refundPref,
     setRefundPref,
+    refundPrefs: config.refundPrefs,
     submit,
     reverseCancellation,
   };
@@ -151,7 +197,7 @@ function CancellationDialog({
   planName?: string | null;
   state: ReturnType<typeof useSubscriptionCancellationState>;
 }) {
-  const { data, open, setOpen, busy, reason, setReason, refundPref, setRefundPref, submit } = state;
+  const { data, open, setOpen, busy, reason, setReason, refundPref, setRefundPref, refundPrefs, submit } = state;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-w-lg">
@@ -186,18 +232,24 @@ function CancellationDialog({
                 <RadioGroupItem value="none" id="refund-none" />
                 <Label htmlFor="refund-none" className="font-normal">No compensation requested</Label>
               </div>
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="wallet_credit" id="refund-wallet" />
-                <Label htmlFor="refund-wallet" className="font-normal">Add remaining value to wallet (if approved)</Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="payment_method_refund" id="refund-bank" />
-                <Label htmlFor="refund-bank" className="font-normal">Request review for refund to original payment method</Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="either" id="refund-either" />
-                <Label htmlFor="refund-either" className="font-normal">Either wallet credit or payment-method refund (admin decides)</Label>
-              </div>
+              {refundPrefs.includes("wallet_credit") ? (
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="wallet_credit" id="refund-wallet" />
+                  <Label htmlFor="refund-wallet" className="font-normal">Add remaining value to wallet (if approved)</Label>
+                </div>
+              ) : null}
+              {refundPrefs.includes("payment_method_refund") ? (
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="payment_method_refund" id="refund-bank" />
+                  <Label htmlFor="refund-bank" className="font-normal">Request review for refund to original payment method</Label>
+                </div>
+              ) : null}
+              {refundPrefs.includes("either") ? (
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="either" id="refund-either" />
+                  <Label htmlFor="refund-either" className="font-normal">Either wallet credit or payment-method refund (admin decides)</Label>
+                </div>
+              ) : null}
             </RadioGroup>
           </div>
           {data.policy_notes?.open_invoices_block_wallet_credit ? (
@@ -249,8 +301,16 @@ function ReverseCancellationDialog({
   );
 }
 
-export function SubscriptionCancellationBar({ planName, className }: { planName?: string | null; className?: string }) {
-  const state = useSubscriptionCancellationState();
+export function SubscriptionCancellationBar({
+  planName,
+  className,
+  service = "voxbulk",
+}: {
+  planName?: string | null;
+  className?: string;
+  service?: CancellationService;
+}) {
+  const state = useSubscriptionCancellationState(service);
   const { data, status, scheduled, cancelled, canCancel, canReverse, setOpen, setReverseOpen, cancelQ } = state;
 
   if (cancelQ.isLoading) return null;

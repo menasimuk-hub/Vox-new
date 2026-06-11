@@ -713,3 +713,6 @@ class VoxbulkPricingService:
                 )
             db.commit()
         VoxbulkPricingService.ensure_payg_plan(db)
+        from app.services.plan_price_service import PlanPriceService
+
+        PlanPriceService.ensure_seeded(db)

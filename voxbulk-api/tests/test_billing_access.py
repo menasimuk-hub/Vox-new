@@ -37,6 +37,17 @@ def _seed_org(*, credit_limit_minor: int = 0) -> str:
         return org.id
 
 
+def test_access_summary_includes_allow_overage():
+    org_id = _seed_org()
+    with get_sessionmaker()() as db:
+        org = db.get(Organisation, org_id)
+        org.allow_overage = False
+        db.add(org)
+        db.commit()
+        summary = BillingAccessService.access_summary(db, org)
+        assert summary["allow_overage"] is False
+
+
 def test_credit_limit_blocks_launch():
     org_id = _seed_org(credit_limit_minor=5000)
     with get_sessionmaker()() as db:

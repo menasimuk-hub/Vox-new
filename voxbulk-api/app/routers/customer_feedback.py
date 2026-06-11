@@ -12,6 +12,7 @@ from app.services.customer_feedback.billing_service import FeedbackBillingError,
 from app.services.customer_feedback.catalog_service import FeedbackCatalogService
 from app.services.customer_feedback.location_service import FeedbackLocationService
 from app.services.customer_feedback.results_service import FeedbackResultsService
+from app.schemas.dashboard import SubscriptionCancellationOut, SubscriptionCancellationRequestIn
 from app.services.gocardless_service import GoCardlessConfigError, GoCardlessProviderError
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
 
@@ -91,6 +92,61 @@ def complete_gocardless(payload: dict, db: Session = Depends(get_db), principal=
     except FeedbackBillingError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "subscription": FeedbackBillingService.subscription_payload(db, principal.org_id)}
+
+
+@router.post("/subscription/change-plan")
+def change_feedback_plan(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    plan_id = str(payload.get("plan_id") or "").strip()
+    if not plan_id:
+        raise HTTPException(status_code=400, detail="plan_id required")
+    try:
+        result = FeedbackBillingService.change_plan(db, org_id=principal.org_id, plan_id=plan_id)
+    except FeedbackBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, **result, "subscription": FeedbackBillingService.subscription_payload(db, principal.org_id)}
+
+
+@router.get("/subscription/cancellation", response_model=SubscriptionCancellationOut)
+def get_feedback_cancellation(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        payload = FeedbackBillingService.cancellation_payload(db, principal.org_id)
+    except FeedbackBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return SubscriptionCancellationOut.model_validate(payload)
+
+
+@router.post("/subscription/cancellation", response_model=SubscriptionCancellationOut)
+def request_feedback_cancellation(
+    payload: SubscriptionCancellationRequestIn,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        result = FeedbackBillingService.request_cancellation(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            reason=payload.reason,
+            requested_refund_type=payload.requested_refund_type,
+        )
+    except FeedbackBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return SubscriptionCancellationOut.model_validate(result)
+
+
+@router.post("/subscription/cancellation/reverse", response_model=SubscriptionCancellationOut)
+def reverse_feedback_cancellation(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        result = FeedbackBillingService.reverse_cancellation(
+            db, org_id=principal.org_id, user_id=principal.user_id
+        )
+    except FeedbackBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return SubscriptionCancellationOut.model_validate(result)
 
 
 @router.get("/locations")

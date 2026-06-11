@@ -16,7 +16,9 @@ import { startGoCardlessMandateUpdate, readBillingReturnParams } from "@/lib/bil
 import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
-import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingUsage, useWalletTransactions } from "@/lib/queries";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingUsage, useSetBillingOverage, useWalletTransactions } from "@/lib/queries";
 import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
 import { REFUND_TIMING_BANK, REFUND_TIMING_PROCESSING } from "@/lib/billing/refund-timing";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
@@ -143,7 +145,9 @@ function BillingPage() {
   const usageQ = useBillingUsage();
   const invoicesQ = useBillingInvoices();
   const accessQ = useBillingAccess();
+  const overageM = useSetBillingOverage();
   const walletTxQ = useWalletTransactions(100);
+  const allowOverage = accessQ.data?.allow_overage !== false;
   const [payInvoice, setPayInvoice] = React.useState<Invoice | null>(null);
   const [ledgerPage, setLedgerPage] = React.useState(1);
   const [billingTab, setBillingTab] = React.useState<"transactions" | "requests">("transactions");
@@ -449,6 +453,33 @@ function BillingPage() {
             </Card>
           </div>
         )}
+
+        {!usageQ.isLoading ? (
+          <div className="mt-3 flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Allow extra usage billing</p>
+              <p className="text-xs text-muted-foreground">
+                When disabled, usage stops at plan limits instead of generating overage charges.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="allow-overage"
+                checked={allowOverage}
+                disabled={overageM.isPending || accessQ.isLoading}
+                onCheckedChange={(checked) => {
+                  overageM.mutate(checked, {
+                    onSuccess: () => toast.success(checked ? "Extra usage billing enabled" : "Extra usage billing disabled"),
+                    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not update overage setting"),
+                  });
+                }}
+              />
+              <Label htmlFor="allow-overage" className="text-xs text-muted-foreground">
+                {allowOverage ? "On" : "Off"}
+              </Label>
+            </div>
+          </div>
+        ) : null}
 
         {!usageQ.isLoading ? (
           <div className="mt-3 grid gap-3 sm:grid-cols-3">

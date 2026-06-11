@@ -190,12 +190,40 @@ class FeedbackCatalogService:
         return normalize_zone(getattr(org, "market_zone", None)) or country_to_zone(getattr(org, "country", None))
 
     @staticmethod
+    def list_feedback_plans(db: Session, *, market_zone: str | None = None) -> list[dict[str, Any]]:
+        FeedbackCatalogService.ensure_ready(db)
+        q = (
+            select(Plan, FeedbackPackage)
+            .join(FeedbackPackage, FeedbackPackage.plan_id == Plan.id)
+            .where(Plan.service_kind == FEEDBACK_SERVICE_CODE)
+            .order_by(FeedbackPackage.display_order, Plan.name)
+        )
+        zone = normalize_zone(market_zone)
+        if zone:
+            q = q.where(FeedbackPackage.market_zone == zone)
+        rows = list(db.execute(q).all())
+        return [
+            {
+                "id": plan.id,
+                "code": plan.code,
+                "name": plan.name,
+                "market_zone": pkg.market_zone,
+                "max_locations": pkg.max_locations,
+                "wa_units_included": pkg.wa_units_included,
+            }
+            for plan, pkg in rows
+        ]
+
+    @staticmethod
     def upsert_package(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         now = datetime.utcnow()
         plan_id = str(payload.get("plan_id") or "").strip()
+        plan_code = str(payload.get("plan_code") or "").strip().lower()
         plan = db.get(Plan, plan_id) if plan_id else None
+        if plan is None and plan_code:
+            plan = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
         if plan is None:
-            raise ValueError("plan_id required")
+            raise ValueError("plan_id or plan_code required")
         if str(plan.service_kind or "") != FEEDBACK_SERVICE_CODE:
             plan.service_kind = FEEDBACK_SERVICE_CODE
         row = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)).scalar_one_or_none()

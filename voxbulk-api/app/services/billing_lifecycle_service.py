@@ -416,10 +416,7 @@ class BillingLifecycleService:
                 stats["skipped"] += 1
                 continue
 
-            if (
-                str(sub.payment_provider or "").lower() == "gocardless"
-                and str(sub.external_subscription_id or "").strip()
-            ):
+            if BillingLifecycleService._gocardless_managed_subscription(sub):
                 stats["skipped"] += 1
                 continue
 
@@ -428,9 +425,7 @@ class BillingLifecycleService:
                 stats["skipped"] += 1
                 continue
 
-            rates = PlanPriceService.rates_for_org(db, org, plan=plan)
-            currency = str(rates["currency"])
-            monthly_minor = int(rates.get("monthly_price_minor") or plan.price_gbp_pence or 0)
+            currency, monthly_minor = PlanPriceService.monthly_minor_for_org(db, org, plan)
             if monthly_minor <= 0:
                 stats["skipped"] += 1
                 continue
@@ -505,7 +500,18 @@ class BillingLifecycleService:
         return stats
 
     @staticmethod
+    def _gocardless_managed_subscription(sub: Subscription) -> bool:
+        if str(sub.payment_provider or "").lower() != "gocardless":
+            return False
+        if str(sub.external_subscription_id or "").strip():
+            return True
+        mandate_id = str(sub.mandate_id or "").strip()
+        mandate_status = str(sub.mandate_status or "").strip().lower()
+        return bool(mandate_id and mandate_status not in {"cancelled", "failed", "expired"})
+
+    @staticmethod
     def _advance_subscription_period(db: Session, sub: Subscription, plan: Plan) -> None:
+        from app.models.customer_feedback import FEEDBACK_SERVICE_CODE
         from app.services.usage_wallet_service import UsageWalletService
 
         now = datetime.utcnow()
@@ -527,6 +533,13 @@ class BillingLifecycleService:
 
         db.add(sub)
         db.commit()
+
+        if str(sub.service_code or "") == FEEDBACK_SERVICE_CODE:
+            from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+            FeedbackBillingService.on_period_renewed(db, org_id=sub.org_id, subscription=sub, plan=plan)
+            return
+
         UsageWalletService.sync_plan_limits(db, org_id=sub.org_id, plan=plan, subscription=sub)
 
         row = UsageWalletService.get_current(db, sub.org_id)
@@ -544,10 +557,8 @@ class BillingLifecycleService:
         old_plan: Plan,
         new_plan: Plan,
     ) -> int:
-        rates_old = PlanPriceService.rates_for_org(db, org, plan=old_plan)
-        rates_new = PlanPriceService.rates_for_org(db, org, plan=new_plan)
-        old_monthly = int(rates_old.get("monthly_price_minor") or old_plan.price_gbp_pence or 0)
-        new_monthly = int(rates_new.get("monthly_price_minor") or new_plan.price_gbp_pence or 0)
+        _currency, old_monthly = PlanPriceService.monthly_minor_for_org(db, org, old_plan)
+        _currency, new_monthly = PlanPriceService.monthly_minor_for_org(db, org, new_plan)
         delta = max(0, new_monthly - old_monthly)
         if delta <= 0:
             return 0
@@ -675,12 +686,8 @@ class BillingLifecycleService:
         from app.services.plan_price_service import PlanPriceService
 
         org = db.get(Organisation, org_id)
-        old_rates = (
-            PlanPriceService.rates_for_org(db, org, plan=old_plan) if old_plan is not None else {}
-        )
-        new_rates = PlanPriceService.rates_for_org(db, org, plan=new_plan)
-        old_price = int(old_rates.get("monthly_price_minor") or old_plan.price_gbp_pence or 0) if old_plan else 0
-        new_price = int(new_rates.get("monthly_price_minor") or new_plan.price_gbp_pence or 0)
+        old_price = PlanPriceService.monthly_minor_for_org(db, org, old_plan)[1] if old_plan else 0
+        new_price = PlanPriceService.monthly_minor_for_org(db, org, new_plan)[1]
         if new_price > old_price:
             direction = "upgrade"
         elif new_price < old_price:

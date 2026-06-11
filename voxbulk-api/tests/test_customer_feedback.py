@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import pytest
 from sqlalchemy import select
 
 from app.core.database import get_sessionmaker
 from app.core.security import hash_password
-from app.models.customer_feedback import FeedbackIndustry, FeedbackPackage, FeedbackSurveyType
+from app.models.customer_feedback import FEEDBACK_SERVICE_CODE, FeedbackIndustry, FeedbackPackage, FeedbackSurveyType, FeedbackUsagePeriod
+from app.models.plan import Plan
+from app.models.subscription import Subscription
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.user import User
+from app.services.customer_feedback.billing_service import FeedbackBillingService
 from app.services.customer_feedback.catalog_service import FeedbackCatalogService
 from app.services.customer_feedback.location_service import FeedbackLocationService, TRIGGER_TEMPLATE
 from app.services.customer_feedback.seed_service import FeedbackSeedService
@@ -88,3 +92,30 @@ def test_list_packages_for_eu_org():
         growth = next(item for item in items if item["plan_name"] == "Growth")
         assert growth["is_featured"] is True
         assert growth["wa_units_included"] == 600
+
+
+def test_feedback_period_renewal_opens_new_usage_period():
+    org_id, _user_id = _seed_org()
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        plan = db.execute(
+            select(Plan).where(Plan.code == "cf_starter_gb", Plan.service_kind == FEEDBACK_SERVICE_CODE)
+        ).scalar_one()
+        sub = Subscription(
+            org_id=org_id,
+            service_code=FEEDBACK_SERVICE_CODE,
+            plan_id=plan.id,
+            status="active",
+            payment_provider="gocardless",
+            current_period_end=datetime.utcnow(),
+        )
+        db.add(sub)
+        db.commit()
+        FeedbackBillingService.on_subscription_activated(db, org_id=org_id, subscription=sub, plan=plan)
+        from app.services.billing_lifecycle_service import BillingLifecycleService
+
+        BillingLifecycleService._advance_subscription_period(db, sub, plan)
+        periods = list(
+            db.execute(select(FeedbackUsagePeriod).where(FeedbackUsagePeriod.org_id == org_id)).scalars().all()
+        )
+        assert len(periods) == 2

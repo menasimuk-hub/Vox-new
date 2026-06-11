@@ -8,8 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
 import { startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
-import { useFeedbackPackages, useFeedbackSubscription, useOrganisation } from "@/lib/queries";
+import { changeFeedbackPlan, useFeedbackPackages, useFeedbackSubscription, useOrganisation } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queries";
 import type { FeedbackPackage } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/account/feedback/packages")({
@@ -36,6 +39,7 @@ function formatPackagePrice(pkg: FeedbackPackage, orgCurrency?: string) {
 
 function FeedbackPackagesPage() {
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
+  const qc = useQueryClient();
   const orgQ = useOrganisation();
   const packagesQ = useFeedbackPackages();
   const subscriptionQ = useFeedbackSubscription();
@@ -51,9 +55,19 @@ function FeedbackPackagesPage() {
     if (currentPlanId === pkg.plan_id) return;
     setBusyPlanId(pkg.plan_id);
     try {
+      if (subscription?.active) {
+        await changeFeedbackPlan(pkg.plan_id);
+        toast.success("Plan updated");
+        setBusyPlanId(null);
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
+          qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
+        ]);
+        return;
+      }
       await startFeedbackGoCardlessSubscription(pkg.plan_id);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not start checkout");
+      toast.error(e instanceof Error ? e.message : "Could not update subscription");
       setBusyPlanId(null);
     }
   };
@@ -221,6 +235,10 @@ function FeedbackPackagesPage() {
           </div>
         )}
       </section>
+
+      {subscription?.active ? (
+        <SubscriptionCancellationBar planName={subscription.plan_name} service="feedback" />
+      ) : null}
     </div>
   );
 }

@@ -79,6 +79,7 @@ export default function CustomerFeedbackHub() {
   const [industries, setIndustries] = useState([])
   const [surveyTypes, setSurveyTypes] = useState([])
   const [packages, setPackages] = useState([])
+  const [feedbackPlans, setFeedbackPlans] = useState([])
   const [packageZone, setPackageZone] = useState('gb')
   const [subscriptions, setSubscriptions] = useState([])
   const [locations, setLocations] = useState([])
@@ -112,8 +113,12 @@ export default function CustomerFeedbackHub() {
         const ind = await apiFetch('/admin/customer-feedback/industries')
         setIndustries(ind?.items || [])
       } else if (tab === 'packages') {
-        const data = await apiFetch(`/admin/customer-feedback/packages?market_zone=${encodeURIComponent(packageZone)}`)
+        const [data, plans] = await Promise.all([
+          apiFetch(`/admin/customer-feedback/packages?market_zone=${encodeURIComponent(packageZone)}`),
+          apiFetch(`/admin/customer-feedback/plans?market_zone=${encodeURIComponent(packageZone)}`),
+        ])
         setPackages(data?.items || [])
+        setFeedbackPlans(plans?.items || [])
       } else if (tab === 'subscriptions') {
         const data = await apiFetch('/admin/customer-feedback/subscriptions')
         setSubscriptions(data?.items || [])
@@ -486,8 +491,28 @@ export default function CustomerFeedbackHub() {
                     Zone: <strong>{ZONE_LABELS[packageZone]}</strong>. Requires an existing Plan with <code>service_kind=customer_feedback</code>.
                   </p>
                   <div className="runningSurveyEditGrid">
-                    <Field label="Plan ID">
-                      <input className="input" value={packageEdit.plan_id || ''} onChange={(e) => setPackageEdit((f) => ({ ...f, plan_id: e.target.value }))} placeholder="UUID of Plan row" />
+                    <Field label="Plan">
+                      <select
+                        className="input"
+                        value={packageEdit.plan_id || ''}
+                        onChange={(e) => {
+                          const planId = e.target.value
+                          const plan = feedbackPlans.find((p) => p.id === planId)
+                          setPackageEdit((f) => ({
+                            ...f,
+                            plan_id: planId,
+                            max_locations: plan?.max_locations ?? f.max_locations,
+                            wa_units_included: plan?.wa_units_included ?? f.wa_units_included,
+                          }))
+                        }}
+                      >
+                        <option value="">Select feedback plan…</option>
+                        {feedbackPlans.map((plan) => (
+                          <option key={plan.id} value={plan.id}>
+                            {plan.name} ({plan.code})
+                          </option>
+                        ))}
+                      </select>
                     </Field>
                     <Field label="Max locations">
                       <input className="input" type="number" value={packageEdit.max_locations ?? 1} onChange={(e) => setPackageEdit((f) => ({ ...f, max_locations: Number(e.target.value) }))} />

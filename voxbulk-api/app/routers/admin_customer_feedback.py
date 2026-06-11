@@ -61,6 +61,15 @@ def upsert_survey_type(payload: dict, db: Session = Depends(get_db), _admin=Depe
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.get("/plans")
+def list_feedback_plans(
+    market_zone: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return {"ok": True, "items": FeedbackCatalogService.list_feedback_plans(db, market_zone=market_zone)}
+
+
 @router.get("/packages")
 def list_packages(
     market_zone: str | None = None,

@@ -78,7 +78,7 @@ Rejecting a refund must: create no wallet credit, emit `refund.rejected` event.
 
 Stripe external refund failure must: move review to `failed`, emit `refund.failed` event.
 
-**Known limitation (accepted for staged rollout):** GoCardless/Airwallex external refund automation is not end-to-end; manual admin bookkeeping is still required.
+**Known limitation (accepted for staged rollout):** GoCardless/Airwallex external refund automation is not end-to-end; manual admin bookkeeping is still required. Process the payout in the provider dashboard first, then mark the review complete in Admin → Refunds.
 
 **Block release if:**
 

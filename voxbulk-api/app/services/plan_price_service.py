@@ -231,6 +231,16 @@ class PlanPriceService:
     # ------------------------------------------------------------------ rate resolution
 
     @staticmethod
+    def monthly_minor_for_org(db: Session, org: Organisation | None, plan: Plan) -> tuple[str, int]:
+        """Resolve billing currency and monthly plan amount without cross-currency GBP fallback."""
+        rates = PlanPriceService.rates_for_org(db, org, plan=plan)
+        currency = str(rates.get("currency") or "GBP").upper()[:3]
+        monthly = rates.get("monthly_price_minor")
+        if monthly is None and currency == "GBP":
+            monthly = plan.price_gbp_pence
+        return currency, int(monthly or 0)
+
+    @staticmethod
     def rates_for_org(db: Session, org: Organisation | None, *, plan: Plan | None = None) -> dict[str, Any]:
         """Resolve the effective billing currency + unit rates for an org.
 

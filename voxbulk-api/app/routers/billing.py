@@ -371,6 +371,38 @@ def reverse_subscription_cancellation(
     return SubscriptionCancellationOut.model_validate(result)
 
 
+@router.patch("/overage")
+def set_customer_overage(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.org_audit_service import OrgAuditService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    if "allow_overage" not in payload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="allow_overage required")
+    allow_overage = bool(payload.get("allow_overage"))
+    org.allow_overage = allow_overage
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    OrgAuditService.record(
+        db,
+        org_id=org.id,
+        action=f"Overage {'enabled' if allow_overage else 'disabled'}",
+        event_type="overage.toggle",
+        entity_type="organisation",
+        entity_id=org.id,
+        actor_user_id=principal.user_id,
+        metadata={"allow_overage": allow_overage, "source": "customer"},
+    )
+    return {"ok": True, "allow_overage": org.allow_overage}
+
+
 @router.post("/subscription/test-cash")
 def test_cash_subscription_change(
     payload: CashPlanSelectIn,
