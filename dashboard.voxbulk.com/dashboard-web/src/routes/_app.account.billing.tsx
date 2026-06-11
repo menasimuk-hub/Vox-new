@@ -12,12 +12,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab } from "@/lib/api";
-import { startGoCardlessMandateUpdate } from "@/lib/billing/gocardless";
+import { startGoCardlessMandateUpdate, readBillingReturnParams } from "@/lib/billing/gocardless";
 import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
 import { useBillingAccess, useBillingInvoices, useBillingSubscription, useBillingUsage, useWalletTransactions } from "@/lib/queries";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/account/billing")({
   head: () => ({ meta: [{ title: "Billing — VoxBulk" }] }),
@@ -74,6 +75,25 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
   );
 }
 
+function usageMeterTone(pct: number) {
+  if (pct >= 90) {
+    return {
+      text: "text-destructive",
+      bar: "[&>div]:bg-destructive bg-destructive/20",
+    };
+  }
+  if (pct >= 75) {
+    return {
+      text: "text-amber-600 dark:text-amber-500",
+      bar: "[&>div]:bg-amber-500 bg-amber-500/20",
+    };
+  }
+  return {
+    text: "text-emerald-600 dark:text-emerald-500",
+    bar: "[&>div]:bg-emerald-600 bg-emerald-600/20",
+  };
+}
+
 function UsageMeterBar({
   label,
   used,
@@ -84,15 +104,14 @@ function UsageMeterBar({
   included: number;
 }) {
   const pct = included > 0 ? Math.min(100, Math.round((used / included) * 100)) : 0;
+  const tone = usageMeterTone(pct);
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground">{label}</span>
-        <span className="tabular-nums text-foreground">
-          {used.toLocaleString()} / {included > 0 ? included.toLocaleString() : "—"}
-        </span>
+        <span className={cn("tabular-nums font-semibold", tone.text)}>{pct}%</span>
       </div>
-      <Progress value={pct} className="h-2" />
+      <Progress value={pct} className={cn("h-2", tone.bar)} />
     </div>
   );
 }
@@ -218,6 +237,23 @@ function BillingPage() {
       setMandateBusy(false);
     }
   };
+
+  React.useEffect(() => {
+    const resetMandateBusy = () => {
+      const params = readBillingReturnParams();
+      if (params.billing === "mandate_success" || params.billing === "mandate_cancelled") {
+        setMandateBusy(false);
+        return;
+      }
+      setMandateBusy(false);
+    };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) resetMandateBusy();
+    };
+    resetMandateBusy();
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
 
   const planPrice = plan
     ? moneyFromPence(plan?.price_gbp_pence ?? (plan as { price_pence?: number })?.price_pence)

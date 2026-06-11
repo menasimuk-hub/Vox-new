@@ -21,8 +21,9 @@ body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#fff;c
 .report-badge{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
 .report-title{font-size:26px;line-height:1.2;margin-bottom:6px;font-weight:700}
 .report-subtitle{font-size:13px;color:var(--ink-2)}
+.report-meta-strip{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:10px;font-size:12px;color:var(--ink-2)}
+.report-meta-strip strong{color:var(--ink);font-weight:600}
 .candidate-meta{text-align:right;min-width:140px}
-.candidate-avatar{width:48px;height:48px;border-radius:50%;background:var(--accent-light);color:var(--accent);font-weight:600;font-size:15px;display:flex;align-items:center;justify-content:center;margin-left:auto;margin-bottom:8px}
 .meta-row{font-size:12px;color:var(--ink-2);margin-bottom:3px}
 .score-table{width:100%;border-collapse:separate;border-spacing:8px 0;margin:0 -8px 28px}
 .score-table td{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 12px;vertical-align:top;width:25%}
@@ -75,8 +76,9 @@ body{font-family:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;backgro
 .report-badge{font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px}
 .report-title{font-family:'DM Serif Display',Georgia,serif;font-size:34px;line-height:1.15;color:var(--ink);margin-bottom:6px}
 .report-subtitle{font-size:14px;color:var(--ink-2)}
+.report-meta-strip{display:flex;flex-wrap:wrap;gap:10px 24px;margin-top:14px;padding-top:14px;border-top:.5px solid var(--border);font-size:13px;color:var(--ink-2)}
+.report-meta-strip strong{color:var(--ink);font-weight:500}
 .candidate-meta{text-align:right}
-.candidate-avatar{width:52px;height:52px;border-radius:50%;background:var(--accent-light);color:var(--accent);font-weight:500;font-size:16px;display:flex;align-items:center;justify-content:center;margin-left:auto;margin-bottom:10px}
 .meta-row{font-size:13px;color:var(--ink-2);margin-bottom:3px}
 .meta-row strong{color:var(--ink);font-weight:500}
 .score-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:48px}
@@ -165,7 +167,6 @@ body{font-family:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;backgro
   .page{padding:24px 20px 48px}
   .report-header{grid-template-columns:1fr}
   .candidate-meta{text-align:left}
-  .candidate-avatar{margin-left:0}
   .score-strip{grid-template-columns:1fr 1fr}
   .criteria-row{grid-template-columns:1fr;gap:10px}
   .competency-grid,.keyword-grid{grid-template-columns:1fr}
@@ -370,6 +371,8 @@ def _pdf_criteria_rows(criteria: list[dict[str, Any]]) -> str:
 
 
 def _pdf_competency_cards(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return '<p style="font-size:12px;color:var(--ink-3)">Competency scores are not available for this interview yet.</p>'
     cards = []
     for c in items:
         score10 = _safe_int(c.get("score_10") if c.get("score_10") is not None else c.get("score"), 0)
@@ -463,11 +466,10 @@ def _build_pdf_html(payload: dict[str, Any], *, cv_text: str | None = None) -> s
         <div class="report-badge">Candidate AI Interview Report</div>
         <div class="report-title">{_e(cand.get('name'))}</div>
         <div class="report-subtitle">{_e(payload.get('role'))} · Applied {_e(cand.get('applied_at'))}</div>
-      </div>
-      <div class="candidate-meta">
-        <div class="candidate-avatar">{_e(cand.get('initials'))}</div>
-        <div class="meta-row">Interview: <strong>{_e(cand.get('interview_date'))}</strong></div>
-        <div class="meta-row">{_e(payload.get('company_name'))}</div>
+        <div class="report-meta-strip">
+          <span>Interview: <strong>{_e(cand.get('interview_date'))}</strong></span>
+          <span>Organisation: <strong>{_e(payload.get('company_name'))}</strong></span>
+        </div>
       </div>
     </div>
   </div>
@@ -622,6 +624,8 @@ def _screen_keywords(ats: dict[str, Any]) -> str:
 
 
 def _screen_competency_cards(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return '<p class="brief-label">Competency scores are not available for this interview yet.</p>'
     cards = []
     for c in items:
         score10 = _safe_int(c.get("score_10") if c.get("score_10") is not None else c.get("score"), 0)
@@ -748,11 +752,10 @@ def _build_screen_html(payload: dict[str, Any], *, cv_text: str | None = None) -
       <div class="report-badge">Candidate AI Interview Report</div>
       <div class="report-title">{_e(cand.get('name'))}</div>
       <div class="report-subtitle">{_e(payload.get('role'))} · Applied {_e(cand.get('applied_at'))}</div>
-    </div>
-    <div class="candidate-meta">
-      <div class="candidate-avatar">{_e(cand.get('initials'))}</div>
-      <div class="meta-row">Interview Date: <strong>{_e(cand.get('interview_date'))}</strong></div>
-      <div class="meta-row">{_e(payload.get('company_name'))}</div>
+      <div class="report-meta-strip">
+        <span>Interview date: <strong>{_e(cand.get('interview_date'))}</strong></span>
+        <span>Organisation: <strong>{_e(payload.get('company_name'))}</strong></span>
+      </div>
     </div>
   </div>
 

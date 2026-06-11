@@ -124,7 +124,7 @@ export function SurveyResultsRespondentsTab({
                     <th className="px-4 py-3">Mobile</th>
                     <th className="px-4 py-3">Sentiment</th>
                     <th className="px-4 py-3">Quick view</th>
-                    <th className="px-4 py-3 text-right">Action</th>
+                    <th className="px-4 py-3 text-right">Details</th>
                   </tr>
                 </thead>
                 <tbody>

@@ -1,4 +1,5 @@
 import {
+  Banknote,
   Briefcase,
   Building2,
   Car,
@@ -13,6 +14,9 @@ import {
   Smile,
   Sparkles,
   Stethoscope,
+  Ticket,
+  Truck,
+  Users,
   UtensilsCrossed,
   type LucideIcon,
 } from "lucide-react";
@@ -66,6 +70,10 @@ const SLUG_ICON: Record<string, LucideIcon> = {
   recruitment_staffing: Briefcase,
   ecommerce: ShoppingBag,
   finance: Landmark,
+  financial_services: Banknote,
+  logistics_delivery: Truck,
+  events_entertainment: Ticket,
+  employee_survey: Users,
   education: GraduationCap,
   saas: Sparkles,
   services: Briefcase,

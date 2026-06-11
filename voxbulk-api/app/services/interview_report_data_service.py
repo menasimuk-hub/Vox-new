@@ -189,7 +189,7 @@ class InterviewCandidateReportService:
 
         competencies = analysis.get("competencies")
         if not isinstance(competencies, list) or not competencies:
-            competencies = _default_competencies(int(interview_score or 50), analysis, seed) if not has_real_analysis else []
+            competencies = _default_competencies(int(interview_score or 50), analysis, seed)
 
         recommendation = str(analysis.get("recommendation") or parsed.get("recommendation") or "Hold")
         rec_verdict = {

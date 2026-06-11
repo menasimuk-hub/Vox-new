@@ -552,13 +552,19 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 onSelect={props.setThankYouTemplateId}
               />
 
-              <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-background/40 p-4">
-                <p className="text-sm font-medium">Tell us more about your experience</p>
-                <Switch
-                  checked={props.allowFinalAdditionalFeedback}
-                  onCheckedChange={props.setAllowFinalAdditionalFeedback}
-                  aria-label="Allow final additional feedback"
-                />
+              <div className="rounded-xl border border-border bg-background/40 p-4 space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <p className="text-sm font-medium">Tell us more about your experience</p>
+                  <Switch
+                    checked={props.allowFinalAdditionalFeedback}
+                    onCheckedChange={props.setAllowFinalAdditionalFeedback}
+                    aria-label="Allow final additional feedback"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Adds a final open question at the end of the survey: &ldquo;Is there anything else you&rsquo;d like to tell us about your experience?&rdquo;
+                  Responses appear in survey results under More details.
+                </p>
               </div>
             </CardContent>
           </Card>

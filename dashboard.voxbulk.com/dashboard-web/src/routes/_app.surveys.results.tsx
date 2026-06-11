@@ -14,6 +14,7 @@ import {
   MessageCircle,
   MessageSquareText,
   Mic,
+  PanelRightOpen,
   Phone,
   Search,
   Sparkles,
@@ -425,7 +426,7 @@ function SurveyResults() {
   const respondents = (payload.respondents || []) as Respondent[];
   const weeklyTrend = (payload.weekly_trend || []) as TrendPoint[];
   const topIssues = (summary.top_issues as string[] | undefined) || [];
-  const allowFollowUp = false;
+  const allowFollowUp = payload.allow_follow_up !== false;
   const unhappyCount = Number(summary.unhappy_count || 0);
   const surveyChannel = selected?.surveyChannel || (orderInfo.channel === "whatsapp" ? "whatsapp" : orderInfo.channel === "ai_call" ? "ai_call" : null);
 
@@ -593,7 +594,8 @@ function SurveyResults() {
               <TabsTrigger value="questions" className="text-xs">Questions</TabsTrigger>
               <TabsTrigger value="responses" className="text-xs">Responses</TabsTrigger>
               {allowFollowUp ? (
-                <TabsTrigger value="details" className="relative text-xs">
+                <TabsTrigger value="details" className="relative gap-1 text-xs">
+                  <PanelRightOpen className="size-3.5" />
                   More details
                   {unhappyCount > 0 ? (
                     <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
@@ -1007,13 +1009,6 @@ function SurveyResults() {
   );
 }
 
-function respondentInitials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
-}
-
 function completedAgoLabel(completedAt: string | null | undefined) {
   if (!completedAt) return "Completed recently";
   try {
@@ -1059,17 +1054,12 @@ function RespondentDetailSheet({
             </Button>
             <SheetHeader>
               <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                    {respondentInitials(respondent.name || "Respondent")}
-                  </span>
-                  <div>
-                    <SheetTitle>{respondent.name || "Respondent"}</SheetTitle>
-                    <SheetDescription>
-                      {[respondent.phone, respondent.email].filter(Boolean).join(" · ") || "No contact details"}
-                    </SheetDescription>
-                    <p className="mt-1 text-xs text-muted-foreground">{completedAgoLabel(respondent.completed_at)}</p>
-                  </div>
+                <div>
+                  <SheetTitle>{respondent.name || "Respondent"}</SheetTitle>
+                  <SheetDescription>
+                    {[respondent.phone, respondent.email].filter(Boolean).join(" · ") || "No contact details"}
+                  </SheetDescription>
+                  <p className="mt-1 text-xs text-muted-foreground">{completedAgoLabel(respondent.completed_at)}</p>
                 </div>
                 {respondent.is_unhappy ? <Badge variant="destructive">Unhappy</Badge> : null}
               </div>
