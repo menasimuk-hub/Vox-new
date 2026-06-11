@@ -209,15 +209,17 @@ function ProfileSettings() {
           <CardTitle className="text-destructive">Delete my account</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
-            <span className="font-medium">Status: </span>
-            {deletionQ.isLoading ? "Loading…" : deletionQ.data?.deletion_label || "Not requested"}
-            {deletionQ.data?.deletion_requested_at ? (
-              <span className="block text-xs text-muted-foreground mt-1">
-                Requested {new Date(deletionQ.data.deletion_requested_at).toLocaleString()}
-              </span>
-            ) : null}
-          </div>
+          {deletionStatus !== "active" ? (
+            <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+              <span className="font-medium">Status: </span>
+              {deletionQ.isLoading ? "Loading…" : deletionQ.data?.deletion_label}
+              {deletionQ.data?.deletion_requested_at ? (
+                <span className="block text-xs text-muted-foreground mt-1">
+                  Requested {new Date(deletionQ.data.deletion_requested_at).toLocaleString()}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
 
           {deletionStatus === "pending" ? (
             <>

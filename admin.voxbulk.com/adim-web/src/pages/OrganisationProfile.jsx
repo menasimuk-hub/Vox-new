@@ -23,6 +23,12 @@ function publicAppBase() {
     .replace(/\/+$/, '')
 }
 
+function isProtectedUser(u) {
+  if (u?.is_superuser) return true
+  const em = String(u?.email || '').toLowerCase()
+  return em.endsWith('@voxbulk.internal') || em === 'api-accounts@voxbulk.com'
+}
+
 function deletionPillClass(status) {
   const s = String(status || 'active').toLowerCase()
   if (s === 'pending') return 'p-amber'
@@ -466,6 +472,29 @@ export default function OrganisationProfile() {
       await refreshUsers()
     } catch (e) {
       window.alert(e?.message || 'Could not remove user')
+    }
+  }
+
+  const hardDeleteUser = async (userId, email) => {
+    if (!orgId) return
+    const typed = window.prompt(
+      `TEST ONLY — permanently delete ${email}, billing records, and this org if they are the sole member.\n\nType HARD_DELETE to confirm:`,
+    )
+    if (String(typed || '').trim() !== 'HARD_DELETE') return
+    try {
+      await apiFetch(`/admin/organisations/${orgId}/users/${encodeURIComponent(userId)}/hard-delete-test`, {
+        method: 'POST',
+        body: JSON.stringify({
+          confirm: 'HARD_DELETE',
+          delete_solo_org: true,
+          delete_service_orders: true,
+        }),
+      })
+      window.alert(`Hard deleted ${email}`)
+      await refreshUsers()
+      await refreshOrg()
+    } catch (e) {
+      window.alert(e?.message || 'Hard delete failed')
     }
   }
 
@@ -945,7 +974,7 @@ export default function OrganisationProfile() {
                             >
                               Activity
                             </button>
-                            {u.is_superuser ? (
+                            {isProtectedUser(u) ? (
                               <span className='muted' style={{ fontSize: 11 }}>Protected</span>
                             ) : (
                               <>
@@ -964,6 +993,14 @@ export default function OrganisationProfile() {
                                   onClick={() => removeUser(u.user_id, u.email)}
                                 >
                                   Remove
+                                </button>
+                                <button
+                                  type='button'
+                                  className='btn soft'
+                                  style={{ padding: '4px 10px', fontSize: 12, color: 'var(--red)' }}
+                                  onClick={() => hardDeleteUser(u.user_id, u.email)}
+                                >
+                                  Hard delete (TEST)
                                 </button>
                               </>
                             )}

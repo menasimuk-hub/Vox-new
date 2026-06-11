@@ -2713,6 +2713,38 @@ def admin_set_org_user_blocked(
     return {"ok": True, "user_id": user_id, "is_active": user.is_active}
 
 
+@router.post("/organisations/{org_id}/users/{user_id}/hard-delete-test")
+def admin_hard_delete_org_user_test(
+    org_id: str,
+    user_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    """DEV/OPS TEST — wipe billing, detach FK refs, hard-delete user; delete solo org if applicable."""
+    from app.services.user_hard_delete_service import HARD_DELETE_CONFIRM, UserHardDeleteError, hard_delete_user
+
+    body = payload if isinstance(payload, dict) else {}
+    if str(body.get("confirm") or "").strip() != HARD_DELETE_CONFIRM:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f'Type {HARD_DELETE_CONFIRM} in confirm field',
+        )
+    try:
+        report = hard_delete_user(
+            db,
+            user_id,
+            org_id=org_id,
+            delete_solo_orgs=bool(body.get("delete_solo_org", True)),
+            delete_service_orders=bool(body.get("delete_service_orders", True)),
+        )
+        db.commit()
+        return {"ok": True, "report": report}
+    except UserHardDeleteError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.delete("/organisations/{org_id}/users/{user_id}")
 def admin_remove_org_user(org_id: str, user_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     mem = db.execute(
