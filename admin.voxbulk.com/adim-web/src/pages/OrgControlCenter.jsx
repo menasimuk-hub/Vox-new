@@ -1320,6 +1320,13 @@ export default function OrgControlCenter() {
                 <Link className="occ-btn" to={`/organisations/${encodeURIComponent(selectedId)}`}>
                   Full profile
                 </Link>
+                <Link
+                  className="occ-btn danger"
+                  to="/organisations/profile?tab=users"
+                  onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', selectedId)}
+                >
+                  Hard delete user (TEST)
+                </Link>
                 {org?.deletion_status === 'pending' && deletionRequest ? (
                   <button type="button" className="occ-btn danger" onClick={() => openModal('completeDeletion')}>
                     Complete account deletion

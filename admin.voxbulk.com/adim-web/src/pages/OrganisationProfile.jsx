@@ -931,6 +931,10 @@ export default function OrganisationProfile() {
           <div className='card'>
             <div className='cardHead'><h3>Members</h3></div>
             <div className='cardBody'>
+              <p className='muted' style={{ fontSize: 12, marginBottom: 12 }}>
+                <strong style={{ color: 'var(--red)' }}>Hard delete (TEST)</strong> — last button in each row’s Actions column.
+                Wipes billing and permanently deletes the user (and solo org). Type <code>HARD_DELETE</code> to confirm.
+              </p>
               <div className='tableWrap'>
                 <table className='table'>
                   <thead>
