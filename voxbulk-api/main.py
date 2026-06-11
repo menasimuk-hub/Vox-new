@@ -56,6 +56,7 @@ from app.routers.admin_platform_services import router as admin_platform_service
 from app.routers.admin_products import router as admin_products_router
 from app.routers.admin_pricing import router as admin_pricing_router
 from app.routers.dashboard_help import router as dashboard_help_router
+from app.routers.dashboard_scripts import router as dashboard_scripts_router
 from app.routers.admin_customer_feedback import router as admin_customer_feedback_router
 from app.routers.customer_feedback import router as customer_feedback_router
 from app.routers.service_orders import router as service_orders_router
