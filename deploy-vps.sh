@@ -194,7 +194,9 @@ copy_dist() {
     local backup="${dest}.backup-$(date +%Y%m%d-%H%M%S)"
     info "Backing up $label wwwroot → $backup"
     sudo cp -a "$dest" "$backup" || warn "Could not backup $dest"
-    echo "$backup" > "/tmp/voxbulk-backup-${label// /-}.path"
+    local safe_label
+    safe_label=$(printf '%s' "$label" | tr -c 'a-zA-Z0-9._-' '-')
+    echo "$backup" > "/tmp/voxbulk-backup-${safe_label}.path"
   fi
 
   info "Copying $label → $dest"
@@ -243,7 +245,7 @@ nginx_test_if_present() {
 
 deploy_static() {
   copy_dist "$ADMIN_DIR/dist" "${VOX_ADMIN_DIST:-}" "admin"
-  copy_dist "$DASH_DIR/dist/client" "${VOX_DASH_DIST:-}" "dashboard (dist/client)"
+  copy_dist "$DASH_DIR/dist/client" "${VOX_DASH_DIST:-}" "dashboard-dist-client"
   # Public site (TanStack Start) is served via vite preview :5173 — NOT static wwwroot.
 }
 
