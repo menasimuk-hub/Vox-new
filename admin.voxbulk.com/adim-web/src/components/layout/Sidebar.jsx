@@ -63,6 +63,7 @@ const NAV = [
     'Onboarding',
     [
       ['Add customer', '/onboarding/add-customer'],
+      ['Customer services', '/onboarding/services'],
     ],
   ],
   [
