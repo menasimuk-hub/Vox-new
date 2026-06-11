@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
-import { dateShort, dateText, money, statusPillClass, truncate } from '../lib/billingAdminUtils'
+import RefundResolveModal from '../components/RefundResolveModal'
+import { dateText, money, statusPillClass, truncate } from '../lib/billingAdminUtils'
 
 const STATUS_OPTIONS = ['', 'pending', 'under_review', 'approved', 'processed', 'rejected', 'failed']
 
@@ -11,6 +12,7 @@ export default function RefundsAdmin() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [filters, setFilters] = useState({ status: '', provider: '', search: '' })
+  const [modalRow, setModalRow] = useState(null)
 
   const load = useCallback(async () => {
     setError('')
@@ -55,23 +57,25 @@ export default function RefundsAdmin() {
 
   const resolveReview = async (row, status, extra = {}) => {
     if (!row?.org_id || !row?.id) return
-    const note = window.prompt('Admin note:', extra.defaultNote || '')
-    if (note === null) return
     setBusy(row.id)
     setError('')
     try {
-      await apiFetch(
+      const result = await apiFetch(
         `/admin/organisations/${encodeURIComponent(row.org_id)}/control-center/refund-reviews/${encodeURIComponent(row.id)}/resolve`,
         {
           method: 'POST',
           body: JSON.stringify({
             review_status: status,
-            admin_notes: note,
+            admin_notes: extra.admin_notes || '',
             issue_wallet_credit: Boolean(extra.issue_wallet_credit),
             approved_external_refund_pence: extra.approved_external_refund_pence,
           }),
         },
       )
+      if (result?.stripe_refund_error) {
+        setError(`Stripe refund failed: ${result.stripe_refund_error}`)
+      }
+      setModalRow(null)
       await load()
     } catch (e) {
       setError(e?.message || 'Action failed')
@@ -91,8 +95,8 @@ export default function RefundsAdmin() {
           <button type="button" className="btn soft" onClick={load} disabled={loading}>
             Refresh
           </button>
-          <Link className="btn soft" to="/billing/invoices?tab=requests">
-            Billing requests
+          <Link className="btn soft" to="/billing/exceptions">
+            Exceptions
           </Link>
         </div>
       </div>
@@ -156,14 +160,38 @@ export default function RefundsAdmin() {
                           <td><span className={`pill billingStatusPill ${statusPillClass(st)}`}>{st}</span></td>
                           <td>{row.requested_refund_type || '—'}</td>
                           <td>{money(row.calculated_unused_value_pence, row.billing_currency)}</td>
-                          <td className="muted">{truncate(row.source_payment_reference, 20)}</td>
+                          <td className="muted" title={row.source_payment_reference || ''}>{truncate(row.source_payment_reference, 28)}</td>
                           <td className="billingListActions">
                             {['pending', 'under_review', 'approved'].includes(String(st).toLowerCase()) ? (
-                              <>
-                                <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => resolveReview(row, 'approved', { issue_wallet_credit: true })}>Approve wallet</button>
-                                <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => resolveReview(row, 'completed', { approved_external_refund_pence: row.calculated_unused_value_pence })}>Mark refunded</button>
-                                <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => resolveReview(row, 'rejected')}>Reject</button>
-                              </>
+                              <button type="button" className="btn primary xs" disabled={isBusy} onClick={() => setModalRow(row)}>
+                                Resolve
+                              </button>
+                            ) : null}
+                            {String(st).toLowerCase() === 'processed' && row.wallet_transaction_id ? (
+                              <button
+                                type="button"
+                                className="btn soft xs"
+                                disabled={isBusy}
+                                onClick={async () => {
+                                  const note = window.prompt('Reason for reversing wallet credit:', 'Admin reversal')
+                                  if (note === null) return
+                                  setBusy(row.id)
+                                  setError('')
+                                  try {
+                                    await apiFetch(
+                                      `/admin/organisations/${encodeURIComponent(row.org_id)}/control-center/refund-reviews/${encodeURIComponent(row.id)}/reverse-wallet`,
+                                      { method: 'POST', body: JSON.stringify({ reason: note }) },
+                                    )
+                                    await load()
+                                  } catch (e) {
+                                    setError(e?.message || 'Reverse failed')
+                                  } finally {
+                                    setBusy('')
+                                  }
+                                }}
+                              >
+                                Reverse wallet
+                              </button>
                             ) : null}
                             <Link className="btn soft xs" to="/organisations/all-users" onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', row.org_id)}>OCC</Link>
                           </td>
@@ -177,6 +205,14 @@ export default function RefundsAdmin() {
           </div>
         </div>
       </div>
+
+      <RefundResolveModal
+        row={modalRow}
+        open={Boolean(modalRow)}
+        onClose={() => setModalRow(null)}
+        onSubmit={resolveReview}
+        busy={Boolean(busy)}
+      />
     </>
   )
 }

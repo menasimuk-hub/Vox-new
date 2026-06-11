@@ -228,3 +228,58 @@ class InvoiceLifecycleService:
         db.commit()
         db.refresh(invoice)
         return invoice
+
+    @staticmethod
+    def stop_dd_collection(
+        db: Session,
+        invoice: BillingInvoice,
+        *,
+        reason: str | None = None,
+        actor_user_id: str | None = None,
+        actor_email: str | None = None,
+    ) -> BillingInvoice:
+        if not InvoiceLifecycleService.is_dd_collection_active(invoice):
+            raise InvoiceLifecycleError("No active Direct Debit collection on this invoice.")
+
+        payment_id = str(getattr(invoice, "dd_payment_id", None) or "").strip()
+        if payment_id:
+            try:
+                from app.services.gocardless_service import BillingService
+
+                BillingService.cancel_gocardless_payment(db, payment_id)
+            except Exception:
+                pass
+
+        note = (reason or "DD collection stopped by admin")[:512]
+        invoice.status = "pending"
+        invoice.dd_status = "cancelled"
+        invoice.dd_next_retry_at = None
+        db.add(invoice)
+        OrgAuditService.record_admin(
+            db,
+            org_id=invoice.org_id,
+            event_type="invoice.dd_stopped",
+            action=f"DD collection stopped — {invoice.invoice_number or invoice.id[:8]}",
+            entity_type="invoice",
+            entity_id=invoice.id,
+            detail=note,
+            metadata={"dd_payment_id": payment_id or None},
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
+        )
+        from app.services.payment_event_service import PaymentEventService
+
+        org = db.get(Organisation, invoice.org_id)
+        PaymentEventService.record_finance(
+            db,
+            org_id=invoice.org_id,
+            client_email=(org.contact_email if org else None) or actor_email or "admin@voxbulk.com",
+            event_kind="invoice.dd_stopped",
+            actor_user_id=actor_user_id,
+            metadata={"invoice_id": invoice.id, "dd_payment_id": payment_id or None, "reason": note},
+            provider="gocardless",
+            commit=False,
+        )
+        db.commit()
+        db.refresh(invoice)
+        return invoice

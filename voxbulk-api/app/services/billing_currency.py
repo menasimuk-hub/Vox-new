@@ -1,4 +1,4 @@
-"""Billing currency helpers — VoxBulk bills in GBP, USD, CAD or AUD with explicit per-market prices."""
+"""Billing currency helpers — VoxBulk bills in GBP, EUR, USD, CAD, AUD with explicit per-market prices."""
 
 from __future__ import annotations
 
@@ -6,20 +6,54 @@ from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
 
-SUPPORTED_CURRENCIES = ("GBP", "USD", "CAD", "AUD")
+SUPPORTED_CURRENCIES = ("GBP", "EUR", "USD", "CAD", "AUD")
 
-CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "CAD": "CA$", "AUD": "A$"}
+CURRENCY_SYMBOLS = {"GBP": "£", "EUR": "€", "USD": "$", "CAD": "CA$", "AUD": "A$"}
+
+# All 27 EU member states bill in EUR.
+EU_MEMBER_STATES = frozenset(
+    {
+        "AT",
+        "BE",
+        "BG",
+        "HR",
+        "CY",
+        "CZ",
+        "DK",
+        "EE",
+        "FI",
+        "FR",
+        "DE",
+        "GR",
+        "HU",
+        "IE",
+        "IT",
+        "LV",
+        "LT",
+        "LU",
+        "MT",
+        "NL",
+        "PL",
+        "PT",
+        "RO",
+        "SK",
+        "SI",
+        "ES",
+        "SE",
+    }
+)
 
 _COUNTRY_CURRENCY = {"GB": "GBP", "US": "USD", "CA": "CAD", "AU": "AUD"}
+_DEFAULT_CURRENCY = "USD"
 
 
 def normalize_currency(value: str | None) -> str:
     code = str(value or "").strip().upper()[:3]
-    return code if code in SUPPORTED_CURRENCIES else "GBP"
+    return code if code in SUPPORTED_CURRENCIES else _DEFAULT_CURRENCY
 
 
 def currency_symbol(currency: str | None) -> str:
-    return CURRENCY_SYMBOLS.get(normalize_currency(currency), "£")
+    return CURRENCY_SYMBOLS.get(normalize_currency(currency), "$")
 
 
 def money_display(amount_minor: int | None, currency: str | None = "GBP") -> str:
@@ -30,13 +64,16 @@ def money_display(amount_minor: int | None, currency: str | None = "GBP") -> str
 
 
 def currency_for_country_code(country_code: str | None) -> str:
-    return _COUNTRY_CURRENCY.get(str(country_code or "").strip().upper()[:2], "GBP")
+    code = str(country_code or "").strip().upper()[:2]
+    if code in EU_MEMBER_STATES:
+        return "EUR"
+    return _COUNTRY_CURRENCY.get(code, _DEFAULT_CURRENCY)
 
 
 def resolve_org_currency(db: Session, org: Organisation | None, *, persist: bool = False) -> str:
     """Resolve the org billing currency. Once set on the org it is fixed and never re-derived."""
     if org is None:
-        return "GBP"
+        return _DEFAULT_CURRENCY
     existing = str(getattr(org, "billing_currency", None) or "").strip().upper()
     if existing in SUPPORTED_CURRENCIES:
         return existing

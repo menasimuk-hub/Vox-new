@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { currencySymbol } from '../lib/billingAdminUtils'
 import './orgControlCenter.css'
 
 const TABS = [
@@ -34,8 +35,10 @@ const CHIP_KEYS = [
   { key: 'campaigns', label: 'Running campaigns' },
 ]
 
-function fmtMoneyPence(pence, orgOrSymbol = '£') {
-  const symbol = typeof orgOrSymbol === 'string' ? orgOrSymbol : orgOrSymbol?.currency_symbol || '£'
+function fmtMoneyPence(pence, orgOrSymbol = '$') {
+  const symbol = typeof orgOrSymbol === 'string'
+    ? (orgOrSymbol.length === 3 ? currencySymbol(orgOrSymbol) : orgOrSymbol)
+    : orgOrSymbol?.currency_symbol || currencySymbol(orgOrSymbol?.billing_currency)
   const n = Number(pence || 0) / 100
   return `${symbol}${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
@@ -95,6 +98,7 @@ function resolveInvoiceLifecycle(inv) {
       can_void: false,
       is_locked: true,
       lock_reason: 'Direct Debit collection is in progress.',
+      suggested_action: 'stop_collection',
       suggested_action_label: 'Stop DD collection before editing or voiding.',
     }
   }
@@ -541,7 +545,7 @@ export default function OrgControlCenter() {
   const promptWalletCreditPence = (defaultDisplay) => {
     const prefill = defaultDisplay ? String(defaultDisplay).replace(/[^\d.]/g, '') : ''
     const input = window.prompt(
-      `Wallet credit amount in GBP (remaining subscription period only).\nLeave blank to use calculated value${defaultDisplay ? ` (${defaultDisplay})` : ''}:`,
+      `Wallet credit amount in ${org?.billing_currency || 'billing currency'} (remaining subscription period only).\nLeave blank to use calculated value${defaultDisplay ? ` (${defaultDisplay})` : ''}:`,
       prefill,
     )
     if (input === null) return undefined
@@ -603,7 +607,7 @@ export default function OrgControlCenter() {
       const review = refundReviews.find((r) => r.id === reviewId)
       const defaultPence = extra.approved_external_refund_pence ?? review?.calculated_unused_value_pence
       const defaultGbp = defaultPence != null ? (defaultPence / 100).toFixed(2) : ''
-      const input = window.prompt(`Bank refund amount in GBP (remaining period only):`, defaultGbp)
+      const input = window.prompt(`Bank refund amount in ${org?.billing_currency || 'billing currency'} (remaining period only):`, defaultGbp)
       if (input === null) return
       const pounds = Number.parseFloat(String(input).trim().replace(/[^\d.]/g, ''))
       if (!Number.isFinite(pounds) || pounds < 0) return
@@ -651,6 +655,25 @@ export default function OrgControlCenter() {
       await refreshAll()
     } catch (e) {
       pushToast(e?.message || 'Wallet credit reversal failed', 'danger')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const stopDdCollection = async (invoiceId) => {
+    if (!invoiceId) return
+    const note = window.prompt('Reason for stopping DD collection:', 'Admin stop collection')
+    if (note === null) return
+    setActionBusy(`stop-dd-${invoiceId}`)
+    try {
+      await billingInvoice(invoiceId, '/stop-dd-collection', {
+        method: 'POST',
+        body: JSON.stringify({ reason: note }),
+      })
+      pushToast('DD collection stopped', 'success')
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Stop DD failed', 'danger')
     } finally {
       setActionBusy('')
     }
@@ -1837,14 +1860,20 @@ export default function OrgControlCenter() {
                                 Edit
                               </button>
                             ) : lifecycle.is_locked ? (
-                              <button
-                                type="button"
-                                className="occ-btn-xs"
-                                title={lifecycle.suggested_action_label || lifecycle.lock_reason || ''}
-                                onClick={() => pushToast(lifecycle.suggested_action_label || lifecycle.lock_reason || 'Invoice is locked', 'warning')}
-                              >
-                                Locked
-                              </button>
+                              lifecycle.suggested_action === 'stop_collection' ? (
+                                <button type="button" className="occ-btn-xs" disabled={actionBusy === `stop-dd-${inv.id}`} onClick={() => stopDdCollection(inv.id)}>
+                                  Stop DD
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="occ-btn-xs"
+                                  title={lifecycle.suggested_action_label || lifecycle.lock_reason || ''}
+                                  onClick={() => pushToast(lifecycle.suggested_action_label || lifecycle.lock_reason || 'Invoice is locked', 'warning')}
+                                >
+                                  Locked
+                                </button>
+                              )
                             ) : null}
                             {lifecycle.can_void ? (
                               <button
@@ -1862,7 +1891,10 @@ export default function OrgControlCenter() {
                             {String(inv.status).toLowerCase() !== 'paid' ? (
                               <>
                                 <button type="button" className="occ-btn-xs" disabled={actionBusy === `collect-${inv.id}`} onClick={() => collectInvoice(inv.id, 'wallet')}>
-                                  Collect (wallet)
+                                  Wallet
+                                </button>
+                                <button type="button" className="occ-btn-xs" disabled={actionBusy === `collect-${inv.id}`} onClick={() => collectInvoice(inv.id, 'direct_debit')}>
+                                  DD
                                 </button>
                                 <button type="button" className="occ-btn-xs success" onClick={() => markInvoicePaid(inv.id)}>
                                   Mark paid
@@ -1952,7 +1984,7 @@ export default function OrgControlCenter() {
                       ? 'Credit wallet as a refund with an audit note.'
                       : `Credit wallet in ${org?.billing_currency || 'org billing currency'}.`}
                 </div>
-                <label className="occ-modal-label">Amount (£)</label>
+                <label className="occ-modal-label">Amount ({currencySymbol(org?.billing_currency)})</label>
                 <input className="occ-modal-input" type="number" min="0" step="0.01" value={fundAmount} onChange={(e) => setFundAmount(e.target.value)} />
                 <label className="occ-modal-label">Reason</label>
                 <input className="occ-modal-input" type="text" value={fundNote} onChange={(e) => setFundNote(e.target.value)} placeholder="Internal note" />
@@ -2010,7 +2042,7 @@ export default function OrgControlCenter() {
               <>
                 <div className="occ-modal-title">Edit invoice</div>
                 <div className="occ-modal-sub">Only unpaid invoices before collection can be edited.</div>
-                <label className="occ-modal-label">Amount (£ ex VAT subtotal)</label>
+                <label className="occ-modal-label">Amount ({currencySymbol(org?.billing_currency)} ex VAT subtotal)</label>
                 <input className="occ-modal-input" type="number" min="0" step="0.01" value={editInvoiceAmount} onChange={(e) => setEditInvoiceAmount(e.target.value)} />
                 <label className="occ-modal-label">Due date</label>
                 <input className="occ-modal-input" type="date" value={editInvoiceDue} onChange={(e) => setEditInvoiceDue(e.target.value)} />
@@ -2031,7 +2063,7 @@ export default function OrgControlCenter() {
               <>
                 <div className="occ-modal-title">Create invoice</div>
                 <div className="occ-modal-sub">Manually generate an invoice for this organisation.</div>
-                <label className="occ-modal-label">Amount (£)</label>
+                <label className="occ-modal-label">Amount ({currencySymbol(org?.billing_currency)})</label>
                 <input className="occ-modal-input" type="number" min="0" step="0.01" value={invoiceAmount} onChange={(e) => setInvoiceAmount(e.target.value)} />
                 <label className="occ-modal-label">Due date</label>
                 <input className="occ-modal-input" type="date" value={invoiceDue} onChange={(e) => setInvoiceDue(e.target.value)} />

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -12,9 +12,12 @@ from app.models.billing_invoice import BillingInvoice
 from app.models.billing_refund_review import BillingRefundReview
 from app.models.organisation import Organisation
 from app.models.plan import Plan
+from app.models.plan_price import PlanPrice
 from app.models.subscription import Subscription
 from app.services.billing_currency import resolve_org_currency
 from app.services.subscription_cancellation_service import CANCELLATION_SCHEDULED
+
+_STUCK_DD_HOURS = 48
 
 
 class BillingExceptionsService:
@@ -131,6 +134,54 @@ class BillingExceptionsService:
                     "detail": f"Refund review {review.review_status} since {review.requested_at.date().isoformat()}.",
                 }
             )
+
+        stuck_cutoff = now - timedelta(hours=_STUCK_DD_HOURS)
+        stuck_invoices = list(
+            db.execute(
+                select(BillingInvoice, Organisation)
+                .join(Organisation, Organisation.id == BillingInvoice.org_id)
+                .where(
+                    BillingInvoice.status == "collecting",
+                    BillingInvoice.dd_payment_id.isnot(None),
+                    BillingInvoice.created_at < stuck_cutoff,
+                )
+                .order_by(BillingInvoice.created_at.asc())
+                .limit(50)
+            ).all()
+        )
+        for inv, org in stuck_invoices:
+            out.append(
+                {
+                    "kind": "stuck_dd_collecting",
+                    "severity": "error",
+                    "org_id": org.id,
+                    "org_name": org.name,
+                    "invoice_id": inv.id,
+                    "detail": f"Invoice {inv.invoice_number or inv.id} collecting >{_STUCK_DD_HOURS}h (DD {inv.dd_payment_id}).",
+                }
+            )
+
+        for sub, org, plan in subs:
+            org_currency = resolve_org_currency(db, org)
+            price_row = db.execute(
+                select(PlanPrice).where(
+                    PlanPrice.plan_id == plan.id,
+                    PlanPrice.currency == org_currency,
+                    PlanPrice.is_active.is_(True),
+                )
+            ).scalar_one_or_none()
+            monthly = price_row.monthly_price_minor if price_row else None
+            if monthly is None and not getattr(plan, "price_gbp_pence", None):
+                out.append(
+                    {
+                        "kind": "missing_plan_price",
+                        "severity": "warning",
+                        "org_id": org.id,
+                        "org_name": org.name,
+                        "subscription_id": sub.id,
+                        "detail": f"No active {org_currency} plan price for {plan.code or plan.name}.",
+                    }
+                )
 
         return out[:cap]
 

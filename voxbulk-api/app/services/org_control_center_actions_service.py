@@ -170,6 +170,16 @@ class OrgControlCenterActionsService:
             actor_user_id=actor_user_id,
             actor_email=actor_email,
         )
+        from app.services.payment_event_service import PaymentEventService
+
+        PaymentEventService.record_finance(
+            db,
+            org_id=org_id,
+            client_email=org.contact_email or actor_email or "admin@voxbulk.com",
+            event_kind="wallet.refund",
+            actor_user_id=actor_user_id,
+            metadata={"amount_minor": amount_minor, "currency": currency, **result},
+        )
         return {"ok": True, **result, **WalletService.wallet_dict(db, org)}
 
     @staticmethod
@@ -232,6 +242,16 @@ class OrgControlCenterActionsService:
             metadata={"reversed_transaction_id": tx.id, "amount_minor": amount, **result},
             actor_user_id=actor_user_id,
             actor_email=actor_email,
+        )
+        from app.services.payment_event_service import PaymentEventService
+
+        PaymentEventService.record_finance(
+            db,
+            org_id=org_id,
+            client_email=org.contact_email or actor_email or "admin@voxbulk.com",
+            event_kind=event,
+            actor_user_id=actor_user_id,
+            metadata={"reversed_transaction_id": tx.id, "amount_minor": amount, **result},
         )
         return {"ok": True, **result, **WalletService.wallet_dict(db, org)}
 

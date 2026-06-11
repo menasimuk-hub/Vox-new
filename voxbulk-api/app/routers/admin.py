@@ -2259,6 +2259,7 @@ def admin_list_org_branches(org_id: str, db: Session = Depends(get_db), _admin=D
 
 @router.put("/organisations/{org_id}/subscription")
 def admin_set_org_subscription(org_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.billing_lifecycle_service import BillingLifecycleService
     from app.services.usage_wallet_service import UsageWalletService
 
     plan_code = str(payload.get("plan_code") or "").strip()
@@ -2267,24 +2268,48 @@ def admin_set_org_subscription(org_id: str, payload: dict, db: Session = Depends
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    plan = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
-    if plan is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown plan_code")
-    sub = db.execute(
-        select(Subscription).where(Subscription.org_id == org_id).order_by(Subscription.created_at.desc()).limit(1)
-    ).scalar_one_or_none()
-    status_str = str(payload.get("status") or "active").strip() or "active"
-    if sub is None:
-        sub = Subscription(id=str(uuid.uuid4()), org_id=org_id, plan_id=plan.id, status=status_str)
-        db.add(sub)
-    else:
-        sub.plan_id = plan.id
-        sub.pending_plan_id = None
+    status_str = str(payload.get("status") or "").strip().lower()
+    force_raw = bool(payload.get("force_raw"))
+    if force_raw:
+        plan = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
+        if plan is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown plan_code")
+        sub = db.execute(
+            select(Subscription).where(Subscription.org_id == org_id).order_by(Subscription.created_at.desc()).limit(1)
+        ).scalar_one_or_none()
+        status_val = status_str or "active"
+        if sub is None:
+            sub = Subscription(id=str(uuid.uuid4()), org_id=org_id, plan_id=plan.id, status=status_val)
+            db.add(sub)
+        else:
+            sub.plan_id = plan.id
+            sub.pending_plan_id = None
+            sub.status = status_val
+        db.commit()
+        db.refresh(sub)
+        UsageWalletService.sync_plan_limits(db, org_id=org_id, plan=plan, subscription=sub)
+        return {"ok": True, "org_id": org_id, "plan_code": plan.code, "status": sub.status, "mode": "raw"}
+    try:
+        sub, plan, direction, extra = BillingLifecycleService.change_subscription_plan(
+            db, org_id=org_id, plan_code=plan_code
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if status_str and status_str not in {"", "active"}:
         sub.status = status_str
-    db.commit()
-    db.refresh(sub)
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
     UsageWalletService.sync_plan_limits(db, org_id=org_id, plan=plan, subscription=sub)
-    return {"ok": True, "org_id": org_id, "plan_code": plan.code, "status": sub.status}
+    return {
+        "ok": True,
+        "org_id": org_id,
+        "plan_code": plan.code,
+        "status": sub.status,
+        "direction": direction,
+        "billing_extra": extra,
+        "mode": "lifecycle",
+    }
 
 
 @router.post("/organisations/{org_id}/wallet/credit")
@@ -3890,6 +3915,54 @@ def admin_mark_billing_invoice_paid(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/billing/invoices/{invoice_id}/stop-dd-collection")
+def admin_stop_dd_collection(
+    invoice_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.invoice_lifecycle_service import InvoiceLifecycleError, InvoiceLifecycleService
+
+    row = _admin_billing_invoice_row(db, invoice_id)
+    actor_id, actor_email = _control_center_actor(principal)
+    note = str((payload or {}).get("reason") or (payload or {}).get("note") or "").strip() or None
+    try:
+        invoice = InvoiceLifecycleService.stop_dd_collection(
+            db,
+            row,
+            reason=note,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+        return {"ok": True, "invoice_id": invoice.id, "status": invoice.status}
+    except InvoiceLifecycleError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/billing/invoices/failed")
+def admin_list_failed_invoices(
+    db: Session = Depends(get_db),
+    limit: int = 100,
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.models.billing_invoice import BillingInvoice
+    from app.services.invoice_service import InvoiceService
+
+    cap = max(1, min(int(limit or 100), 300))
+    rows = list(
+        db.execute(
+            select(BillingInvoice)
+            .where(BillingInvoice.status.in_(("failed", "past_due", "collecting")))
+            .order_by(BillingInvoice.created_at.desc())
+            .limit(cap)
+        )
+        .scalars()
+        .all()
+    )
+    return {"items": [InvoiceService.invoice_to_dict(db, inv) for inv in rows]}
 
 
 @router.post("/billing/invoices/{invoice_id}/collect")

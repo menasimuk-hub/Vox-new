@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
-SUPPORTED_CURRENCIES = ("GBP", "USD", "CAD", "AUD")
+SUPPORTED_CURRENCIES = ("GBP", "EUR", "USD", "CAD", "AUD")
 
 
 class PlanPrice(Base):

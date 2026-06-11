@@ -42,7 +42,7 @@ export default function PricingShell() {
 
         <p className="pricingShellIntro">
 
-          Configure what customers see on the dashboard. Each currency (GBP, USD, CAD, AUD) has its own explicit prices — no FX conversion.
+          Configure what customers see on the dashboard. Each currency (GBP, EUR, USD, CAD, AUD) has its own explicit prices — no FX conversion.
 
         </p>
 

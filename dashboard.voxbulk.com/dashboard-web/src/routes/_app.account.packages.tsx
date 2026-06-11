@@ -29,7 +29,9 @@ function isPaygPlan(plan: PlanRow) {
 }
 
 function sym(data: Record<string, unknown> | undefined) {
-  return String(data?.currency_symbol || "£");
+  const market = String(data?.org_market || data?.market || "usd").toLowerCase();
+  const symbols: Record<string, string> = { gbp: "£", eur: "€", usd: "$", cad: "CA$", aud: "A$" };
+  return String(data?.currency_symbol || symbols[market] || "$");
 }
 
 function interviewCost(perMin: number, duration: number, conn: number, count: number) {

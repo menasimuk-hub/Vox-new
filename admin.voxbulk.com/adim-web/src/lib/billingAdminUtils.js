@@ -1,9 +1,17 @@
+export const CURRENCY_SYMBOLS = { GBP: '£', EUR: '€', USD: '$', CAD: 'CA$', AUD: 'A$' }
+
+const CURRENCY_LOCALE = { GBP: 'en-GB', EUR: 'de-DE', USD: 'en-US', CAD: 'en-CA', AUD: 'en-AU' }
+
+export const currencySymbol = (code) => CURRENCY_SYMBOLS[String(code || 'USD').toUpperCase()] || String(code || '')
+
 export const money = (pence, currency = 'GBP') => {
   const amount = Number(pence || 0) / 100
+  const code = String(currency || 'GBP').toUpperCase()
   try {
-    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(amount)
+    const locale = CURRENCY_LOCALE[code] || 'en-US'
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: code }).format(amount)
   } catch {
-    return `£${amount.toFixed(2)}`
+    return `${currencySymbol(code)}${amount.toFixed(2)}`
   }
 }
 

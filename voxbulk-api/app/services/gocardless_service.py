@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.billing_redirect_flow import BillingRedirectFlow
+from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.subscription import Subscription
 from app.models.user import User
@@ -717,6 +718,95 @@ class BillingService:
         return mandate_id or None
 
     @staticmethod
+    def _org_plan_billing_amount(db: Session, org_id: str, plan: Plan) -> tuple[str, int]:
+        from app.services.billing_currency import resolve_org_currency
+        from app.services.plan_price_service import PlanPriceService
+
+        org = db.get(Organisation, org_id)
+        rates = PlanPriceService.rates_for_org(db, org, plan=plan)
+        currency = str(rates.get("currency") or resolve_org_currency(db, org) or "GBP").upper()[:3]
+        monthly_minor = int(rates.get("monthly_price_minor") or plan.price_gbp_pence or 0)
+        return currency, monthly_minor
+
+    @staticmethod
+    def cancel_gocardless_payment(db: Session, payment_id: str) -> bool:
+        pid = str(payment_id or "").strip()
+        if not pid:
+            return False
+        config = BillingService._get_gocardless_config(db)
+        headers = BillingService._gocardless_headers(config["access_token"])
+        with httpx.Client(timeout=20) as client:
+            response = client.post(
+                f"{config['api_base']}/payments/{pid}/actions/cancel",
+                headers=headers,
+                json={"data": {}},
+            )
+        if response.status_code >= 400:
+            logger.warning("gocardless_payment_cancel_failed payment_id=%s status=%s", pid, response.status_code)
+            return False
+        return True
+
+    @staticmethod
+    def _cancel_gocardless_subscription(db: Session, external_subscription_id: str) -> bool:
+        ext_id = str(external_subscription_id or "").strip()
+        if not ext_id:
+            return False
+        config = BillingService._get_gocardless_config(db)
+        headers = BillingService._gocardless_headers(config["access_token"])
+        with httpx.Client(timeout=20) as client:
+            response = client.post(
+                f"{config['api_base']}/subscriptions/{ext_id}/actions/cancel",
+                headers=headers,
+                json={"data": {}},
+            )
+        if response.status_code >= 400:
+            logger.warning("gocardless_subscription_cancel_failed sub_id=%s status=%s", ext_id, response.status_code)
+            return False
+        return True
+
+    @staticmethod
+    def _create_gocardless_subscription_on_mandate(
+        db: Session,
+        *,
+        org_id: str,
+        plan: Plan,
+        mandate_id: str,
+        client_email: str,
+    ) -> str | None:
+        currency, monthly_minor = BillingService._org_plan_billing_amount(db, org_id, plan)
+        if monthly_minor <= 0:
+            return None
+        config = BillingService._get_gocardless_config(db)
+        subscription_payload = {
+            "subscriptions": {
+                "amount": monthly_minor,
+                "currency": currency,
+                "name": f"VOXBULK.COM {plan.name}",
+                "interval_unit": "monthly" if plan.interval == "monthly" else str(plan.interval or "monthly"),
+                "links": {"mandate": mandate_id},
+                "metadata": BillingService._gocardless_metadata(
+                    org_id=org_id,
+                    plan_id=plan.id,
+                    client_email=client_email,
+                ),
+            }
+        }
+        with httpx.Client(timeout=20) as client:
+            subscription_response = client.post(
+                f"{config['api_base']}/subscriptions",
+                headers=BillingService._gocardless_headers(config["access_token"]),
+                json=subscription_payload,
+            )
+        if subscription_response.status_code >= 400:
+            BillingService._log_gocardless_http_failure(
+                "subscription_create",
+                response=subscription_response,
+            )
+            BillingService._raise_for_gocardless_error(subscription_response)
+        provider_sub = subscription_response.json().get("subscriptions") or {}
+        return str(provider_sub.get("id") or "").strip() or None
+
+    @staticmethod
     def has_active_mandate(db: Session, org_id: str) -> bool:
         try:
             return bool(BillingService.resolve_org_mandate_id(db, org_id))
@@ -975,35 +1065,16 @@ class BillingService:
         prefilled_email = str((completed_flow.get("prefilled_customer") or {}).get("email") or "").strip()
         client_email = prefilled_email or (user.email if user else "")
 
-        subscription_payload = {
-            "subscriptions": {
-                "amount": int(plan.price_gbp_pence or 0),
-                "currency": "GBP",
-                "name": f"VOXBULK.COM {plan.name}",
-                "interval_unit": "monthly" if plan.interval == "monthly" else str(plan.interval or "monthly"),
-                "links": {"mandate": mandate_id},
-                "metadata": BillingService._gocardless_metadata(
-                    org_id=org_id,
-                    plan_id=plan.id,
-                    client_email=client_email,
-                ),
-            }
-        }
-        with httpx.Client(timeout=20) as client:
-            subscription_response = client.post(
-                f"{config['api_base']}/subscriptions",
-                headers=BillingService._gocardless_headers(config["access_token"]),
-                json=subscription_payload,
-            )
-        if subscription_response.status_code >= 400:
-            BillingService._log_gocardless_http_failure(
-                "subscription_create",
-                redirect_flow_id=flow_id,
-                response=subscription_response,
-            )
-        BillingService._raise_for_gocardless_error(subscription_response)
-        provider_sub = subscription_response.json().get("subscriptions") or {}
-        external_subscription_id = str(provider_sub.get("id") or "").strip()
+        currency, monthly_minor = BillingService._org_plan_billing_amount(db, org_id, plan)
+        external_subscription_id = BillingService._create_gocardless_subscription_on_mandate(
+            db,
+            org_id=org_id,
+            plan=plan,
+            mandate_id=mandate_id,
+            client_email=client_email,
+        )
+        if not external_subscription_id:
+            raise GoCardlessProviderError("GoCardless did not return a subscription id")
         logger.info(
             "gocardless_subscription_created",
             extra={
@@ -1084,12 +1155,13 @@ class BillingService:
             )
         else:
             try:
+                act_currency, act_minor = BillingService._org_plan_billing_amount(db, org_id, plan)
                 invoice, created, emailed = InvoiceService.issue_from_payment(
                     db,
                     org_id=org_id,
                     client_email=invoice_email,
-                    subtotal_pence=int(plan.price_gbp_pence or 0),
-                    currency="GBP",
+                    subtotal_pence=act_minor,
+                    currency=act_currency,
                     description=f"{plan.name} — subscription",
                     provider="gocardless",
                     external_invoice_id=external_invoice_id,
@@ -1100,8 +1172,8 @@ class BillingService:
                         {
                             "description": f"{plan.name} — monthly subscription",
                             "quantity": 1,
-                            "unit_pence": int(plan.price_gbp_pence or 0),
-                            "total_pence": int(plan.price_gbp_pence or 0),
+                            "unit_pence": act_minor,
+                            "total_pence": act_minor,
                         }
                     ],
                 )
@@ -1342,6 +1414,24 @@ class BillingService:
         BillingAccessService.apply_mandate_setup_access(
             db, sub=sub, mandate_id=new_mandate_id, scheme=mandate_scheme
         )
+
+        plan = db.get(Plan, sub.plan_id)
+        org = db.get(Organisation, org_id)
+        user = db.get(User, user_id)
+        client_email = str((org.contact_email if org else "") or (user.email if user else "")).strip()
+        if plan is not None and client_email:
+            old_ext = str(sub.external_subscription_id or "").strip()
+            if old_ext:
+                BillingService._cancel_gocardless_subscription(db, old_ext)
+            new_ext = BillingService._create_gocardless_subscription_on_mandate(
+                db,
+                org_id=org_id,
+                plan=plan,
+                mandate_id=new_mandate_id,
+                client_email=client_email,
+            )
+            if new_ext:
+                sub.external_subscription_id = new_ext
 
         old_cancelled = True
         if previous_mandate_id and previous_mandate_id != new_mandate_id:

@@ -1,9 +1,10 @@
-export const PROFILE_COUNTRIES = [
-  { value: "United Kingdom", label: "United Kingdom" },
-  { value: "Canada", label: "Canada" },
-  { value: "Australia", label: "Australia" },
-  { value: "United States", label: "United States" },
-] as const;
+import { EU_COUNTRIES, PRIMARY_MARKET_COUNTRIES, REST_OF_WORLD_COUNTRIES } from "./countries";
+
+export { PROFILE_COUNTRIES } from "./countries";
+
+const EU_COUNTRY_KEYS = new Set(
+  EU_COUNTRIES.map((c) => c.value.toLowerCase()),
+);
 
 const COUNTRY_TO_MARKET: Record<string, string> = {
   "united kingdom": "gbp",
@@ -18,28 +19,51 @@ const COUNTRY_TO_MARKET: Record<string, string> = {
   us: "usd",
 };
 
+for (const c of EU_COUNTRIES) {
+  COUNTRY_TO_MARKET[c.value.toLowerCase()] = "eur";
+}
+
+for (const c of REST_OF_WORLD_COUNTRIES) {
+  COUNTRY_TO_MARKET[c.value.toLowerCase()] = "usd";
+}
+
+for (const c of PRIMARY_MARKET_COUNTRIES) {
+  const key = c.value.toLowerCase();
+  if (!COUNTRY_TO_MARKET[key]) {
+    COUNTRY_TO_MARKET[key] = "usd";
+  }
+}
+
 export function countryToMarket(country?: string | null): string {
-  const key = String(country || "United Kingdom").trim().toLowerCase();
-  return COUNTRY_TO_MARKET[key] || "gbp";
+  const key = String(country || "United States").trim().toLowerCase();
+  if (EU_COUNTRY_KEYS.has(key)) return "eur";
+  return COUNTRY_TO_MARKET[key] || "usd";
 }
 
 export function marketLabel(market: string): string {
   const labels: Record<string, string> = {
     gbp: "United Kingdom (GBP)",
+    eur: "European Union (EUR)",
     cad: "Canada (CAD)",
     aud: "Australia (AUD)",
     usd: "United States (USD)",
   };
-  return labels[String(market || "gbp").toLowerCase()] || labels.gbp;
+  const m = String(market || "usd").toLowerCase();
+  return labels[m] || labels.usd;
 }
 
 export function marketCurrencySymbol(market: string): string {
-  const symbols: Record<string, string> = { gbp: "£", cad: "CA$", aud: "A$", usd: "$" };
-  return symbols[String(market || "gbp").toLowerCase()] || "£";
+  const symbols: Record<string, string> = {
+    gbp: "£",
+    eur: "€",
+    cad: "CA$",
+    aud: "A$",
+    usd: "$",
+  };
+  return symbols[String(market || "usd").toLowerCase()] || "$";
 }
 
 export function formatQuoteDisplay(pence: number | null | undefined, market: string): string {
-  // Amounts from the API are already in the org currency (explicit per-currency pricing, no FX).
   const base = Math.max(0, Number(pence || 0));
   const sym = marketCurrencySymbol(market);
   return `${sym}${(base / 100).toFixed(2)}`;

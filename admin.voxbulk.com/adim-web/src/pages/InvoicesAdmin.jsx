@@ -2,15 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, apiFetchBlob, apiFetchText } from '../lib/api'
 import { buildEmailTestVariables } from '../lib/messagingConstants'
-
-const money = (pence, currency = 'GBP') => {
-  const amount = Number(pence || 0) / 100
-  try {
-    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(amount)
-  } catch {
-    return `£${amount.toFixed(2)}`
-  }
-}
+import { currencySymbol, money } from '../lib/billingAdminUtils'
 
 const dateText = (value) => (value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 const dateShort = (value) => (value ? new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
@@ -341,6 +333,43 @@ export default function InvoicesAdmin() {
     }
   }
 
+  const collectInvoiceDD = async (row) => {
+    if (!row?.id) return
+    if (!window.confirm(`Collect ${money(row.amount_gbp_pence, row.currency)} via Direct Debit?`)) return
+    setBusy(row.id)
+    setError('')
+    try {
+      await billingInvoice(row.id, '/collect', {
+        method: 'POST',
+        body: JSON.stringify({ method: 'direct_debit' }),
+      })
+      await loadInvoices()
+    } catch (e) {
+      setError(e?.message || 'DD collect failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const stopDdCollection = async (row) => {
+    if (!row?.id) return
+    const note = window.prompt('Reason for stopping DD collection:', 'Admin stop collection')
+    if (note === null) return
+    setBusy(row.id)
+    setError('')
+    try {
+      await apiFetch(`/admin/billing/invoices/${encodeURIComponent(row.id)}/stop-dd-collection`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: note }),
+      })
+      await loadInvoices()
+    } catch (e) {
+      setError(e?.message || 'Stop DD failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
   const collectInvoiceWallet = async (row) => {
     if (!row?.id) return
     setBusy(row.id)
@@ -504,19 +533,28 @@ export default function InvoicesAdmin() {
                 Void
               </button>
             ) : lifecycle.is_locked ? (
-              <button
-                type="button"
-                className="btn soft xs"
-                title={lifecycle.suggested_action_label || lifecycle.lock_reason || ''}
-                onClick={() => setError(lifecycle.suggested_action_label || lifecycle.lock_reason || 'Invoice is locked')}
-              >
-                Locked
-              </button>
+              lifecycle.suggested_action === 'stop_collection' ? (
+                <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => stopDdCollection(row)} title="Stop DD collection">
+                  Stop DD
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn soft xs"
+                  title={lifecycle.suggested_action_label || lifecycle.lock_reason || ''}
+                  onClick={() => setError(lifecycle.suggested_action_label || lifecycle.lock_reason || 'Invoice is locked')}
+                >
+                  Locked
+                </button>
+              )
             ) : null}
             {!isPaid ? (
               <>
                 <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => collectInvoiceWallet(row)} title="Collect from wallet">
-                  Collect
+                  Wallet
+                </button>
+                <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => collectInvoiceDD(row)} title="Collect via Direct Debit">
+                  DD
                 </button>
                 <button type="button" className="btn primary xs" disabled={isBusy} onClick={() => markInvoicePaid(row)} title="Mark paid">
                   Mark paid
@@ -875,7 +913,7 @@ export default function InvoicesAdmin() {
             <div className="cardHead"><h3>Edit invoice {editInvoice.invoice_number || editInvoice.id?.slice(0, 8)}</h3></div>
             <div className="cardBody invoiceFilterGrid">
               <label className="msgFieldBlockTight">
-                <span className="label">Amount (£ ex VAT)</span>
+                <span className="label">Amount ({editInvoice?.currency ? `${currencySymbol(editInvoice.currency)} ex VAT` : 'ex VAT'})</span>
                 <input className="input" type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
               </label>
               <label className="msgFieldBlockTight">

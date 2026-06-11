@@ -416,6 +416,13 @@ class BillingLifecycleService:
                 stats["skipped"] += 1
                 continue
 
+            if (
+                str(sub.payment_provider or "").lower() == "gocardless"
+                and str(sub.external_subscription_id or "").strip()
+            ):
+                stats["skipped"] += 1
+                continue
+
             email = UsageWalletService.get_org_billing_email(db, sub.org_id) or (org.contact_email or "")
             if not email:
                 stats["skipped"] += 1
@@ -664,8 +671,16 @@ class BillingLifecycleService:
         if new_plan is None:
             raise ValueError("Unknown plan")
 
-        old_price = int(old_plan.price_gbp_pence or 0) if old_plan else 0
-        new_price = int(new_plan.price_gbp_pence or 0)
+        from app.models.organisation import Organisation
+        from app.services.plan_price_service import PlanPriceService
+
+        org = db.get(Organisation, org_id)
+        old_rates = (
+            PlanPriceService.rates_for_org(db, org, plan=old_plan) if old_plan is not None else {}
+        )
+        new_rates = PlanPriceService.rates_for_org(db, org, plan=new_plan)
+        old_price = int(old_rates.get("monthly_price_minor") or old_plan.price_gbp_pence or 0) if old_plan else 0
+        new_price = int(new_rates.get("monthly_price_minor") or new_plan.price_gbp_pence or 0)
         if new_price > old_price:
             direction = "upgrade"
         elif new_price < old_price:

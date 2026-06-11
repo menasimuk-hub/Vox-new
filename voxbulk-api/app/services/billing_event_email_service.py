@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from typing import Any
@@ -57,6 +58,9 @@ class BillingEventEmailService:
         status: str,
         failure_reason: str | None = None,
         variables: dict[str, Any] | None = None,
+        event_kind: str | None = None,
+        source: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> tuple[PaymentEvent, bool, bool]:
         """
         Returns: (event_row, created_row, sent_email)
@@ -79,6 +83,9 @@ class BillingEventEmailService:
             client_email=em,
             status=st or "unknown",
             failure_reason=(failure_reason or "").strip() or None,
+            event_kind=(event_kind or "").strip() or None,
+            source=(source or "").strip() or None,
+            metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None,
             created_at=datetime.utcnow(),
         )
         db.add(row)

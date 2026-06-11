@@ -3,7 +3,7 @@ import { apiFetch } from '../../lib/api'
 import PricingPageFrame, { PricingLoadGate } from './PricingPageFrame'
 import { penceToPounds, poundsToPence } from './pricingUtils'
 
-const CURRENCY_SYMBOLS = { GBP: '£', USD: '$', CAD: 'CA$', AUD: 'A$' }
+import { CURRENCY_SYMBOLS } from '../../lib/billingAdminUtils'
 
 const RATE_FIELDS = [
   ['connection_fee_minor', 'Connection fee / call'],

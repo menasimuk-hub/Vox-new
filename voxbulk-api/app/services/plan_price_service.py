@@ -178,18 +178,17 @@ class PlanPriceService:
 
     @staticmethod
     def ensure_seeded(db: Session) -> None:
-        """Create GBP price rows from legacy plan GBP fields, and currency settings for all markets."""
+        """Create plan price rows from legacy GBP fields, and currency settings for all markets."""
         for currency in SUPPORTED_CURRENCIES:
             PlanPriceService.get_currency_settings(db, currency)
         plans = list(db.execute(select(Plan).where(Plan.service_kind == "voxbulk")).scalars().all())
         now = datetime.utcnow()
         created = False
+        gbp_by_plan: dict[str, PlanPrice] = {}
         for plan in plans:
-            existing = PlanPriceService.get_price(db, plan.id, "GBP")
-            if existing is not None:
-                continue
-            db.add(
-                PlanPrice(
+            existing_gbp = PlanPriceService.get_price(db, plan.id, "GBP")
+            if existing_gbp is None:
+                existing_gbp = PlanPrice(
                     id=str(uuid.uuid4()),
                     plan_id=plan.id,
                     currency="GBP",
@@ -200,8 +199,32 @@ class PlanPriceService:
                     created_at=now,
                     updated_at=now,
                 )
-            )
-            created = True
+                db.add(existing_gbp)
+                created = True
+            gbp_by_plan[plan.id] = existing_gbp
+        for plan in plans:
+            gbp_row = gbp_by_plan.get(plan.id)
+            if gbp_row is None:
+                continue
+            for currency in SUPPORTED_CURRENCIES:
+                if currency == "GBP":
+                    continue
+                if PlanPriceService.get_price(db, plan.id, currency) is not None:
+                    continue
+                db.add(
+                    PlanPrice(
+                        id=str(uuid.uuid4()),
+                        plan_id=plan.id,
+                        currency=currency,
+                        monthly_price_minor=gbp_row.monthly_price_minor,
+                        per_min_minor=int(gbp_row.per_min_minor or 0),
+                        extra_per_min_minor=int(gbp_row.extra_per_min_minor or 0),
+                        is_active=bool(gbp_row.is_active),
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                created = True
         if created:
             db.commit()
 

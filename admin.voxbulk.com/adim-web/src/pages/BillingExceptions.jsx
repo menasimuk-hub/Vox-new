@@ -68,6 +68,18 @@ export default function BillingExceptions() {
             <label>Pending refunds</label>
             <strong>{summary.pending_refund_queue ?? 0}</strong>
           </div>
+          <div className="billingStat" style={{ '--accent': '#dc2626' }}>
+            <label>Failed renewals</label>
+            <strong>{summary.failed_renewal ?? 0}</strong>
+          </div>
+          <div className="billingStat" style={{ '--accent': '#b45309' }}>
+            <label>Stuck DD</label>
+            <strong>{summary.stuck_dd_collecting ?? 0}</strong>
+          </div>
+          <div className="billingStat" style={{ '--accent': '#0891b2' }}>
+            <label>Currency mismatch</label>
+            <strong>{summary.currency_mismatch ?? 0}</strong>
+          </div>
         </div>
 
         <div className="billingPanel">
@@ -93,6 +105,12 @@ export default function BillingExceptions() {
                       <td>{truncate(row.org_name, 28)}</td>
                       <td className="muted">{truncate(row.detail, 64)}</td>
                       <td>
+                        {row.invoice_id ? (
+                          <Link className="btn soft xs" to={`/billing/invoices?tab=invoices`}>Invoice</Link>
+                        ) : null}
+                        {row.refund_review_id ? (
+                          <Link className="btn soft xs" to="/billing/refunds">Refund</Link>
+                        ) : null}
                         {row.org_id ? (
                           <Link className="btn soft xs" to="/organisations/all-users" onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', row.org_id)}>OCC</Link>
                         ) : null}

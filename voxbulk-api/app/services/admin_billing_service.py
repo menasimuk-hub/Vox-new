@@ -113,9 +113,12 @@ class AdminBillingService:
                 for p in db.execute(select(Plan).where(Plan.id.in_(pending_ids))).scalars().all()
             }
 
+        from app.services.billing_finance_service import BillingFinanceService
+
         out: list[dict[str, Any]] = []
         for sub, org, plan in rows:
             pending = pending_plans.get(sub.pending_plan_id) if sub.pending_plan_id else None
+            finance = BillingFinanceService.subscription_finance_dict(db, sub, org=org, plan=plan)
             out.append(
                 {
                     "id": sub.id,
@@ -136,8 +139,9 @@ class AdminBillingService:
                     "external_subscription_id": sub.external_subscription_id,
                     "current_period_end": sub.current_period_end,
                     "next_billing_date": sub.next_billing_date,
-                    "amount_next_payment_minor": sub.amount_next_payment_minor,
-                    "billing_currency": sub.billing_currency,
+                    "amount_next_payment_minor": finance.get("amount_next_payment_minor", sub.amount_next_payment_minor),
+                    "amount_next_payment_display": finance.get("amount_next_payment_display"),
+                    "billing_currency": finance.get("billing_currency") or sub.billing_currency,
                     "cancel_at_period_end": bool(sub.cancel_at_period_end),
                     "cancellation_status": sub.cancellation_status,
                     "mandate_status": sub.mandate_status,

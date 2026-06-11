@@ -1,15 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
-
-const money = (pence, currency = 'GBP') => {
-  const amount = Number(pence || 0) / 100
-  try {
-    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(amount)
-  } catch {
-    return `£${amount.toFixed(2)}`
-  }
-}
+import { money } from '../lib/billingAdminUtils'
 
 const n = (value) => Number(value || 0).toLocaleString()
 const dateText = (value) => (value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—')
@@ -93,6 +85,7 @@ export default function Billing() {
   const [subscriptions, setSubscriptions] = useState([])
   const [pendingCash, setPendingCash] = useState([])
   const [events, setEvents] = useState([])
+  const [failedInvoices, setFailedInvoices] = useState([])
   const [opsSummary, setOpsSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -122,6 +115,8 @@ export default function Billing() {
   const loadEvents = useCallback(async () => {
     const rows = await apiFetch('/admin/billing/payment-events/recent?limit=50').catch(() => [])
     setEvents(Array.isArray(rows) ? rows : [])
+    const inv = await apiFetch('/admin/billing/invoices/failed?limit=80').catch(() => ({ items: [] }))
+    setFailedInvoices(Array.isArray(inv?.items) ? inv.items : [])
   }, [])
 
   const loadOpsSummary = useCallback(async () => {
@@ -275,7 +270,8 @@ export default function Billing() {
           {row.cancel_at_period_end ? <span className="billingPendingChange"> · cancel pending</span> : null}
         </td>
         <td className="billingListAmount">
-          {row.amount_next_payment_minor != null ? money(row.amount_next_payment_minor, row.billing_currency) : '—'}
+          {row.amount_next_payment_display
+            || (row.amount_next_payment_minor != null ? money(row.amount_next_payment_minor, row.billing_currency) : '—')}
         </td>
         <td className="muted">{dateShort(row.updated_at)}</td>
         <td className="billingListActions">
@@ -432,7 +428,7 @@ export default function Billing() {
                         </td>
                         <td>{row.current_plan_name || row.current_plan_code || '—'}</td>
                         <td>{row.pending_plan_name}</td>
-                        <td>{money(row.pending_plan_price_gbp_pence)}</td>
+                        <td>{money(row.pending_plan_price_gbp_pence, row.billing_currency)}</td>
                         <td className="muted">{dateText(row.updated_at)}</td>
                         <td className="billingListActions">
                           <button
@@ -577,6 +573,47 @@ export default function Billing() {
           )}
 
           {isFailed && (
+            <>
+            <div className="billingPanel" style={{ marginBottom: 16 }}>
+              <div className="billingPanelHead">
+                <h3>
+                  <i className="ti ti-receipt" /> Failed / stuck invoices
+                </h3>
+                <span className="pill p-red">{failedInvoices.length}</span>
+              </div>
+              <div className="billingTableWrap">
+                {loading ? <div className="billingEmpty muted">Loading invoices…</div> : null}
+                {!loading && !failedInvoices.length ? (
+                  <div className="billingEmpty muted">No failed, past due, or collecting invoices.</div>
+                ) : null}
+                {!loading && failedInvoices.length > 0 ? (
+                  <table className="table billingTable">
+                    <thead>
+                      <tr>
+                        <th>Invoice</th>
+                        <th>Organisation</th>
+                        <th>Status</th>
+                        <th>Amount</th>
+                        <th>DD retries</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {failedInvoices.map((row) => (
+                        <tr key={row.id}>
+                          <td>{row.invoice_number || row.id?.slice(0, 8)}</td>
+                          <td>{row.organisation_name || row.org_name || '—'}</td>
+                          <td><span className="pill p-amber">{row.status}</span></td>
+                          <td>{money(row.amount_gbp_pence, row.currency)}</td>
+                          <td className="muted">{row.dd_retry_count || 0}{row.dd_next_retry_at ? ` · ${dateShort(row.dd_next_retry_at)}` : ''}</td>
+                          <td><Link className="btn soft xs" to="/billing/invoices">Open</Link></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : null}
+              </div>
+            </div>
             <div className="billingPanel">
               <div className="billingPanelHead">
                 <h3>
@@ -609,6 +646,7 @@ export default function Billing() {
                 For full invoice history, open <Link to="/billing/invoices">Invoices</Link>.
               </div>
             </div>
+            </>
           )}
 
           {isReports && (

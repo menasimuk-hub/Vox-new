@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.billing_invoice import BillingInvoice
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.plan import Plan
@@ -151,6 +152,40 @@ def _resolve_org_email_from_subscription(
     return resolved_org, resolved_email.strip().lower(), sub
 
 
+def _org_contact_email(db: Session, org_id: str) -> str:
+    org = db.get(Organisation, org_id)
+    if org is not None and org.contact_email:
+        return str(org.contact_email).strip().lower()
+    membership = db.execute(
+        select(OrganisationMembership).where(OrganisationMembership.org_id == org_id).limit(1)
+    ).scalar_one_or_none()
+    if membership is not None:
+        user = db.get(User, membership.user_id)
+        if user and user.email:
+            return str(user.email).strip().lower()
+    return ""
+
+
+def _resolve_org_email_from_payment(
+    db: Session,
+    *,
+    payment_id: str,
+    org_id: str,
+    client_email: str,
+) -> tuple[str, str]:
+    pid = str(payment_id or "").strip()
+    if not pid:
+        return org_id, client_email
+    invoice = db.execute(
+        select(BillingInvoice).where(BillingInvoice.dd_payment_id == pid).limit(1)
+    ).scalar_one_or_none()
+    if invoice is None:
+        return org_id, client_email
+    resolved_org = org_id or str(invoice.org_id)
+    resolved_email = client_email or _org_contact_email(db, resolved_org)
+    return resolved_org, resolved_email
+
+
 def _payment_amount_pence(event: dict[str, Any], meta: dict[str, Any], sub: Subscription | None, db: Session) -> int:
     amount = _parse_int(_meta_get(meta, "amount_gbp_pence"))
     if amount > 0:
@@ -280,13 +315,22 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
 
         org_id, client_email = _extract_org_and_email(raw)
         sub: Subscription | None = None
-        if resource_type == "payments" and action in PAYMENT_SUCCESS_ACTIONS:
+        if resource_type == "payments" and (
+            action in PAYMENT_SUCCESS_ACTIONS or action in PAYMENT_FAILURE_ACTIONS
+        ):
             org_id, client_email, sub = _resolve_org_email_from_subscription(
                 db,
                 subscription_external_id=subscription_id,
                 org_id=org_id,
                 client_email=client_email,
             )
+            if payment_id:
+                org_id, client_email = _resolve_org_email_from_payment(
+                    db,
+                    payment_id=payment_id,
+                    org_id=org_id,
+                    client_email=client_email,
+                )
 
         if not org_id or not client_email:
             logger.info(
@@ -339,6 +383,7 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
 
                 external_invoice_id = f"payment:{payment_id}"
                 plan_name = ""
+                plan = None
                 if sub is not None and sub.plan_id:
                     plan = db.get(Plan, sub.plan_id)
                     plan_name = plan.name if plan else ""
@@ -346,10 +391,17 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                     f"{plan_name} — monthly subscription" if plan_name else "GoCardless subscription payment"
                 )
                 line_description = plan_name or description
+                from app.services.billing_currency import resolve_org_currency
+
+                org_row = db.get(Organisation, org_id)
+                pay_currency = _meta_get(meta, "currency") or (
+                    sub.billing_currency if sub else None
+                ) or resolve_org_currency(db, org_row)
 
                 try:
                     from app.services.billing_access_service import BillingAccessService
                     from app.services.billing_lifecycle_service import BillingLifecycleService
+                    from app.services.payment_event_service import PaymentEventService
 
                     BillingAccessService.mark_first_payment_confirmed(db, org_id=org_id)
                     BillingLifecycleService.handle_dd_payment_success(db, payment_id=payment_id)
@@ -358,7 +410,7 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                         org_id=org_id,
                         client_email=client_email,
                         subtotal_pence=amount_pence,
-                        currency=_meta_get(meta, "currency") or "GBP",
+                        currency=pay_currency,
                         description=description,
                         provider=PROVIDER,
                         external_invoice_id=external_invoice_id,
@@ -373,6 +425,24 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                                 "total_pence": amount_pence,
                             }
                         ],
+                    )
+                    if sub is not None and plan is not None and subscription_id:
+                        BillingLifecycleService._advance_subscription_period(db, sub, plan)
+                    PaymentEventService.record(
+                        db,
+                        org_id=org_id,
+                        client_email=client_email,
+                        status="succeeded",
+                        provider=PROVIDER,
+                        external_event_id=event_id or f"payment:{payment_id}",
+                        event_kind="payment.succeeded",
+                        source="webhook",
+                        metadata={
+                            "payment_id": payment_id,
+                            "subscription_id": subscription_id or None,
+                            "amount_pence": amount_pence,
+                            "currency": pay_currency,
+                        },
                     )
                     summary["payment_success_handled"] += 1
                     summary["processed"] += 1
@@ -482,6 +552,9 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                     status=st,
                     failure_reason=_failure_reason(raw),
                     variables=fail_vars,
+                    event_kind="payment.failed",
+                    source="webhook",
+                    metadata={"payment_id": payment_id, "action": action},
                 )
                 summary["payment_failed_handled"] += 1
                 summary["processed"] += 1

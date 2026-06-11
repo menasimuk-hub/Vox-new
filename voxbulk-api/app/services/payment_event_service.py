@@ -7,6 +7,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.payment_event import PaymentEvent
@@ -30,9 +32,11 @@ class PaymentEventService:
         metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> PaymentEvent:
+        prov = str(provider or "internal").strip()[:40]
+        ext = (external_event_id or str(uuid.uuid4()))[:128]
         row = PaymentEvent(
-            provider=str(provider or "internal").strip()[:40],
-            external_event_id=(external_event_id or str(uuid.uuid4()))[:128],
+            provider=prov,
+            external_event_id=ext,
             org_id=org_id,
             client_email=(client_email or "admin@voxbulk.com")[:320],
             status=str(status or "recorded").strip()[:40],
@@ -46,8 +50,21 @@ class PaymentEventService:
         )
         db.add(row)
         if commit:
-            db.commit()
-            db.refresh(row)
+            try:
+                db.commit()
+                db.refresh(row)
+            except IntegrityError:
+                db.rollback()
+                row = (
+                    db.execute(
+                        select(PaymentEvent).where(
+                            PaymentEvent.provider == prov,
+                            PaymentEvent.external_event_id == ext,
+                        )
+                    )
+                    .scalars()
+                    .one()
+                )
         return row
 
     @staticmethod
