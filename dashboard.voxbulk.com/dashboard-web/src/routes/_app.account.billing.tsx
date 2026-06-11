@@ -16,8 +16,8 @@ import { startGoCardlessMandateUpdate, readBillingReturnParams } from "@/lib/bil
 import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
-import { useBillingAccess, useBillingInvoices, useBillingSubscription, useBillingSubscriptionCancellation, useBillingUsage, useWalletTransactions } from "@/lib/queries";
-import { SubscriptionCancellationCard } from "@/components/billing/subscription-cancellation-card";
+import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingUsage, useWalletTransactions } from "@/lib/queries";
+import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
 
@@ -123,6 +123,7 @@ function BillingPage() {
   const { pay: payInvoiceId } = Route.useSearch();
   const subQ = useBillingSubscription();
   const cancelQ = useBillingSubscriptionCancellation();
+  const requestsQ = useBillingRequests();
   const usageQ = useBillingUsage();
   const invoicesQ = useBillingInvoices();
   const accessQ = useBillingAccess();
@@ -333,7 +334,7 @@ function BillingPage() {
           </div>
         ) : (
           <div className="grid gap-3 lg:grid-cols-3">
-            <Card>
+            <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardDescription>Current plan</CardDescription>
                 <CardTitle className="text-2xl">
@@ -373,8 +374,6 @@ function BillingPage() {
                 )}
               </CardContent>
             </Card>
-
-            <SubscriptionCancellationCard planName={plan?.name} />
 
             <Card>
               <CardHeader className="pb-2">
@@ -460,6 +459,52 @@ function BillingPage() {
           </div>
         )}
       </section>
+
+      {plan ? <SubscriptionCancellationBar planName={plan?.name} /> : null}
+
+      {(requestsQ.data?.items?.length ?? 0) > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Billing requests</CardTitle>
+            <CardDescription>Cancellation and refund requests for your organisation.</CardDescription>
+          </CardHeader>
+          <CardContent className="px-0">
+            <div className="table-scroll">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6">Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Refund preference</TableHead>
+                    <TableHead className="pr-6">Notes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(requestsQ.data?.items || []).slice(0, 10).map((req) => (
+                    <TableRow key={`${req.type}-${req.id}`}>
+                      <TableCell className="pl-6 text-xs text-muted-foreground">
+                        {req.requested_at ? new Date(req.requested_at).toLocaleDateString() : "—"}
+                      </TableCell>
+                      <TableCell className="text-xs capitalize">{String(req.type || "").replace("_", " ")}</TableCell>
+                      <TableCell>
+                        <StatusBadge
+                          tone={req.status === "approved" ? "approved-script" : req.status === "pending" ? "scheduled" : "draft-script"}
+                          label={String(req.status || "pending")}
+                        />
+                      </TableCell>
+                      <TableCell className="text-xs">{String(req.requested_refund_type || "—").replace(/_/g, " ")}</TableCell>
+                      <TableCell className="max-w-[240px] truncate pr-6 text-xs text-muted-foreground">
+                        {req.admin_notes || "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

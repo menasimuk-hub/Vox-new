@@ -1685,6 +1685,25 @@ def admin_list_refund_reviews(
     return {"items": SubscriptionCancellationService.list_refund_reviews(db, status=status, limit=limit)}
 
 
+@router.get("/billing/requests")
+def admin_list_billing_requests(
+    status: str | None = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
+    return {"items": SubscriptionCancellationService.list_billing_requests(db, status=status, limit=limit)}
+
+
+@router.get("/notifications/summary")
+def admin_notifications_summary(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.notification_service import NotificationService
+
+    return NotificationService.admin_pending_count(db)
+
+
 @router.post("/organisations/{org_id}/control-center/cancellation/reverse")
 def admin_occ_reverse_cancellation(
     org_id: str,

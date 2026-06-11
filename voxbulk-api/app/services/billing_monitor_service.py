@@ -113,6 +113,38 @@ class BillingMonitorService:
         if sub is None or plan is None:
             return empty
 
+        from app.models.billing_refund_review import BillingRefundReview
+        from app.services.subscription_cancellation_service import (
+            CANCELLATION_CANCELLED,
+            REVIEW_APPROVED,
+            REVIEW_COMPLETED,
+        )
+
+        cancel_status = str(getattr(sub, "cancellation_status", "") or "").lower()
+        latest_review = (
+            db.execute(
+                select(BillingRefundReview)
+                .where(BillingRefundReview.org_id == org.id)
+                .order_by(BillingRefundReview.requested_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        review_stops_renewal = latest_review is not None and str(latest_review.review_status or "").lower() in {
+            REVIEW_APPROVED,
+            REVIEW_COMPLETED,
+        }
+        if cancel_status == CANCELLATION_CANCELLED or review_stops_renewal:
+            return {
+                "amount_pence": 0,
+                "amount_display": money_display(0, currency),
+                "charge_date": None,
+                "charge_date_display": "No renewal",
+                "payment_method_label": BillingMonitorService._resolve_payment_method_label(db, sub, mandate_id=mandate_id),
+                "can_update_mandate": can_update_mandate,
+            }
+
         sub_status = str(sub.status or "").strip().lower()
         if sub_status not in {"active", "trial", "past_due", "pending_first_payment"}:
             return empty

@@ -202,6 +202,100 @@ class NotificationService:
         return row
 
     @staticmethod
+    def create_billing_request_notification(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str,
+        title: str,
+        message: str,
+        dedupe_key: str,
+    ) -> Notification:
+        return NotificationService.upsert(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            type="billing_request",
+            title=title,
+            message=message,
+            severity="info",
+            action_url="/account/billing",
+            dedupe_key=dedupe_key,
+        )
+
+    @staticmethod
+    def create_billing_request_resolved_notification(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str,
+        review_status: str,
+        wallet_credit_pence: int,
+        dedupe_key: str,
+    ) -> Notification:
+        from app.services.billing_currency import money_display, resolve_org_currency
+        from app.models.organisation import Organisation
+
+        org = db.get(Organisation, org_id)
+        currency = resolve_org_currency(db, org) if org else "GBP"
+        msg = f"Your billing request was {review_status}."
+        if wallet_credit_pence > 0:
+            msg += f" Wallet credit: {money_display(wallet_credit_pence, currency)}."
+        return NotificationService.upsert(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            type="billing_request_resolved",
+            title="Billing request update",
+            message=msg,
+            severity="info",
+            action_url="/account/billing",
+            dedupe_key=dedupe_key,
+        )
+
+    @staticmethod
+    def admin_pending_count(db: Session) -> dict[str, int]:
+        from app.models.billing_refund_review import BillingRefundReview
+        from app.models.support_ticket import SupportTicket
+        from app.services.subscription_cancellation_service import (
+            CANCELLATION_REQUESTED,
+            CANCELLATION_SCHEDULED,
+            REVIEW_PENDING,
+        )
+
+        pending_reviews = int(
+            db.scalar(
+                select(func.count())
+                .select_from(BillingRefundReview)
+                .where(BillingRefundReview.review_status == REVIEW_PENDING)
+            )
+            or 0
+        )
+        pending_cancellations = int(
+            db.scalar(
+                select(func.count())
+                .select_from(Subscription)
+                .where(Subscription.cancellation_status.in_((CANCELLATION_SCHEDULED, CANCELLATION_REQUESTED)))
+            )
+            or 0
+        )
+        admin_unread = int(
+            db.scalar(
+                select(func.count())
+                .select_from(SupportTicket)
+                .where(SupportTicket.admin_unread == True)  # noqa: E712
+            )
+            or 0
+        )
+        return {
+            "pending_billing_requests": pending_reviews + pending_cancellations,
+            "pending_refund_reviews": pending_reviews,
+            "pending_cancellations": pending_cancellations,
+            "admin_unread_tickets": admin_unread,
+            "total": pending_reviews + pending_cancellations + admin_unread,
+        }
+
+    @staticmethod
     def mark_ticket_read(db: Session, *, org_id: str, user_id: str, ticket_id: int) -> None:
         now = datetime.utcnow()
         rows = list(

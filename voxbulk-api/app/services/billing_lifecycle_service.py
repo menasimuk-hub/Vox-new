@@ -381,6 +381,32 @@ class BillingLifecycleService:
 
         for sub in subs:
             stats["checked"] += 1
+            from app.services.subscription_cancellation_service import (
+                CANCELLATION_CANCELLED,
+                CANCELLATION_SCHEDULED,
+                SubscriptionCancellationService,
+            )
+
+            cancel_st = str(sub.cancellation_status or "none").lower()
+            if cancel_st in {CANCELLATION_CANCELLED, CANCELLATION_SCHEDULED}:
+                stats["skipped"] += 1
+                continue
+            from app.models.billing_refund_review import BillingRefundReview
+
+            latest_review = (
+                db.execute(
+                    select(BillingRefundReview)
+                    .where(BillingRefundReview.org_id == sub.org_id)
+                    .order_by(BillingRefundReview.requested_at.desc())
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            if latest_review and str(latest_review.review_status or "").lower() in {"approved", "completed"}:
+                stats["skipped"] += 1
+                continue
+
             org = db.get(Organisation, sub.org_id)
             plan = db.get(Plan, sub.plan_id)
             if org is None or plan is None:

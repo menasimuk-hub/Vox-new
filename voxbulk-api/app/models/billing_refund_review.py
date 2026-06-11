@@ -35,6 +35,7 @@ class BillingRefundReview(Base):
 
     wallet_transaction_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("wallet_transactions.id"), nullable=True)
     credit_note_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("credit_notes.id"), nullable=True)
+    support_ticket_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("support_tickets.id"), nullable=True, index=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

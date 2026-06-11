@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -38,6 +38,7 @@ class Subscription(Base):
     cancellation_effective_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     requested_refund_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
     cancellation_requested_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    cancellation_support_ticket_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("support_tickets.id"), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

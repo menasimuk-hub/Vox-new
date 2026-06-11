@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { adminLogoutRedirect } from '../../lib/api'
+import { Link } from 'react-router-dom'
+import { apiFetch, adminLogoutRedirect } from '../../lib/api'
 import { normalizeAdminRole } from '../../lib/adminPaths'
 import { useAdminProfile } from '../../context/AdminProfileContext'
 
 export default function Topbar({ dark, toggleTheme, onOpenMobile, collapsed, onToggleCollapse }) {
   const wrapRef = useRef(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [notifyCount, setNotifyCount] = useState(0)
   const { loading, profile, adminRole } = useAdminProfile()
   const meEmail =
     loading ? 'Loading…' : profile?.email || (profile?.user_id ? `${String(profile.user_id).slice(0, 8)}…` : 'Admin')
@@ -20,6 +22,24 @@ export default function Topbar({ dark, toggleTheme, onOpenMobile, collapsed, onT
     document.addEventListener('click', onDoc)
     return () => document.removeEventListener('click', onDoc)
   }, [menuOpen])
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await apiFetch('/admin/notifications/summary')
+        if (!cancelled) setNotifyCount(Number(res?.total || 0))
+      } catch {
+        if (!cancelled) setNotifyCount(0)
+      }
+    }
+    void load()
+    const id = window.setInterval(load, 60_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [])
 
   return (
     <div className='topbar'>
@@ -55,10 +75,10 @@ export default function Topbar({ dark, toggleTheme, onOpenMobile, collapsed, onT
           API connected
         </span>
 
-        <button type='button' className='tbbtn nbell' aria-label='Notifications'>
+        <Link to="/invoices?tab=requests" className="tbbtn nbell" aria-label="Notifications" title="Billing requests & support">
           <i className='ti ti-bell' />
-          <span className='ndot' />
-        </button>
+          {notifyCount > 0 ? <span className='ndot'>{notifyCount > 9 ? '9+' : notifyCount}</span> : null}
+        </Link>
 
         <button type='button' className='tbbtn' aria-label='Alerts'>
           <i className='ti ti-alert-triangle' />

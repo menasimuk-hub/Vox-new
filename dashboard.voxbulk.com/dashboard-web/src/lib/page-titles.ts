@@ -30,6 +30,7 @@ const map: Record<string, T> = {
 
   "/account/packages": { title: "Packages & pricing", subtitle: "Plans & bundles" },
   "/account/billing": { title: "Billing", subtitle: "Subscription & invoices" },
+  "/account/usage": { title: "Usage", subtitle: "Campaign usage & charges" },
   "/account/support": { title: "Support", subtitle: "Get help" },
   "/account/support/faq": { title: "Documentation & FAQ", subtitle: "Help centre" },
   "/account/support/tickets": { title: "Support tickets", subtitle: "Email conversations" },

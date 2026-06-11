@@ -17,6 +17,7 @@ const dateShort = (value) => (value ? new Date(value).toLocaleDateString(undefin
 
 const TABS = [
   { id: 'invoices', label: 'All invoices', icon: 'ti-receipt' },
+  { id: 'requests', label: 'Billing requests', icon: 'ti-file-description' },
   { id: 'template', label: 'Invoice template', icon: 'ti-file-invoice' },
   { id: 'vat', label: 'VAT by country', icon: 'ti-world' },
 ]
@@ -89,8 +90,13 @@ function resolveInvoiceLifecycle(inv) {
 }
 
 export default function InvoicesAdmin() {
-  const [tab, setTab] = useState('invoices')
+  const [tab, setTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    const t = params.get('tab')
+    return t && TABS.some((x) => x.id === t) ? t : 'invoices'
+  })
   const [invoices, setInvoices] = useState([])
+  const [billingRequests, setBillingRequests] = useState([])
   const [vatRates, setVatRates] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -125,6 +131,11 @@ export default function InvoicesAdmin() {
     setVatRates(Array.isArray(rows) ? rows : [])
   }, [])
 
+  const loadBillingRequests = useCallback(async () => {
+    const res = await apiFetch('/admin/billing/requests?limit=200')
+    setBillingRequests(Array.isArray(res?.items) ? res.items : [])
+  }, [])
+
   const loadTemplate = useCallback(async () => {
     const row = await apiFetch('/admin/email/templates/invoice_document')
     setTemplateDraft({
@@ -141,6 +152,7 @@ export default function InvoicesAdmin() {
       setError('')
       try {
         if (tab === 'invoices') await loadInvoices()
+        if (tab === 'requests') await loadBillingRequests()
         if (tab === 'vat') await loadVat()
         if (tab === 'template') await loadTemplate()
       } catch (e) {
@@ -152,7 +164,7 @@ export default function InvoicesAdmin() {
     return () => {
       cancelled = true
     }
-  }, [tab, loadInvoices, loadVat, loadTemplate])
+  }, [tab, loadInvoices, loadBillingRequests, loadVat, loadTemplate])
 
   const stats = useMemo(() => {
     const paidRows = invoices.filter((r) => String(r.status || '').toLowerCase() === 'paid')
@@ -656,6 +668,58 @@ export default function InvoicesAdmin() {
             </div>
           </div>
         </>
+      ) : null}
+
+      {tab === 'requests' ? (
+        <div className="card invoiceListCard">
+          <div className="cardHead invoiceListHead">
+            <h3>Billing requests</h3>
+            <span className="pill p-cyan">{billingRequests.length} shown</span>
+          </div>
+          <div className="cardBody invoiceTableWrap">
+            {loading ? <div className="muted invoiceListEmpty">Loading…</div> : null}
+            {!loading && !billingRequests.length ? (
+              <div className="muted invoiceListEmpty">No cancellation or refund review requests yet.</div>
+            ) : null}
+            {!loading && billingRequests.length ? (
+              <table className="table invoiceDenseTable invoiceListTable">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Organisation</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Refund</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {billingRequests.map((row) => (
+                    <tr key={`${row.type}-${row.id}`}>
+                      <td>{dateShort(row.requested_at)}</td>
+                      <td>{row.org_name || row.org_id || '—'}</td>
+                      <td>{String(row.type || '').replace('_', ' ')}</td>
+                      <td><span className={`pill ${row.status === 'pending' ? 'p-amber' : row.status === 'approved' ? 'p-green' : ''}`}>{row.status || '—'}</span></td>
+                      <td>{row.requested_refund_type ? String(row.requested_refund_type).replace(/_/g, ' ') : '—'}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {row.org_id ? (
+                          <Link className="btn btnCompact" to={`/organisations/${encodeURIComponent(row.org_id)}/control-center`}>
+                            Open org
+                          </Link>
+                        ) : null}
+                        {row.support_ticket_id ? (
+                          <Link className="btn btnCompact" to={`/support/tickets/${row.support_ticket_id}`} style={{ marginLeft: 8 }}>
+                            Ticket
+                          </Link>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       {tab === 'template' ? (

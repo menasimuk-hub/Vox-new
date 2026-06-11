@@ -97,6 +97,7 @@ const groups: Group[] = [
   { key: "account", label: "Account", items: [
     { title: "Packages & pricing", url: "/account/packages", icon: Package },
     { title: "Billing", url: "/account/billing", icon: CreditCard },
+    { title: "Usage", url: "/account/usage", icon: BarChart3 },
     { title: "Support", url: "/account/support", icon: LifeBuoy },
   ]},
 ];

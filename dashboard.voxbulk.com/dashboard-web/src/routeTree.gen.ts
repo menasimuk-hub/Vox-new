@@ -39,6 +39,7 @@ import { Route as AppInterviewsResultsRouteImport } from './routes/_app.intervie
 import { Route as AppInterviewsReportsRouteImport } from './routes/_app.interviews.reports'
 import { Route as AppInterviewsNewRouteImport } from './routes/_app.interviews.new'
 import { Route as AppInterviewsOrderIdRouteImport } from './routes/_app.interviews.$orderId'
+import { Route as AppAccountUsageRouteImport } from './routes/_app.account.usage'
 import { Route as AppAccountSupportRouteImport } from './routes/_app.account.support'
 import { Route as AppAccountPackagesRouteImport } from './routes/_app.account.packages'
 import { Route as AppAccountBillingRouteImport } from './routes/_app.account.billing'
@@ -197,6 +198,11 @@ const AppInterviewsOrderIdRoute = AppInterviewsOrderIdRouteImport.update({
   path: '/$orderId',
   getParentRoute: () => AppInterviewsRoute,
 } as any)
+const AppAccountUsageRoute = AppAccountUsageRouteImport.update({
+  id: '/account/usage',
+  path: '/account/usage',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAccountSupportRoute = AppAccountSupportRouteImport.update({
   id: '/account/support',
   path: '/account/support',
@@ -252,6 +258,7 @@ export interface FileRoutesByFullPath {
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
   '/account/support': typeof AppAccountSupportRouteWithChildren
+  '/account/usage': typeof AppAccountUsageRoute
   '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
   '/interviews/new': typeof AppInterviewsNewRoute
   '/interviews/reports': typeof AppInterviewsReportsRoute
@@ -287,6 +294,7 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
+  '/account/usage': typeof AppAccountUsageRoute
   '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
   '/interviews/new': typeof AppInterviewsNewRoute
   '/interviews/reports': typeof AppInterviewsReportsRoute
@@ -327,6 +335,7 @@ export interface FileRoutesById {
   '/_app/account/billing': typeof AppAccountBillingRoute
   '/_app/account/packages': typeof AppAccountPackagesRoute
   '/_app/account/support': typeof AppAccountSupportRouteWithChildren
+  '/_app/account/usage': typeof AppAccountUsageRoute
   '/_app/interviews/$orderId': typeof AppInterviewsOrderIdRoute
   '/_app/interviews/new': typeof AppInterviewsNewRoute
   '/_app/interviews/reports': typeof AppInterviewsReportsRoute
@@ -368,6 +377,7 @@ export interface FileRouteTypes {
     | '/account/billing'
     | '/account/packages'
     | '/account/support'
+    | '/account/usage'
     | '/interviews/$orderId'
     | '/interviews/new'
     | '/interviews/reports'
@@ -403,6 +413,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account/billing'
     | '/account/packages'
+    | '/account/usage'
     | '/interviews/$orderId'
     | '/interviews/new'
     | '/interviews/reports'
@@ -442,6 +453,7 @@ export interface FileRouteTypes {
     | '/_app/account/billing'
     | '/_app/account/packages'
     | '/_app/account/support'
+    | '/_app/account/usage'
     | '/_app/interviews/$orderId'
     | '/_app/interviews/new'
     | '/_app/interviews/reports'
@@ -688,6 +700,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInterviewsOrderIdRouteImport
       parentRoute: typeof AppInterviewsRoute
     }
+    '/_app/account/usage': {
+      id: '/_app/account/usage'
+      path: '/account/usage'
+      fullPath: '/account/usage'
+      preLoaderRoute: typeof AppAccountUsageRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/account/support': {
       id: '/_app/account/support'
       path: '/account/support'
@@ -845,6 +864,7 @@ interface AppRouteChildren {
   AppAccountBillingRoute: typeof AppAccountBillingRoute
   AppAccountPackagesRoute: typeof AppAccountPackagesRoute
   AppAccountSupportRoute: typeof AppAccountSupportRouteWithChildren
+  AppAccountUsageRoute: typeof AppAccountUsageRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsOptOutRoute: typeof AppSettingsOptOutRoute
@@ -864,6 +884,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountBillingRoute: AppAccountBillingRoute,
   AppAccountPackagesRoute: AppAccountPackagesRoute,
   AppAccountSupportRoute: AppAccountSupportRouteWithChildren,
+  AppAccountUsageRoute: AppAccountUsageRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsOptOutRoute: AppSettingsOptOutRoute,

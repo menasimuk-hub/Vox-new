@@ -2578,7 +2578,7 @@ function CreateInterview() {
       ) : null}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-        {paymentApproved && (!bookingInvitesSent || inviteDispatchFailed) && !campaignReadOnly ? (
+        {paymentApproved && !campaignLaunched && !campaignReadOnly ? (
           <Button
             variant="secondary"
             className="gap-1.5"
@@ -2621,7 +2621,7 @@ function CreateInterview() {
                   } else if (errs.length > 0) {
                     toast.error(errs[0]);
                   } else {
-                    toast.warning("No booking invites sent — add candidate email addresses and check Admin → Email SMTP.");
+                    toast.warning("No booking invites sent — add candidate email addresses and try again.");
                   }
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : "Could not resend invites");

@@ -28,6 +28,10 @@ export const queryKeys = {
   billingPricing: (market: string, orgCountry = "") => ["billing", "pricing", market, orgCountry] as const,
   billingWallet: ["billing", "wallet"] as const,
   billingUsage: ["billing", "usage-summary"] as const,
+  billingUsageBreakdown: (filters: Record<string, string>) => ["billing", "usage-breakdown", filters] as const,
+  billingRequests: ["billing", "requests"] as const,
+  notifications: ["notifications"] as const,
+  notificationUnread: ["notifications", "unread-count"] as const,
   billingInvoices: ["billing", "invoices"] as const,
   billingAccess: ["billing", "access"] as const,
   organisation: ["organisations", "me"] as const,
@@ -94,6 +98,69 @@ export function useBillingSubscriptionCancellation() {
     queryKey: queryKeys.billingSubscriptionCancellation,
     queryFn: () => apiFetch("/billing/subscription/cancellation"),
     refetchOnMount: "always",
+  });
+}
+
+export type BillingUsageBreakdownFilters = {
+  service_code?: string;
+  status?: string;
+  billing_source?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export function useBillingUsageBreakdown(filters: BillingUsageBreakdownFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.service_code) params.set("service_code", filters.service_code);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.billing_source) params.set("billing_source", filters.billing_source);
+  if (filters.search) params.set("search", filters.search);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.offset) params.set("offset", String(filters.offset));
+  const qs = params.toString();
+  const filterKey = Object.fromEntries(params.entries());
+  return useQuery({
+    queryKey: queryKeys.billingUsageBreakdown(filterKey),
+    queryFn: () => apiFetch<Record<string, unknown>>(`/billing/usage-breakdown${qs ? `?${qs}` : ""}`),
+    refetchOnMount: "always",
+  });
+}
+
+export function useBillingRequests(status?: string) {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return useQuery({
+    queryKey: [...queryKeys.billingRequests, status || ""],
+    queryFn: () => apiFetch<{ items: Array<Record<string, unknown>> }>(`/billing/requests${qs}`),
+    refetchOnMount: "always",
+  });
+}
+
+export function useNotifications(limit = 10) {
+  return useQuery({
+    queryKey: [...queryKeys.notifications, limit],
+    queryFn: () => apiFetch<Array<Record<string, unknown>>>(`/notifications?limit=${limit}`),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useNotificationUnreadCount() {
+  return useQuery({
+    queryKey: queryKeys.notificationUnread,
+    queryFn: () => apiFetch<{ count: number }>("/notifications/unread-count"),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useMarkNotificationRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (notificationId: number) =>
+      apiFetch(`/notifications/${notificationId}/read`, { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.notifications });
+      void qc.invalidateQueries({ queryKey: queryKeys.notificationUnread });
+    },
   });
 }
 

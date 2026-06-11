@@ -198,6 +198,7 @@ class SubscriptionCancellationService:
             "credit_note_id": row.credit_note_id,
             "requested_at": row.requested_at.isoformat() if row.requested_at else None,
             "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
+            "support_ticket_id": row.support_ticket_id,
         }
 
     @staticmethod
@@ -284,6 +285,30 @@ class SubscriptionCancellationService:
             },
             commit=False,
         )
+        ticket = SubscriptionCancellationService._ensure_billing_request_ticket(
+            db,
+            org=org,
+            sub=sub,
+            user_id=user_id,
+            reason=reason,
+            refund_review=refund_review,
+            effective_at=effective_at,
+            refund_pref=refund_pref,
+        )
+        if ticket is not None and refund_review is None and sub.cancellation_support_ticket_id is None:
+            sub.cancellation_support_ticket_id = ticket.id
+            db.add(sub)
+        if user_id:
+            from app.services.notification_service import NotificationService
+
+            NotificationService.create_billing_request_notification(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                title="Cancellation request submitted",
+                message=f"Your subscription cancellation is scheduled for {effective_at.date().isoformat()}.",
+                dedupe_key=f"billing-request:cancel:{sub.id}:{now.date().isoformat()}",
+            )
         db.commit()
         db.refresh(sub)
         if refund_review:
@@ -433,18 +458,33 @@ class SubscriptionCancellationService:
 
         wallet_result = None
         if issue_wallet_credit:
+            open_review = SubscriptionCancellationService.get_open_refund_review(db, org_id)
             amount = wallet_credit_pence
+            if amount is None and open_review is not None:
+                amount = open_review.calculated_unused_value_pence
             if amount is None:
                 amount = SubscriptionCancellationService.calculate_unused_value_pence(db, org, sub, plan)
+            amount = int(amount or 0)
+            if amount <= 0 and wallet_credit_pence is None:
+                raise SubscriptionCancellationError(
+                    "No unused value to credit; pass wallet_credit_pence explicitly."
+                )
             wallet_result = SubscriptionCancellationService.issue_wallet_credit(
                 db,
                 org=org,
                 sub=sub,
-                amount_minor=int(amount or 0),
+                amount_minor=amount,
                 admin_user_id=admin_user_id,
                 note=note or "Subscription cancellation wallet credit",
-                refund_review=None,
+                refund_review=open_review,
             )
+            from app.services.wallet_service import WalletService
+
+            wallet_result = {
+                **(wallet_result or {}),
+                "wallet_balance_pence": WalletService.balance_minor(org),
+                "wallet_balance_display": money_display(WalletService.balance_minor(org), resolve_org_currency(db, org)),
+            }
 
         OrgAuditService.record_admin(
             db,
@@ -617,11 +657,18 @@ class SubscriptionCancellationService:
             if outstanding > 0:
                 raise SubscriptionCancellationError("Resolve open invoices before issuing wallet credit.")
             amount = wallet_credit_pence if wallet_credit_pence is not None else review.calculated_unused_value_pence
+            amount = int(amount or 0)
+            if amount <= 0 and wallet_credit_pence is None:
+                amount = int(SubscriptionCancellationService.calculate_unused_value_pence(db, org, sub, plan) or 0)
+            if amount <= 0 and wallet_credit_pence is None:
+                raise SubscriptionCancellationError(
+                    "No unused value to credit; pass wallet_credit_pence explicitly."
+                )
             wallet_result = SubscriptionCancellationService.issue_wallet_credit(
                 db,
                 org=org,
                 sub=sub,
-                amount_minor=int(amount or 0),
+                amount_minor=amount,
                 admin_user_id=admin_user_id,
                 note=admin_notes,
                 refund_review=review,
@@ -660,6 +707,19 @@ class SubscriptionCancellationService:
         )
         db.commit()
         db.refresh(review)
+        requesting_user = review.requested_by_user_id
+        if requesting_user and status in {REVIEW_APPROVED, REVIEW_COMPLETED, REVIEW_REJECTED}:
+            from app.services.notification_service import NotificationService
+
+            NotificationService.create_billing_request_resolved_notification(
+                db,
+                org_id=review.org_id,
+                user_id=requesting_user,
+                review_status=status,
+                wallet_credit_pence=int(review.approved_wallet_credit_pence or 0),
+                dedupe_key=f"billing-request:resolved:{review.id}:{status}",
+            )
+            db.commit()
         return {
             "refund_review": SubscriptionCancellationService.refund_review_dict(review),
             "wallet_credit": wallet_result,
@@ -752,3 +812,155 @@ class SubscriptionCancellationService:
                 }
             )
         return out
+
+    @staticmethod
+    def _ensure_billing_request_ticket(
+        db: Session,
+        *,
+        org: Organisation,
+        sub: Subscription,
+        user_id: str | None,
+        reason: str | None,
+        refund_review: BillingRefundReview | None,
+        effective_at: datetime,
+        refund_pref: str,
+    ):
+        if not user_id:
+            return None
+        if refund_review and refund_review.support_ticket_id:
+            from app.models.support_ticket import SupportTicket
+
+            return db.get(SupportTicket, refund_review.support_ticket_id)
+        if sub.cancellation_support_ticket_id:
+            from app.models.support_ticket import SupportTicket
+
+            return db.get(SupportTicket, sub.cancellation_support_ticket_id)
+
+        from app.models.support_ticket import SupportTicket
+        from app.services.support_ticket_service import SupportTicketService
+
+        existing = db.execute(
+            select(SupportTicket).where(
+                SupportTicket.organisation_id == org.id,
+                SupportTicket.category == "invoices",
+                SupportTicket.subject.like("Billing request — subscription cancellation%"),
+                SupportTicket.status != "closed",
+            ).order_by(SupportTicket.created_at.desc()).limit(1)
+        ).scalar_one_or_none()
+        if existing is not None:
+            if refund_review and not refund_review.support_ticket_id:
+                refund_review.support_ticket_id = existing.id
+                db.add(refund_review)
+            return existing
+
+        unused = SubscriptionCancellationService.calculate_unused_value_pence(
+            db, org, sub, SubscriptionCancellationService.get_plan(db, sub.plan_id)
+        )
+        body_lines = [
+            f"Organisation: {org.name}",
+            f"Effective date: {effective_at.date().isoformat()}",
+            f"Refund preference: {refund_pref}",
+            f"Estimated unused value: {money_display(unused, resolve_org_currency(db, org))}",
+        ]
+        if reason:
+            body_lines.append(f"Reason: {reason.strip()}")
+        ticket = SupportTicketService.create_ticket(
+            db,
+            org_id=org.id,
+            user_id=user_id,
+            category="invoices",
+            subject="Billing request — subscription cancellation",
+            message="\n".join(body_lines),
+        )
+        db.flush()
+        if refund_review:
+            refund_review.support_ticket_id = ticket.id
+            db.add(refund_review)
+        return ticket
+
+    @staticmethod
+    def _request_status_label(cancellation_status: str, review_status: str | None) -> str:
+        cs = str(cancellation_status or CANCELLATION_NONE).lower()
+        rs = str(review_status or "").lower()
+        if rs == REVIEW_PENDING or cs in {CANCELLATION_SCHEDULED, CANCELLATION_REQUESTED}:
+            return "pending"
+        if rs in {REVIEW_APPROVED, REVIEW_COMPLETED} or cs == CANCELLATION_CANCELLED:
+            return "approved"
+        if rs == REVIEW_REJECTED:
+            return "rejected"
+        if rs == REVIEW_CANCELLED:
+            return "cancelled"
+        return "pending"
+
+    @staticmethod
+    def list_billing_requests(
+        db: Session,
+        *,
+        org_id: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        review_q = select(BillingRefundReview).order_by(BillingRefundReview.requested_at.desc()).limit(limit)
+        if org_id:
+            review_q = review_q.where(BillingRefundReview.org_id == org_id)
+        for review in db.execute(review_q).scalars().all():
+            org = db.get(Organisation, review.org_id)
+            sub = db.get(Subscription, review.subscription_id) if review.subscription_id else None
+            st = SubscriptionCancellationService._request_status_label(
+                str(sub.cancellation_status if sub else CANCELLATION_NONE),
+                review.review_status,
+            )
+            if status and st != status.strip().lower():
+                continue
+            items.append(
+                {
+                    "id": review.id,
+                    "type": "refund_review",
+                    "org_id": review.org_id,
+                    "org_name": org.name if org else None,
+                    "status": st,
+                    "review_status": review.review_status,
+                    "requested_refund_type": review.requested_refund_type,
+                    "calculated_unused_value_pence": review.calculated_unused_value_pence,
+                    "approved_wallet_credit_pence": review.approved_wallet_credit_pence,
+                    "admin_notes": review.admin_notes,
+                    "support_ticket_id": review.support_ticket_id,
+                    "requested_at": review.requested_at.isoformat() if review.requested_at else None,
+                    "resolved_at": review.resolved_at.isoformat() if review.resolved_at else None,
+                }
+            )
+
+        sub_q = (
+            select(Subscription)
+            .where(Subscription.cancellation_status.in_((CANCELLATION_SCHEDULED, CANCELLATION_REQUESTED, CANCELLATION_CANCELLED)))
+            .order_by(Subscription.cancellation_requested_at.desc())
+            .limit(limit)
+        )
+        if org_id:
+            sub_q = sub_q.where(Subscription.org_id == org_id)
+        seen_orgs_with_review = {i["org_id"] for i in items if i["type"] == "refund_review"}
+        for sub in db.execute(sub_q).scalars().all():
+            if sub.org_id in seen_orgs_with_review and str(sub.cancellation_status or "").lower() != CANCELLATION_CANCELLED:
+                continue
+            org = db.get(Organisation, sub.org_id)
+            st = SubscriptionCancellationService._request_status_label(str(sub.cancellation_status), None)
+            if status and st != status.strip().lower():
+                continue
+            items.append(
+                {
+                    "id": sub.id,
+                    "type": "cancellation",
+                    "org_id": sub.org_id,
+                    "org_name": org.name if org else None,
+                    "status": st,
+                    "cancellation_status": sub.cancellation_status,
+                    "requested_refund_type": sub.requested_refund_type,
+                    "effective_at": sub.cancellation_effective_at.isoformat() if sub.cancellation_effective_at else None,
+                    "support_ticket_id": sub.cancellation_support_ticket_id,
+                    "requested_at": sub.cancellation_requested_at.isoformat() if sub.cancellation_requested_at else None,
+                    "resolved_at": sub.cancelled_at.isoformat() if sub.cancelled_at else None,
+                }
+            )
+        items.sort(key=lambda x: str(x.get("requested_at") or ""), reverse=True)
+        return items[:limit]

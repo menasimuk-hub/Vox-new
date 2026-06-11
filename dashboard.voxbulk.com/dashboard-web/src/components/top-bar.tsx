@@ -1,4 +1,4 @@
-import { useRouterState } from "@tanstack/react-router";
+import { useRouterState, useNavigate } from "@tanstack/react-router";
 import { Bell, Moon, Search, Sun, Sparkles, Send, X, Bot, User as UserIcon, Menu } from "lucide-react";
 import * as React from "react";
 
@@ -10,6 +10,7 @@ import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
 import { useConnections } from "@/lib/connections";
 import { initialsFromName, useSession } from "@/lib/session";
+import { useMarkNotificationRead, useNotificationUnreadCount, useNotifications } from "@/lib/queries";
 
 function SidebarToggle() {
   const { toggleSidebar } = useSidebar();
@@ -75,29 +76,57 @@ export function TopBar() {
 }
 
 function NotificationsBell() {
+  const navigate = useNavigate();
+  const unreadQ = useNotificationUnreadCount();
+  const listQ = useNotifications(10);
+  const markRead = useMarkNotificationRead();
+  const unread = Number(unreadQ.data?.count || 0);
+  const items = (listQ.data || []) as Array<{
+    id: number;
+    title?: string;
+    message?: string;
+    action_url?: string | null;
+    read_at?: string | null;
+    created_at?: string;
+  }>;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button size="icon" variant="ghost" className="relative" aria-label="Notifications">
           <Bell className="size-4" />
-          <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary" />
+          {unread > 0 ? (
+            <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground">
+              {unread > 9 ? "9+" : unread}
+            </span>
+          ) : null}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
         <DropdownMenuLabel className="flex items-center justify-between">
-          Notifications <span className="text-[11px] text-muted-foreground">3 new</span>
+          Notifications
+          {unread > 0 ? <span className="text-[11px] text-muted-foreground">{unread} new</span> : null}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {[
-          { title: "Survey 'NPS Q4' reached 1k responses", time: "2m" },
-          { title: "Recovery campaign rebooked 3 patients", time: "18m" },
-          { title: "Payment failed for 'Whitening promo'", time: "1h" },
-        ].map((n) => (
-          <DropdownMenuItem key={n.title} className="flex flex-col items-start gap-0.5">
-            <span className="text-sm">{n.title}</span>
-            <span className="text-[11px] text-muted-foreground">{n.time} ago</span>
-          </DropdownMenuItem>
-        ))}
+        {listQ.isLoading ? (
+          <DropdownMenuItem disabled>Loading…</DropdownMenuItem>
+        ) : items.length === 0 ? (
+          <DropdownMenuItem disabled>No notifications yet</DropdownMenuItem>
+        ) : (
+          items.map((n) => (
+            <DropdownMenuItem
+              key={n.id}
+              className="flex flex-col items-start gap-0.5"
+              onClick={() => {
+                if (!n.read_at) void markRead.mutateAsync(n.id);
+                if (n.action_url) void navigate({ to: n.action_url });
+              }}
+            >
+              <span className="text-sm font-medium">{n.title || "Notification"}</span>
+              {n.message ? <span className="text-xs text-muted-foreground line-clamp-2">{n.message}</span> : null}
+            </DropdownMenuItem>
+          ))
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

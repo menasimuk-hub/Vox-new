@@ -819,6 +819,83 @@ def get_billing_access(db: Session = Depends(get_db), principal=Depends(get_curr
     return summary
 
 
+@router.get("/usage-breakdown")
+def get_usage_breakdown(
+    period_start: str | None = None,
+    period_end: str | None = None,
+    service_code: str | None = None,
+    status: str | None = None,
+    billing_source: str | None = None,
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from datetime import datetime
+
+    from app.models.organisation import Organisation
+    from app.services.billing_usage_breakdown_service import BillingUsageBreakdownService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+
+    def _parse_dt(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00").replace("+00:00", ""))
+        except ValueError:
+            return None
+
+    return BillingUsageBreakdownService.build(
+        db,
+        org,
+        period_start=_parse_dt(period_start),
+        period_end=_parse_dt(period_end),
+        service_code=service_code,
+        status=status,
+        billing_source=billing_source,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/usage-breakdown/{order_id}")
+def get_usage_breakdown_row(
+    order_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.billing_usage_breakdown_service import BillingUsageBreakdownService
+
+    row = BillingUsageBreakdownService.get_row(db, principal.org_id, order_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usage row not found")
+    return {"ok": True, "row": row}
+
+
+@router.get("/requests")
+def list_my_billing_requests(
+    status: str | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
+    return {
+        "items": SubscriptionCancellationService.list_billing_requests(
+            db,
+            org_id=principal.org_id,
+            status=status,
+            limit=limit,
+        )
+    }
+
+
 @router.get("/invoices")
 def list_my_invoices(
     limit: int = 50,
