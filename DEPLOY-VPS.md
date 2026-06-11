@@ -6,7 +6,7 @@
 
 **Repo on VPS:** `/www/voxbulk`  
 **Branch:** `feature/billing-system`  
-**Latest commit (after interview WhatsApp compliance fix):** `972bbd8`
+**Latest commit (after interview WhatsApp compliance fix):** `1cfe708`
 
 ---
 
@@ -49,7 +49,7 @@ Open:
 - https://dashboard.voxbulk.com/build-info.json
 - https://admin.voxbulk.com/build-info.json
 
-`git_sha` should start with `972bbd8`.
+`git_sha` should start with `1cfe708`.
 
 ---
 
