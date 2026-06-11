@@ -13,6 +13,7 @@ Usage (VPS):
   .venv/bin/python3 scripts/purge_user_billing_and_accounts.py --dry-run
   .venv/bin/python3 scripts/purge_user_billing_and_accounts.py --apply \\
     --confirm PURGE_TEST_USERS \\
+    --user-id YOUR-USER-UUID \\
     --delete-users --delete-solo-orgs
 """
 
@@ -30,19 +31,33 @@ if str(ROOT) not in sys.path:
 from sqlalchemy import delete, func, select, update
 
 from app.core.database import get_sessionmaker
+from app.models.account_deletion_request import AccountDeletionRequest
 from app.models.billing_invoice import BillingInvoice
 from app.models.billing_redirect_flow import BillingRedirectFlow
 from app.models.billing_refund_review import BillingRefundReview
+from app.models.call_log import CallLog
 from app.models.credit_note import CreditNote
 from app.models.customer_feedback import FeedbackUsagePeriod
 from app.models.membership import OrganisationMembership
+from app.models.notification import Notification
 from app.models.oauth_identity import OAuthIdentity
+from app.models.onboarding_request import OnboardingRequest
+from app.models.org_audit_event import OrganisationAuditEvent
+from app.models.org_opt_out import OrganisationOptOut
 from app.models.organisation import Organisation
 from app.models.org_usage_period import OrgUsagePeriod
 from app.models.password_reset_token import PasswordResetToken
 from app.models.payment_event import PaymentEvent
+from app.models.platform_compliance_audit import PlatformComplianceAudit
 from app.models.promo_offer import PromoRedemption
+from app.models.recovery_job import RecoveryJob
 from app.models.subscription import Subscription
+from app.models.support_ticket import (
+    SupportTicket,
+    SupportTicketAttachment,
+    SupportTicketEvent,
+    SupportTicketMessage,
+)
 from app.models.user import User
 from app.models.wallet_transaction import WalletTransaction
 
@@ -114,18 +129,114 @@ def purge_billing_for_org(db, org_id: str, *, apply: bool) -> dict[str, int]:
 
 
 def user_attachment_counts(db, user_id: str) -> dict[str, int]:
+    ticket_ids = list(
+        db.execute(select(SupportTicket.id).where(SupportTicket.created_by_user_id == user_id)).scalars().all()
+    )
     return {
         "memberships": _count(db, OrganisationMembership, OrganisationMembership.user_id == user_id),
         "password_reset_tokens": _count(db, PasswordResetToken, PasswordResetToken.user_id == user_id),
         "oauth_identities": _count(db, OAuthIdentity, OAuthIdentity.user_id == user_id),
         "billing_redirect_flows": _count(db, BillingRedirectFlow, BillingRedirectFlow.user_id == user_id),
         "promo_redemptions": _count(db, PromoRedemption, PromoRedemption.user_id == user_id),
+        "organisation_audit_events": _count(db, OrganisationAuditEvent, OrganisationAuditEvent.actor_user_id == user_id),
+        "account_deletion_requests": _count(
+            db, AccountDeletionRequest, AccountDeletionRequest.requested_by_user_id == user_id
+        ),
+        "notifications": _count(db, Notification, Notification.user_id == user_id),
+        "onboarding_requests": _count(db, OnboardingRequest, OnboardingRequest.user_id == user_id),
+        "support_tickets_created": len(ticket_ids),
     }
 
 
-def delete_user_row(db, user_id: str, *, apply: bool) -> None:
+def detach_user_references(db, user_id: str, *, apply: bool) -> dict[str, int]:
+    """Clear or remove rows that FK to users.id so hard-delete can succeed."""
+    ticket_ids = list(
+        db.execute(select(SupportTicket.id).where(SupportTicket.created_by_user_id == user_id)).scalars().all()
+    )
+    counts = {
+        "organisation_audit_events_nulled": _count(
+            db, OrganisationAuditEvent, OrganisationAuditEvent.actor_user_id == user_id
+        ),
+        "platform_compliance_audit_nulled": _count(
+            db, PlatformComplianceAudit, PlatformComplianceAudit.actor_user_id == user_id
+        ),
+        "account_deletion_requests_deleted": _count(
+            db, AccountDeletionRequest, AccountDeletionRequest.requested_by_user_id == user_id
+        ),
+        "support_tickets_deleted": len(ticket_ids),
+        "notifications_deleted": _count(db, Notification, Notification.user_id == user_id),
+        "onboarding_requests_deleted": _count(db, OnboardingRequest, OnboardingRequest.user_id == user_id),
+    }
     if not apply:
-        return
+        return counts
+
+    db.execute(
+        update(OrganisationAuditEvent)
+        .where(OrganisationAuditEvent.actor_user_id == user_id)
+        .values(actor_user_id=None)
+    )
+    db.execute(
+        update(PlatformComplianceAudit)
+        .where(PlatformComplianceAudit.actor_user_id == user_id)
+        .values(actor_user_id=None)
+    )
+    db.execute(update(CallLog).where(CallLog.user_id == user_id).values(user_id=None))
+    db.execute(
+        update(OrganisationOptOut)
+        .where(OrganisationOptOut.created_by_user_id == user_id)
+        .values(created_by_user_id=None)
+    )
+    db.execute(
+        update(BillingRefundReview)
+        .where(BillingRefundReview.requested_by_user_id == user_id)
+        .values(requested_by_user_id=None)
+    )
+    db.execute(
+        update(BillingRefundReview)
+        .where(BillingRefundReview.resolved_by_user_id == user_id)
+        .values(resolved_by_user_id=None)
+    )
+    db.execute(update(RecoveryJob).where(RecoveryJob.requested_by_user_id == user_id).values(requested_by_user_id=None))
+    db.execute(
+        update(SupportTicketMessage)
+        .where(SupportTicketMessage.sender_user_id == user_id)
+        .values(sender_user_id=None)
+    )
+    db.execute(
+        update(SupportTicketEvent).where(SupportTicketEvent.actor_user_id == user_id).values(actor_user_id=None)
+    )
+    db.execute(
+        update(AccountDeletionRequest)
+        .where(AccountDeletionRequest.completed_by_admin_user_id == user_id)
+        .values(completed_by_admin_user_id=None)
+    )
+    db.execute(delete(AccountDeletionRequest).where(AccountDeletionRequest.requested_by_user_id == user_id))
+    db.execute(delete(Notification).where(Notification.user_id == user_id))
+    db.execute(delete(OnboardingRequest).where(OnboardingRequest.user_id == user_id))
+
+    if ticket_ids:
+        msg_ids = list(
+            db.execute(select(SupportTicketMessage.id).where(SupportTicketMessage.ticket_id.in_(ticket_ids))).scalars().all()
+        )
+        if msg_ids:
+            db.execute(delete(SupportTicketAttachment).where(SupportTicketAttachment.message_id.in_(msg_ids)))
+        db.execute(delete(SupportTicketAttachment).where(SupportTicketAttachment.ticket_id.in_(ticket_ids)))
+        db.execute(delete(SupportTicketMessage).where(SupportTicketMessage.ticket_id.in_(ticket_ids)))
+        db.execute(delete(SupportTicketEvent).where(SupportTicketEvent.ticket_id.in_(ticket_ids)))
+        db.execute(
+            update(AccountDeletionRequest)
+            .where(AccountDeletionRequest.support_ticket_id.in_(ticket_ids))
+            .values(support_ticket_id=None)
+        )
+        db.execute(delete(SupportTicket).where(SupportTicket.id.in_(ticket_ids)))
+
+    return counts
+
+
+def delete_user_row(db, user_id: str, *, apply: bool) -> dict[str, int]:
+    refs = detach_user_references(db, user_id, apply=apply)
+    if not apply:
+        return refs
     db.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user_id))
     db.execute(delete(OAuthIdentity).where(OAuthIdentity.user_id == user_id))
     db.execute(delete(BillingRedirectFlow).where(BillingRedirectFlow.user_id == user_id))
@@ -134,6 +245,7 @@ def delete_user_row(db, user_id: str, *, apply: bool) -> None:
     user = db.get(User, user_id)
     if user is not None:
         db.delete(user)
+    return refs
 
 
 def solo_org_candidate(db, org_id: str, user_id: str) -> tuple[bool, str | None]:
@@ -207,7 +319,9 @@ def process_user(
                 print(f"    -> solo org skipped: {reason}")
 
     if delete_users:
-        delete_user_row(db, user_id, apply=apply)
+        refs = delete_user_row(db, user_id, apply=apply)
+        if refs:
+            print(f"  user references: {refs}")
         print(f"  user {user.email} ({user_id}) {'deleted' if apply else 'would delete'}")
 
     return report
