@@ -25,6 +25,7 @@ const payload = {
   interview_wizard_marker: "interview-preview-parseScriptQuestions-v2",
   survey_results_marker: "survey-results-details-tab-v2",
   survey_wizard_marker: "survey-wizard-customer-description-v2",
+  billing_marker: "billing-cancellation-statusbadge-v3",
 };
 
 mkdirSync(outDir, { recursive: true });

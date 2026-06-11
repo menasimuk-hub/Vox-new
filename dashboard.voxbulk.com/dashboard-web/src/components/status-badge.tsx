@@ -35,8 +35,8 @@ const map: Record<BadgeTone, { cls: string; label: string; dot?: "pulse" | "stat
   "wa-sent": { cls: "bg-info/15 text-info border border-info/30", label: "WhatsApp sent" },
 };
 
-export function StatusBadge({ tone, className, label }: { tone: BadgeTone; className?: string; label?: string }) {
-  const cfg = map[tone];
+export function StatusBadge({ tone, className, label }: { tone: BadgeTone | string; className?: string; label?: string }) {
+  const cfg = map[tone as BadgeTone] ?? map.finished;
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap", cfg.cls, className)}>
       {cfg.dot === "pulse" && <span className="size-1.5 rounded-full bg-current opacity-90 animate-pulse" />}

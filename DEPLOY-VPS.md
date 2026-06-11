@@ -8,9 +8,37 @@
 **Branch:** `feature/billing-system`  
 **Latest commit (after interview WhatsApp compliance fix):** `1cfe708`
 
+**Latest commits:** billing fix `99de381`+ — look for `billing_marker: billing-cancellation-statusbadge-v3` in build-info.json
+
 ---
 
-## One command — full deploy (copy this)
+## `./vox.sh restart` does NOT update the website
+
+Restart only reloads the API process. Dashboard/admin are **static files** in `/www/wwwroot/`. You must run `deploy-vps.sh` or `vps-sync-all-ui.sh` and confirm `build-info.json` **git_sha** and **built_at** change.
+
+**Diagnose on VPS:**
+
+```bash
+cd /www/voxbulk
+git fetch origin feature/billing-system
+git log -1 --oneline
+git rev-parse --short origin/feature/billing-system
+cat /www/wwwroot/dashboard.voxbulk.com/build-info.json
+tail -50 /tmp/voxbulk-deploy.log
+```
+
+If repo HEAD is behind `origin/feature/billing-system`, pull did not run. Use hard reset:
+
+```bash
+cd /www/voxbulk && VOX_HARD_RESET=1 VOX_GIT_BRANCH=feature/billing-system bash scripts/vps-sync-all-ui.sh
+```
+
+Success looks like:
+- `git log -1` shows `99de381` or newer
+- `build-info.json` has new `built_at` timestamp
+- `billing_marker` = `billing-cancellation-statusbadge-v3`
+
+---
 
 Run in **Baota → Terminal**:
 
