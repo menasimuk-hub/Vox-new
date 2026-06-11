@@ -154,6 +154,37 @@ export default function OrganisationDetail() {
         </div>
       </div>
 
+      <div className='card' style={{ marginBottom: 16 }}>
+        <div className='cardHead'>
+          <h3>Finance summary</h3>
+          {data?.subscription_finance?.cancel_at_period_end ? <span className='pill p-amber'>Cancel at period end</span> : null}
+        </div>
+        <div className='cardBody detailGrid'>
+          <div>
+            <span className='muted'>Plan</span>
+            <div>{org?.plan_name || org?.plan_code || '—'}</div>
+          </div>
+          <div>
+            <span className='muted'>Next billing</span>
+            <div>{data?.subscription_finance?.next_billing_date ? fmtWhen(data.subscription_finance.next_billing_date) : '—'}</div>
+          </div>
+          <div>
+            <span className='muted'>Next charge</span>
+            <div>{data?.subscription_finance?.amount_next_payment_display || '—'}</div>
+          </div>
+          <div>
+            <span className='muted'>Cancellation</span>
+            <div>{data?.cancellation_preview?.status || data?.subscription_finance?.cancellation_status || 'none'}</div>
+          </div>
+        </div>
+        <div className='cardBody' style={{ paddingTop: 0 }}>
+          <div className='actions' style={{ flexWrap: 'wrap' }}>
+            <button type='button' className='btn soft' onClick={openProfile}>Full profile (plan)</button>
+            <Link className='btn soft' to='/organisations/all-users' onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}>Finance console</Link>
+          </div>
+        </div>
+      </div>
+
       <div className='grid-2' style={{ marginBottom: 16, alignItems: 'start' }}>
         <div className='card'>
           <div className='cardHead'>
@@ -242,7 +273,8 @@ export default function OrganisationDetail() {
               </div>
               {data.usage.estimated_overage_gbp != null ? (
                 <p className='muted' style={{ fontSize: 13 }}>
-                  Estimated overage: £{Number(data.usage.estimated_overage_gbp).toFixed(2)}
+                  Estimated overage: {org?.currency_symbol || '£'}
+                  {Number(data.usage.estimated_overage_gbp).toFixed(2)}
                 </p>
               ) : null}
             </div>
@@ -342,6 +374,7 @@ export default function OrganisationDetail() {
                     <th>Status</th>
                     <th>Total</th>
                     <th>Date</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -351,11 +384,20 @@ export default function OrganisationDetail() {
                       <td>{inv.status || '—'}</td>
                       <td>{inv.total_display || inv.total_gbp || '—'}</td>
                       <td>{fmtWhen(inv.created_at)}</td>
+                      <td>
+                        <Link
+                          className='btn soft xs'
+                          to='/organisations/all-users'
+                          onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}
+                        >
+                          In OCC
+                        </Link>
+                      </td>
                     </tr>
                   ))}
                   {data && (!data.invoices || data.invoices.length === 0) && (
                     <tr>
-                      <td colSpan={4}>No invoices yet.</td>
+                      <td colSpan={5}>No invoices yet.</td>
                     </tr>
                   )}
                 </tbody>

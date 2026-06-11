@@ -506,6 +506,11 @@ class BillingLifecycleService:
         sub.current_period_end = next_end
         sub.updated_at = now
 
+        org = db.get(Organisation, sub.org_id)
+        from app.services.billing_finance_service import BillingFinanceService
+
+        BillingFinanceService.sync_subscription_billing_fields(db, sub, org=org, plan=plan, commit=False)
+
         if sub.pending_plan_id and sub.pending_plan_id != sub.plan_id:
             pending = db.get(Plan, sub.pending_plan_id)
             if pending is not None:

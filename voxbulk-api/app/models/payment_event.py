@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -22,6 +22,12 @@ class PaymentEvent(Base):
 
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="unknown", index=True)
     failure_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    event_kind: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    source: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actor_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    subscription_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
     emailed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

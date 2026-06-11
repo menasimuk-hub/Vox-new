@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
+from app.models.plan import Plan
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.subscription import Subscription
 from app.services.admin_org_service import AdminOrganisationService
@@ -391,6 +392,18 @@ class OrgControlCenterService:
         )
         last_invoice = invoices[0] if invoices else None
 
+        subscription_finance = None
+        if sub is not None:
+            from app.services.billing_finance_service import BillingFinanceService
+
+            plan_row = db.get(Plan, sub.plan_id) if sub.plan_id else None
+            BillingFinanceService.sync_subscription_billing_fields(
+                db, sub, org=org, plan=plan_row, commit=True
+            )
+            subscription_finance = BillingFinanceService.subscription_finance_dict(
+                db, sub, org=org, plan=plan_row
+            )
+
         return {
             "organisation": {
                 "id": org.id,
@@ -433,8 +446,13 @@ class OrgControlCenterService:
                 "running_campaigns": sum(
                     1 for c in campaigns if str(c.get("status") or "") in {"running", "paused", "scheduled", "paid"}
                 ),
+                "next_billing_date": subscription_finance.get("next_billing_date") if subscription_finance else None,
+                "amount_next_payment_display": subscription_finance.get("amount_next_payment_display") if subscription_finance else None,
+                "cancel_at_period_end": subscription_finance.get("cancel_at_period_end") if subscription_finance else False,
+                "mandate_status": subscription_finance.get("mandate_status") if subscription_finance else None,
                 **usage,
             },
+            "subscription_finance": subscription_finance,
             "billing_profile": profile,
             "usage": usage_full,
             "orders": campaigns,

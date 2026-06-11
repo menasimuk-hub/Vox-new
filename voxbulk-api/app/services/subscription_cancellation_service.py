@@ -39,10 +39,18 @@ REFUND_TYPE_PAYMENT_METHOD = "payment_method_refund"
 REFUND_TYPE_EITHER = "either"
 
 REVIEW_PENDING = "pending"
+REVIEW_UNDER_REVIEW = "under_review"
 REVIEW_APPROVED = "approved"
 REVIEW_COMPLETED = "completed"
+REVIEW_PROCESSED = "processed"
 REVIEW_REJECTED = "rejected"
+REVIEW_FAILED = "failed"
 REVIEW_CANCELLED = "cancelled"
+
+REFUND_STATUS_ALIASES = {
+    REVIEW_COMPLETED: REVIEW_PROCESSED,
+    REVIEW_PROCESSED: REVIEW_COMPLETED,
+}
 
 PAYG_CODES = frozenset({"payg"})
 
@@ -210,7 +218,9 @@ class SubscriptionCancellationService:
                 select(BillingRefundReview)
                 .where(
                     BillingRefundReview.org_id == org_id,
-                    BillingRefundReview.review_status.in_((REVIEW_PENDING, REVIEW_APPROVED)),
+                    BillingRefundReview.review_status.in_(
+                        (REVIEW_PENDING, REVIEW_UNDER_REVIEW, REVIEW_APPROVED)
+                    ),
                 )
                 .order_by(BillingRefundReview.requested_at.desc())
                 .limit(1)
@@ -256,8 +266,12 @@ class SubscriptionCancellationService:
         sub.requested_refund_type = refund_pref if refund_pref != REFUND_TYPE_NONE else None
         sub.cancellation_requested_by_user_id = user_id
         sub.pending_plan_id = None
+        sub.cancel_at_period_end = True
         sub.updated_at = now
         db.add(sub)
+        from app.services.billing_finance_service import BillingFinanceService
+
+        BillingFinanceService.sync_subscription_billing_fields(db, sub, org=org, plan=plan, commit=False)
 
         refund_review = None
         if refund_pref in {REFUND_TYPE_PAYMENT_METHOD, REFUND_TYPE_EITHER, REFUND_TYPE_WALLET}:
@@ -320,6 +334,23 @@ class SubscriptionCancellationService:
             effective_date=effective_at.date().isoformat(),
             refund_preference=refund_pref,
             estimated_refund_pence=SubscriptionCancellationService.calculate_unused_value_pence(db, org, sub, plan) if plan else 0,
+        )
+        from app.services.payment_event_service import PaymentEventService
+
+        PaymentEventService.record_finance(
+            db,
+            org_id=org_id,
+            client_email=org.contact_email or "admin@voxbulk.com",
+            event_kind="subscription.cancellation_scheduled",
+            source="customer" if user_id else "admin",
+            actor_user_id=user_id,
+            subscription_id=sub.id,
+            metadata={
+                "effective_at": effective_at.isoformat(),
+                "requested_refund_type": refund_pref,
+                "refund_review_id": refund_review.id if refund_review else None,
+            },
+            commit=False,
         )
         db.commit()
         db.refresh(sub)
@@ -407,8 +438,13 @@ class SubscriptionCancellationService:
         sub.cancellation_effective_at = None
         sub.requested_refund_type = None
         sub.cancellation_requested_by_user_id = None
+        sub.cancel_at_period_end = False
         sub.updated_at = now
         db.add(sub)
+        plan = SubscriptionCancellationService.get_plan(db, sub.plan_id)
+        from app.services.billing_finance_service import BillingFinanceService
+
+        BillingFinanceService.sync_subscription_billing_fields(db, sub, org=org, plan=plan, commit=False)
 
         open_review = SubscriptionCancellationService.get_open_refund_review(db, org_id)
         if open_review is not None:
@@ -449,6 +485,18 @@ class SubscriptionCancellationService:
                 message="Your subscription will continue as normal.",
                 dedupe_key=f"billing-request:reversed:{sub.id}:{now.date().isoformat()}",
             )
+        from app.services.payment_event_service import PaymentEventService
+
+        PaymentEventService.record_finance(
+            db,
+            org_id=org_id,
+            client_email=org.contact_email or "admin@voxbulk.com",
+            event_kind="subscription.cancellation_reversed",
+            actor_user_id=admin_user_id,
+            subscription_id=sub.id,
+            metadata={"note": note},
+            commit=False,
+        )
         db.commit()
         db.refresh(sub)
         plan = SubscriptionCancellationService.get_plan(db, sub.plan_id)
@@ -563,7 +611,7 @@ class SubscriptionCancellationService:
     @staticmethod
     def finalize_due_scheduled_cancellations(db: Session, *, as_of: datetime | None = None) -> dict[str, int]:
         now = as_of or datetime.utcnow()
-        stats = {"finalized": 0}
+        stats = {"finalized": 0, "wallet_credit_issued": 0, "wallet_credit_failed": 0}
         rows = list(
             db.execute(
                 select(Subscription).where(
@@ -576,11 +624,100 @@ class SubscriptionCancellationService:
             .all()
         )
         for sub in rows:
+            org = db.get(Organisation, sub.org_id)
+            plan = SubscriptionCancellationService.get_plan(db, sub.plan_id)
+            wallet_result = None
+            review = SubscriptionCancellationService.get_open_refund_review(db, sub.org_id) if org else None
+            refund_type = str(sub.requested_refund_type or "").lower()
+            should_auto_wallet = refund_type in {REFUND_TYPE_WALLET, REFUND_TYPE_EITHER}
+            if org and plan and should_auto_wallet:
+                outstanding = BillingAccessService.outstanding_invoice_minor(db, org.id)
+                if outstanding > 0:
+                    stats["wallet_credit_failed"] += 1
+                    from app.services.payment_event_service import PaymentEventService
+
+                    PaymentEventService.record_finance(
+                        db,
+                        org_id=org.id,
+                        client_email=org.contact_email or "admin@voxbulk.com",
+                        status="failed",
+                        event_kind="wallet.cancellation_credit_failed",
+                        source="system",
+                        subscription_id=sub.id,
+                        failure_reason="Outstanding invoices block wallet credit at period end",
+                        metadata={"outstanding_invoice_minor": outstanding},
+                        commit=False,
+                    )
+                    OrgAuditService.record(
+                        db,
+                        org_id=org.id,
+                        action="Period-end wallet credit blocked",
+                        event_type="subscription.cancellation_wallet_blocked",
+                        entity_type="subscription",
+                        entity_id=sub.id,
+                        metadata={"outstanding_invoice_minor": outstanding},
+                        commit=False,
+                    )
+                else:
+                    unused = SubscriptionCancellationService.calculate_unused_value_pence(db, org, sub, plan)
+                    if unused > 0:
+                        try:
+                            wallet_result = SubscriptionCancellationService.issue_wallet_credit(
+                                db,
+                                org=org,
+                                sub=sub,
+                                amount_minor=unused,
+                                admin_user_id=None,
+                                note="Unused subscription value at period end",
+                                refund_review=review,
+                            )
+                            stats["wallet_credit_issued"] += 1
+                            if review and wallet_result.get("wallet_transaction_id"):
+                                review.review_status = REVIEW_COMPLETED
+                                review.resolved_at = now
+                                review.updated_at = now
+                                db.add(review)
+                        except SubscriptionCancellationError as exc:
+                            stats["wallet_credit_failed"] += 1
+                            wallet_result = {"error": str(exc)}
+                            from app.services.payment_event_service import PaymentEventService
+
+                            PaymentEventService.record_finance(
+                                db,
+                                org_id=org.id,
+                                client_email=org.contact_email or "admin@voxbulk.com",
+                                status="failed",
+                                event_kind="wallet.cancellation_credit_failed",
+                                source="system",
+                                subscription_id=sub.id,
+                                failure_reason=str(exc)[:500],
+                                metadata={"unused_minor": unused},
+                                commit=False,
+                            )
+                            OrgAuditService.record(
+                                db,
+                                org_id=org.id,
+                                action="Period-end wallet credit failed",
+                                event_type="subscription.cancellation_wallet_failed",
+                                entity_type="subscription",
+                                entity_id=sub.id,
+                                metadata={"error": str(exc), "unused_minor": unused},
+                                commit=False,
+                            )
+
             sub.cancellation_status = CANCELLATION_CANCELLED
             sub.status = "cancelled"
             sub.cancelled_at = now
+            sub.cancel_at_period_end = False
+            sub.next_billing_date = None
             sub.updated_at = now
             db.add(sub)
+            if org:
+                from app.services.billing_finance_service import BillingFinanceService
+
+                BillingFinanceService.sync_subscription_billing_fields(
+                    db, sub, org=org, plan=plan, commit=False
+                )
             OrgAuditService.record(
                 db,
                 org_id=sub.org_id,
@@ -588,9 +725,25 @@ class SubscriptionCancellationService:
                 event_type="subscription.cancellation_effective",
                 entity_type="subscription",
                 entity_id=sub.id,
-                metadata={"effective_at": now.isoformat()},
+                metadata={"effective_at": now.isoformat(), "wallet_result": wallet_result},
                 commit=False,
             )
+            if org:
+                from app.services.payment_event_service import PaymentEventService
+
+                PaymentEventService.record_finance(
+                    db,
+                    org_id=org.id,
+                    client_email=org.contact_email or "admin@voxbulk.com",
+                    event_kind="subscription.cancellation_closed",
+                    source="system",
+                    subscription_id=sub.id,
+                    metadata={
+                        "wallet_result": wallet_result,
+                        "requested_refund_type": refund_type,
+                    },
+                    commit=False,
+                )
             stats["finalized"] += 1
         if stats["finalized"]:
             db.commit()
@@ -674,6 +827,23 @@ class SubscriptionCancellationService:
             metadata={"amount_minor": amount, "credit_note_id": credit_note.id},
             commit=False,
         )
+        from app.services.payment_event_service import PaymentEventService
+
+        PaymentEventService.record_finance(
+            db,
+            org_id=org.id,
+            client_email=org.contact_email or "admin@voxbulk.com",
+            event_kind="wallet.cancellation_credit",
+            actor_user_id=admin_user_id,
+            subscription_id=sub.id,
+            metadata={
+                "amount_minor": amount,
+                "wallet_transaction_id": tx.id,
+                "credit_note_id": credit_note.id,
+                "refund_review_id": review.id if review else None,
+            },
+            commit=False,
+        )
         db.flush()
         return {
             "wallet_credit_pence": amount,
@@ -697,7 +867,7 @@ class SubscriptionCancellationService:
         review = db.get(BillingRefundReview, review_id)
         if review is None:
             raise SubscriptionCancellationError("Refund review not found")
-        if review.review_status in {REVIEW_COMPLETED, REVIEW_REJECTED, REVIEW_CANCELLED}:
+        if review.review_status in {REVIEW_COMPLETED, REVIEW_PROCESSED, REVIEW_REJECTED, REVIEW_CANCELLED, REVIEW_FAILED}:
             raise SubscriptionCancellationError("Refund review is already resolved")
 
         org = db.get(Organisation, review.org_id)
@@ -736,7 +906,10 @@ class SubscriptionCancellationService:
             }
 
         status = str(review_status or REVIEW_COMPLETED).strip().lower()
-        if status not in {REVIEW_APPROVED, REVIEW_COMPLETED, REVIEW_REJECTED}:
+        if status == REVIEW_PROCESSED:
+            status = REVIEW_COMPLETED
+        allowed = {REVIEW_UNDER_REVIEW, REVIEW_APPROVED, REVIEW_COMPLETED, REVIEW_REJECTED, REVIEW_FAILED}
+        if status not in allowed:
             raise SubscriptionCancellationError("Invalid review status")
 
         if approved_external_refund_pence is not None:
@@ -761,6 +934,40 @@ class SubscriptionCancellationService:
                     note_suffix = f"Stripe refund {stripe_refund_id}"
                     review.admin_notes = ((review.admin_notes or "") + f"\n{note_suffix}").strip()[:4000]
                 except StripeProviderError as exc:
+                    review.review_status = REVIEW_FAILED
+                    review.admin_notes = ((review.admin_notes or "") + f"\nStripe refund failed: {exc}").strip()[:4000]
+                    review.resolved_by_user_id = admin_user_id
+                    review.resolved_at = now
+                    review.updated_at = now
+                    db.add(review)
+                    from app.services.payment_event_service import PaymentEventService
+
+                    PaymentEventService.record(
+                        db,
+                        org_id=review.org_id,
+                        client_email=org.contact_email if org else "admin@voxbulk.com",
+                        status="failed",
+                        event_kind="refund.failed",
+                        source="stripe",
+                        failure_reason=str(exc)[:500],
+                        actor_user_id=admin_user_id,
+                        subscription_id=review.subscription_id,
+                        metadata={"refund_review_id": review.id},
+                        commit=False,
+                    )
+                    OrgAuditService.record_admin(
+                        db,
+                        org_id=review.org_id,
+                        event_type="refund_review.failed",
+                        action="Refund review failed",
+                        entity_type="billing_refund_review",
+                        entity_id=review.id,
+                        actor_user_id=admin_user_id,
+                        detail=str(exc)[:500],
+                        commit=False,
+                    )
+                    db.commit()
+                    db.refresh(review)
                     raise SubscriptionCancellationError(f"Stripe refund failed: {exc}") from exc
             review.approved_external_refund_pence = ext
 
@@ -781,6 +988,24 @@ class SubscriptionCancellationService:
             actor_user_id=admin_user_id,
             detail=admin_notes,
             metadata={"wallet_result": wallet_result, "approved_external_refund_pence": review.approved_external_refund_pence},
+            commit=False,
+        )
+        from app.services.payment_event_service import PaymentEventService
+
+        event_status = "failed" if status == REVIEW_FAILED else "succeeded"
+        PaymentEventService.record_finance(
+            db,
+            org_id=review.org_id,
+            client_email=(org.contact_email if org else None) or "admin@voxbulk.com",
+            status=event_status,
+            event_kind=f"refund.{status}",
+            actor_user_id=admin_user_id,
+            subscription_id=review.subscription_id,
+            metadata={
+                "refund_review_id": review.id,
+                "wallet_result": wallet_result,
+                "approved_external_refund_pence": review.approved_external_refund_pence,
+            },
             commit=False,
         )
         db.commit()

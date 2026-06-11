@@ -67,6 +67,16 @@ class OrgControlCenterActionsService:
             actor_email=actor_email,
         )
         org = db.get(Organisation, org_id)
+        from app.services.payment_event_service import PaymentEventService
+
+        PaymentEventService.record_finance(
+            db,
+            org_id=org_id,
+            client_email=(org.contact_email if org else None) or actor_email or "admin@voxbulk.com",
+            event_kind="wallet.credit",
+            actor_user_id=actor_user_id,
+            metadata={"amount_minor": amount_minor, **result},
+        )
         return {"ok": True, **result, **WalletService.wallet_dict(db, org)}
 
     @staticmethod
@@ -108,6 +118,16 @@ class OrgControlCenterActionsService:
             metadata={"amount_minor": amount, "transaction_id": tx.id},
             actor_user_id=actor_user_id,
             actor_email=actor_email,
+        )
+        from app.services.payment_event_service import PaymentEventService
+
+        PaymentEventService.record_finance(
+            db,
+            org_id=org_id,
+            client_email=org.contact_email or actor_email or "admin@voxbulk.com",
+            event_kind="wallet.debit",
+            actor_user_id=actor_user_id,
+            metadata={"amount_minor": amount, "transaction_id": tx.id},
         )
         return {"ok": True, "wallet_transaction": WalletService.transaction_to_dict(tx), **WalletService.wallet_dict(db, org)}
 
@@ -873,6 +893,6 @@ class OrgControlCenterActionsService:
         return {"ok": True, "profile_notes": org.profile_notes}
 
     @staticmethod
-    def wallet_history(db: Session, org_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    def wallet_history(db: Session, org_id: str, *, limit: int = 250) -> list[dict[str, Any]]:
         rows = WalletService.list_transactions(db, org_id, limit=limit)
         return [WalletService.transaction_to_dict(r) for r in rows]

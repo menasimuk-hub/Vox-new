@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { money } from '../lib/billingAdminUtils'
 
 const TAB_IDS = ['overview', 'profile', 'branches', 'users', 'plan', 'suspend']
 
@@ -78,6 +79,10 @@ export default function OrganisationProfile() {
   const [planSaving, setPlanSaving] = useState(false)
   const [walletCreditGbp, setWalletCreditGbp] = useState('50')
   const [walletBusy, setWalletBusy] = useState(false)
+  const [financePreview, setFinancePreview] = useState(null)
+  const [upgradePreview, setUpgradePreview] = useState(null)
+  const [financeNote, setFinanceNote] = useState('')
+  const [financeBusy, setFinanceBusy] = useState(false)
 
   const [suspendSaving, setSuspendSaving] = useState(false)
 
@@ -93,6 +98,19 @@ export default function OrganisationProfile() {
   const [pendingInvites, setPendingInvites] = useState(null)
   const [userActivity, setUserActivity] = useState(null)
   const [userActivityLoading, setUserActivityLoading] = useState(false)
+
+  const refreshFinancePreview = useCallback(async () => {
+    if (!orgId) {
+      setFinancePreview(null)
+      return
+    }
+    try {
+      const preview = await apiFetch(`/admin/organisations/${encodeURIComponent(orgId)}/billing/cancellation-preview`)
+      setFinancePreview(preview)
+    } catch {
+      setFinancePreview(null)
+    }
+  }, [orgId])
 
   const refreshOrg = useCallback(async () => {
     if (!orgId) {
@@ -116,7 +134,36 @@ export default function OrganisationProfile() {
     setProfileWebsite(o?.website || '')
     setPlanCode(o?.plan_code || '')
     setSubStatus(o?.subscription_status ? String(o.subscription_status) : 'active')
+    setFinanceNote(o?.finance_notes || o?.profile_notes || '')
   }, [orgId])
+
+  useEffect(() => {
+    if (!orgId) return
+    refreshFinancePreview().catch(() => setFinancePreview(null))
+  }, [orgId, refreshFinancePreview, org?.updated_at])
+
+  useEffect(() => {
+    if (!orgId || !planCode.trim() || planCode.trim() === String(org?.plan_code || '').trim()) {
+      setUpgradePreview(null)
+      return undefined
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      apiFetch(
+        `/admin/organisations/${encodeURIComponent(orgId)}/billing/upgrade-preview?plan_code=${encodeURIComponent(planCode.trim())}`,
+      )
+        .then((res) => {
+          if (!cancelled) setUpgradePreview(res)
+        })
+        .catch(() => {
+          if (!cancelled) setUpgradePreview(null)
+        })
+    }, 300)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [orgId, planCode, org?.plan_code])
 
   const refreshBranches = useCallback(async () => {
     if (!orgId) {
@@ -366,7 +413,7 @@ export default function OrganisationProfile() {
         body: JSON.stringify({ amount_pence: amountPence, note: 'Admin test credit' }),
       })
       await refreshOrg()
-      window.alert(`Wallet credited. New balance: ${res.wallet_balance_gbp || ''}`)
+      window.alert(`Wallet credited. New balance: ${res.wallet_balance_display || res.wallet_balance_gbp || ''}`)
     } catch (e) {
       window.alert(e?.message || 'Could not credit wallet')
     } finally {
@@ -523,9 +570,13 @@ export default function OrganisationProfile() {
                 <div className='list'>
                   <div className='listRow'><span>Status</span><strong>{org?.subscription_status || '—'}</strong></div>
                   <div className='listRow'><span>Plan</span><strong>{org?.plan_name || org?.plan_code || '—'}</strong></div>
+                  <div className='listRow'><span>Next billing</span><strong>{financePreview?.subscription_finance?.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
+                  <div className='listRow'><span>Next charge</span><strong>{financePreview?.subscription_finance?.amount_next_payment_display || '—'}</strong></div>
+                  <div className='listRow'><span>Cancellation</span><strong>{financePreview?.status || 'none'}</strong></div>
                 </div>
                 <div className='actions' style={{ marginTop: 12, flexWrap: 'wrap' }}>
                   <button type='button' className='btn soft' onClick={() => selectTab('plan')}>Manage plan</button>
+                  <Link to='/organisations/all-users' className='btn soft' onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}>Finance console</Link>
                   <Link to='/onboarding/services' className='btn soft'>Product services</Link>
                 </div>
               </div>
@@ -1000,6 +1051,14 @@ export default function OrganisationProfile() {
               <p className='muted' style={{ fontSize: 13, margin: 0 }}>
                 Current: <strong>{org?.plan_name || org?.plan_code || '—'}</strong> ({org?.subscription_status || '—'})
               </p>
+              {financePreview?.subscription_finance ? (
+                <div className='list' style={{ fontSize: 13 }}>
+                  <div className='listRow'><span>Next billing</span><strong>{financePreview.subscription_finance.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
+                  <div className='listRow'><span>Next charge</span><strong>{financePreview.subscription_finance.amount_next_payment_display || '—'}</strong></div>
+                  <div className='listRow'><span>Cancel at period end</span><strong>{financePreview.subscription_finance.cancel_at_period_end ? 'Yes' : 'No'}</strong></div>
+                  <div className='listRow'><span>Unused value (est.)</span><strong>{financePreview.calculated_unused_value_display || '—'}</strong></div>
+                </div>
+              ) : null}
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>Plan</span>
                 <select className='select' value={planCode} onChange={(e) => setPlanCode(e.target.value)} disabled={!orgId}>
@@ -1013,6 +1072,13 @@ export default function OrganisationProfile() {
                 <span className='muted' style={{ fontSize: 12 }}>Subscription status</span>
                 <input className='input' value={subStatus} onChange={(e) => setSubStatus(e.target.value)} placeholder='active, trial…' disabled={!orgId} />
               </label>
+              {upgradePreview ? (
+                <div className='list' style={{ fontSize: 13, padding: 10, background: 'var(--surface2, #f8fafc)', borderRadius: 8 }}>
+                  <div className='listRow'><span>Upgrade preview</span><strong>{upgradePreview.new_plan_name || upgradePreview.new_plan_code}</strong></div>
+                  <div className='listRow'><span>Pro-rata charge</span><strong>{upgradePreview.pro_rata_display || money(upgradePreview.pro_rata_minor, upgradePreview.currency)}</strong></div>
+                  <div className='listRow'><span>New monthly</span><strong>{upgradePreview.new_monthly_display || money(upgradePreview.new_monthly_minor, upgradePreview.currency)}</strong></div>
+                </div>
+              ) : null}
               <button className='btn primary' disabled={!orgId || planSaving || !planCode.trim()} onClick={savePlan}>
                 {planSaving ? 'Applying…' : 'Apply plan'}
               </button>
@@ -1023,13 +1089,13 @@ export default function OrganisationProfile() {
           </div>
 
           <div className='card'>
-            <div className='cardHead'><h3>Wallet (test credit)</h3></div>
+            <div className='cardHead'><h3>Wallet & finance</h3></div>
             <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
               <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-                Balance: <strong>{org?.wallet_balance_gbp || '£0.00'}</strong> — used for pay-as-you-go calls, surveys, and CV scans in the dashboard.
+                Balance: <strong>{org?.wallet_balance_display || org?.wallet_balance_gbp || money(0, org?.billing_currency)}</strong> — ledger-backed credits only.
               </p>
               <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Add credit (£)</span>
+                <span className='muted' style={{ fontSize: 12 }}>Add credit ({org?.billing_currency || 'GBP'})</span>
                 <input
                   className='input'
                   type='number'
@@ -1043,6 +1109,26 @@ export default function OrganisationProfile() {
               <button className='btn soft' disabled={!orgId || walletBusy} onClick={creditWallet}>
                 {walletBusy ? 'Crediting…' : 'Add wallet credit'}
               </button>
+              <Link className='btn soft' to='/billing/wallet-ledger'>Global wallet ledger</Link>
+              <Link className='btn soft' to='/organisations/all-users' onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}>Open finance console</Link>
+            </div>
+          </div>
+
+          <div className='card'>
+            <div className='cardHead'><h3>Finance notes</h3></div>
+            <div className='cardBody stack' style={{ display: 'grid', gap: 10 }}>
+              <textarea className='input' rows={4} value={financeNote} onChange={(e) => setFinanceNote(e.target.value)} disabled={!orgId} placeholder='Internal finance/admin notes…' />
+              <button className='btn soft' disabled={!orgId || financeBusy} onClick={async () => {
+                setFinanceBusy(true)
+                try {
+                  await apiFetch(`/admin/organisations/${orgId}`, { method: 'PATCH', body: JSON.stringify({ finance_notes: financeNote.trim() || null }) })
+                  await refreshOrg()
+                } catch (e) {
+                  window.alert(e?.message || 'Could not save notes')
+                } finally {
+                  setFinanceBusy(false)
+                }
+              }}>{financeBusy ? 'Saving…' : 'Save notes'}</button>
             </div>
           </div>
         </div>

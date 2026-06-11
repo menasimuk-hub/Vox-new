@@ -93,6 +93,7 @@ export default function Billing() {
   const [subscriptions, setSubscriptions] = useState([])
   const [pendingCash, setPendingCash] = useState([])
   const [events, setEvents] = useState([])
+  const [opsSummary, setOpsSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [pendingBusy, setPendingBusy] = useState('')
@@ -123,6 +124,11 @@ export default function Billing() {
     setEvents(Array.isArray(rows) ? rows : [])
   }, [])
 
+  const loadOpsSummary = useCallback(async () => {
+    const row = await apiFetch('/admin/billing/ops-summary').catch(() => null)
+    setOpsSummary(row || null)
+  }, [])
+
   const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -131,12 +137,13 @@ export default function Billing() {
       if (isSubscriptions || isMandates) await loadSubscriptions()
       if (isSubscriptions) await loadPending()
       if (isFailed) await loadEvents()
+      if (isReports) await loadOpsSummary()
     } catch (e) {
       setError(e?.message || 'Could not load billing data')
     } finally {
       setLoading(false)
     }
-  }, [isSubscriptions, isMandates, isFailed, loadOverview, loadSubscriptions, loadPending, loadEvents])
+  }, [isSubscriptions, isMandates, isFailed, isReports, loadOverview, loadSubscriptions, loadPending, loadEvents, loadOpsSummary])
 
   useEffect(() => {
     let cancelled = false
@@ -148,6 +155,7 @@ export default function Billing() {
         if (isSubscriptions || isMandates) await loadSubscriptions()
         if (isSubscriptions) await loadPending()
         if (isFailed) await loadEvents()
+        if (isReports) await loadOpsSummary()
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Could not load billing data')
       } finally {
@@ -157,7 +165,7 @@ export default function Billing() {
     return () => {
       cancelled = true
     }
-  }, [pathname, isSubscriptions, isMandates, isFailed, loadOverview, loadSubscriptions, loadPending, loadEvents])
+  }, [pathname, isSubscriptions, isMandates, isFailed, isReports, loadOverview, loadSubscriptions, loadPending, loadEvents, loadOpsSummary])
 
   useEffect(() => {
     if (!isSubscriptions && !isMandates) return undefined
@@ -249,7 +257,7 @@ export default function Billing() {
           <span className="billingPlanName">{row.plan_name}</span>
           <span className="muted billingListSub">{row.plan_code}</span>
         </td>
-        <td className="billingListAmount">{money(row.plan_price_gbp_pence)}</td>
+        <td className="billingListAmount">{money(row.plan_price_gbp_pence, row.billing_currency)}</td>
         <td>
           <span className={`pill billingStatusPill ${statusPillClass(row.status)}`}>{row.status || '—'}</span>
           {hasPendingChange ? (
@@ -262,7 +270,13 @@ export default function Billing() {
           <span className="billingTag">{providerLabel(row.payment_provider)}</span>
           {row.payment_mode ? <span className="muted billingListSub">{row.payment_mode}</span> : null}
         </td>
-        <td className="muted">{dateShort(row.current_period_end)}</td>
+        <td className="muted">
+          {dateShort(row.next_billing_date || row.current_period_end)}
+          {row.cancel_at_period_end ? <span className="billingPendingChange"> · cancel pending</span> : null}
+        </td>
+        <td className="billingListAmount">
+          {row.amount_next_payment_minor != null ? money(row.amount_next_payment_minor, row.billing_currency) : '—'}
+        </td>
         <td className="muted">{dateShort(row.updated_at)}</td>
         <td className="billingListActions">
           <button type="button" className="btn soft xs" onClick={() => openOrganisation(row.org_id)} title="Open organisation">
@@ -515,6 +529,7 @@ export default function Billing() {
                           <th>Status</th>
                           <th>Provider</th>
                           <th>Renews</th>
+                          <th>Next charge</th>
                           <th>Updated</th>
                           <th />
                         </tr>
@@ -598,6 +613,38 @@ export default function Billing() {
 
           {isReports && (
             <div className="billingReportsGrid">
+              {opsSummary ? (
+                <div className="billingStatsRow" style={{ gridColumn: '1 / -1' }}>
+                  <StatCard
+                    label="Pending refunds"
+                    value={n(opsSummary.pending_refund_queue)}
+                    hint="Awaiting admin review"
+                    accent="var(--amber)"
+                    pill="Queue"
+                    pillClass="p-amber"
+                  />
+                  <StatCard
+                    label="Failed payments"
+                    value={n(opsSummary.failed_payments)}
+                    hint="Recent provider failures"
+                    accent="var(--red)"
+                    pill="Review"
+                    pillClass="p-red"
+                  />
+                  <StatCard
+                    label="Billing exceptions"
+                    value={n(opsSummary.billing_exceptions?.total)}
+                    hint="Anomalies detected"
+                    accent="var(--cyan)"
+                  />
+                  <StatCard
+                    label="Wallet liability"
+                    value={money(opsSummary.wallet_liability_minor)}
+                    hint="Sum of org wallet balances"
+                    accent="var(--green)"
+                  />
+                </div>
+              ) : null}
               <div className="billingPanel">
                 <div className="billingPanelHead">
                   <h3>Subscription breakdown</h3>
@@ -652,6 +699,15 @@ export default function Billing() {
                   </Link>
                   <Link className="billingQuickLink" to="/integrations/gocardless">
                     <i className="ti ti-plug" /> GoCardless integration
+                  </Link>
+                  <Link className="billingQuickLink" to="/billing/refunds">
+                    <i className="ti ti-arrow-back-up" /> Refunds queue
+                  </Link>
+                  <Link className="billingQuickLink" to="/billing/exceptions">
+                    <i className="ti ti-alert-triangle" /> Billing exceptions
+                  </Link>
+                  <Link className="billingQuickLink" to="/billing/wallet-ledger">
+                    <i className="ti ti-wallet" /> Wallet ledger
                   </Link>
                 </div>
               </div>

@@ -212,6 +212,19 @@ class InvoiceLifecycleService:
             actor_user_id=actor_user_id,
             actor_email=actor_email,
         )
+        from app.models.organisation import Organisation
+        from app.services.payment_event_service import PaymentEventService
+
+        org = db.get(Organisation, invoice.org_id)
+        PaymentEventService.record_finance(
+            db,
+            org_id=invoice.org_id,
+            client_email=(org.contact_email if org else None) or actor_email or "admin@voxbulk.com",
+            event_kind="invoice.voided",
+            actor_user_id=actor_user_id,
+            metadata={"invoice_id": invoice.id, "reason": note},
+            commit=False,
+        )
         db.commit()
         db.refresh(invoice)
         return invoice

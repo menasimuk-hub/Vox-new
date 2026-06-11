@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -40,6 +40,13 @@ class Subscription(Base):
     requested_refund_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
     cancellation_requested_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     cancellation_support_ticket_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("support_tickets.id"), nullable=True)
+
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    next_billing_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    amount_next_payment_minor: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    billing_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    tax_rate_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    tax_country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

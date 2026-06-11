@@ -2148,15 +2148,40 @@ def admin_bulk_patch_org_allowed_services(
 
 
 @router.patch("/organisations/{org_id}")
-def admin_patch_organisation(org_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+def admin_patch_organisation(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_audit_service import OrgAuditService
+
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    actor_id, actor_email = _control_center_actor(principal)
     if "name" in payload and payload["name"] is not None:
         name = str(payload["name"]).strip()
         if name:
             org.name = name
-    if "profile_notes" in payload:
+    if "finance_notes" in payload:
+        v = payload.get("finance_notes")
+        before = org.profile_notes
+        after = str(v).strip() if v is not None and str(v).strip() != "" else None
+        org.profile_notes = after
+        OrgAuditService.record_admin(
+            db,
+            org_id=org_id,
+            event_type="finance.notes_updated",
+            action="Finance notes updated",
+            entity_type="organisation",
+            entity_id=org_id,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+            metadata={"before": before, "after": after},
+            commit=False,
+        )
+    elif "profile_notes" in payload:
         v = payload.get("profile_notes")
         org.profile_notes = str(v).strip() if v is not None and str(v).strip() != "" else None
     if "category_id" in payload:
@@ -2267,29 +2292,65 @@ def admin_credit_org_wallet(
     org_id: str,
     payload: dict,
     db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_ORG_OPS)),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
 ):
-    from app.services.voxbulk_pricing_service import VoxbulkPricingService
+    from app.models.organisation import Organisation
+    from app.services.billing_lifecycle_service import BillingLifecycleService
+    from app.services.market_zone import country_to_zone, format_wallet_pence
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.payment_event_service import PaymentEventService
+    from app.services.wallet_service import WalletService
 
     org = db.get(Organisation, org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    amount = int(payload.get("amount_pence") or 0)
+    amount = int(payload.get("amount_pence") or payload.get("amount_minor") or 0)
     if amount <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="amount_pence must be positive")
-    org = VoxbulkPricingService.deposit_wallet(db, org, amount)
-    from app.services.market_zone import country_to_zone, format_wallet_pence
-
+    note = str(payload.get("note") or payload.get("reason") or "Admin wallet credit").strip()
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        result = BillingLifecycleService.admin_wallet_credit(
+            db,
+            org_id=org_id,
+            amount_minor=amount,
+            reason=note,
+            created_by_user_id=actor_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    OrgAuditService.record_admin(
+        db,
+        org_id=org_id,
+        event_type="wallet.credit",
+        action="Admin wallet credit",
+        entity_type="organisation",
+        entity_id=org_id,
+        actor_user_id=actor_id,
+        actor_email=actor_email,
+        detail=note,
+        metadata={"amount_minor": amount, **(result or {})},
+    )
+    PaymentEventService.record_finance(
+        db,
+        org_id=org_id,
+        client_email=org.contact_email or actor_email or "admin@voxbulk.com",
+        event_kind="wallet.credit",
+        actor_user_id=actor_id,
+        metadata={"amount_minor": amount, "note": note},
+    )
+    db.refresh(org)
     market_zone = country_to_zone(getattr(org, "country", None))
-    wallet_pence = int(org.wallet_balance_pence or 0)
+    wallet_pence = WalletService.balance_minor(org)
     return {
         "ok": True,
         "org_id": org_id,
         "credited_pence": amount,
-        "note": str(payload.get("note") or "").strip() or None,
+        "note": note or None,
         "wallet_balance_pence": wallet_pence,
         "wallet_balance_gbp": f"£{(wallet_pence / 100):.2f}",
         "wallet_balance_display": format_wallet_pence(wallet_pence, market_zone),
+        **(result or {}),
     }
 
 
@@ -2299,6 +2360,7 @@ def admin_get_organisation_operations(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
+    from app.models.plan import Plan
     from app.models.service_order import ServiceOrder
     from app.models.subscription import Subscription
     from app.services.invoice_service import InvoiceService
@@ -2344,6 +2406,28 @@ def admin_get_organisation_operations(
     )
 
     wallet_pence = int(o.wallet_balance_pence or 0)
+    sub_row = db.execute(
+        select(Subscription).where(Subscription.org_id == org_id).order_by(Subscription.created_at.desc()).limit(1)
+    ).scalar_one_or_none()
+    subscription_finance = None
+    cancellation_preview = None
+    if sub_row is not None:
+        from app.services.billing_finance_service import BillingFinanceService
+
+        org_row = db.get(Organisation, org_id)
+        plan_row = db.get(Plan, sub_row.plan_id) if sub_row.plan_id else None
+        if org_row:
+            BillingFinanceService.sync_subscription_billing_fields(
+                db, sub_row, org=org_row, plan=plan_row, commit=True
+            )
+            subscription_finance = BillingFinanceService.subscription_finance_dict(
+                db, sub_row, org=org_row, plan=plan_row
+            )
+            try:
+                cancellation_preview = BillingFinanceService.cancellation_preview(db, org_id)
+            except ValueError:
+                cancellation_preview = None
+
     return {
         "organisation": {
             "id": o.id,
@@ -2381,6 +2465,8 @@ def admin_get_organisation_operations(
             }
             for uid, email, is_active, is_superuser, role, created_at in users
         ],
+        "subscription_finance": subscription_finance,
+        "cancellation_preview": cancellation_preview,
     }
 
 
@@ -3457,22 +3543,132 @@ def admin_list_recent_payment_events(
     _admin=Depends(require_cap(CAP_BILLING)),
 ):
     """Minimal read surface for webhook-driven billing events (debug)."""
-    cap = max(1, min(int(limit or 50), 200))
-    rows = db.execute(select(PaymentEvent).order_by(PaymentEvent.created_at.desc()).limit(cap)).scalars().all()
-    return [
-        {
-            "id": r.id,
-            "provider": r.provider,
-            "external_event_id": r.external_event_id,
-            "org_id": r.org_id,
-            "status": r.status,
-            "client_email": r.client_email,
-            "failure_reason": r.failure_reason,
-            "emailed_at": r.emailed_at.isoformat() if r.emailed_at else None,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
-        for r in rows
-    ]
+    from app.services.billing_finance_service import BillingFinanceService
+
+    return BillingFinanceService.list_payment_events(db, limit=limit)
+
+
+@router.get("/billing/payment-events")
+def admin_list_payment_events(
+    limit: int = 200,
+    provider: str | None = None,
+    status: str | None = None,
+    org_id: str | None = None,
+    event_kind: str | None = None,
+    duplicates_only: bool = False,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_finance_service import BillingFinanceService
+
+    return {"items": BillingFinanceService.list_payment_events(
+        db,
+        limit=limit,
+        provider=provider,
+        status=status,
+        org_id=org_id,
+        event_kind=event_kind,
+        duplicates_only=duplicates_only,
+    )}
+
+
+@router.get("/billing/refunds")
+def admin_list_billing_refunds(
+    limit: int = 200,
+    status: str | None = None,
+    org_id: str | None = None,
+    provider: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_finance_service import BillingFinanceService
+
+    return {"items": BillingFinanceService.list_refunds(
+        db, limit=limit, status=status, org_id=org_id, provider=provider
+    )}
+
+
+@router.get("/billing/wallet-ledger")
+def admin_list_wallet_ledger(
+    limit: int = 200,
+    org_id: str | None = None,
+    kind: str | None = None,
+    direction: str | None = None,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_finance_service import BillingFinanceService
+
+    return {"items": BillingFinanceService.list_wallet_ledger(
+        db, limit=limit, org_id=org_id, kind=kind, direction=direction, search=search
+    )}
+
+
+@router.get("/billing/exceptions")
+def admin_list_billing_exceptions(
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_exceptions_service import BillingExceptionsService
+
+    items = BillingExceptionsService.list_exceptions(db, limit=limit)
+    return {"items": items, "summary": BillingExceptionsService.summary(db)}
+
+
+@router.get("/organisations/{org_id}/billing/cancellation-preview")
+def admin_org_cancellation_preview(
+    org_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.billing_finance_service import BillingFinanceService
+
+    try:
+        return BillingFinanceService.cancellation_preview(db, org_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.get("/organisations/{org_id}/billing/upgrade-preview")
+def admin_org_upgrade_preview(
+    org_id: str,
+    plan_code: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.billing_finance_service import BillingFinanceService
+
+    try:
+        return BillingFinanceService.upgrade_preview(db, org_id, new_plan_code=plan_code)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/billing/ops-summary")
+def admin_billing_ops_summary(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.billing_exceptions_service import BillingExceptionsService
+    from app.services.billing_finance_service import BillingFinanceService
+
+    from app.models.organisation import Organisation
+    from sqlalchemy import func, select
+
+    exceptions = BillingExceptionsService.summary(db)
+    refunds = BillingFinanceService.list_refunds(db, limit=500, status="under_review")
+    failed_events = BillingFinanceService.list_payment_events(db, limit=200, status="failed")
+    wallet_liability_minor = int(
+        db.execute(select(func.coalesce(func.sum(Organisation.wallet_balance_pence), 0))).scalar_one() or 0
+    )
+    return {
+        "pending_refund_queue": len(refunds),
+        "failed_payments": len(failed_events),
+        "billing_exceptions": exceptions,
+        "wallet_liability_minor": wallet_liability_minor,
+    }
 
 
 @router.get("/billing/invoices/recent")
@@ -3728,20 +3924,47 @@ def admin_wallet_credit_org(
     db: Session = Depends(get_db),
     principal=Depends(require_cap(CAP_BILLING)),
 ):
+    from app.models.organisation import Organisation
     from app.services.billing_lifecycle_service import BillingLifecycleService
+    from app.services.org_audit_service import OrgAuditService
+    from app.services.payment_event_service import PaymentEventService
 
+    org = db.get(Organisation, org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
     reason = str(payload.get("reason") or "Admin wallet credit").strip()
+    actor_id, actor_email = _control_center_actor(principal)
     try:
         result = BillingLifecycleService.admin_wallet_credit(
             db,
             org_id=org_id,
             amount_minor=amount,
             reason=reason,
-            created_by_user_id=getattr(principal, "user_id", None),
+            created_by_user_id=actor_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    OrgAuditService.record_admin(
+        db,
+        org_id=org_id,
+        event_type="wallet.credit",
+        action="Admin wallet credit",
+        entity_type="organisation",
+        entity_id=org_id,
+        actor_user_id=actor_id,
+        actor_email=actor_email,
+        detail=reason,
+        metadata={"amount_minor": amount, **(result or {})},
+    )
+    PaymentEventService.record_finance(
+        db,
+        org_id=org_id,
+        client_email=org.contact_email or actor_email or "admin@voxbulk.com",
+        event_kind="wallet.credit",
+        actor_user_id=actor_id,
+        metadata={"amount_minor": amount, "note": reason},
+    )
     return {"ok": True, **result}
 
 

@@ -551,9 +551,20 @@ class VoxbulkPricingService:
 
     @staticmethod
     def deposit_wallet(db: Session, org: Organisation, amount_pence: int) -> Organisation:
+        """Deprecated direct balance mutation — routes through WalletService ledger."""
+        from app.services.wallet_service import WalletService
+
         amt = max(int(amount_pence or 0), 0)
-        org.wallet_balance_pence = int(org.wallet_balance_pence or 0) + amt
-        db.commit()
+        if amt <= 0:
+            return org
+        WalletService.credit(
+            db,
+            org,
+            amount_minor=amt,
+            kind="manual_adjustment",
+            provider="manual",
+            description="Legacy deposit_wallet credit",
+        )
         db.refresh(org)
         return org
 

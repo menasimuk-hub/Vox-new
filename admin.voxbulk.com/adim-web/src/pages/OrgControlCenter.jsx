@@ -288,6 +288,7 @@ export default function OrgControlCenter() {
   const [fundNote, setFundNote] = useState('')
   const [planCode, setPlanCode] = useState('')
   const [planReason, setPlanReason] = useState('')
+  const [upgradePreview, setUpgradePreview] = useState(null)
   const [invoiceAmount, setInvoiceAmount] = useState('')
   const [invoiceDue, setInvoiceDue] = useState('')
   const [countryFilter, setCountryFilter] = useState('')
@@ -390,6 +391,7 @@ export default function OrgControlCenter() {
   }, [items, chips, sortField, sortAsc])
 
   const org = detail?.organisation
+  const subscriptionFinance = detail?.subscription_finance
   const campaigns = detail?.campaigns || []
   const invoices = detail?.invoices || []
   const activity = detail?.activity || []
@@ -727,6 +729,29 @@ export default function OrgControlCenter() {
       setActionBusy('')
     }
   }
+
+  useEffect(() => {
+    if (modal !== 'package' || !selectedId || !planCode.trim() || planCode.trim() === String(org?.plan_code || '').trim()) {
+      setUpgradePreview(null)
+      return undefined
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      apiFetch(
+        `/admin/organisations/${encodeURIComponent(selectedId)}/billing/upgrade-preview?plan_code=${encodeURIComponent(planCode.trim())}`,
+      )
+        .then((res) => {
+          if (!cancelled) setUpgradePreview(res)
+        })
+        .catch(() => {
+          if (!cancelled) setUpgradePreview(null)
+        })
+    }, 300)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [modal, selectedId, planCode, org?.plan_code])
 
   const applyPlanChange = async () => {
     if (!selectedId || !planCode.trim()) {
@@ -1576,6 +1601,30 @@ export default function OrgControlCenter() {
           </div>
 
           <div className={`occ-tab-content ${activeTab === 'billing' ? 'active' : ''}`}>
+            {org?.next_billing_date || org?.amount_next_payment_display ? (
+              <div className="occ-info-block" style={{ marginBottom: 12 }}>
+                <div className="occ-info-block-title">Subscription renewal</div>
+                <div className="occ-info-row">
+                  <span className="occ-info-row-label">Next billing date</span>
+                  <span className="occ-info-row-value">{org.next_billing_date ? fmtWhen(org.next_billing_date) : '—'}</span>
+                </div>
+                <div className="occ-info-row">
+                  <span className="occ-info-row-label">Next charge</span>
+                  <span className="occ-info-row-value">{org.amount_next_payment_display || '—'}</span>
+                </div>
+                <div className="occ-info-row">
+                  <span className="occ-info-row-label">Mandate</span>
+                  <span className="occ-info-row-value">{org.mandate_status || '—'}</span>
+                </div>
+                {org.cancel_at_period_end ? (
+                  <div className="occ-info-row">
+                    <span className="occ-info-row-label">Cancellation</span>
+                    <span className="occ-info-row-value">Active until period end</span>
+                  </div>
+                ) : null}
+                <Link className="occ-btn" to="/billing/refunds" style={{ marginTop: 8, display: 'inline-block' }}>Global refunds queue</Link>
+              </div>
+            ) : null}
             <p className="occ-muted" style={{ fontSize: 13, marginBottom: 12 }}>
               Wallet credits, plan changes, and overage settings. To edit or void invoices, open the{' '}
               <button
@@ -1652,26 +1701,66 @@ export default function OrgControlCenter() {
                   </span>
                 </div>
               </div>
+              {subscriptionFinance?.tax_country_code || subscriptionFinance?.tax_rate_percent != null ? (
+                <div className="occ-info-block">
+                  <div className="occ-info-block-title">Tax profile</div>
+                  <div className="occ-info-row">
+                    <span className="occ-info-row-label">Billing country</span>
+                    <span className="occ-info-row-value">{subscriptionFinance.tax_country_code || detail?.billing_profile?.country_code || '—'}</span>
+                  </div>
+                  <div className="occ-info-row">
+                    <span className="occ-info-row-label">VAT / tax rate</span>
+                    <span className="occ-info-row-value">
+                      {subscriptionFinance.tax_rate_percent != null ? `${subscriptionFinance.tax_rate_percent}%` : '—'}
+                    </span>
+                  </div>
+                  <div className="occ-info-row">
+                    <span className="occ-info-row-label">Billing currency</span>
+                    <span className="occ-info-row-value">{subscriptionFinance.billing_currency || org?.billing_currency || 'GBP'}</span>
+                  </div>
+                </div>
+              ) : null}
               <div className="occ-info-block">
-                <div className="occ-info-block-title">Wallet history</div>
+                <div className="occ-info-block-title">
+                  Wallet ledger
+                  <Link className="occ-btn" to="/billing/wallet-ledger" style={{ marginLeft: 8, fontSize: 11 }}>
+                    Global ledger
+                  </Link>
+                </div>
                 {!walletHistory.length ? (
                   <div className="occ-empty-state">No wallet transactions yet.</div>
                 ) : (
-                  walletHistory.slice(0, 20).map((tx) => (
-                    <div key={tx.id} className="occ-info-row">
-                      <span className="occ-info-row-label">
-                        {tx.kind} · {fmtWhen(tx.created_at)}
-                        {tx.invoice_id ? ` · inv ${String(tx.invoice_id).slice(0, 8)}` : tx.order_id ? ` · ord ${String(tx.order_id).slice(0, 8)}` : ''}
-                      </span>
-                      <span className="occ-info-row-value" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        {tx.direction === 'credit' ? '+' : '-'}
-                        {tx.amount_display || fmtMoneyPence(tx.amount_minor, org)}
-                        <button type="button" className="occ-btn-xs" disabled={actionBusy === `reverse-${tx.id}`} onClick={() => reverseWalletTx(tx.id)}>
-                          Reverse
-                        </button>
-                      </span>
-                    </div>
-                  ))
+                  <div className="occ-data-table-wrap">
+                    <table className="occ-data-table">
+                      <thead>
+                        <tr>
+                          <th>When</th>
+                          <th>Kind</th>
+                          <th>Amount</th>
+                          <th>Balance</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {walletHistory.map((tx) => (
+                          <tr key={tx.id}>
+                            <td style={{ fontSize: 12 }}>{fmtWhen(tx.created_at)}</td>
+                            <td style={{ fontSize: 12 }}>{tx.kind}</td>
+                            <td style={{ fontSize: 12 }}>
+                              {tx.direction === 'credit' ? '+' : '-'}
+                              {tx.amount_display || fmtMoneyPence(tx.amount_minor, org)}
+                            </td>
+                            <td style={{ fontSize: 12 }}>{tx.balance_after_display || '—'}</td>
+                            <td>
+                              <button type="button" className="occ-btn-xs" disabled={actionBusy === `reverse-${tx.id}`} onClick={() => reverseWalletTx(tx.id)}>
+                                Reverse
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
               </div>
@@ -1893,6 +1982,19 @@ export default function OrgControlCenter() {
                 </select>
                 <label className="occ-modal-label">Reason</label>
                 <input className="occ-modal-input" type="text" value={planReason} onChange={(e) => setPlanReason(e.target.value)} />
+                {upgradePreview ? (
+                  <div className="occ-info-block" style={{ marginTop: 10 }}>
+                    <div className="occ-info-block-title">Upgrade preview</div>
+                    <div className="occ-info-row">
+                      <span className="occ-info-row-label">Pro-rata charge</span>
+                      <span className="occ-info-row-value">{upgradePreview.pro_rata_display || '—'}</span>
+                    </div>
+                    <div className="occ-info-row">
+                      <span className="occ-info-row-label">New monthly</span>
+                      <span className="occ-info-row-value">{upgradePreview.new_monthly_display || '—'}</span>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="occ-modal-footer">
                   <button type="button" className="occ-btn" onClick={() => setModal(null)}>
                     Cancel

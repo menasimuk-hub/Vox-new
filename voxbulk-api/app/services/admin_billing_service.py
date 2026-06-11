@@ -135,6 +135,12 @@ class AdminBillingService:
                     "external_customer_id": sub.external_customer_id,
                     "external_subscription_id": sub.external_subscription_id,
                     "current_period_end": sub.current_period_end,
+                    "next_billing_date": sub.next_billing_date,
+                    "amount_next_payment_minor": sub.amount_next_payment_minor,
+                    "billing_currency": sub.billing_currency,
+                    "cancel_at_period_end": bool(sub.cancel_at_period_end),
+                    "cancellation_status": sub.cancellation_status,
+                    "mandate_status": sub.mandate_status,
                     "created_at": sub.created_at,
                     "updated_at": sub.updated_at,
                 }

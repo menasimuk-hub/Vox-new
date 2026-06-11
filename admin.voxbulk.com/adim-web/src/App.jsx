@@ -10,7 +10,12 @@ import OrganisationProfile from './pages/OrganisationProfile'
 import Categories from './pages/Categories'
 import OperationsQueue from './pages/OperationsQueue'
 import Billing from './pages/Billing'
+import BillingExceptions from './pages/BillingExceptions'
 import InvoicesAdmin from './pages/InvoicesAdmin'
+import PaymentEventsAdmin from './pages/PaymentEventsAdmin'
+import RefundsAdmin from './pages/RefundsAdmin'
+import TaxAdmin from './pages/TaxAdmin'
+import WalletLedgerAdmin from './pages/WalletLedgerAdmin'
 import ProductsHub from './pages/ProductsHub'
 import ProductPlanEdit from './pages/ProductPlanEdit'
 import CallsCost from './pages/CallsCost'
@@ -183,6 +188,11 @@ export default function App() {
         <Route path='/billing/subscriptions' element={<Billing />} />
         <Route path='/billing/invoices' element={<InvoicesAdmin />} />
         <Route path='/billing/failed-payments' element={<Billing />} />
+        <Route path='/billing/refunds' element={<RefundsAdmin />} />
+        <Route path='/billing/payment-events' element={<PaymentEventsAdmin />} />
+        <Route path='/billing/wallet-ledger' element={<WalletLedgerAdmin />} />
+        <Route path='/billing/tax' element={<TaxAdmin />} />
+        <Route path='/billing/exceptions' element={<BillingExceptions />} />
         <Route path='/billing/reports' element={<Billing />} />
         <Route path='/billing/calls-cost' element={<CallsCost />} />
         <Route path='/billing/packages' element={<Navigate to='/billing/products?tab=subscription' replace />} />
