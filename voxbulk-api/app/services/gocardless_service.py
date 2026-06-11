@@ -23,6 +23,7 @@ from app.models.billing_redirect_flow import BillingRedirectFlow
 from app.models.plan import Plan
 from app.models.subscription import Subscription
 from app.models.user import User
+from app.services.billing_access_service import BillingAccessService
 from app.services.provider_settings import ProviderSettingsService
 
 
@@ -105,16 +106,7 @@ class BillingService:
 
     @staticmethod
     def get_subscription(db: Session, org_id: str) -> Subscription | None:
-        return (
-            db.execute(
-                select(Subscription)
-                .where(Subscription.org_id == org_id)
-                .order_by(Subscription.updated_at.desc(), Subscription.created_at.desc())
-                .limit(1)
-            )
-            .scalars()
-            .first()
-        )
+        return BillingAccessService.get_subscription(db, org_id, service_code="voxbulk")
 
     @staticmethod
     def _is_payg_like_plan(plan: Plan | None) -> bool:
@@ -939,7 +931,11 @@ class BillingService:
             raise ValueError("Plan not found")
 
         if row.status == "completed":
-            sub = BillingService.get_subscription(db, org_id)
+            sub = BillingAccessService.get_subscription(
+                db,
+                org_id,
+                service_code="customer_feedback" if str(row.flow_purpose or "") == "customer_feedback" else "voxbulk",
+            )
             logger.info(
                 "gocardless_complete_already_done",
                 extra={"redirect_flow_id": flow_id, "org_id": org_id, "subscription_status": sub.status if sub else None},
@@ -1031,9 +1027,10 @@ class BillingService:
             logger.warning("gocardless_mandate_scheme_lookup_failed mandate_id=%s", mandate_id)
 
         now = datetime.utcnow()
-        sub = BillingService.get_subscription(db, org_id)
+        service_code = "customer_feedback" if str(row.flow_purpose or "") == "customer_feedback" else "voxbulk"
+        sub = BillingAccessService.get_subscription(db, org_id, service_code=service_code)
         if sub is None:
-            sub = Subscription(org_id=org_id, plan_id=plan.id)
+            sub = Subscription(org_id=org_id, plan_id=plan.id, service_code=service_code)
         sub.plan_id = plan.id
         sub.current_period_end = now + timedelta(days=30)
         sub.payment_provider = "gocardless"
@@ -1131,6 +1128,12 @@ class BillingService:
                         "error": str(exc)[:500],
                     },
                 )
+
+        if service_code == "customer_feedback":
+            from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+            FeedbackBillingService.on_subscription_activated(db, org_id=org_id, subscription=sub, plan=plan)
+            FeedbackBillingService._tag_activation_invoice(db, org_id=org_id)
 
         return {"ok": True, "status": "completed", "subscription": sub, "plan": plan}
 

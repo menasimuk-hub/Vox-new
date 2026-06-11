@@ -64,17 +64,24 @@ class BillingAccessService:
         }
 
     @staticmethod
-    def get_subscription(db: Session, org_id: str) -> Subscription | None:
+    def get_subscription(db: Session, org_id: str, *, service_code: str = "voxbulk") -> Subscription | None:
         return (
             db.execute(
                 select(Subscription)
-                .where(Subscription.org_id == org_id)
+                .where(
+                    Subscription.org_id == org_id,
+                    Subscription.service_code == service_code,
+                )
                 .order_by(Subscription.updated_at.desc(), Subscription.created_at.desc())
                 .limit(1)
             )
             .scalars()
             .first()
         )
+
+    @staticmethod
+    def get_feedback_subscription(db: Session, org_id: str) -> Subscription | None:
+        return BillingAccessService.get_subscription(db, org_id, service_code="customer_feedback")
 
     @staticmethod
     def mandate_blocks_launch(db: Session, org_id: str) -> str | None:

@@ -23,12 +23,14 @@ import {
   clearBillingQuery,
 
   clearBillingReturnState,
-
+  clearFeedbackBillingReturnState,
+  completeFeedbackGoCardlessSubscription,
   completeGoCardlessOrderPayment,
   completeGoCardlessMandateUpdate,
   completeGoCardlessSubscription,
   GC_ORDER_ID_KEY,
   readBillingReturnParams,
+  resolveFeedbackRedirectFlowId,
   resolveRedirectFlowId,
   startGoCardlessOrderPayment,
   startPaidInterviewOrder,
@@ -298,6 +300,22 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
 
     if (params?.billing !== "success") return;
+
+    const feedbackFlowId = resolveFeedbackRedirectFlowId(params);
+    if (feedbackFlowId) {
+      void (async () => {
+        try {
+          await completeFeedbackGoCardlessSubscription(feedbackFlowId);
+          clearFeedbackBillingReturnState();
+          clearBillingQuery();
+          toast.success("Customer feedback subscription activated.");
+          onComplete();
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Could not complete Customer feedback checkout");
+        }
+      })();
+      return;
+    }
 
     const redirectFlowId = resolveRedirectFlowId(params, "subscription");
 

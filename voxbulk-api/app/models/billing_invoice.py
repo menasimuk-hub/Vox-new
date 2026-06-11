@@ -35,6 +35,7 @@ class BillingInvoice(Base):
 
     # Billing lifecycle (Phase 1+)
     kind: Mapped[str | None] = mapped_column(String(40), nullable=True)  # campaign | subscription | overage | topup
+    service_code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     order_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     due_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     disputed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

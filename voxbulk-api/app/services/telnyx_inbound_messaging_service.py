@@ -419,63 +419,97 @@ class TelnyxInboundMessagingService:
                 inbound_text if _looks_like_uuid(inbound_text) else ""
             )
 
-            # Survey WA is isolated from interview booking: route survey first when applicable.
-            try:
-                from app.services.survey_whatsapp_conversation_service import (
-                    try_handle_survey_whatsapp_inbound,
-                )
+            handled_feedback = False
+            if "[ref:" in inbound_text.lower():
+                try:
+                    from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
-                survey_result = try_handle_survey_whatsapp_inbound(
-                    db,
-                    from_phone=from_norm or from_number,
-                    body=inbound_text,
-                    org_id=org_id,
-                    log_id=row.id,
-                    inbound_message_id=message_id,
-                    inbound_reply=normalized,
-                )
-                logger.info(
-                    "survey_wa_inbound_route event_type=%s message_id=%s inbound_text=%r "
-                    "button_title=%r normalized_answer=%r normalized_action=%s "
-                    "survey_handled=%s survey_reason=%s vague_followup=%s duplicate=%s log_id=%s",
-                    event_type,
-                    message_id,
-                    inbound_text[:120],
-                    (normalized.button_title or "")[:80],
-                    (normalized.normalized_answer or "")[:120],
-                    normalized.normalized_action,
-                    survey_result.get("handled") if isinstance(survey_result, dict) else None,
-                    survey_result.get("reason") if isinstance(survey_result, dict) else "none",
-                    survey_result.get("vague_followup") if isinstance(survey_result, dict) else None,
-                    survey_result.get("duplicate") if isinstance(survey_result, dict) else None,
-                    row.id,
-                )
-                if survey_result is not None:
-                    handled_survey = bool(survey_result.get("handled"))
-                    if survey_result.get("reason") == "welcome_sent_but_no_active_session":
-                        survey_session_bug = True
-                        logger.error(
-                            "welcome_sent_but_no_active_session org=%s from=%r body=%r — "
-                            "blocking sales/generic fallback",
-                            org_id,
-                            from_norm or from_number,
-                            (inbound_text or "")[:80],
-                        )
-                    if survey_result.get("duplicate"):
-                        logger.info(
-                            "survey_wa_inbound_duplicate_skipped log_id=%s message_id=%s recipient=%s",
-                            row.id,
-                            message_id,
-                            survey_result.get("recipient_id"),
-                        )
-            except Exception:
-                logger.exception(
-                    "survey_wa_inbound_handler_failed log_id=%s message_id=%s from=%r body=%r",
-                    row.id,
-                    message_id,
-                    from_norm or from_number,
-                    (body or "")[:120],
-                )
+                    feedback_result = FeedbackWhatsappService.try_handle_inbound(
+                        db,
+                        from_phone=from_norm or from_number or "",
+                        body=inbound_text,
+                        org_id=org_id,
+                    )
+                    handled_feedback = bool(feedback_result.get("handled"))
+                except Exception:
+                    logger.exception(
+                        "feedback_wa_inbound_handler_failed body=%r from=%r",
+                        inbound_text[:120],
+                        from_norm or from_number,
+                    )
+
+            # Survey WA is isolated from interview booking: route survey first when applicable.
+            if not handled_feedback:
+                try:
+                    from app.services.survey_whatsapp_conversation_service import (
+                        try_handle_survey_whatsapp_inbound,
+                    )
+
+                    survey_result = try_handle_survey_whatsapp_inbound(
+                        db,
+                        from_phone=from_norm or from_number,
+                        body=inbound_text,
+                        org_id=org_id,
+                        log_id=row.id,
+                        inbound_message_id=message_id,
+                        inbound_reply=normalized,
+                    )
+                    logger.info(
+                        "survey_wa_inbound_route event_type=%s message_id=%s inbound_text=%r "
+                        "button_title=%r normalized_answer=%r normalized_action=%s "
+                        "survey_handled=%s survey_reason=%s vague_followup=%s duplicate=%s log_id=%s",
+                        event_type,
+                        message_id,
+                        inbound_text[:120],
+                        (normalized.button_title or "")[:80],
+                        (normalized.normalized_answer or "")[:120],
+                        normalized.normalized_action,
+                        survey_result.get("handled") if isinstance(survey_result, dict) else None,
+                        survey_result.get("reason") if isinstance(survey_result, dict) else "none",
+                        survey_result.get("vague_followup") if isinstance(survey_result, dict) else None,
+                        survey_result.get("duplicate") if isinstance(survey_result, dict) else None,
+                        row.id,
+                    )
+                    if survey_result is not None:
+                        handled_survey = bool(survey_result.get("handled"))
+                        if survey_result.get("reason") == "welcome_sent_but_no_active_session":
+                            survey_session_bug = True
+                            logger.error(
+                                "welcome_sent_but_no_active_session org=%s from=%r body=%r — "
+                                "blocking sales/generic fallback",
+                                org_id,
+                                from_norm or from_number,
+                                (inbound_text or "")[:80],
+                            )
+                        if survey_result.get("duplicate"):
+                            logger.info(
+                                "survey_wa_inbound_duplicate_skipped log_id=%s message_id=%s recipient=%s",
+                                row.id,
+                                message_id,
+                                survey_result.get("recipient_id"),
+                            )
+                except Exception:
+                    logger.exception(
+                        "survey_wa_inbound_handler_failed log_id=%s message_id=%s from=%r body=%r",
+                        row.id,
+                        message_id,
+                        from_norm or from_number,
+                        (body or "")[:120],
+                    )
+
+            if not handled_feedback and not handled_survey:
+                try:
+                    from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
+
+                    feedback_result = FeedbackWhatsappService.try_handle_inbound(
+                        db,
+                        from_phone=from_norm or from_number or "",
+                        body=inbound_text,
+                        org_id=org_id,
+                    )
+                    handled_feedback = bool(feedback_result.get("handled"))
+                except Exception:
+                    logger.exception("feedback_wa_session_handler_failed from=%r", from_norm or from_number)
 
             if not handled_survey:
                 from app.services.survey_whatsapp_conversation_service import (
@@ -564,7 +598,7 @@ class TelnyxInboundMessagingService:
                             (body or "")[:120],
                             from_norm or from_number,
                         )
-            if not handled_interview and not handled_survey and not survey_session_bug:
+            if not handled_interview and not handled_survey and not survey_session_bug and not handled_feedback:
                 logger.warning(
                     "inbound_fallback_after_survey_miss org=%s from=%r body=%r — "
                     "no active survey session; routing to sales/generic handlers",

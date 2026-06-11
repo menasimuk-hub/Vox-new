@@ -7,7 +7,7 @@ import {
   PhoneCall, FilePlus2, FolderOpen, BarChart3, FileBarChart,
   ClipboardList, MessageSquareText, ListChecks, FileText,
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
-  CalendarClock, Repeat,
+  CalendarClock, Repeat, QrCode, Smile,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
   Package, CreditCard, LifeBuoy,
 } from "lucide-react";
@@ -76,6 +76,11 @@ const groups: Group[] = [
     { title: "Survey results", url: "/surveys/results", icon: BarChart3 },
     { title: "Reports", url: "/surveys/reports", icon: FileText },
   ]},
+  { key: "feedback", label: "Customer feedback", items: [
+    { title: "Create QR survey", url: "/feedback/new", icon: QrCode },
+    { title: "Saved QR surveys", url: "/feedback", icon: ListChecks },
+    { title: "Feedback results", url: "/feedback/results", icon: BarChart3 },
+  ]},
   { key: "recovery", label: "Recovery", items: [
     { title: "Recovery queue", url: "/recovery", icon: HeartPulse },
     { title: "No-show follow-up", url: "/recovery/no-show", icon: AlarmClockOff },
@@ -96,6 +101,7 @@ const groups: Group[] = [
   ]},
   { key: "account", label: "Account", items: [
     { title: "Packages & pricing", url: "/account/packages", icon: Package },
+    { title: "Customer feedback plans", url: "/account/feedback/packages", icon: Smile },
     { title: "Billing", url: "/account/billing", icon: CreditCard },
     { title: "Usage", url: "/account/usage", icon: BarChart3 },
     { title: "Support", url: "/account/support", icon: LifeBuoy },

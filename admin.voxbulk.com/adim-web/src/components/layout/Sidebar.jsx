@@ -10,6 +10,7 @@ const GROUP_ICONS = {
   Organisations: 'ti-building',
   Onboarding: 'ti-clipboard-check',
   Operations: 'ti-activity',
+  'Customer feedback': 'ti-message-circle',
   'AI Marketing': 'ti-speakerphone',
   Integrations: 'ti-plug',
   'Services API': 'ti-api',
@@ -27,6 +28,7 @@ const GROUP_SECTION = {
   Organisations: 'Main',
   Onboarding: 'Main',
   Operations: 'Main',
+  'Customer feedback': 'Main',
   'AI Marketing': 'Growth & finance',
   Integrations: 'Growth & finance',
   'Services API': 'Growth & finance',
@@ -61,6 +63,19 @@ const NAV = [
     'Onboarding',
     [
       ['Add customer', '/onboarding/add-customer'],
+    ],
+  ],
+  [
+    'Customer feedback',
+    [
+      ['Overview', '/customer-feedback/industries'],
+      ['Industries', '/customer-feedback/industries'],
+      ['Survey types', '/customer-feedback/survey-types'],
+      ['Packages', '/customer-feedback/packages'],
+      ['Subscriptions', '/customer-feedback/subscriptions'],
+      ['Locations', '/customer-feedback/locations'],
+      ['Results', '/customer-feedback/results'],
+      ['WhatsApp templates', '/customer-feedback/wa-templates'],
     ],
   ],
   [

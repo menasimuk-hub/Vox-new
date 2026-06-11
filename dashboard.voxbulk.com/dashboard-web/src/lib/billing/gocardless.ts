@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api";
 
 export const GC_FLOW_KEY = "voxbulk_gc_redirect_flow_id";
+export const GC_FEEDBACK_FLOW_KEY = "voxbulk_gc_feedback_redirect_flow_id";
 export const GC_MANDATE_FLOW_KEY = "voxbulk_gc_mandate_redirect_flow_id";
 export const GC_ORDER_FLOW_KEY = "voxbulk_gc_order_redirect_flow_id";
 export const GC_ORDER_ID_KEY = "voxbulk_gc_order_id";
@@ -87,6 +88,47 @@ export async function completeGoCardlessSubscription(redirectFlowId: string) {
     method: "POST",
     body: JSON.stringify({ redirect_flow_id: redirectFlowId }),
   });
+}
+
+export async function startFeedbackGoCardlessSubscription(planId: string) {
+  const result = await apiFetch<{
+    redirect_flow_id?: string;
+    authorization_url?: string;
+  }>("/customer-feedback/subscription/gocardless/start", {
+    method: "POST",
+    body: JSON.stringify({ plan_id: planId }),
+  });
+  const redirectFlowId = result?.redirect_flow_id;
+  const authorizationUrl = result?.authorization_url;
+  if (!redirectFlowId || !authorizationUrl) {
+    throw new Error("GoCardless did not return a checkout URL");
+  }
+  sessionStorage.setItem(GC_FEEDBACK_FLOW_KEY, redirectFlowId);
+  window.location.assign(authorizationUrl);
+}
+
+export async function completeFeedbackGoCardlessSubscription(redirectFlowId: string) {
+  return apiFetch("/customer-feedback/subscription/gocardless/complete", {
+    method: "POST",
+    body: JSON.stringify({ redirect_flow_id: redirectFlowId }),
+  });
+}
+
+export function resolveFeedbackRedirectFlowId(params: BillingReturnParams) {
+  if (params.redirectFlowId) return params.redirectFlowId;
+  try {
+    return (sessionStorage.getItem(GC_FEEDBACK_FLOW_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function clearFeedbackBillingReturnState() {
+  try {
+    sessionStorage.removeItem(GC_FEEDBACK_FLOW_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function startGoCardlessMandateUpdate() {

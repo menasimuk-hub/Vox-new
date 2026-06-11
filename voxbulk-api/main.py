@@ -56,7 +56,8 @@ from app.routers.admin_platform_services import router as admin_platform_service
 from app.routers.admin_products import router as admin_products_router
 from app.routers.admin_pricing import router as admin_pricing_router
 from app.routers.dashboard_help import router as dashboard_help_router
-from app.routers.dashboard_scripts import router as dashboard_scripts_router
+from app.routers.admin_customer_feedback import router as admin_customer_feedback_router
+from app.routers.customer_feedback import router as customer_feedback_router
 from app.routers.service_orders import router as service_orders_router
 from app.routers.interview_booking_public import router as interview_booking_public_router
 from app.routers.admin_ai_team import router as admin_ai_team_router
@@ -242,6 +243,14 @@ async def lifespan(app: FastAPI):
             EmailTemplateService.ensure_system_templates(db)
     except Exception:
         logger.exception("ensure_system_templates failed")
+    try:
+        from app.core.database import get_sessionmaker
+        from app.services.customer_feedback.seed_service import FeedbackSeedService
+
+        with get_sessionmaker()() as db:
+            FeedbackSeedService.ensure_seeded(db)
+    except Exception:
+        logger.exception("feedback_seed failed")
     try:
         from app.core.database import get_sessionmaker
         from app.services.sales_offer_template_service import ensure_default_offer_templates
@@ -510,3 +519,5 @@ app.include_router(admin_pricing_router)
 app.include_router(admin_pricing_router, prefix="/api")
 app.include_router(dashboard_help_router)
 app.include_router(dashboard_scripts_router)
+app.include_router(admin_customer_feedback_router)
+app.include_router(customer_feedback_router)

@@ -61,6 +61,98 @@ export const queryKeys = {
   teamInvites: ["organisations", "team", "invites"] as const,
   optOuts: ["organisations", "opt-outs"] as const,
   auditLog: ["organisations", "audit-log"] as const,
+  feedbackLocations: ["customer-feedback", "locations"] as const,
+  feedbackIndustries: ["customer-feedback", "catalog", "industries"] as const,
+  feedbackSurveyTypes: (industryId: string) => ["customer-feedback", "catalog", "survey-types", industryId] as const,
+  feedbackResults: (filters: Record<string, string>) => ["customer-feedback", "results", filters] as const,
+  feedbackPackages: ["customer-feedback", "packages"] as const,
+  feedbackSubscription: ["customer-feedback", "subscription"] as const,
+};
+
+export type FeedbackLocation = {
+  id: string;
+  org_id?: string;
+  name: string;
+  branch_code?: string | null;
+  industry_id: string;
+  industry_name?: string | null;
+  survey_type_id: string;
+  survey_type_name?: string | null;
+  qr_token?: string;
+  status: string;
+  scan_count: number;
+  trigger_text: string;
+  wa_url: string;
+  qr_image_url: string;
+  created_at?: string | null;
+};
+
+export type FeedbackIndustry = {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  is_active?: boolean;
+  sort_order?: number;
+};
+
+export type FeedbackSurveyType = {
+  id: string;
+  industry_id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  is_active?: boolean;
+  sort_order?: number;
+};
+
+export type FeedbackPackage = {
+  id: string;
+  plan_id: string;
+  plan_code?: string | null;
+  plan_name?: string | null;
+  market_zone?: string;
+  max_locations: number;
+  wa_units_included: number;
+  admin_notes?: string | null;
+  is_active?: boolean;
+  display_order?: number;
+  prices?: Array<{ currency: string; monthly_price_minor: number }>;
+};
+
+export type FeedbackSubscription = {
+  active: boolean;
+  status: string;
+  plan_id?: string | null;
+  plan_name?: string | null;
+  service_code?: string;
+  max_locations?: number;
+  wa_units_included?: number;
+  wa_units_used?: number;
+  wa_units_remaining?: number;
+  payment_provider?: string | null;
+  current_period_end?: string | null;
+};
+
+export type FeedbackResultsPayload = {
+  ok?: boolean;
+  locations: FeedbackLocation[];
+  summary: {
+    sessions: number;
+    completed_sessions: number;
+    responses: number;
+    total_scans: number;
+  };
+  rows: Array<{
+    id: string;
+    location_id: string;
+    location_name?: string | null;
+    survey_type_id?: string;
+    survey_type_name?: string | null;
+    question_key?: string;
+    answer_text?: string;
+    created_at?: string | null;
+  }>;
 };
 
 export function useHomeSummary() {
@@ -1437,6 +1529,89 @@ export function useDeleteOrgLogo() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.organisation });
       void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+    },
+  });
+}
+
+export function useFeedbackLocations() {
+  return useQuery({
+    queryKey: queryKeys.feedbackLocations,
+    queryFn: async () => {
+      const data = await apiFetch<{ ok?: boolean; items?: FeedbackLocation[] }>("/customer-feedback/locations");
+      return data.items || [];
+    },
+  });
+}
+
+export function useFeedbackIndustries() {
+  return useQuery({
+    queryKey: queryKeys.feedbackIndustries,
+    queryFn: async () => {
+      const data = await apiFetch<{ ok?: boolean; items?: FeedbackIndustry[] }>("/customer-feedback/catalog/industries");
+      return data.items || [];
+    },
+  });
+}
+
+export function useFeedbackSurveyTypes(industryId?: string | null) {
+  const qs = industryId ? `?industry_id=${encodeURIComponent(industryId)}` : "";
+  return useQuery({
+    queryKey: queryKeys.feedbackSurveyTypes(industryId || ""),
+    queryFn: async () => {
+      const data = await apiFetch<{ ok?: boolean; items?: FeedbackSurveyType[] }>(
+        `/customer-feedback/catalog/survey-types${qs}`,
+      );
+      return data.items || [];
+    },
+    enabled: Boolean(industryId),
+  });
+}
+
+export function useFeedbackResults(filters: { location_id?: string; survey_type_id?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.location_id) params.set("location_id", filters.location_id);
+  if (filters.survey_type_id) params.set("survey_type_id", filters.survey_type_id);
+  const qs = params.toString();
+  const filterKey = Object.fromEntries(params.entries());
+  return useQuery({
+    queryKey: queryKeys.feedbackResults(filterKey),
+    queryFn: () =>
+      apiFetch<FeedbackResultsPayload>(`/customer-feedback/results${qs ? `?${qs}` : ""}`),
+  });
+}
+
+export function useFeedbackPackages() {
+  return useQuery({
+    queryKey: queryKeys.feedbackPackages,
+    queryFn: async () => {
+      const data = await apiFetch<{ ok?: boolean; items?: FeedbackPackage[] }>("/customer-feedback/packages");
+      return data.items || [];
+    },
+  });
+}
+
+export function useFeedbackSubscription() {
+  return useQuery({
+    queryKey: queryKeys.feedbackSubscription,
+    queryFn: async () => {
+      const data = await apiFetch<{ ok?: boolean } & FeedbackSubscription>("/customer-feedback/subscription");
+      return data;
+    },
+    refetchOnMount: "always",
+  });
+}
+
+export function useCreateFeedbackLocation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { industry_id: string; survey_type_id: string; name: string; branch_code?: string; status?: string }) =>
+      apiFetch<{ ok?: boolean; item?: FeedbackLocation }>("/customer-feedback/locations", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.feedbackLocations });
+      void qc.invalidateQueries({ queryKey: queryKeys.feedbackResults({}) });
     },
   });
 }

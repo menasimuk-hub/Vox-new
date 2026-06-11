@@ -69,6 +69,7 @@ import PricingCustomOrg from './pages/pricing/PricingCustomOrg'
 import ServiceOrdersAdmin from './pages/ServiceOrdersAdmin'
 import RunningSurveys from './pages/RunningSurveys'
 import RunningInterviews from './pages/RunningInterviews'
+import CustomerFeedbackHub from './pages/customer-feedback/CustomerFeedbackHub'
 import { defaultAdminHome } from './lib/adminPaths'
 import { useAdminProfile } from './context/AdminProfileContext'
 
@@ -113,6 +114,9 @@ export default function App() {
         <Route path='/onboarding/dentally' element={<Navigate to='/integrations/dentally' replace />} />
         <Route path='/onboarding/numbers' element={<Navigate to='/integrations/telnyx' replace />} />
         <Route path='/onboarding/checklist' element={G('Go-live checklist')} />
+
+        <Route path='/customer-feedback' element={<Navigate to='/customer-feedback/industries' replace />} />
+        <Route path='/customer-feedback/:tab' element={<CustomerFeedbackHub />} />
 
         <Route path='/operations/running-surveys' element={<RunningSurveys />} />
         <Route path='/operations/wa-survey-insights' element={<WaSurveyInsights />} />

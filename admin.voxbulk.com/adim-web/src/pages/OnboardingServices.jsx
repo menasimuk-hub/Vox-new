@@ -6,12 +6,19 @@ const SERVICE_ROWS = [
   { key: 'survey', label: 'Surveys', desc: 'AI phone & WhatsApp questionnaires' },
   { key: 'recovery', label: 'Recovery', desc: 'Missed-appointment & recall outreach' },
   { key: 'follow_up', label: 'Follow up', desc: 'WhatsApp appointment reminders' },
+  { key: 'customer_feedback', label: 'Customer feedback', desc: 'WhatsApp QR feedback by location' },
 ]
 
 export default function OnboardingServices() {
   const [orgs, setOrgs] = useState(null)
   const [orgId, setOrgId] = useState('')
-  const [services, setServices] = useState({ interview: true, survey: true, recovery: false, follow_up: false })
+  const [services, setServices] = useState({
+    interview: true,
+    survey: true,
+    recovery: false,
+    follow_up: false,
+    customer_feedback: false,
+  })
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -55,6 +62,7 @@ export default function OnboardingServices() {
           survey: data?.allowed_services?.survey !== false,
           recovery: Boolean(data?.allowed_services?.recovery),
           follow_up: Boolean(data?.allowed_services?.follow_up),
+          customer_feedback: Boolean(data?.allowed_services?.customer_feedback),
         })
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Could not load service toggles')

@@ -5,11 +5,12 @@ import { apiFetch } from "@/lib/api";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import type { ApiEnabledServices, Organisation } from "@/lib/types/api";
 
-export type ServiceKey = "interviews" | "surveys" | "recovery" | "followup";
+export type ServiceKey = "interviews" | "surveys" | "feedback" | "recovery" | "followup";
 
 const DEFAULT: Record<ServiceKey, boolean> = {
   interviews: true,
   surveys: true,
+  feedback: false,
   recovery: false,
   followup: false,
 };
@@ -20,6 +21,7 @@ function fromAllowedApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
   const out = {
     interviews: raw.interview !== false,
     surveys: raw.survey !== false,
+    feedback: Boolean(raw.customer_feedback),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
   };
@@ -36,6 +38,7 @@ function fromEnabledApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
   const out = {
     interviews: "interview" in raw ? Boolean(raw.interview) : true,
     surveys: "survey" in raw ? Boolean(raw.survey) : true,
+    feedback: Boolean(raw.customer_feedback),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
   };
@@ -50,6 +53,7 @@ function toApi(state: Record<ServiceKey, boolean>): ApiEnabledServices {
   return {
     interview: state.interviews,
     survey: state.surveys,
+    customer_feedback: state.feedback,
     recovery: showRecoveryModules ? state.recovery : false,
     follow_up: showRecoveryModules ? state.followup : false,
   };
@@ -59,6 +63,7 @@ function visibleFrom(allowed: Record<ServiceKey, boolean>, enabled: Record<Servi
   return {
     interviews: allowed.interviews && enabled.interviews,
     surveys: allowed.surveys && enabled.surveys,
+    feedback: allowed.feedback && enabled.feedback,
     recovery: allowed.recovery && enabled.recovery,
     followup: allowed.followup && enabled.followup,
   } satisfies Record<ServiceKey, boolean>;

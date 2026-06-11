@@ -1,6 +1,7 @@
 export type ApiEnabledServices = {
   interview?: boolean;
   survey?: boolean;
+  customer_feedback?: boolean;
   recovery?: boolean;
   follow_up?: boolean;
 };

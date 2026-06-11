@@ -13,6 +13,10 @@ const map: Record<string, T> = {
   "/surveys/results": { title: "Survey results", subtitle: "Anonymous aggregates" },
   "/surveys/reports": { title: "Survey reports", subtitle: "Campaign performance" },
 
+  "/feedback": { title: "Saved QR surveys", subtitle: "Manage locations" },
+  "/feedback/new": { title: "Create QR survey", subtitle: "WhatsApp feedback wizard" },
+  "/feedback/results": { title: "Feedback results", subtitle: "Responses by location" },
+
   "/recovery": { title: "Recovery queue", subtitle: "Missed-appointment outreach" },
   "/recovery/no-show": { title: "No-show follow-up", subtitle: "AI calling settings" },
   "/recovery/emergency": { title: "Emergency reschedule", subtitle: "Mass cancel + rebook" },
@@ -29,6 +33,7 @@ const map: Record<string, T> = {
   "/settings/audit": { title: "Audit log", subtitle: "Compliance activity" },
 
   "/account/packages": { title: "Packages & pricing", subtitle: "Plans & bundles" },
+  "/account/feedback/packages": { title: "Customer feedback plans", subtitle: "QR survey packages" },
   "/account/billing": { title: "Billing", subtitle: "Subscription & invoices" },
   "/account/usage": { title: "Usage", subtitle: "Campaign usage & charges" },
   "/account/support": { title: "Support", subtitle: "Get help" },
