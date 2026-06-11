@@ -270,6 +270,32 @@ class StripePaymentService:
             logger.exception("stripe_topup_invoice_failed org_id=%s ref=%s", org.id, reference)
 
     @staticmethod
+    def issue_refund(
+        db: Session,
+        *,
+        payment_intent_id: str,
+        amount_minor: int | None = None,
+        reason: str = "requested_by_customer",
+    ) -> dict[str, Any]:
+        """Create a Stripe refund against a captured PaymentIntent."""
+        pid = str(payment_intent_id or "").strip()
+        if not pid:
+            raise StripeProviderError("payment_intent_id required")
+        data: dict[str, Any] = {
+            "payment_intent": pid,
+            "reason": reason,
+        }
+        if amount_minor is not None and int(amount_minor) > 0:
+            data["amount"] = int(amount_minor)
+        refund = StripePaymentService._request(db, "POST", "/refunds", data=data)
+        return {
+            "refund_id": str(refund.get("id") or ""),
+            "amount_minor": int(refund.get("amount") or amount_minor or 0),
+            "status": str(refund.get("status") or ""),
+            "payment_intent_id": pid,
+        }
+
+    @staticmethod
     def verify_webhook_signature(db: Session, *, payload: bytes, signature_header: str) -> dict[str, Any]:
         cfg = StripePaymentService.get_config(db)
         secret = str(cfg.get("webhook_secret") or "").strip()

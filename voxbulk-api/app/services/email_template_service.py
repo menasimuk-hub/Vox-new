@@ -37,6 +37,11 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "interview_campaign_cancelled",
     "interview_zoom_invite",
     "interview_missed_call_followup",
+    "billing_cancellation_requested",
+    "billing_cancellation_reversed",
+    "billing_wallet_credit_issued",
+    "billing_bank_refund_approved",
+    "billing_refund_request_rejected",
 )
 
 _TEMPLATE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")

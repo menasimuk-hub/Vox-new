@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,8 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
-import { useBillingSubscriptionCancellation } from "@/lib/queries";
+import { REFUND_TIMING_BANK, REFUND_TIMING_PROCESSING } from "@/lib/billing/refund-timing";
+import { queryKeys, useBillingSubscriptionCancellation } from "@/lib/queries";
 import { StatusBadge, type BadgeTone } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +33,7 @@ type CancellationPayload = {
   requested_refund_type?: string | null;
   calculated_unused_value_display?: string | null;
   can_request_cancellation?: boolean;
+  can_reverse_cancellation?: boolean;
   refund_review?: { review_status?: string } | null;
   policy_notes?: { open_invoices_block_wallet_credit?: boolean };
 };
@@ -53,9 +56,24 @@ function cancellationBadgeLabel(status: string, cancelled: boolean) {
   return "Active";
 }
 
+function useInvalidateBillingQueries() {
+  const qc = useQueryClient();
+  return React.useCallback(async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionCancellation }),
+      qc.invalidateQueries({ queryKey: queryKeys.billingSubscription }),
+      qc.invalidateQueries({ queryKey: queryKeys.billingWallet }),
+      qc.invalidateQueries({ queryKey: queryKeys.billingRequests }),
+      qc.invalidateQueries({ queryKey: ["billing", "wallet", "transactions"] }),
+    ]);
+  }, [qc]);
+}
+
 function useSubscriptionCancellationState() {
   const cancelQ = useBillingSubscriptionCancellation();
+  const invalidateBilling = useInvalidateBillingQueries();
   const [open, setOpen] = React.useState(false);
+  const [reverseOpen, setReverseOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [reason, setReason] = React.useState("");
   const [refundPref, setRefundPref] = React.useState("none");
@@ -65,6 +83,7 @@ function useSubscriptionCancellationState() {
   const scheduled = status === "scheduled" || status === "requested";
   const cancelled = status === "cancelled" || data.effective_subscription_status === "cancelled";
   const canCancel = Boolean(data.can_request_cancellation) && !cancelled;
+  const canReverse = Boolean(data.can_reverse_cancellation) && scheduled && !cancelled;
 
   const submit = async () => {
     setBusy(true);
@@ -79,9 +98,25 @@ function useSubscriptionCancellationState() {
       });
       toast.success("Cancellation scheduled for end of billing period");
       setOpen(false);
+      await invalidateBilling();
       await cancelQ.refetch();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not request cancellation");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reverseCancellation = async () => {
+    setBusy(true);
+    try {
+      await apiFetch("/billing/subscription/cancellation/reverse", { method: "POST", body: "{}" });
+      toast.success("Cancellation removed — your subscription will continue");
+      setReverseOpen(false);
+      await invalidateBilling();
+      await cancelQ.refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not remove cancellation");
     } finally {
       setBusy(false);
     }
@@ -94,14 +129,18 @@ function useSubscriptionCancellationState() {
     scheduled,
     cancelled,
     canCancel,
+    canReverse,
     open,
     setOpen,
+    reverseOpen,
+    setReverseOpen,
     busy,
     reason,
     setReason,
     refundPref,
     setRefundPref,
     submit,
+    reverseCancellation,
   };
 }
 
@@ -124,11 +163,17 @@ function CancellationDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 text-sm">
+          {data.calculated_unused_value_display ? (
+            <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              Estimated unused subscription value (remaining billing period only):{" "}
+              <strong className="text-foreground">{data.calculated_unused_value_display}</strong>
+            </p>
+          ) : null}
           <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
             <li>Service stays active until the end of your current billing period.</li>
-            <li>No automatic refund to your bank or card.</li>
-            <li>Any approved remaining value may be added to your wallet.</li>
-            <li>Refunds to your original payment method are subject to review.</li>
+            <li>No automatic refund until our team approves a refund request.</li>
+            <li>{REFUND_TIMING_PROCESSING}</li>
+            <li>{REFUND_TIMING_BANK}</li>
           </ul>
           <div className="space-y-2">
             <Label htmlFor="cancel-reason">Reason (optional)</Label>
@@ -175,9 +220,38 @@ function CancellationDialog({
   );
 }
 
+function ReverseCancellationDialog({
+  state,
+}: {
+  state: ReturnType<typeof useSubscriptionCancellationState>;
+}) {
+  const { reverseOpen, setReverseOpen, busy, reverseCancellation } = state;
+  return (
+    <Dialog open={reverseOpen} onOpenChange={setReverseOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Keep your subscription?</DialogTitle>
+          <DialogDescription>
+            This removes your scheduled cancellation. Your plan will renew as normal at the end of the billing period.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => setReverseOpen(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => void reverseCancellation()} disabled={busy}>
+            {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+            Keep subscription
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function SubscriptionCancellationBar({ planName, className }: { planName?: string | null; className?: string }) {
   const state = useSubscriptionCancellationState();
-  const { data, status, scheduled, cancelled, canCancel, setOpen, cancelQ } = state;
+  const { data, status, scheduled, cancelled, canCancel, canReverse, setOpen, setReverseOpen, cancelQ } = state;
 
   if (cancelQ.isLoading) return null;
 
@@ -195,10 +269,15 @@ export function SubscriptionCancellationBar({ planName, className }: { planName?
             <StatusBadge tone={cancellationBadgeTone(status, cancelled)} label={cancellationBadgeLabel(status, cancelled)} />
           </div>
           {scheduled ? (
-            <p className="text-sm text-muted-foreground">
-              Active until <strong className="text-foreground">{fmtDate(data.effective_at || data.current_period_end)}</strong>.
-              Renewals stop after that date.
-            </p>
+            <>
+              <p className="text-sm text-muted-foreground">
+                Active until <strong className="text-foreground">{fmtDate(data.effective_at || data.current_period_end)}</strong>.
+                Renewals stop after that date.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Change your mind? You can keep your subscription before our team finalises any refund.
+              </p>
+            </>
           ) : cancelled ? (
             <p className="text-sm text-muted-foreground">Your subscription has ended.</p>
           ) : (
@@ -207,16 +286,26 @@ export function SubscriptionCancellationBar({ planName, className }: { planName?
             </p>
           )}
           {data.refund_review?.review_status === "pending" ? (
-            <p className="text-xs text-amber-700 dark:text-amber-300">Refund review pending — our team will follow up if needed.</p>
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Refund review pending — {REFUND_TIMING_PROCESSING} {REFUND_TIMING_BANK}
+            </p>
           ) : null}
         </div>
-        {canCancel ? (
-          <Button type="button" variant="outline" className="shrink-0" onClick={() => setOpen(true)}>
-            Request cancellation
-          </Button>
-        ) : null}
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {canReverse ? (
+            <Button type="button" variant="default" className="shrink-0" onClick={() => setReverseOpen(true)}>
+              Keep subscription
+            </Button>
+          ) : null}
+          {canCancel ? (
+            <Button type="button" variant="outline" className="shrink-0" onClick={() => setOpen(true)}>
+              Request cancellation
+            </Button>
+          ) : null}
+        </div>
       </div>
       <CancellationDialog planName={planName} state={state} />
+      <ReverseCancellationDialog state={state} />
     </>
   );
 }
@@ -224,7 +313,7 @@ export function SubscriptionCancellationBar({ planName, className }: { planName?
 /** @deprecated Use SubscriptionCancellationBar on the billing page */
 export function SubscriptionCancellationCard({ planName }: { planName?: string | null }) {
   const state = useSubscriptionCancellationState();
-  const { data, status, scheduled, cancelled, canCancel, setOpen } = state;
+  const { data, status, scheduled, cancelled, canCancel, canReverse, setOpen, setReverseOpen } = state;
 
   return (
     <>
@@ -238,14 +327,22 @@ export function SubscriptionCancellationCard({ planName }: { planName?: string |
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           {planName ? <p>Plan: <strong>{planName}</strong></p> : null}
-          {canCancel ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
-              Request cancellation
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {canReverse ? (
+              <Button type="button" size="sm" onClick={() => setReverseOpen(true)}>
+                Keep subscription
+              </Button>
+            ) : null}
+            {canCancel ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+                Request cancellation
+              </Button>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
       <CancellationDialog planName={planName} state={state} />
+      <ReverseCancellationDialog state={state} />
     </>
   );
 }

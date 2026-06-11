@@ -167,6 +167,8 @@ class SubscriptionCancellationService:
             "calculated_unused_value_pence": unused,
             "calculated_unused_value_display": money_display(unused, currency),
             "can_request_cancellation": str(sub.cancellation_status or CANCELLATION_NONE) in {CANCELLATION_NONE, CANCELLATION_REVERSED},
+            "can_reverse_cancellation": str(sub.cancellation_status or CANCELLATION_NONE).lower()
+            in {CANCELLATION_SCHEDULED, CANCELLATION_REQUESTED},
             "can_request_immediate_cancellation": False,
             "outstanding_invoice_minor": outstanding,
             "refund_review": SubscriptionCancellationService.refund_review_dict(refund_review) if refund_review else None,
@@ -309,6 +311,16 @@ class SubscriptionCancellationService:
                 message=f"Your subscription cancellation is scheduled for {effective_at.date().isoformat()}.",
                 dedupe_key=f"billing-request:cancel:{sub.id}:{now.date().isoformat()}",
             )
+        from app.services.billing_refund_email_service import BillingRefundEmailService
+
+        BillingRefundEmailService.send_cancellation_requested(
+            db,
+            org=org,
+            user_id=user_id,
+            effective_date=effective_at.date().isoformat(),
+            refund_preference=refund_pref,
+            estimated_refund_pence=SubscriptionCancellationService.calculate_unused_value_pence(db, org, sub, plan) if plan else 0,
+        )
         db.commit()
         db.refresh(sub)
         if refund_review:
@@ -418,6 +430,25 @@ class SubscriptionCancellationService:
             detail=note,
             commit=False,
         )
+        requesting_user = sub.cancellation_requested_by_user_id
+        from app.services.billing_refund_email_service import BillingRefundEmailService
+
+        BillingRefundEmailService.send_cancellation_reversed(
+            db,
+            org=org,
+            user_id=requesting_user or admin_user_id,
+        )
+        if requesting_user:
+            from app.services.notification_service import NotificationService
+
+            NotificationService.create_billing_request_notification(
+                db,
+                org_id=org_id,
+                user_id=requesting_user,
+                title="Cancellation removed",
+                message="Your subscription will continue as normal.",
+                dedupe_key=f"billing-request:reversed:{sub.id}:{now.date().isoformat()}",
+            )
         db.commit()
         db.refresh(sub)
         plan = SubscriptionCancellationService.get_plan(db, sub.plan_id)
@@ -498,6 +529,29 @@ class SubscriptionCancellationService:
             metadata={"wallet_credit": wallet_result},
             commit=False,
         )
+        requesting_user = sub.cancellation_requested_by_user_id
+        if wallet_result and org:
+            from app.services.billing_refund_email_service import BillingRefundEmailService
+
+            BillingRefundEmailService.send_wallet_credit_issued(
+                db,
+                org=org,
+                user_id=requesting_user,
+                amount_pence=int(wallet_result.get("wallet_credit_pence") or 0),
+                wallet_balance_pence=int(wallet_result.get("wallet_balance_pence") or 0),
+            )
+            if requesting_user:
+                from app.services.notification_service import NotificationService
+
+                NotificationService.create_billing_request_resolved_notification(
+                    db,
+                    org_id=org_id,
+                    user_id=requesting_user,
+                    review_status=REVIEW_APPROVED,
+                    wallet_credit_pence=int(wallet_result.get("wallet_credit_pence") or 0),
+                    external_refund_pence=0,
+                    dedupe_key=f"billing-request:immediate-wallet:{sub.id}:{now.date().isoformat()}",
+                )
         db.commit()
         db.refresh(sub)
         open_review = SubscriptionCancellationService.get_open_refund_review(db, org_id)
@@ -673,6 +727,13 @@ class SubscriptionCancellationService:
                 note=admin_notes,
                 refund_review=review,
             )
+            from app.services.wallet_service import WalletService
+
+            wallet_result = {
+                **(wallet_result or {}),
+                "wallet_balance_pence": WalletService.balance_minor(org),
+                "wallet_balance_display": money_display(WalletService.balance_minor(org), resolve_org_currency(db, org)),
+            }
 
         status = str(review_status or REVIEW_COMPLETED).strip().lower()
         if status not in {REVIEW_APPROVED, REVIEW_COMPLETED, REVIEW_REJECTED}:
@@ -684,6 +745,23 @@ class SubscriptionCancellationService:
             calculated = int(review.calculated_unused_value_pence or 0)
             if calculated and ext + already_wallet > calculated:
                 raise SubscriptionCancellationError("External refund plus wallet credit cannot exceed calculated unused value.")
+            provider = str(review.source_payment_provider or "").lower()
+            payment_ref = str(review.source_payment_reference or "").strip()
+            stripe_refund_id = None
+            if ext > 0 and provider == "stripe" and payment_ref.startswith("pi_"):
+                from app.services.stripe_payment_service import StripePaymentService, StripeProviderError
+
+                try:
+                    stripe_result = StripePaymentService.issue_refund(
+                        db,
+                        payment_intent_id=payment_ref,
+                        amount_minor=ext,
+                    )
+                    stripe_refund_id = stripe_result.get("refund_id")
+                    note_suffix = f"Stripe refund {stripe_refund_id}"
+                    review.admin_notes = ((review.admin_notes or "") + f"\n{note_suffix}").strip()[:4000]
+                except StripeProviderError as exc:
+                    raise SubscriptionCancellationError(f"Stripe refund failed: {exc}") from exc
             review.approved_external_refund_pence = ext
 
         review.review_status = status
@@ -708,15 +786,46 @@ class SubscriptionCancellationService:
         db.commit()
         db.refresh(review)
         requesting_user = review.requested_by_user_id
-        if requesting_user and status in {REVIEW_APPROVED, REVIEW_COMPLETED, REVIEW_REJECTED}:
+        if org and requesting_user and status in {REVIEW_APPROVED, REVIEW_COMPLETED, REVIEW_REJECTED}:
+            from app.services.billing_refund_email_service import BillingRefundEmailService
             from app.services.notification_service import NotificationService
 
+            wallet_pence = int(review.approved_wallet_credit_pence or 0)
+            external_pence = int(review.approved_external_refund_pence or 0)
+            if wallet_pence > 0 and wallet_result:
+                from app.services.wallet_service import WalletService
+
+                BillingRefundEmailService.send_wallet_credit_issued(
+                    db,
+                    org=org,
+                    user_id=requesting_user,
+                    amount_pence=wallet_pence,
+                    wallet_balance_pence=WalletService.balance_minor(org),
+                )
+            if external_pence > 0 and status in {REVIEW_APPROVED, REVIEW_COMPLETED}:
+                BillingRefundEmailService.send_bank_refund_approved(
+                    db,
+                    org=org,
+                    user_id=requesting_user,
+                    amount_pence=external_pence,
+                    payment_method=str(review.source_payment_provider or "bank"),
+                    payment_reference=review.source_payment_reference,
+                )
+            if status == REVIEW_REJECTED:
+                BillingRefundEmailService.send_refund_rejected(
+                    db,
+                    org=org,
+                    user_id=requesting_user,
+                    amount_pence=int(review.calculated_unused_value_pence or 0),
+                    admin_notes=review.admin_notes,
+                )
             NotificationService.create_billing_request_resolved_notification(
                 db,
                 org_id=review.org_id,
                 user_id=requesting_user,
                 review_status=status,
-                wallet_credit_pence=int(review.approved_wallet_credit_pence or 0),
+                wallet_credit_pence=wallet_pence,
+                external_refund_pence=external_pence,
                 dedupe_key=f"billing-request:resolved:{review.id}:{status}",
             )
             db.commit()

@@ -592,6 +592,21 @@ export default function InvoicesAdmin() {
 
       {tab === 'invoices' ? (
         <>
+          {billingRequests.filter((r) => String(r.status || '').toLowerCase() === 'pending').length > 0 ? (
+            <div className="card" style={{ marginBottom: 16, borderColor: 'var(--amber, #f59e0b)' }}>
+              <div className="cardBody" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div>
+                  <strong>{billingRequests.filter((r) => String(r.status || '').toLowerCase() === 'pending').length} pending billing request(s)</strong>
+                  <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+                    Cancellation and refund reviews awaiting admin action.
+                  </div>
+                </div>
+                <Link className="btn" to="/invoices?tab=requests">
+                  View billing requests
+                </Link>
+              </div>
+            </div>
+          ) : null}
           <div className="invoiceStatsBar">
             <span className="invoiceStatChip">
               <i className="ti ti-receipt" />

@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { orderDetailLink } from "@/lib/billing/usage-detail-link";
+import { usageServiceIcon } from "@/lib/billing/refund-timing";
 import { useBillingUsageBreakdown } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/account/usage")({
@@ -184,7 +185,6 @@ function AccountUsagePage() {
                     <TableRow>
                       <TableHead>Campaign ID</TableHead>
                       <SortHeader label="Name" sortKey="name" active={table.sortKey} dir={table.sortDir} onToggle={table.toggleSort} />
-                      <TableHead>Type</TableHead>
                       <TableHead>Channel</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Usage</TableHead>
@@ -196,24 +196,29 @@ function AccountUsagePage() {
                   <TableBody>
                     {sortedRows.map((row) => {
                       const link = orderDetailLink(row);
+                      const Icon = usageServiceIcon(row.service_code);
+                      const name = row.name || "Untitled campaign";
                       return (
                         <TableRow key={row.order_id}>
                           <TableCell className="font-mono text-xs">{row.campaign_id || row.order_id.slice(0, 8)}</TableCell>
-                          <TableCell className="max-w-[200px]">
+                          <TableCell className="max-w-[220px]">
                             {link ? (
                               <Link
                                 to={link.to}
                                 params={link.params}
                                 search={link.search}
-                                className="font-medium text-primary underline-offset-4 hover:underline"
+                                className="inline-flex items-center gap-1.5 font-medium text-primary underline-offset-4 hover:underline"
                               >
-                                {row.name || "Untitled campaign"}
+                                {Icon ? <Icon className="size-3.5 shrink-0 opacity-70" aria-hidden /> : null}
+                                {name}
                               </Link>
                             ) : (
-                              <span className="text-muted-foreground">{row.name || "Untitled campaign"}</span>
+                              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                                {Icon ? <Icon className="size-3.5 shrink-0 opacity-70" aria-hidden /> : null}
+                                {name}
+                              </span>
                             )}
                           </TableCell>
-                          <TableCell className="text-xs">{row.type_label || "—"}</TableCell>
                           <TableCell className="text-xs capitalize">{row.channel || "—"}</TableCell>
                           <TableCell>
                             <StatusBadge tone="draft-script" label={String(row.status || "—")} />

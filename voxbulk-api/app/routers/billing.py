@@ -349,6 +349,28 @@ def request_subscription_cancellation(
     return SubscriptionCancellationOut.model_validate(result)
 
 
+@router.post("/subscription/cancellation/reverse", response_model=SubscriptionCancellationOut)
+def reverse_subscription_cancellation(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.subscription_cancellation_service import (
+        SubscriptionCancellationError,
+        SubscriptionCancellationService,
+    )
+
+    try:
+        result = SubscriptionCancellationService.reverse_cancellation(
+            db,
+            org_id=principal.org_id,
+            admin_user_id=principal.user_id,
+            note="Customer reversed scheduled cancellation",
+        )
+    except SubscriptionCancellationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return SubscriptionCancellationOut.model_validate(result)
+
+
 @router.post("/subscription/test-cash")
 def test_cash_subscription_change(
     payload: CashPlanSelectIn,

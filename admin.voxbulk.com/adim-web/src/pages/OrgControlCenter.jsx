@@ -536,17 +536,47 @@ export default function OrgControlCenter() {
     }
   }
 
+  const promptWalletCreditPence = (defaultDisplay) => {
+    const prefill = defaultDisplay ? String(defaultDisplay).replace(/[^\d.]/g, '') : ''
+    const input = window.prompt(
+      `Wallet credit amount in GBP (remaining subscription period only).\nLeave blank to use calculated value${defaultDisplay ? ` (${defaultDisplay})` : ''}:`,
+      prefill,
+    )
+    if (input === null) return undefined
+    const trimmed = String(input).trim()
+    if (!trimmed) return null
+    const pounds = Number.parseFloat(trimmed.replace(/[^\d.]/g, ''))
+    if (!Number.isFinite(pounds) || pounds < 0) return undefined
+    return Math.round(pounds * 100)
+  }
+
   const immediateCancellation = async (issueWalletCredit = false) => {
     if (!selectedId) return
     const note = window.prompt('Admin note for immediate cancellation:', 'Admin immediate cancellation')
     if (!note) return
+    let walletCreditPence = null
+    if (issueWalletCredit) {
+      const amount = promptWalletCreditPence(subscriptionCancellation?.calculated_unused_value_display)
+      if (amount === undefined) return
+      walletCreditPence = amount
+    }
     setActionBusy('cancel-immediate')
     try {
-      await occ('/cancellation/immediate', {
+      const result = await occ('/cancellation/immediate', {
         method: 'POST',
-        body: JSON.stringify({ note, issue_wallet_credit: issueWalletCredit }),
+        body: JSON.stringify({
+          note,
+          issue_wallet_credit: issueWalletCredit,
+          wallet_credit_pence: walletCreditPence,
+        }),
       })
-      pushToast(issueWalletCredit ? 'Cancelled immediately with wallet credit' : 'Cancelled immediately', 'success')
+      const credited = result?.wallet_credit?.wallet_credit_pence
+      const balance = result?.wallet_credit?.wallet_balance_display
+      if (issueWalletCredit && credited) {
+        pushToast(`Cancelled with wallet credit ${fmtMoneyPence(credited)}${balance ? ` — balance ${balance}` : ''}`, 'success')
+      } else {
+        pushToast(issueWalletCredit ? 'Cancelled immediately with wallet credit' : 'Cancelled immediately', 'success')
+      }
       await refreshAll()
     } catch (e) {
       pushToast(e?.message || 'Immediate cancellation failed', 'danger')
@@ -559,13 +589,44 @@ export default function OrgControlCenter() {
     if (!selectedId || !reviewId) return
     const adminNotes = window.prompt('Admin notes for refund review:', extra.defaultNote || '')
     if (adminNotes === null) return
+    let walletCreditPence = extra.wallet_credit_pence
+    if (extra.issue_wallet_credit && walletCreditPence === undefined) {
+      const review = refundReviews.find((r) => r.id === reviewId)
+      const defaultDisplay = review?.calculated_unused_value_pence != null ? fmtMoneyPence(review.calculated_unused_value_pence) : subscriptionCancellation?.calculated_unused_value_display
+      const amount = promptWalletCreditPence(defaultDisplay)
+      if (amount === undefined) return
+      walletCreditPence = amount
+    }
+    if (extra.approved_external_refund_pence != null && extra.issue_stripe_refund !== false) {
+      const review = refundReviews.find((r) => r.id === reviewId)
+      const defaultPence = extra.approved_external_refund_pence ?? review?.calculated_unused_value_pence
+      const defaultGbp = defaultPence != null ? (defaultPence / 100).toFixed(2) : ''
+      const input = window.prompt(`Bank refund amount in GBP (remaining period only):`, defaultGbp)
+      if (input === null) return
+      const pounds = Number.parseFloat(String(input).trim().replace(/[^\d.]/g, ''))
+      if (!Number.isFinite(pounds) || pounds < 0) return
+      extra = { ...extra, approved_external_refund_pence: Math.round(pounds * 100) }
+    }
     setActionBusy(`refund-${reviewId}`)
     try {
-      await occ(`/refund-reviews/${encodeURIComponent(reviewId)}/resolve`, {
+      const result = await occ(`/refund-reviews/${encodeURIComponent(reviewId)}/resolve`, {
         method: 'POST',
-        body: JSON.stringify({ review_status: reviewStatus, admin_notes: adminNotes, ...extra }),
+        body: JSON.stringify({
+          review_status: reviewStatus,
+          admin_notes: adminNotes,
+          ...extra,
+          wallet_credit_pence: walletCreditPence,
+        }),
       })
-      pushToast(`Refund review ${reviewStatus}`, 'success')
+      const wallet = result?.wallet_credit?.wallet_credit_pence
+      const external = result?.refund_review?.approved_external_refund_pence
+      if (wallet) {
+        pushToast(`Wallet credit ${fmtMoneyPence(wallet)} issued`, 'success')
+      } else if (external) {
+        pushToast(`Bank refund ${fmtMoneyPence(external)} recorded — customer notified (2 working days + up to 3 days to bank)`, 'success')
+      } else {
+        pushToast(`Refund review ${reviewStatus}`, 'success')
+      }
       await refreshAll()
     } catch (e) {
       pushToast(e?.message || 'Refund review update failed', 'danger')
@@ -1272,6 +1333,10 @@ export default function OrgControlCenter() {
                     <span className="occ-info-row-label">Refund preference</span>
                     <span className="occ-info-row-value">{subscriptionCancellation?.requested_refund_type || '—'}</span>
                   </div>
+                  <p className="occ-muted" style={{ marginTop: 8, fontSize: 12, lineHeight: 1.45 }}>
+                    Bank refunds: Stripe auto when possible; GoCardless manual. Amount = remaining period value only.
+                    Customer email: processed within 2 working days, bank credit within 3 working days.
+                  </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
                     {['scheduled', 'requested'].includes(String(subscriptionCancellation?.status || '').toLowerCase()) ? (
                       <button type="button" className="occ-btn" disabled={actionBusy === 'cancel-reverse'} onClick={reverseCancellation}>

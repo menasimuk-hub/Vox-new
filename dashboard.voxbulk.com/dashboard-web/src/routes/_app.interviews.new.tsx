@@ -15,7 +15,6 @@ import {
   isInterviewCampaignLaunched,
   isInterviewCampaignReadOnly,
   bookingInvitesWereSent,
-  campaignAllowsResendBookingInvites,
   resolveCandidateAtsDisplay,
 } from "@/lib/interview-campaign";
 import { estimateInterviewDurationMinutes, extractQuestionsBlock, mergeQuestionsIntoScript, resolveScriptFromConfig } from "@/lib/interview-script";
@@ -68,7 +67,6 @@ import {
   useApplyInterviewAtsThreshold,
   usePatchInterviewRecipient,
   useSaveInterviewDraft,
-  useSendInterviewBookingInvites,
   useCreateNewInterviewDraft,
   invalidateInterviewOrderQueries,
   useInterviewCvCollectionLimits,
@@ -294,7 +292,6 @@ function CreateInterview() {
   const applyAtsThresholdM = useApplyInterviewAtsThreshold(orderId || null);
   const patchRecipientM = usePatchInterviewRecipient(orderId || null);
   const launchM = useLaunchInterviewCampaign(orderId || null);
-  const resendInvitesM = useSendInterviewBookingInvites(orderId || null);
   const quoteM = useOrderQuote(orderId || null);
   const [waPreviewBody, setWaPreviewBody] = React.useState<string | undefined>();
   const [waPreviewTemplateName, setWaPreviewTemplateName] = React.useState<string | undefined>();
@@ -1285,7 +1282,6 @@ function CreateInterview() {
   });
   const paymentApproved = String(order?.payment_status || "").toLowerCase() === "approved";
   const inviteDispatchFailed = paymentApproved && lastInviteDispatch?.ok === false;
-  const showResendBookingInvites = campaignAllowsResendBookingInvites({ orderStatus });
   const unscoredCount = React.useMemo(
     () => candidates.filter((c) => candidateNeedsAtsScore(c) && !isAtsAnalyzingStatus(c.atsStatus)).length,
     [candidates],
@@ -2595,41 +2591,6 @@ function CreateInterview() {
             }}
           >
             <Send className="size-4" /> {launchM.isPending ? "Launching…" : "Launch — send booking invites"}
-          </Button>
-        ) : null}
-        {showResendBookingInvites ? (
-          <Button
-            variant="outline"
-            className="gap-1.5"
-            disabled={resendInvitesM.isPending}
-            title="Resend booking email and WhatsApp to eligible candidates"
-            onClick={() => {
-              void (async () => {
-                try {
-                  const result = await resendInvitesM.mutateAsync(true);
-                  const emailN = Number(result?.email_sent || 0);
-                  const wa = Number(result?.whatsapp_sent || 0);
-                  const skipped = Number(result?.skipped_locked || 0);
-                  const errs = Array.isArray(result?.errors) ? result.errors.filter(Boolean) : [];
-                  if (emailN > 0 || wa > 0) {
-                    const parts: string[] = [];
-                    if (emailN) parts.push(`${emailN} email`);
-                    if (wa) parts.push(`${wa} WhatsApp`);
-                    toast.success(`Resent booking invites (${parts.join(", ")}).`);
-                  } else if (skipped > 0) {
-                    toast.message("No invites sent — all candidates have already completed their interview.");
-                  } else if (errs.length > 0) {
-                    toast.error(errs[0]);
-                  } else {
-                    toast.warning("No booking invites sent — add candidate email addresses and try again.");
-                  }
-                } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Could not resend invites");
-                }
-              })();
-            }}
-          >
-            <Send className="size-4" /> Resend booking invites
           </Button>
         ) : null}
       </div>

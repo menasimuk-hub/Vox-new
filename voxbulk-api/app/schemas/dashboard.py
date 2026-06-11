@@ -138,6 +138,7 @@ class SubscriptionCancellationOut(BaseModel):
     calculated_unused_value_pence: int = 0
     calculated_unused_value_display: str | None = None
     can_request_cancellation: bool = False
+    can_reverse_cancellation: bool = False
     can_request_immediate_cancellation: bool = False
     outstanding_invoice_minor: int = 0
     refund_review: RefundReviewOut | None = None

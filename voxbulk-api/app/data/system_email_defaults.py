@@ -197,4 +197,71 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
         ),
     },
+    "billing_cancellation_requested": {
+        "title": "Subscription cancellation requested",
+        "subject": "Cancellation scheduled — {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Cancellation scheduled",
+            inner_html="""<p>Hi,</p>
+  <p>We received your request to cancel the VoxBulk subscription for <strong>{{organisation_name}}</strong>.</p>
+  <p>Your plan stays active until <strong>{{effective_date}}</strong>. Renewals stop after that date.</p>
+  <p>Estimated unused subscription value (remaining billing period only): <strong>{{estimated_refund}}</strong>.</p>
+  <p>Refund preference: {{refund_preference}}.</p>
+  <p style="font-size:13px;color:#6b6560;">{{timing_note}}</p>
+  """ + cta_button(href="{{billing_url}}", label="View billing") + """
+  <p style="font-size:13px;color:#6b6560;">You can keep your subscription before the end date from your billing page if you change your mind.</p>""",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
+    "billing_cancellation_reversed": {
+        "title": "Cancellation reversed",
+        "subject": "Your subscription will continue — {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Subscription continued",
+            inner_html="""<p>Hi,</p>
+  <p>Your scheduled cancellation for <strong>{{organisation_name}}</strong> has been removed.</p>
+  <p>Your subscription will renew as normal. No refund action was taken.</p>
+  """ + cta_button(href="{{billing_url}}", label="View billing") + "",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
+    "billing_wallet_credit_issued": {
+        "title": "Wallet credit issued",
+        "subject": "Wallet credit {{amount}} — {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Wallet credit issued",
+            inner_html="""<p>Hi,</p>
+  <p>We have added <strong>{{amount}}</strong> to your VoxBulk wallet for <strong>{{organisation_name}}</strong>.</p>
+  <p>Your new wallet balance is <strong>{{wallet_balance}}</strong>.</p>
+  <p style="font-size:13px;color:#6b6560;">{{timing_note}}</p>
+  """ + cta_button(href="{{billing_url}}", label="View billing") + "",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
+    "billing_bank_refund_approved": {
+        "title": "Bank refund approved",
+        "subject": "Refund approved — {{amount}} to {{payment_method}}",
+        "body": wrap_brand_email(
+            title="Refund approved",
+            inner_html="""<p>Hi,</p>
+  <p>We approved a refund of <strong>{{amount}}</strong> for <strong>{{organisation_name}}</strong>.</p>
+  <p>Payment method: {{payment_method}}<br />Reference: {{payment_reference}}</p>
+  <p style="font-size:13px;color:#6b6560;">{{processing_note}} {{reflection_note}}</p>
+  """ + cta_button(href="{{billing_url}}", label="View billing") + "",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
+    "billing_refund_request_rejected": {
+        "title": "Refund request update",
+        "subject": "Refund request update — {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Refund request update",
+            inner_html="""<p>Hi,</p>
+  <p>We reviewed your refund request for <strong>{{organisation_name}}</strong> (estimated unused value {{amount}}).</p>
+  <p>Status: <strong>Not approved</strong>.</p>
+  <p style="font-size:13px;color:#6b6560;">{{admin_notes}}</p>
+  """ + cta_button(href="{{billing_url}}", label="View billing") + "",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
 }

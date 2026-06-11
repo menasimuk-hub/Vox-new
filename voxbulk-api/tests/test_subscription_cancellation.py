@@ -20,6 +20,7 @@ from app.models.user import User
 from app.models.wallet_transaction import WalletTransaction
 from app.services.subscription_cancellation_service import (
     CANCELLATION_SCHEDULED,
+    CANCELLATION_REVERSED,
     REVIEW_PENDING,
     SubscriptionCancellationError,
     SubscriptionCancellationService,
@@ -254,3 +255,41 @@ def test_double_compensation_guard_on_external_refund():
         except SubscriptionCancellationError:
             raised = True
         assert raised
+
+
+def test_customer_can_reverse_scheduled_cancellation():
+    org_id, user_id, sub_id, _plan_id = _seed_subscription_org(period_days=20)
+    with get_sessionmaker()() as db:
+        SubscriptionCancellationService.request_cancellation(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            requested_refund_type="wallet_credit",
+        )
+        sub = db.get(Subscription, sub_id)
+        assert sub.cancellation_status == CANCELLATION_SCHEDULED
+
+    with get_sessionmaker()() as db:
+        payload = SubscriptionCancellationService.reverse_cancellation(
+            db,
+            org_id=org_id,
+            admin_user_id=user_id,
+            note="Customer changed mind",
+        )
+        assert payload["status"] in {CANCELLATION_REVERSED, "none"}
+        sub = db.get(Subscription, sub_id)
+        assert str(sub.cancellation_status or "").lower() in {CANCELLATION_REVERSED, "none"}
+        assert SubscriptionCancellationService.get_open_refund_review(db, org_id) is None
+
+
+def test_billing_refund_email_templates_registered():
+    from app.services.email_template_service import EMAIL_TEMPLATE_KEYS
+
+    for key in (
+        "billing_cancellation_requested",
+        "billing_cancellation_reversed",
+        "billing_wallet_credit_issued",
+        "billing_bank_refund_approved",
+        "billing_refund_request_rejected",
+    ):
+        assert key in EMAIL_TEMPLATE_KEYS

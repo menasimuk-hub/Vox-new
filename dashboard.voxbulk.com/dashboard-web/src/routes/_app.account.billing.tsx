@@ -18,6 +18,7 @@ import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
 import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingUsage, useWalletTransactions } from "@/lib/queries";
 import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
+import { REFUND_TIMING_BANK, REFUND_TIMING_PROCESSING } from "@/lib/billing/refund-timing";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
 
@@ -130,7 +131,11 @@ function BillingPage() {
   const walletTxQ = useWalletTransactions(100);
   const [payInvoice, setPayInvoice] = React.useState<Invoice | null>(null);
   const [ledgerPage, setLedgerPage] = React.useState(1);
+  const [billingTab, setBillingTab] = React.useState<"transactions" | "requests">("transactions");
   const [mandateBusy, setMandateBusy] = React.useState(false);
+
+  const billingRequests = (requestsQ.data?.items || []) as Array<Record<string, unknown>>;
+  const pendingRequestsCount = billingRequests.filter((r) => String(r.status || "").toLowerCase() === "pending").length;
 
   const plan = subQ.data?.plan || usageQ.data?.current_plan;
   const monitor = (usageQ.data?.billing_monitor || {}) as BillingMonitorPayload;
@@ -462,57 +467,95 @@ function BillingPage() {
 
       {plan ? <SubscriptionCancellationBar planName={plan?.name} /> : null}
 
-      {(requestsQ.data?.items?.length ?? 0) > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Billing requests</CardTitle>
-            <CardDescription>Cancellation and refund requests for your organisation.</CardDescription>
-          </CardHeader>
-          <CardContent className="px-0">
-            <div className="table-scroll">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-6">Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Refund preference</TableHead>
-                    <TableHead className="pr-6">Notes</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(requestsQ.data?.items || []).slice(0, 10).map((req) => (
-                    <TableRow key={`${req.type}-${req.id}`}>
-                      <TableCell className="pl-6 text-xs text-muted-foreground">
-                        {req.requested_at ? new Date(req.requested_at).toLocaleDateString() : "—"}
-                      </TableCell>
-                      <TableCell className="text-xs capitalize">{String(req.type || "").replace("_", " ")}</TableCell>
-                      <TableCell>
-                        <StatusBadge
-                          tone={req.status === "approved" ? "approved-script" : req.status === "pending" ? "scheduled" : "draft-script"}
-                          label={String(req.status || "pending")}
-                        />
-                      </TableCell>
-                      <TableCell className="text-xs">{String(req.requested_refund_type || "—").replace(/_/g, " ")}</TableCell>
-                      <TableCell className="max-w-[240px] truncate pr-6 text-xs text-muted-foreground">
-                        {req.admin_notes || "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
       <Card>
-        <CardHeader>
-          <CardTitle>Invoices & payments</CardTitle>
-          <CardDescription>Top-ups, receipts, subscription charges, and extra usage.</CardDescription>
+        <CardHeader className="space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle>Invoices & payments</CardTitle>
+              <CardDescription>Top-ups, receipts, subscription charges, cancellation requests, and extra usage.</CardDescription>
+            </div>
+            <div className="flex gap-1 rounded-lg border border-border p-1">
+              <Button
+                size="sm"
+                variant={billingTab === "transactions" ? "secondary" : "ghost"}
+                onClick={() => setBillingTab("transactions")}
+              >
+                Transactions
+              </Button>
+              <Button
+                size="sm"
+                variant={billingTab === "requests" ? "secondary" : "ghost"}
+                onClick={() => setBillingTab("requests")}
+                className="gap-1.5"
+              >
+                Requests
+                {pendingRequestsCount > 0 ? (
+                  <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                    {pendingRequestsCount}
+                  </span>
+                ) : null}
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="px-0">
-          {invoicesQ.isLoading || walletTxQ.isLoading ? (
+          {billingTab === "requests" ? (
+            requestsQ.isLoading ? (
+              <div className="p-6">
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : billingRequests.length === 0 ? (
+              <p className="p-8 text-center text-sm text-muted-foreground">
+                No cancellation or refund requests yet.
+              </p>
+            ) : (
+              <div className="table-scroll">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="pl-6">Date</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Refund preference</TableHead>
+                      <TableHead className="pr-6">Details</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {billingRequests.map((req) => (
+                      <TableRow key={`${req.type}-${req.id}`}>
+                        <TableCell className="pl-6 text-xs text-muted-foreground">
+                          {req.requested_at ? new Date(String(req.requested_at)).toLocaleDateString() : "—"}
+                        </TableCell>
+                        <TableCell className="text-xs capitalize">{String(req.type || "").replace("_", " ")}</TableCell>
+                        <TableCell>
+                          <StatusBadge
+                            tone={req.status === "approved" ? "approved-script" : req.status === "pending" ? "scheduled" : "draft-script"}
+                            label={String(req.status || "pending")}
+                          />
+                        </TableCell>
+                        <TableCell className="text-xs">{String(req.requested_refund_type || "—").replace(/_/g, " ")}</TableCell>
+                        <TableCell className="max-w-[280px] pr-6 text-xs text-muted-foreground">
+                          {req.admin_notes ? String(req.admin_notes) : null}
+                          {String(req.status || "").toLowerCase() === "pending" &&
+                          String(req.requested_refund_type || "") !== "none" ? (
+                            <p className="mt-1">{REFUND_TIMING_PROCESSING} {REFUND_TIMING_BANK}</p>
+                          ) : null}
+                          {req.support_ticket_id ? (
+                            <Link
+                              to="/account/support/tickets"
+                              className="mt-1 inline-block text-primary underline-offset-4 hover:underline"
+                            >
+                              View support ticket
+                            </Link>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )
+          ) : invoicesQ.isLoading || walletTxQ.isLoading ? (
             <div className="p-6">
               <Skeleton className="h-10 w-full" />
             </div>

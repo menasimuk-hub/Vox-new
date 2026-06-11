@@ -231,16 +231,22 @@ class NotificationService:
         user_id: str,
         review_status: str,
         wallet_credit_pence: int,
+        external_refund_pence: int = 0,
         dedupe_key: str,
     ) -> Notification:
         from app.services.billing_currency import money_display, resolve_org_currency
         from app.models.organisation import Organisation
+        from app.services.billing_refund_email_service import BillingRefundEmailService
 
         org = db.get(Organisation, org_id)
         currency = resolve_org_currency(db, org) if org else "GBP"
         msg = f"Your billing request was {review_status}."
         if wallet_credit_pence > 0:
             msg += f" Wallet credit: {money_display(wallet_credit_pence, currency)}."
+        if external_refund_pence > 0:
+            msg += f" Bank refund: {money_display(external_refund_pence, currency)}."
+            notes = BillingRefundEmailService.timing_notes_for_ui(refund_type="bank")
+            msg += f" {notes['processing']} {notes['reflection']}"
         return NotificationService.upsert(
             db,
             org_id=org_id,
