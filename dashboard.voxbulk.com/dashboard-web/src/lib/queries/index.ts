@@ -23,6 +23,7 @@ export const queryKeys = {
   serviceOrder: (id: string) => ["service-orders", "detail", id] as const,
   credits: ["service-orders", "credits"] as const,
   billingSubscription: ["billing", "subscription"] as const,
+  billingSubscriptionCancellation: ["billing", "subscription", "cancellation"] as const,
   billingPlans: ["billing", "plans"] as const,
   billingPricing: (market: string, orgCountry = "") => ["billing", "pricing", market, orgCountry] as const,
   billingWallet: ["billing", "wallet"] as const,
@@ -84,6 +85,14 @@ export function useBillingSubscription() {
   return useQuery({
     queryKey: queryKeys.billingSubscription,
     queryFn: () => apiFetch("/billing/subscription"),
+    refetchOnMount: "always",
+  });
+}
+
+export function useBillingSubscriptionCancellation() {
+  return useQuery({
+    queryKey: queryKeys.billingSubscriptionCancellation,
+    queryFn: () => apiFetch("/billing/subscription/cancellation"),
     refetchOnMount: "always",
   });
 }

@@ -102,6 +102,48 @@ class CashPlanSelectIn(BaseModel):
         return self
 
 
+class SubscriptionCancellationRequestIn(BaseModel):
+    cancellation_type: str = "period_end"
+    reason: str | None = None
+    requested_refund_type: str = "none"
+
+
+class RefundReviewOut(BaseModel):
+    id: str
+    org_id: str
+    subscription_id: str | None = None
+    requested_refund_type: str
+    review_status: str
+    calculated_unused_value_pence: int | None = None
+    approved_wallet_credit_pence: int = 0
+    approved_external_refund_pence: int = 0
+    source_payment_provider: str | None = None
+    source_payment_reference: str | None = None
+    admin_notes: str | None = None
+    wallet_transaction_id: str | None = None
+    credit_note_id: str | None = None
+    requested_at: str | None = None
+    resolved_at: str | None = None
+
+
+class SubscriptionCancellationOut(BaseModel):
+    status: str
+    effective_subscription_status: str | None = None
+    cancellation_type: str | None = None
+    cancellation_reason: str | None = None
+    requested_at: str | None = None
+    effective_at: str | None = None
+    current_period_end: str | None = None
+    requested_refund_type: str | None = None
+    calculated_unused_value_pence: int = 0
+    calculated_unused_value_display: str | None = None
+    can_request_cancellation: bool = False
+    can_request_immediate_cancellation: bool = False
+    outstanding_invoice_minor: int = 0
+    refund_review: RefundReviewOut | None = None
+    policy_notes: dict | None = None
+
+
 class DashboardMetricsOut(BaseModel):
     total_patients: int
     total_appointments: int

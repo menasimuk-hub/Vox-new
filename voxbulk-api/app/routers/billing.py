@@ -21,6 +21,8 @@ from app.schemas.dashboard import (
     PlanOut,
     SubscriptionOut,
     SubscriptionWithPlanOut,
+    SubscriptionCancellationOut,
+    SubscriptionCancellationRequestIn,
 )
 from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
 from app.services.provider_settings import ProviderSettingsService
@@ -302,6 +304,49 @@ def get_my_subscription(db: Session = Depends(get_db), principal=Depends(get_cur
         gocardless_checkout_available=gocardless_checkout_available,
         payment_options=BillingService.payment_options(db),
     )
+
+
+@router.get("/subscription/cancellation", response_model=SubscriptionCancellationOut)
+def get_subscription_cancellation(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    sub = SubscriptionCancellationService.get_subscription(db, principal.org_id)
+    plan = SubscriptionCancellationService.get_plan(db, sub.plan_id) if sub else None
+    refund_review = SubscriptionCancellationService.get_open_refund_review(db, principal.org_id)
+    payload = SubscriptionCancellationService.cancellation_dict(db, org, sub, plan, refund_review=refund_review)
+    return SubscriptionCancellationOut.model_validate(payload)
+
+
+@router.post("/subscription/cancellation", response_model=SubscriptionCancellationOut)
+def request_subscription_cancellation(
+    payload: SubscriptionCancellationRequestIn,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.subscription_cancellation_service import (
+        SubscriptionCancellationError,
+        SubscriptionCancellationService,
+    )
+
+    try:
+        result = SubscriptionCancellationService.request_cancellation(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            cancellation_type=payload.cancellation_type,
+            reason=payload.reason,
+            requested_refund_type=payload.requested_refund_type,
+        )
+    except SubscriptionCancellationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return SubscriptionCancellationOut.model_validate(result)
 
 
 @router.post("/subscription/test-cash")

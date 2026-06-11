@@ -1662,6 +1662,141 @@ def admin_occ_invoice_pdf(
     )
 
 
+@router.get("/billing/cancellation-requests")
+def admin_list_cancellation_requests(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
+    return {"items": SubscriptionCancellationService.list_scheduled_cancellations(db, limit=limit)}
+
+
+@router.get("/billing/refund-reviews")
+def admin_list_refund_reviews(
+    status: str | None = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
+    return {"items": SubscriptionCancellationService.list_refund_reviews(db, status=status, limit=limit)}
+
+
+@router.post("/organisations/{org_id}/control-center/cancellation/reverse")
+def admin_occ_reverse_cancellation(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.subscription_cancellation_service import (
+        SubscriptionCancellationError,
+        SubscriptionCancellationService,
+    )
+
+    actor_id, _ = _control_center_actor(principal)
+    try:
+        return SubscriptionCancellationService.reverse_cancellation(
+            db,
+            org_id=org_id,
+            admin_user_id=actor_id,
+            note=str(payload.get("note") or payload.get("reason") or "").strip() or None,
+        )
+    except SubscriptionCancellationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/cancellation/immediate")
+def admin_occ_immediate_cancellation(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.subscription_cancellation_service import (
+        SubscriptionCancellationError,
+        SubscriptionCancellationService,
+    )
+
+    actor_id, _ = _control_center_actor(principal)
+    try:
+        return SubscriptionCancellationService.admin_approve_immediate_cancel(
+            db,
+            org_id=org_id,
+            admin_user_id=actor_id,
+            issue_wallet_credit=bool(payload.get("issue_wallet_credit")),
+            wallet_credit_pence=payload.get("wallet_credit_pence"),
+            note=str(payload.get("note") or payload.get("reason") or "").strip() or None,
+        )
+    except SubscriptionCancellationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/refund-reviews/{review_id}/resolve")
+def admin_occ_resolve_refund_review(
+    org_id: str,
+    review_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.billing_refund_review import BillingRefundReview
+    from app.services.subscription_cancellation_service import (
+        SubscriptionCancellationError,
+        SubscriptionCancellationService,
+    )
+
+    review = db.get(BillingRefundReview, review_id)
+    if review is None or review.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Refund review not found")
+    actor_id, _ = _control_center_actor(principal)
+    try:
+        return SubscriptionCancellationService.resolve_refund_review(
+            db,
+            review_id=review_id,
+            admin_user_id=actor_id,
+            review_status=str(payload.get("review_status") or "completed"),
+            admin_notes=str(payload.get("admin_notes") or payload.get("note") or "").strip() or None,
+            approved_external_refund_pence=payload.get("approved_external_refund_pence"),
+            issue_wallet_credit=bool(payload.get("issue_wallet_credit")),
+            wallet_credit_pence=payload.get("wallet_credit_pence"),
+        )
+    except SubscriptionCancellationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/organisations/{org_id}/control-center/refund-reviews/{review_id}/reverse-wallet")
+def admin_occ_reverse_cancellation_wallet_credit(
+    org_id: str,
+    review_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.models.billing_refund_review import BillingRefundReview
+    from app.services.subscription_cancellation_service import (
+        SubscriptionCancellationError,
+        SubscriptionCancellationService,
+    )
+
+    review = db.get(BillingRefundReview, review_id)
+    if review is None or review.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Refund review not found")
+    actor_id, _ = _control_center_actor(principal)
+    try:
+        return SubscriptionCancellationService.reverse_wallet_credit(
+            db,
+            review_id=review_id,
+            admin_user_id=actor_id,
+            reason=str(payload.get("reason") or payload.get("note") or "").strip() or None,
+        )
+    except SubscriptionCancellationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/organisations/{org_id}/control-center/campaigns/{order_id}/{action}")
 def admin_occ_campaign_action(
     org_id: str,

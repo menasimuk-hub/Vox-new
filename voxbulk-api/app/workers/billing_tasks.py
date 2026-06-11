@@ -20,8 +20,12 @@ def rollover_usage_periods_task() -> dict:
 
 @celery_app.task(name="billing.process_monthly_subscriptions")
 def process_monthly_subscriptions_task() -> dict:
+    from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
     with get_sessionmaker()() as db:
         stats = BillingLifecycleService.process_due_monthly_billing(db)
+        cancel_stats = SubscriptionCancellationService.finalize_due_scheduled_cancellations(db)
+        stats = {**stats, **{f"cancellation_{k}": v for k, v in cancel_stats.items()}}
     logger.info("monthly_subscription_billing_complete", extra=stats)
     return stats
 

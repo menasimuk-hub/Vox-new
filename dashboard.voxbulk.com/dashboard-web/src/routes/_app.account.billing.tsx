@@ -16,7 +16,8 @@ import { startGoCardlessMandateUpdate, readBillingReturnParams } from "@/lib/bil
 import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
-import { useBillingAccess, useBillingInvoices, useBillingSubscription, useBillingUsage, useWalletTransactions } from "@/lib/queries";
+import { useBillingAccess, useBillingInvoices, useBillingSubscription, useBillingSubscriptionCancellation, useBillingUsage, useWalletTransactions } from "@/lib/queries";
+import { SubscriptionCancellationCard } from "@/components/billing/subscription-cancellation-card";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,8 @@ function invoiceKind(description?: string | null, provider?: string | null) {
 
 function walletRowKind(kind?: string | null, direction?: string | null) {
   const k = String(kind || "").toLowerCase();
+  if (k === "subscription_cancellation_credit" || k === "refund_adjustment_credit") return "Wallet credit";
+  if (k === "refund_adjustment_reversal") return "Credit reversal";
   if (k === "topup" || direction === "credit") return "Top-up";
   return "Receipt";
 }
@@ -119,6 +122,7 @@ function UsageMeterBar({
 function BillingPage() {
   const { pay: payInvoiceId } = Route.useSearch();
   const subQ = useBillingSubscription();
+  const cancelQ = useBillingSubscriptionCancellation();
   const usageQ = useBillingUsage();
   const invoicesQ = useBillingInvoices();
   const accessQ = useBillingAccess();
@@ -258,6 +262,9 @@ function BillingPage() {
   const planPrice = plan
     ? moneyFromPence(plan?.price_gbp_pence ?? (plan as { price_pence?: number })?.price_pence)
     : "—";
+  const cancelStatus = String(cancelQ.data?.status || "none").toLowerCase();
+  const cancellationScheduled = cancelStatus === "scheduled" || cancelStatus === "requested";
+  const subscriptionCancelled = cancelStatus === "cancelled" || cancelQ.data?.effective_subscription_status === "cancelled";
 
   return (
     <div className="flex w-full flex-col gap-6 pb-12">
@@ -325,7 +332,7 @@ function BillingPage() {
             <Skeleton className="h-44" />
           </div>
         ) : (
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-3">
             <Card>
               <CardHeader className="pb-2">
                 <CardDescription>Current plan</CardDescription>
@@ -355,11 +362,19 @@ function BillingPage() {
                     />
                   </>
                 )}
-                <Button asChild size="sm">
-                  <Link to="/account/packages">Change plan</Link>
-                </Button>
+                {!cancellationScheduled && !subscriptionCancelled ? (
+                  <Button asChild size="sm">
+                    <Link to="/account/packages">Change plan</Link>
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Plan changes are unavailable while cancellation is scheduled or active.
+                  </p>
+                )}
               </CardContent>
             </Card>
+
+            <SubscriptionCancellationCard planName={plan?.name} />
 
             <Card>
               <CardHeader className="pb-2">

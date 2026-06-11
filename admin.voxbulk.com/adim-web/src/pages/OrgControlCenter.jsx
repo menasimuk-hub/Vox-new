@@ -394,6 +394,8 @@ export default function OrgControlCenter() {
   const invoices = detail?.invoices || []
   const activity = detail?.activity || []
   const invoiceSummary = detail?.invoice_summary || {}
+  const subscriptionCancellation = detail?.subscription_cancellation || null
+  const refundReviews = detail?.refund_reviews || []
 
   const selectOrg = async (id) => {
     setSelectedId(id)
@@ -513,6 +515,79 @@ export default function OrgControlCenter() {
       await refreshAll()
     } catch (e) {
       pushToast(e?.message || 'Reversal failed', 'danger')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const reverseCancellation = async () => {
+    if (!selectedId) return
+    const note = window.prompt('Reason for reversing scheduled cancellation:', 'Customer changed mind')
+    if (!note) return
+    setActionBusy('cancel-reverse')
+    try {
+      await occ('/cancellation/reverse', { method: 'POST', body: JSON.stringify({ note }) })
+      pushToast('Cancellation reversed', 'success')
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Could not reverse cancellation', 'danger')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const immediateCancellation = async (issueWalletCredit = false) => {
+    if (!selectedId) return
+    const note = window.prompt('Admin note for immediate cancellation:', 'Admin immediate cancellation')
+    if (!note) return
+    setActionBusy('cancel-immediate')
+    try {
+      await occ('/cancellation/immediate', {
+        method: 'POST',
+        body: JSON.stringify({ note, issue_wallet_credit: issueWalletCredit }),
+      })
+      pushToast(issueWalletCredit ? 'Cancelled immediately with wallet credit' : 'Cancelled immediately', 'success')
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Immediate cancellation failed', 'danger')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const resolveRefundReview = async (reviewId, reviewStatus, extra = {}) => {
+    if (!selectedId || !reviewId) return
+    const adminNotes = window.prompt('Admin notes for refund review:', extra.defaultNote || '')
+    if (adminNotes === null) return
+    setActionBusy(`refund-${reviewId}`)
+    try {
+      await occ(`/refund-reviews/${encodeURIComponent(reviewId)}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ review_status: reviewStatus, admin_notes: adminNotes, ...extra }),
+      })
+      pushToast(`Refund review ${reviewStatus}`, 'success')
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Refund review update failed', 'danger')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const reverseCancellationWalletCredit = async (reviewId) => {
+    if (!selectedId || !reviewId) return
+    const reason = window.prompt('Reason for reversing wallet credit:', 'Mistaken credit')
+    if (!reason) return
+    setActionBusy(`refund-reverse-${reviewId}`)
+    try {
+      await occ(`/refund-reviews/${encodeURIComponent(reviewId)}/reverse-wallet`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+      pushToast('Cancellation wallet credit reversed', 'success')
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Wallet credit reversal failed', 'danger')
     } finally {
       setActionBusy('')
     }
@@ -1178,6 +1253,95 @@ export default function OrgControlCenter() {
                     <span className="occ-info-row-label">Open invoices</span>
                     <span className="occ-info-row-value">{org?.open_invoices ?? 0}</span>
                   </div>
+                </div>
+                <div className="occ-info-block">
+                  <div className="occ-info-block-title">Subscription cancellation</div>
+                  <div className="occ-info-row">
+                    <span className="occ-info-row-label">Status</span>
+                    <span className="occ-info-row-value">{statusBadge(subscriptionCancellation?.status || 'none')}</span>
+                  </div>
+                  <div className="occ-info-row">
+                    <span className="occ-info-row-label">Effective date</span>
+                    <span className="occ-info-row-value">{fmtWhen(subscriptionCancellation?.effective_at) || '—'}</span>
+                  </div>
+                  <div className="occ-info-row">
+                    <span className="occ-info-row-label">Unused value (est.)</span>
+                    <span className="occ-info-row-value">{subscriptionCancellation?.calculated_unused_value_display || '—'}</span>
+                  </div>
+                  <div className="occ-info-row">
+                    <span className="occ-info-row-label">Refund preference</span>
+                    <span className="occ-info-row-value">{subscriptionCancellation?.requested_refund_type || '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                    {['scheduled', 'requested'].includes(String(subscriptionCancellation?.status || '').toLowerCase()) ? (
+                      <button type="button" className="occ-btn" disabled={actionBusy === 'cancel-reverse'} onClick={reverseCancellation}>
+                        Reverse scheduled cancellation
+                      </button>
+                    ) : null}
+                    {String(subscriptionCancellation?.status || 'none').toLowerCase() !== 'cancelled' ? (
+                      <>
+                        <button type="button" className="occ-btn danger" disabled={actionBusy === 'cancel-immediate'} onClick={() => immediateCancellation(false)}>
+                          Cancel immediately (admin)
+                        </button>
+                        <button type="button" className="occ-btn" disabled={actionBusy === 'cancel-immediate'} onClick={() => immediateCancellation(true)}>
+                          Cancel now + wallet credit
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="occ-info-block">
+                  <div className="occ-info-block-title">Refund reviews</div>
+                  {!refundReviews.length ? (
+                    <div className="occ-empty-state" style={{ padding: '12px 0' }}>No refund review cases.</div>
+                  ) : (
+                    refundReviews.map((review) => (
+                      <div key={review.id} style={{ borderTop: '1px solid var(--occ-border)', paddingTop: 10, marginTop: 10 }}>
+                        <div className="occ-info-row">
+                          <span className="occ-info-row-label">Status</span>
+                          <span className="occ-info-row-value">{statusBadge(review.review_status)}</span>
+                        </div>
+                        <div className="occ-info-row">
+                          <span className="occ-info-row-label">Requested</span>
+                          <span className="occ-info-row-value">{review.requested_refund_type}</span>
+                        </div>
+                        <div className="occ-info-row">
+                          <span className="occ-info-row-label">Provider</span>
+                          <span className="occ-info-row-value">{review.source_payment_provider || '—'}</span>
+                        </div>
+                        <div className="occ-info-row">
+                          <span className="occ-info-row-label">Payment ref</span>
+                          <span className="occ-info-row-value occ-mono">{review.source_payment_reference || '—'}</span>
+                        </div>
+                        <div className="occ-info-row">
+                          <span className="occ-info-row-label">Wallet credit</span>
+                          <span className="occ-info-row-value">{fmtMoneyPence(review.approved_wallet_credit_pence)}</span>
+                        </div>
+                        <div className="occ-info-row">
+                          <span className="occ-info-row-label">External refund</span>
+                          <span className="occ-info-row-value">{fmtMoneyPence(review.approved_external_refund_pence)}</span>
+                        </div>
+                        {['pending', 'approved'].includes(String(review.review_status || '').toLowerCase()) ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                            <button type="button" className="occ-btn-xs" onClick={() => resolveRefundReview(review.id, 'approved', { issue_wallet_credit: true })}>
+                              Approve wallet credit
+                            </button>
+                            <button type="button" className="occ-btn-xs" onClick={() => resolveRefundReview(review.id, 'completed', { approved_external_refund_pence: review.calculated_unused_value_pence, defaultNote: 'Mark refunded externally' })}>
+                              Mark refunded externally
+                            </button>
+                            <button type="button" className="occ-btn-xs danger" onClick={() => resolveRefundReview(review.id, 'rejected')}>
+                              Reject
+                            </button>
+                            {review.wallet_transaction_id ? (
+                              <button type="button" className="occ-btn-xs" onClick={() => reverseCancellationWalletCredit(review.id)}>
+                                Reverse wallet credit
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
                 </div>
                 <div className="occ-info-block">
                   <div className="occ-info-block-title">Quick actions</div>

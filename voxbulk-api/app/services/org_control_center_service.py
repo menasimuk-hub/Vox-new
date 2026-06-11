@@ -453,4 +453,20 @@ class OrgControlCenterService:
                 "currency": currency,
             },
             "activity": activity,
+            "subscription_cancellation": _subscription_cancellation_detail(db, org, sub),
+            "refund_reviews": _list_org_refund_reviews(db, org_id),
         }
+
+
+def _subscription_cancellation_detail(db: Session, org: Organisation, sub: Subscription | None) -> dict:
+    from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
+    plan = SubscriptionCancellationService.get_plan(db, sub.plan_id) if sub else None
+    refund_review = SubscriptionCancellationService.get_open_refund_review(db, org.id)
+    return SubscriptionCancellationService.cancellation_dict(db, org, sub, plan, refund_review=refund_review)
+
+
+def _list_org_refund_reviews(db: Session, org_id: str) -> list[dict]:
+    from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
+    return SubscriptionCancellationService.list_refund_reviews(db, org_id=org_id, limit=20)

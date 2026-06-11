@@ -107,8 +107,17 @@ class BillingAccessService:
         if mandate_block:
             return mandate_block
         sub = BillingAccessService.get_subscription(db, org.id)
-        if sub is not None and str(sub.status or "").strip().lower() == "past_due":
-            return "Your account has a past-due invoice. Resolve billing before launching new campaigns."
+        if sub is not None:
+            from app.services.subscription_cancellation_service import (
+                CANCELLATION_CANCELLED,
+                SubscriptionCancellationService,
+            )
+
+            cancel_status = str(sub.cancellation_status or "none").strip().lower()
+            if cancel_status == CANCELLATION_CANCELLED or SubscriptionCancellationService.effective_status(sub) == "cancelled":
+                return "Your subscription has ended. Choose a plan on Packages & pricing to launch new campaigns."
+            if str(sub.status or "").strip().lower() == "past_due":
+                return "Your account has a past-due invoice. Resolve billing before launching new campaigns."
         return None
 
     @staticmethod

@@ -89,6 +89,7 @@ from app.models.plan_price import PlanPrice, PricingCurrencySettings  # noqa: F4
 from app.models.wallet_transaction import WalletTransaction  # noqa: F401
 from app.models.billing_settings import BillingSettings  # noqa: F401
 from app.models.credit_note import CreditNote  # noqa: F401
+from app.models.billing_refund_review import BillingRefundReview  # noqa: F401
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient  # noqa: F401
 from app.models.interview_booking_token import InterviewBookingToken  # noqa: F401
 from app.models.career_mailbox_settings import CareerMailboxSettings  # noqa: F401

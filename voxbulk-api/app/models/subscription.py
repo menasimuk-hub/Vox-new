@@ -31,6 +31,14 @@ class Subscription(Base):
     first_payment_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    cancellation_status: Mapped[str] = mapped_column(String(30), nullable=False, default="none")
+    cancellation_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    cancellation_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancellation_effective_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    requested_refund_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    cancellation_requested_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
