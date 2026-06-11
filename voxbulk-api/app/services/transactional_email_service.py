@@ -43,6 +43,8 @@ EMAIL_TEST_VARIABLES: dict[str, str] = {
     "promo_name": "Sales offer · Northgate Dental",
     "plan_summary": "Dental P1 · £199/mo · 300 calls, 500 WhatsApp, 300 SMS",
     "signup_url": "https://voxbulk.com/signin?promo=SALEDEMO",
+    "dashboard_url": "https://dashboard.voxbulk.com",
+    "signin_url": "https://voxbulk.com/signin",
     "plan_name": "Dental P1",
     "plan_price": "£199",
     "trial_days": "15",

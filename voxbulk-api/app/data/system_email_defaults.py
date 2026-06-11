@@ -9,11 +9,18 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     "new_user": {
         "title": "New user",
         "subject": "Welcome to VOXBULK",
-        "body": """<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;">
-  <p>Hi <strong>{{user_email}}</strong>,</p>
-  <p>Welcome to VOXBULK — your account is ready.</p>
-  <p style="color:#64748b;font-size:13px;">This email uses HTML. Replace placeholders like <code>{{user_email}}</code>.</p>
-</body></html>""",
+        "body": wrap_brand_email(
+            title="Welcome to VOXBULK",
+            inner_html="""<p>Hi <strong>{{first_name}}</strong>,</p>
+  <p>Welcome to VOXBULK — your account for <strong>{{organisation_name}}</strong> is ready.</p>
+  <p>Sign in to open your dashboard and finish setup.</p>
+  """
+            + cta_button(href="{{dashboard_url}}", label="Open dashboard")
+            + """
+  <p style="word-break:break-all;font-size:13px;color:#6b6560;"><a href="{{dashboard_url}}" style="color:#1a2d5c;">{{dashboard_url}}</a></p>
+  <p style="font-size:13px;color:#6b6560;">Sign-in page: <a href="{{signin_url}}" style="color:#1a2d5c;">{{signin_url}}</a></p>
+  <p style="font-size:13px;color:#6b6560;">If you did not create this account, contact support.</p>""",
+        ),
     },
     "forgot_password": {
         "title": "Forgot password",

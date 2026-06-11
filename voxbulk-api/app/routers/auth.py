@@ -141,20 +141,13 @@ def accept_invite(payload: dict, db: Session = Depends(get_db)):
     db.refresh(user)
 
     if is_new_user:
-        try:
-            with get_sessionmaker()() as s2:
-                org = s2.get(Organisation, inv.org_id)
-                ProductEmailTriggers.send_new_user_welcome(
-                    s2,
-                    to_email=str(user.email),
-                    extra_variables={
-                        "organisation_name": (org.name if org else "") or "",
-                        "user_name": str(user.email).split("@")[0],
-                        "first_name": str(user.email).split("@")[0],
-                    },
-                )
-        except Exception:
-            pass
+        with get_sessionmaker()() as s2:
+            org = s2.get(Organisation, inv.org_id)
+            ProductEmailTriggers.send_new_user_welcome_safe(
+                s2,
+                to_email=str(user.email),
+                organisation_name=(org.name if org else "") or "",
+            )
 
     token = create_access_token(subject=user.id, org_id=inv.org_id)
     return {"access_token": token, "token_type": "bearer", "org_id": inv.org_id, "user_id": user.id}
@@ -235,19 +228,12 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
         BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
     db.commit()
 
-    try:
-        with get_sessionmaker()() as s2:
-            ProductEmailTriggers.send_new_user_welcome(
-                s2,
-                to_email=str(user.email),
-                extra_variables={
-                    "organisation_name": org.name or "",
-                    "user_name": str(user.email).split("@")[0],
-                    "first_name": str(user.email).split("@")[0],
-                },
-            )
-    except Exception:
-        pass
+    with get_sessionmaker()() as s2:
+        ProductEmailTriggers.send_new_user_welcome_safe(
+            s2,
+            to_email=str(user.email),
+            organisation_name=org.name or "",
+        )
 
     token = create_access_token(subject=user.id, org_id=org.id)
     return {"access_token": token, "token_type": "bearer", "org_id": org.id, "user_id": user.id}
@@ -561,22 +547,15 @@ async def oauth_callback(
         token, org_id, user_id, is_new = await SocialOAuthService.handle_callback(db, provider=provider, code=code, state=state)
 
         if is_new:
-            try:
-                with get_sessionmaker()() as s2:
-                    wel_email = s2.execute(select(User.email).where(User.id == user_id)).scalar_one_or_none()
-                    org_name = s2.execute(select(Organisation.name).where(Organisation.id == org_id)).scalar_one_or_none()
-                    if wel_email:
-                        ProductEmailTriggers.send_new_user_welcome(
-                            s2,
-                            to_email=str(wel_email),
-                            extra_variables={
-                                "organisation_name": str(org_name or ""),
-                                "user_name": str(wel_email).split("@")[0],
-                                "first_name": str(wel_email).split("@")[0],
-                            },
-                        )
-            except Exception:
-                pass
+            with get_sessionmaker()() as s2:
+                wel_email = s2.execute(select(User.email).where(User.id == user_id)).scalar_one_or_none()
+                org_name = s2.execute(select(Organisation.name).where(Organisation.id == org_id)).scalar_one_or_none()
+                if wel_email:
+                    ProductEmailTriggers.send_new_user_welcome_safe(
+                        s2,
+                        to_email=str(wel_email),
+                        organisation_name=str(org_name or ""),
+                    )
     except Exception as e:
         q = httpx.QueryParams({"oauth_error": str(e) or "OAuth failed", "provider": provider})
         res = RedirectResponse(url=f"{base}/signin?{q}", status_code=302)

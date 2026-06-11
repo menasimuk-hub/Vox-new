@@ -2717,6 +2717,16 @@ def admin_create_or_link_org_user(
     db.add(OrganisationMembership(org_id=org_id, user_id=existing.id, role=role))
     db.commit()
     db.refresh(existing)
+    if created_new_user:
+        from app.core.database import get_sessionmaker
+        from app.services.product_email_triggers import ProductEmailTriggers
+
+        with get_sessionmaker()() as s2:
+            ProductEmailTriggers.send_new_user_welcome_safe(
+                s2,
+                to_email=str(existing.email),
+                organisation_name=str(org_ent.name or ""),
+            )
     return {
         "user_id": existing.id,
         "email": existing.email,

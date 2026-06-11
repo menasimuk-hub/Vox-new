@@ -56,6 +56,19 @@ class OnboardingSettingsService:
         db.commit()
 
         try:
+            from app.models.organisation import Organisation
+            from app.services.product_email_triggers import ProductEmailTriggers
+
+            org = db.get(Organisation, request.org_id)
+            ProductEmailTriggers.send_new_user_welcome_safe(
+                db,
+                to_email=str(user.email),
+                organisation_name=str(org.name if org else ""),
+            )
+        except Exception:
+            pass
+
+        try:
             if request.promo_code:
                 from app.services.promo_offer_service import PromoOfferService
 
