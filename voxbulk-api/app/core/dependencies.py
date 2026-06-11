@@ -23,11 +23,7 @@ class CurrentPrincipal:
     token_payload: dict
 
 
-def get_current_principal(
-    request: Request,
-    db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
-) -> CurrentPrincipal:
+def _principal_from_token(request: Request, db: Session, token: str) -> CurrentPrincipal:
     try:
         payload = decode_token(token)
     except ValueError:
@@ -50,6 +46,45 @@ def get_current_principal(
     return CurrentPrincipal(user_id=str(user_id), org_id=str(org_id), token_payload=payload)
 
 
+def _assert_user_access(user: User | None, *, allow_pending: bool = False) -> User:
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    status_val = str(getattr(user, "deletion_status", "active") or "active")
+    if status_val == "archived":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deleted")
+    if status_val == "pending" and not allow_pending:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account deletion is pending — access is restricted until processed or cancelled",
+        )
+    if not user.is_active and not (allow_pending and status_val == "pending"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
+    return user
+
+
+def get_current_principal(
+    request: Request,
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+) -> CurrentPrincipal:
+    principal = _principal_from_token(request, db, token)
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    _assert_user_access(user, allow_pending=False)
+    return principal
+
+
+def get_current_principal_allow_pending(
+    request: Request,
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+) -> CurrentPrincipal:
+    """For deletion-status and cancel-delete routes while request is pending."""
+    principal = _principal_from_token(request, db, token)
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    _assert_user_access(user, allow_pending=True)
+    return principal
+
+
 def get_tenant_org_id(principal: CurrentPrincipal = Depends(get_current_principal)) -> str:
     return principal.org_id
 
@@ -63,9 +98,7 @@ def get_current_user(
     principal: CurrentPrincipal = Depends(get_current_principal),
 ) -> User:
     user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
-    return user
+    return _assert_user_access(user, allow_pending=False)
 
 
 def require_superuser(user: User = Depends(get_current_user)) -> User:

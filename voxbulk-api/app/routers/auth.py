@@ -284,6 +284,9 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
     user = db.execute(select(User).where(func.lower(User.email) == email_norm)).scalar_one_or_none()
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    del_status = str(getattr(user, "deletion_status", "active") or "active")
+    if del_status in ("pending", "archived"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is not available for sign-in")
 
     # Guard against legacy/partial users created without password_hash.
     if not user.password_hash:
@@ -339,11 +342,17 @@ def me(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_
     dashboard_setup_complete = bool(org_onboarding_state == "onboarding_completed" or (membership and membership.dashboard_setup_completed_at is not None))
     admin_access = bool(user.is_superuser or get_active_admin_user(db, user) is not None)
     admin_role = resolve_admin_role(db, user) if admin_access else None
+    from app.services.account_deletion_service import AccountDeletionService
+
+    deletion = AccountDeletionService.get_status(db, user=user, org_id=principal.org_id)
 
     return {
         "user_id": principal.user_id,
         "org_id": principal.org_id,
         "email": user.email,
+        "deletion_status": deletion.get("deletion_status"),
+        "deletion_label": deletion.get("deletion_label"),
+        "deletion_requested_at": deletion.get("deletion_requested_at"),
         "role": clinic_role,
         "is_superuser": bool(user.is_superuser),
         "admin_access": admin_access,

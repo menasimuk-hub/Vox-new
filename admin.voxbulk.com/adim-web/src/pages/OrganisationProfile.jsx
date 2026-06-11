@@ -23,6 +23,14 @@ function publicAppBase() {
     .replace(/\/+$/, '')
 }
 
+function deletionPillClass(status) {
+  const s = String(status || 'active').toLowerCase()
+  if (s === 'pending') return 'p-amber'
+  if (s === 'archived') return 'p-red'
+  if (s === 'cancelled') return 'p-cyan'
+  return ''
+}
+
 export default function OrganisationProfile() {
   const orgId = localStorage.getItem('voxbulk_admin_selected_org_id') || ''
   const signupUrl = orgId ? `${publicAppBase()}/signin?org_id=${encodeURIComponent(orgId)}` : ''
@@ -510,6 +518,26 @@ export default function OrganisationProfile() {
         </div>
       )}
 
+      {org?.deletion_status && org.deletion_status !== 'active' ? (
+        <div className='card' style={{ marginBottom: 16, borderColor: org.deletion_status === 'pending' ? 'rgba(245,158,11,0.45)' : 'rgba(220,38,38,0.35)' }}>
+          <div className='cardBody' style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className={`pill ${deletionPillClass(org.deletion_status)}`}>
+              {org.deletion_status === 'pending' ? 'Pending deletion' : org.deletion_status === 'archived' ? 'Deleted' : org.deletion_status}
+            </span>
+            {org.deletion_requested_at ? (
+              <span className='muted' style={{ fontSize: 13 }}>
+                Requested {new Date(org.deletion_requested_at).toLocaleString()}
+              </span>
+            ) : null}
+            {org.deletion_status === 'pending' ? (
+              <Link className='btn soft' to='/compliance/account-deletions' style={{ marginLeft: 'auto' }}>
+                Open deletion queue
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       <div className='tabs' style={{ marginBottom: 16, flexWrap: 'wrap' }}>
         {TAB_IDS.map((id) => (
           <div
@@ -895,7 +923,16 @@ export default function OrganisationProfile() {
                           </button>
                         </td>
                         <td>{u.role || '—'}</td>
-                        <td>{u.is_active ? <span className='pill p-green'>Active</span> : <span className='pill p-amber'>Blocked</span>}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {u.is_active ? <span className='pill p-green'>Active</span> : <span className='pill p-amber'>Blocked</span>}
+                            {u.deletion_status && u.deletion_status !== 'active' ? (
+                              <span className={`pill ${deletionPillClass(u.deletion_status)}`}>
+                                {u.deletion_label || u.deletion_status}
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
                         <td>{u.is_superuser ? <span className='pill'>Platform admin</span> : '—'}</td>
                         <td>{u.linked_at ? new Date(u.linked_at).toLocaleString() : '—'}</td>
                         <td>

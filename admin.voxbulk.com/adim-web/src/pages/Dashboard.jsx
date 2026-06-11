@@ -92,6 +92,7 @@ export default function Dashboard() {
   const [support, setSupport] = useState(null)
   const [orgs, setOrgs] = useState([])
   const [pending, setPending] = useState([])
+  const [accountDeletions, setAccountDeletions] = useState({ items: [], pending_count: 0 })
   const [tickets, setTickets] = useState([])
   const [surveys, setSurveys] = useState(null)
   const [interviews, setInterviews] = useState(null)
@@ -107,6 +108,7 @@ export default function Dashboard() {
         supportRes,
         orgsRes,
         pendingRes,
+        deletionsRes,
         ticketsRes,
         balancesRes,
         surveysRes,
@@ -117,6 +119,7 @@ export default function Dashboard() {
         apiFetch('/admin/support/kpis').catch(() => null),
         apiFetch('/admin/organisations?limit=200').catch(() => []),
         apiFetch('/admin/onboarding/requests?status_filter=pending').catch(() => []),
+        apiFetch('/admin/account-deletions?status_filter=pending&limit=20').catch(() => ({ items: [], pending_count: 0 })),
         apiFetch('/admin/support/tickets?limit=12&status_filter=open').catch(() => []),
         apiFetch('/admin/dashboard/provider-balances').catch(() => null),
         apiFetch('/admin/platform-services/surveys/overview').catch(() => null),
@@ -128,6 +131,14 @@ export default function Dashboard() {
       setSupport(supportRes)
       setOrgs(Array.isArray(orgsRes) ? orgsRes : [])
       setPending(Array.isArray(pendingRes) ? pendingRes : [])
+      setAccountDeletions(
+        deletionsRes && typeof deletionsRes === 'object'
+          ? {
+              items: Array.isArray(deletionsRes.items) ? deletionsRes.items : [],
+              pending_count: Number(deletionsRes.pending_count || 0),
+            }
+          : { items: [], pending_count: 0 },
+      )
       setTickets(Array.isArray(ticketsRes) ? ticketsRes : [])
       setProviderBalances(balancesRes || { telnyx: null, elevenlabs: null })
       setSurveys(surveysRes)
@@ -339,6 +350,48 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <p className='muted'>No open tickets.</p>
+              )}
+            </div>
+          </div>
+
+          <div className='card'>
+            <div className='cardHead'>
+              <h3>Pending account deletions</h3>
+              <Link to='/compliance/account-deletions' className='btn soft'>
+                View queue
+              </Link>
+            </div>
+            <div className='cardBody'>
+              <p className='muted' style={{ marginBottom: 12 }}>
+                <span className='pill p-amber'>{n(accountDeletions.pending_count || accountDeletions.items.length)} awaiting</span>
+              </p>
+              {accountDeletions.items.length ? (
+                <div className='tableWrap'>
+                  <table className='table'>
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Organisation</th>
+                        <th>Requested</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accountDeletions.items.slice(0, 8).map((row) => (
+                        <tr
+                          key={row.id}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => navigate('/compliance/account-deletions')}
+                        >
+                          <td>{row.requested_by_email || '—'}</td>
+                          <td>{row.org_name || '—'}</td>
+                          <td className='muted'>{fmt(row.requested_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className='muted'>No pending account deletion requests.</p>
               )}
             </div>
           </div>

@@ -189,6 +189,7 @@ const NAV = [
     'Compliance',
     [
       ['Audit logs', '/compliance/audit'],
+      ['Account deletions', '/compliance/account-deletions'],
       ['Consent / opt-out', '/compliance/consent'],
       ['Recording disclosure', '/compliance/recording'],
       ['OFCOM rules', '/compliance/ofcom'],

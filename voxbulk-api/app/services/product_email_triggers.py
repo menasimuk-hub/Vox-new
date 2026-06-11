@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -68,6 +69,37 @@ class ProductEmailTriggers:
                 extra={"to_email": to_email, "error": str(exc)},
             )
             return False, str(exc)
+
+    @staticmethod
+    def send_account_deletion_completed(
+        db: Session,
+        *,
+        to_email: str,
+        organisation_name: str,
+        deleted_at: datetime,
+    ) -> tuple[bool, str | None]:
+        em = (to_email or "").strip().lower()
+        if not em:
+            return False, "missing_recipient"
+        local = em.split("@")[0] if "@" in em else "there"
+        vars_: dict[str, str] = {
+            "user_email": em,
+            "first_name": local,
+            "user_name": local,
+            "organisation_name": organisation_name or "",
+            "deleted_at": deleted_at.strftime("%d %B %Y %H:%M UTC"),
+            "retention_note": (
+                "Invoices and legally required billing records are retained without personal identifiers. "
+                "Support history may be kept for compliance."
+            ),
+            "support_email": "support@voxbulk.com",
+        }
+        return TransactionalEmailService.send_templated_optional(
+            db,
+            template_key="account_deletion_completed",
+            to_email=em,
+            variables=vars_,
+        )
 
     @staticmethod
     def notify_payment_failed(

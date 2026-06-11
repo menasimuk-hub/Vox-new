@@ -22,6 +22,19 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:13px;color:#6b6560;">If you did not create this account, contact support.</p>""",
         ),
     },
+    "account_deletion_completed": {
+        "title": "Account deletion completed",
+        "subject": "Your VOXBULK account has been deleted",
+        "body": wrap_brand_email(
+            title="Account deleted",
+            inner_html="""<p>Hi <strong>{{first_name}}</strong>,</p>
+  <p>Your VOXBULK account for <strong>{{organisation_name}}</strong> has been deleted as requested.</p>
+  <p><strong>Completed:</strong> {{deleted_at}}</p>
+  <p style="font-size:13px;color:#6b6560;">{{retention_note}}</p>
+  <p style="font-size:13px;color:#6b6560;">If you have questions, contact us at <a href="mailto:{{support_email}}" style="color:#1a2d5c;">{{support_email}}</a>.</p>""",
+            footer="Sent by VOXBULK · billing@voxbulk.com",
+        ),
+    },
     "forgot_password": {
         "title": "Forgot password",
         "subject": "Reset your password",

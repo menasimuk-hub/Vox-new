@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from fastapi.responses import FileResponse
 
-from app.core.dependencies import get_current_principal
+from app.core.dependencies import get_current_principal, get_current_principal_allow_pending
 from app.core.database import get_db
 from app.core.encryption import get_encryptor
 from app.models.provider_config import ProviderConfig
@@ -548,6 +548,20 @@ def delete_my_logo(db: Session = Depends(get_db), principal=Depends(get_current_
     return {"ok": True}
 
 
+@router.get("/me/deletion-status")
+def get_my_deletion_status(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal_allow_pending),
+):
+    from app.models.user import User
+    from app.services.account_deletion_service import AccountDeletionService
+
+    user = db.get(User, principal.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return AccountDeletionService.get_status(db, user=user, org_id=principal.org_id)
+
+
 @router.post("/me/delete-account")
 def request_delete_my_account(
     payload: dict | None = None,
@@ -571,8 +585,26 @@ def request_delete_my_account(
         return AccountDeletionService.request_user_deletion(
             db,
             user,
+            org_id=principal.org_id,
             reason=str(body.get("reason") or "").strip() or None,
         )
+    except AccountDeletionError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/me/cancel-delete-account")
+def cancel_delete_my_account(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal_allow_pending),
+):
+    from app.models.user import User
+    from app.services.account_deletion_service import AccountDeletionError, AccountDeletionService
+
+    user = db.get(User, principal.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    try:
+        return AccountDeletionService.cancel_user_deletion(db, user, org_id=principal.org_id)
     except AccountDeletionError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

@@ -19,14 +19,19 @@ function formatAction(action: string) {
 function AuditPage() {
   const logQ = useAuditLog();
 
-  const rows = (logQ.data || []).map((e) => ({
-    id: e.id,
-    who: e.actor_email || "System",
-    action: formatAction(e.action),
-    detail: e.detail || "—",
-    when: e.created_at ? new Date(e.created_at).toLocaleString() : "—",
-    sortWhen: e.created_at || "",
-  }));
+  const rows = (logQ.data || []).map((e) => {
+    const eventType = String(e.event_type || e.action || "");
+    const isDeletion = eventType.includes("account.deletion") || eventType.includes("deletion");
+    return {
+      id: e.id,
+      who: e.actor_email || "System",
+      action: formatAction(e.action),
+      detail: e.detail || "—",
+      when: e.created_at ? new Date(e.created_at).toLocaleString() : "—",
+      sortWhen: e.created_at || "",
+      isDeletion,
+    };
+  });
   const table = useTableSort(rows, "sortWhen", "desc");
 
   return (
@@ -57,7 +62,18 @@ function AuditPage() {
                   <TableRow key={row.id}>
                     <TableCell className="pl-6 text-xs text-muted-foreground whitespace-nowrap">{row.when}</TableCell>
                     <TableCell className="text-sm">{row.who}</TableCell>
-                    <TableCell className="text-sm capitalize">{row.action}</TableCell>
+                    <TableCell className="text-sm capitalize">
+                      {row.isDeletion ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                            Deletion
+                          </span>
+                          {row.action}
+                        </span>
+                      ) : (
+                        row.action
+                      )}
+                    </TableCell>
                     <TableCell className="pr-6 max-w-md truncate text-xs text-muted-foreground" title={row.detail}>{row.detail}</TableCell>
                   </TableRow>
                 ))}

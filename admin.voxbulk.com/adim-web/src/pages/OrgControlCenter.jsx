@@ -310,6 +310,9 @@ export default function OrgControlCenter() {
   const [walletHistory, setWalletHistory] = useState([])
   const [walletModalMode, setWalletModalMode] = useState('credit')
   const [actionBusy, setActionBusy] = useState('')
+  const [activityDeletionOnly, setActivityDeletionOnly] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleteAdminNotes, setDeleteAdminNotes] = useState('')
 
   const pushToast = useCallback((message, type = '') => {
     const id = `${Date.now()}-${Math.random()}`
@@ -415,6 +418,14 @@ export default function OrgControlCenter() {
     })
   }, [invoices, invoiceSearch])
   const activity = detail?.activity || []
+  const deletionRequest = detail?.deletion_request || null
+  const filteredActivity = useMemo(() => {
+    if (!activityDeletionOnly) return activity
+    return activity.filter((ev) => {
+      const t = String(ev.event_type || ev.action || '').toLowerCase()
+      return t.includes('account.deletion') || t.includes('deletion')
+    })
+  }, [activity, activityDeletionOnly])
   const invoiceSummary = detail?.invoice_summary || {}
   const subscriptionCancellation = detail?.subscription_cancellation || null
   const refundReviews = detail?.refund_reviews || []
@@ -1064,7 +1075,33 @@ export default function OrgControlCenter() {
 
   const openModal = (type) => {
     if (type === 'package' && org?.plan_code) setPlanCode(org.plan_code)
+    if (type === 'completeDeletion') {
+      setDeleteConfirmText('')
+      setDeleteAdminNotes('')
+    }
     setModal(type)
+  }
+
+  const completeAccountDeletion = async () => {
+    if (!selectedId || !deletionRequest?.id) return
+    if (deleteConfirmText.trim().toUpperCase() !== 'DELETE') {
+      pushToast('Type DELETE to confirm', 'danger')
+      return
+    }
+    setModalBusy(true)
+    try {
+      await apiFetch(`/admin/account-deletions/${encodeURIComponent(deletionRequest.id)}/complete`, {
+        method: 'POST',
+        body: JSON.stringify({ confirm: 'DELETE', admin_notes: deleteAdminNotes.trim() || undefined }),
+      })
+      pushToast('Account deletion completed', 'success')
+      setModal(null)
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Deletion failed', 'danger')
+    } finally {
+      setModalBusy(false)
+    }
   }
 
   return (
@@ -1283,8 +1320,31 @@ export default function OrgControlCenter() {
                 <Link className="occ-btn" to={`/organisations/${encodeURIComponent(selectedId)}`}>
                   Full profile
                 </Link>
+                {org?.deletion_status === 'pending' && deletionRequest ? (
+                  <button type="button" className="occ-btn danger" onClick={() => openModal('completeDeletion')}>
+                    Complete account deletion
+                  </button>
+                ) : null}
               </div>
             </div>
+            {org?.deletion_status === 'pending' && deletionRequest ? (
+              <div
+                style={{
+                  margin: '0 0 12px',
+                  padding: '12px 16px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(220,38,38,0.35)',
+                  background: 'rgba(220,38,38,0.06)',
+                  fontSize: 13,
+                }}
+              >
+                <strong style={{ color: 'var(--occ-red)' }}>Pending account deletion</strong>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Requested by {deletionRequest.requested_by_email || '—'}
+                  {deletionRequest.requested_at ? ` · ${fmtWhen(deletionRequest.requested_at)}` : ''}
+                </div>
+              </div>
+            ) : null}
             <div className="occ-tabs">
               {TABS.map((t) => (
                 <button
@@ -1945,10 +2005,19 @@ export default function OrgControlCenter() {
           </div>
 
           <div className={`occ-tab-content ${activeTab === 'activity' ? 'active' : ''}`}>
-            {!activity.length ? (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`occ-btn-xs ${activityDeletionOnly ? 'primary' : ''}`}
+                onClick={() => setActivityDeletionOnly((v) => !v)}
+              >
+                Deletion
+              </button>
+            </div>
+            {!filteredActivity.length ? (
               <div className="occ-empty-state">No activity recorded.</div>
             ) : (
-              activity.map((ev) => (
+              filteredActivity.map((ev) => (
                 <div key={ev.id} className="occ-activity-item">
                   <div className="occ-activity-dot" style={{ background: 'var(--occ-blue)' }} />
                   <div style={{ flex: 1 }}>
@@ -2178,6 +2247,34 @@ export default function OrgControlCenter() {
                   </button>
                   <button type="button" className="occ-btn danger" disabled={modalBusy} onClick={() => applyCredits('survey', -10)}>
                     -10 survey
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {modal === 'completeDeletion' ? (
+              <>
+                <div className="occ-modal-title" style={{ color: 'var(--occ-red)' }}>
+                  Complete account deletion
+                </div>
+                <div className="occ-modal-sub">
+                  Archives the organisation, anonymizes PII, and retains invoices and audit records. Stop running campaigns first.
+                </div>
+                <label className="occ-modal-label">Admin notes (optional)</label>
+                <textarea
+                  className="occ-modal-input"
+                  rows={2}
+                  value={deleteAdminNotes}
+                  onChange={(e) => setDeleteAdminNotes(e.target.value)}
+                />
+                <label className="occ-modal-label">Type DELETE to confirm</label>
+                <input className="occ-modal-input" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} />
+                <div className="occ-modal-footer">
+                  <button type="button" className="occ-btn" onClick={() => setModal(null)}>
+                    Cancel
+                  </button>
+                  <button type="button" className="occ-btn danger" disabled={modalBusy} onClick={() => void completeAccountDeletion()}>
+                    {modalBusy ? 'Processing…' : 'Confirm deletion'}
                   </button>
                 </div>
               </>

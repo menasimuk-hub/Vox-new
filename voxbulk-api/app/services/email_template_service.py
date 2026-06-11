@@ -20,6 +20,7 @@ from app.services.uk_compliance_constants import (
 
 EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "new_user",
+    "account_deletion_completed",
     "forgot_password",
     "new_invoice",
     "invoice_document",

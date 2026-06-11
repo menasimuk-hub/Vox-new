@@ -28,6 +28,7 @@ import Permissions from './pages/Permissions'
 import GenericPage from './pages/GenericPage'
 import ComplianceSettings from './pages/ComplianceSettings'
 import ComplianceAudit from './pages/ComplianceAudit'
+import AccountDeletionsAdmin from './pages/AccountDeletionsAdmin'
 import EmailSettings from './pages/EmailSettings'
 import WaSurveySystemTemplates from './pages/WaSurveySystemTemplates'
 import WaInterviewTemplates from './pages/WaInterviewTemplates'
@@ -235,6 +236,7 @@ export default function App() {
         <Route path='/ai/cost' element={G('Cost controls')} />
 
         <Route path='/compliance/audit' element={<ComplianceAudit />} />
+        <Route path='/compliance/account-deletions' element={<AccountDeletionsAdmin />} />
         <Route path='/compliance/consent' element={<ComplianceSettings />} />
         <Route path='/compliance/recording' element={G('Recording disclosure')} />
         <Route path='/compliance/ofcom' element={G('OFCOM rules')} />

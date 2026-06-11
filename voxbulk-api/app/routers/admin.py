@@ -1939,12 +1939,74 @@ def admin_occ_delete_account(
     if confirm != "DELETE":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Type DELETE in confirm field')
     try:
-        return AccountDeletionService.execute_org_deletion(
+        return AccountDeletionService.approve_and_complete(
             db,
             org_id,
             actor_user_id=actor_id,
             actor_email=actor_email,
             reason=str(body.get("reason") or "").strip() or None,
+            admin_notes=str(body.get("admin_notes") or body.get("note") or "").strip() or None,
+        )
+    except AccountDeletionError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/account-deletions")
+def admin_list_account_deletions(
+    status_filter: str = "pending",
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.account_deletion_service import AccountDeletionService
+
+    return {
+        "items": AccountDeletionService.list_admin_queue(db, status_filter=status_filter, limit=limit),
+        "pending_count": AccountDeletionService.pending_count(db),
+    }
+
+
+@router.get("/account-deletions/{request_id}")
+def admin_get_account_deletion(
+    request_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.account_deletion_service import AccountDeletionService
+
+    data = AccountDeletionService.get_admin_request(db, request_id)
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deletion request not found")
+    return data
+
+
+@router.post("/account-deletions/{request_id}/complete")
+def admin_complete_account_deletion(
+    request_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.account_deletion_service import AccountDeletionError, AccountDeletionService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    body = payload if isinstance(payload, dict) else {}
+    confirm = str(body.get("confirm") or "").strip().upper()
+    if confirm != "DELETE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Type DELETE in confirm field')
+    data = AccountDeletionService.get_admin_request(db, request_id)
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deletion request not found")
+    org_id = str(data.get("org_id") or "")
+    try:
+        return AccountDeletionService.approve_and_complete(
+            db,
+            org_id,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+            reason=str(body.get("reason") or "").strip() or None,
+            admin_notes=str(body.get("admin_notes") or body.get("note") or "").strip() or None,
+            request_id=request_id,
         )
     except AccountDeletionError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -1990,6 +2052,8 @@ def admin_get_organisation(org_id: str, db: Session = Depends(get_db), _admin=De
         "market_zone": market_zone,
         "market_label": zone_label(market_zone),
         "wallet_balance_display": format_wallet_pence(wallet_pence, market_zone),
+        "deletion_status": str(getattr(o, "deletion_status", "active") or "active"),
+        "deletion_requested_at": getattr(o, "deletion_requested_at", None),
     }
 
 
@@ -2516,23 +2580,37 @@ def admin_list_org_invoices(
 def admin_list_org_users(org_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     rows = list(
         db.execute(
-            select(User.id, User.email, User.is_active, User.is_superuser, OrganisationMembership.role, OrganisationMembership.created_at)
+            select(
+                User.id,
+                User.email,
+                User.is_active,
+                User.is_superuser,
+                User.deletion_status,
+                User.deletion_requested_at,
+                OrganisationMembership.role,
+                OrganisationMembership.created_at,
+            )
             .join(OrganisationMembership, OrganisationMembership.user_id == User.id)
             .where(OrganisationMembership.org_id == org_id)
             .order_by(OrganisationMembership.created_at.desc())
             .limit(200)
         ).all()
     )
+    from app.services.account_deletion_service import AccountDeletionService
+
     return [
         {
             "user_id": uid,
             "email": email,
             "is_active": is_active,
             "is_superuser": is_superuser,
+            "deletion_status": del_status,
+            "deletion_label": AccountDeletionService._status_label(del_status),
+            "deletion_requested_at": del_req_at,
             "role": role,
             "linked_at": created_at,
         }
-        for uid, email, is_active, is_superuser, role, created_at in rows
+        for uid, email, is_active, is_superuser, del_status, del_req_at, role, created_at in rows
     ]
 
 

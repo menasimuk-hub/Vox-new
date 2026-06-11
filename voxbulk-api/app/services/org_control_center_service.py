@@ -13,6 +13,7 @@ from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.subscription import Subscription
+from app.services.account_deletion_service import AccountDeletionService
 from app.services.admin_org_service import AdminOrganisationService
 from app.services.invoice_service import InvoiceService
 from app.services.market_zone import country_column_matches_zone, country_to_zone, normalize_zone, zone_label
@@ -479,8 +480,13 @@ class OrgControlCenterService:
                 "amount_next_payment_display": subscription_finance.get("amount_next_payment_display") if subscription_finance else None,
                 "cancel_at_period_end": subscription_finance.get("cancel_at_period_end") if subscription_finance else False,
                 "mandate_status": subscription_finance.get("mandate_status") if subscription_finance else None,
+                "deletion_status": str(getattr(org, "deletion_status", "active") or "active"),
+                "deletion_requested_at": getattr(org, "deletion_requested_at", None),
                 **usage,
             },
+            "deletion_request": AccountDeletionService._request_to_dict(db, pending_req)
+            if (pending_req := AccountDeletionService._active_pending_request(db, org_id))
+            else None,
             "subscription_finance": subscription_finance,
             "billing_profile": profile,
             "usage": usage_full,

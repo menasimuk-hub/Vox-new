@@ -11,8 +11,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useServices } from "@/lib/services";
-import { useDeleteOrgLogo, useOrganisation, useUpdateOrganisation, useUploadOrgLogo } from "@/lib/queries";
-import { apiFetch } from "@/lib/api";
+import {
+  useCancelAccountDeletion,
+  useDeleteOrgLogo,
+  useDeletionStatus,
+  useOrganisation,
+  useRequestAccountDeletion,
+  useUpdateOrganisation,
+  useUploadOrgLogo,
+} from "@/lib/queries";
 import { PROFILE_COUNTRIES } from "@/lib/billing/market";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 
@@ -36,7 +43,10 @@ function ProfileSettings() {
   const [website, setWebsite] = React.useState("");
   const [country, setCountry] = React.useState("United Kingdom");
   const [deleteConfirm, setDeleteConfirm] = React.useState("");
-  const [deleteBusy, setDeleteBusy] = React.useState(false);
+  const deletionQ = useDeletionStatus();
+  const requestDeletionM = useRequestAccountDeletion();
+  const cancelDeletionM = useCancelAccountDeletion();
+  const deletionStatus = deletionQ.data?.deletion_status || "active";
   const logoPreview = useOrgLogoPreview(orgQ.data?.logo_url);
 
   React.useEffect(() => {
@@ -106,21 +116,24 @@ function ProfileSettings() {
 
   const onDeleteAccount = async () => {
     if (deleteConfirm.trim().toUpperCase() !== "DELETE") {
-      toast.error('Type DELETE to confirm account deletion');
+      toast.error("Type DELETE to confirm account deletion");
       return;
     }
-    setDeleteBusy(true);
     try {
-      await apiFetch("/organisations/me/delete-account", {
-        method: "POST",
-        body: JSON.stringify({ confirm: "DELETE" }),
-      });
-      toast.success("Deletion request submitted — your account will be archived");
+      const res = await requestDeletionM.mutateAsync({ confirm: "DELETE" });
       setDeleteConfirm("");
+      toast.success(res.pending_message || "You have requested account deletion.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not submit deletion request");
-    } finally {
-      setDeleteBusy(false);
+    }
+  };
+
+  const onCancelDeletion = async () => {
+    try {
+      await cancelDeletionM.mutateAsync();
+      toast.success("Deletion request cancelled");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not cancel deletion request");
     }
   };
 
@@ -192,15 +205,52 @@ function ProfileSettings() {
       </Card>
 
       <Card className="border-destructive/30">
-        <CardHeader><CardTitle className="text-destructive">Delete my account</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-destructive">Delete my account</CardTitle>
+        </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Request deletion of your organisation account. Invoices and legally required billing records are retained; personal data is anonymized.
-          </p>
-          <Field label='Type DELETE to confirm' value={deleteConfirm} onChange={setDeleteConfirm} />
-          <Button variant="destructive" disabled={deleteBusy} onClick={() => void onDeleteAccount()}>
-            {deleteBusy ? "Submitting…" : "Delete my account"}
-          </Button>
+          <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+            <span className="font-medium">Status: </span>
+            {deletionQ.isLoading ? "Loading…" : deletionQ.data?.deletion_label || "Not requested"}
+            {deletionQ.data?.deletion_requested_at ? (
+              <span className="block text-xs text-muted-foreground mt-1">
+                Requested {new Date(deletionQ.data.deletion_requested_at).toLocaleString()}
+              </span>
+            ) : null}
+          </div>
+
+          {deletionStatus === "pending" ? (
+            <>
+              <p className="text-sm font-medium">{deletionQ.data?.pending_message || "You have requested account deletion."}</p>
+              <p className="text-sm text-muted-foreground">{deletionQ.data?.sla_message || "This may take up to 2 working days."}</p>
+              <p className="text-xs text-muted-foreground">
+                Invoices and legally required billing records are retained; personal data is anonymized when processed.
+              </p>
+              <Button variant="outline" disabled={cancelDeletionM.isPending} onClick={() => void onCancelDeletion()}>
+                {cancelDeletionM.isPending ? "Cancelling…" : "Cancel delete request"}
+              </Button>
+            </>
+          ) : deletionStatus === "cancelled" ? (
+            <>
+              <p className="text-sm text-muted-foreground">Your deletion request was cancelled. You can submit a new request below.</p>
+              <Field label="Type DELETE to confirm" value={deleteConfirm} onChange={setDeleteConfirm} />
+              <Button variant="destructive" disabled={requestDeletionM.isPending} onClick={() => void onDeleteAccount()}>
+                {requestDeletionM.isPending ? "Submitting…" : "Delete my account"}
+              </Button>
+            </>
+          ) : deletionStatus === "archived" ? (
+            <p className="text-sm text-muted-foreground">This account has been deleted.</p>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Request deletion of your organisation account. Invoices and legally required billing records are retained; personal data is anonymized.
+              </p>
+              <Field label="Type DELETE to confirm" value={deleteConfirm} onChange={setDeleteConfirm} />
+              <Button variant="destructive" disabled={requestDeletionM.isPending} onClick={() => void onDeleteAccount()}>
+                {requestDeletionM.isPending ? "Submitting…" : "Delete my account"}
+              </Button>
+            </>
+          )}
         </CardContent>
       </Card>
 

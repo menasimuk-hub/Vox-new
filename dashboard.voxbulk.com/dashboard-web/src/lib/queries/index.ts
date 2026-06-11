@@ -61,6 +61,7 @@ export const queryKeys = {
   teamInvites: ["organisations", "team", "invites"] as const,
   optOuts: ["organisations", "opt-outs"] as const,
   auditLog: ["organisations", "audit-log"] as const,
+  deletionStatus: ["organisations", "deletion-status"] as const,
   feedbackLocations: ["customer-feedback", "locations"] as const,
   feedbackIndustries: ["customer-feedback", "catalog", "industries"] as const,
   feedbackSurveyTypes: (industryId: string) => ["customer-feedback", "catalog", "survey-types", industryId] as const,
@@ -1415,7 +1416,20 @@ export type AuditEntry = {
   action: string;
   detail?: string | null;
   actor_email?: string | null;
+  event_type?: string | null;
   created_at?: string;
+};
+
+export type DeletionStatus = {
+  deletion_status: string;
+  deletion_label: string;
+  deletion_requested_at?: string | null;
+  deletion_request_id?: string | null;
+  can_cancel: boolean;
+  can_request: boolean;
+  sla_message: string;
+  pending_message: string;
+  message?: string;
 };
 
 export function useTeamMembers() {
@@ -1506,6 +1520,46 @@ export function useAuditLog() {
   return useQuery({
     queryKey: queryKeys.auditLog,
     queryFn: () => apiFetch<AuditEntry[]>("/organisations/me/audit-log"),
+  });
+}
+
+export function useDeletionStatus() {
+  return useQuery({
+    queryKey: queryKeys.deletionStatus,
+    queryFn: () => apiFetch<DeletionStatus>("/organisations/me/deletion-status"),
+    retry: false,
+  });
+}
+
+export function useRequestAccountDeletion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { confirm: string; reason?: string }) =>
+      apiFetch<DeletionStatus & { ok: boolean; request_id?: string }>("/organisations/me/delete-account", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.deletionStatus });
+      void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+      void qc.invalidateQueries({ queryKey: queryKeys.session });
+    },
+  });
+}
+
+export function useCancelAccountDeletion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<DeletionStatus & { ok: boolean }>("/organisations/me/cancel-delete-account", {
+        method: "POST",
+        body: "{}",
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.deletionStatus });
+      void qc.invalidateQueries({ queryKey: queryKeys.auditLog });
+      void qc.invalidateQueries({ queryKey: queryKeys.session });
+    },
   });
 }
 
