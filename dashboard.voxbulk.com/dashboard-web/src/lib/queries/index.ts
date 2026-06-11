@@ -116,7 +116,9 @@ export type FeedbackPackage = {
   wa_units_included: number;
   admin_notes?: string | null;
   is_active?: boolean;
+  is_featured?: boolean;
   display_order?: number;
+  features?: string[];
   prices?: Array<{ currency: string; monthly_price_minor: number }>;
 };
 

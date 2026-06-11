@@ -3,9 +3,13 @@ from __future__ import annotations
 from sqlalchemy import func, or_
 from sqlalchemy.orm import InstrumentedAttribute
 
-# Admin zone keys: gb, us, ca, au
+from app.services.billing_currency import EU_MEMBER_STATES
+from app.services.country_vat_service import _COUNTRY_ALIASES
+
+# Admin zone keys: gb, eu, us, ca, au
 ZONE_LABELS: dict[str, str] = {
     "gb": "United Kingdom",
+    "eu": "Eurozone",
     "us": "United States",
     "ca": "Canada",
     "au": "Australia",
@@ -13,6 +17,7 @@ ZONE_LABELS: dict[str, str] = {
 
 ZONE_CURRENCY: dict[str, str] = {
     "gb": "£",
+    "eu": "€",
     "us": "$",
     "ca": "CA$",
     "au": "A$",
@@ -27,6 +32,9 @@ _COUNTRY_TO_ZONE: dict[str, str] = {
     "scotland": "gb",
     "wales": "gb",
     "northern ireland": "gb",
+    "eurozone": "eu",
+    "eu": "eu",
+    "europe": "eu",
     "united states": "us",
     "usa": "us",
     "us": "us",
@@ -37,6 +45,14 @@ _COUNTRY_TO_ZONE: dict[str, str] = {
     "australia": "au",
     "au": "au",
 }
+
+_EU_COUNTRY_KEYS = tuple(
+    sorted(
+        key
+        for key, code in _COUNTRY_ALIASES.items()
+        if code in EU_MEMBER_STATES
+    )
+)
 
 
 def normalize_zone(zone: str | None) -> str | None:
@@ -52,7 +68,14 @@ def normalize_zone(zone: str | None) -> str | None:
 
 def country_to_zone(country: str | None) -> str:
     key = str(country or "United Kingdom").strip().lower()
-    return _COUNTRY_TO_ZONE.get(key, "gb")
+    if key in _COUNTRY_TO_ZONE:
+        return _COUNTRY_TO_ZONE[key]
+    code = _COUNTRY_ALIASES.get(key)
+    if not code and len(key) == 2 and key.isalpha():
+        code = key.upper()
+    if code and code in EU_MEMBER_STATES:
+        return "eu"
+    return "gb"
 
 
 def zone_label(zone: str | None) -> str:
@@ -79,6 +102,8 @@ def country_column_matches_zone(country_col: InstrumentedAttribute, zone: str) -
     normalized = func.lower(func.trim(func.coalesce(country_col, "")))
     if z == "gb":
         keys = ("united kingdom", "uk", "gb", "great britain", "england", "scotland", "wales", "northern ireland")
+    elif z == "eu":
+        keys = ("eurozone", "eu", "europe", *_EU_COUNTRY_KEYS)
     elif z == "us":
         keys = ("united states", "usa", "us", "u.s.", "u.s.a.")
     elif z == "ca":

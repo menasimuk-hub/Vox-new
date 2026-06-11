@@ -13,9 +13,9 @@ const TABS = [
   { key: 'wa-templates', label: 'WhatsApp templates' },
 ]
 
-const PACKAGE_ZONES = ['gb', 'us', 'ca', 'au']
+const PACKAGE_ZONES = ['gb', 'eu', 'us', 'ca', 'au']
 
-const ZONE_LABELS = { gb: 'GB', us: 'US', ca: 'CA', au: 'AU' }
+const ZONE_LABELS = { gb: 'GB', eu: 'EU', us: 'US', ca: 'CA', au: 'AU' }
 
 function fmtWhen(iso) {
   if (!iso) return '—'

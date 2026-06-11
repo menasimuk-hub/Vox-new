@@ -4,6 +4,9 @@ from app.services.market_zone import country_to_zone, normalize_zone, zone_label
 def test_country_to_zone():
     assert country_to_zone("United Kingdom") == "gb"
     assert country_to_zone("UK") == "gb"
+    assert country_to_zone("Germany") == "eu"
+    assert country_to_zone("France") == "eu"
+    assert country_to_zone("Eurozone") == "eu"
     assert country_to_zone("United States") == "us"
     assert country_to_zone("Canada") == "ca"
     assert country_to_zone("Australia") == "au"

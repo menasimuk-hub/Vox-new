@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.core.database import get_sessionmaker
 from app.core.security import hash_password
-from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType
+from app.models.customer_feedback import FeedbackIndustry, FeedbackPackage, FeedbackSurveyType
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.user import User
@@ -59,3 +59,32 @@ def test_trigger_template_format():
     text = TRIGGER_TEMPLATE.format(company="Acme Ltd", branch="Marylebone", token="tok1")
     assert "Acme Ltd" in text
     assert "[ref:tok1]" in text
+
+
+def test_seed_feedback_packages_all_zones():
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        packages = list(db.execute(select(FeedbackPackage)).scalars().all())
+        zones = {pkg.market_zone for pkg in packages}
+        assert zones >= {"gb", "eu", "us", "ca", "au"}
+        for zone in ("gb", "eu", "us", "ca", "au"):
+            zone_packages = [pkg for pkg in packages if pkg.market_zone == zone]
+            assert len(zone_packages) == 3
+            units = sorted(pkg.wa_units_included for pkg in zone_packages)
+            assert units == [200, 600, 2500]
+
+
+def test_list_packages_for_eu_org():
+    org_id, _user_id = _seed_org()
+    with get_sessionmaker()() as db:
+        org = db.get(Organisation, org_id)
+        org.country = "Germany"
+        db.commit()
+        FeedbackSeedService.ensure_seeded(db)
+        items = FeedbackCatalogService.list_packages(db, market_zone="eu", active_only=True)
+        assert len(items) == 3
+        names = {item["plan_name"] for item in items}
+        assert names == {"Starter", "Growth", "Pro"}
+        growth = next(item for item in items if item["plan_name"] == "Growth")
+        assert growth["is_featured"] is True
+        assert growth["wa_units_included"] == 600

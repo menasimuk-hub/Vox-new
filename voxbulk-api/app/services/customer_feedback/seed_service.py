@@ -72,15 +72,80 @@ INDUSTRY_SEEDS: list[dict] = [
     },
 ]
 
-PACKAGE_SEEDS: list[dict] = [
-    {"code": "cf_starter_gb", "name": "Customer feedback Starter", "zone": "gb", "locations": 1, "units": 100, "price_pence": 4900, "order": 10},
-    {"code": "cf_growth_gb", "name": "Customer feedback Growth", "zone": "gb", "locations": 3, "units": 200, "price_pence": 9900, "order": 20},
-    {"code": "cf_starter_us", "name": "Customer feedback Starter (US)", "zone": "us", "locations": 1, "units": 100, "price_pence": 5900, "order": 10},
-    {"code": "cf_starter_ca", "name": "Customer feedback Starter (CA)", "zone": "ca", "locations": 1, "units": 100, "price_pence": 6900, "order": 10},
-    {"code": "cf_starter_au", "name": "Customer feedback Starter (AU)", "zone": "au", "locations": 1, "units": 100, "price_pence": 7900, "order": 10},
+PACKAGE_TIERS: list[dict] = [
+    {
+        "tier": "starter",
+        "name": "Starter",
+        "locations": 1,
+        "units": 200,
+        "order": 10,
+        "featured": False,
+        "price_minor": 4900,
+        "features": [
+            "1 location",
+            "200 surveys/mo",
+            "Monthly report",
+            "Email support",
+        ],
+    },
+    {
+        "tier": "growth",
+        "name": "Growth",
+        "locations": 3,
+        "units": 600,
+        "order": 20,
+        "featured": True,
+        "price_minor": 9900,
+        "features": [
+            "3 locations",
+            "600 surveys/mo",
+            "Weekly report",
+            "Live dashboard",
+            "Priority support",
+        ],
+    },
+    {
+        "tier": "pro",
+        "name": "Pro",
+        "locations": 10,
+        "units": 2500,
+        "order": 30,
+        "featured": False,
+        "price_minor": 19900,
+        "features": [
+            "10 locations",
+            "2500 surveys",
+            "Real-time dashboard",
+            "Branded PDF report",
+            "Dedicated account manager",
+        ],
+    },
 ]
 
-ZONE_CURRENCY = {"gb": "GBP", "us": "USD", "ca": "CAD", "au": "AUD"}
+PACKAGE_ZONES: list[dict] = [
+    {"zone": "gb", "currency": "GBP"},
+    {"zone": "eu", "currency": "EUR"},
+    {"zone": "us", "currency": "USD"},
+    {"zone": "ca", "currency": "CAD"},
+    {"zone": "au", "currency": "AUD"},
+]
+
+PACKAGE_SEEDS: list[dict] = [
+    {
+        "code": f"cf_{tier['tier']}_{zone['zone']}",
+        "name": tier["name"],
+        "zone": zone["zone"],
+        "currency": zone["currency"],
+        "locations": tier["locations"],
+        "units": tier["units"],
+        "price_pence": tier["price_minor"],
+        "order": tier["order"],
+        "featured": tier["featured"],
+        "features": tier["features"],
+    }
+    for zone in PACKAGE_ZONES
+    for tier in PACKAGE_TIERS
+]
 
 
 def _slugify(name: str) -> str:
@@ -90,6 +155,13 @@ def _slugify(name: str) -> str:
 class FeedbackSeedService:
     @staticmethod
     def ensure_seeded(db: Session) -> None:
+        FeedbackSeedService._seed_industries_if_needed(db)
+        FeedbackSeedService._seed_wa_sender_if_needed(db)
+        FeedbackSeedService._ensure_packages(db)
+        db.commit()
+
+    @staticmethod
+    def _seed_industries_if_needed(db: Session) -> None:
         existing = db.execute(select(FeedbackIndustry.id).limit(1)).scalar_one_or_none()
         if existing:
             return
@@ -117,6 +189,9 @@ class FeedbackSeedService:
                         updated_at=now,
                     )
                 )
+
+    @staticmethod
+    def _seed_wa_sender_if_needed(db: Session) -> None:
         sender = db.execute(select(FeedbackWaSender).where(FeedbackWaSender.country_code == "gb")).scalar_one_or_none()
         if sender is None:
             db.add(
@@ -124,35 +199,58 @@ class FeedbackSeedService:
                     id=str(uuid.uuid4()),
                     country_code="gb",
                     phone_e164="+447700900000",
-                    created_at=now,
+                    created_at=datetime.utcnow(),
                 )
             )
+
+    @staticmethod
+    def _ensure_packages(db: Session) -> None:
+        now = datetime.utcnow()
         for pkg in PACKAGE_SEEDS:
+            currency = str(pkg["currency"])
+            features_json = json.dumps(pkg["features"])
+            description = (
+                f"WhatsApp QR feedback — {pkg['name']} "
+                f"({pkg['locations']} location(s), {pkg['units']} surveys/month)"
+            )
+
             plan = db.execute(select(Plan).where(Plan.code == pkg["code"])).scalar_one_or_none()
             if plan is None:
-                currency = ZONE_CURRENCY.get(pkg["zone"], "GBP")
                 plan = Plan(
                     id=str(uuid.uuid4()),
                     code=pkg["code"],
                     name=pkg["name"],
-                    price_gbp_pence=int(pkg["price_pence"]),
+                    price_gbp_pence=int(pkg["price_pence"]) if currency == "GBP" else 0,
                     interval="monthly",
-                    description=f"WhatsApp QR feedback — {pkg['locations']} location(s), {pkg['units']} WA surveys/month",
-                    features_json=json.dumps([
-                        f"{pkg['locations']} QR location(s)",
-                        f"{pkg['units']} WhatsApp survey units / month",
-                        "Direct Debit only — no overage",
-                    ]),
+                    description=description,
+                    features_json=features_json,
                     calls_included=0,
                     whatsapp_included=int(pkg["units"]),
                     service_kind=FEEDBACK_SERVICE_CODE,
                     is_active=True,
+                    is_featured=bool(pkg.get("featured")),
                     sort_order=int(pkg["order"]),
                     created_at=now,
                     updated_at=now,
                 )
                 db.add(plan)
                 db.flush()
+            else:
+                plan.name = pkg["name"]
+                if currency == "GBP":
+                    plan.price_gbp_pence = int(pkg["price_pence"])
+                plan.description = description
+                plan.features_json = features_json
+                plan.whatsapp_included = int(pkg["units"])
+                plan.is_featured = bool(pkg.get("featured"))
+                plan.sort_order = int(pkg["order"])
+                plan.is_active = True
+                plan.updated_at = now
+
+            price_row = db.execute(
+                select(PlanPrice).where(PlanPrice.plan_id == plan.id, PlanPrice.currency == currency)
+            ).scalar_one_or_none()
+            if price_row is None:
                 db.add(
                     PlanPrice(
                         id=str(uuid.uuid4()),
@@ -164,6 +262,10 @@ class FeedbackSeedService:
                         updated_at=now,
                     )
                 )
+            else:
+                price_row.monthly_price_minor = int(pkg["price_pence"])
+                price_row.updated_at = now
+
             fb_pkg = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)).scalar_one_or_none()
             if fb_pkg is None:
                 db.add(
@@ -178,4 +280,10 @@ class FeedbackSeedService:
                         updated_at=now,
                     )
                 )
-        db.commit()
+            else:
+                fb_pkg.market_zone = pkg["zone"]
+                fb_pkg.max_locations = int(pkg["locations"])
+                fb_pkg.wa_units_included = int(pkg["units"])
+                fb_pkg.display_order = int(pkg["order"])
+                fb_pkg.is_active = True
+                fb_pkg.updated_at = now

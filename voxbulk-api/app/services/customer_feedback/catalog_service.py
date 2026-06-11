@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import datetime
@@ -54,6 +55,14 @@ def survey_type_to_dict(row: FeedbackSurveyType) -> dict[str, Any]:
 def package_to_dict(db: Session, row: FeedbackPackage) -> dict[str, Any]:
     plan = db.get(Plan, row.plan_id)
     prices = PlanPriceService.list_for_plan(db, row.plan_id) if plan else []
+    features: list[str] = []
+    if plan and plan.features_json:
+        try:
+            parsed = json.loads(plan.features_json)
+            if isinstance(parsed, list):
+                features = [str(item) for item in parsed]
+        except json.JSONDecodeError:
+            features = []
     return {
         "id": row.id,
         "plan_id": row.plan_id,
@@ -64,7 +73,9 @@ def package_to_dict(db: Session, row: FeedbackPackage) -> dict[str, Any]:
         "wa_units_included": row.wa_units_included,
         "admin_notes": row.admin_notes,
         "is_active": row.is_active,
+        "is_featured": bool(plan.is_featured) if plan else False,
         "display_order": row.display_order,
+        "features": features,
         "prices": [
             {
                 "currency": p.currency,

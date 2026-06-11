@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { Loader2, MapPin, MessageCircle, QrCode } from "lucide-react";
+import { Loader2, MessageCircle, QrCode } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -19,6 +19,7 @@ export const Route = createFileRoute("/_app/account/feedback/packages")({
 
 const CURRENCY_SYMBOL: Record<string, string> = {
   GBP: "£",
+  EUR: "€",
   USD: "$",
   CAD: "CA$",
   AUD: "A$",
@@ -161,29 +162,39 @@ function FeedbackPackagesPage() {
             {packages.map((pkg) => {
               const isCurrent = currentPlanId === pkg.plan_id;
               const busy = busyPlanId === pkg.plan_id;
+              const features = pkg.features?.length
+                ? pkg.features
+                : [
+                    `${pkg.max_locations} location${pkg.max_locations === 1 ? "" : "s"}`,
+                    `${pkg.wa_units_included.toLocaleString()} surveys/mo`,
+                  ];
               return (
-                <Card key={pkg.id} className={isCurrent ? "ring-2 ring-primary/30" : ""}>
+                <Card
+                  key={pkg.id}
+                  className={isCurrent ? "ring-2 ring-primary/30" : pkg.is_featured ? "ring-2 ring-primary/20" : ""}
+                >
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base">{pkg.plan_name || "Customer feedback"}</CardTitle>
+                    <div className="flex items-start justify-between gap-2">
+                      <CardTitle className="text-base">{pkg.plan_name || "Customer feedback"}</CardTitle>
+                      {pkg.is_featured ? (
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                          Most popular
+                        </span>
+                      ) : null}
+                    </div>
                     <CardDescription className="text-xl font-semibold text-foreground">
                       {formatPackagePrice(pkg, orgCurrency)}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-1 flex-col space-y-3 text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <MapPin className="size-4 shrink-0 text-primary" />
-                      <span>
-                        Up to <strong className="text-foreground">{pkg.max_locations}</strong> location
-                        {pkg.max_locations === 1 ? "" : "s"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <MessageCircle className="size-4 shrink-0 text-primary" />
-                      <span>
-                        <strong className="text-foreground">{pkg.wa_units_included.toLocaleString()}</strong> WhatsApp
-                        responses / month
-                      </span>
-                    </div>
+                    <ul className="space-y-1.5 text-muted-foreground">
+                      {features.map((feature) => (
+                        <li key={feature} className="flex items-start gap-2">
+                          <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary" />
+                          <span>{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
                     {pkg.admin_notes ? <p className="text-xs text-muted-foreground">{pkg.admin_notes}</p> : null}
                     <Button
                       className="mt-auto w-full"
