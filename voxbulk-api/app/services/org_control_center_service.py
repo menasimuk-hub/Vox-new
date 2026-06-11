@@ -172,7 +172,36 @@ def _search_org_ids(db: Session, term: str) -> set[str] | None:
         org_ids.add(row[0])
     for row in db.execute(select(ServiceOrder.org_id).where(ServiceOrder.id.ilike(like))).all():
         org_ids.add(row[0])
+    from app.models.billing_invoice import BillingInvoice
+
+    for row in db.execute(
+        select(BillingInvoice.org_id).where(
+            or_(
+                BillingInvoice.invoice_number.ilike(like),
+                BillingInvoice.external_invoice_id.ilike(like),
+                BillingInvoice.id.ilike(like),
+            )
+        )
+    ).all():
+        org_ids.add(row[0])
     return org_ids
+
+
+def _filter_invoice_dicts(invoices: list[dict[str, Any]], *, search: str | None = None) -> list[dict[str, Any]]:
+    term = str(search or "").strip().lower()
+    if not term:
+        return invoices
+    out: list[dict[str, Any]] = []
+    for inv in invoices:
+        if not isinstance(inv, dict):
+            continue
+        hay = " ".join(
+            str(inv.get(k) or "")
+            for k in ("invoice_number", "external_invoice_id", "id", "description")
+        ).lower()
+        if term in hay:
+            out.append(inv)
+    return out
 
 
 class OrgControlCenterService:
@@ -310,7 +339,7 @@ class OrgControlCenterService:
         return {"items": items, "count": len(items)}
 
     @staticmethod
-    def get_detail(db: Session, org_id: str) -> dict[str, Any] | None:
+    def get_detail(db: Session, org_id: str, *, invoice_search: str | None = None) -> dict[str, Any] | None:
         o = AdminOrganisationService.get_org_summary(db, org_id=org_id)
         if o is None:
             return None
@@ -457,7 +486,7 @@ class OrgControlCenterService:
             "usage": usage_full,
             "orders": campaigns,
             "campaigns": campaigns,
-            "invoices": invoice_dicts,
+            "invoices": _filter_invoice_dicts(invoice_dicts, search=invoice_search),
             "wallet_history": wallet_history,
             "invoice_summary": {
                 "total_pence": sum(int(getattr(inv, "amount_gbp_pence", 0) or 0) for inv in invoices),

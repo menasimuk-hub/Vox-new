@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
@@ -68,6 +69,42 @@ def currency_for_country_code(country_code: str | None) -> str:
     if code in EU_MEMBER_STATES:
         return "EUR"
     return _COUNTRY_CURRENCY.get(code, _DEFAULT_CURRENCY)
+
+
+def billing_currency_is_locked(db: Session, org: Organisation | None) -> bool:
+    """True once the org has billing activity — currency must not change on profile country edit."""
+    if org is None:
+        return False
+    from app.models.billing_invoice import BillingInvoice
+    from app.models.subscription import Subscription
+    from app.models.wallet_transaction import WalletTransaction
+
+    wallet_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(WalletTransaction)
+            .where(WalletTransaction.org_id == org.id)
+        )
+        or 0
+    )
+    if wallet_count > 0:
+        return True
+    paid_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(BillingInvoice)
+            .where(BillingInvoice.org_id == org.id, BillingInvoice.status == "paid")
+        )
+        or 0
+    )
+    if paid_count > 0:
+        return True
+    sub = db.execute(
+        select(Subscription)
+        .where(Subscription.org_id == org.id, Subscription.first_payment_at.isnot(None))
+        .limit(1)
+    ).scalar_one_or_none()
+    return sub is not None
 
 
 def resolve_org_currency(db: Session, org: Organisation | None, *, persist: bool = False) -> str:

@@ -930,6 +930,25 @@ def list_my_invoices(
     return [InvoiceService.invoice_to_dict(db, r, enrich_payment=True) for r in rows]
 
 
+@router.get("/invoices/outstanding")
+def list_outstanding_invoices(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.invoice_payment_service import InvoicePaymentService
+    from app.services.invoice_service import InvoiceService
+
+    rows = InvoiceService.list_for_org(db, org_id=principal.org_id, limit=limit)
+    payable = [r for r in rows if InvoicePaymentService.is_payable(r)]
+    payable.sort(
+        key=lambda inv: (
+            inv.due_date or inv.created_at,
+        ),
+    )
+    return [InvoiceService.invoice_to_dict(db, r, enrich_payment=True) for r in payable]
+
+
 @router.get("/invoices/{invoice_id}")
 def get_my_invoice(
     invoice_id: str,

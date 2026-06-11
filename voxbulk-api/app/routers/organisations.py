@@ -33,11 +33,23 @@ router = APIRouter(prefix="/organisations", tags=["organisations"])
 
 
 def _org_response(org, db: Session) -> dict:
+    from app.services.billing_currency import (
+        billing_currency_is_locked,
+        currency_symbol,
+        resolve_org_currency,
+    )
+    from app.services.country_vat_service import CountryVatService
+
     data = OrganisationOut.model_validate(org).model_dump()
     allowed, enabled, visible = org_service_maps(org, db)
     data["allowed_services"] = allowed
     data["enabled_services"] = enabled
     data["visible_services"] = visible
+    currency = resolve_org_currency(db, org)
+    data["country_code"] = CountryVatService.resolve_org_country_code(db, org)
+    data["billing_currency"] = currency
+    data["currency_symbol"] = currency_symbol(currency)
+    data["billing_currency_locked"] = billing_currency_is_locked(db, org)
     if getattr(org, "logo_storage_key", None):
         data["logo_url"] = f"/organisations/me/logo/file"
     else:

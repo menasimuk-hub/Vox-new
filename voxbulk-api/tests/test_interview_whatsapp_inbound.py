@@ -216,20 +216,28 @@ def test_confirm_booking_after_cancel_with_aligned_slot(monkeypatch):
         assert token.booked_start_at is not None
 
 
-def test_handle_reschedule_sends_link(monkeypatch):
-    sent: list[str] = []
+def test_handle_reschedule_sends_email_not_wa(monkeypatch):
+    wa_sent: list[str] = []
+    emails: list[dict] = []
 
     monkeypatch.setattr(
         "app.services.interview_whatsapp_inbound_service.TelnyxMessagingService.send_whatsapp",
-        lambda db, **kwargs: sent.append(kwargs["body"]) or type("R", (), {"ok": True})(),
+        lambda db, **kwargs: wa_sent.append(kwargs["body"]) or type("R", (), {"ok": True})(),
     )
     monkeypatch.setattr(
         "app.services.interview_whatsapp_inbound_service.TelnyxMessagingService.log_outbound",
         lambda *a, **k: None,
     )
+    monkeypatch.setattr(
+        "app.services.career_email_service.CareerEmailService.send_booking_reschedule_link_email",
+        lambda db, **kwargs: emails.append(kwargs) or (True, None, "interview_booking_reschedule_link"),
+    )
 
     with get_sessionmaker()() as db:
         org, _, recipient, _ = _seed_booking(db, booked=True)
+        recipient.email = "alex@example.com"
+        db.add(recipient)
+        db.commit()
         result = handle_inbound_reply(
             db,
             from_phone=recipient.phone,
@@ -238,7 +246,14 @@ def test_handle_reschedule_sends_link(monkeypatch):
         )
         assert result["handled"] is True
         assert result["action"] == "reschedule_link"
-        assert sent and "reschedule=1" in sent[0]
+        assert result.get("sent") is True
+        assert not wa_sent
+        assert emails
+        assert emails[0]["to_email"] == "alex@example.com"
+        assert "reschedule=1" in emails[0]["variables"]["reschedule_url"]
+        db.refresh(recipient)
+        merged = json.loads(recipient.result_json or "{}")
+        assert merged.get("reschedule_email_sent_at")
 
 
 def test_extract_telnyx_nested_button_reply():

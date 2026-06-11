@@ -24,6 +24,10 @@ class OrganisationOut(BaseModel):
     county_state: str | None = None
     postcode: str | None = None
     country: str | None = None
+    country_code: str | None = None
+    billing_currency: str | None = None
+    currency_symbol: str | None = None
+    billing_currency_locked: bool = False
     contact_name: str | None = None
     contact_email: str | None = None
     contact_phone: str | None = None

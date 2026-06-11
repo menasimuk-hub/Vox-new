@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -377,25 +377,27 @@ class InvoiceService:
         search: str | None = None,
     ) -> list[BillingInvoice]:
         cap = max(1, min(int(limit or 100), 500))
-        q = select(BillingInvoice).order_by(BillingInvoice.created_at.desc()).limit(cap)
-        rows = list(db.execute(q).scalars().all())
         st = (status or "").strip().lower()
         prov = (provider or "").strip().lower()
-        term = (search or "").strip().lower()
+        term = (search or "").strip()
+        q = select(BillingInvoice).order_by(BillingInvoice.created_at.desc())
         if st:
-            rows = [r for r in rows if (r.status or "").lower() == st]
+            q = q.where(BillingInvoice.status == st)
         if prov:
-            rows = [r for r in rows if (r.provider or "").lower() == prov]
+            q = q.where(BillingInvoice.provider == prov)
         if term:
-            rows = [
-                r
-                for r in rows
-                if term in (r.invoice_number or "").lower()
-                or term in (r.external_invoice_id or "").lower()
-                or term in (r.client_email or "").lower()
-                or term in (r.org_id or "").lower()
-            ]
-        return rows
+            like = f"%{term}%"
+            q = q.where(
+                or_(
+                    BillingInvoice.invoice_number.ilike(like),
+                    BillingInvoice.external_invoice_id.ilike(like),
+                    BillingInvoice.client_email.ilike(like),
+                    BillingInvoice.org_id.ilike(like),
+                    BillingInvoice.id.ilike(like),
+                )
+            )
+        q = q.limit(cap)
+        return list(db.execute(q).scalars().all())
 
     @staticmethod
     def get_by_external(db: Session, *, provider: str, external_invoice_id: str) -> BillingInvoice | None:

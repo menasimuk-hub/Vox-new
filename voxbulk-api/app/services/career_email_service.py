@@ -223,6 +223,45 @@ class CareerEmailService:
         return False, err_fb or err, "none"
 
     @staticmethod
+    def send_booking_reschedule_link_email(
+        db: Session,
+        *,
+        to_email: str,
+        variables: dict[str, str],
+    ) -> tuple[bool, str | None, str]:
+        """Send reschedule link by email (WA reschedule request — no WhatsApp reply)."""
+        ok, err = CareerEmailService.send_templated_critical(
+            db,
+            template_key="interview_booking_reschedule_link",
+            to_email=to_email,
+            variables=variables,
+        )
+        if ok:
+            return True, None, "interview_booking_reschedule_link"
+        to_addr = str(to_email or "").strip().lower()
+        if not to_addr or "@" not in to_addr:
+            return False, "missing_recipient", "none"
+        name = str(variables.get("candidate_name") or "there").strip()
+        role = str(variables.get("role") or "Interview").strip()
+        company = str(variables.get("company_name") or "the company").strip()
+        slot = str(variables.get("current_slot") or "").strip()
+        url = str(variables.get("reschedule_url") or variables.get("booking_url") or "").strip()
+        subject = f"Reschedule your interview — {role}"
+        body = (
+            f"Hi {name},\n\n"
+            f"Your {role} interview at {company}"
+            + (f" is booked for {slot}." if slot else " is booked.")
+            + "\n\n"
+            f"Pick a new time here: {url}\n\n"
+            "— VOXBULK Careers (careers@voxbulk.com)"
+        )
+        try:
+            CareerEmailService.send(db, to_email=to_addr, subject=subject, body=body)
+            return True, None, "plain_fallback"
+        except SmtpMailerError as exc:
+            return False, str(exc), "none"
+
+    @staticmethod
     def send_booking_reminder_email(
         db: Session,
         *,

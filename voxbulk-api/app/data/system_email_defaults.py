@@ -147,6 +147,20 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:13px;color:#6b6560;">Please keep your phone nearby — we will call you at the booked time.</p>""",
         ),
     },
+    "interview_booking_reschedule_link": {
+        "title": "Interview reschedule link",
+        "subject": "Reschedule your interview — {{role}} at {{company_name}}",
+        "body": wrap_interview_email(
+            title="Reschedule your interview",
+            inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>Your <strong>{{role}}</strong> interview at <strong>{{company_name}}</strong> is currently booked for <strong>{{current_slot}}</strong>.</p>
+  <p>Tap below to pick a new time:</p>
+  """ + cta_button(href="{{reschedule_url}}", label="Pick a new time") + """
+  <p style="font-size:13px;color:#6b6560;">If the button does not work, copy this link:<br />
+  <a href="{{reschedule_url}}" style="color:#1a2d5c;word-break:break-all;">{{reschedule_url}}</a></p>
+  <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
+        ),
+    },
     "interview_booking_cancel": {
         "title": "Interview booking cancellation",
         "subject": "Interview cancelled — {{role}} at {{company_name}}",

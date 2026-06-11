@@ -17,7 +17,19 @@ from app.services.billing_currency import money_display, resolve_org_currency
 logger = logging.getLogger(__name__)
 
 OUTSTANDING_STATUSES = frozenset(
-    {"pending", "failed", "past_due", "collecting", "issued", "disputed", "open"}
+    {
+        "pending",
+        "failed",
+        "past_due",
+        "collecting",
+        "issued",
+        "disputed",
+        "open",
+        "due",
+        "unpaid",
+        "overdue",
+        "sent",
+    }
 )
 IMMEDIATE_ACCESS_SCHEMES = frozenset({"bacs", "sepa_core", "sepa_cor1"})
 DEFERRED_FIRST_PAYMENT_SCHEMES = frozenset({"ach", "pad", "becs", "becs_nz", "autogiro", "betalingsservice"})

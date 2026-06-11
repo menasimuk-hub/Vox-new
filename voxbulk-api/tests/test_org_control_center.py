@@ -146,3 +146,51 @@ def test_control_center_create_invoice(mock_send, app_client):
     detail = app_client.get(f"/admin/organisations/{org_id}/control-center", headers=admin)
     invoice_ids = {inv["id"] for inv in detail.json()["invoices"]}
     assert body["invoice"]["id"] in invoice_ids
+
+
+@patch("app.services.org_control_center_actions_service.OrgControlCenterActionsService._send_invoice_email", return_value=True)
+def test_admin_created_invoice_visible_to_customer(mock_send, app_client):
+    admin = _admin_headers(app_client)
+    org_id = _seed_customer_org()
+    with get_sessionmaker()() as db:
+        org = db.get(Organisation, org_id)
+        user = User(
+            email=org.contact_email,
+            password_hash=hash_password("pass123"),
+            is_active=True,
+        )
+        db.add(user)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org_id, user_id=user.id, role="owner"))
+        db.commit()
+        customer_email = user.email
+
+    customer_token = app_client.post(
+        "/auth/token",
+        data={"username": customer_email, "password": "pass123", "org_id": org_id},
+    ).json()["access_token"]
+    customer_headers = {"Authorization": f"Bearer {customer_token}"}
+
+    created = app_client.post(
+        f"/admin/organisations/{org_id}/control-center/invoices",
+        headers=admin,
+        json={"amount_minor": 5000, "invoice_type": "manual", "note": "Customer payable test"},
+    )
+    assert created.status_code == 200, created.text
+    invoice_id = created.json()["invoice"]["id"]
+
+    listed = app_client.get("/billing/invoices", headers=customer_headers)
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()
+    match = next((r for r in rows if r["id"] == invoice_id), None)
+    assert match is not None
+    assert match.get("payable") is True
+
+    outstanding = app_client.get("/billing/invoices/outstanding", headers=customer_headers)
+    assert outstanding.status_code == 200
+    assert any(r["id"] == invoice_id for r in outstanding.json())
+
+    usage = app_client.get("/billing/usage-summary", headers=customer_headers)
+    assert usage.status_code == 200
+    open_count = usage.json().get("billing_monitor", {}).get("status", {}).get("open_invoices_count", 0)
+    assert open_count >= 1

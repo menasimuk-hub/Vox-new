@@ -113,6 +113,13 @@ class BillingMonitorService:
         if sub is None or plan is None:
             return empty
 
+        from app.services.billing_finance_service import BillingFinanceService
+
+        try:
+            BillingFinanceService.sync_subscription_billing_fields(db, sub, org=org, plan=plan, commit=True)
+        except Exception:
+            pass
+
         from app.models.billing_refund_review import BillingRefundReview
         from app.services.subscription_cancellation_service import (
             CANCELLATION_CANCELLED,
@@ -149,8 +156,17 @@ class BillingMonitorService:
         if sub_status not in {"active", "trial", "past_due", "pending_first_payment"}:
             return empty
 
-        amount_pence = int(getattr(plan, "price_gbp_pence", None) or 0)
-        charge_dt = getattr(sub, "current_period_end", None)
+        rates = PlanPriceService.rates_for_org(db, org, plan=plan)
+        amount_pence = int(
+            sub.amount_next_payment_minor
+            or rates.get("monthly_price_minor")
+            or getattr(plan, "price_gbp_pence", None)
+            or 0
+        )
+        charge_dt = (
+            getattr(sub, "next_billing_date", None)
+            or getattr(sub, "current_period_end", None)
+        )
         charge_date = charge_dt.isoformat() if charge_dt else None
         charge_date_display = "—"
         if charge_dt:
@@ -160,6 +176,14 @@ class BillingMonitorService:
                 charge_date_display = str(charge_dt)
 
         payment_method_label = BillingMonitorService._resolve_payment_method_label(db, sub, mandate_id=mandate_id)
+        if payment_method_label == "—":
+            provider = str(getattr(sub, "payment_provider", None) or "").strip().lower()
+            if provider == "stripe":
+                payment_method_label = "Card · Stripe"
+            elif provider == "wallet":
+                payment_method_label = "Wallet"
+            elif provider:
+                payment_method_label = provider.replace("_", " ").title()
 
         return {
             "amount_pence": amount_pence if amount_pence > 0 else None,
@@ -168,6 +192,7 @@ class BillingMonitorService:
             "charge_date_display": charge_date_display,
             "payment_method_label": payment_method_label or "—",
             "can_update_mandate": can_update_mandate,
+            "setup_payment_method_url": "/account/packages" if not can_update_mandate else None,
         }
 
     @staticmethod

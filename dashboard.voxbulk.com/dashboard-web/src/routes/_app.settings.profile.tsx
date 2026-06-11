@@ -84,7 +84,16 @@ function ProfileSettings() {
         website: website || null,
         country: nextCountry || "United Kingdom",
       });
-      toast.success(overrides?.country ? `Country set to ${nextCountry} — prices updated` : "Profile saved");
+      const locked = Boolean(orgQ.data?.billing_currency_locked);
+      if (overrides?.country) {
+        toast.success(
+          locked
+            ? `Country set to ${nextCountry}. Billing currency stays fixed after your first payment — contact support to change.`
+            : `Country set to ${nextCountry} — prices updated`,
+        );
+      } else {
+        toast.success("Profile saved");
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save profile");
     }

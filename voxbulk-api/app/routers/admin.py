@@ -1296,12 +1296,13 @@ def admin_org_control_center_list(
 @router.get("/organisations/{org_id}/control-center")
 def admin_org_control_center_detail(
     org_id: str,
+    invoice_search: str | None = None,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
     from app.services.org_control_center_service import OrgControlCenterService
 
-    detail = OrgControlCenterService.get_detail(db, org_id)
+    detail = OrgControlCenterService.get_detail(db, org_id, invoice_search=invoice_search)
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     return detail

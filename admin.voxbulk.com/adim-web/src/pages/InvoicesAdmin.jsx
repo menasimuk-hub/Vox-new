@@ -14,7 +14,7 @@ const TABS = [
   { id: 'vat', label: 'VAT by country', icon: 'ti-world' },
 ]
 
-const STATUS_OPTIONS = ['', 'paid', 'issued', 'open', 'pending', 'collecting', 'failed', 'past_due', 'disputed', 'refunded']
+const STATUS_OPTIONS = ['', 'paid', 'due', 'issued', 'open', 'pending', 'collecting', 'failed', 'past_due', 'disputed', 'refunded']
 
 function substitutePlaceholders(template, variables) {
   let out = String(template || '')

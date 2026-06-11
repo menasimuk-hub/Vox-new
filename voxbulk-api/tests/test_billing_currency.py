@@ -1,10 +1,15 @@
+from app.core.database import get_sessionmaker
+from app.models.organisation import Organisation
 from app.services.billing_currency import (
     EU_MEMBER_STATES,
     SUPPORTED_CURRENCIES,
+    billing_currency_is_locked,
     currency_for_country_code,
     currency_symbol,
     normalize_currency,
+    resolve_org_currency,
 )
+from app.services.recovery_service import OrganisationService
 
 
 def test_supported_currencies_include_eur():
@@ -38,3 +43,51 @@ def test_normalize_currency_unknown_defaults_usd():
 
 def test_currency_symbol_eur():
     assert currency_symbol("EUR") == "€"
+
+
+def test_profile_country_updates_currency_when_unlocked():
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Currency Test", country="United Kingdom")
+        db.add(org)
+        db.commit()
+        db.refresh(org)
+        assert resolve_org_currency(db, org) == "GBP"
+        OrganisationService.update_org_profile(db, org.id, country="Germany")
+        db.refresh(org)
+        assert org.billing_currency == "EUR"
+        assert resolve_org_currency(db, org) == "EUR"
+
+
+def test_profile_country_updates_to_cad_when_unlocked():
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Canada Test", country="United Kingdom")
+        db.add(org)
+        db.commit()
+        OrganisationService.update_org_profile(db, org.id, country="Canada")
+        db.refresh(org)
+        assert org.billing_currency == "CAD"
+
+
+def test_profile_country_does_not_change_currency_when_locked():
+    with get_sessionmaker()() as db:
+        from app.models.wallet_transaction import WalletTransaction  # noqa: PLC0415
+
+        org = Organisation(name="Locked Test", country="United Kingdom", billing_currency="GBP")
+        db.add(org)
+        db.flush()
+        db.add(
+            WalletTransaction(
+                org_id=org.id,
+                direction="credit",
+                amount_minor=100,
+                balance_after_minor=100,
+                kind="topup",
+                currency="GBP",
+                description="seed",
+            )
+        )
+        db.commit()
+        assert billing_currency_is_locked(db, org)
+        OrganisationService.update_org_profile(db, org.id, country="Germany")
+        db.refresh(org)
+        assert org.billing_currency == "GBP"

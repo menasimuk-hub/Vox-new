@@ -82,6 +82,16 @@ class OrganisationService:
                 raise ValueError(str(e)) from e
             org.allowed_services_json = serialize_allowed_services(allowed)
             org.enabled_services_json = serialize_enabled_services(enabled)
+        if "country" in fields:
+            from app.services.billing_currency import (
+                billing_currency_is_locked,
+                currency_for_country_code,
+            )
+            from app.services.org_billing_profile_service import sync_org_country_code
+
+            code = sync_org_country_code(db, org, commit=False)
+            if not billing_currency_is_locked(db, org):
+                org.billing_currency = currency_for_country_code(code)
         db.add(org)
         db.commit()
         db.refresh(org)

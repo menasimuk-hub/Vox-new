@@ -397,7 +397,23 @@ export default function OrgControlCenter() {
   const org = detail?.organisation
   const subscriptionFinance = detail?.subscription_finance
   const campaigns = detail?.campaigns || []
+  const [invoiceSearch, setInvoiceSearch] = useState('')
   const invoices = detail?.invoices || []
+  const filteredInvoices = useMemo(() => {
+    const term = invoiceSearch.trim().toLowerCase()
+    if (!term) return invoices
+    return invoices.filter((inv) => {
+      const hay = [
+        inv.invoice_number,
+        inv.external_invoice_id,
+        inv.id,
+        inv.description,
+      ]
+        .map((v) => String(v || '').toLowerCase())
+        .join(' ')
+      return hay.includes(term)
+    })
+  }, [invoices, invoiceSearch])
   const activity = detail?.activity || []
   const invoiceSummary = detail?.invoice_summary || {}
   const subscriptionCancellation = detail?.subscription_cancellation || null
@@ -1077,7 +1093,7 @@ export default function OrgControlCenter() {
             <i className="ti ti-search" aria-hidden="true" />
             <input
               type="text"
-              placeholder="Search by org name, ID, email…"
+              placeholder="Search by org name, ID, email, invoice #…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
@@ -1791,6 +1807,21 @@ export default function OrgControlCenter() {
           </div>
 
           <div className={`occ-tab-content ${activeTab === 'invoices' ? 'active' : ''}`}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="search"
+                className="occ-input"
+                placeholder="Search invoice number or ID…"
+                value={invoiceSearch}
+                onChange={(e) => setInvoiceSearch(e.target.value)}
+                style={{ maxWidth: 280 }}
+              />
+              {invoiceSearch ? (
+                <button type="button" className="occ-btn-xs" onClick={() => setInvoiceSearch('')}>
+                  Clear
+                </button>
+              ) : null}
+            </div>
             <p className="occ-muted" style={{ fontSize: 13, marginBottom: 12 }}>
               <strong>Edit</strong> and <strong>Void</strong> unpaid invoices here. Paid, collecting, and disputed invoices are locked — use reissue, refund, or credit instead.
             </p>
@@ -1827,14 +1858,14 @@ export default function OrgControlCenter() {
                   </tr>
                 </thead>
                 <tbody>
-                  {!invoices.length ? (
+                  {!filteredInvoices.length ? (
                     <tr>
                       <td colSpan={8}>
-                        <div className="occ-empty-state">No invoices found.</div>
+                        <div className="occ-empty-state">{invoiceSearch ? 'No invoices match your search.' : 'No invoices found.'}</div>
                       </td>
                     </tr>
                   ) : (
-                    invoices.map((inv) => {
+                    filteredInvoices.map((inv) => {
                       const lifecycle = resolveInvoiceLifecycle(inv)
                       return (
                       <tr key={inv.id}>

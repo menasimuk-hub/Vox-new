@@ -32,8 +32,22 @@ export const Route = createFileRoute("/_app/account/billing")({
 
 const PAGE_SIZE = 10;
 
-function moneyFromPence(pence?: number) {
-  return `£${((Number(pence || 0)) / 100).toFixed(2)}`;
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  GBP: "£",
+  EUR: "€",
+  USD: "$",
+  CAD: "CA$",
+  AUD: "A$",
+};
+
+function currencySymbol(code?: string | null) {
+  return CURRENCY_SYMBOLS[String(code || "GBP").toUpperCase()] || "$";
+}
+
+function moneyFromPence(pence?: number, currency?: string | null, display?: string | null) {
+  if (display) return display;
+  const sym = currencySymbol(currency);
+  return `${sym}${((Number(pence || 0)) / 100).toFixed(2)}`;
 }
 
 function invoiceKind(description?: string | null, provider?: string | null) {
@@ -51,7 +65,8 @@ function walletRowKind(kind?: string | null, direction?: string | null) {
   return "Receipt";
 }
 
-function ledgerKindPriority(type: string) {
+function ledgerKindPriority(type: string, payable = false) {
+  if (payable) return -1;
   if (type === "Top-up") return 0;
   if (type === "Receipt") return 1;
   return 2;
@@ -139,6 +154,7 @@ function BillingPage() {
 
   const plan = subQ.data?.plan || usageQ.data?.current_plan;
   const monitor = (usageQ.data?.billing_monitor || {}) as BillingMonitorPayload;
+  const billingCurrency = String(monitor.currency || usageQ.data?.billing_currency || "GBP");
   const commercial = monitor.commercial || {};
   const estimates = monitor.capacity_estimates || {};
   const status = monitor.status || {};
@@ -170,14 +186,17 @@ function BillingPage() {
       invoiceId: inv.id,
       id: inv.invoice_number || inv.id,
       kind: invoiceKind(inv.description, inv.provider),
-      kindPriority: ledgerKindPriority(invoiceKind(inv.description, inv.provider)),
+      kindPriority: ledgerKindPriority(
+        invoiceKind(inv.description, inv.provider),
+        Boolean(inv.payable ?? inv.payment_context?.payable ?? canShowPayAction(String(inv.status || "issued").toLowerCase())),
+      ),
       description: inv.description || "—",
       date: dateObj ? dateObj.toLocaleDateString() : "—",
       dateSort: dateObj ? dateObj.getTime() : 0,
-      amount: inv.total_gbp || moneyFromPence(inv.total_pence),
+      amount: inv.total_gbp || moneyFromPence(inv.total_pence, inv.currency || billingCurrency),
       status: invoiceStatusLabel(inv.status),
       rawStatus: String(inv.status || "issued").toLowerCase(),
-      payable: Boolean(inv.payable ?? inv.payment_context?.payable),
+      payable: Boolean(inv.payable ?? inv.payment_context?.payable ?? canShowPayAction(String(inv.status || "issued").toLowerCase())),
       paymentContext: inv.payment_context,
       raw: inv,
       isInvoice: true as const,
@@ -265,8 +284,14 @@ function BillingPage() {
     return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
 
+  const outstandingInvoices = invoiceRows.filter((row) => row.payable);
   const planPrice = plan
-    ? moneyFromPence(plan?.price_gbp_pence ?? (plan as { price_pence?: number })?.price_pence)
+    ? moneyFromPence(
+        plan?.price_gbp_pence ?? (plan as { price_pence?: number; monthly_price_minor?: number })?.price_pence
+          ?? (plan as { monthly_price_minor?: number })?.monthly_price_minor,
+        billingCurrency,
+        (plan as { price_display?: string })?.price_display,
+      )
     : "—";
   const cancelStatus = String(cancelQ.data?.status || "none").toLowerCase();
   const cancellationScheduled = cancelStatus === "scheduled" || cancelStatus === "requested";
@@ -390,27 +415,36 @@ function BillingPage() {
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
                   Charged on {String(nextInvoice.charge_date_display || "—")}
-                  {nextInvoice.payment_method_label && nextInvoice.payment_method_label !== "—"
-                    ? ` · ${nextInvoice.payment_method_label}`
-                    : ""}
                 </p>
-                {nextInvoice.can_update_mandate ? (
-                  <Button
-                    type="button"
-                    variant="link"
-                    className="h-auto p-0 text-primary"
-                    disabled={mandateBusy}
-                    onClick={() => void onUpdateMandate()}
-                  >
-                    {mandateBusy ? (
-                      <>
-                        <Loader2 className="mr-1 inline size-3.5 animate-spin" /> Redirecting…
-                      </>
-                    ) : (
-                      "Update Direct Debit"
-                    )}
-                  </Button>
-                ) : null}
+                <div className="space-y-1 text-sm">
+                  <p className="text-muted-foreground">
+                    Payment method:{" "}
+                    {nextInvoice.payment_method_label && nextInvoice.payment_method_label !== "—"
+                      ? nextInvoice.payment_method_label
+                      : "Not set up"}
+                  </p>
+                  {nextInvoice.can_update_mandate ? (
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="h-auto p-0 text-primary"
+                      disabled={mandateBusy}
+                      onClick={() => void onUpdateMandate()}
+                    >
+                      {mandateBusy ? (
+                        <>
+                          <Loader2 className="mr-1 inline size-3.5 animate-spin" /> Redirecting…
+                        </>
+                      ) : (
+                        "Update Direct Debit"
+                      )}
+                    </Button>
+                  ) : (
+                    <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
+                      Set up payment method
+                    </Link>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -422,7 +456,7 @@ function BillingPage() {
               label="Extra usage"
               value={
                 overagePending > 0
-                  ? moneyFromPence(overagePending)
+                  ? moneyFromPence(overagePending, billingCurrency)
                   : status.overage_risk
                     ? "At risk"
                     : "Normal"
@@ -432,7 +466,7 @@ function BillingPage() {
             <KpiCard label="Open invoices" value={String(openInvoices)} sub="Outstanding invoices" />
             <KpiCard
               label="Wallet balance"
-              value={commercial.wallet_balance_display || usageQ.data?.wallet_balance_gbp || moneyFromPence(commercial.wallet_balance_pence)}
+              value={commercial.wallet_balance_display || usageQ.data?.wallet_balance_gbp || moneyFromPence(commercial.wallet_balance_pence, billingCurrency)}
               sub="Actual money available"
             />
           </div>
@@ -466,6 +500,34 @@ function BillingPage() {
       </section>
 
       {plan ? <SubscriptionCancellationBar planName={plan?.name} /> : null}
+
+      {outstandingInvoices.length > 0 ? (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle>Outstanding invoices</CardTitle>
+            <CardDescription>Invoices waiting for payment — pay now to avoid service interruption.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {outstandingInvoices.map((row) => (
+              <div key={row.ledgerId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background px-4 py-3">
+                <div>
+                  <p className="font-mono text-sm font-medium">{row.id}</p>
+                  <p className="text-xs text-muted-foreground">{row.description}</p>
+                  <p className="text-xs text-muted-foreground">{row.date} · {row.status}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-lg font-semibold tabular-nums">{row.amount}</span>
+                  {row.raw ? (
+                    <Button size="sm" onClick={() => setPayInvoice(row.raw!)}>
+                      <CreditCard className="mr-1 size-3.5" /> Pay now
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader className="space-y-3">
@@ -619,7 +681,7 @@ function BillingPage() {
                               >
                                 <Download className="size-3.5" /> Download
                               </Button>
-                              {canShowPayAction(row.rawStatus) ? (
+                              {row.payable ? (
                                 <Button size="sm" variant="default" className="gap-1" onClick={() => setPayInvoice(row.raw!)}>
                                   <CreditCard className="size-3.5" /> Pay
                                 </Button>

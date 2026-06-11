@@ -184,6 +184,12 @@ class InterviewActivityService:
             ),
             _event(parsed.get("confirmation_wa_sent_at"), code="confirm_wa", label="Appointment confirmation WhatsApp sent"),
             _event(
+                parsed.get("reschedule_email_sent_at"),
+                code="reschedule_email",
+                label="Reschedule link email sent",
+                detail="careers@voxbulk.com",
+            ),
+            _event(
                 parsed.get("booking_rescheduled_at"),
                 code="rescheduled",
                 label="Appointment rescheduled",

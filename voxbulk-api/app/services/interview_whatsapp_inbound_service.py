@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime
@@ -356,17 +357,78 @@ def handle_inbound_reply(
             }
 
         if intent == "reschedule":
+            from app.services.career_email_service import CareerEmailService
+
+            email = str(recipient.email or "").strip().lower()
+            if not email or "@" not in email:
+                logger.warning(
+                    "interview_wa_reschedule_no_email",
+                    extra={"recipient_id": recipient.id, "order_id": order.id},
+                )
+                return {
+                    "handled": True,
+                    "action": "reschedule_link",
+                    "sent": False,
+                    "reason": "no_recipient_email",
+                    "log_id": log_id,
+                }
+
+            role = "Interview"
+            company = "the company"
+            try:
+                cfg = json.loads(order.config_json or "{}")
+                if isinstance(cfg, dict):
+                    role = str(cfg.get("role") or role).strip() or role
+                    company = str(cfg.get("company_name") or company).strip() or company
+            except Exception:
+                pass
+
             if token_row.booked_start_at is not None:
                 slot = token_row.booked_start_at
                 when = f"{_format_slot_date(slot)} at {_format_slot_time(slot)}"
-                msg = (
-                    f"Hi {first}, your interview is currently booked for {when}. "
-                    f"Tap here to pick a new time: {reschedule_url}"
-                )
+                link_url = reschedule_url
             else:
-                msg = f"Hi {first}, pick your interview time here: {book_url}"
-            sent = _send_text_reply(db, org_id=order.org_id, to_number=recipient.phone, body=msg)
-            return {"handled": True, "action": "reschedule_link", "sent": sent, "log_id": log_id}
+                when = ""
+                link_url = book_url
+
+            ok, err, channel = CareerEmailService.send_booking_reschedule_link_email(
+                db,
+                to_email=email,
+                variables={
+                    "candidate_name": str(recipient.name or first).strip() or first,
+                    "role": role,
+                    "company_name": company,
+                    "current_slot": when,
+                    "reschedule_url": link_url,
+                    "booking_url": book_url,
+                },
+            )
+            if ok:
+                merged: dict[str, Any] = {}
+                try:
+                    merged = json.loads(recipient.result_json or "{}")
+                    if not isinstance(merged, dict):
+                        merged = {}
+                except Exception:
+                    merged = {}
+                merged["reschedule_email_sent_at"] = datetime.utcnow().isoformat()
+                merged["reschedule_email_channel"] = channel
+                recipient.result_json = json.dumps(merged)
+                db.add(recipient)
+                db.commit()
+            else:
+                logger.warning(
+                    "interview_wa_reschedule_email_failed",
+                    extra={"recipient_id": recipient.id, "error": err},
+                )
+            return {
+                "handled": True,
+                "action": "reschedule_link",
+                "sent": bool(ok),
+                "channel": channel if ok else None,
+                "error": err,
+                "log_id": log_id,
+            }
 
         msg = f"Hi {first}, book your interview here: {book_url}"
         sent = _send_text_reply(db, org_id=order.org_id, to_number=recipient.phone, body=msg)
