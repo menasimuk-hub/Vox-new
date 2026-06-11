@@ -2136,6 +2136,7 @@ class InterviewBookingService:
 
         email_delivery = interview_email_delivery_status(db)
         smtp_ready = bool(email_delivery.get("can_send_email"))
+        careers_from = str(email_delivery.get("interview_from_email") or "careers@voxbulk.com")
 
         recipients = ServiceOrderService.get_recipients(db, order.id)
         id_filter = {str(x).strip() for x in (recipient_ids or []) if str(x).strip()}
@@ -2161,7 +2162,6 @@ class InterviewBookingService:
 
         if "email" in use_channels and not smtp_ready:
             missing = email_delivery.get("smtp_missing_fields") or []
-            careers_from = str(email_delivery.get("interview_from_email") or "careers@voxbulk.com")
             smtp_hint = "Enable SMTP in Admin → Email"
             if missing:
                 smtp_hint += f" (missing: {', '.join(str(m) for m in missing)})"
@@ -2236,7 +2236,7 @@ class InterviewBookingService:
             if "whatsapp" in use_channels and recipient.phone:
                 from app.services.uk_compliance_opt_out import should_block_outbound_phone
 
-                skip_reason = should_block_outbound_phone(db, org_id=order.org_id, meter_usage=False, phone_e164=recipient.phone)
+                skip_reason = should_block_outbound_phone(db, org_id=order.org_id, phone_e164=recipient.phone)
                 if skip_reason:
                     errors.append(f"{recipient.name} WA: blocked ({skip_reason})")
                     continue

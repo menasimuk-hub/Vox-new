@@ -674,7 +674,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         }}
         skipLabel="Skip for now"
         hideFinishOnLastStep
-        leftActions={
+        saveDraftAction={
           <Button variant="outline" className="gap-1.5" onClick={() => void props.onSaveDraft()} disabled={props.savePending}>
             {props.savePending ? "Saving…" : "Save draft"}
           </Button>

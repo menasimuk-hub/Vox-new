@@ -15,6 +15,7 @@ type WizardNavProps = {
   skippable?: boolean;
   onSkip?: () => void;
   skipLabel?: string;
+  saveDraftAction?: React.ReactNode;
   leftActions?: React.ReactNode;
   hideFinishOnLastStep?: boolean;
 };
@@ -33,6 +34,7 @@ export function WizardNav({
   skippable,
   onSkip,
   skipLabel = "Skip for now",
+  saveDraftAction,
   leftActions,
   hideFinishOnLastStep,
 }: WizardNavProps) {
@@ -44,6 +46,7 @@ export function WizardNav({
             <ChevronLeft className="size-4" /> {backLabel}
           </Button>
         ) : null}
+        {saveDraftAction}
         {leftActions}
       </div>
       <div className="flex flex-wrap items-center gap-2">

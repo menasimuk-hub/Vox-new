@@ -437,7 +437,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
         finalLabel="Preview & launch"
         onFinish={() => void props.onOpenLaunch()}
         finishDisabled={!canLaunch || props.launchPending}
-        leftActions={
+        saveDraftAction={
           <Button variant="outline" className="gap-1.5" onClick={() => void props.onSaveDraft()} disabled={props.savePending}>
             {props.savePending ? "Saving…" : "Save draft"}
           </Button>

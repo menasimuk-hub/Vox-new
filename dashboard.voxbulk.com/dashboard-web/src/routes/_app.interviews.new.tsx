@@ -2532,12 +2532,12 @@ function CreateInterview() {
           ) : null}
           {!campaignReadOnly ? (
           <div className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <Button variant="outline" className="gap-1.5" onClick={goWizardPrev}>
-              <ChevronLeft className="size-4" /> Back
+            <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending}>
+              <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
             </Button>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending}>
-                <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
+              <Button variant="outline" className="gap-1.5" onClick={goWizardPrev}>
+                <ChevronLeft className="size-4" /> Back
               </Button>
               <Button variant="outline" className="gap-1.5" disabled={runAtsM.isPending || candidates.length === 0 || campaignReadOnly} onClick={onRunAtsClick}>
                 <Sparkles className="size-4" /> {runAtsM.isPending ? ATS_ANALYZING_LABEL : "Run ATS"}
@@ -2567,10 +2567,12 @@ function CreateInterview() {
               <Button variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" disabled>
                 <Trash2 className="size-4" /> Delete draft
               </Button>
-              <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending}>
-                <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
-              </Button>
             </>
+          }
+          saveDraftAction={
+            <Button variant="outline" className="gap-1.5" onClick={() => void onSaveDraft()} disabled={saveDraftM.isPending || patchOrderM.isPending}>
+              <Save className="size-4" /> {saveDraftM.isPending ? "Saving…" : "Save draft"}
+            </Button>
           }
         />
       ) : null}

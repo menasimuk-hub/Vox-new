@@ -2,139 +2,107 @@
 
 ## Push to GitHub ≠ live site
 
-**Pushing from your PC updates GitHub only.** The VPS still serves old built files until you run a deploy script **on the server** (Baota → Terminal).
+**Pushing from your PC updates GitHub only.** Run the deploy **on the VPS** (Baota → Terminal).
 
-## Repo on VPS
-
-```text
-/www/voxbulk
-```
-
-GitHub repo: `https://github.com/menasimuk-hub/Vox-new.git`
+**Repo on VPS:** `/www/voxbulk`  
+**Branch:** `feature/billing-system`  
+**Latest commit (after interview WhatsApp compliance fix):** `972bbd8`
 
 ---
 
-## Billing + Stripe wallet fix (use this branch)
+## One command — full deploy (copy this)
 
-```text
-feature/billing-system
-```
-
-**Do not deploy `main` for billing** — `main` still has the old free wallet top-up UI.
-
----
-
-## Step 1 — SSH / Baota terminal on VPS
+Run in **Baota → Terminal**:
 
 ```bash
-cd /www/voxbulk
+cd /www/voxbulk && chmod +x deploy-vps.sh vox.sh scripts/vps-sync-all-ui.sh && VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
 ```
 
----
+This pulls GitHub, runs DB migrations (including `0113` cancellation/refund review), rebuilds admin + dashboard, copies to wwwroot, and restarts API + workers.
 
-## Step 2 — Full deploy (API + DB migrations + admin + dashboard)
+**If `git pull` fails:**
 
 ```bash
-cd /www/voxbulk
-chmod +x deploy-vps.sh vox.sh scripts/vps-sync-all-ui.sh
-VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
+cd /www/voxbulk && VOX_FORCE_PULL=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
 ```
 
-This will:
-
-1. `git fetch` + checkout `feature/billing-system` + `git pull`
-2. Run Alembic migrations (`voxbulk-api/`)
-3. Build admin + dashboard frontends
-4. Copy builds to `/www/wwwroot/admin.voxbulk.com` and `/www/wwwroot/dashboard.voxbulk.com`
-5. Restart API + workers
-
-If `git pull` fails:
+**If VPS is stuck on an old commit (`build-info.json` SHA wrong):**
 
 ```bash
-cd /www/voxbulk
-VOX_FORCE_PULL=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
-```
-
-If the VPS repo is stuck on an old commit (build-info `git_sha` does not match GitHub):
-
-```bash
-cd /www/voxbulk
-VOX_HARD_RESET=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
-```
-
-This discards local edits on the server and resets to the latest GitHub commit, then rebuilds everything.
-
-If **Void invoice** returns plain **Not Found** (not “Invoice not found”), the static UI updated but the **API was not restarted**. Fix:
-
-```bash
-cd /www/voxbulk
-./vox.sh restart
-curl -s -o /dev/null -w "%{http_code}\n" -X POST \
-  -H "Host: api.voxbulk.com" -H "Content-Type: application/json" \
-  -d '{"reason":"check"}' \
-  http://127.0.0.1:8000/admin/billing/invoices/00000000-0000-0000-0000-000000000001/void
-# Must NOT be 404 (401/403/422 is OK — route exists)
+cd /www/voxbulk && VOX_HARD_RESET=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
 ```
 
 ---
 
-## Step 3 — Confirm deploy worked
+## Confirm it worked
 
 Hard refresh browser: **Ctrl+Shift+R**
 
-```text
-https://dashboard.voxbulk.com/build-info.json
-https://admin.voxbulk.com/build-info.json
-```
-
-`git_sha` must match:
+Check SHA matches:
 
 ```bash
-cd /www/voxbulk
-git log -1 --oneline
+cd /www/voxbulk && git log -1 --oneline
+```
+
+Open:
+
+- https://dashboard.voxbulk.com/build-info.json
+- https://admin.voxbulk.com/build-info.json
+
+`git_sha` should start with `972bbd8`.
+
+---
+
+## What this deploy includes
+
+- Org subscription **cancel at period end** (customer billing page)
+- Admin **refund review** + wallet credit (Org Control Center)
+- Alembic migration **`0113_subscription_cancellation_refund_review`**
+
+**Do not deploy `main` for billing** — billing work lives on `feature/billing-system`.
+
+---
+
+## Quick tests after deploy
+
+**Customer**
+
+1. https://dashboard.voxbulk.com/account/billing  
+2. **Request cancellation** → status shows scheduled + end date  
+3. Plan change hidden while cancellation is scheduled  
+
+**Admin**
+
+1. https://admin.voxbulk.com → Org Control Center → pick org  
+2. **Subscription cancellation** + **Refund reviews** panels visible  
+3. Can reverse / immediate cancel / resolve refund review  
+
+**API health**
+
+```bash
+curl -s http://127.0.0.1:8000/health | head -c 400
 ```
 
 ---
 
-## Step 4 — Stripe in admin (required for wallet top-up)
+## Other deploy modes
 
-1. Open **https://admin.voxbulk.com**
-2. Go to **Integrations → Stripe**
-3. Enable Stripe, paste **test** keys:
-   - `pk_test_...` (publishable)
-   - `sk_test_...` (secret)
-4. Save and run **Test connection**
-
-Wallet top-up will **not** work until Stripe shows as enabled here (not just in `.env`).
-
----
-
-## Step 5 — Test wallet top-up
-
-1. Open **https://dashboard.voxbulk.com/account/packages**
-2. Click **Top up**
-3. You must see **Pay with Card (Stripe)** and a **card form** (Stripe Elements)
-4. Pay with test card: `4242 4242 4242 4242`, any future expiry, any CVC
-5. Wallet balance increases **only after** card payment succeeds
-
-If balance increases **without** a card form → dashboard is still old. Re-run Step 2.
-
----
-
-## UI-only deploy (no API / no migrations)
+**UI only** (no API / no migrations):
 
 ```bash
-cd /www/voxbulk
-VOX_GIT_BRANCH=feature/billing-system bash scripts/vps-sync-all-ui.sh
+cd /www/voxbulk && VOX_GIT_BRANCH=feature/billing-system bash scripts/vps-sync-all-ui.sh
 ```
 
----
-
-## API only (no frontend rebuild)
+**API + migrations only** (no frontend rebuild):
 
 ```bash
-cd /www/voxbulk
-VOX_SKIP_BUILD=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
+cd /www/voxbulk && VOX_SKIP_BUILD=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
+```
+
+**Restart API only** (e.g. new routes but code already pulled):
+
+```bash
+cd /www/voxbulk && ./vox.sh restart
 ```
 
 ---
@@ -143,10 +111,18 @@ VOX_SKIP_BUILD=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh
 
 ```bash
 VOX_SKIP_GIT=1 ./deploy-vps.sh      # rebuild current tree only
-VOX_SKIP_BUILD=1 ./deploy-vps.sh      # API + migrate only
-VOX_SKIP_MIGRATE=1 ./deploy-vps.sh    # skip DB migrations
-VOX_FORCE_PULL=1 ./deploy-vps.sh      # stash + retry pull
+VOX_SKIP_BUILD=1 ./deploy-vps.sh    # API + migrate only
+VOX_SKIP_MIGRATE=1 ./deploy-vps.sh  # skip DB migrations
+VOX_FORCE_PULL=1 ./deploy-vps.sh    # stash + retry pull
 ```
+
+---
+
+## Stripe wallet top-up (still required)
+
+1. Admin → **Integrations → Stripe** → enable + save test/live keys  
+2. Dashboard → **Packages** → **Top up** → must show Stripe card form  
+3. Test card: `4242 4242 4242 4242`
 
 ---
 
@@ -160,7 +136,7 @@ VOX_FORCE_PULL=1 ./deploy-vps.sh      # stash + retry pull
 
 ---
 
-## Local dev directories (your PC)
+## Local dev (your PC)
 
 | What | Path |
 |------|------|
@@ -169,28 +145,15 @@ VOX_FORCE_PULL=1 ./deploy-vps.sh      # stash + retry pull
 | Dashboard | `C:\Users\zaghlol\Downloads\voxbulk.com\dashboard.voxbulk.com\dashboard-web` |
 | Admin | `C:\Users\zaghlol\Downloads\voxbulk.com\admin.voxbulk.com\adim-web` |
 
-Run API locally:
-
-```powershell
-cd C:\Users\zaghlol\Downloads\voxbulk.com\voxbulk-api
-.\.venv\Scripts\activate
-uvicorn main:app --reload --port 8000
-```
-
-Run dashboard locally:
-
-```powershell
-cd C:\Users\zaghlol\Downloads\voxbulk.com\dashboard.voxbulk.com\dashboard-web
-npm run dev
-```
-
 ---
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
-| Wallet tops up without Stripe | VPS on wrong branch or old UI — run Step 2 with `feature/billing-system` |
-| "Card payments are not configured" | Enable Stripe in admin integrations (Step 4) |
-| `git_sha` stuck on old commit | `VOX_FORCE_PULL=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh` |
-| `git pull` fails | Same as above with `VOX_FORCE_PULL=1` |
+| Old UI after deploy | Re-run **One command** + hard refresh (`Ctrl+Shift+R`) |
+| `git pull` / untracked files | `VOX_FORCE_PULL=1` or `VOX_HARD_RESET=1` (see above) |
+| `git_sha` stuck | `VOX_HARD_RESET=1 VOX_GIT_BRANCH=feature/billing-system ./deploy-vps.sh` |
+| New API route 404 | `./vox.sh restart` after deploy |
+| Wallet tops up without Stripe | Wrong branch or old UI — full deploy on `feature/billing-system` |
+| Cancellation UI missing | Full deploy (not UI-only); migration must run |
