@@ -41,7 +41,12 @@ def test_needs_utility_clone_for_category_change():
     class _UtilityRow(_Row):
         category = "UTILITY"
 
-    assert _needs_utility_clone_for_category_change(_UtilityRow()) is False
+    assert _needs_utility_clone_for_category_change(_UtilityRow()) is True
+
+    class _CloneRow(_Row):
+        name = "voxbulk_survey_staff_friendliness_utu_875f3a"
+
+    assert _needs_utility_clone_for_category_change(_CloneRow()) is False
 
 
 def test_rule_based_adds_recent_visit_context():

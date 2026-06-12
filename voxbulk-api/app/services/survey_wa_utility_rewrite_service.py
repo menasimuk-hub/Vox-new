@@ -323,11 +323,17 @@ def _find_template_row(db: Session, name: str) -> TelnyxWhatsappTemplate | None:
 
 
 def _needs_utility_clone_for_category_change(row: TelnyxWhatsappTemplate) -> bool:
+    """Meta never allows category changes on APPROVED templates.
+
+    Local row.category may already be UTILITY from a prior failed push attempt while
+    Telnyx/Meta still has the original MARKETING-approved template linked — always
+    clone to *_utu_* when a real remote id is still attached.
+    """
+    if is_utility_clone_template_name(row.name):
+        return False
     return (
         str(row.status or "").upper() == "APPROVED"
         and _has_remote_telnyx_id(row)
-        and str(row.category or "").upper() != "UTILITY"
-        and not is_utility_clone_template_name(row.name)
     )
 
 
@@ -346,6 +352,16 @@ def _prepare_approved_template_for_utility_push(
             f"Utility clone name already exists: {clone_name}",
             payload={"template_name": row.name, "suggested_template_name": clone_name},
         )
+    logger.info(
+        "utility_rewrite_clone_rename",
+        extra={
+            "template_id": row.id,
+            "from_name": row.name,
+            "to_name": clone_name,
+            "status": str(row.status or "").upper(),
+            "local_category": row.category,
+        },
+    )
     renamed = SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, clone_name)
     return renamed, clone_name
 
@@ -441,11 +457,7 @@ def process_template_names(
             if renamed_to:
                 msg = f"renamed to {renamed_to}"
             if push:
-                push_result = SurveyWhatsappTemplateService.push_to_telnyx(
-                    db,
-                    row,
-                    force_approved_update=bool(_has_remote_telnyx_id(row)),
-                )
+                push_result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
                 pushed = True
                 push_msg = str(push_result.get("sync_message") or push_result.get("message") or "pushed")
                 msg = f"{msg}; {push_msg}" if renamed_to else push_msg
