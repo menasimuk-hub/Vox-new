@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import (
@@ -16,6 +16,7 @@ from app.models.customer_feedback import (
     FeedbackIndustry,
     FeedbackPackage,
     FeedbackSurveyType,
+    FeedbackWaTemplate,
 )
 from app.models.plan import Plan
 from app.services.customer_feedback.seed_service import FeedbackSeedService
@@ -71,6 +72,7 @@ def package_to_dict(db: Session, row: FeedbackPackage) -> dict[str, Any]:
         "market_zone": row.market_zone,
         "max_locations": row.max_locations,
         "wa_units_included": row.wa_units_included,
+        "promo_message_cost_minor": row.promo_message_cost_minor,
         "admin_notes": row.admin_notes,
         "is_active": row.is_active,
         "is_featured": bool(plan.is_featured) if plan else False,
@@ -98,7 +100,108 @@ class FeedbackCatalogService:
         if not include_inactive:
             q = q.where(FeedbackIndustry.is_active.is_(True))
         rows = list(db.execute(q).scalars().all())
-        return [industry_to_dict(r) for r in rows]
+        return [FeedbackCatalogService.industry_with_stats(db, r) for r in rows]
+
+    @staticmethod
+    def industry_with_stats(db: Session, row: FeedbackIndustry) -> dict[str, Any]:
+        base = industry_to_dict(row)
+        survey_type_count = int(
+            db.execute(
+                select(func.count())
+                .select_from(FeedbackSurveyType)
+                .where(FeedbackSurveyType.industry_id == row.id, FeedbackSurveyType.archived_at.is_(None))
+            ).scalar_one()
+            or 0
+        )
+        template_q = select(FeedbackWaTemplate).where(FeedbackWaTemplate.industry_id == row.id)
+        templates = list(db.execute(template_q).scalars().all())
+        approved = sum(1 for t in templates if str(t.telnyx_sync_status or "").lower() in {"approved", "synced", "live"})
+        pending = sum(1 for t in templates if str(t.telnyx_sync_status or "").lower() in {"draft", "pending", "submitted"})
+        base.update(
+            {
+                "survey_type_count": survey_type_count,
+                "template_count": len(templates),
+                "approved_count": approved,
+                "pending_count": pending,
+            }
+        )
+        return base
+
+    @staticmethod
+    def get_industry_detail(db: Session, industry_id: str) -> dict[str, Any]:
+        row = db.get(FeedbackIndustry, industry_id)
+        if row is None:
+            raise ValueError("Industry not found")
+        detail = FeedbackCatalogService.industry_with_stats(db, row)
+        types = FeedbackCatalogService.list_survey_types(db, industry_id=industry_id, include_archived=True)
+        enriched_types = []
+        for item in types:
+            tpl_rows = list(
+                db.execute(
+                    select(FeedbackWaTemplate).where(FeedbackWaTemplate.survey_type_id == item["id"])
+                ).scalars().all()
+            )
+            approved = sum(1 for t in tpl_rows if str(t.telnyx_sync_status or "").lower() in {"approved", "synced", "live"})
+            enriched_types.append(
+                {
+                    **item,
+                    "template_count": len(tpl_rows),
+                    "approved_count": approved,
+                    "pending_count": max(0, len(tpl_rows) - approved),
+                    "synced": approved > 0,
+                    "status": "live" if approved > 0 else "draft",
+                }
+            )
+        detail["survey_types"] = enriched_types
+        return detail
+
+    @staticmethod
+    def get_survey_type_detail(db: Session, survey_type_id: str) -> dict[str, Any]:
+        row = db.get(FeedbackSurveyType, survey_type_id)
+        if row is None:
+            raise ValueError("Survey type not found")
+        industry = db.get(FeedbackIndustry, row.industry_id)
+        detail = survey_type_to_dict(row)
+        detail["industry_name"] = industry.name if industry else None
+        tpl_rows = list(
+            db.execute(
+                select(FeedbackWaTemplate)
+                .where(FeedbackWaTemplate.survey_type_id == row.id)
+                .order_by(FeedbackWaTemplate.step_order, FeedbackWaTemplate.template_key)
+            ).scalars().all()
+        )
+        detail["templates"] = [FeedbackCatalogService.template_to_dict(t) for t in tpl_rows]
+        approved = sum(1 for t in tpl_rows if str(t.telnyx_sync_status or "").lower() in {"approved", "synced", "live"})
+        detail["template_count"] = len(tpl_rows)
+        detail["approved_count"] = approved
+        detail["pending_count"] = max(0, len(tpl_rows) - approved)
+        detail["status"] = "live" if approved > 0 else "draft"
+        return detail
+
+    @staticmethod
+    def template_to_dict(row: FeedbackWaTemplate) -> dict[str, Any]:
+        buttons: list[dict[str, str]] = []
+        if row.buttons_json:
+            try:
+                parsed = json.loads(row.buttons_json)
+                if isinstance(parsed, list):
+                    buttons = parsed
+            except json.JSONDecodeError:
+                buttons = []
+        return {
+            "id": row.id,
+            "industry_id": row.industry_id,
+            "survey_type_id": row.survey_type_id,
+            "step_order": row.step_order,
+            "template_key": row.template_key,
+            "body_text": row.body_text,
+            "step_role": row.step_role,
+            "language": row.language,
+            "buttons": buttons,
+            "meta_category": row.meta_category,
+            "telnyx_sync_status": row.telnyx_sync_status,
+            "is_active": row.is_active,
+        }
 
     @staticmethod
     def list_survey_types(db: Session, *, industry_id: str | None = None, include_archived: bool = False) -> list[dict[str, Any]]:
@@ -233,6 +336,7 @@ class FeedbackCatalogService:
         row.market_zone = normalize_zone(payload.get("market_zone")) or row.market_zone or "gb"
         row.max_locations = int(payload.get("max_locations", row.max_locations or 1))
         row.wa_units_included = int(payload.get("wa_units_included", row.wa_units_included or 100))
+        row.promo_message_cost_minor = int(payload.get("promo_message_cost_minor", row.promo_message_cost_minor or 5))
         row.admin_notes = payload.get("admin_notes")
         row.is_active = bool(payload.get("is_active", row.is_active))
         row.display_order = int(payload.get("display_order", row.display_order or 100))

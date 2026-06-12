@@ -6,7 +6,7 @@
 
 **Repo on VPS:** `/www/voxbulk`  
 **Branch:** `fix/admin-finance-hardening`  
-**Latest deploy:** account deletion workflow (migration `0118_account_deletion_requests`)
+**Latest deploy:** Customer Feedback workflow (migration `0119_customer_feedback_workflow`)
 
 ---
 
@@ -46,7 +46,7 @@ Run in **Baota → Terminal**:
 cd /www/voxbulk && chmod +x deploy-vps.sh vox.sh scripts/vps-sync-all-ui.sh && VOX_GIT_BRANCH=fix/admin-finance-hardening ./deploy-vps.sh
 ```
 
-This pulls GitHub, runs DB migrations (including **`0118_account_deletion_requests`**), rebuilds admin + dashboard, copies to wwwroot, and restarts API + workers.
+This pulls GitHub, runs DB migrations (including **`0119_customer_feedback_workflow`**), rebuilds admin + dashboard, copies to wwwroot, and restarts API + workers.
 
 **If `git pull` fails:**
 
@@ -59,6 +59,58 @@ cd /www/voxbulk && VOX_FORCE_PULL=1 VOX_GIT_BRANCH=fix/admin-finance-hardening .
 ```bash
 cd /www/voxbulk && VOX_HARD_RESET=1 VOX_GIT_BRANCH=fix/admin-finance-hardening ./deploy-vps.sh
 ```
+
+---
+
+## Customer Feedback workflow — deploy checklist
+
+Migration **must** run before or with the API deploy. `deploy-vps.sh` runs `alembic upgrade head` by default.
+
+### 1. Confirm migration applied
+
+```bash
+cd /www/voxbulk/voxbulk-api
+source .venv/bin/activate 2>/dev/null || true
+python -m alembic current
+python -m alembic history | head -5
+```
+
+Expected head revision includes **`0119_customer_feedback_workflow`**.
+
+Manual migrate (if skipped):
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate && python -m alembic upgrade head
+```
+
+### 2. Seed + import English templates
+
+Industries/packages seed on first API call. Import 140 topic templates from Admin:
+
+1. https://admin.voxbulk.com/customer-feedback/industries  
+2. Click **Import English templates**
+
+Or API (admin token):
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{}' "https://api.voxbulk.com/admin/customer-feedback/templates/import-md"
+```
+
+### 3. Smoke test
+
+```bash
+curl -s http://127.0.0.1:8000/health
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "https://api.voxbulk.com/admin/customer-feedback/industries" | head -c 400
+```
+
+**Dashboard:** https://dashboard.voxbulk.com/feedback/new — create QR survey (multi-topic, opt-in toggle).
+
+**Admin:** Industries, Packages pricing, Survey type edit (`/customer-feedback/survey-types/:id`).
+
+### 4. WhatsApp inbound (production)
+
+Ensure Telnyx webhook points at `https://api.voxbulk.com/...` for the feedback sender. Scan QR → send trigger → confirm 1 unit deducted and session starts.
 
 ---
 
@@ -155,10 +207,10 @@ Open:
 
 ## What this deploy includes
 
-- **Account deletion workflow** — user request/cancel, session revocation, admin queue, OCC complete, confirmation email  
-- Migration **`0118_account_deletion_requests`** (`account_deletion_requests` table)  
-- Email template **`account_deletion_completed`**  
-- Prior branch work: billing/finance hardening, welcome email, workflow smoke script  
+- **Customer Feedback workflow** — QR → WhatsApp survey, multi-topic locations, per-inbound billing, admin industries/packages/survey-type editor  
+- Migration **`0119_customer_feedback_workflow`** (location config, sessions, templates, marketing, promo wallet)  
+- English template MD import (`seed-data/customer-feedback/english-templates.md`)  
+- Prior branch work: account deletion, billing/finance hardening, welcome email  
 
 ---
 

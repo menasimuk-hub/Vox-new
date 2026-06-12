@@ -155,6 +155,16 @@ def list_locations(db: Session = Depends(get_db), principal=Depends(get_current_
     return {"ok": True, "items": FeedbackLocationService.list_locations(db, principal.org_id)}
 
 
+@router.post("/locations/preview")
+def preview_location(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        item = FeedbackLocationService.preview_location(db, principal.org_id, payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "item": item}
+
+
 @router.post("/locations")
 def create_location(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_enabled(db, principal.org_id)

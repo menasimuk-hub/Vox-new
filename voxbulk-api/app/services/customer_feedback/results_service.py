@@ -54,7 +54,8 @@ class FeedbackResultsService:
                     "survey_type_id": r.survey_type_id,
                     "survey_type_name": st.name if st else None,
                     "question_key": r.question_key,
-                    "answer_text": r.answer_text,
+                    "answer_text": r.answer_text_en or r.answer_text,
+                    "original_text": r.original_text,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
             )
@@ -94,7 +95,8 @@ class FeedbackResultsService:
                     "location_id": r.location_id,
                     "location_name": loc.name if loc else None,
                     "question_key": r.question_key,
-                    "answer_text": r.answer_text,
+                    "answer_text": r.answer_text_en or r.answer_text,
+                    "original_text": r.original_text,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
             )

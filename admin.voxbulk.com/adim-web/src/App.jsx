@@ -76,6 +76,10 @@ import ServiceOrdersAdmin from './pages/ServiceOrdersAdmin'
 import RunningSurveys from './pages/RunningSurveys'
 import RunningInterviews from './pages/RunningInterviews'
 import CustomerFeedbackHub from './pages/customer-feedback/CustomerFeedbackHub'
+import FeedbackIndustriesList from './pages/customer-feedback/FeedbackIndustriesList'
+import FeedbackIndustryEdit from './pages/customer-feedback/FeedbackIndustryEdit'
+import FeedbackPackagesPricing from './pages/customer-feedback/FeedbackPackagesPricing'
+import FeedbackSurveyTypeEdit from './pages/customer-feedback/FeedbackSurveyTypeEdit'
 import { defaultAdminHome } from './lib/adminPaths'
 import { useAdminProfile } from './context/AdminProfileContext'
 
@@ -122,6 +126,10 @@ export default function App() {
         <Route path='/onboarding/checklist' element={G('Go-live checklist')} />
 
         <Route path='/customer-feedback' element={<Navigate to='/customer-feedback/industries' replace />} />
+        <Route path='/customer-feedback/industries' element={<FeedbackIndustriesList />} />
+        <Route path='/customer-feedback/industries/:industryId' element={<FeedbackIndustryEdit />} />
+        <Route path='/customer-feedback/packages' element={<FeedbackPackagesPricing />} />
+        <Route path='/customer-feedback/survey-types/:typeId' element={<FeedbackSurveyTypeEdit />} />
         <Route path='/customer-feedback/:tab' element={<CustomerFeedbackHub />} />
 
         <Route path='/operations/running-surveys' element={<RunningSurveys />} />

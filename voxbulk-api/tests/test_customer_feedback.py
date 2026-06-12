@@ -48,7 +48,7 @@ def test_seed_industries_and_survey_types():
     with get_sessionmaker()() as db:
         FeedbackSeedService.ensure_seeded(db)
         industries = FeedbackCatalogService.list_industries(db, include_inactive=True)
-        assert len(industries) >= 5
+        assert len(industries) >= 7
         restaurant = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "restaurant")).scalar_one()
         types = FeedbackCatalogService.list_survey_types(db, industry_id=restaurant.id)
         assert len(types) >= 15
@@ -75,7 +75,7 @@ def test_seed_feedback_packages_all_zones():
             zone_packages = [pkg for pkg in packages if pkg.market_zone == zone]
             assert len(zone_packages) == 3
             units = sorted(pkg.wa_units_included for pkg in zone_packages)
-            assert units == [200, 600, 2500]
+            assert units == [1000, 3000, 10000]
 
 
 def test_list_packages_for_eu_org():
@@ -88,10 +88,10 @@ def test_list_packages_for_eu_org():
         items = FeedbackCatalogService.list_packages(db, market_zone="eu", active_only=True)
         assert len(items) == 3
         names = {item["plan_name"] for item in items}
-        assert names == {"Starter", "Growth", "Pro"}
-        growth = next(item for item in items if item["plan_name"] == "Growth")
-        assert growth["is_featured"] is True
-        assert growth["wa_units_included"] == 600
+        assert names == {"Starter", "Pro", "Business"}
+        pro = next(item for item in items if item["plan_name"] == "Pro")
+        assert pro["is_featured"] is True
+        assert pro["wa_units_included"] == 3000
 
 
 def test_feedback_period_renewal_opens_new_usage_period():

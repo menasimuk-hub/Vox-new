@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import uuid
@@ -15,11 +16,23 @@ from sqlalchemy.orm import Session
 from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType, FeedbackWaSender
 from app.models.organisation import Organisation
 from app.services.customer_feedback.billing_service import FeedbackBillingService
+from app.services.customer_feedback.survey_config_service import (
+    build_survey_config,
+    parse_selected_type_ids,
+)
 from app.services.market_zone import country_to_zone
 
 
 TRIGGER_TEMPLATE = '✨ I want to start the survey for "{company}" — "{branch}" ✍️📋 [ref:{token}]'
 REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
+
+
+def _build_qr_urls(*, phone: str, trigger_text: str) -> tuple[str, str]:
+    wa_url = f"https://wa.me/{phone.lstrip('+')}?text={quote(trigger_text)}"
+    qr_image_url = (
+        "https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=" + quote(wa_url, safe="")
+    )
+    return wa_url, qr_image_url
 
 
 def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
@@ -33,11 +46,15 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
     branch_label = row.name or row.branch_code or row.id[:8]
     trigger_text = TRIGGER_TEMPLATE.format(company=company, branch=branch_label, token=row.qr_token)
     phone = sender.phone_e164 if sender else "+447700900000"
-    wa_url = f"https://wa.me/{phone.lstrip('+')}?text={quote(trigger_text)}"
-    qr_image_url = (
-        "https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data="
-        + quote(wa_url, safe="")
-    )
+    wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text)
+    selected_ids: list[str] = []
+    if row.selected_survey_type_ids_json:
+        try:
+            parsed = json.loads(row.selected_survey_type_ids_json)
+            if isinstance(parsed, list):
+                selected_ids = [str(x) for x in parsed]
+        except json.JSONDecodeError:
+            selected_ids = []
     return {
         "id": row.id,
         "org_id": row.org_id,
@@ -47,6 +64,9 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
         "industry_name": industry.name if industry else None,
         "survey_type_id": row.survey_type_id,
         "survey_type_name": survey_type.name if survey_type else None,
+        "selected_survey_type_ids": selected_ids,
+        "open_question_enabled": bool(row.open_question_enabled),
+        "marketing_opt_in_enabled": bool(row.marketing_opt_in_enabled),
         "qr_token": row.qr_token,
         "wa_sender_country": row.wa_sender_country,
         "status": row.status,
@@ -82,10 +102,39 @@ class FeedbackLocationService:
         )
 
     @staticmethod
+    def preview_location(db: Session, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise ValueError("Organisation not found")
+        industry_id = str(payload.get("industry_id") or "").strip()
+        if not industry_id:
+            raise ValueError("industry_id required")
+        selected_ids = parse_selected_type_ids(payload)
+        if not selected_ids:
+            raise ValueError("At least one survey topic is required")
+        zone = country_to_zone(getattr(org, "country", None))
+        sender = db.execute(
+            select(FeedbackWaSender).where(FeedbackWaSender.country_code == zone)
+        ).scalar_one_or_none()
+        phone = sender.phone_e164 if sender else "+447700900000"
+        branch = str(payload.get("name") or "Main branch").strip()
+        token = secrets.token_urlsafe(12)
+        trigger_text = TRIGGER_TEMPLATE.format(company=org.name, branch=branch, token=token)
+        wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text)
+        return {
+            "preview": True,
+            "trigger_text": trigger_text,
+            "wa_url": wa_url,
+            "qr_image_url": qr_image_url,
+            "selected_survey_type_ids": selected_ids,
+            "open_question_enabled": bool(payload.get("open_question_enabled", True)),
+            "marketing_opt_in_enabled": bool(payload.get("marketing_opt_in_enabled", True)),
+        }
+
+    @staticmethod
     def create_location(db: Session, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        ok, reason = FeedbackBillingService.ensure_units_available(db, org_id)
-        if not ok and FeedbackBillingService.get_active_subscription(db, org_id) is None:
-            raise ValueError(reason or "Subscription required")
+        if FeedbackBillingService.get_active_subscription(db, org_id) is None:
+            raise ValueError("Subscribe to a Customer feedback package before adding locations.")
         max_loc = FeedbackBillingService.max_locations(db, org_id)
         if max_loc <= 0:
             raise ValueError("Subscribe to a Customer feedback package before adding locations.")
@@ -96,22 +145,38 @@ class FeedbackLocationService:
             )
         org = db.get(Organisation, org_id)
         zone = country_to_zone(getattr(org, "country", None) if org else None)
+        industry_id = str(payload.get("industry_id") or "").strip()
+        selected_ids = parse_selected_type_ids(payload)
+        primary_type_id = selected_ids[0] if selected_ids else str(payload.get("survey_type_id") or "").strip()
+        if not industry_id or not primary_type_id:
+            raise ValueError("industry_id and at least one survey topic are required")
+        open_question = bool(payload.get("open_question_enabled", True))
+        marketing_opt_in = bool(payload.get("marketing_opt_in_enabled", True))
+        survey_config = build_survey_config(
+            db,
+            industry_id=industry_id,
+            selected_type_ids=selected_ids,
+            open_question_enabled=open_question,
+            marketing_opt_in_enabled=marketing_opt_in,
+        )
         now = datetime.utcnow()
         row = FeedbackLocation(
             id=str(uuid.uuid4()),
             org_id=org_id,
-            industry_id=str(payload.get("industry_id") or "").strip(),
-            survey_type_id=str(payload.get("survey_type_id") or "").strip(),
+            industry_id=industry_id,
+            survey_type_id=primary_type_id,
             name=str(payload.get("name") or "Location").strip(),
             branch_code=(str(payload.get("branch_code")).strip() if payload.get("branch_code") else None),
             qr_token=secrets.token_urlsafe(12),
             wa_sender_country=zone,
             status=str(payload.get("status") or "active"),
+            selected_survey_type_ids_json=json.dumps(selected_ids),
+            open_question_enabled=open_question,
+            marketing_opt_in_enabled=marketing_opt_in,
+            survey_config_json=json.dumps(survey_config),
             created_at=now,
             updated_at=now,
         )
-        if not row.industry_id or not row.survey_type_id:
-            raise ValueError("industry_id and survey_type_id are required")
         db.add(row)
         db.commit()
         db.refresh(row)

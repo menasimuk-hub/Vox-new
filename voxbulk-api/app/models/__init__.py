@@ -107,5 +107,8 @@ from app.models.customer_feedback import (  # noqa: F401
     FeedbackUsagePeriod,
     FeedbackWaSender,
     FeedbackWaTemplate,
+    FeedbackMarketingSubscriber,
+    FeedbackPromoSend,
+    FeedbackPromoWallet,
 )
 from app.models.platform_services_settings import PlatformServicesSettings  # noqa: F401

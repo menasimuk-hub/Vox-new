@@ -53,6 +53,7 @@ class FeedbackPackage(Base):
     market_zone: Mapped[str] = mapped_column(String(8), nullable=False, default="gb", index=True)
     max_locations: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     wa_units_included: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    promo_message_cost_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
@@ -87,6 +88,10 @@ class FeedbackLocation(Base):
     wa_sender_country: Mapped[str] = mapped_column(String(8), nullable=False, default="gb")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     scan_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    selected_survey_type_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    open_question_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    marketing_opt_in_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    survey_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -110,6 +115,11 @@ class FeedbackWaTemplate(Base):
     step_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     template_key: Mapped[str] = mapped_column(String(128), nullable=False)
     body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    step_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    language: Mapped[str] = mapped_column(String(16), nullable=False, default="en_GB")
+    buttons_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    meta_category: Mapped[str] = mapped_column(String(16), nullable=False, default="utility")
+    telnyx_sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
@@ -125,6 +135,8 @@ class FeedbackSession(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     units_charged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    detected_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    trigger_dedupe_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
@@ -140,5 +152,47 @@ class FeedbackResponse(Base):
     survey_type_id: Mapped[str] = mapped_column(String(36), ForeignKey("feedback_survey_types.id"), nullable=False, index=True)
     question_key: Mapped[str] = mapped_column(String(128), nullable=False)
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_text_en: Mapped[str | None] = mapped_column(Text, nullable=True)
     step_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class FeedbackMarketingSubscriber(Base):
+    __tablename__ = "feedback_marketing_subscribers"
+    __table_args__ = (UniqueConstraint("org_id", "phone_e164", name="uq_feedback_marketing_org_phone"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    location_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("feedback_locations.id"), nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("feedback_sessions.id"), nullable=True)
+    phone_e164: Mapped[str] = mapped_column(String(32), nullable=False)
+    consent_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
+    opted_in_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    opted_out_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class FeedbackPromoWallet(Base):
+    __tablename__ = "feedback_promo_wallets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, unique=True, index=True)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="GBP")
+    balance_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class FeedbackPromoSend(Base):
+    __tablename__ = "feedback_promo_sends"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    message_body: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
+    sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

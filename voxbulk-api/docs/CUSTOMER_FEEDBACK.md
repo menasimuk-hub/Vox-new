@@ -31,3 +31,51 @@ Feedback subscription invoices use prefix `CF-` and `billing_invoices.service_co
 ```
 
 Inbound WhatsApp handler resolves `ref:` token → location → template sequence.
+
+## Workflow (QR → results)
+
+```
+QR scan → visitor sends trigger → charge 1 unit (per inbound) → selected topics (1–6)
+→ optional open question → optional marketing opt-in → thank-you → English results in dashboard
+```
+
+- **No welcome message** — the QR trigger starts the survey.
+- **Survey language** — detected from visitor phone country code (English templates for now).
+- **Results** — stored with `answer_text_en` for dashboard display.
+- **Billing** — 1 WA unit per inbound QR trigger (not per completed survey).
+
+## Package tiers (seed)
+
+| Plan | Locations | Triggers/mo |
+|------|-----------|-------------|
+| Starter | 1 | 1,000 |
+| Pro | 5 | 3,000 |
+| Business | 20 | 10,000 |
+
+Promo sends (future) deduct from org **promo wallet** at `promo_message_cost_minor` per message.
+
+## Admin UI
+
+| Route | Purpose |
+|-------|---------|
+| `/customer-feedback/industries` | Industry list + import English templates |
+| `/customer-feedback/industries/:id` | Industry edit + survey types |
+| `/customer-feedback/survey-types/:id` | Topic template editor |
+| `/customer-feedback/packages` | Multi-currency plan pricing |
+
+## Post-deploy (VPS)
+
+1. Migration **`0119_customer_feedback_workflow`** (`alembic upgrade head`).
+2. Admin → Industries → **Import English templates** (140 topic templates + system templates).
+3. Optional: per-industry **Sync to Telnyx** (marks templates `submitted` until real Telnyx push is wired).
+
+## Known gaps (not yet shipped)
+
+| Gap | Notes |
+|-----|--------|
+| Telnyx Meta template push | Templates stored as draft; sync sets `submitted` only |
+| Promo wallet top-up | Models exist; no Stripe/Airwallex top-up or send UI |
+| 50-language templates | English MD import only (Track K) |
+| Dashboard step 3 QR | Local preview QR; step 4 uses API preview with real trigger |
+| Hub vs dedicated routes | Subscriptions/locations/results still on `CustomerFeedbackHub` tabs |
+| GoCardless non-GB | Enable EU/US/CAD/AUD only when GC merchant supports scheme |

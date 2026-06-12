@@ -34,6 +34,7 @@ class Plan(Base):
     service_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="voxbulk")
     is_featured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_enterprise: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_frozen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
 

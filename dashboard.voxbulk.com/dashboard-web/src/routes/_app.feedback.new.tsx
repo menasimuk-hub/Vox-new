@@ -26,6 +26,8 @@ import {
   Target,
   Trash2,
   UtensilsCrossed,
+  Dumbbell,
+  CalendarDays,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,6 +41,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   useCreateFeedbackLocation,
+  usePreviewFeedbackLocation,
   useFeedbackIndustries,
   useFeedbackSurveyTypes,
   useOrganisation,
@@ -58,6 +61,8 @@ const INDUSTRY_ICONS: Record<string, React.ComponentType<{ className?: string }>
   retail: ShoppingBag,
   salon: Scissors,
   hotel: Hotel,
+  fitness: Dumbbell,
+  events: CalendarDays,
   others: SparkIcon,
 };
 
@@ -116,13 +121,16 @@ function CreateFeedback() {
   const orgQ = useOrganisation();
   const industriesQ = useFeedbackIndustries();
   const createM = useCreateFeedbackLocation();
+  const previewM = usePreviewFeedbackLocation();
 
   const [step, setStep] = React.useState<Step>(1);
   const [industryId, setIndustryId] = React.useState("");
   const [selectedTypeIds, setSelectedTypeIds] = React.useState<string[]>([]);
   const [openQuestion, setOpenQuestion] = React.useState(true);
   const [branches, setBranches] = React.useState<Branch[]>([{ id: "b1", name: "Main branch" }]);
+  const [marketingOptIn, setMarketingOptIn] = React.useState(true);
   const [consent, setConsent] = React.useState(false);
+  const [previewQr, setPreviewQr] = React.useState<{ wa_url: string; qr_image_url: string; trigger_text: string } | null>(null);
   const [done, setDone] = React.useState(false);
   const [createdLocations, setCreatedLocations] = React.useState<FeedbackLocation[]>([]);
 
@@ -141,16 +149,41 @@ function CreateFeedback() {
     5: consent,
   };
 
+  React.useEffect(() => {
+    if (step !== 4 || !industryId || selectedTypeIds.length === 0) return;
+    const branch = branches[0]?.name?.trim() || "Main branch";
+    previewM
+      .mutateAsync({
+        industry_id: industryId,
+        selected_survey_type_ids: selectedTypeIds,
+        name: branch,
+        open_question_enabled: openQuestion,
+        marketing_opt_in_enabled: marketingOptIn,
+      })
+      .then((res) => {
+        if (res.item) {
+          setPreviewQr({
+            wa_url: res.item.wa_url,
+            qr_image_url: res.item.qr_image_url,
+            trigger_text: res.item.trigger_text,
+          });
+        }
+      })
+      .catch(() => setPreviewQr(null));
+  }, [step, industryId, selectedTypeIds, branches, openQuestion, marketingOptIn]);
+
   const onLaunch = async () => {
-    const primaryTypeId = selectedTypeIds[0];
-    if (!industryId || !primaryTypeId) return;
+    if (!industryId || selectedTypeIds.length === 0) return;
     try {
       const created: FeedbackLocation[] = [];
       for (const branch of branches) {
         const res = await createM.mutateAsync({
           industry_id: industryId,
-          survey_type_id: primaryTypeId,
+          survey_type_id: selectedTypeIds[0],
+          selected_survey_type_ids: selectedTypeIds,
           name: branch.name.trim(),
+          open_question_enabled: openQuestion,
+          marketing_opt_in_enabled: marketingOptIn,
         });
         if (res.item) created.push(res.item);
       }
@@ -333,6 +366,26 @@ function CreateFeedback() {
                   </p>
                 </div>
               </div>
+
+              <div
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-4 transition",
+                  marketingOptIn ? "border-primary/40 bg-primary/5" : "border-border bg-background/40",
+                )}
+              >
+                <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+                  <Sparkles className="size-4" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold">News & promo opt-in question</p>
+                    <Switch checked={marketingOptIn} onCheckedChange={setMarketingOptIn} />
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Ask visitors at the end if they want offers and updates from your business.
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -449,7 +502,7 @@ function CreateFeedback() {
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">1 · Scan</p>
                   <div className="rounded-xl border-2 border-dashed border-border bg-white p-3">
                     <img
-                      src={qrSrcFor(previewTrigger(companyName, branches[0]?.name || undefined), 320)}
+                      src={previewQr?.qr_image_url || qrSrcFor(previewTrigger(companyName, branches[0]?.name || undefined), 320)}
                       alt="QR"
                       className="size-40"
                     />
@@ -471,6 +524,7 @@ function CreateFeedback() {
                   <Summary label="Industry" value={industry.name} />
                   <Summary label="Topics" value={selectedTypes.map((t) => t.name).join(", ") || "—"} />
                   <Summary label="Open question" value={openQuestion ? "On" : "Off"} />
+                  <Summary label="Promo opt-in" value={marketingOptIn ? "On" : "Off"} />
                   <Summary label="Branches" value={branches.map((b) => b.name).filter(Boolean).join(", ") || "—"} />
                 </div>
               </div>

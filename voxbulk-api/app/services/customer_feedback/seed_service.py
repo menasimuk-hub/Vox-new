@@ -70,6 +70,28 @@ INDUSTRY_SEEDS: list[dict] = [
             "Accessibility", "Sustainability", "Trustworthiness", "Customisation", "First impression",
         ],
     },
+    {
+        "slug": "fitness",
+        "name": "Fitness & gyms",
+        "types": [
+            "Overall experience", "Would recommend", "Staff friendliness", "Membership value",
+            "Cleanliness", "Wait time", "Service speed", "Communication", "Atmosphere", "Return intent",
+            "Equipment condition", "Class quality", "Trainer knowledge", "Changing room standards",
+            "Booking / app experience", "Peak time capacity", "Personal training quality", "Nutrition advice",
+            "Safety and hygiene", "Aftercare support",
+        ],
+    },
+    {
+        "slug": "events",
+        "name": "Events & entertainment",
+        "types": [
+            "Overall experience", "Would recommend", "Staff friendliness", "Value for ticket price",
+            "Cleanliness", "Wait time", "Service speed", "Communication", "Atmosphere", "Likelihood to attend again",
+            "Event organisation", "Venue suitability", "Ticketing / entry experience", "Performer / content quality",
+            "Sound and visuals", "Crowd management", "Food and drink options", "Seating / standing comfort",
+            "Safety and security", "App or digital experience",
+        ],
+    },
 ]
 
 PACKAGE_TIERS: list[dict] = [
@@ -77,44 +99,46 @@ PACKAGE_TIERS: list[dict] = [
         "tier": "starter",
         "name": "Starter",
         "locations": 1,
-        "units": 200,
+        "units": 1000,
         "order": 10,
         "featured": False,
-        "price_minor": 4900,
+        "price_minor": 5900,
+        "promo_cost_minor": 5,
         "features": [
             "1 location",
-            "200 surveys/mo",
+            "1000 survey triggers/mo",
             "Monthly report",
             "Email support",
         ],
     },
     {
-        "tier": "growth",
-        "name": "Growth",
-        "locations": 3,
-        "units": 600,
+        "tier": "pro",
+        "name": "Pro",
+        "locations": 5,
+        "units": 3000,
         "order": 20,
         "featured": True,
-        "price_minor": 9900,
+        "price_minor": 12900,
+        "promo_cost_minor": 4,
         "features": [
-            "3 locations",
-            "600 surveys/mo",
-            "Weekly report",
+            "5 locations",
+            "3000 survey triggers/mo",
             "Live dashboard",
             "Priority support",
         ],
     },
     {
-        "tier": "pro",
-        "name": "Pro",
-        "locations": 10,
-        "units": 2500,
+        "tier": "business",
+        "name": "Business",
+        "locations": 20,
+        "units": 10000,
         "order": 30,
         "featured": False,
-        "price_minor": 19900,
+        "price_minor": 24900,
+        "promo_cost_minor": 3,
         "features": [
-            "10 locations",
-            "2500 surveys",
+            "20 locations",
+            "10000 survey triggers/mo",
             "Real-time dashboard",
             "Branded PDF report",
             "Dedicated account manager",
@@ -139,6 +163,7 @@ PACKAGE_SEEDS: list[dict] = [
         "locations": tier["locations"],
         "units": tier["units"],
         "price_pence": tier["price_minor"],
+        "promo_cost_minor": tier.get("promo_cost_minor", 5),
         "order": tier["order"],
         "featured": tier["featured"],
         "features": tier["features"],
@@ -156,9 +181,52 @@ class FeedbackSeedService:
     @staticmethod
     def ensure_seeded(db: Session) -> None:
         FeedbackSeedService._seed_industries_if_needed(db)
+        FeedbackSeedService._ensure_extra_industries(db)
         FeedbackSeedService._seed_wa_sender_if_needed(db)
         FeedbackSeedService._ensure_packages(db)
         db.commit()
+
+    @staticmethod
+    def _ensure_extra_industries(db: Session) -> None:
+        """Upsert industries added after initial seed (fitness, events)."""
+        now = datetime.utcnow()
+        extra_slugs = {"fitness", "events"}
+        for ind in INDUSTRY_SEEDS:
+            if ind["slug"] not in extra_slugs:
+                continue
+            row = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == ind["slug"])).scalar_one_or_none()
+            if row is None:
+                row = FeedbackIndustry(
+                    id=str(uuid.uuid4()),
+                    slug=ind["slug"],
+                    name=ind["name"],
+                    sort_order=100,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(row)
+                db.flush()
+            for t_idx, type_name in enumerate(ind["types"]):
+                slug = _slugify(type_name)
+                existing_type = db.execute(
+                    select(FeedbackSurveyType).where(
+                        FeedbackSurveyType.industry_id == row.id,
+                        FeedbackSurveyType.slug == slug,
+                    )
+                ).scalar_one_or_none()
+                if existing_type is None:
+                    db.add(
+                        FeedbackSurveyType(
+                            id=str(uuid.uuid4()),
+                            industry_id=row.id,
+                            slug=slug,
+                            name=type_name,
+                            sort_order=(t_idx + 1) * 10,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+            db.flush()
 
     @staticmethod
     def _seed_industries_if_needed(db: Session) -> None:
@@ -189,6 +257,7 @@ class FeedbackSeedService:
                         updated_at=now,
                     )
                 )
+            db.flush()
 
     @staticmethod
     def _seed_wa_sender_if_needed(db: Session) -> None:
@@ -275,6 +344,7 @@ class FeedbackSeedService:
                         market_zone=pkg["zone"],
                         max_locations=int(pkg["locations"]),
                         wa_units_included=int(pkg["units"]),
+                        promo_message_cost_minor=int(pkg.get("promo_cost_minor") or 5),
                         display_order=int(pkg["order"]),
                         created_at=now,
                         updated_at=now,
@@ -284,6 +354,7 @@ class FeedbackSeedService:
                 fb_pkg.market_zone = pkg["zone"]
                 fb_pkg.max_locations = int(pkg["locations"])
                 fb_pkg.wa_units_included = int(pkg["units"])
+                fb_pkg.promo_message_cost_minor = int(pkg.get("promo_cost_minor") or 5)
                 fb_pkg.display_order = int(pkg["order"])
                 fb_pkg.is_active = True
                 fb_pkg.updated_at = now

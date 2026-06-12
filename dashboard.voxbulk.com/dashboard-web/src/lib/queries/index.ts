@@ -80,6 +80,9 @@ export type FeedbackLocation = {
   industry_name?: string | null;
   survey_type_id: string;
   survey_type_name?: string | null;
+  selected_survey_type_ids?: string[];
+  open_question_enabled?: boolean;
+  marketing_opt_in_enabled?: boolean;
   qr_token?: string;
   status: string;
   scan_count: number;
@@ -87,6 +90,27 @@ export type FeedbackLocation = {
   wa_url: string;
   qr_image_url: string;
   created_at?: string | null;
+};
+
+export type FeedbackLocationPreview = {
+  preview?: boolean;
+  trigger_text: string;
+  wa_url: string;
+  qr_image_url: string;
+  selected_survey_type_ids?: string[];
+  open_question_enabled?: boolean;
+  marketing_opt_in_enabled?: boolean;
+};
+
+export type CreateFeedbackLocationInput = {
+  industry_id: string;
+  survey_type_id?: string;
+  selected_survey_type_ids?: string[];
+  name: string;
+  branch_code?: string;
+  status?: string;
+  open_question_enabled?: boolean;
+  marketing_opt_in_enabled?: boolean;
 };
 
 export type FeedbackIndustry = {
@@ -1689,10 +1713,20 @@ export async function changeFeedbackPlan(planId: string) {
   });
 }
 
+export function usePreviewFeedbackLocation() {
+  return useMutation({
+    mutationFn: (body: CreateFeedbackLocationInput) =>
+      apiFetch<{ ok?: boolean; item?: FeedbackLocationPreview }>("/customer-feedback/locations/preview", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}
+
 export function useCreateFeedbackLocation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { industry_id: string; survey_type_id: string; name: string; branch_code?: string; status?: string }) =>
+    mutationFn: (body: CreateFeedbackLocationInput) =>
       apiFetch<{ ok?: boolean; item?: FeedbackLocation }>("/customer-feedback/locations", {
         method: "POST",
         body: JSON.stringify(body),
