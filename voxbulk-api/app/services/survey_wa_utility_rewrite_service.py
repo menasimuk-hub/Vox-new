@@ -22,6 +22,7 @@ from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateService,
     _dumps,
     _effective_components,
+    _has_remote_telnyx_id,
     _loads,
     _normalize_draft_components,
     _persist_normalized_draft,
@@ -29,6 +30,10 @@ from app.services.survey_whatsapp_template_service import (
     normalize_wa_template_category,
 )
 from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+from app.services.wa_template_meta_sync import (
+    is_utility_clone_template_name,
+    suggest_utility_clone_template_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +305,51 @@ def apply_utility_rewrite_to_row(
     return old_body, new_body
 
 
+def _find_template_row(db: Session, name: str) -> TelnyxWhatsappTemplate | None:
+    clean = str(name or "").strip()
+    if not clean:
+        return None
+    row = db.execute(
+        select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == clean)
+    ).scalar_one_or_none()
+    if row is not None:
+        return row
+    clone_name = suggest_utility_clone_template_name(clean)
+    if clone_name == clean:
+        return None
+    return db.execute(
+        select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == clone_name)
+    ).scalar_one_or_none()
+
+
+def _needs_utility_clone_for_category_change(row: TelnyxWhatsappTemplate) -> bool:
+    return (
+        str(row.status or "").upper() == "APPROVED"
+        and _has_remote_telnyx_id(row)
+        and str(row.category or "").upper() != "UTILITY"
+        and not is_utility_clone_template_name(row.name)
+    )
+
+
+def _prepare_approved_template_for_utility_push(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+) -> tuple[TelnyxWhatsappTemplate, str | None]:
+    if not _needs_utility_clone_for_category_change(row):
+        return row, None
+    clone_name = suggest_utility_clone_template_name(row.name)
+    clash = db.execute(
+        select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == clone_name)
+    ).scalar_one_or_none()
+    if clash is not None and clash.id != row.id:
+        raise SurveyWhatsappTemplateError(
+            f"Utility clone name already exists: {clone_name}",
+            payload={"template_name": row.name, "suggested_template_name": clone_name},
+        )
+    renamed = SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, clone_name)
+    return renamed, clone_name
+
+
 def refresh_row_from_telnyx(db: Session, row: TelnyxWhatsappTemplate) -> None:
     record_id = str(row.telnyx_record_id or "").strip()
     if record_id:
@@ -335,9 +385,7 @@ def process_template_names(
         clean = str(name or "").strip()
         if not clean:
             continue
-        row = db.execute(
-            select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == clean)
-        ).scalar_one_or_none()
+        row = _find_template_row(db, clean)
         if row is None:
             results.append(
                 UtilityRewriteResult(
@@ -350,7 +398,7 @@ def process_template_names(
             )
             continue
         try:
-            if sync_remote:
+            if sync_remote and _has_remote_telnyx_id(row):
                 refresh_row_from_telnyx(db, row)
                 db.refresh(row)
 
@@ -366,31 +414,44 @@ def process_template_names(
                     display_name=row.display_name,
                     use_deepseek=use_deepseek,
                 )
+                dry_msg = "dry-run"
+                if _needs_utility_clone_for_category_change(row):
+                    dry_msg = (
+                        f"dry-run — would rename to {suggest_utility_clone_template_name(row.name)} "
+                        "and push as new UTILITY template"
+                    )
                 results.append(
                     UtilityRewriteResult(
-                        template_name=clean,
+                        template_name=row.name,
                         ok=True,
                         old_body=old_body,
                         new_body=new_body,
-                        message="dry-run",
+                        message=dry_msg,
                     )
                 )
                 continue
 
+            renamed_to: str | None = None
+            if push:
+                row, renamed_to = _prepare_approved_template_for_utility_push(db, row)
+
             old_body, new_body = apply_utility_rewrite_to_row(db, row, use_deepseek=use_deepseek)
             pushed = False
             msg = "rewritten"
+            if renamed_to:
+                msg = f"renamed to {renamed_to}"
             if push:
                 push_result = SurveyWhatsappTemplateService.push_to_telnyx(
                     db,
                     row,
-                    force_approved_update=True,
+                    force_approved_update=bool(_has_remote_telnyx_id(row)),
                 )
                 pushed = True
-                msg = str(push_result.get("sync_message") or push_result.get("message") or "pushed")
+                push_msg = str(push_result.get("sync_message") or push_result.get("message") or "pushed")
+                msg = f"{msg}; {push_msg}" if renamed_to else push_msg
             results.append(
                 UtilityRewriteResult(
-                    template_name=clean,
+                    template_name=row.name,
                     ok=True,
                     old_body=old_body,
                     new_body=new_body,

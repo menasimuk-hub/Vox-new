@@ -5,7 +5,8 @@ Meta recategorized generic satisfaction surveys as MARKETING. UTILITY feedback t
 - Reference a specific recent interaction (visit, service, order, engagement)
 - Stay non-promotional (no offers, upsell, or persuasive marketing tone)
 - Preserve leading emojis when present; avoid vague "we'd love your feedback" openers
-- --push resubmits APPROVED templates to Meta for re-review (UTILITY category + new BODY)
+- --push creates new UTILITY templates when Meta blocks category changes on APPROVED rows
+  (renames e.g. *_abc_* -> *_utu_* locally, then POST as a new template)
 
 See: https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/template-categorization
 

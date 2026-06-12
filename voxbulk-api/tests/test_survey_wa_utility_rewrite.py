@@ -5,15 +5,43 @@ from __future__ import annotations
 from app.services.survey_wa_utility_rewrite_service import (
     _extract_leading_emoji,
     _mentions_recent_interaction,
+    _needs_utility_clone_for_category_change,
     _prepend_leading_emoji,
     _rule_based_utility_body,
     _topic_from_template_name,
     rewrite_body_for_utility,
 )
+from app.services.wa_template_meta_sync import (
+    is_utility_clone_template_name,
+    suggest_utility_clone_template_name,
+)
 
 
 def test_topic_from_template_name():
     assert _topic_from_template_name("voxbulk_survey_food_quality_abc_d85d5a") == "food quality"
+
+
+def test_suggest_utility_clone_template_name():
+    assert (
+        suggest_utility_clone_template_name("voxbulk_survey_staff_friendliness_abc_875f3a")
+        == "voxbulk_survey_staff_friendliness_utu_875f3a"
+    )
+    assert is_utility_clone_template_name("voxbulk_survey_staff_friendliness_utu_875f3a")
+
+
+def test_needs_utility_clone_for_category_change():
+    class _Row:
+        status = "APPROVED"
+        category = "MARKETING"
+        name = "voxbulk_survey_staff_friendliness_abc_875f3a"
+        telnyx_record_id = "remote-1"
+
+    assert _needs_utility_clone_for_category_change(_Row()) is True
+
+    class _UtilityRow(_Row):
+        category = "UTILITY"
+
+    assert _needs_utility_clone_for_category_change(_UtilityRow()) is False
 
 
 def test_rule_based_adds_recent_visit_context():

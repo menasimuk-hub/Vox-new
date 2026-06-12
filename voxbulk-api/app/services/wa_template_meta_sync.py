@@ -105,11 +105,13 @@ META_ERROR_LANGUAGE_DELETION_LOCK = "language_deletion_lock"
 META_ERROR_LANGUAGE_UNSUPPORTED = "language_not_supported"
 META_ERROR_CONTENT_ALREADY_EXISTS = "content_already_exists"
 META_ERROR_MISSING_BODY_EXAMPLE = "missing_body_example"
+META_ERROR_CANNOT_UPDATE_CATEGORY = "cannot_update_category"
 
 META_SUBCODE_LANGUAGE_DELETION_LOCK = 2388023
 META_SUBCODE_LANGUAGE_UNSUPPORTED = 2388049
 META_SUBCODE_CONTENT_ALREADY_EXISTS = 2388024
 META_SUBCODE_MISSING_BODY_EXAMPLE = 2388043
+META_SUBCODE_CANNOT_UPDATE_CATEGORY = 3835031
 
 
 def default_wa_template_language(db: Session | None = None) -> str:
@@ -173,6 +175,29 @@ def validate_wa_template_name(name: str | None) -> tuple[str | None, str | None]
             "(Meta/Telnyx requirement)."
         )
     return clean, None
+
+
+_UTILITY_CLONE_MARKER = "_utu_"
+
+
+def is_utility_clone_template_name(name: str | None) -> bool:
+    return _UTILITY_CLONE_MARKER in str(name or "").strip().lower()
+
+
+def suggest_utility_clone_template_name(current_name: str) -> str:
+    """Derive a new Meta template name when UTILITY category cannot be set on an approved template."""
+    base = str(current_name or "").strip().lower() or "template"
+    match = re.match(r"^(voxbulk_survey_.+)_abc_([a-f0-9]{6})$", base)
+    if match:
+        candidate = f"{match.group(1)}{_UTILITY_CLONE_MARKER}{match.group(2)}"
+        if _TEMPLATE_NAME_RE.match(candidate):
+            return candidate
+    if is_utility_clone_template_name(base):
+        return suggest_alternate_template_name(base)
+    candidate = f"{base}_utu"
+    if _TEMPLATE_NAME_RE.match(candidate):
+        return candidate
+    return suggest_alternate_template_name(base)
 
 
 def suggest_alternate_template_name(current_name: str, *, reason: str | None = None) -> str:
@@ -239,6 +264,10 @@ def parse_meta_error_from_provider_detail(detail: str | None) -> dict[str, Any]:
         out["kind"] = META_ERROR_CONTENT_ALREADY_EXISTS
     elif subcode == META_SUBCODE_MISSING_BODY_EXAMPLE:
         out["kind"] = META_ERROR_MISSING_BODY_EXAMPLE
+    elif subcode == META_SUBCODE_CANNOT_UPDATE_CATEGORY:
+        out["kind"] = META_ERROR_CANNOT_UPDATE_CATEGORY
+    elif "cannot update an approved template category" in text.lower():
+        out["kind"] = META_ERROR_CANNOT_UPDATE_CATEGORY
     elif "missing expected field(s) (example)" in text.lower():
         out["kind"] = META_ERROR_MISSING_BODY_EXAMPLE
     elif "language is being deleted" in text.lower():
@@ -286,6 +315,13 @@ def admin_guidance_for_meta_error(
             "Survey question templates (abc_choice, rating, etc.) must use plain body text with no {{1}} "
             "variables and no example values — only welcome/system templates use named variables. "
             "Remove any variables or sample values from the BODY, save, then sync again."
+        )
+    if kind == META_ERROR_CANNOT_UPDATE_CATEGORY:
+        suggested = suggest_utility_clone_template_name(str(template_name or ""))
+        return (
+            f"Meta will not change the category on approved template “{template_name}”. "
+            f"Clone/rename locally to a new template name (suggested: {suggested}), "
+            "set category to UTILITY, then push as a new template."
         )
     if meta_user_message:
         return str(meta_user_message)
