@@ -92,9 +92,9 @@ const groups: Group[] = [
     { title: "Reminder sequences", url: "/follow-up", icon: Repeat },
   ]},
   { key: "settings", label: "Settings", items: [
+    { title: "Profile settings", url: "/settings/profile", icon: User2 },
     { title: "Services", url: "/settings/services", icon: Layers },
     { title: "Integrations", url: "/settings/integrations", icon: Plug },
-    { title: "Profile settings", url: "/settings/profile", icon: User2 },
     { title: "Team members", url: "/settings/team", icon: Users },
     { title: "Opt-out list", url: "/settings/opt-out", icon: Ban },
     { title: "Audit log", url: "/settings/audit", icon: History },

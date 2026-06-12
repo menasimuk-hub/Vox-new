@@ -4,6 +4,16 @@ import { Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,6 +53,7 @@ function ProfileSettings() {
   const [website, setWebsite] = React.useState("");
   const [country, setCountry] = React.useState("United Kingdom");
   const [deleteConfirm, setDeleteConfirm] = React.useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const deletionQ = useDeletionStatus();
   const requestDeletionM = useRequestAccountDeletion();
   const cancelDeletionM = useCancelAccountDeletion();
@@ -122,6 +133,7 @@ function ProfileSettings() {
     try {
       const res = await requestDeletionM.mutateAsync({ confirm: "DELETE" });
       setDeleteConfirm("");
+      setDeleteDialogOpen(false);
       toast.success(res.pending_message || "You have requested account deletion.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not submit deletion request");
@@ -232,29 +244,48 @@ function ProfileSettings() {
                 {cancelDeletionM.isPending ? "Cancelling…" : "Cancel delete request"}
               </Button>
             </>
-          ) : deletionStatus === "cancelled" ? (
-            <>
-              <p className="text-sm text-muted-foreground">Your deletion request was cancelled. You can submit a new request below.</p>
-              <Field label="Type DELETE to confirm" value={deleteConfirm} onChange={setDeleteConfirm} />
-              <Button variant="destructive" disabled={requestDeletionM.isPending} onClick={() => void onDeleteAccount()}>
-                {requestDeletionM.isPending ? "Submitting…" : "Delete my account"}
-              </Button>
-            </>
           ) : deletionStatus === "archived" ? (
             <p className="text-sm text-muted-foreground">This account has been deleted.</p>
           ) : (
-            <>
-              <p className="text-sm text-muted-foreground">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground max-w-xl">
                 Request deletion of your organisation account. Invoices and legally required billing records are retained; personal data is anonymized.
               </p>
-              <Field label="Type DELETE to confirm" value={deleteConfirm} onChange={setDeleteConfirm} />
-              <Button variant="destructive" disabled={requestDeletionM.isPending} onClick={() => void onDeleteAccount()}>
-                {requestDeletionM.isPending ? "Submitting…" : "Delete my account"}
+              <Button variant="destructive" className="shrink-0" onClick={() => { setDeleteConfirm(""); setDeleteDialogOpen(true); }}>
+                Delete my account
               </Button>
-            </>
+            </div>
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This requests deletion of your organisation account. Invoices and legally required billing records are retained; personal data is anonymized when processed. Type DELETE to confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5 py-2">
+            <Label className="text-xs">Type DELETE to confirm</Label>
+            <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} placeholder="DELETE" />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={requestDeletionM.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={requestDeletionM.isPending || deleteConfirm.trim().toUpperCase() !== "DELETE"}
+              onClick={(e) => {
+                e.preventDefault();
+                void onDeleteAccount();
+              }}
+            >
+              {requestDeletionM.isPending ? "Submitting…" : "Confirm deletion"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="flex justify-end">
         <Button onClick={() => void onSave()} disabled={saveM.isPending}>{saveM.isPending ? "Saving…" : "Save profile"}</Button>

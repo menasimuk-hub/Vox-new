@@ -5,9 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export type SurveyWaLaunchStepProps = {
@@ -45,11 +43,7 @@ export function SurveyWaLaunchStep({
   onLaunch,
   launchPending,
 }: SurveyWaLaunchStepProps) {
-  const canLaunch =
-    consent &&
-    (launchMode === "now" ||
-      (launchMode === "schedule" && !!scheduleAt) ||
-      (launchMode === "recurring" && !!firstDeliveryAt));
+  const canLaunch = consent && (launchMode === "now" || (launchMode === "schedule" && !!scheduleAt));
 
   const modeSummary =
     launchMode === "now"
@@ -69,7 +63,10 @@ export function SurveyWaLaunchStep({
       <CardContent className="space-y-5">
         <RadioGroup
           value={launchMode}
-          onValueChange={(v) => setLaunchMode(v as "now" | "schedule" | "recurring")}
+          onValueChange={(v) => {
+            if (v === "recurring") return;
+            setLaunchMode(v as "now" | "schedule" | "recurring");
+          }}
           className="grid gap-3 sm:grid-cols-3"
         >
           <label
@@ -105,50 +102,21 @@ export function SurveyWaLaunchStep({
               )}
             </div>
           </label>
-          <label
+          <div
             className={cn(
-              "flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition",
-              launchMode === "recurring"
-                ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                : "border-border bg-background hover:border-primary/40",
+              "relative flex items-start gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-4 opacity-80",
             )}
+            title="Recurring campaigns are not available yet — use Schedule for one-time sends"
           >
-            <RadioGroupItem value="recurring" className="mt-0.5" />
+            <RadioGroupItem value="recurring" className="mt-0.5" disabled />
             <div className="w-full">
-              <p className="flex items-center gap-2 text-sm font-semibold">
-                <Repeat className="size-4 text-primary" /> Recurring
+              <p className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                <Repeat className="size-4" /> Recurring
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide">Coming soon</span>
               </p>
-              <p className="mb-2 text-xs text-muted-foreground">Send on a repeating schedule.</p>
-              {launchMode === "recurring" && (
-                <div className="mt-2 space-y-2 animate-fade-in">
-                  <div className="space-y-1">
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Frequency</Label>
-                    <Select value={recurringInterval} onValueChange={setRecurringInterval}>
-                      <SelectTrigger className="h-8">
-                        <SelectValue placeholder="Select frequency" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1-week">Every 1 week</SelectItem>
-                        <SelectItem value="2-weeks">Every 2 weeks</SelectItem>
-                        <SelectItem value="3-weeks">Every 3 weeks</SelectItem>
-                        <SelectItem value="1-month">Every 1 month</SelectItem>
-                        <SelectItem value="3-months">Every 3 months</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">First run date</Label>
-                    <Input
-                      type="datetime-local"
-                      value={firstDeliveryAt}
-                      onChange={(e) => setFirstDeliveryAt(e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                </div>
-              )}
+              <p className="text-xs text-muted-foreground">Use Schedule for one-time sends. Repeating campaigns will be added in a future release.</p>
             </div>
-          </label>
+          </div>
         </RadioGroup>
 
         <div className="grid gap-2 sm:grid-cols-3">

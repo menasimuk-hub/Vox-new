@@ -150,7 +150,7 @@ function BillingPage() {
   const allowOverage = accessQ.data?.allow_overage !== false;
   const [payInvoice, setPayInvoice] = React.useState<Invoice | null>(null);
   const [ledgerPage, setLedgerPage] = React.useState(1);
-  const [billingTab, setBillingTab] = React.useState<"transactions" | "requests">("transactions");
+  const [billingTab, setBillingTab] = React.useState<"invoices" | "transactions" | "requests">("invoices");
   const [mandateBusy, setMandateBusy] = React.useState(false);
 
   const billingRequests = (requestsQ.data?.items || []) as Array<Record<string, unknown>>;
@@ -234,24 +234,25 @@ function BillingPage() {
     };
   });
 
-  const defaultLedger = React.useMemo(() => {
-    return [...walletRows, ...invoiceRows].sort((a, b) => {
-      if (a.kindPriority !== b.kindPriority) return a.kindPriority - b.kindPriority;
-      return b.dateSort - a.dateSort;
-    });
-  }, [walletRows, invoiceRows]);
+  const sortedInvoiceRows = React.useMemo(
+    () => [...invoiceRows].sort((a, b) => b.dateSort - a.dateSort),
+    [invoiceRows],
+  );
+  const sortedWalletRows = React.useMemo(
+    () => [...walletRows].sort((a, b) => b.dateSort - a.dateSort),
+    [walletRows],
+  );
 
-  const ledger = useTableSort(defaultLedger, "dateSort", "desc");
-  const sortedLedger =
-    ledger.sortKey === "dateSort" && ledger.sortDir === "desc"
-      ? defaultLedger
-      : ledger.sorted;
-  const totalLedgerPages = Math.max(1, Math.ceil(sortedLedger.length / PAGE_SIZE));
-  const ledgerPageRows = sortedLedger.slice((ledgerPage - 1) * PAGE_SIZE, ledgerPage * PAGE_SIZE);
+  const invoiceLedger = useTableSort(sortedInvoiceRows, "dateSort", "desc");
+  const walletLedger = useTableSort(sortedWalletRows, "dateSort", "desc");
+  const activeRows = billingTab === "invoices" ? invoiceLedger.sorted : walletLedger.sorted;
+  const totalLedgerPages = Math.max(1, Math.ceil(activeRows.length / PAGE_SIZE));
+  const ledgerPageRows = activeRows.slice((ledgerPage - 1) * PAGE_SIZE, ledgerPage * PAGE_SIZE);
+  const activeLedger = billingTab === "invoices" ? invoiceLedger : walletLedger;
 
   React.useEffect(() => {
     setLedgerPage(1);
-  }, [ledger.sortKey, ledger.sortDir, defaultLedger.length]);
+  }, [billingTab, activeLedger.sortKey, activeLedger.sortDir, activeRows.length]);
 
   React.useEffect(() => {
     if (!payInvoiceId || invoicesQ.isLoading || !invoicesQ.data?.length) return;
@@ -564,10 +565,23 @@ function BillingPage() {
         <CardHeader className="space-y-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle>Invoices & payments</CardTitle>
-              <CardDescription>Top-ups, receipts, subscription charges, cancellation requests, and extra usage.</CardDescription>
+              <CardTitle>Billing history</CardTitle>
+              <CardDescription>
+                {billingTab === "invoices"
+                  ? "Subscription and usage invoices with PDF download and pay links."
+                  : billingTab === "transactions"
+                    ? "Wallet top-ups, charges, refunds, and credits — not formal invoices."
+                    : "Cancellation and refund review requests."}
+              </CardDescription>
             </div>
-            <div className="flex gap-1 rounded-lg border border-border p-1">
+            <div className="flex flex-wrap gap-1 rounded-lg border border-border p-1">
+              <Button
+                size="sm"
+                variant={billingTab === "invoices" ? "secondary" : "ghost"}
+                onClick={() => setBillingTab("invoices")}
+              >
+                Invoices
+              </Button>
               <Button
                 size="sm"
                 variant={billingTab === "transactions" ? "secondary" : "ghost"}
@@ -648,13 +662,15 @@ function BillingPage() {
                 </Table>
               </div>
             )
-          ) : invoicesQ.isLoading || walletTxQ.isLoading ? (
+          ) : (billingTab === "invoices" ? invoicesQ.isLoading : walletTxQ.isLoading) ? (
             <div className="p-6">
               <Skeleton className="h-10 w-full" />
             </div>
-          ) : sortedLedger.length === 0 ? (
+          ) : activeRows.length === 0 ? (
             <p className="p-8 text-center text-sm text-muted-foreground">
-              No billing activity yet. Plan renewals, top-ups, and extra usage will appear here.
+              {billingTab === "invoices"
+                ? "No invoices yet. Subscription renewals and extra usage invoices will appear here."
+                : "No wallet transactions yet. Top-ups, charges, and refunds will appear here."}
             </p>
           ) : (
             <>
@@ -662,12 +678,12 @@ function BillingPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <SortHeader label="Reference" sortKey="id" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} className="pl-6" />
-                      <SortHeader label="Type" sortKey="kind" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} />
+                      <SortHeader label="Reference" sortKey="id" active={activeLedger.sortKey} dir={activeLedger.sortDir} onToggle={activeLedger.toggleSort} className="pl-6" />
+                      <SortHeader label="Type" sortKey="kind" active={activeLedger.sortKey} dir={activeLedger.sortDir} onToggle={activeLedger.toggleSort} />
                       <TableHead>Description</TableHead>
-                      <SortHeader label="Date" sortKey="dateSort" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} />
-                      <SortHeader label="Amount" sortKey="amount" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} />
-                      <SortHeader label="Status" sortKey="status" active={ledger.sortKey} dir={ledger.sortDir} onToggle={ledger.toggleSort} />
+                      <SortHeader label="Date" sortKey="dateSort" active={activeLedger.sortKey} dir={activeLedger.sortDir} onToggle={activeLedger.toggleSort} />
+                      <SortHeader label="Amount" sortKey="amount" active={activeLedger.sortKey} dir={activeLedger.sortDir} onToggle={activeLedger.toggleSort} />
+                      <SortHeader label="Status" sortKey="status" active={activeLedger.sortKey} dir={activeLedger.sortDir} onToggle={activeLedger.toggleSort} />
                       <TableHead className="pr-6 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -725,10 +741,10 @@ function BillingPage() {
                   </TableBody>
                 </Table>
               </div>
-              {sortedLedger.length > PAGE_SIZE ? (
+              {activeRows.length > PAGE_SIZE ? (
                 <div className="flex items-center justify-between border-t border-border px-6 py-3 text-sm">
                   <span className="text-muted-foreground">
-                    Page {ledgerPage} of {totalLedgerPages} · {sortedLedger.length} records
+                    Page {ledgerPage} of {totalLedgerPages} · {activeRows.length} records
                   </span>
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" disabled={ledgerPage <= 1} onClick={() => setLedgerPage((p) => p - 1)}>

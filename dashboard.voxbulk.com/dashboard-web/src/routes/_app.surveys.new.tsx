@@ -20,6 +20,7 @@ import {
   resolveSurveyStepLabel,
   sanitizeStepLabelFromApi,
 } from "@/lib/survey-step-labels";
+import { toIsoFromLocal } from "@/lib/datetime";
 import { buildSurveyDraftCreateBody, buildSurveyDraftPatchBody, resolveSurveyNameForSave } from "@/lib/survey-draft-payload";
 import { buildFullSurveyDraftConfig, hydrateSurveyDraftFromOrder } from "@/lib/survey-draft-config";
 import {
@@ -479,8 +480,8 @@ function CreateSurvey() {
         draftConfig.upload_consent_at = draftConfig.upload_consent_at || nowIso;
       }
       const patchBody = buildSurveyDraftPatchBody(surveyName, draftConfig, {
-        scheduled_start_at: startAt || null,
-        scheduled_end_at: endAt || null,
+        scheduled_start_at: toIsoFromLocal(startAt),
+        scheduled_end_at: toIsoFromLocal(endAt),
         ...(purpose === "launch"
           ? { run_mode: launchMode === "now" ? ("manual" as const) : ("scheduled" as const) }
           : {}),
@@ -607,7 +608,14 @@ function CreateSurvey() {
         draftId: id,
         source: "onLaunchSurvey",
       });
-      toast.success(result.message || (runMode === "now" ? "Survey launched" : "Survey scheduled"));
+      const scheduledLabel =
+        runMode === "schedule" && startAt
+          ? new Date(toIsoFromLocal(startAt) || startAt).toLocaleString()
+          : null;
+      toast.success(
+        result.message ||
+          (runMode === "now" ? "Survey launched" : scheduledLabel ? `Survey scheduled for ${scheduledLabel}` : "Survey scheduled"),
+      );
       setLaunchOrderId(null);
       await qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
       await qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(launchedId) });

@@ -6,14 +6,17 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessSubscription } from "@/lib/billing/gocardless";
 import { marketLabel } from "@/lib/billing/market";
 import { isSamePlan, planButtonLabel, sortedPlans, type PlanLike } from "@/lib/billing/plans";
-import { useBillingPricing, useBillingWallet, useOrganisation } from "@/lib/queries";
+import { useBillingPricing, useBillingWallet, useCreateSupportTicket, useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 
@@ -46,7 +49,13 @@ function PackagesPage() {
   const orgCountry = String(orgQ.data?.country || "").trim();
   const pricingQ = useBillingPricing("auto", orgCountry);
   const walletQ = useBillingWallet();
+  const createTicketM = useCreateSupportTicket();
   const [topupOpen, setTopupOpen] = React.useState(false);
+  const [packagesTab, setPackagesTab] = React.useState<"plans" | "services" | "wallet">("plans");
+  const [enterpriseOpen, setEnterpriseOpen] = React.useState(false);
+  const [enterpriseScreenings, setEnterpriseScreenings] = React.useState("");
+  const [enterpriseWaSurveys, setEnterpriseWaSurveys] = React.useState("");
+  const [enterpriseNotes, setEnterpriseNotes] = React.useState("");
 
   const data = pricingQ.data;
   const market = String(data?.org_market || data?.market || "gbp");
@@ -117,9 +126,64 @@ function PackagesPage() {
     }
   };
 
+  const openEnterpriseContact = () => {
+    setEnterpriseScreenings("");
+    setEnterpriseWaSurveys("");
+    setEnterpriseNotes("");
+    setEnterpriseOpen(true);
+  };
+
+  const submitEnterpriseContact = async () => {
+    const screenings = enterpriseScreenings.trim();
+    const waSurveys = enterpriseWaSurveys.trim();
+    if (!screenings && !waSurveys) {
+      toast.error("Enter expected AI screenings or WA surveys per month");
+      return;
+    }
+    const message = [
+      "Enterprise plan enquiry",
+      screenings ? `AI screenings per month: ${screenings}` : null,
+      waSurveys ? `WA surveys expected per month: ${waSurveys}` : null,
+      enterpriseNotes.trim() ? `Notes: ${enterpriseNotes.trim()}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    try {
+      await createTicketM.mutateAsync({
+        category: "Billing",
+        subject: "Enterprise plan enquiry",
+        message,
+        priority: "normal",
+      });
+      setEnterpriseOpen(false);
+      toast.success("Enquiry sent — our team will reply via support tickets.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not send enquiry");
+    }
+  };
+
+  const walletBalance = walletQ.data?.wallet_balance_gbp || walletQ.data?.wallet_balance_display || "—";
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-16">
-      <PageHeader eyebrow="Account" title="Packages & pricing" description="Subscription plans, service costs, and wallet top-up." />
+      <PageHeader
+        eyebrow="Account"
+        title="Packages & pricing"
+        description="Subscription plans, service costs, and wallet top-up."
+        actions={
+          walletQ.data ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-sm"
+              onClick={() => setPackagesTab("wallet")}
+            >
+              <Wallet className="size-4 text-primary" />
+              <span className="text-muted-foreground">Wallet</span>
+              <span className="font-semibold tabular-nums">{walletBalance}</span>
+            </button>
+          ) : null
+        }
+      />
 
       <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
         <p className="font-medium">{pricingLabel}</p>
@@ -140,20 +204,22 @@ function PackagesPage() {
         </p>
       </div>
 
-      {walletQ.data && (
-        <Card>
-          <CardContent className="flex items-center justify-between gap-4 p-4">
-            <div className="flex items-center gap-2 text-sm">
-              <Wallet className="size-4 text-primary" />
-              <span className="text-muted-foreground">Wallet balance</span>
-              <span className="font-semibold">{walletQ.data.wallet_balance_gbp}</span>
-            </div>
-            <Button size="sm" onClick={() => setTopupOpen(true)}>Top up</Button>
-          </CardContent>
-        </Card>
-      )}
+      <div className="flex flex-wrap gap-1 rounded-lg border border-border p-1">
+        <Button size="sm" variant={packagesTab === "plans" ? "secondary" : "ghost"} onClick={() => setPackagesTab("plans")}>
+          Plans
+        </Button>
+        <Button size="sm" variant={packagesTab === "services" ? "secondary" : "ghost"} onClick={() => setPackagesTab("services")}>
+          Service costs
+        </Button>
+        <Button size="sm" variant={packagesTab === "wallet" ? "secondary" : "ghost"} onClick={() => setPackagesTab("wallet")} className="gap-1.5">
+          Wallet
+          {walletQ.data ? <span className="text-xs text-muted-foreground">· {walletBalance}</span> : null}
+        </Button>
+      </div>
+
       <WalletTopupDialog open={topupOpen} onOpenChange={setTopupOpen} initialAmountMinor={topupPence} />
 
+      {packagesTab === "plans" ? (
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subscription plans</h2>
         {pricingQ.isLoading ? (
@@ -211,10 +277,10 @@ function PackagesPage() {
                       <Button
                         className="mt-3 w-full"
                         variant={isFeatured && !isCurrent ? "default" : "outline"}
-                        disabled={ent || isCurrent || Boolean(busyPlanId)}
-                        onClick={() => void onSubscribe(p)}
+                        disabled={isCurrent || Boolean(busyPlanId)}
+                        onClick={() => (ent ? openEnterpriseContact() : void onSubscribe(p))}
                       >
-                        {ent ? "Contact us" : btnLabel}
+                        {ent ? "Let's talk" : btnLabel}
                       </Button>
                     </CardContent>
                   </Card>
@@ -224,7 +290,10 @@ function PackagesPage() {
           </div>
         )}
       </section>
+      ) : null}
 
+      {packagesTab === "services" ? (
+      <>
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -250,10 +319,15 @@ function PackagesPage() {
             {plans.map((p) => {
               if (p.is_enterprise) {
                 return (
-                  <div key={String(p.id)} className="rounded-lg bg-muted/50 p-3 text-center">
+                  <button
+                    key={String(p.id)}
+                    type="button"
+                    className="rounded-lg bg-muted/50 p-3 text-center transition hover:bg-muted"
+                    onClick={openEnterpriseContact}
+                  >
                     <p className="text-[11px] text-muted-foreground">{String(p.name)}</p>
-                    <p className="mt-1 text-sm font-medium">Contact us</p>
-                  </div>
+                    <p className="mt-1 text-sm font-medium text-primary">Let's talk</p>
+                  </button>
                 );
               }
               const perMin = Number(p.per_min_pence || 0);
@@ -284,15 +358,26 @@ function PackagesPage() {
           <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><FileText className="size-4 text-amber-600" /><span className="font-medium">ATS CV scan</span></div><p className="text-xl font-semibold">{String(services.ats_cv_scan_display)}</p><p className="text-xs text-muted-foreground">Per CV screened · Interview WhatsApp included</p></CardContent></Card>
         </div>
       </section>
+      </>
+      ) : null}
 
+      {packagesTab === "wallet" ? (
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
             <Wallet className="size-5 text-green-600" />
             <div>
               <CardTitle>Wallet top-up</CardTitle>
               <CardDescription>Pay by card (Stripe or Airwallex) — no expiry, use across calls, surveys and CV scans (min {sym(data)}5)</CardDescription>
             </div>
+            </div>
+            {walletQ.data ? (
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-2 text-right">
+                <p className="text-xs text-muted-foreground">Current balance</p>
+                <p className="text-2xl font-semibold tabular-nums">{walletBalance}</p>
+              </div>
+            ) : null}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -319,6 +404,54 @@ function PackagesPage() {
           </div>
         </CardContent>
       </Card>
+      ) : null}
+
+      <Dialog open={enterpriseOpen} onOpenChange={setEnterpriseOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Enterprise plan enquiry</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">AI screenings per month</Label>
+              <Input
+                type="number"
+                min={0}
+                placeholder="e.g. 500"
+                value={enterpriseScreenings}
+                onChange={(e) => setEnterpriseScreenings(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">WA surveys expected per month</Label>
+              <Input
+                type="number"
+                min={0}
+                placeholder="e.g. 2000"
+                value={enterpriseWaSurveys}
+                onChange={(e) => setEnterpriseWaSurveys(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Team size / notes</Label>
+              <Textarea
+                rows={4}
+                placeholder="Team size, industries, timeline, anything else we should know…"
+                value={enterpriseNotes}
+                onChange={(e) => setEnterpriseNotes(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEnterpriseOpen(false)} disabled={createTicketM.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submitEnterpriseContact()} disabled={createTicketM.isPending}>
+              {createTicketM.isPending ? "Sending…" : "Send enquiry"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -68,6 +68,28 @@ def _order_config(order: ServiceOrder) -> dict[str, Any]:
         return {}
 
 
+def _persist_schedule_block_reason(db: Session, order: ServiceOrder, reason: str) -> None:
+    config = _order_config(order)
+    config["last_schedule_block_reason"] = str(reason or "").strip() or "Survey could not start"
+    config["last_schedule_block_at"] = datetime.utcnow().isoformat()
+    order.config_json = json.dumps(config, ensure_ascii=False)
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+
+def _clear_schedule_block_reason(db: Session, order: ServiceOrder) -> None:
+    config = _order_config(order)
+    if "last_schedule_block_reason" not in config and "last_schedule_block_at" not in config:
+        return
+    config.pop("last_schedule_block_reason", None)
+    config.pop("last_schedule_block_at", None)
+    order.config_json = json.dumps(config, ensure_ascii=False)
+    db.add(order)
+    db.commit()
+
+
 def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
     try:
         data = json.loads(recipient.result_json or "{}")
@@ -264,14 +286,17 @@ class SurveyCallDispatchService:
         assistant_id, agent = resolve_survey_telnyx_assistant_id(db, order, config)
         if not assistant_id:
             _log("assistant_missing", order_id=order.id)
+            _persist_schedule_block_reason(db, order, "Telnyx voice assistant is not configured")
             return False
         if not config.get("script_approved") and not str(config.get("approved_script") or "").strip():
             _log("script_not_approved", order_id=order.id)
+            _persist_schedule_block_reason(db, order, "Survey script is not approved")
             return False
 
         ok, reason = _order_window_ok(db, order)
         if not ok:
             _log("window_blocked_at_start", order_id=order.id, reason=reason)
+            _persist_schedule_block_reason(db, order, reason or "Outside calling window or hours")
             return False
 
         from app.services.survey_voice_agent_service import clear_survey_generated_script_on_launch
@@ -291,6 +316,7 @@ class SurveyCallDispatchService:
             _log("agent_assigned", order_id=order.id, agent_id=agent.id, voice_label=config.get("agent_voice_label"))
 
         now = datetime.utcnow()
+        _clear_schedule_block_reason(db, order)
         order.status = "running"
         order.started_at = order.started_at or now
         order.updated_at = now
