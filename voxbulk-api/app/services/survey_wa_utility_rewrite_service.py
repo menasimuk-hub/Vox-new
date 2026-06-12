@@ -381,7 +381,11 @@ def process_template_names(
             pushed = False
             msg = "rewritten"
             if push:
-                push_result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+                push_result = SurveyWhatsappTemplateService.push_to_telnyx(
+                    db,
+                    row,
+                    force_approved_update=True,
+                )
                 pushed = True
                 msg = str(push_result.get("sync_message") or push_result.get("message") or "pushed")
             results.append(

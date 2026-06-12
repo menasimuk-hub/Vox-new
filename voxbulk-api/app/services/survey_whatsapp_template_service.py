@@ -1771,6 +1771,7 @@ class SurveyWhatsappTemplateService:
         row: TelnyxWhatsappTemplate,
         *,
         remote_items: list[dict[str, Any]] | None = None,
+        force_approved_update: bool = False,
     ) -> dict[str, Any]:
         raw_components = _effective_components(row)
         if not raw_components:
@@ -1839,15 +1840,25 @@ class SurveyWhatsappTemplateService:
                 },
             )
 
-        refresh_result = _push_result_for_sync_branch(
-            db,
-            row,
-            branch=branch,
-            branch_error=branch_error,
-            raw_components=raw_components,
-        )
-        if refresh_result is not None:
-            return refresh_result
+        if branch == SYNC_BRANCH_APPROVED_UPDATE and force_approved_update:
+            logger.info(
+                "survey_wa_template_force_approved_update",
+                extra={
+                    "template_id": row.id,
+                    "template_name": row.name,
+                    "approval_status": str(row.status or "").upper(),
+                },
+            )
+        else:
+            refresh_result = _push_result_for_sync_branch(
+                db,
+                row,
+                branch=branch,
+                branch_error=branch_error,
+                raw_components=raw_components,
+            )
+            if refresh_result is not None:
+                return refresh_result
 
         components = prepare_components_for_telnyx_push(raw_components, row=row)
         body_comp = _body_component_from_prepared(components)

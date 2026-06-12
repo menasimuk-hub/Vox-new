@@ -608,6 +608,100 @@ def test_push_to_telnyx_rejected_existing_remote_resubmits_via_post(monkeypatch)
         assert "example" not in body
 
 
+def test_push_to_telnyx_approved_draft_diff_blocks_without_force():
+    from app.services.survey_whatsapp_template_service import (
+        SurveyWhatsappTemplateError,
+        _loads,
+        _sync_content_hash,
+    )
+
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+        row.telnyx_record_id = "remote-approved-blocked"
+        row.template_id = "999"
+        row.status = "APPROVED"
+        row.draft_components_json = json.dumps([{"type": "BODY", "text": "Updated utility body"}])
+        row.components_json = json.dumps([{"type": "BODY", "text": "Original approved body"}])
+        row.remote_content_hash = _sync_content_hash(_loads(row.components_json))
+        db.add(row)
+        db.commit()
+
+        try:
+            SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+            raise AssertionError("expected approved-update guard")
+        except SurveyWhatsappTemplateError as exc:
+            assert "APPROVED on Meta" in str(exc)
+
+
+def test_push_to_telnyx_approved_draft_diff_resubmits_with_force(monkeypatch):
+    from app.services.survey_whatsapp_template_service import (
+        SYNC_BRANCH_APPROVED_UPDATE,
+        _loads,
+        _sync_content_hash,
+    )
+
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        row = SurveyWhatsappTemplateService.create_standard_draft(db, survey_type=survey_type)
+        row.telnyx_record_id = "remote-approved-force"
+        row.template_id = "1000"
+        row.status = "APPROVED"
+        row.category = "UTILITY"
+        row.draft_components_json = json.dumps(
+            [{"type": "BODY", "text": "😊 Following your recent visit, how was it?"}]
+        )
+        row.components_json = json.dumps([{"type": "BODY", "text": "😊 How was it?"}])
+        row.remote_content_hash = _sync_content_hash(_loads(row.components_json))
+        db.add(row)
+        db.commit()
+
+        captured: dict[str, Any] = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "data": {
+                        "id": "remote-approved-force",
+                        "template_id": "1000",
+                        "status": "PENDING",
+                        "components": captured["post_payload"]["components"],
+                    }
+                }
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, headers=None, json=None):
+                captured["post_payload"] = json
+                return FakeResponse()
+
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.httpx.Client",
+            lambda *a, **k: FakeClient(),
+        )
+        monkeypatch.setattr(
+            "app.services.survey_whatsapp_template_service.SurveyWhatsappTemplateService._telnyx_config",
+            lambda db: {"api_key": "test-key", "whatsapp_waba_id": "waba-123"},
+        )
+
+        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row, force_approved_update=True)
+        assert result["ok"] is True
+        assert result["sync_branch"] == SYNC_BRANCH_APPROVED_UPDATE
+        assert result["telnyx_request_mode"] == "create_or_update_template"
+        assert captured["post_payload"]["category"] == "UTILITY"
+
+
 def test_resolve_template_sync_branch_pending_remote_is_status_refresh():
     from app.services.survey_whatsapp_template_service import (
         SYNC_BRANCH_STATUS_REFRESH,
