@@ -398,6 +398,21 @@ def process_template_names(
                     pushed=pushed,
                 )
             )
+        except SurveyWhatsappTemplateError as exc:
+            msg = str(exc)
+            payload = getattr(exc, "payload", None) or {}
+            provider_error = str(payload.get("provider_error") or "").strip()
+            if provider_error:
+                msg = f"{msg} | provider: {provider_error[:400]}"
+            results.append(
+                UtilityRewriteResult(
+                    template_name=clean,
+                    ok=False,
+                    old_body="",
+                    new_body="",
+                    message=msg,
+                )
+            )
         except Exception as exc:
             results.append(
                 UtilityRewriteResult(

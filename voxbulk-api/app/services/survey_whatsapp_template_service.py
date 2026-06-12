@@ -959,16 +959,20 @@ def _patch_remote_template_on_telnyx(
     components: list[Any],
     api_key: str,
     record_id: str | None = None,
+    category: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     rid = str(record_id or row.telnyx_record_id or "").strip()
     if not rid or rid.startswith(_LOCAL_ID_PREFIX):
         return None, None
+    patch_payload: dict[str, Any] = {"components": components}
+    if category:
+        patch_payload["category"] = category
     try:
         with httpx.Client(timeout=45.0, verify=httpx_ssl_verify()) as client:
             response = client.patch(
                 f"{TELNYX_WHATSAPP_TEMPLATES_URL}/{rid}",
                 headers=_telnyx_headers(api_key),
-                json={"components": components},
+                json=patch_payload,
             )
             response.raise_for_status()
             body = response.json()
@@ -997,7 +1001,15 @@ def _patch_remote_template_on_telnyx(
     if not isinstance(item, dict):
         return None, "Telnyx returned an unexpected PATCH response"
     _apply_remote_telnyx_item(row, item, overwrite_draft=False)
-    return _push_success_response(db, row, telnyx_request_mode="patch_template"), None
+    return (
+        _push_success_response(
+            db,
+            row,
+            telnyx_request_mode="patch_template",
+            sync_branch=SYNC_BRANCH_APPROVED_UPDATE,
+        ),
+        None,
+    )
 
 
 def _raise_patch_push_error(
@@ -1892,6 +1904,40 @@ class SurveyWhatsappTemplateService:
                 "WhatsApp Business Account ID is not configured in Telnyx settings. "
                 "Open Admin → Integrations → Telnyx → WhatsApp and set WhatsApp Business Account ID "
                 "(Meta WABA id from Telnyx Portal → Messaging → WhatsApp), or connect a WABA on your Telnyx account."
+            )
+
+        use_patch_for_approved_update = (
+            branch == SYNC_BRANCH_APPROVED_UPDATE
+            and force_approved_update
+            and _has_remote_telnyx_id(row)
+        )
+        if use_patch_for_approved_update:
+            telnyx_request_mode = "patch_template"
+            logger.info(
+                "survey_wa_template_patch_start",
+                extra={
+                    "template_id": row.id,
+                    "template_name": row.name,
+                    "variant": row.variant_type,
+                    "telnyx_request_mode": telnyx_request_mode,
+                    "sync_branch": branch,
+                    "telnyx_record_id": row.telnyx_record_id,
+                },
+            )
+            patch_result, patch_error = _patch_remote_template_on_telnyx(
+                db,
+                row,
+                components=components,
+                api_key=api_key,
+                category=category,
+            )
+            if patch_result is not None:
+                return patch_result
+            _raise_patch_push_error(
+                db,
+                row,
+                components=components,
+                patch_error=patch_error or "Telnyx PATCH failed for approved template update",
             )
 
         payload = {

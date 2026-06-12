@@ -668,7 +668,8 @@ def test_push_to_telnyx_approved_draft_diff_resubmits_with_force(monkeypatch):
                         "id": "remote-approved-force",
                         "template_id": "1000",
                         "status": "PENDING",
-                        "components": captured["post_payload"]["components"],
+                        "category": "UTILITY",
+                        "components": captured["patch_payload"]["components"],
                     }
                 }
 
@@ -683,7 +684,10 @@ def test_push_to_telnyx_approved_draft_diff_resubmits_with_force(monkeypatch):
                 return False
 
             def post(self, url, headers=None, json=None):
-                captured["post_payload"] = json
+                raise AssertionError("POST must not run for approved force update — use PATCH")
+
+            def patch(self, url, headers=None, json=None):
+                captured["patch_payload"] = json
                 return FakeResponse()
 
         monkeypatch.setattr(
@@ -698,8 +702,8 @@ def test_push_to_telnyx_approved_draft_diff_resubmits_with_force(monkeypatch):
         result = SurveyWhatsappTemplateService.push_to_telnyx(db, row, force_approved_update=True)
         assert result["ok"] is True
         assert result["sync_branch"] == SYNC_BRANCH_APPROVED_UPDATE
-        assert result["telnyx_request_mode"] == "create_or_update_template"
-        assert captured["post_payload"]["category"] == "UTILITY"
+        assert result["telnyx_request_mode"] == "patch_template"
+        assert captured["patch_payload"]["category"] == "UTILITY"
 
 
 def test_resolve_template_sync_branch_pending_remote_is_status_refresh():

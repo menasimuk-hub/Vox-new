@@ -106,16 +106,16 @@ def main() -> int:
     for item in results:
         if item.ok:
             ok_count += 1
-            print(f"OK  {item.template_name}")
+            print(f"OK  {item.template_name}", flush=True)
             if item.old_body:
-                print(f"    was: {item.old_body[:120]}{'…' if len(item.old_body) > 120 else ''}")
+                print(f"    was: {item.old_body[:120]}{'…' if len(item.old_body) > 120 else ''}", flush=True)
             if item.new_body:
-                print(f"    now: {item.new_body[:120]}{'…' if len(item.new_body) > 120 else ''}")
+                print(f"    now: {item.new_body[:120]}{'…' if len(item.new_body) > 120 else ''}", flush=True)
             if item.message:
-                print(f"    {item.message}")
+                print(f"    {item.message}", flush=True)
         else:
             fail_count += 1
-            print(f"FAIL {item.template_name}: {item.message}", file=sys.stderr)
+            print(f"FAIL {item.template_name}: {item.message}", file=sys.stderr, flush=True)
 
     print(f"\nDone: {ok_count} ok, {fail_count} failed, {len(results)} total")
     return 0 if fail_count == 0 else 1
