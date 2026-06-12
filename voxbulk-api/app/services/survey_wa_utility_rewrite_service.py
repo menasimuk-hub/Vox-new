@@ -58,9 +58,10 @@ Meta WhatsApp UTILITY — Feedback Survey rules (2025):
 - Must collect feedback on a PREVIOUS order, transaction, or engagement with the business.
 - Must be specific to the interaction (not a generic marketing survey).
 - Must be NON-PROMOTIONAL: no offers, discounts, upsell, loyalty promos, or persuasive marketing tone.
-- Do NOT use emojis.
+- Keep the original leading emoji when present (one emoji at the start is fine for feedback tone).
 - Do NOT use vague openers like "We'd love your feedback" without tying to a recent interaction.
-- Good pattern: "Following your recent visit, how would you rate …?" or "After your recent service experience, …"
+- Use exactly ONE recent-interaction phrase; do not stack multiple (bad: "Following your recent visit, based on your recent purchase, …").
+- Good pattern: "😊 Following your recent visit, how would you rate …?" or "After your recent service experience, …"
 - Keep the same rating intent and answer options meaning; only rewrite the BODY question sentence(s).
 - BODY must be plain text with NO {{1}} variables for these abc_choice templates.
 - Max {max_chars} characters.
@@ -106,8 +107,23 @@ def _extract_body_and_buttons(components: list[Any]) -> tuple[str, list[str]]:
     return body, buttons
 
 
-def _strip_emojis(text: str) -> str:
-    return _EMOJI_RE.sub("", str(text or "")).strip()
+def _extract_leading_emoji(text: str) -> tuple[str, str]:
+    raw = str(text or "").strip()
+    match = _EMOJI_RE.match(raw)
+    if not match:
+        return "", raw
+    emoji = match.group(0)
+    rest = raw[match.end() :].lstrip()
+    return emoji, rest
+
+
+def _prepend_leading_emoji(emoji: str, body: str) -> str:
+    text = str(body or "").strip()
+    if not emoji:
+        return text
+    if text.startswith(emoji):
+        return text
+    return f"{emoji} {text}".strip()
 
 
 def _mentions_recent_interaction(text: str) -> bool:
@@ -115,20 +131,27 @@ def _mentions_recent_interaction(text: str) -> bool:
     return any(phrase in lower for phrase in _UTILITY_CONTEXT_PHRASES)
 
 
-def _rule_based_utility_body(original: str, *, topic_hint: str = "") -> str:
-    cleaned = _strip_emojis(original)
+def _rule_based_utility_body(
+    original: str,
+    *,
+    topic_hint: str = "",
+    leading_emoji: str = "",
+) -> str:
+    emoji, cleaned = _extract_leading_emoji(original)
+    if leading_emoji:
+        emoji = leading_emoji
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if not cleaned:
         cleaned = "your experience"
     if _mentions_recent_interaction(cleaned):
-        return _sanitize_body(cleaned)
+        return _prepend_leading_emoji(emoji, _sanitize_body(cleaned))
     topic = topic_hint.strip() or "your recent experience"
     if cleaned.endswith("?"):
         inner = cleaned[:-1].strip()
         rewritten = f"Following your recent visit, {inner.lower()}?"
     else:
         rewritten = f"Following your recent visit, how would you rate {topic}?"
-    return _sanitize_body(rewritten)
+    return _prepend_leading_emoji(emoji, _sanitize_body(rewritten))
 
 
 def _parse_rewrite_json(raw: str) -> dict[str, Any] | None:
@@ -172,9 +195,13 @@ def rewrite_body_for_utility(
 ) -> str:
     topic = _topic_from_template_name(template_name)
     label = display_name or template_name
-    cleaned = _strip_emojis(original_body)
+    leading_emoji, _ = _extract_leading_emoji(original_body)
     if not use_deepseek:
-        return _rule_based_utility_body(cleaned, topic_hint=topic)
+        return _rule_based_utility_body(
+            original_body,
+            topic_hint=topic,
+            leading_emoji=leading_emoji,
+        )
 
     system_prompt = (
         "You rewrite WhatsApp message template BODY text so Meta approves them as UTILITY category "
@@ -182,10 +209,16 @@ def rewrite_body_for_utility(
         '{"body":"rewritten question text","notes":"one line why this is utility-compliant"}'
         + _META_UTILITY_GUIDANCE
     )
+    emoji_hint = (
+        f"Keep this leading emoji at the start: {leading_emoji}"
+        if leading_emoji
+        else "No leading emoji in the original."
+    )
     user_prompt = (
         f"Template: {label}\n"
         f"Survey topic hint: {topic}\n"
-        f"Current BODY:\n{cleaned}\n\n"
+        f"Current BODY:\n{original_body}\n\n"
+        f"{emoji_hint}\n"
         f"Quick-reply buttons (keep meaning aligned): {', '.join(button_labels) or 'n/a'}\n\n"
         "Rewrite BODY only."
     )
@@ -200,16 +233,25 @@ def rewrite_body_for_utility(
         )
         parsed = _parse_rewrite_json(result.assistant_text)
         body = str((parsed or {}).get("body") or "").strip()
-        body = _strip_emojis(body)
         body = _sanitize_body(body)
         if not body:
             raise ValueError("empty body from model")
         if not _mentions_recent_interaction(body):
-            body = _rule_based_utility_body(body, topic_hint=topic)
+            body = _rule_based_utility_body(
+                body,
+                topic_hint=topic,
+                leading_emoji=leading_emoji,
+            )
+        else:
+            body = _prepend_leading_emoji(leading_emoji, body)
         return body
     except Exception as exc:
         logger.warning("utility_rewrite_deepseek_fallback name=%s err=%s", template_name, str(exc)[:200])
-        return _rule_based_utility_body(cleaned, topic_hint=topic)
+        return _rule_based_utility_body(
+            original_body,
+            topic_hint=topic,
+            leading_emoji=leading_emoji,
+        )
 
 
 def apply_utility_rewrite_to_row(
