@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
@@ -284,7 +284,8 @@ def list_feedback_templates_for_industry(db: Session, industry_id: str) -> list[
             )
             .where(FeedbackWaTemplate.industry_id == industry_id)
             .order_by(
-                FeedbackSurveyType.sort_order.nulls_last(),
+                case((FeedbackSurveyType.sort_order.is_(None), 1), else_=0),
+                FeedbackSurveyType.sort_order,
                 FeedbackWaTemplate.step_order,
                 FeedbackWaTemplate.template_key,
             )
