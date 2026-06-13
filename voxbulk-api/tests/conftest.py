@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///./.pytest.db")
+os.environ.setdefault("ABUU_DATABASE_URL", "sqlite+pysqlite:///./.pytest_abuu.db")
+os.environ.setdefault("ABUU_ENABLED", "true")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 # Valid Fernet key (32 url-safe base64-encoded bytes)
 os.environ.setdefault("ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
@@ -35,6 +37,12 @@ def _cleanup_db():
         pass
     except PermissionError:
         # On Windows, the SQLite file may still be locked by the driver at teardown.
+        pass
+    try:
+        os.remove(".pytest_abuu.db")
+    except FileNotFoundError:
+        pass
+    except PermissionError:
         pass
 
 

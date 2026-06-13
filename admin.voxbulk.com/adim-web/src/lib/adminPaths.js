@@ -22,6 +22,10 @@ export function canAccessAdminPath(role, pathname) {
 
   const isUnder = (prefix) => p === prefix || p.startsWith(`${prefix}/`)
 
+  if (isUnder('/abuu')) {
+    return r === 'superadmin'
+  }
+
   if (isUnder('/integrations') || isUnder('/services-api') || p.includes('/social-login')) return false
 
   // Platform admins (distinct from Organisation → clinic users listed per tenant).

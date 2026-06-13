@@ -61,6 +61,7 @@ from app.routers.assistant import router as assistant_router
 from app.routers.dashboard_scripts import router as dashboard_scripts_router
 from app.routers.admin_customer_feedback import router as admin_customer_feedback_router
 from app.routers.customer_feedback import router as customer_feedback_router
+from app.abuu.routers import router as abuu_router
 from app.routers.service_orders import router as service_orders_router
 from app.routers.interview_booking_public import router as interview_booking_public_router
 from app.routers.admin_ai_team import router as admin_ai_team_router
@@ -238,6 +239,12 @@ async def lifespan(app: FastAPI):
         run_database_migrations()
     except Exception:
         logger.exception("database migrations failed — check alembic upgrade head")
+    try:
+        from app.core.abuu_database import run_abuu_migrations
+
+        run_abuu_migrations()
+    except Exception:
+        logger.exception("abuu migrations failed — check alembic -c alembic_abuu.ini upgrade head")
     try:
         from app.core.database import get_sessionmaker
         from app.services.email_template_service import EmailTemplateService
@@ -534,3 +541,4 @@ app.include_router(admin_assistant_router)
 app.include_router(dashboard_scripts_router)
 app.include_router(admin_customer_feedback_router)
 app.include_router(customer_feedback_router)
+app.include_router(abuu_router)

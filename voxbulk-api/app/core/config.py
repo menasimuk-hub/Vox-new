@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     db_echo: bool = Field(default=False, alias="DB_ECHO")
     db_pool_pre_ping: bool = Field(default=True, alias="DB_POOL_PRE_PING")
 
+    # Abuu (isolated food-delivery service — separate sql_abuu database)
+    abuu_enabled: bool = Field(default=True, alias="ABUU_ENABLED")
+    abuu_database_url: str = Field(default="sqlite:///./abuu.local.db", alias="ABUU_DATABASE_URL")
+    abuu_db_echo: bool = Field(default=False, alias="ABUU_DB_ECHO")
+
     # CORS / hosts
     cors_allow_origins_raw: str = Field(default="", alias="CORS_ALLOW_ORIGINS")
     cors_allow_credentials: bool = Field(default=True, alias="CORS_ALLOW_CREDENTIALS")
@@ -161,6 +166,8 @@ class Settings(BaseSettings):
                 "https://www.voxbulk.com",
                 "https://admin.voxbulk.com",
                 "https://dashboard.voxbulk.com",
+                "https://abuu.voxbulk.com",
+                "https://driver.voxbulk.com",
             ]
         return []
 
