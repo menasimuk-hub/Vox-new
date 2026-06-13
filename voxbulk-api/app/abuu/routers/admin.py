@@ -128,7 +128,12 @@ def patch_restaurant(
         raise HTTPException(status_code=404, detail="Restaurant not found")
     for key in ("name_en", "name_ar", "status", "address_text", "phone", "login_email"):
         if key in payload:
-            setattr(row, key, str(payload[key]).strip() if payload[key] is not None else None)
+            val = payload[key]
+            if key == "login_email" and val:
+                val = str(val).strip().lower()
+            elif val is not None and key != "login_email":
+                val = str(val).strip()
+            setattr(row, key, val)
     for key in ("is_available",):
         if key in payload:
             setattr(row, key, bool(payload[key]))
@@ -272,7 +277,10 @@ def patch_driver(
         raise HTTPException(status_code=404, detail="Driver not found")
     for key in ("name", "phone", "status", "vehicle_info", "login_email"):
         if key in payload:
-            setattr(row, key, payload[key])
+            val = payload[key]
+            if key == "login_email" and val:
+                val = str(val).strip().lower()
+            setattr(row, key, val)
     for key in ("is_available",):
         if key in payload:
             setattr(row, key, bool(payload[key]))
@@ -287,6 +295,19 @@ def patch_driver(
     db.commit()
     db.refresh(row)
     return driver_to_dict(row)
+
+
+@router.delete("/drivers/{driver_id}")
+def delete_driver(driver_id: str, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    row = db.get(Driver, driver_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    row.is_deleted = True
+    row.deleted_at = datetime.utcnow()
+    row.is_available = False
+    db.add(row)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/customers")

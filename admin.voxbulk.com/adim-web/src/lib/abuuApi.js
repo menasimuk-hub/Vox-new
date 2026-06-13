@@ -22,6 +22,18 @@ export function createAbuuDriver(payload) {
   return apiFetch('/admin/abuu/drivers', { method: 'POST', body: JSON.stringify(payload) })
 }
 
+export function patchAbuuDriver(driverId, payload) {
+  return apiFetch(`/admin/abuu/drivers/${driverId}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+export function deleteAbuuDriver(driverId) {
+  return apiFetch(`/admin/abuu/drivers/${driverId}`, { method: 'DELETE' })
+}
+
+export function patchAbuuRestaurant(restaurantId, payload) {
+  return apiFetch(`/admin/abuu/restaurants/${restaurantId}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
 export function fetchAbuuCustomers(params = {}) {
   const q = new URLSearchParams({ limit: String(params.limit || 100) })
   return apiFetch(`/admin/abuu/customers?${q}`)
