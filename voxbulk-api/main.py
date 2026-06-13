@@ -39,6 +39,7 @@ from app.routers.billing import router as billing_router
 from app.routers.branches import router as branches_router
 from app.routers.calls import router as calls_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.dashboard_help import router as dashboard_help_router
 from app.routers.demo import admin_router as admin_demo_router
 from app.routers.demo import router as demo_router
 from app.routers.faq import router as faq_router
