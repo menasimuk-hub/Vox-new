@@ -33,13 +33,47 @@ class OpenAIResponse:
     assistant_text: str
     tool_calls: list[AgentToolCall] = field(default_factory=list)
     usage: dict[str, Any] = field(default_factory=dict)
-    timings: dict[str, int] = field(default_factory=dict)
+    timings: dict[str, Any] = field(default_factory=dict)
+    raw_assistant_message: dict[str, Any] = field(default_factory=dict)
+    finish_reason: str = ""
 
 
 class OpenAIProviderService:
     TEST_PROMPT = "Say hello in one short sentence."
     _client: httpx.Client | None = None
     _client_lock = Lock()
+
+    @staticmethod
+    def _parse_tool_call(raw: dict[str, Any]) -> AgentToolCall:
+        fn = raw.get("function") or {}
+        args_raw = fn.get("arguments")
+        args: dict[str, Any] = {}
+        if isinstance(args_raw, dict):
+            args = args_raw
+        elif isinstance(args_raw, str) and args_raw.strip():
+            try:
+                parsed = json.loads(args_raw)
+                args = parsed if isinstance(parsed, dict) else {"value": parsed}
+            except json.JSONDecodeError:
+                args = {"_parse_error": args_raw}
+        return AgentToolCall(
+            id=str(raw.get("id") or ""),
+            name=str(fn.get("name") or ""),
+            arguments=args,
+        )
+
+    @staticmethod
+    def _parse_chat_completion_body(body: dict[str, Any]) -> OpenAIResponse:
+        choice = (body.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        calls = [OpenAIProviderService._parse_tool_call(raw) for raw in msg.get("tool_calls") or []]
+        return OpenAIResponse(
+            assistant_text=str(msg.get("content") or "").strip(),
+            tool_calls=calls,
+            usage=body.get("usage") or {},
+            raw_assistant_message=dict(msg) if isinstance(msg, dict) else {},
+            finish_reason=str(choice.get("finish_reason") or ""),
+        )
 
     @staticmethod
     def _verify_path() -> str:
@@ -323,12 +357,7 @@ class OpenAIProviderService:
             raise ValueError(f"{config['provider'].title()} request failed ({response.status_code}) at {diagnostics['final_url']}: {body}") from e
         parse_start = time.perf_counter()
         body = response.json()
-        choice = (body.get("choices") or [{}])[0]
-        msg = choice.get("message") or {}
-        calls: list[AgentToolCall] = []
-        for raw in msg.get("tool_calls") or []:
-            fn = raw.get("function") or {}
-            calls.append(AgentToolCall(name=str(fn.get("name") or ""), arguments={"raw": fn.get("arguments")}))
+        parsed = OpenAIProviderService._parse_chat_completion_body(body)
         parse_ms = int((time.perf_counter() - parse_start) * 1000)
         total_ms = int((time.perf_counter() - total_start) * 1000)
         logger.info(
@@ -343,9 +372,117 @@ class OpenAIProviderService:
             },
         )
         return OpenAIResponse(
-            assistant_text=str(msg.get("content") or "").strip(),
-            tool_calls=calls,
-            usage=body.get("usage") or {},
+            assistant_text=parsed.assistant_text,
+            tool_calls=parsed.tool_calls,
+            usage=parsed.usage,
+            raw_assistant_message=parsed.raw_assistant_message,
+            finish_reason=parsed.finish_reason,
+            timings={
+                "openai_config_ms": config_ms,
+                "openai_http_ms": http_ms,
+                "openai_parse_ms": parse_ms,
+                "openai_provider_total_ms": total_ms,
+                "llm_provider": config["provider"],
+            },
+        )
+
+    @staticmethod
+    def complete_chat_raw(
+        db: Session,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        provider: str = "deepseek",
+    ) -> OpenAIResponse:
+        total_start = time.perf_counter()
+        config_start = time.perf_counter()
+        config = OpenAIProviderService._config_for_provider(db, provider)
+        config_ms = int((time.perf_counter() - config_start) * 1000)
+        text_model = OpenAIProviderService._select_text_model(config, model)
+        endpoint_path = "/v1/chat/completions"
+        config_cap = max(1, int(config["max_output_tokens"] or 120))
+        selected_max_tokens = config_cap if max_tokens is None else max(1, int(max_tokens))
+        selected_temperature = config["temperature"] if temperature is None else max(0.0, min(float(temperature), 1.0))
+        request_messages: list[dict[str, Any]] = []
+        if str(system_prompt or "").strip():
+            request_messages.append({"role": "system", "content": system_prompt})
+        request_messages.extend(messages)
+        payload: dict[str, Any] = {
+            "model": text_model,
+            "messages": request_messages,
+            **OpenAIProviderService._chat_token_limit_payload(
+                provider=str(config.get("provider") or "openai"),
+                model=text_model,
+                tokens=selected_max_tokens,
+            ),
+        }
+        if not (
+            str(config.get("provider") or "openai").strip().lower() == "openai"
+            and OpenAIProviderService._reasoning_model(text_model)
+        ):
+            payload["temperature"] = selected_temperature
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        diagnostics = OpenAIProviderService._request_diagnostics(config, endpoint_path=endpoint_path, model=text_model, style="chat")
+        logger.info(
+            f"{config['provider']}_request",
+            extra={
+                "base_url": diagnostics["base_url"],
+                "endpoint_path": endpoint_path,
+                "model": text_model,
+                "request_style": "chat",
+                "api_key_length": diagnostics["api_key_length"],
+                "output_token_limit": selected_max_tokens,
+                "temperature": payload.get("temperature"),
+            },
+        )
+        http_start = time.perf_counter()
+        response = OpenAIProviderService._http_client().post(
+            OpenAIProviderService._endpoint_url(config, endpoint_path),
+            json=payload,
+            headers=OpenAIProviderService._headers(config),
+        )
+        http_ms = int((time.perf_counter() - http_start) * 1000)
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            body: Any
+            try:
+                body = response.json()
+            except Exception:
+                body = response.text
+            logger.error(
+                f"{config['provider']}_request_failed",
+                extra={"status_code": response.status_code, "model": text_model, "endpoint_path": endpoint_path, "provider_body": body},
+            )
+            raise ValueError(f"{config['provider'].title()} request failed ({response.status_code}) at {diagnostics['final_url']}: {body}") from e
+        parse_start = time.perf_counter()
+        body = response.json()
+        parsed = OpenAIProviderService._parse_chat_completion_body(body)
+        parse_ms = int((time.perf_counter() - parse_start) * 1000)
+        total_ms = int((time.perf_counter() - total_start) * 1000)
+        logger.info(
+            f"{config['provider']}_request_timings",
+            extra={
+                "model": text_model,
+                "config_ms": config_ms,
+                "http_ms": http_ms,
+                "parse_ms": parse_ms,
+                "total_ms": total_ms,
+                "max_tokens": selected_max_tokens,
+            },
+        )
+        return OpenAIResponse(
+            assistant_text=parsed.assistant_text,
+            tool_calls=parsed.tool_calls,
+            usage=parsed.usage,
+            raw_assistant_message=parsed.raw_assistant_message,
+            finish_reason=parsed.finish_reason,
             timings={
                 "openai_config_ms": config_ms,
                 "openai_http_ms": http_ms,

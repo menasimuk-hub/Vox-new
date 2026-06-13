@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     abuu_public_api_base_url: str = Field(default="", alias="ABUU_PUBLIC_API_BASE_URL")
     abuu_voice_note_dir: str = Field(default="data/abuu_voice_notes", alias="ABUU_VOICE_NOTE_DIR")
     abuu_ignore_distance: bool = Field(default=True, alias="ABUU_IGNORE_DISTANCE")
+    abuu_agent_enabled: bool = Field(default=False, alias="ABUU_AGENT_ENABLED")
+    abuu_agent_model: str = Field(default="deepseek-chat", alias="ABUU_AGENT_MODEL")
+    abuu_agent_max_turns: int = Field(default=10, alias="ABUU_AGENT_MAX_TURNS")
+    abuu_agent_max_history: int = Field(default=40, alias="ABUU_AGENT_MAX_HISTORY")
+    abuu_webhook_secret: str = Field(default="", alias="ABUU_WEBHOOK_SECRET")
+    abuu_restaurant_webhook_url: str = Field(default="", alias="ABUU_RESTAURANT_WEBHOOK_URL")
+    abuu_agent_internal_key: str = Field(default="", alias="ABUU_AGENT_INTERNAL_KEY")
 
     # CORS / hosts
     cors_allow_origins_raw: str = Field(default="", alias="CORS_ALLOW_ORIGINS")

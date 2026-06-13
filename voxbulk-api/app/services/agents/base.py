@@ -27,6 +27,7 @@ class AgentToolCall:
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
     result: dict[str, Any] | None = None
+    id: str = ""
 
 
 @dataclass(frozen=True)

@@ -9,6 +9,7 @@ os.environ.setdefault("ABUU_DATABASE_URL", "sqlite+pysqlite:///./.pytest_abuu.db
 os.environ.setdefault("ABUU_ENABLED", "true")
 os.environ.setdefault("ABUU_DEEPSEEK_ENABLED", "false")
 os.environ.setdefault("ABUU_IGNORE_DISTANCE", "true")
+os.environ.setdefault("ABUU_AGENT_ENABLED", "false")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 # Valid Fernet key (32 url-safe base64-encoded bytes)
 os.environ.setdefault("ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")

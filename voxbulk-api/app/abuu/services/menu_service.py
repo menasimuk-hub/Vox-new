@@ -147,6 +147,9 @@ class AbuuMenuService:
                 before=None,
                 after=AbuuMenuService._item_snapshot(row),
             )
+            from app.abuu.agent.kb import invalidate_menu_cache
+
+            invalidate_menu_cache(restaurant_id)
         return row
 
     @staticmethod
@@ -185,6 +188,9 @@ class AbuuMenuService:
                 before=before,
                 after=AbuuMenuService._item_snapshot(row),
             )
+            from app.abuu.agent.kb import invalidate_menu_cache
+
+            invalidate_menu_cache(restaurant_id)
         return row
 
     @staticmethod
@@ -213,6 +219,9 @@ class AbuuMenuService:
                 before=before,
                 after=None,
             )
+            from app.abuu.agent.kb import invalidate_menu_cache
+
+            invalidate_menu_cache(restaurant_id)
 
     @staticmethod
     def nested_menu(db: Session, restaurant_id: str) -> list[dict]:

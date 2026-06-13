@@ -19,6 +19,7 @@ from app.abuu.services.customer_memory_service import (
 )
 from app.abuu.services.event_idempotency_service import AbuuEventIdempotencyService, payload_hash
 from app.abuu.services.inbound_message_service import AbuuInboundMessageService
+from app.abuu.agent.agent import AbuuAgentLoop
 from app.abuu.services.conversation_ai_service import classify_turn
 from app.abuu.services.intent_service import detect_intent, is_abuu_start_message
 from app.abuu.services.skill_definitions import SKILL_CAPTURE_LOCATION, SKILL_CONFIRM_ORDER
@@ -186,6 +187,21 @@ class AbuuInboundService:
                 abuu_db.commit()
                 return {"handled": False, "reason": "not_abuu"}
 
+            if message_type == "voice" and get_settings().abuu_agent_enabled and text:
+                result = AbuuAgentLoop.run(
+                    abuu_db,
+                    main_db,
+                    phone=phone,
+                    text=text,
+                    message_id=message_id,
+                    org_id=org_id,
+                )
+                reply = result.get("reply")
+                if reply:
+                    AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
+                abuu_db.commit()
+                return result
+
             location = parse_whatsapp_location(record)
             if session and location is not None:
                 result = AbuuInboundService._handle_delivery_location(
@@ -230,6 +246,27 @@ class AbuuInboundService:
         org_id: str | None,
         transcript_confidence: float | None = None,
     ) -> dict[str, Any]:
+        settings = get_settings()
+        if settings.abuu_agent_enabled:
+            result = AbuuAgentLoop.run(
+                abuu_db,
+                main_db,
+                phone=phone,
+                text=text,
+                message_id=message_id,
+                org_id=org_id,
+            )
+            reply = result.get("reply")
+            if reply:
+                AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
+            if session:
+                session.last_message_id = message_id
+                abuu_db.add(session)
+            payload = dict(result)
+            if transcript_confidence is not None:
+                payload["transcript_confidence"] = transcript_confidence
+            return payload
+
         has_session = bool(session and session.step not in {"", "idle"})
         step = session.step if session else None
         context = AbuuInboundService._load_context(session) if session else {}

@@ -303,6 +303,37 @@ class AbuuOrderDraftService:
         return order
 
     @staticmethod
+    def remove_item(
+        db: Session,
+        order: CustomerOrder,
+        *,
+        menu_item_id: str | None = None,
+        item_id: str | None = None,
+    ) -> CustomerOrder:
+        target_id = menu_item_id or item_id
+        if not target_id:
+            raise ValueError("menu_item_id is required")
+        line = db.execute(
+            select(CustomerOrderItem).where(
+                CustomerOrderItem.order_id == order.id,
+                CustomerOrderItem.menu_item_id == target_id,
+            )
+        ).scalar_one_or_none()
+        if line is None:
+            raise ValueError("Item not in cart")
+        order.total_agorot = max(0, int(order.total_agorot or 0) - int(line.line_total_agorot or 0))
+        order.updated_at = datetime.utcnow()
+        db.delete(line)
+        db.add(order)
+        AbuuOrderService.append_event(
+            db,
+            order.id,
+            "item_removed",
+            {"menu_item_id": target_id},
+        )
+        return order
+
+    @staticmethod
     def confirm_draft(db: Session, order: CustomerOrder) -> CustomerOrder:
         if order.total_agorot <= 0:
             raise ValueError("Cannot confirm an empty order")
