@@ -149,6 +149,79 @@ def test_template_for_step_prefers_arabic():
         assert "مرحبا" in tpl.body_text
 
 
+def test_map_arabic_button_to_english_for_branching():
+    import json
+    import uuid
+    from datetime import datetime
+
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
+    from app.services.customer_feedback.feedback_answer_service import (
+        is_negative_topic_answer,
+        map_answer_to_english_label,
+    )
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        industry = db.execute(
+            select(FeedbackIndustry).where(FeedbackIndustry.slug == "fitness")
+        ).scalar_one()
+        survey_type = db.execute(
+            select(FeedbackSurveyType)
+            .where(FeedbackSurveyType.industry_id == industry.id)
+            .order_by(FeedbackSurveyType.sort_order)
+            .limit(1)
+        ).scalar_one()
+        now = datetime.utcnow()
+        en_tpl = FeedbackWaTemplate(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            survey_type_id=survey_type.id,
+            step_order=1,
+            template_key=survey_type.slug,
+            body_text="How was your visit?",
+            buttons_json=json.dumps(["Excellent", "Good", "Poor"]),
+            step_role="rating",
+            language="en_GB",
+            meta_category="utility",
+            telnyx_sync_status="draft",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        ar_tpl = FeedbackWaTemplate(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            survey_type_id=survey_type.id,
+            step_order=1,
+            template_key=survey_type.slug,
+            body_text="كيف كانت زيارتك؟",
+            buttons_json=json.dumps(["ممتاز", "جيد", "ضعيف"]),
+            step_role="rating",
+            language="ar",
+            meta_category="utility",
+            telnyx_sync_status="draft",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(en_tpl)
+        db.add(ar_tpl)
+        db.commit()
+        mapped = map_answer_to_english_label(
+            db,
+            answer="ضعيف",
+            tpl=ar_tpl,
+            detected_language="ar",
+        )
+        assert mapped == "poor"
+        assert is_negative_topic_answer(
+            db,
+            answer="ضعيف",
+            tpl=ar_tpl,
+            detected_language="ar",
+        )
+
+
 def test_trigger_template_format():
     from app.services.customer_feedback.location_service import build_trigger_text, build_location_qr_token
 
@@ -230,7 +303,11 @@ def test_fitness_industry_has_twenty_templates_after_import():
         FeedbackSeedService.ensure_seeded(db)
         FeedbackTemplateImportService.import_from_md(db)
         fitness = resolve_feedback_industry(db, industry_slug="fitness")
-        templates = list_feedback_templates_for_industry(db, fitness.id)
+        templates = [
+            tpl
+            for tpl in list_feedback_templates_for_industry(db, fitness.id)
+            if tpl.language in {"en_GB", "en", "en_US", "en_AU"}
+        ]
         assert len(templates) == 20
         summary = push_all_feedback_templates_for_industry(db, industry_slug="fitness", dry_run=True)
         assert summary["template_count"] == 20

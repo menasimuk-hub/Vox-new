@@ -56,6 +56,9 @@ class FeedbackResultsService:
                     "question_key": r.question_key,
                     "answer_text": r.answer_text_en or r.answer_text,
                     "original_text": r.original_text,
+                    "visitor_language": getattr(
+                        db.get(FeedbackSession, r.session_id), "detected_language", None
+                    ),
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
             )
@@ -97,6 +100,9 @@ class FeedbackResultsService:
                     "question_key": r.question_key,
                     "answer_text": r.answer_text_en or r.answer_text,
                     "original_text": r.original_text,
+                    "visitor_language": getattr(
+                        db.get(FeedbackSession, r.session_id), "detected_language", None
+                    ),
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
             )

@@ -126,4 +126,5 @@ def format_template_message(tpl: FeedbackWaTemplate) -> str:
     if not buttons:
         return body
     opts = " | ".join(buttons)
-    return f"{body}\n\nReply with: {opts}"
+    prompt = "اختر:" if resolve_template_language(tpl.language) == "ar" else "Reply with:"
+    return f"{body}\n\n{prompt} {opts}"

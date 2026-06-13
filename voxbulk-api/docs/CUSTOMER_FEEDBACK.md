@@ -72,9 +72,11 @@ python scripts/translate_feedback_templates_to_ar.py --industry-slug fitness --p
 
 Requires DeepSeek in Admin → Integrations → DeepSeek.
 
-**Runtime language:** Arabic templates are sent when the visitor’s number is `+966` / `+971`, or for testing append `(ar)` to the QR trigger message, e.g.:
+**Runtime language:** Arabic templates are sent when the visitor’s number uses an Arabic-region country code (`+966`, `+971`, `+20`, `+962`, etc.), or for testing append `(ar)` to the QR trigger message:
 
 `Hi! I'd like to share feedback for Acme at Downtown. acme-downtown-a3f9k2 (ar)`
+
+Survey questions and buttons are in the visitor’s language. **Dashboard results are always stored and shown in English** (`answer_text_en`); the original reply is kept in `original_text`.
 
 ## Workflow (QR → results)
 

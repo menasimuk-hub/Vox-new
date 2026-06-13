@@ -17,7 +17,12 @@ from app.models.customer_feedback import (
     FeedbackWaTemplate,
 )
 from app.services.customer_feedback.billing_service import FeedbackBillingService
-from app.services.customer_feedback.locale_service import detect_language_from_phone, resolve_session_language
+from app.services.customer_feedback.feedback_answer_service import (
+    is_negative_topic_answer,
+    is_opt_in_yes,
+    translate_answer_to_english,
+)
+from app.services.customer_feedback.locale_service import resolve_session_language
 from app.services.customer_feedback.location_service import FeedbackLocationService
 from app.services.customer_feedback.survey_config_service import (
     format_template_message,
@@ -25,13 +30,9 @@ from app.services.customer_feedback.survey_config_service import (
     load_survey_config,
     template_for_step,
 )
-from app.services.survey_wa_translation_service import SurveyWaTranslationService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
-POOR_ANSWERS = frozenset({"poor", "unfriendly", "overpriced", "needs work", "too long", "slow", "unclear", "not for me", "unlikely", "no"})
-OPT_IN_YES = frozenset({"yes", "yes please", "yes, please"})
-OPT_IN_NO = frozenset({"no", "no thanks", "no thank you", "no, thanks"})
-STOP_WORDS = frozenset({"stop", "unsubscribe", "opt out", "opt-out"})
+STOP_WORDS = frozenset({"stop", "unsubscribe", "opt out", "opt-out", "إيقاف", "الغاء"})
 
 
 class FeedbackWhatsappService:
@@ -206,10 +207,13 @@ class FeedbackWhatsappService:
         step_index: int,
     ) -> None:
         original = str(answer or "").strip()
-        translated = SurveyWaTranslationService.translate_to_english(
-            db, original, detected_language=session.detected_language
+        translated = translate_answer_to_english(
+            db,
+            answer=original,
+            detected_language=session.detected_language,
+            tpl=tpl,
         )
-        answer_en = str(translated.get("translated_text") or original)
+        answer_en = str(translated.get("answer_text_en") or original)
         survey_type_id = str(step.get("survey_type_id") or location.survey_type_id)
         db.add(
             FeedbackResponse(
@@ -247,10 +251,14 @@ class FeedbackWhatsappService:
 
         current_step = steps[step_index]
         tpl = template_for_step(db, location, current_step, language=session.detected_language)
-        normalized = str(answer or "").strip().lower()
 
         if current_step.get("kind") == "marketing_opt_in":
-            if normalized in OPT_IN_YES:
+            if is_opt_in_yes(
+                db,
+                answer=answer,
+                tpl=tpl,
+                detected_language=session.detected_language,
+            ):
                 existing = db.execute(
                     select(FeedbackMarketingSubscriber).where(
                         FeedbackMarketingSubscriber.org_id == session.org_id,
@@ -299,7 +307,12 @@ class FeedbackWhatsappService:
             )
             if (
                 current_step.get("kind") == "topic"
-                and normalized in POOR_ANSWERS
+                and is_negative_topic_answer(
+                    db,
+                    answer=answer,
+                    tpl=tpl,
+                    detected_language=session.detected_language,
+                )
             ):
                 tell_more = get_system_template(db, "tell_us_more", language=session.detected_language)
                 if tell_more:
