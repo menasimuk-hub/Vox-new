@@ -280,7 +280,14 @@ async def upload_menu_item_photo(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     delete_photo_file(row.photo_storage_key)
     key = storage_key_for(restaurant_id=cat.restaurant_id, item_id=row.id, ext=ext)
-    save_photo_bytes(storage_key=key, content=content)
+    try:
+        save_photo_bytes(storage_key=key, content=content)
+    except Exception as exc:
+        from app.abuu.services.abuu_menu_photo_storage_service import MenuPhotoStorageError
+
+        if isinstance(exc, MenuPhotoStorageError):
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise
     row.photo_storage_key = key
     row.updated_at = datetime.utcnow()
     db.add(row)

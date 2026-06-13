@@ -19,7 +19,10 @@ from app.abuu.services.customer_memory_service import (
 )
 from app.abuu.services.event_idempotency_service import AbuuEventIdempotencyService, payload_hash
 from app.abuu.services.inbound_message_service import AbuuInboundMessageService
+from app.abuu.services.conversation_ai_service import classify_turn
 from app.abuu.services.intent_service import detect_intent, is_abuu_start_message
+from app.abuu.services.skill_definitions import SKILL_CAPTURE_LOCATION, SKILL_CONFIRM_ORDER
+from app.abuu.services.skill_router import AbuuSkillRouter, TurnContext
 from app.abuu.services.location_service import (
     attach_default_address_if_present,
     forward_geocode,
@@ -141,12 +144,26 @@ class AbuuInboundService:
                     payload=voice_meta,
                 )
                 if not voice.ok:
-                    AbuuInboundService._send_reply(
-                        main_db,
-                        phone,
-                        voice_low_confidence_message(lang),
-                        org_id=org_id,
-                    )
+                    context = {}
+                    if session:
+                        context = AbuuInboundService._load_context(session)
+                    if not context.get("voice_clarification_sent"):
+                        AbuuInboundService._send_reply(
+                            main_db,
+                            phone,
+                            voice_low_confidence_message(lang),
+                            org_id=org_id,
+                        )
+                        context["voice_clarification_sent"] = True
+                        if session:
+                            AbuuOrderDraftService.upsert_session(
+                                abuu_db,
+                                phone=phone,
+                                step=session.step,
+                                context=context,
+                                active_order_id=session.active_order_id,
+                                message_id=message_id,
+                            )
                     if session:
                         session.last_message_id = message_id
                         abuu_db.add(session)
@@ -215,85 +232,22 @@ class AbuuInboundService:
     ) -> dict[str, Any]:
         has_session = bool(session and session.step not in {"", "idle"})
         step = session.step if session else None
-        intent = detect_intent(text, has_active_session=has_session or bool(session), step=step)
-
-        if intent.name == "order_food":
-            return AbuuInboundService._start_order(
-                abuu_db,
-                main_db,
-                phone=phone,
-                customer=customer,
-                lang=lang,
-                message_id=message_id,
-                org_id=org_id,
-            )
-
-        if session is None:
-            return {"handled": False, "reason": "no_session"}
-
-        context = AbuuInboundService._load_context(session)
-        order = abuu_db.get(CustomerOrder, session.active_order_id) if session.active_order_id else None
+        context = AbuuInboundService._load_context(session) if session else {}
+        order = abuu_db.get(CustomerOrder, session.active_order_id) if session and session.active_order_id else None
         restaurant_id = str(context.get("restaurant_id") or (order.restaurant_id if order else ""))
 
-        if session.step == "awaiting_name" and intent.name == "provide_name":
-            save_customer_name(customer, intent.item_ref or text)
-            abuu_db.add(customer)
-            context["greeting_sent"] = True
-            AbuuOrderDraftService.upsert_session(
-                abuu_db,
-                phone=phone,
-                step="awaiting_preference",
-                context=context,
-                active_order_id=session.active_order_id,
-                message_id=message_id,
-            )
-            reply = personalized_greeting_message(
-                first_name=first_name(customer.name),
-                lang=lang,
-                saved_address=saved_address_summary(abuu_db, customer),
-            )
-            AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
-            return {"handled": True, "action": "name_saved"}
+        classification = classify_turn(
+            main_db,
+            text=text,
+            step=step,
+            has_session=has_session or bool(session),
+            lang=lang,
+            session_context=context,
+        )
 
-        if session.step in {"awaiting_preference", "browsing"} and intent.name == "add_item" and intent.item_ref:
-            pref_result = AbuuInboundService._try_preference_menu(
-                abuu_db,
-                main_db,
-                phone=phone,
-                session=session,
-                order=order,
-                customer=customer,
-                text=intent.item_ref,
-                context=context,
-                lang=lang,
-                message_id=message_id,
-                org_id=org_id,
-            )
-            if pref_result is not None:
-                return pref_result
-
-        if session.step == "awaiting_delivery" and text and intent.name not in {"cancel", "confirm", "menu"}:
-            return AbuuInboundService._handle_typed_address(
-                abuu_db,
-                main_db,
-                phone=phone,
-                session=session,
-                order=order,
-                customer=customer,
-                text=text,
-                context=context,
-                lang=lang,
-                message_id=message_id,
-                org_id=org_id,
-            )
-
-        if intent.name == "cancel":
-            AbuuOrderDraftService.cancel_draft(abuu_db, order)
-            AbuuOrderDraftService.clear_session(abuu_db, phone)
-            AbuuInboundService._send_reply(main_db, phone, cancel_message(lang), org_id=org_id)
-            return {"handled": True, "action": "cancelled"}
-
-        if intent.name == "menu" and restaurant_id:
+        # Legacy menu command
+        intent = detect_intent(text, has_active_session=has_session or bool(session), step=step)
+        if intent.name == "menu" and restaurant_id and session:
             restaurant = abuu_db.get(Restaurant, restaurant_id)
             categories = context.get("active_categories") or []
             items = AbuuOrderDraftService.list_menu_items(
@@ -320,10 +274,22 @@ class AbuuInboundService:
                 AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
             return {"handled": True, "action": "menu"}
 
-        if intent.name == "confirm":
-            if order is None:
-                AbuuInboundService._send_reply(main_db, phone, unknown_message(lang), org_id=org_id)
-                return {"handled": True, "action": "no_order"}
+        if session and session.step == "awaiting_delivery" and text and classification.skill == SKILL_CAPTURE_LOCATION:
+            return AbuuInboundService._handle_typed_address(
+                abuu_db,
+                main_db,
+                phone=phone,
+                session=session,
+                order=order,
+                customer=customer,
+                text=text,
+                context=context,
+                lang=lang,
+                message_id=message_id,
+                org_id=org_id,
+            )
+
+        if classification.skill == SKILL_CONFIRM_ORDER and session and order:
             if order.status == "confirmed":
                 AbuuInboundService._send_reply(main_db, phone, already_confirmed_message(lang), org_id=org_id)
                 return {"handled": True, "action": "already_confirmed"}
@@ -356,36 +322,46 @@ class AbuuInboundService:
                 context=context,
             )
 
-        if intent.name == "add_item" and order and restaurant_id and intent.item_ref:
-            item = AbuuOrderDraftService.resolve_item_from_ref(
-                abuu_db,
-                restaurant_id=restaurant_id,
-                item_ref=intent.item_ref,
-                context=context,
-            )
-            if item is None:
-                AbuuInboundService._send_reply(main_db, phone, unknown_message(lang), org_id=org_id)
+        turn = TurnContext(
+            abuu_db=abuu_db,
+            main_db=main_db,
+            phone=phone,
+            text=text,
+            session=session,
+            customer=customer,
+            lang=lang,
+            message_id=message_id,
+            org_id=org_id,
+            classification=classification,
+            context=context,
+            order=order,
+        )
+        result = AbuuSkillRouter.dispatch(turn)
+
+        if result.action == "delegate_inbound":
+            AbuuInboundService._send_reply(main_db, phone, unknown_message(lang), org_id=org_id)
+            if session:
                 session.last_message_id = message_id
                 abuu_db.add(session)
-                return {"handled": True, "action": "item_not_found"}
-            order = AbuuOrderDraftService.add_item(abuu_db, order, item)
-            fingerprint = AbuuOrderDraftService.cart_fingerprint(abuu_db, order)
-            context = AbuuOrderDraftService.mark_cart_changed(context, fingerprint)
-            AbuuOrderDraftService.upsert_session(
-                abuu_db,
-                phone=phone,
-                step="browsing",
-                context=context,
-                active_order_id=order.id,
-                message_id=message_id,
-            )
-            AbuuInboundService._send_reply(main_db, phone, item_added_message(item, order, lang), org_id=org_id)
-            return {"handled": True, "action": "item_added", "order_id": order.id, "transcript_confidence": transcript_confidence}
+            return {"handled": True, "action": "unknown"}
 
-        AbuuInboundService._send_reply(main_db, phone, unknown_message(lang), org_id=org_id)
-        session.last_message_id = message_id
-        abuu_db.add(session)
-        return {"handled": True, "action": "unknown"}
+        if result.reply:
+            AbuuInboundService._send_reply(main_db, phone, result.reply, org_id=org_id)
+        if session:
+            session.last_message_id = message_id
+            abuu_db.add(session)
+
+        payload = {
+            "handled": result.handled,
+            "action": result.action,
+            "skill": result.skill,
+            "next_step": result.next_step,
+            "step": result.next_step,
+        }
+        payload.update(result.extra)
+        if transcript_confidence is not None:
+            payload["transcript_confidence"] = transcript_confidence
+        return payload
 
     @staticmethod
     def _start_order(

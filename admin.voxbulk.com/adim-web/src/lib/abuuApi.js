@@ -140,3 +140,22 @@ export async function uploadAbuuMenuItemPhoto(itemId, file) {
   }
   return resp.json()
 }
+
+export function fetchAbuuAgentSettings() {
+  return apiFetch('/admin/abuu/agent-settings')
+}
+
+export function patchAbuuAgentSettings(payload) {
+  return apiFetch('/admin/abuu/agent-settings', { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+export function fetchAbuuRestaurantAgentSettings(restaurantId) {
+  return apiFetch(`/admin/abuu/restaurants/${restaurantId}/agent-settings`)
+}
+
+export function patchAbuuRestaurantAgentSettings(restaurantId, payload) {
+  return apiFetch(`/admin/abuu/restaurants/${restaurantId}/agent-settings`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}

@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     abuu_database_url: str = Field(default="sqlite:///./abuu.local.db", alias="ABUU_DATABASE_URL")
     abuu_db_echo: bool = Field(default=False, alias="ABUU_DB_ECHO")
     abuu_menu_photo_dir: str = Field(default="", alias="ABUU_MENU_PHOTO_DIR")
+    abuu_public_api_base_url: str = Field(default="", alias="ABUU_PUBLIC_API_BASE_URL")
     abuu_voice_note_dir: str = Field(default="data/abuu_voice_notes", alias="ABUU_VOICE_NOTE_DIR")
 
     # CORS / hosts

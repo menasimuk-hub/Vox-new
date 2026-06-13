@@ -59,6 +59,12 @@ _CATEGORY_PATTERNS: dict[str, tuple[str, ...]] = {
         r"فلافل",
         r"أخضر",
     ),
+    "chips": (
+        r"(?i)\b(chips|fries|french fries|potato)\b",
+        r"بطاط",
+        r"فرايز",
+        r"بطاطا",
+    ),
 }
 
 _CATEGORY_ITEM_TYPES: dict[str, set[str]] = {
@@ -69,6 +75,7 @@ _CATEGORY_ITEM_TYPES: dict[str, set[str]] = {
     "drinks": {"drink", "drinks"},
     "dessert": {"desserts", "food", "sides"},
     "vegetarian": {"food", "salad", "sides", "meat"},
+    "chips": {"food", "sides", "addon"},
 }
 
 _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -79,6 +86,7 @@ _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "drinks": ("drink", "drinks", "juice", "water", "coffee", "tea", "مشروب", "عصير", "ماء"),
     "dessert": ("dessert", "sweet", "cake", "حلو", "حلويات", "حلوى"),
     "vegetarian": ("vegetarian", "vegan", "falafel", "نباتي", "فلافل", "خضار"),
+    "chips": ("chips", "fries", "potato", "بطاط", "فرايز", "بطاطا"),
 }
 
 
@@ -116,6 +124,7 @@ def category_label(category: str, lang: str) -> str:
         "drinks": ("Drinks", "مشروبات"),
         "dessert": ("Dessert", "حلويات"),
         "vegetarian": ("Vegetarian", "نباتي"),
+        "chips": ("Chips / Fries", "بطاطا"),
     }
     en, ar = labels.get(category, (category.title(), category))
     return en if lang == "en" else ar

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiUrl, getToken } from '../lib/api'
 
 function shekel(agorot) {
   return `${(Number(agorot || 0) / 100).toFixed(2)} ₪`
@@ -102,8 +102,9 @@ export default function Menu() {
     try {
       const form = new FormData()
       form.append('file', file)
-      const token = localStorage.getItem('access_token')
-      const resp = await fetch(`/api/abuu/restaurant/menu/items/${itemId}/photo`, {
+      const token = getToken()
+      const url = apiUrl(`/abuu/restaurant/menu/items/${itemId}/photo`)
+      const resp = await fetch(url, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: form,

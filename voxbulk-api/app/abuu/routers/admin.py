@@ -342,7 +342,14 @@ async def upload_menu_item_photo(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     delete_photo_file(row.photo_storage_key)
     key = storage_key_for(restaurant_id=cat.restaurant_id, item_id=row.id, ext=ext)
-    save_photo_bytes(storage_key=key, content=content)
+    try:
+        save_photo_bytes(storage_key=key, content=content)
+    except Exception as exc:
+        from app.abuu.services.abuu_menu_photo_storage_service import MenuPhotoStorageError
+
+        if isinstance(exc, MenuPhotoStorageError):
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise
     row.photo_storage_key = key
     row.updated_at = datetime.utcnow()
     db.add(row)
@@ -674,3 +681,70 @@ def timeout_assignment(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return assignment_to_dict(row)
+
+
+@router.get("/agent-settings")
+def get_agent_settings(db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    from app.abuu.services.agent_settings_service import agent_settings_to_dict, get_skills_config
+    from app.abuu.services.kb_service import get_global_settings
+    from app.abuu.services.skill_definitions import SKILL_DESCRIPTIONS
+
+    row = get_global_settings(db)
+    return {
+        "settings": agent_settings_to_dict(row),
+        "skills": [
+            {"name": name, "description": SKILL_DESCRIPTIONS.get(name, ""), "enabled": cfg.get("enabled", True)}
+            for name, cfg in get_skills_config(db).items()
+        ],
+    }
+
+
+@router.patch("/agent-settings")
+def patch_agent_settings(payload: dict, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    from app.abuu.services.agent_settings_service import agent_settings_to_dict, patch_global_settings
+
+    row = patch_global_settings(db, payload)
+    db.commit()
+    db.refresh(row)
+    return agent_settings_to_dict(row)
+
+
+@router.get("/restaurants/{restaurant_id}/agent-settings")
+def get_restaurant_agent_settings(
+    restaurant_id: str,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    from app.abuu.services.agent_settings_service import restaurant_settings_to_dict
+    from app.abuu.services.kb_service import get_restaurant_settings, resolve_settings
+
+    row = get_restaurant_settings(db, restaurant_id)
+    resolved = resolve_settings(db, restaurant_id=restaurant_id)
+    return {
+        "override": restaurant_settings_to_dict(row) if row else None,
+        "resolved": {
+            "delivery_radius_km": resolved.delivery_radius_km,
+            "prep_minutes": resolved.prep_minutes,
+            "min_order_agorot": resolved.min_order_agorot,
+            "delivery_fee_agorot": resolved.delivery_fee_agorot,
+            "greeting_template_en": resolved.greeting_template_en,
+            "greeting_template_ar": resolved.greeting_template_ar,
+        },
+    }
+
+
+@router.patch("/restaurants/{restaurant_id}/agent-settings")
+def patch_restaurant_agent_settings(
+    restaurant_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    from app.abuu.services.agent_settings_service import patch_restaurant_settings, restaurant_settings_to_dict
+
+    if db.get(Restaurant, restaurant_id) is None:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    row = patch_restaurant_settings(db, restaurant_id, payload)
+    db.commit()
+    db.refresh(row)
+    return restaurant_settings_to_dict(row)

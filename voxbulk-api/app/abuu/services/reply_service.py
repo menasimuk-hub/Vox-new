@@ -108,6 +108,45 @@ def preference_menu_message(
     return "\n".join(lines)
 
 
+def conversational_menu_message(
+    restaurant: Restaurant,
+    items: list[tuple[int, RestaurantMenuItem]],
+    *,
+    categories: list[str],
+    lang: str,
+) -> str:
+    from app.abuu.services.preference_service import category_label
+
+    labels = ", ".join(category_label(cat, lang) for cat in categories)
+    lines: list[str] = []
+    title = localized_name(restaurant, lang)
+    if lang == "en":
+        lines.append(f"{labels} at {title}:")
+    else:
+        lines.append(f"{labels} — {title}:")
+    for _idx, item in items[:6]:
+        label = localized_name(item, lang)
+        lines.append(f"• {label} — {format_shekel(item.price_agorot)}")
+    if lang == "en":
+        lines.append("Reply with the item name to add it.")
+    else:
+        lines.append("أرسل اسم الصنف لإضافته.")
+    return "\n".join(lines)
+
+
+def order_status_message(order: CustomerOrder, assignment, lang: str) -> str:
+    status = order.status
+    if lang == "en":
+        lines = [f"Order status: {status.replace('_', ' ')}"]
+        if assignment and assignment.status:
+            lines.append(f"Driver: {assignment.status.replace('_', ' ')}")
+        return "\n".join(lines)
+    lines = [f"حالة الطلب: {status}"]
+    if assignment and assignment.status:
+        lines.append(f"السائق: {assignment.status}")
+    return "\n".join(lines)
+
+
 def menu_message(
     restaurant: Restaurant,
     items: list[tuple[int, RestaurantMenuItem]],
@@ -126,12 +165,16 @@ def menu_message(
     return "\n".join(lines)
 
 
-def item_added_message(item: RestaurantMenuItem, order: CustomerOrder, lang: str) -> str:
+def item_added_message(item: RestaurantMenuItem, order: CustomerOrder, lang: str, *, addon_hint: str | None = None) -> str:
     label = localized_name(item, lang)
     total = format_shekel(order.total_agorot)
     if lang == "en":
-        return f"Added {label}. Order total: {total}. Send CONFIRM when ready."
-    return f"تمت إضافة {label}. المجموع: {total}. أرسل «تأكيد» عند الانتهاء."
+        msg = f"Added {label}. Order total: {total}. Send CONFIRM when ready."
+    else:
+        msg = f"تمت إضافة {label}. المجموع: {total}. أرسل «تأكيد» عند الانتهاء."
+    if addon_hint:
+        msg += f"\n{addon_hint}"
+    return msg
 
 
 def confirm_pending_payment_message(order: CustomerOrder, lang: str) -> str:

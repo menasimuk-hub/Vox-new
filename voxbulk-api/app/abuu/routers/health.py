@@ -34,6 +34,10 @@ def abuu_health(_admin: User = Depends(require_cap(CAP_ABUU))):
     migration_head = get_abuu_migration_head() if connected else None
     tables_present = abuu_tables_present() if connected else False
 
+    from app.abuu.services.abuu_menu_photo_storage_service import check_storage_ready
+
+    photo_storage = check_storage_ready()
+
     if not connected:
         return JSONResponse(
             status_code=503,
@@ -43,13 +47,18 @@ def abuu_health(_admin: User = Depends(require_cap(CAP_ABUU))):
                 "migration_head": migration_head,
                 "tables_present": tables_present,
                 "enabled": True,
+                "menu_photo_storage": photo_storage,
             },
         )
 
-    return {
+    body = {
         "status": "ok",
         "database": "connected",
         "migration_head": migration_head,
         "tables_present": tables_present,
         "enabled": True,
+        "menu_photo_storage": photo_storage,
     }
+    if settings.abuu_enabled and not photo_storage.get("writable"):
+        return JSONResponse(status_code=503, content={**body, "status": "storage_not_ready"})
+    return body

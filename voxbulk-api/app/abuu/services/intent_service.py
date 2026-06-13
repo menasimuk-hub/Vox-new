@@ -38,6 +38,26 @@ _MENU_PATTERNS = (
     re.compile(r"^\s*(قائمة|مساعدة|منيو)\s*$"),
 )
 
+_RESTAURANT_LIST_PATTERNS = (
+    re.compile(r"(?i)\b(restaurants?|show restaurants?|nearby|list restaurants?)\b"),
+    re.compile(r"مطاعم"),
+    re.compile(r"المطاعم"),
+    re.compile(r"ورّني مطاعم"),
+    re.compile(r"اعرض مطاعم"),
+)
+
+_SHOW_MORE_PATTERNS = (
+    re.compile(r"(?i)^\s*(more|show more|next)\s*$"),
+    re.compile(r"^\s*(المزيد|more|التالي)\s*$"),
+)
+
+_ORDER_STATUS_PATTERNS = (
+    re.compile(r"(?i)\b(order status|where is my order|track order|my order)\b"),
+    re.compile(r"حالة الطلب"),
+    re.compile(r"وين طلبي"),
+    re.compile(r"طلبي"),
+)
+
 
 def detect_intent(text: str, *, has_active_session: bool, step: str | None = None) -> AbuuIntent:
     normalized = str(text or "").strip()
@@ -61,6 +81,10 @@ def detect_intent(text: str, *, has_active_session: bool, step: str | None = Non
         if pattern.search(normalized):
             return AbuuIntent("menu")
 
+    for pattern in _ORDER_STATUS_PATTERNS:
+        if pattern.search(normalized):
+            return AbuuIntent("order_status")
+
     if re.fullmatch(r"\d{1,2}", normalized):
         return AbuuIntent("add_item", item_ref=normalized)
 
@@ -77,3 +101,13 @@ def detect_intent(text: str, *, has_active_session: bool, step: str | None = Non
 
 def is_abuu_start_message(text: str) -> bool:
     return detect_intent(text, has_active_session=False).name == "order_food"
+
+
+def is_restaurant_list_message(text: str) -> bool:
+    normalized = str(text or "").strip()
+    return any(p.search(normalized) for p in _RESTAURANT_LIST_PATTERNS)
+
+
+def is_show_more_message(text: str) -> bool:
+    normalized = str(text or "").strip()
+    return any(p.search(normalized) for p in _SHOW_MORE_PATTERNS)

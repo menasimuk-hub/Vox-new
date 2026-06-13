@@ -12,7 +12,7 @@ export function getApiBase() {
   return 'https://api.voxbulk.com'
 }
 
-function apiUrl(path) {
+export function apiUrl(path) {
   const p = path.startsWith('/') ? path : `/${path}`
   const base = getApiBase()
   if (!base) return p

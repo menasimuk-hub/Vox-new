@@ -83,6 +83,7 @@ import AbuuOrders from './pages/abuu/AbuuOrders'
 import AbuuRestaurants from './pages/abuu/AbuuRestaurants'
 import AbuuDrivers from './pages/abuu/AbuuDrivers'
 import AbuuCustomers from './pages/abuu/AbuuCustomers'
+import AbuuAgentSettings from './pages/abuu/AbuuAgentSettings'
 import FeedbackIndustriesList from './pages/customer-feedback/FeedbackIndustriesList'
 import FeedbackIndustryEdit from './pages/customer-feedback/FeedbackIndustryEdit'
 import FeedbackPackagesPricing from './pages/customer-feedback/FeedbackPackagesPricing'
@@ -262,6 +263,7 @@ export default function App() {
           <Route path='restaurants' element={<AbuuRestaurants />} />
           <Route path='drivers' element={<AbuuDrivers />} />
           <Route path='customers' element={<AbuuCustomers />} />
+          <Route path='agent' element={<AbuuAgentSettings />} />
         </Route>
 
         <Route path='/compliance/consent' element={<ComplianceSettings />} />

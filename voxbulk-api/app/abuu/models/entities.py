@@ -263,3 +263,58 @@ class AbuuPayment(AbuuBase, AbuuTimestampMixin):
     amount_agorot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     confirmed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AbuuAgentSettings(AbuuBase, AbuuTimestampMixin):
+    __tablename__ = "abuu_agent_settings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    business_name_en: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    business_name_ar: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    opening_hours_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_hours_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    default_delivery_radius_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    default_prep_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    default_min_order_agorot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    default_delivery_fee_agorot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    payment_methods_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refund_policy_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refund_policy_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancellation_policy_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancellation_policy_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allergen_disclaimer_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allergen_disclaimer_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    escalation_rules_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    escalation_rules_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    greeting_template_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    greeting_template_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    holiday_closures_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skills_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AbuuRestaurantSettings(AbuuBase, AbuuTimestampMixin):
+    __tablename__ = "abuu_restaurant_settings"
+    __table_args__ = (UniqueConstraint("restaurant_id", name="uq_abuu_restaurant_settings_restaurant"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    restaurant_id: Mapped[str] = mapped_column(String(36), ForeignKey("abuu_restaurants.id"), nullable=False, index=True)
+    notes_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    opening_hours_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_hours_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_radius_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    prep_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_order_agorot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    delivery_fee_agorot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    payment_methods_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refund_policy_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refund_policy_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancellation_policy_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancellation_policy_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allergen_disclaimer_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allergen_disclaimer_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    escalation_rules_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    escalation_rules_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    greeting_template_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    greeting_template_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    holiday_closures_json: Mapped[str | None] = mapped_column(Text, nullable=True)

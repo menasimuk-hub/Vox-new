@@ -8,6 +8,7 @@ const LINKS = [
   ['Restaurants', 'restaurants'],
   ['Drivers', 'drivers'],
   ['Customers', 'customers'],
+  ['Agent settings', 'agent'],
 ]
 
 export default function AbuuShell() {

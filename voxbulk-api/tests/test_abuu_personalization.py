@@ -112,8 +112,32 @@ def test_address_reuse_on_start(mock_send, app_client):
     reply = mock_send.call_args.kwargs.get("body") or mock_send.call_args.args[2]
     assert "Gaza saved address" in reply
 
+    with get_sessionmaker()() as db:
+        AbuuInboundService.try_handle(
+            db,
+            from_phone=phone,
+            body="chicken",
+            message_id=f"msg-{uuid.uuid4().hex[:8]}-c",
+            org_id=org_id,
+        )
+        AbuuInboundService.try_handle(
+            db,
+            from_phone=phone,
+            body="1",
+            message_id=f"msg-{uuid.uuid4().hex[:8]}-i",
+            org_id=org_id,
+        )
+        AbuuInboundService.try_handle(
+            db,
+            from_phone=phone,
+            body="confirm",
+            message_id=f"msg-{uuid.uuid4().hex[:8]}-f",
+            org_id=org_id,
+        )
+
     with get_abuu_sessionmaker()() as db:
         order = db.execute(__import__("sqlalchemy").select(CustomerOrder).order_by(CustomerOrder.created_at.desc())).scalars().first()
+        assert order is not None
         assert order.delivery_address_id is not None
 
 

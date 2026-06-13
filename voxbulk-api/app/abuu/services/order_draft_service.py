@@ -206,6 +206,55 @@ class AbuuOrderDraftService:
         return None
 
     @staticmethod
+    def list_addon_items(db: Session, restaurant_id: str, *, limit: int = 20) -> list[RestaurantMenuItem]:
+        category_ids = [
+            c.id
+            for c in db.execute(
+                select(RestaurantMenuCategory).where(
+                    RestaurantMenuCategory.restaurant_id == restaurant_id,
+                    RestaurantMenuCategory.is_deleted.is_(False),
+                    RestaurantMenuCategory.is_available.is_(True),
+                )
+            ).scalars().all()
+        ]
+        if not category_ids:
+            return []
+        return list(
+            db.execute(
+                select(RestaurantMenuItem)
+                .where(
+                    RestaurantMenuItem.category_id.in_(category_ids),
+                    RestaurantMenuItem.is_deleted.is_(False),
+                    RestaurantMenuItem.is_available.is_(True),
+                    RestaurantMenuItem.item_type.in_(("addon", "drink", "drinks", "salad", "sides", "desserts")),
+                )
+                .order_by(RestaurantMenuItem.item_type.asc(), RestaurantMenuItem.created_at.asc())
+                .limit(limit)
+            ).scalars().all()
+        )
+
+    @staticmethod
+    def ensure_order(
+        db: Session,
+        *,
+        customer: CustomerProfile,
+        restaurant: Restaurant,
+        existing_order: CustomerOrder | None = None,
+    ) -> CustomerOrder:
+        if existing_order is not None:
+            if existing_order.restaurant_id != restaurant.id and existing_order.status == "draft":
+                from sqlalchemy import delete
+
+                db.execute(delete(CustomerOrderItem).where(CustomerOrderItem.order_id == existing_order.id))
+                existing_order.restaurant_id = restaurant.id
+                existing_order.total_agorot = 0
+                existing_order.updated_at = datetime.utcnow()
+                db.add(existing_order)
+                db.flush()
+            return existing_order
+        return AbuuOrderDraftService.start_draft(db, customer=customer, restaurant=restaurant)
+
+    @staticmethod
     def start_draft(db: Session, *, customer: CustomerProfile, restaurant: Restaurant) -> CustomerOrder:
         order = CustomerOrder(
             customer_id=customer.id,
