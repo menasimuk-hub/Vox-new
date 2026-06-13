@@ -59,7 +59,7 @@ python scripts/push_feedback_industry_to_telnyx.py --industry-slug fitness
 
 Slugs: `restaurant`, `retail`, `salon`, `hotel`, `fitness`, `events`, `others`.
 
-## Arabic templates (DeepSeek + Telnyx)
+## Arabic templates (OpenAI + Telnyx)
 
 Translate all English templates to Arabic and optionally push to Telnyx:
 
@@ -67,10 +67,12 @@ Translate all English templates to Arabic and optionally push to Telnyx:
 cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
 python scripts/translate_feedback_templates_to_ar.py --dry-run --limit 3
 python scripts/translate_feedback_templates_to_ar.py --push-telnyx
-python scripts/translate_feedback_templates_to_ar.py --industry-slug fitness --push-telnyx
+python scripts/translate_feedback_templates_to_ar.py --industry-slug fitness --force --push-telnyx
 ```
 
-Requires DeepSeek in Admin → Integrations → DeepSeek.
+Uses **OpenAI structured JSON API** by default (`Admin → Integrations → OpenAI`).  
+Leading emoji from English templates is kept at the **start** of the Arabic body (never mid-sentence).  
+Optional: `--provider deepseek` for DeepSeek chat fallback.
 
 **Runtime language:** Arabic templates are sent when the visitor’s number uses an Arabic-region country code (`+966`, `+971`, `+20`, `+962`, etc.), or for testing append `(ar)` to the QR trigger message:
 

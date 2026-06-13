@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Translate Customer Feedback templates to Arabic (DeepSeek) and push to Telnyx.
+"""Translate Customer Feedback templates to Arabic (OpenAI JSON API) and push to Telnyx.
 
 Usage (VPS):
   cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
@@ -16,7 +16,8 @@ Usage (VPS):
   # Re-translate and push fitness only
   python scripts/translate_feedback_templates_to_ar.py --industry-slug fitness --force --push-telnyx
 
-Requires DeepSeek configured in Admin → Integrations → DeepSeek.
+Requires OpenAI configured in Admin → Integrations → OpenAI (default).
+Use --provider deepseek to fall back to DeepSeek chat API.
 """
 
 from __future__ import annotations
@@ -43,7 +44,13 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="Re-translate even if Arabic row exists")
     parser.add_argument("--push-telnyx", action="store_true", help="Push Arabic templates to Telnyx after translate")
     parser.add_argument("--dry-run", action="store_true", help="Translate only — do not save or push")
-    parser.add_argument("--no-deepseek", action="store_true", help="Skip DeepSeek (for debugging structure only)")
+    parser.add_argument("--no-llm", action="store_true", help="Skip LLM (structure test only)")
+    parser.add_argument(
+        "--provider",
+        default="openai",
+        choices=["openai", "deepseek"],
+        help="Translation provider (default: openai structured JSON API)",
+    )
     parser.add_argument("--limit", type=int, help="Max templates to process")
     parser.add_argument("--json", action="store_true", help="Print full summary JSON")
     args = parser.parse_args()
@@ -54,7 +61,8 @@ def main() -> int:
                 db,
                 industry_slug=args.industry_slug,
                 force=bool(args.force),
-                use_deepseek=not args.no_deepseek,
+                use_llm=not args.no_llm,
+                provider=str(args.provider or "openai"),
                 push_telnyx=bool(args.push_telnyx),
                 dry_run=bool(args.dry_run),
                 limit=args.limit,

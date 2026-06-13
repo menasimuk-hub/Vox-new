@@ -222,6 +222,18 @@ def test_map_arabic_button_to_english_for_branching():
         )
 
 
+def test_finalize_translated_body_keeps_leading_emoji():
+    from app.services.customer_feedback.feedback_template_translation_service import finalize_translated_body
+
+    body = finalize_translated_body(
+        source_body="💪 Thanks for training with us! How was your visit?",
+        translated_body="كيف كانت زيارتك اليوم؟ 💪",
+    )
+    assert body.startswith("💪")
+    assert "💪" not in body[2:]
+    assert "كيف" in body
+
+
 def test_trigger_template_format():
     from app.services.customer_feedback.location_service import build_trigger_text, build_location_qr_token
 
@@ -310,7 +322,7 @@ def test_fitness_industry_has_twenty_templates_after_import():
         ]
         assert len(templates) >= 20
         assert len({tpl.survey_type_id for tpl in templates}) == 20
-            summary = push_all_feedback_templates_for_industry(db, industry_slug="fitness", dry_run=True)
-            assert summary["template_count"] >= 20
-            assert summary["pushed"] >= 20
-            assert summary["failed"] == 0
+        summary = push_all_feedback_templates_for_industry(db, industry_slug="fitness", dry_run=True)
+        assert summary["template_count"] >= 20
+        assert summary["pushed"] >= 20
+        assert summary["failed"] == 0
