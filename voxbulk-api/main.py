@@ -55,7 +55,8 @@ from app.routers.whatsapp import router as whatsapp_router
 from app.routers.admin_platform_services import router as admin_platform_services_router
 from app.routers.admin_products import router as admin_products_router
 from app.routers.admin_pricing import router as admin_pricing_router
-from app.routers.dashboard_help import router as dashboard_help_router
+from app.routers.assistant import admin_router as admin_assistant_router
+from app.routers.assistant import router as assistant_router
 from app.routers.dashboard_scripts import router as dashboard_scripts_router
 from app.routers.admin_customer_feedback import router as admin_customer_feedback_router
 from app.routers.customer_feedback import router as customer_feedback_router
@@ -527,6 +528,8 @@ app.include_router(admin_products_router, prefix="/api")
 app.include_router(admin_pricing_router)
 app.include_router(admin_pricing_router, prefix="/api")
 app.include_router(dashboard_help_router)
+app.include_router(assistant_router)
+app.include_router(admin_assistant_router)
 app.include_router(dashboard_scripts_router)
 app.include_router(admin_customer_feedback_router)
 app.include_router(customer_feedback_router)

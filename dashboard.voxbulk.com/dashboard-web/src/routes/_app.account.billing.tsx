@@ -23,6 +23,7 @@ import { SubscriptionCancellationBar } from "@/components/billing/subscription-c
 import { REFUND_TIMING_BANK, REFUND_TIMING_PROCESSING } from "@/lib/billing/refund-timing";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
+import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 
 export const Route = createFileRoute("/_app/account/billing")({
   head: () => ({ meta: [{ title: "Billing — VoxBulk" }] }),
@@ -138,6 +139,7 @@ function UsageMeterBar({
 }
 
 function BillingPage() {
+  const { highlight } = useAssistantHighlight();
   const { pay: payInvoiceId } = Route.useSearch();
   const subQ = useBillingSubscription();
   const cancelQ = useBillingSubscriptionCancellation();
@@ -689,7 +691,11 @@ function BillingPage() {
                   </TableHeader>
                   <TableBody>
                     {ledgerPageRows.map((row) => (
-                      <TableRow key={row.ledgerId}>
+                      <TableRow
+                        key={row.ledgerId}
+                        data-assistant-highlight={row.isInvoice ? row.invoiceId : row.ledgerId}
+                        className={cn(assistantHighlightClass(row.isInvoice ? row.invoiceId : row.ledgerId, highlight))}
+                      >
                         <TableCell className="pl-6 font-mono text-xs">{row.id}</TableCell>
                         <TableCell className="text-xs">{row.kind}</TableCell>
                         <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">{row.description}</TableCell>

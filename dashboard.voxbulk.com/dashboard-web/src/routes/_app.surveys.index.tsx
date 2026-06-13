@@ -13,6 +13,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
+import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +42,7 @@ export const Route = createFileRoute("/_app/surveys/")({
 const PAGE_SIZE = 10;
 
 function SavedSurveys() {
+  const { highlight } = useAssistantHighlight();
   const [tab, setTab] = React.useState<"live" | "finished" | "archived">("live");
   const [page, setPage] = React.useState(1);
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string; status: string } | null>(null);
@@ -147,7 +150,11 @@ function SavedSurveys() {
             </TableRow></TableHeader>
             <TableBody>
               {pageRows.map((c) => (
-                <TableRow key={c.id}>
+                <TableRow
+                  key={c.id}
+                  data-assistant-highlight={c.id}
+                  className={cn(assistantHighlightClass(c.id, highlight))}
+                >
                   <TableCell className="pl-6">
                     <div className="block">
                       <div className="flex items-center gap-2">

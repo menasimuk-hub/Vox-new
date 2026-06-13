@@ -10,7 +10,9 @@ import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
 import { useConnections } from "@/lib/connections";
 import { initialsFromName, useSession } from "@/lib/session";
-import { useMarkNotificationRead, useNotificationUnreadCount, useNotifications } from "@/lib/queries";
+import { useMarkNotificationRead, useNotificationUnreadCount, useNotifications, useAssistantChat, useAssistantConfirm } from "@/lib/queries";
+import { useAssistantHighlight } from "@/lib/assistant-highlight";
+import type { AssistantChatResponse, AssistantNextAction } from "@/lib/types/assistant";
 
 function SidebarToggle() {
   const { toggleSidebar } = useSidebar();
@@ -132,30 +134,33 @@ function NotificationsBell() {
   );
 }
 
-type Msg = { role: "user" | "ai"; text: string };
-
 const SUGGESTIONS = [
-  "Why did 3 calls fail last night?",
-  "Draft a recall script for hygiene",
-  "Summarise NPS Q4 results",
-  "Which patients should I prioritise today?",
+  "Why is my wallet low?",
+  "Can I launch my survey?",
+  "Show my survey results",
+  "What's my usage this period?",
 ];
+
+type Msg = { role: "user" | "ai"; text: string; response?: AssistantChatResponse };
 
 export function LiveChatFab() {
   const { chatOpen, closeChat } = useConnections();
+  const { setHighlight, applyNextAction } = useAssistantHighlight();
+  const chatM = useAssistantChat();
+  const confirmM = useAssistantConfirm();
   const [pos, setPos] = React.useState({ x: 0, y: 0 });
   const dragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [messages, setMessages] = React.useState<Msg[]>([
-    { role: "ai", text: "Hi — I'm VoxBulk AI. Ask about campaigns, scripts, or metrics." },
+    { role: "ai", text: "Hi — I'm VoxBulk Assistant. Ask about billing, usage, campaigns, feedback, or support." },
   ]);
   const [input, setInput] = React.useState("");
-  const [thinking, setThinking] = React.useState(false);
+  const [history, setHistory] = React.useState<Array<{ role: string; text: string }>>([]);
   const endRef = React.useRef<HTMLDivElement>(null);
 
-  React.useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, thinking, chatOpen]);
+  React.useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, chatOpen]);
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest("button,input,textarea")) return;
+    if ((e.target as HTMLElement).closest("button,input,textarea,a")) return;
     dragRef.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -168,17 +173,43 @@ export function LiveChatFab() {
   };
   const onPointerUp = () => { dragRef.current = null; };
 
-  function send(text: string) {
+  function applyResponse(res: AssistantChatResponse, userText: string) {
+    if (res.highlight_type && res.highlight_id) {
+      setHighlight({ type: res.highlight_type, id: res.highlight_id, label: res.highlight_label });
+    }
+    setMessages((m) => [...m, { role: "ai", text: res.primary_message, response: res }]);
+    setHistory((h) => [...h, { role: "user", text: userText }, { role: "assistant", text: res.primary_message }].slice(-16));
+  }
+
+  async function send(text: string) {
     const t = text.trim();
-    if (!t) return;
+    if (!t || chatM.isPending || confirmM.isPending) return;
     setMessages((m) => [...m, { role: "user", text: t }]);
     setInput("");
-    setThinking(true);
-    setTimeout(() => {
-      setMessages((m) => [...m, { role: "ai", text: aiReply(t) }]);
-      setThinking(false);
-    }, 900);
+    try {
+      const res = await chatM.mutateAsync({ message: t, history });
+      applyResponse(res, t);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Assistant unavailable. Try again.";
+      setMessages((m) => [...m, { role: "ai", text: msg }]);
+    }
   }
+
+  async function onNextAction(action: AssistantNextAction) {
+    if (action.kind === "confirm" && action.action_id) {
+      try {
+        const res = await confirmM.mutateAsync({ action_id: action.action_id, confirmed: true });
+        applyResponse(res, "Confirmed action");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Could not complete action.";
+        setMessages((m) => [...m, { role: "ai", text: msg }]);
+      }
+      return;
+    }
+    applyNextAction(action);
+  }
+
+  const thinking = chatM.isPending || confirmM.isPending;
 
   if (!chatOpen) return null;
 
@@ -204,7 +235,26 @@ export function LiveChatFab() {
 
           <div className="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-3 text-sm">
             {messages.map((m, i) => (
-              <ChatBubble key={i} role={m.role} text={m.text} />
+              <div key={i}>
+                <ChatBubble role={m.role} text={m.text} />
+                {m.role === "ai" && m.response?.next_actions?.length ? (
+                  <div className="ml-8 mt-1.5 flex flex-wrap gap-1">
+                    {m.response.next_actions.map((a) => (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => void onNextAction(a)}
+                        className="rounded-full border border-primary/30 bg-card px-2.5 py-1 text-[11px] font-medium text-primary transition hover:bg-primary/10"
+                      >
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {m.role === "ai" && m.response?.blocking_reason ? (
+                  <p className="ml-8 mt-1 text-[11px] text-warning">{m.response.blocking_reason}</p>
+                ) : null}
+              </div>
             ))}
             {thinking && (
               <div className="flex items-start gap-2">
@@ -268,13 +318,4 @@ function ChatBubble({ role, text }: { role: "user" | "ai"; text: string }) {
       </div>
     </div>
   );
-}
-
-function aiReply(q: string): string {
-  const t = q.toLowerCase();
-  if (t.includes("fail")) return "3 calls failed last night: 2 voicemails (no answer after 3 retries) and 1 invalid number. I've queued WhatsApp follow-ups for the voicemails — want me to send them now?";
-  if (t.includes("recall") || t.includes("hygiene")) return "Drafted a 35-second hygiene recall script in a warm UK tone. It mentions the 6-month interval and offers two slots from your connected calendar. Open Settings → Integrations to review scheduling.";
-  if (t.includes("nps")) return "NPS Q4 stands at +52 (1,204 responses, 78% response rate). Top theme: 'friendly staff' (+). Watch-out: 'waiting times' mentioned in 11% of detractors.";
-  if (t.includes("priori")) return "Today's top 5: 3 high-LTV patients overdue for hygiene, 1 no-show from Tuesday, and 1 lapsed whitening enquiry. Shall I start an AI call batch?";
-  return "Got it. I can pull campaign metrics, draft scripts, or kick off a workflow — tell me a bit more about what you'd like to see.";
 }

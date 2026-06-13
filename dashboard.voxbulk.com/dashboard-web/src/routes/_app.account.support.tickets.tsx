@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import {
   useCloseSupportTicket,
   useCreateSupportTicket,
@@ -67,6 +68,7 @@ function normalizeStatus(status: string): TicketStatus {
 }
 
 function TicketsPage() {
+  const { highlight } = useAssistantHighlight();
   const [filter, setFilter] = React.useState<TicketStatus | "all">("all");
   const [search, setSearch] = React.useState("");
   const [newOpen, setNewOpen] = React.useState(false);
@@ -177,8 +179,13 @@ function TicketsPage() {
                 return (
                   <button
                     key={id}
+                    data-assistant-highlight={id}
                     onClick={() => setActiveId(id)}
-                    className={cn("w-full px-3 py-3 text-left transition hover:bg-accent/40", activeId === id && "bg-accent/60")}
+                    className={cn(
+                      "w-full px-3 py-3 text-left transition hover:bg-accent/40",
+                      activeId === id && "bg-accent/60",
+                      assistantHighlightClass(id, highlight),
+                    )}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[10px] font-medium text-muted-foreground">{String(t.public_ref || id)}</span>

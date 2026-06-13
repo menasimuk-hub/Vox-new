@@ -5,6 +5,7 @@ import { LiveChatFab, TopBar } from "@/components/top-bar";
 import { ThemeProvider } from "@/lib/theme";
 import { ServicesProvider } from "@/lib/services";
 import { ConnectionsProvider } from "@/lib/connections";
+import { AssistantHighlightProvider } from "@/lib/assistant-highlight";
 import { SessionProvider } from "@/lib/session";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -17,7 +18,8 @@ function AppLayout() {
       <ThemeProvider>
         <ServicesProvider>
           <ConnectionsProvider>
-            <TooltipProvider delayDuration={150}>
+            <AssistantHighlightProvider>
+              <TooltipProvider delayDuration={150}>
               <SidebarProvider>
                 <AppSidebar />
                 <SidebarInset className="relative min-w-0 max-w-full flex-1 overflow-x-hidden bg-background">
@@ -31,6 +33,7 @@ function AppLayout() {
               </SidebarProvider>
               <Toaster />
             </TooltipProvider>
+            </AssistantHighlightProvider>
           </ConnectionsProvider>
         </ServicesProvider>
       </ThemeProvider>

@@ -16,6 +16,7 @@ import type {
   ServiceOrder,
   UsageSummary,
 } from "@/lib/types/api";
+import type { AssistantChatResponse } from "@/lib/types/assistant";
 export const queryKeys = {
   session: ["session"] as const,
   homeSummary: ["dashboard", "home-summary"] as const,
@@ -1735,5 +1736,29 @@ export function useCreateFeedbackLocation() {
       void qc.invalidateQueries({ queryKey: queryKeys.feedbackLocations });
       void qc.invalidateQueries({ queryKey: queryKeys.feedbackResults({}) });
     },
+  });
+}
+
+export function useAssistantChat() {
+  return useMutation({
+    mutationFn: (body: { message: string; history?: Array<{ role: string; text: string }>; context?: Record<string, string | undefined> }) =>
+      apiFetch<AssistantChatResponse>("/assistant/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          message: body.message,
+          history: body.history || [],
+          context: body.context || {},
+        }),
+      }),
+  });
+}
+
+export function useAssistantConfirm() {
+  return useMutation({
+    mutationFn: (body: { action_id: string; confirmed?: boolean }) =>
+      apiFetch<AssistantChatResponse>("/assistant/confirm", {
+        method: "POST",
+        body: JSON.stringify({ action_id: body.action_id, confirmed: body.confirmed ?? true }),
+      }),
   });
 }
