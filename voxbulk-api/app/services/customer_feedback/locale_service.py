@@ -31,3 +31,16 @@ def detect_language_from_phone(phone: str) -> str:
         if normalized.startswith(prefix):
             return lang
     return "en_GB"
+
+
+def resolve_session_language(*, phone: str, trigger_hint: str | None = None) -> str:
+    """Pick template language: explicit (ar) hint overrides phone prefix."""
+    hint = str(trigger_hint or "").strip().lower().replace("-", "_")
+    if hint in {"ar", "arabic"}:
+        return "ar"
+    if hint in {"en", "english", "en_gb", "en_us", "en_au"}:
+        return "en_GB"
+    phone_lang = detect_language_from_phone(phone)
+    if phone_lang == "ar":
+        return "ar"
+    return "en_GB"

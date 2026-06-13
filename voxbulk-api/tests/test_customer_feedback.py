@@ -61,6 +61,92 @@ def test_parse_trigger_ref():
     assert token == "acme-marylebone-a3f2b1"
     legacy = FeedbackLocationService.parse_trigger_ref("Hello [ref:abc123-token]")
     assert legacy == "abc123-token"
+    with_ar = FeedbackLocationService.parse_trigger_ref(
+        "Hi! I'd like to share feedback for Acme at Branch. acme-branch-a3f2b1 (ar)"
+    )
+    assert with_ar == "acme-branch-a3f2b1"
+
+
+def test_parse_trigger_language_hint():
+    assert FeedbackLocationService.parse_trigger_language_hint(
+        "Hi! feedback acme-branch-a3f2b1 (ar)"
+    ) == "ar"
+    assert FeedbackLocationService.parse_trigger_language_hint(
+        "Hi! feedback acme-branch-a3f2b1 (EN_GB)"
+    ) == "en_gb"
+    assert FeedbackLocationService.parse_trigger_language_hint("no hint here") is None
+
+
+def test_resolve_session_language():
+    from app.services.customer_feedback.locale_service import resolve_session_language
+
+    assert resolve_session_language(phone="+447700900000", trigger_hint="ar") == "ar"
+    assert resolve_session_language(phone="+966501234567", trigger_hint=None) == "ar"
+    assert resolve_session_language(phone="+447700900000", trigger_hint=None) == "en_GB"
+
+
+def test_template_for_step_prefers_arabic():
+    import json
+    import uuid
+    from datetime import datetime
+
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType, FeedbackWaTemplate
+    from app.services.customer_feedback.survey_config_service import template_for_step
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        industry = db.execute(
+            select(FeedbackIndustry).where(FeedbackIndustry.slug == "fitness")
+        ).scalar_one()
+        survey_type = db.execute(
+            select(FeedbackSurveyType)
+            .where(FeedbackSurveyType.industry_id == industry.id)
+            .order_by(FeedbackSurveyType.sort_order)
+            .limit(1)
+        ).scalar_one()
+        now = datetime.utcnow()
+        db.add(
+            FeedbackWaTemplate(
+                id=str(uuid.uuid4()),
+                industry_id=industry.id,
+                survey_type_id=survey_type.id,
+                step_order=1,
+                template_key=survey_type.slug,
+                body_text="مرحبا",
+                buttons_json=json.dumps(["ممتاز", "جيد", "ضعيف"]),
+                step_role="rating",
+                language="ar",
+                meta_category="utility",
+                telnyx_sync_status="draft",
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        org_id, _ = _seed_org()
+        loc = FeedbackLocation(
+            id=str(uuid.uuid4()),
+            org_id=org_id,
+            industry_id=industry.id,
+            survey_type_id=survey_type.id,
+            name="Main",
+            qr_token="test-gym-main-abc123",
+            wa_sender_country="gb",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(loc)
+        db.commit()
+        tpl = template_for_step(
+            db,
+            loc,
+            {"kind": "topic", "survey_type_id": survey_type.id},
+            language="ar",
+        )
+        assert tpl is not None
+        assert tpl.language == "ar"
+        assert "مرحبا" in tpl.body_text
 
 
 def test_trigger_template_format():

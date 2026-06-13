@@ -28,6 +28,7 @@ TRIGGER_TEMPLATE = "Hi! I'd like to share feedback for {company} at {branch}. {t
 TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6})\b", re.IGNORECASE)
 REF_PATTERN = re.compile(r"\bref:\s*([A-Za-z0-9-]+)", re.IGNORECASE)
 LEGACY_REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
+LANGUAGE_HINT_PATTERN = re.compile(r"\(\s*(ar|en|en_gb|en_us|en_au|arabic|english)\s*\)\s*$", re.IGNORECASE)
 
 
 def _slug_part(text: str, *, max_len: int = 20) -> str:
@@ -246,6 +247,13 @@ class FeedbackLocationService:
         if not tok:
             return None
         return db.execute(select(FeedbackLocation).where(FeedbackLocation.qr_token == tok)).scalar_one_or_none()
+
+    @staticmethod
+    def parse_trigger_language_hint(body: str) -> str | None:
+        match = LANGUAGE_HINT_PATTERN.search(str(body or ""))
+        if not match:
+            return None
+        return str(match.group(1)).strip().lower()
 
     @staticmethod
     def parse_trigger_ref(body: str) -> str | None:

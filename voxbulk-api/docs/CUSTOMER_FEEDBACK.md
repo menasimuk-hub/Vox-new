@@ -59,6 +59,23 @@ python scripts/push_feedback_industry_to_telnyx.py --industry-slug fitness
 
 Slugs: `restaurant`, `retail`, `salon`, `hotel`, `fitness`, `events`, `others`.
 
+## Arabic templates (DeepSeek + Telnyx)
+
+Translate all English templates to Arabic and optionally push to Telnyx:
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+python scripts/translate_feedback_templates_to_ar.py --dry-run --limit 3
+python scripts/translate_feedback_templates_to_ar.py --push-telnyx
+python scripts/translate_feedback_templates_to_ar.py --industry-slug fitness --push-telnyx
+```
+
+Requires DeepSeek in Admin → Integrations → DeepSeek.
+
+**Runtime language:** Arabic templates are sent when the visitor’s number is `+966` / `+971`, or for testing append `(ar)` to the QR trigger message, e.g.:
+
+`Hi! I'd like to share feedback for Acme at Downtown. acme-downtown-a3f9k2 (ar)`
+
 ## Workflow (QR → results)
 
 ```

@@ -17,10 +17,11 @@ from app.models.customer_feedback import (
     FeedbackWaTemplate,
 )
 from app.services.customer_feedback.billing_service import FeedbackBillingService
-from app.services.customer_feedback.locale_service import detect_language_from_phone
+from app.services.customer_feedback.locale_service import detect_language_from_phone, resolve_session_language
 from app.services.customer_feedback.location_service import FeedbackLocationService
 from app.services.customer_feedback.survey_config_service import (
     format_template_message,
+    get_system_template,
     load_survey_config,
     template_for_step,
 )
@@ -53,7 +54,14 @@ class FeedbackWhatsappService:
                 return {"handled": False, "reason": "unknown_token"}
             if org_id and location.org_id != org_id:
                 return {"handled": False, "reason": "org_mismatch"}
-            return FeedbackWhatsappService._start_session(db, location=location, from_phone=from_phone, token=token)
+            lang_hint = FeedbackLocationService.parse_trigger_language_hint(normalized_body)
+            return FeedbackWhatsappService._start_session(
+                db,
+                location=location,
+                from_phone=from_phone,
+                token=token,
+                language_hint=lang_hint,
+            )
 
         session = FeedbackWhatsappService._active_session(db, from_phone=from_phone, org_id=org_id)
         if session is None:
@@ -118,7 +126,14 @@ class FeedbackWhatsappService:
         return [{"kind": "topic", "survey_type_id": location.survey_type_id, "template_key": "fallback"}]
 
     @staticmethod
-    def _start_session(db: Session, *, location, from_phone: str, token: str) -> dict[str, Any]:
+    def _start_session(
+        db: Session,
+        *,
+        location,
+        from_phone: str,
+        token: str,
+        language_hint: str | None = None,
+    ) -> dict[str, Any]:
         dedupe_key = f"{from_phone}:{token}"
         recent = db.execute(
             select(FeedbackSession)
@@ -149,7 +164,7 @@ class FeedbackWhatsappService:
             visitor_phone=from_phone,
             status="active",
             current_step=0,
-            detected_language=detect_language_from_phone(from_phone),
+            detected_language=resolve_session_language(phone=from_phone, trigger_hint=language_hint),
             trigger_dedupe_key=dedupe_key,
             started_at=now,
             created_at=now,
@@ -174,7 +189,7 @@ class FeedbackWhatsappService:
             return {"handled": True, "session_id": session.id, "fallback": True}
 
         first_step = steps[0]
-        tpl = template_for_step(db, location, first_step)
+        tpl = template_for_step(db, location, first_step, language=session.detected_language)
         message = format_template_message(tpl) if tpl else "Thanks for your feedback. Please reply to continue."
         TelnyxMessagingService.send_whatsapp(db, to=from_phone, body=message, org_id=location.org_id)
         return {"handled": True, "session_id": session.id}
@@ -231,7 +246,7 @@ class FeedbackWhatsappService:
             return {"handled": True, "completed": True}
 
         current_step = steps[step_index]
-        tpl = template_for_step(db, location, current_step)
+        tpl = template_for_step(db, location, current_step, language=session.detected_language)
         normalized = str(answer or "").strip().lower()
 
         if current_step.get("kind") == "marketing_opt_in":
@@ -286,12 +301,7 @@ class FeedbackWhatsappService:
                 current_step.get("kind") == "topic"
                 and normalized in POOR_ANSWERS
             ):
-                tell_more = db.execute(
-                    select(FeedbackWaTemplate).where(
-                        FeedbackWaTemplate.template_key == "tell_us_more",
-                        FeedbackWaTemplate.is_active.is_(True),
-                    ).limit(1)
-                ).scalar_one_or_none()
+                tell_more = get_system_template(db, "tell_us_more", language=session.detected_language)
                 if tell_more:
                     TelnyxMessagingService.send_whatsapp(
                         db,
@@ -309,12 +319,7 @@ class FeedbackWhatsappService:
             session.completed_at = datetime.utcnow()
             db.add(session)
             db.commit()
-            thank_tpl = db.execute(
-                select(FeedbackWaTemplate).where(
-                    FeedbackWaTemplate.template_key == "thank_you",
-                    FeedbackWaTemplate.is_active.is_(True),
-                ).limit(1)
-            ).scalar_one_or_none()
+            thank_tpl = get_system_template(db, "thank_you", language=session.detected_language)
             thank_body = thank_tpl.body_text if thank_tpl else "Thank you — your feedback has been recorded."
             TelnyxMessagingService.send_whatsapp(
                 db,
@@ -325,7 +330,7 @@ class FeedbackWhatsappService:
             return {"handled": True, "completed": True}
 
         next_step = steps[session.current_step]
-        next_tpl = template_for_step(db, location, next_step)
+        next_tpl = template_for_step(db, location, next_step, language=session.detected_language)
         next_message = format_template_message(next_tpl) if next_tpl else "Please reply to continue."
         TelnyxMessagingService.send_whatsapp(
             db,

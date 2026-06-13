@@ -94,8 +94,11 @@ def feedback_meta_template_name(
 
 def normalize_feedback_language(raw: str | None) -> str:
     lang = str(raw or "en_GB").strip().replace("-", "_")
-    if lang.lower() in {"en", "english"}:
+    lowered = lang.lower()
+    if lowered in {"en", "english"}:
         return "en_GB"
+    if lowered in {"ar", "arabic"}:
+        return "ar"
     return lang or "en_GB"
 
 

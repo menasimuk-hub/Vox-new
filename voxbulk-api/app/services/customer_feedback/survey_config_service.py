@@ -12,6 +12,32 @@ from app.models.customer_feedback import FeedbackLocation, FeedbackSurveyType, F
 
 
 SYSTEM_TEMPLATE_KEYS = frozenset({"open_question", "marketing_opt_in", "thank_you", "tell_us_more"})
+ENGLISH_TEMPLATE_LANGUAGES = frozenset({"en_GB", "en", "en_US", "en_AU"})
+
+
+def resolve_template_language(raw: str | None) -> str:
+    lang = str(raw or "en_GB").strip().lower().replace("-", "_")
+    if lang in {"ar", "arabic"}:
+        return "ar"
+    return "en_GB"
+
+
+def get_system_template(db: Session, template_key: str, *, language: str | None = None) -> FeedbackWaTemplate | None:
+    lang = resolve_template_language(language)
+    base_q = (
+        select(FeedbackWaTemplate)
+        .where(
+            FeedbackWaTemplate.is_active.is_(True),
+            FeedbackWaTemplate.template_key == template_key,
+            FeedbackWaTemplate.industry_id.is_(None),
+            FeedbackWaTemplate.survey_type_id.is_(None),
+        )
+        .limit(1)
+    )
+    row = db.execute(base_q.where(FeedbackWaTemplate.language == lang)).scalar_one_or_none()
+    if row is None and lang != "en_GB":
+        row = db.execute(base_q.where(FeedbackWaTemplate.language == "en_GB")).scalar_one_or_none()
+    return row
 
 
 def parse_selected_type_ids(payload: dict[str, Any]) -> list[str]:
@@ -57,13 +83,20 @@ def load_survey_config(location: FeedbackLocation) -> dict[str, Any]:
     return {"steps": []}
 
 
-def template_for_step(db: Session, location: FeedbackLocation, step: dict[str, Any]) -> FeedbackWaTemplate | None:
+def template_for_step(
+    db: Session,
+    location: FeedbackLocation,
+    step: dict[str, Any],
+    *,
+    language: str | None = None,
+) -> FeedbackWaTemplate | None:
+    lang = resolve_template_language(language)
     kind = str(step.get("kind") or "topic")
     if kind == "topic":
         survey_type_id = str(step.get("survey_type_id") or "").strip()
         if not survey_type_id:
             return None
-        row = db.execute(
+        base_q = (
             select(FeedbackWaTemplate)
             .where(
                 FeedbackWaTemplate.is_active.is_(True),
@@ -71,19 +104,13 @@ def template_for_step(db: Session, location: FeedbackLocation, step: dict[str, A
             )
             .order_by(FeedbackWaTemplate.step_order)
             .limit(1)
-        ).scalar_one_or_none()
+        )
+        row = db.execute(base_q.where(FeedbackWaTemplate.language == lang)).scalar_one_or_none()
+        if row is None and lang != "en_GB":
+            row = db.execute(base_q.where(FeedbackWaTemplate.language == "en_GB")).scalar_one_or_none()
         return row
     template_key = str(step.get("template_key") or kind)
-    return db.execute(
-        select(FeedbackWaTemplate)
-        .where(
-            FeedbackWaTemplate.is_active.is_(True),
-            FeedbackWaTemplate.template_key == template_key,
-            FeedbackWaTemplate.industry_id.is_(None),
-            FeedbackWaTemplate.survey_type_id.is_(None),
-        )
-        .limit(1)
-    ).scalar_one_or_none()
+    return get_system_template(db, template_key, language=lang)
 
 
 def format_template_message(tpl: FeedbackWaTemplate) -> str:
