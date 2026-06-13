@@ -55,20 +55,25 @@ def test_seed_industries_and_survey_types():
 
 
 def test_parse_trigger_ref():
-    token = FeedbackLocationService.parse_trigger_ref("Hello Ref: ACME-MARYLEBONE-A3F2")
-    assert token == "acme-marylebone-a3f2"
+    token = FeedbackLocationService.parse_trigger_ref(
+        "👋 Hi! I'd like to share feedback for Acme Ltd at Marylebone. acme-marylebone-a3f2b1"
+    )
+    assert token == "acme-marylebone-a3f2b1"
     legacy = FeedbackLocationService.parse_trigger_ref("Hello [ref:abc123-token]")
     assert legacy == "abc123-token"
 
 
 def test_trigger_template_format():
-    from app.services.customer_feedback.location_service import build_trigger_text
+    from app.services.customer_feedback.location_service import build_trigger_text, build_location_qr_token
 
-    text = build_trigger_text(company="Acme Ltd", branch="Marylebone", token="acme-marylebone-a3f2")
+    token = build_location_qr_token(company="Acme Ltd", branch="Marylebone")
+    assert token.count("-") >= 2
+    assert len(token.split("-")[-1]) == 6
+    text = build_trigger_text(company="Acme Ltd", branch="Marylebone", token=token)
     assert "Acme Ltd" in text
     assert "Marylebone" in text
-    assert "Ref: ACME-MARYLEBONE-A3F2" in text
-    assert "✨" not in text
+    assert token in text
+    assert "Ref:" not in text
 
 
 def test_seed_feedback_packages_all_zones():

@@ -72,8 +72,14 @@ function industryIcon(industry: FeedbackIndustry) {
 
 function previewTrigger(company: string, branch?: string) {
   const branchLabel = branch?.trim() || "Main branch";
-  const ref = `${company}-${branchLabel}`.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toUpperCase().slice(0, 32) || "PREVIEW";
-  return `Hello, I would like to share feedback for ${company} at ${branchLabel}. Ref: ${ref}`;
+  const slug = (part: string) =>
+    part
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 20) || "location";
+  const token = `${slug(company)}-${slug(branchLabel)}-preview`;
+  return `👋 Hi! I'd like to share feedback for ${company} at ${branchLabel}. ${token}`;
 }
 
 function buildQrImageUrl(waUrl: string, size = 320) {
@@ -430,7 +436,10 @@ function CreateFeedback() {
                     const qrSrc = idx === 0 && previewQr?.qr_image_url
                       ? previewQr.qr_image_url
                       : previewQr?.wa_url
-                        ? buildQrImageUrl(previewQr.wa_url.replace(/Ref:\s*[A-Z0-9-]+/i, "Ref: PREVIEW"), 220)
+                        ? buildQrImageUrl(
+                            previewQr.wa_url.replace(/[a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6}/i, "acme-branch-preview"),
+                            220,
+                          )
                         : null;
                     return (
                       <div key={b.id} className="flex flex-col gap-3 rounded-xl border border-border bg-background/40 p-4">

@@ -27,13 +27,13 @@ Feedback subscription invoices use prefix `CF-` and `billing_invoices.service_co
 ## QR trigger format
 
 ```
-Hello, I want to share feedback for {company} at {branch}. Ref: ACME-MARYLEBONE-A3F2
+👋 Hi! I'd like to share feedback for {company} at {branch}. acme-marylebone-a3f2b1
 ```
 
-- Plain text only (no emojis) so WhatsApp pre-fill displays reliably on all phones.
-- `Ref` code is derived from company + branch name plus a short unique suffix.
-- Inbound handler resolves the ref token → location → survey flow.
-- Legacy messages with `[ref:token]` still work.
+- One 👋 emoji at the start (UTF-8 in wa.me link — shows as icon in WhatsApp on phone).
+- Reference code at the end: `company-branch-xxxxxx` (6-character suffix).
+- Inbound handler parses that code → location → survey flow.
+- Legacy `[ref:token]` messages still work.
 
 ## Workflow (QR → results)
 

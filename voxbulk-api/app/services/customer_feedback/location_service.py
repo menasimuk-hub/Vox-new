@@ -24,33 +24,34 @@ from app.services.customer_feedback.survey_config_service import (
 from app.services.market_zone import country_to_zone
 
 
-TRIGGER_TEMPLATE = (
-    "Hello, I would like to share feedback for {company} at {branch}. Ref: {ref_display}"
-)
+# One leading emoji — UTF-8 encoded in wa.me links; renders as icon in WhatsApp mobile.
+TRIGGER_TEMPLATE = "👋 Hi! I'd like to share feedback for {company} at {branch}. {token}"
+TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6})\b", re.IGNORECASE)
 REF_PATTERN = re.compile(r"\bref:\s*([A-Za-z0-9-]+)", re.IGNORECASE)
 LEGACY_REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
 
 
-def _slug_part(text: str, *, max_len: int = 24) -> str:
+def _slug_part(text: str, *, max_len: int = 20) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", str(text or "").lower()).strip("-")
     return (base or "location")[:max_len]
 
 
+def _random_suffix(length: int = 6) -> str:
+    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
 def build_location_qr_token(*, company: str, branch: str) -> str:
-    """Human-readable token stored in DB, e.g. acme-cafe-marylebone-a3f2."""
-    suffix = secrets.token_hex(2)
-    return f"{_slug_part(company, max_len=18)}-{_slug_part(branch, max_len=18)}-{suffix}"
-
-
-def format_ref_display(token: str) -> str:
-    return str(token or "").strip().upper()
+    """company-branch-xxxxxx (6-char suffix), stored in DB and shown in the WhatsApp message."""
+    return f"{_slug_part(company)}-{_slug_part(branch)}-{_random_suffix(6)}"
 
 
 def build_trigger_text(*, company: str, branch: str, token: str) -> str:
+    clean_token = str(token or "").strip().lower()
     return TRIGGER_TEMPLATE.format(
         company=str(company or "Your business").strip(),
         branch=str(branch or "Main branch").strip(),
-        ref_display=format_ref_display(token),
+        token=clean_token,
     )
 
 
@@ -58,10 +59,11 @@ def _build_qr_urls(*, phone: str, trigger_text: str) -> tuple[str, str]:
     digits = str(phone or "").strip().lstrip("+").replace(" ", "")
     if not digits:
         raise ValueError("WhatsApp business number is not configured for Customer Feedback.")
-    encoded_text = quote(trigger_text, safe="")
+    encoded_text = quote(trigger_text, safe="", encoding="utf-8")
     wa_url = f"https://wa.me/{digits}?text={encoded_text}"
     qr_image_url = (
-        "https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=" + quote(wa_url, safe="")
+        "https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&charset-source=UTF-8&charset-target=UTF-8&data="
+        + quote(wa_url, safe="", encoding="utf-8")
     )
     return wa_url, qr_image_url
 
@@ -249,6 +251,9 @@ class FeedbackLocationService:
     @staticmethod
     def parse_trigger_ref(body: str) -> str | None:
         text = str(body or "")
+        token_match = TOKEN_PATTERN.search(text)
+        if token_match:
+            return str(token_match.group(1)).strip().lower()
         match = REF_PATTERN.search(text) or LEGACY_REF_PATTERN.search(text)
         if not match:
             return None
