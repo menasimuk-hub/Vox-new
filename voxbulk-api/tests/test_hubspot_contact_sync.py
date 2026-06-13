@@ -214,12 +214,98 @@ def test_write_back_creates_note_when_enabled():
         with patch(
             "app.services.hubspot_contact_sync_service._search_contact_by_email",
             return_value="hs-1001",
-        ), patch("app.services.hubspot_contact_sync_service._create_hubspot_note") as note_mock:
+        ), patch("app.services.hubspot_contact_sync_service._update_hubspot_contact_properties") as props_mock, patch(
+            "app.services.hubspot_contact_sync_service._create_hubspot_note"
+        ) as note_mock:
             result = sync_survey_result_to_hubspot(db, org.id, order=order, recipient=recipient)
 
         assert result["ok"] is True
         assert result["contact_id"] == "hs-1001"
+        props_mock.assert_called_once()
         note_mock.assert_called_once()
+
+
+def test_manual_push_bypasses_auto_sync_toggle():
+    with get_sessionmaker()() as db:
+        org, user = _seed_org_user(db)
+        _enable_hubspot_platform(db, contact_sync_v1=True)
+        save_hubspot_config(db, org.id, {"access_token": "tok", "auto_sync_results_back": False})
+
+        order = ServiceOrderService.create_order(
+            db,
+            org_id=org.id,
+            user_id=user.id,
+            service_code="survey",
+            title="WA survey",
+            config={},
+        )
+        recipient = ServiceOrderRecipient(
+            order_id=order.id,
+            row_number=1,
+            name="Test User",
+            email="test.user@example.com",
+            phone="+447700900111",
+            status="completed",
+            result_json='{"analysis":{"sentiment":"positive","recommend_score":9}}',
+        )
+        db.add(recipient)
+        db.commit()
+
+        with patch(
+            "app.services.hubspot_contact_sync_service._search_contact_by_email",
+            return_value="hs-1001",
+        ), patch("app.services.hubspot_contact_sync_service._update_hubspot_contact_properties"), patch(
+            "app.services.hubspot_contact_sync_service._create_hubspot_note"
+        ) as note_mock:
+            result = sync_survey_result_to_hubspot(db, org.id, order=order, recipient=recipient, force=True)
+
+        assert result["ok"] is True
+        assert result["contact_id"] == "hs-1001"
+        note_mock.assert_called_once()
+
+
+def test_manual_push_endpoint(app_client):
+    with get_sessionmaker()() as db:
+        org, user = _seed_org_user(db)
+        _enable_hubspot_platform(db, contact_sync_v1=True)
+        save_hubspot_config(db, org.id, {"access_token": "tok", "auto_sync_results_back": True})
+
+        order = ServiceOrderService.create_order(
+            db,
+            org_id=org.id,
+            user_id=user.id,
+            service_code="survey",
+            title="WA survey",
+            config={},
+        )
+        recipient = ServiceOrderRecipient(
+            order_id=order.id,
+            row_number=1,
+            name="Test User",
+            email="test.user@example.com",
+            phone="+447700900111",
+            status="completed",
+            result_json='{"analysis":{"sentiment":"positive","recommend_score":9}}',
+        )
+        db.add(recipient)
+        db.commit()
+        headers = _auth_headers(app_client, org, user)
+
+    with patch(
+        "app.services.hubspot_contact_sync_service._search_contact_by_email",
+        return_value="hs-1001",
+    ), patch("app.services.hubspot_contact_sync_service._update_hubspot_contact_properties"), patch(
+        "app.services.hubspot_contact_sync_service._create_hubspot_note"
+    ):
+        res = app_client.post(
+            f"/service-orders/{order.id}/recipients/{recipient.id}/hubspot/sync-result",
+            headers=headers,
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["contact_id"] == "hs-1001"
 
 
 def test_maybe_sync_noops_for_non_survey():

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
 import {
   AlertCircle,
@@ -10,12 +10,14 @@ import {
   Clock,
   Circle as XCircle,
   Download,
+  Loader2,
   ListFilter as Filter,
   MessageCircle,
   MessageSquareText,
   Mic,
   PanelRightOpen,
   Phone,
+  RefreshCw,
   Search,
   Sparkles,
   ThumbsDown,
@@ -48,7 +50,7 @@ import {
 import { downloadAuthenticatedFile } from "@/lib/api";
 import { logLaunchFlow } from "@/lib/launch-flow-log";
 import { orderToCampaign } from "@/lib/mappers/orders";
-import { useServiceOrders, useSurveyResults } from "@/lib/queries";
+import { useHubSpotStatus, usePushSurveyResultToHubSpot, useServiceOrders, useSurveyResults } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 type BreakdownGroup = { label: string; key: string; count: number; pct: number };
@@ -1002,6 +1004,7 @@ function SurveyResults() {
 
       <RespondentDetailSheet
         respondent={detailRespondent}
+        orderId={activeOrderId}
         channel={surveyChannel}
         onClose={() => setDetailRespondent(null)}
       />
@@ -1024,10 +1027,12 @@ function completedAgoLabel(completedAt: string | null | undefined) {
 
 function RespondentDetailSheet({
   respondent,
+  orderId,
   channel,
   onClose,
 }: {
   respondent: Respondent | null;
+  orderId: string | undefined;
   channel: string | null;
   onClose: () => void;
 }) {
@@ -1035,6 +1040,52 @@ function RespondentDetailSheet({
   const waAnswers = respondent?.wa_answers || [];
   const extracted = respondent?.extracted_answers || [];
   const openFeedback = respondent?.open_feedback || [];
+  const hubspotQ = useHubSpotStatus();
+  const pushM = usePushSurveyResultToHubSpot(orderId);
+  const [pushState, setPushState] = React.useState<"idle" | "success" | "error">("idle");
+  const [pushMessage, setPushMessage] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setPushState("idle");
+    setPushMessage(null);
+  }, [respondent?.id]);
+
+  const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
+  const hubspotConnected = hubspot.connected === true;
+  const isCompleted =
+    Boolean(respondent?.completed_at) ||
+    String(respondent?.status_label || "").toLowerCase() === "completed";
+
+  const onPushToHubSpot = async () => {
+    if (!respondent?.id || !orderId) return;
+    setPushState("idle");
+    setPushMessage(null);
+    try {
+      const res = await pushM.mutateAsync(respondent.id);
+      if (res.skipped) {
+        setPushState("error");
+        setPushMessage(
+          res.reason === "contact_not_found_in_hubspot"
+            ? "No matching HubSpot contact found for this respondent."
+            : "Could not push this result to HubSpot.",
+        );
+        return;
+      }
+      setPushState("success");
+      const warning = res.properties_warning ? ` Note: ${res.properties_warning}` : "";
+      setPushMessage(
+        res.contact_url
+          ? `Survey result pushed to HubSpot.${warning}`
+          : `Survey result pushed to HubSpot contact ${res.contact_id || ""}.${warning}`,
+      );
+      toast.success("Pushed to HubSpot");
+    } catch (e) {
+      setPushState("error");
+      const msg = e instanceof Error ? e.message : "Failed to push to HubSpot";
+      setPushMessage(msg);
+      toast.error(msg);
+    }
+  };
 
   const unhappyReason =
     waAnswers.find((row) => {
@@ -1114,6 +1165,69 @@ function RespondentDetailSheet({
                     </Card>
                   ))
                 : null}
+              <Card className="border-border">
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">HubSpot</p>
+                      <p className="text-xs text-muted-foreground">
+                        {hubspotConnected
+                          ? "Push this survey result to the linked HubSpot contact as contact properties and a timeline note."
+                          : "Connect HubSpot to push survey results to CRM contacts."}
+                      </p>
+                    </div>
+                    {hubspotConnected && isCompleted ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 gap-1.5"
+                        disabled={pushM.isPending || !respondent?.id || !orderId}
+                        onClick={() => void onPushToHubSpot()}
+                      >
+                        {pushM.isPending ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : pushState === "success" ? (
+                          <CheckCircle2 className="size-3.5 text-success" />
+                        ) : (
+                          <RefreshCw className="size-3.5" />
+                        )}
+                        {pushM.isPending ? "Pushing…" : pushState === "success" ? "Pushed" : "Push result to HubSpot"}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {!hubspotConnected ? (
+                    <p className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                      HubSpot is not connected.{" "}
+                      <Link to="/settings/integrations" className="text-primary underline-offset-2 hover:underline">
+                        Connect HubSpot in Settings → Integrations
+                      </Link>{" "}
+                      to sync survey results manually or automatically when responses complete.
+                    </p>
+                  ) : null}
+                  {hubspotConnected && !isCompleted ? (
+                    <p className="text-xs text-muted-foreground">
+                      Only completed survey responses can be pushed to HubSpot.
+                    </p>
+                  ) : null}
+                  {pushState === "success" && pushMessage ? (
+                    <p className="flex items-start gap-2 text-xs text-success">
+                      <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
+                      {pushMessage}
+                    </p>
+                  ) : null}
+                  {pushState === "error" && pushMessage ? (
+                    <p className="flex items-start gap-2 text-xs text-destructive">
+                      <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                      {pushMessage}
+                    </p>
+                  ) : null}
+                  {hubspotConnected && isCompleted && pushState === "idle" && !pushMessage ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Automatic write-back runs when responses complete. Use this button to retry or push again.
+                    </p>
+                  ) : null}
+                </CardContent>
+              </Card>
             </div>
           </>
         ) : null}

@@ -964,6 +964,27 @@ export function usePatchHubSpotSyncSettings() {
   });
 }
 
+export type HubSpotSurveyResultSyncResponse = {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string;
+  contact_id?: string;
+  contact_url?: string;
+  properties_updated?: boolean;
+  note_created?: boolean;
+  properties_warning?: string;
+};
+
+export function usePushSurveyResultToHubSpot(orderId: string | null | undefined) {
+  return useMutation({
+    mutationFn: (recipientId: string) =>
+      apiFetch<HubSpotSurveyResultSyncResponse>(
+        `/service-orders/${encodeURIComponent(String(orderId))}/recipients/${encodeURIComponent(recipientId)}/hubspot/sync-result`,
+        { method: "POST" },
+      ),
+  });
+}
+
 export function useServiceApiSettings() {
   return useQuery({
     queryKey: queryKeys.serviceApiSettings,

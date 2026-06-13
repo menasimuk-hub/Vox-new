@@ -1366,6 +1366,38 @@ def patch_hubspot_sync_settings(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.post("/{order_id}/recipients/{recipient_id}/hubspot/sync-result")
+def push_survey_result_to_hubspot(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.hubspot_contact_sync_service import HubspotContactSyncError, sync_survey_result_to_hubspot
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "survey":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="HubSpot result sync is only supported for surveys")
+
+    recipient = ServiceOrderService.get_recipient(db, order.id, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    if str(recipient.status or "").lower() != "completed":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only completed survey responses can be pushed to HubSpot")
+
+    try:
+        result = sync_survey_result_to_hubspot(db, principal.org_id, order=order, recipient=recipient, force=True)
+        db.commit()
+        return result
+    except HubspotContactSyncError as exc:
+        msg = str(exc)
+        code = status.HTTP_404_NOT_FOUND if "not enabled" in msg.lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=msg) from exc
+
+
 @router.patch("/{order_id}/interview-shortlist")
 def save_interview_shortlist(
     order_id: str,

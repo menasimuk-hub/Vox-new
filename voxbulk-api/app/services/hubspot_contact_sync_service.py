@@ -19,6 +19,7 @@ from app.services.hubspot_connection_service import (
     HUBSPOT_CONTACTS_URL,
     _ensure_access_token,
     _search_contact_by_email,
+    _split_name,
     get_hubspot_config,
     hubspot_status,
     platform_oauth_configured,
@@ -372,26 +373,107 @@ def import_contacts_to_order(
     }
 
 
-def _survey_result_summary(order: ServiceOrder, recipient: ServiceOrderRecipient) -> str:
+def _parse_survey_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
     try:
         result = json.loads(recipient.result_json or "{}")
     except Exception:
         result = {}
-    if not isinstance(result, dict):
-        result = {}
+    return result if isinstance(result, dict) else {}
+
+
+def _survey_result_fields(order: ServiceOrder, recipient: ServiceOrderRecipient) -> dict[str, Any]:
+    result = _parse_survey_result(recipient)
     analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
-    parts = [f"VoxBulk WA survey completed: {order.title}"]
     sentiment = str(analysis.get("sentiment") or result.get("sentiment") or "").strip()
-    if sentiment:
-        parts.append(f"Sentiment: {sentiment}")
     score = analysis.get("recommend_score", result.get("recommend_score"))
-    if score is not None:
-        parts.append(f"Score: {score}")
     summary = str(analysis.get("short_summary") or result.get("short_summary") or "").strip()
-    if summary:
-        parts.append(summary[:500])
-    parts.append(f"Completed at: {datetime.utcnow().isoformat()}Z")
-    return " · ".join(parts)
+    completed_raw = getattr(recipient, "completed_at", None) or result.get("completed_at")
+    if hasattr(completed_raw, "isoformat"):
+        completed_at = completed_raw.isoformat()
+    elif completed_raw:
+        completed_at = str(completed_raw)
+    else:
+        completed_at = datetime.utcnow().isoformat() + "Z"
+    return {
+        "sentiment": sentiment,
+        "score": score,
+        "summary": summary,
+        "completed_at": completed_at,
+        "campaign": str(order.title or "Survey").strip(),
+    }
+
+
+def _survey_result_summary(order: ServiceOrder, recipient: ServiceOrderRecipient) -> str:
+    fields = _survey_result_fields(order, recipient)
+    lines = [
+        "VoxBulk survey completed",
+        f"Campaign: {fields['campaign']}",
+    ]
+    if fields["sentiment"]:
+        lines.append(f"Sentiment: {fields['sentiment']}")
+    if fields["score"] is not None:
+        lines.append(f"Score: {fields['score']}")
+    if fields["summary"]:
+        lines.append(f"Summary: {fields['summary'][:500]}")
+    lines.append(f"Completed: {fields['completed_at']}")
+    return "\n".join(lines)
+
+
+def _survey_result_contact_properties(order: ServiceOrder, recipient: ServiceOrderRecipient) -> dict[str, str]:
+    fields = _survey_result_fields(order, recipient)
+    email = str(recipient.email or "").strip()
+    phone = str(recipient.phone or "").strip()
+    first, last = _split_name(recipient.name)
+    properties: dict[str, str] = {}
+    if first:
+        properties["firstname"] = first[:100]
+    if last:
+        properties["lastname"] = last[:100]
+    if email:
+        properties["email"] = email
+    if phone:
+        properties["phone"] = phone
+    if fields["sentiment"]:
+        properties["voxbulk_last_survey_sentiment"] = fields["sentiment"][:100]
+    if fields["score"] is not None:
+        properties["voxbulk_last_survey_score"] = str(fields["score"])[:32]
+    properties["voxbulk_last_survey_name"] = fields["campaign"][:200]
+    properties["voxbulk_last_survey_completed_at"] = fields["completed_at"][:64]
+    return properties
+
+
+def _update_hubspot_contact_properties(token: str, contact_id: str, properties: dict[str, str]) -> None:
+    if not properties:
+        return
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    with httpx.Client(timeout=30.0) as client:
+        res = client.patch(
+            f"{HUBSPOT_CONTACTS_URL}/{contact_id}",
+            headers=headers,
+            json={"properties": properties},
+        )
+    if res.status_code >= 400:
+        raise HubspotContactSyncError(f"HubSpot contact update failed: {res.text[:300]}")
+
+
+def _resolve_hubspot_contact_id(
+    db: Session,
+    org_id: str,
+    token: str,
+    *,
+    email: str,
+    phone: str,
+) -> str | None:
+    contact_id = _search_contact_by_email(token, email) if email else None
+    if not contact_id and phone:
+        pool = db.execute(
+            select(HubspotContact)
+            .where(HubspotContact.org_id == org_id, HubspotContact.phone == phone)
+            .limit(1)
+        ).scalar_one_or_none()
+        if pool:
+            contact_id = pool.hubspot_contact_id
+    return contact_id
 
 
 def _create_hubspot_note(token: str, *, contact_id: str, body: str) -> None:
@@ -428,38 +510,82 @@ def sync_survey_result_to_hubspot(
     *,
     order: ServiceOrder,
     recipient: ServiceOrderRecipient,
+    force: bool = False,
 ) -> dict[str, Any]:
     require_sync_v1_enabled(db)
     status = hubspot_status(db, org_id)
-    if not status.get("connected") or not status.get("auto_sync_results_back"):
-        return {"ok": True, "skipped": True}
+    if not status.get("connected"):
+        if force:
+            raise HubspotContactSyncError("Connect HubSpot before pushing survey results")
+        return {"ok": True, "skipped": True, "reason": "not_connected"}
 
     cfg = get_hubspot_config(db, org_id)
-    if cfg.get("auto_sync_results_back") is False:
-        return {"ok": True, "skipped": True}
+    auto_sync = cfg.get("auto_sync_results_back") is not False
+    if not force and (not status.get("auto_sync_results_back") or not auto_sync):
+        return {"ok": True, "skipped": True, "reason": "auto_sync_disabled"}
 
     email = str(recipient.email or "").strip()
     phone = str(recipient.phone or "").strip()
     if not email and not phone:
+        if force:
+            raise HubspotContactSyncError("Respondent needs an email or phone to match a HubSpot contact")
         return {"ok": True, "skipped": True, "reason": "no_email_or_phone"}
 
     token = _ensure_access_token(db, org_id)
-    contact_id = _search_contact_by_email(token, email) if email else None
-    if not contact_id and phone:
-        pool = db.execute(
-            select(HubspotContact)
-            .where(HubspotContact.org_id == org_id, HubspotContact.phone == phone)
-            .limit(1)
-        ).scalar_one_or_none()
-        if pool:
-            contact_id = pool.hubspot_contact_id
+    contact_id = _resolve_hubspot_contact_id(db, org_id, token, email=email, phone=phone)
 
     if not contact_id:
+        if force:
+            raise HubspotContactSyncError("No matching HubSpot contact found for this respondent")
         return {"ok": True, "skipped": True, "reason": "contact_not_found_in_hubspot"}
+
+    contact_properties = _survey_result_contact_properties(order, recipient)
+    properties_updated = False
+    properties_error: str | None = None
+    try:
+        _update_hubspot_contact_properties(token, contact_id, contact_properties)
+        properties_updated = True
+    except HubspotContactSyncError as exc:
+        identity_only = {
+            key: value
+            for key, value in contact_properties.items()
+            if key in {"firstname", "lastname", "email", "phone"}
+        }
+        if identity_only and identity_only != contact_properties:
+            try:
+                _update_hubspot_contact_properties(token, contact_id, identity_only)
+                properties_updated = True
+            except HubspotContactSyncError as identity_exc:
+                properties_error = str(identity_exc)[:200]
+        else:
+            properties_error = str(exc)[:200]
 
     note_body = _survey_result_summary(order, recipient)
     _create_hubspot_note(token, contact_id=contact_id, body=note_body)
-    return {"ok": True, "contact_id": contact_id}
+
+    merged = _parse_survey_result(recipient)
+    merged.update(
+        {
+            "hubspot_contact_id": contact_id,
+            "hubspot_synced_at": datetime.utcnow().isoformat(),
+            "hubspot_sync_note": note_body.split("\n", 1)[0],
+        }
+    )
+    recipient.result_json = json.dumps(merged, ensure_ascii=False)
+    db.add(recipient)
+
+    portal = str(cfg.get("hub_id") or "").strip()
+    contact_url = f"https://app.hubspot.com/contacts/{portal}/contact/{contact_id}" if portal else ""
+    result: dict[str, Any] = {
+        "ok": True,
+        "contact_id": contact_id,
+        "contact_url": contact_url,
+        "properties_updated": properties_updated,
+        "note_created": True,
+    }
+    if properties_error:
+        result["properties_warning"] = properties_error
+    return result
 
 
 def maybe_sync_survey_result_to_hubspot(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> None:
