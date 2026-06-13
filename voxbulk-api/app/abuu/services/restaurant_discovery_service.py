@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.abuu.models.entities import CustomerProfile, Restaurant
 from app.abuu.services.kb_service import resolve_settings
-from app.abuu.services.location_service import find_nearest_restaurants
+from app.abuu.services.location_service import find_nearest_restaurants, ignore_delivery_distance
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.preference_service import category_keywords, match_food_categories
 from app.abuu.services.reply_service import localized_name
@@ -38,7 +38,7 @@ def rank_restaurants(
     limit: int = 5,
 ) -> list[RankedRestaurant]:
     categories = categories or []
-    if lat is not None and lng is not None:
+    if lat is not None and lng is not None and not ignore_delivery_distance():
         nearest = find_nearest_restaurants(db, lat=lat, lng=lng, limit=20)
         candidates = [row.restaurant for row in nearest]
         distance_map = {row.restaurant.id: row.distance_km for row in nearest}
@@ -54,7 +54,7 @@ def rank_restaurants(
                 )
             ).scalars().all()
         )
-        distance_map = {r.id: 999.0 for r in candidates}
+        distance_map = {r.id: 0.0 for r in candidates}
 
     ranked: list[RankedRestaurant] = []
     for restaurant in candidates:
@@ -73,7 +73,10 @@ def rank_restaurants(
             )
         )
 
-    ranked.sort(key=lambda row: (0 if row.is_open else 1, row.distance_km, -row.match_score))
+    if ignore_delivery_distance():
+        ranked.sort(key=lambda row: (0 if row.is_open else 1, -row.match_score, row.restaurant.name_en or ""))
+    else:
+        ranked.sort(key=lambda row: (0 if row.is_open else 1, row.distance_km, -row.match_score))
     return ranked[: max(3 if categories else 1, limit)]
 
 
@@ -96,18 +99,25 @@ def format_restaurant_list(
     start = page * page_size
     page_rows = ranked[start : start + page_size]
     lines: list[str] = []
+    show_distance = not ignore_delivery_distance()
     if lang == "en":
-        lines.append("Nearby restaurants:")
+        lines.append("Nearby restaurants:" if show_distance else "Available restaurants:")
     else:
-        lines.append("المطاعم القريبة:")
+        lines.append("المطاعم القريبة:" if show_distance else "المطاعم المتاحة:")
     for idx, row in enumerate(page_rows, start=start + 1):
         name = localized_name(row.restaurant, lang)
         status = "open" if row.is_open else "closed"
         if lang == "en":
-            lines.append(f"{idx}. {name} — {row.distance_km:.1f} km ({status})")
+            if show_distance:
+                lines.append(f"{idx}. {name} — {row.distance_km:.1f} km ({status})")
+            else:
+                lines.append(f"{idx}. {name} ({status})")
         else:
             st = "مفتوح" if row.is_open else "مغلق"
-            lines.append(f"{idx}. {name} — {row.distance_km:.1f} كم ({st})")
+            if show_distance:
+                lines.append(f"{idx}. {name} — {row.distance_km:.1f} كم ({st})")
+            else:
+                lines.append(f"{idx}. {name} ({st})")
     if start + page_size < len(ranked):
         if lang == "en":
             lines.append("Say **more** for more restaurants, or reply with a restaurant name.")

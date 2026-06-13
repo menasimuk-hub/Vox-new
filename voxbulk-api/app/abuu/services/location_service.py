@@ -13,8 +13,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.abuu.models.entities import CustomerAddress, CustomerOrder, CustomerProfile, Restaurant
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def ignore_delivery_distance() -> bool:
+    return bool(get_settings().abuu_ignore_distance)
 
 EARTH_RADIUS_KM = 6371.0
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
@@ -139,12 +144,22 @@ def find_nearest_restaurants(
 ) -> list[NearestRestaurant]:
     ranked: list[NearestRestaurant] = []
     for restaurant in _active_restaurants(db):
-        if restaurant.latitude is None or restaurant.longitude is None:
+        if (
+            restaurant.latitude is None
+            or restaurant.longitude is None
+        ) and not ignore_delivery_distance():
             continue
-        distance = haversine_km(lat, lng, restaurant.latitude, restaurant.longitude)
+        if restaurant.latitude is not None and restaurant.longitude is not None:
+            distance = haversine_km(lat, lng, restaurant.latitude, restaurant.longitude)
+        else:
+            distance = 0.0
         ranked.append(NearestRestaurant(restaurant=restaurant, distance_km=distance))
-    ranked.sort(key=lambda row: row.distance_km)
-    return ranked[: max(1, limit)]
+    if ignore_delivery_distance():
+        ranked.sort(key=lambda row: (row.restaurant.name_en or row.restaurant.name_ar or "").lower())
+    else:
+        ranked.sort(key=lambda row: row.distance_km)
+    cap = len(ranked) if ignore_delivery_distance() else max(1, limit)
+    return ranked[:cap]
 
 
 def nearest_restaurant(db: Session, *, lat: float, lng: float) -> Restaurant | None:
@@ -158,6 +173,11 @@ def validate_delivery_radius(
     lat: float,
     lng: float,
 ) -> tuple[bool, float]:
+    if ignore_delivery_distance():
+        if restaurant.latitude is None or restaurant.longitude is None:
+            return True, 0.0
+        distance = haversine_km(lat, lng, restaurant.latitude, restaurant.longitude)
+        return True, distance
     if restaurant.latitude is None or restaurant.longitude is None:
         return True, 0.0
     distance = haversine_km(lat, lng, restaurant.latitude, restaurant.longitude)
