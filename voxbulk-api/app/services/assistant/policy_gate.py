@@ -17,6 +17,13 @@ _BLOCKED_PATTERNS = [
     (re.compile(r"\b(webhook|gocardless|telnyx)\b.*\b(modify|change|disable)\b|\b(modify|change|disable)\b.*\b(webhook|gocardless|telnyx)\b", re.I), "Payment and telephony integrations cannot be modified via the assistant."),
     (re.compile(r"\b(api[- ]?key|secret|password|token)\b", re.I), "Secrets and credentials cannot be shared or modified via the assistant."),
     (re.compile(r"\b(skip|bypass|hide)\b.*\b(gdpr|disclosure|consent)\b", re.I), "GDPR and AI disclosure requirements cannot be bypassed."),
+    (
+        re.compile(
+            r"\b(void|waive|forgive|skip)\b.*\b(invoice|billing|payment|mandate)\b|\b(modify|change|override)\b.*\b(billing|subscription|wallet)\b",
+            re.I,
+        ),
+        "Billing changes must go through the official billing screens, not the assistant.",
+    ),
 ]
 
 

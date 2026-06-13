@@ -29,3 +29,20 @@ def test_intent_product_compare():
 def test_intent_launch_check():
     match = classify_intent("Can I launch my survey campaign today?")
     assert match.intent == "launch_check"
+
+
+def test_policy_blocks_billing_tampering():
+    decision = check_policy("void my invoice without paying")
+    assert decision.allowed is False
+
+
+def test_pending_action_token_exceeds_legacy_confirm_limit():
+    from app.services.assistant.pending_actions import issue_pending_action
+
+    token = issue_pending_action(
+        org_id="org-1",
+        user_id="user-1",
+        action_type="create_support_ticket",
+        payload={"category": "technical", "subject": "Test subject", "message": "A" * 200},
+    )
+    assert len(token) > 128

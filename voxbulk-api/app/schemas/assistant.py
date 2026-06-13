@@ -40,7 +40,8 @@ class AssistantChatIn(BaseModel):
 
 
 class AssistantConfirmIn(BaseModel):
-    action_id: str = Field(min_length=8, max_length=128)
+    # Full signed pending-action token (uuid + HMAC payload); not just the short public id.
+    action_id: str = Field(min_length=8, max_length=8192)
     confirmed: bool = True
 
 
