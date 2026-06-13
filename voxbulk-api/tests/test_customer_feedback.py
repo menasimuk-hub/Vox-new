@@ -130,3 +130,23 @@ def test_feedback_period_renewal_opens_new_usage_period():
             db.execute(select(FeedbackUsagePeriod).where(FeedbackUsagePeriod.org_id == org_id)).scalars().all()
         )
         assert len(periods) == 2
+
+
+def test_fitness_industry_has_twenty_templates_after_import():
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        list_feedback_templates_for_industry,
+        push_all_feedback_templates_for_industry,
+        resolve_feedback_industry,
+    )
+    from app.services.customer_feedback.template_import_service import FeedbackTemplateImportService
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        FeedbackTemplateImportService.import_from_md(db)
+        fitness = resolve_feedback_industry(db, industry_slug="fitness")
+        templates = list_feedback_templates_for_industry(db, fitness.id)
+        assert len(templates) == 20
+        summary = push_all_feedback_templates_for_industry(db, industry_slug="fitness", dry_run=True)
+        assert summary["template_count"] == 20
+        assert summary["pushed"] == 20
+        assert summary["failed"] == 0

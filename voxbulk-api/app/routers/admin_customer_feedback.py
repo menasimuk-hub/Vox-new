@@ -62,18 +62,26 @@ def delete_industry(industry_id: str, db: Session = Depends(get_db), _admin=Depe
 
 @router.post("/industries/{industry_id}/sync-telnyx")
 def sync_industry_templates(industry_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    rows = list(
-        db.execute(
-            select(FeedbackWaTemplate).where(FeedbackWaTemplate.industry_id == industry_id)
-        ).scalars().all()
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        FeedbackTelnyxPushError,
+        push_all_feedback_templates_for_industry,
     )
-    now = datetime.utcnow()
-    for row in rows:
-        row.telnyx_sync_status = "submitted"
-        row.updated_at = now
-        db.add(row)
-    db.commit()
-    return {"ok": True, "submitted": len(rows)}
+
+    try:
+        summary = push_all_feedback_templates_for_industry(db, industry_id=industry_id)
+    except FeedbackTelnyxPushError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if int(summary.get("failed") or 0):
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": summary.get("message"),
+                "pushed": summary.get("pushed"),
+                "failed": summary.get("failed"),
+                "errors": summary.get("errors"),
+            },
+        )
+    return {"ok": True, **summary}
 
 
 @router.post("/templates/import-md")

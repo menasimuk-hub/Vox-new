@@ -47,6 +47,18 @@ python scripts/push_feedback_template_to_telnyx.py --template-key thank_you
 
 Use `--template-id UUID` for a specific row. Errors from Telnyx/Meta are printed to stderr with full JSON detail.
 
+## Test push all templates for one industry (CLI)
+
+Push every survey template for an industry (e.g. Fitness & gyms = 20 templates):
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+python scripts/push_feedback_industry_to_telnyx.py --industry-slug fitness --dry-run
+python scripts/push_feedback_industry_to_telnyx.py --industry-slug fitness
+```
+
+Slugs: `restaurant`, `retail`, `salon`, `hotel`, `fitness`, `events`, `others`.
+
 ## Workflow (QR → results)
 
 ```

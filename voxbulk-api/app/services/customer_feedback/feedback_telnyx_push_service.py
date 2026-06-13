@@ -16,12 +16,12 @@ from app.core.http_ssl import httpx_ssl_verify
 from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
+    normalize_wa_template_category,
     prepare_components_for_telnyx_push,
 )
 from app.services.telnyx_api_key import normalize_telnyx_api_key, require_telnyx_api_key
 from app.services.telnyx_voice_service import _telnyx_config, _telnyx_headers, resolve_telnyx_whatsapp_waba_id
 from app.services.telnyx_whatsapp_template_sync_service import TELNYX_WHATSAPP_TEMPLATES_URL
-from app.services.wa_template_meta_sync import normalize_wa_template_category
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +124,26 @@ def push_feedback_template_to_telnyx(
     language = normalize_feedback_language(tpl.language)
     name = feedback_meta_template_name(tpl, industry_slug=industry_slug, survey_type_slug=survey_slug)
 
+    if dry_run:
+        payload = {
+            "name": name,
+            "category": category,
+            "language": language,
+            "waba_id": "(dry-run — not sent)",
+            "components": components,
+        }
+        return {
+            "ok": True,
+            "dry_run": True,
+            "template_id": tpl.id,
+            "template_key": tpl.template_key,
+            "meta_name": name,
+            "category": category,
+            "language": language,
+            "payload": payload,
+            "message": "Dry run — payload validated, not sent to Telnyx.",
+        }
+
     config = _telnyx_config(db)
     api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
     if not api_key:
@@ -145,7 +165,7 @@ def push_feedback_template_to_telnyx(
 
     result: dict[str, Any] = {
         "ok": False,
-        "dry_run": dry_run,
+        "dry_run": False,
         "template_id": tpl.id,
         "template_key": tpl.template_key,
         "meta_name": name,
@@ -154,11 +174,6 @@ def push_feedback_template_to_telnyx(
         "waba_id": waba_id,
         "payload": payload,
     }
-
-    if dry_run:
-        result["ok"] = True
-        result["message"] = "Dry run — payload validated, not sent to Telnyx."
-        return result
 
     try:
         with httpx.Client(timeout=45.0, verify=httpx_ssl_verify()) as client:
@@ -234,3 +249,116 @@ def load_feedback_template(
     if row is None:
         raise FeedbackTelnyxPushError(f"No feedback template with key: {key}")
     return row
+
+
+def resolve_feedback_industry(
+    db: Session,
+    *,
+    industry_id: str | None = None,
+    industry_slug: str | None = None,
+) -> FeedbackIndustry:
+    if industry_id:
+        row = db.get(FeedbackIndustry, str(industry_id).strip())
+        if row is None:
+            raise FeedbackTelnyxPushError(f"Industry not found: {industry_id}")
+        return row
+    slug = str(industry_slug or "").strip().lower()
+    if not slug:
+        raise FeedbackTelnyxPushError("Provide industry_id or industry_slug.")
+    row = db.execute(
+        select(FeedbackIndustry).where(FeedbackIndustry.slug == slug).limit(1)
+    ).scalar_one_or_none()
+    if row is None:
+        raise FeedbackTelnyxPushError(f"No feedback industry with slug: {slug}")
+    return row
+
+
+def list_feedback_templates_for_industry(db: Session, industry_id: str) -> list[FeedbackWaTemplate]:
+    return list(
+        db.execute(
+            select(FeedbackWaTemplate)
+            .join(
+                FeedbackSurveyType,
+                FeedbackWaTemplate.survey_type_id == FeedbackSurveyType.id,
+                isouter=True,
+            )
+            .where(FeedbackWaTemplate.industry_id == industry_id)
+            .order_by(
+                FeedbackSurveyType.sort_order.nulls_last(),
+                FeedbackWaTemplate.step_order,
+                FeedbackWaTemplate.template_key,
+            )
+        ).scalars().all()
+    )
+
+
+def push_all_feedback_templates_for_industry(
+    db: Session,
+    *,
+    industry_id: str | None = None,
+    industry_slug: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    industry = resolve_feedback_industry(db, industry_id=industry_id, industry_slug=industry_slug)
+    templates = list_feedback_templates_for_industry(db, industry.id)
+    if not templates:
+        return {
+            "ok": True,
+            "industry_id": industry.id,
+            "industry_slug": industry.slug,
+            "industry_name": industry.name,
+            "pushed": 0,
+            "failed": 0,
+            "dry_run": dry_run,
+            "errors": [],
+            "results": [],
+            "message": f"No templates found for industry {industry.name!r}. Import english-templates.md first.",
+        }
+
+    pushed = 0
+    failed = 0
+    errors: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
+
+    for tpl in templates:
+        label = f"{tpl.template_key} ({tpl.id[:8]})"
+        try:
+            result = push_feedback_template_to_telnyx(db, tpl, dry_run=dry_run)
+            pushed += 1
+            results.append(
+                {
+                    "ok": True,
+                    "template_id": tpl.id,
+                    "template_key": tpl.template_key,
+                    "meta_name": result.get("meta_name"),
+                    "message": result.get("message"),
+                }
+            )
+        except FeedbackTelnyxPushError as exc:
+            failed += 1
+            err = {
+                "template_id": tpl.id,
+                "template_key": tpl.template_key,
+                "error": str(exc),
+                "payload": getattr(exc, "payload", None) or {},
+            }
+            errors.append(err)
+            results.append({"ok": False, **err})
+
+    return {
+        "ok": failed == 0,
+        "industry_id": industry.id,
+        "industry_slug": industry.slug,
+        "industry_name": industry.name,
+        "template_count": len(templates),
+        "pushed": pushed,
+        "failed": failed,
+        "dry_run": dry_run,
+        "errors": errors,
+        "results": results,
+        "message": (
+            f"{'Validated' if dry_run else 'Pushed'} {pushed}/{len(templates)} template(s) "
+            f"for {industry.name}"
+            + (f", {failed} failed" if failed else "")
+        ),
+    }
