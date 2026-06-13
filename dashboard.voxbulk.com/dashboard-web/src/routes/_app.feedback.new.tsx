@@ -76,10 +76,8 @@ function previewTrigger(company: string, branch?: string) {
     : `✨ I want to start the survey for ${company} ✍️📋`;
 }
 
-function qrSrcFor(text: string, size = 320) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=8&data=${encodeURIComponent(
-    `https://wa.me/?text=${encodeURIComponent(text)}`,
-  )}`;
+function buildQrImageUrl(waUrl: string, size = 320) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=8&data=${encodeURIComponent(waUrl)}`;
 }
 
 function buildPreviewMessages(
@@ -150,7 +148,7 @@ function CreateFeedback() {
   };
 
   React.useEffect(() => {
-    if (step !== 4 || !industryId || selectedTypeIds.length === 0) return;
+    if ((step !== 3 && step !== 4 && step !== 5) || !industryId || selectedTypeIds.length === 0) return;
     const branch = branches[0]?.name?.trim() || "Main branch";
     previewM
       .mutateAsync({
@@ -426,7 +424,14 @@ function CreateFeedback() {
 
                 <div className="grid gap-3 md:grid-cols-2">
                   {branches.map((b, idx) => {
-                    const trigger = previewTrigger(companyName, b.name || undefined);
+                    const trigger = idx === 0 && previewQr?.trigger_text
+                      ? previewQr.trigger_text
+                      : previewTrigger(companyName, b.name || undefined);
+                    const qrSrc = idx === 0 && previewQr?.qr_image_url
+                      ? previewQr.qr_image_url
+                      : previewQr?.wa_url
+                        ? buildQrImageUrl(previewQr.wa_url.replace(/\[ref:[^\]]+\]/, "[ref:preview]"), 220)
+                        : null;
                     return (
                       <div key={b.id} className="flex flex-col gap-3 rounded-xl border border-border bg-background/40 p-4">
                         <div className="flex items-center gap-2">
@@ -452,7 +457,13 @@ function CreateFeedback() {
 
                         <div className="flex items-start gap-4">
                           <div className="rounded-xl border-2 border-primary/20 bg-white p-2 shadow-sm">
-                            <img src={qrSrcFor(trigger, 220)} alt={`QR ${b.name}`} className="size-32" />
+                            {qrSrc ? (
+                              <img src={qrSrc} alt={`QR ${b.name}`} className="size-32" />
+                            ) : (
+                              <div className="grid size-32 place-items-center text-center text-[10px] text-muted-foreground">
+                                Loading QR…
+                              </div>
+                            )}
                           </div>
                           <div className="flex-1 space-y-2">
                             <p className="text-xs text-muted-foreground">
@@ -461,18 +472,20 @@ function CreateFeedback() {
                                 {companyName}
                                 {b.name ? ` — ${b.name}` : ""}
                               </b>
-                              . Final QR includes a unique reference after launch.
+                              . Opens your WhatsApp business number with the message pre-filled. Final QR includes a unique reference after launch.
                             </p>
                             <div className="rounded-lg border border-border bg-muted/40 p-2">
                               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Pre-filled WhatsApp message</p>
                               <p className="mt-0.5 text-xs">{trigger}</p>
                             </div>
                             <div className="flex gap-2">
-                              <Button size="sm" variant="outline" className="h-7 gap-1.5" asChild>
-                                <a href={qrSrcFor(trigger, 600)} download={`qr-${b.name || "branch"}-preview.png`}>
-                                  <Download className="size-3" /> PNG
-                                </a>
-                              </Button>
+                              {qrSrc ? (
+                                <Button size="sm" variant="outline" className="h-7 gap-1.5" asChild>
+                                  <a href={qrSrc} download={`qr-${b.name || "branch"}-preview.png`}>
+                                    <Download className="size-3" /> PNG
+                                  </a>
+                                </Button>
+                              ) : null}
                               <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={() => window.print()}>
                                 <Printer className="size-3" /> Print
                               </Button>
@@ -502,7 +515,7 @@ function CreateFeedback() {
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">1 · Scan</p>
                   <div className="rounded-xl border-2 border-dashed border-border bg-white p-3">
                     <img
-                      src={previewQr?.qr_image_url || qrSrcFor(previewTrigger(companyName, branches[0]?.name || undefined), 320)}
+                      src={previewQr?.qr_image_url || buildQrImageUrl("https://wa.me/")}
                       alt="QR"
                       className="size-40"
                     />
@@ -549,18 +562,21 @@ function CreateFeedback() {
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {branches.map((b) => {
-                  const trigger = previewTrigger(companyName, b.name || undefined);
-                  return (
+                {branches.map((b, idx) => (
                     <div key={b.id} className="flex items-center gap-3 rounded-xl border border-border bg-background/40 p-3">
-                      <img src={qrSrcFor(trigger, 200)} alt="QR" className="size-16 rounded bg-white p-1" />
+                      <img
+                        src={idx === 0 && previewQr?.qr_image_url ? previewQr.qr_image_url : buildQrImageUrl(previewQr?.wa_url || "https://wa.me/")}
+                        alt="QR"
+                        className="size-16 rounded bg-white p-1"
+                      />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{b.name || "Unnamed branch"}</p>
-                        <p className="truncate text-[11px] text-muted-foreground">{trigger}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">
+                          {idx === 0 && previewQr?.trigger_text ? previewQr.trigger_text : previewTrigger(companyName, b.name || undefined)}
+                        </p>
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
               </div>
 
               <label

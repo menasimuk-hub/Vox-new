@@ -11,7 +11,7 @@ from app.services.customer_feedback.billing_service import FeedbackBillingServic
 from app.services.customer_feedback.catalog_service import FeedbackCatalogService
 from app.services.customer_feedback.location_service import FeedbackLocationService, location_to_dict
 from app.services.customer_feedback.results_service import FeedbackResultsService
-from app.models.customer_feedback import FeedbackIndustry, FeedbackPackage, FeedbackSurveyType, FeedbackWaTemplate
+from app.models.customer_feedback import FeedbackIndustry, FeedbackPackage, FeedbackSurveyType, FeedbackWaSender, FeedbackWaTemplate
 from app.models.organisation import Organisation
 from sqlalchemy import select, func
 import uuid
@@ -309,7 +309,21 @@ def admin_results(
     return FeedbackResultsService.admin_results(db, org_id=org_id, location_id=location_id)
 
 
-@router.get("/wa-templates")
+@router.post("/wa-senders/sync-from-telnyx")
+def sync_wa_senders_from_telnyx(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.customer_feedback.location_service import _resolve_wa_phone_e164
+    from app.services.customer_feedback.seed_service import FeedbackSeedService
+
+    FeedbackSeedService._sync_wa_sender_phones(db)
+    db.commit()
+    rows = list(db.execute(select(FeedbackWaSender)).scalars().all())
+    return {
+        "ok": True,
+        "items": [
+            {"country_code": r.country_code, "phone_e164": r.phone_e164, "is_active": r.is_active}
+            for r in rows
+        ],
+    }
 def list_wa_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     rows = list(db.execute(select(FeedbackWaTemplate).order_by(FeedbackWaTemplate.step_order)).scalars().all())
     return {

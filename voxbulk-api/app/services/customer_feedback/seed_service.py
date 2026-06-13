@@ -183,8 +183,17 @@ class FeedbackSeedService:
         FeedbackSeedService._seed_industries_if_needed(db)
         FeedbackSeedService._ensure_extra_industries(db)
         FeedbackSeedService._seed_wa_sender_if_needed(db)
+        FeedbackSeedService._sync_wa_sender_phones(db)
         FeedbackSeedService._ensure_packages(db)
         db.commit()
+
+    @staticmethod
+    def _sync_wa_sender_phones(db: Session) -> None:
+        """Align feedback_wa_senders with Telnyx whatsapp_from when configured."""
+        from app.services.customer_feedback.location_service import _resolve_wa_phone_e164
+
+        for zone in ("gb", "eu", "us", "ca", "au"):
+            _resolve_wa_phone_e164(db, zone)
 
     @staticmethod
     def _ensure_extra_industries(db: Session) -> None:
