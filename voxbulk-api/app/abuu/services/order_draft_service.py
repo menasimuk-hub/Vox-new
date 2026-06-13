@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta
 
@@ -18,8 +19,10 @@ from app.abuu.models.entities import (
     RestaurantMenuCategory,
     RestaurantMenuItem,
 )
+from app.abuu.services.customer_memory_service import parse_dislikes
 from app.abuu.services.location_service import find_nearest_restaurants
 from app.abuu.services.order_service import AbuuOrderService
+from app.abuu.services.preference_service import category_keywords, item_types_for_categories
 from app.abuu.services.reply_service import localized_name
 
 
@@ -95,7 +98,14 @@ class AbuuOrderDraftService:
         ).scalars().first()
 
     @staticmethod
-    def list_menu_items(db: Session, restaurant_id: str, *, limit: int = 12) -> list[RestaurantMenuItem]:
+    def list_menu_items(
+        db: Session,
+        restaurant_id: str,
+        *,
+        limit: int = 12,
+        categories: list[str] | None = None,
+        customer: CustomerProfile | None = None,
+    ) -> list[RestaurantMenuItem]:
         category_ids = [
             c.id
             for c in db.execute(
@@ -108,19 +118,67 @@ class AbuuOrderDraftService:
         ]
         if not category_ids:
             return []
-        return list(
+        allowed_types = item_types_for_categories(categories or [])
+        dislikes = parse_dislikes(customer) if customer is not None else []
+        rows = list(
             db.execute(
                 select(RestaurantMenuItem)
                 .where(
                     RestaurantMenuItem.category_id.in_(category_ids),
                     RestaurantMenuItem.is_deleted.is_(False),
                     RestaurantMenuItem.is_available.is_(True),
-                    RestaurantMenuItem.item_type.in_(("meat", "food", "drink", "drinks", "salad", "sides", "desserts")),
+                    RestaurantMenuItem.item_type.in_(tuple(allowed_types)),
                 )
                 .order_by(RestaurantMenuItem.item_type.asc(), RestaurantMenuItem.created_at.asc())
-                .limit(limit)
+                .limit(max(limit, 50))
             ).scalars().all()
         )
+        if not categories:
+            return rows[:limit]
+
+        filtered: list[RestaurantMenuItem] = []
+        keywords = [kw.lower() for cat in categories for kw in category_keywords(cat)]
+        for item in rows:
+            haystack = f"{item.name_en} {item.name_ar} {item.item_type}".lower()
+            if keywords and not any(kw in haystack for kw in keywords):
+                if item.item_type not in item_types_for_categories(categories):
+                    continue
+            if any(dislike in haystack for dislike in dislikes):
+                continue
+            filtered.append(item)
+            if len(filtered) >= limit:
+                break
+        return filtered or rows[:limit]
+
+    @staticmethod
+    def cart_fingerprint(db: Session, order: CustomerOrder) -> str:
+        lines = db.execute(
+            select(CustomerOrderItem).where(CustomerOrderItem.order_id == order.id)
+        ).scalars().all()
+        payload = {
+            "total_agorot": int(order.total_agorot or 0),
+            "items": sorted(
+                [
+                    {
+                        "menu_item_id": line.menu_item_id,
+                        "quantity": line.quantity,
+                        "unit_price_agorot": line.unit_price_agorot,
+                    }
+                    for line in lines
+                ],
+                key=lambda row: row["menu_item_id"],
+            ),
+        }
+        digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        return digest[:16]
+
+    @staticmethod
+    def mark_cart_changed(context: dict, fingerprint: str) -> dict:
+        context = dict(context or {})
+        if context.get("cart_fingerprint") != fingerprint:
+            context.pop("confirmed_cart_fingerprint", None)
+        context["cart_fingerprint"] = fingerprint
+        return context
 
     @staticmethod
     def build_suggestion_index(items: list[RestaurantMenuItem]) -> list[dict]:
@@ -187,6 +245,12 @@ class AbuuOrderDraftService:
             "item_added",
             {"menu_item_id": item.id, "quantity": qty, "line_total_agorot": line_total},
         )
+        from app.abuu.services.customer_memory_service import remember_preference
+
+        customer = db.get(CustomerProfile, order.customer_id)
+        if customer is not None and item.item_type:
+            remember_preference(customer, category=str(item.item_type))
+            db.add(customer)
         return order
 
     @staticmethod

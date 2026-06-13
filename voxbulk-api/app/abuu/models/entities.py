@@ -224,6 +224,24 @@ class AbuuExternalEvent(AbuuBase):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class AbuuInboundMessage(AbuuBase):
+    __tablename__ = "abuu_inbound_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    customer_phone: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    customer_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_customers.id"), nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    message_type: Mapped[str] = mapped_column(String(16), nullable=False, default="text")
+    body_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcript_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcript_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    voice_media_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    voice_content_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    voice_storage_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class AbuuConversationSession(AbuuBase, AbuuTimestampMixin):
     __tablename__ = "abuu_conversation_sessions"
 

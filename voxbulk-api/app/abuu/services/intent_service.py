@@ -39,10 +39,15 @@ _MENU_PATTERNS = (
 )
 
 
-def detect_intent(text: str, *, has_active_session: bool) -> AbuuIntent:
+def detect_intent(text: str, *, has_active_session: bool, step: str | None = None) -> AbuuIntent:
     normalized = str(text or "").strip()
     if not normalized:
         return AbuuIntent("empty")
+
+    if step == "awaiting_name":
+        if any(pattern.search(normalized) for pattern in _CANCEL_PATTERNS):
+            return AbuuIntent("cancel")
+        return AbuuIntent("provide_name", item_ref=normalized)
 
     for pattern in _CANCEL_PATTERNS:
         if pattern.search(normalized):
@@ -64,7 +69,7 @@ def detect_intent(text: str, *, has_active_session: bool) -> AbuuIntent:
             if pattern.search(normalized):
                 return AbuuIntent("order_food")
 
-    if has_active_session:
+    if has_active_session or step in {"awaiting_preference", "browsing"}:
         return AbuuIntent("add_item", item_ref=normalized)
 
     return AbuuIntent("unknown")

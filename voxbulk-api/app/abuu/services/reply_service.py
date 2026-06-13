@@ -30,6 +30,84 @@ def welcome_message(restaurant: Restaurant, lang: str) -> str:
     )
 
 
+def personalized_greeting_message(
+    *,
+    first_name: str | None,
+    lang: str,
+    saved_address: str | None = None,
+) -> str:
+    name = first_name or ("there" if lang == "en" else "صديقي")
+    if lang == "en":
+        lines = [f"Hello {name}, what would you like to eat today?"]
+        lines.append("Tell me chicken, fish, meat, salad, drinks, dessert, or vegetarian.")
+        if saved_address:
+            lines.append(f"We'll deliver to your saved address: {saved_address}")
+        return "\n".join(lines)
+    lines = [f"مرحباً {name}، ماذا تحب أن تأكل اليوم؟"]
+    lines.append("اكتب: دجاج، سمك، لحم، سلطة، مشروبات، حلويات، أو نباتي.")
+    if saved_address:
+        lines.append(f"سنوصل إلى عنوانك المحفوظ: {saved_address}")
+    return "\n".join(lines)
+
+
+def ask_name_message(lang: str) -> str:
+    if lang == "en":
+        return "Welcome! What is your first name?"
+    return "أهلاً بك! ما اسمك؟"
+
+
+def ask_preference_message(*, first_name: str | None, lang: str) -> str:
+    return personalized_greeting_message(first_name=first_name, lang=lang)
+
+
+def category_clarification_message(categories: list[str], lang: str) -> str:
+    from app.abuu.services.preference_service import category_label
+
+    labels = [category_label(cat, lang) for cat in categories]
+    joined = ", ".join(labels)
+    if lang == "en":
+        return f"Did you mean {joined}? Reply with one option."
+    return f"هل تقصد {joined}؟ أرسل خياراً واحداً."
+
+
+def already_confirmed_message(lang: str) -> str:
+    if lang == "en":
+        return "Your order is already confirmed and awaiting payment. Send ABUU to start a new order."
+    return "طلبك مؤكد بالفعل وبانتظار الدفع. أرسل «abuu» لبدء طلب جديد."
+
+
+def voice_low_confidence_message(lang: str) -> str:
+    if lang == "en":
+        return "I couldn't understand the voice note clearly. Please type your message."
+    return "لم أفهم الرسالة الصوتية بوضوح. يرجى كتابة رسالتك."
+
+
+def preference_menu_message(
+    restaurant: Restaurant,
+    items: list[tuple[int, RestaurantMenuItem]],
+    *,
+    categories: list[str],
+    lang: str,
+) -> str:
+    from app.abuu.services.preference_service import category_label
+
+    labels = ", ".join(category_label(cat, lang) for cat in categories)
+    lines: list[str] = []
+    title = localized_name(restaurant, lang)
+    if lang == "en":
+        lines.append(f"{labels} options — {title}")
+    else:
+        lines.append(f"خيارات {labels} — {title}")
+    for idx, item in items:
+        label = localized_name(item, lang)
+        lines.append(f"{idx}. {label} — {format_shekel(item.price_agorot)}")
+    if lang == "en":
+        lines.append("Reply with a number to add an item.")
+    else:
+        lines.append("أرسل رقم الطبق لإضافته.")
+    return "\n".join(lines)
+
+
 def menu_message(
     restaurant: Restaurant,
     items: list[tuple[int, RestaurantMenuItem]],
