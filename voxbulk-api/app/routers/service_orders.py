@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -1276,6 +1276,94 @@ def close_interview_cv_collection_early(
         return payload
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/hubspot/contacts/sync")
+def sync_hubspot_contacts(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.hubspot_contact_sync_service import HubspotContactSyncError, fetch_and_upsert_contacts
+
+    payload = body or {}
+    try:
+        limit = int(payload.get("limit") or 100)
+    except (TypeError, ValueError):
+        limit = 100
+    try:
+        return fetch_and_upsert_contacts(db, principal.org_id, limit=limit)
+    except HubspotContactSyncError as exc:
+        msg = str(exc)
+        code = status.HTTP_404_NOT_FOUND if "not enabled" in msg.lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=msg) from exc
+
+
+@router.get("/hubspot/contacts")
+def list_hubspot_contacts(
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.hubspot_contact_sync_service import HubspotContactSyncError, list_contacts
+
+    try:
+        return list_contacts(db, principal.org_id, limit=limit)
+    except HubspotContactSyncError as exc:
+        msg = str(exc)
+        code = status.HTTP_404_NOT_FOUND if "not enabled" in msg.lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=msg) from exc
+
+
+@router.post("/hubspot/contacts/import-to-order")
+def import_hubspot_contacts_to_order(
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.hubspot_contact_sync_service import HubspotContactSyncError, import_contacts_to_order
+
+    order_id = str(body.get("order_id") or "").strip()
+    contact_ids = body.get("contact_ids") or []
+    if not order_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="order_id required")
+    try:
+        return import_contacts_to_order(
+            db,
+            principal.org_id,
+            order_id=order_id,
+            contact_ids=list(contact_ids),
+        )
+    except HubspotContactSyncError as exc:
+        msg = str(exc)
+        code = status.HTTP_404_NOT_FOUND if "not enabled" in msg.lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=msg) from exc
+
+
+@router.patch("/hubspot/sync-settings")
+def patch_hubspot_sync_settings(
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.hubspot_contact_sync_service import HubspotContactSyncError, update_hubspot_sync_settings
+
+    field_map = body.get("field_map")
+    if field_map is not None and not isinstance(field_map, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="field_map must be an object")
+    try:
+        return update_hubspot_sync_settings(
+            db,
+            principal.org_id,
+            field_map=field_map,
+            auto_sync_results_back=body.get("auto_sync_results_back"),
+        )
+    except HubspotContactSyncError as exc:
+        msg = str(exc)
+        code = status.HTTP_404_NOT_FOUND if "not enabled" in msg.lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=msg) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.patch("/{order_id}/interview-shortlist")

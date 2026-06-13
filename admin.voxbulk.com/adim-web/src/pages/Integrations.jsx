@@ -2208,6 +2208,17 @@ export default function Integrations() {
                       <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('hubspot', e.target.checked)} />
                       <span>Enable HubSpot integration</span>
                     </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input
+                        type='checkbox'
+                        checked={Boolean(activeConfig.contact_sync_v1_enabled)}
+                        onChange={(e) => setProviderField('hubspot', 'contact_sync_v1_enabled', e.target.checked)}
+                      />
+                      <span>Enable HubSpot contact sync (v1 beta)</span>
+                    </label>
+                    <div className='muted' style={{ fontSize: 12, marginTop: -4 }}>
+                      When enabled, dashboard orgs see a separate Contact sync (beta) card for pulling HubSpot contacts into VoxBulk. Existing CRM connect and interview sync are unchanged.
+                    </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Connection type</label>
                       <select className='input' value={String(activeConfig.auth_mode || 'private_app')} onChange={(e) => setProviderField('hubspot', 'auth_mode', e.target.value)}>

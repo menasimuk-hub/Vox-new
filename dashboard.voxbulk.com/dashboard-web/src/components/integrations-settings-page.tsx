@@ -4,6 +4,7 @@ import { CalendarCheck, ListChecks, Plug, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import { HubspotSyncSettingsCard } from "@/components/hubspot-sync-settings-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -52,6 +53,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const cronPlatformReady = scheduling.cronofy_platform_configured === true;
   const hubspotConnected = hubspot.connected === true;
   const hubspotPlatformReady = hubspot.platform_configured === true;
+  const hubspotSyncSettingsEnabled = hubspot.sync_settings_enabled === true;
   const hubspotUsesOAuth = hubspot.uses_oauth_connect === true;
   const hubspotUsesToken = hubspot.uses_access_token === true;
   const [hubspotTokenDraft, setHubspotTokenDraft] = React.useState("");
@@ -279,6 +281,8 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
           )}
         </CardContent>
       </Card>
+
+      {hubspotSyncSettingsEnabled ? <HubspotSyncSettingsCard /> : null}
 
       <p className="text-xs text-muted-foreground">
         Need help? Open <Link to="/account/support" className="text-primary underline-offset-2 hover:underline">Support</Link> or ask your VoxBulk account manager to enable integrations in admin.

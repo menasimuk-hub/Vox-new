@@ -83,7 +83,7 @@ def hubspot_status(db: Session, org_id: str) -> dict[str, Any]:
     platform = platform_oauth_configured(db)
     platform_mode = _hubspot_platform_auth_mode(db)
     org_mode = str(cfg.get("auth_mode") or platform_mode).strip().lower()
-    return {
+    base = {
         "connected": connected,
         "platform_configured": platform,
         "auth_mode": platform_mode,
@@ -98,6 +98,22 @@ def hubspot_status(db: Session, org_id: str) -> dict[str, Any]:
         "expires_at": cfg.get("expires_at"),
         "connected_at": cfg.get("connected_at"),
     }
+    try:
+        from app.services.hubspot_contact_sync_service import sync_status_extras
+
+        base.update(sync_status_extras(db, org_id, cfg))
+    except Exception:
+        base.update(
+            {
+                "sync_settings_enabled": False,
+                "field_map": {},
+                "auto_sync_results_back": True,
+                "last_sync_at": None,
+                "contact_count": 0,
+                "last_sync_summary": None,
+            }
+        )
+    return base
 
 
 def update_hubspot_settings(

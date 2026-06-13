@@ -57,6 +57,7 @@ export const queryKeys = {
   faq: ["faq"] as const,
   schedulingStatus: ["service-orders", "scheduling", "status"] as const,
   hubspotStatus: ["service-orders", "hubspot", "status"] as const,
+  hubspotContacts: (limit?: number) => ["service-orders", "hubspot", "contacts", limit ?? 50] as const,
   serviceApiSettings: ["organisations", "service-api-settings"] as const,
   teamMembers: ["organisations", "team", "members"] as const,
   teamInvites: ["organisations", "team", "invites"] as const,
@@ -896,6 +897,70 @@ export function useHubSpotStatus() {
   return useQuery({
     queryKey: queryKeys.hubspotStatus,
     queryFn: () => apiFetch<Record<string, unknown>>("/service-orders/hubspot/status"),
+  });
+}
+
+export type HubSpotContactRow = {
+  id: string;
+  hubspot_contact_id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  synced_at?: string | null;
+};
+
+export function useHubSpotContacts(limit = 50, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.hubspotContacts(limit),
+    queryFn: () =>
+      apiFetch<{ ok: boolean; items: HubSpotContactRow[]; count: number }>(
+        `/service-orders/hubspot/contacts?limit=${limit}`,
+      ),
+    enabled,
+  });
+}
+
+export function useSyncHubSpotContacts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body?: { limit?: number }) =>
+      apiFetch<{ ok: boolean; imported: number; updated: number; skipped: number; has_more?: boolean; message?: string }>(
+        "/service-orders/hubspot/contacts/sync",
+        { method: "POST", body: JSON.stringify(body ?? {}) },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.hubspotStatus });
+      void qc.invalidateQueries({ queryKey: ["service-orders", "hubspot", "contacts"] });
+    },
+  });
+}
+
+export function useImportHubSpotToOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { order_id: string; contact_ids: string[] }) =>
+      apiFetch<{ ok: boolean; added: number; skipped: number; recipient_count: number }>(
+        "/service-orders/hubspot/contacts/import-to-order",
+        { method: "POST", body: JSON.stringify(body) },
+      ),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(variables.order_id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
+    },
+  });
+}
+
+export function usePatchHubSpotSyncSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { field_map?: Record<string, string>; auto_sync_results_back?: boolean }) =>
+      apiFetch<Record<string, unknown>>("/service-orders/hubspot/sync-settings", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.hubspotStatus });
+    },
   });
 }
 

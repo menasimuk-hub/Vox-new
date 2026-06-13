@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     hubspot_client_id: str = Field(default="", alias="HUBSPOT_CLIENT_ID")
     hubspot_client_secret: str = Field(default="", alias="HUBSPOT_CLIENT_SECRET")
     hubspot_redirect_uri: str = Field(default="", alias="HUBSPOT_REDIRECT_URI")
+    hubspot_contact_sync_v1_enabled: str = Field(default="", alias="HUBSPOT_CONTACT_SYNC_V1_ENABLED")
 
     # Bootstrap
     bootstrap_token: str = Field(default="", alias="BOOTSTRAP_TOKEN")
