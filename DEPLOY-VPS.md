@@ -34,7 +34,7 @@ cd /www/voxbulk && VOX_HARD_RESET=1 VOX_GIT_BRANCH=fix/admin-finance-hardening b
 Success looks like:
 - `git log -1` shows the account-deletion commit (or newer)
 - `build-info.json` has new `built_at` timestamp
-- `curl -s http://127.0.0.1:8000/health` returns OK
+- `curl -s -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health` returns OK (plain `curl` without `Host` shows `Invalid host header` — that is normal)
 
 ---
 
@@ -100,7 +100,7 @@ curl -s -X POST -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: applic
 ### 3. Smoke test
 
 ```bash
-curl -s http://127.0.0.1:8000/health
+curl -s -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "https://api.voxbulk.com/admin/customer-feedback/industries" | head -c 400
 ```
 
