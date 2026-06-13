@@ -97,6 +97,29 @@ export default function Menu() {
     }
   }
 
+  const uploadPhoto = async (itemId, file) => {
+    setBusy(itemId)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const token = localStorage.getItem('access_token')
+      const resp = await fetch(`/api/abuu/restaurant/menu/items/${itemId}/photo`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      })
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}))
+        throw new Error(err.detail || 'Upload failed')
+      }
+      await load()
+    } catch (e) {
+      setError(e.message || 'Upload failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     <div className='card'>
       <h2>Menu</h2>
@@ -123,6 +146,7 @@ export default function Menu() {
             <table className='table'>
               <thead>
                 <tr>
+                  <th>Photo</th>
                   <th>Item</th>
                   <th>Type</th>
                   <th>Price</th>
@@ -133,6 +157,21 @@ export default function Menu() {
               <tbody>
                 {(cat.items || []).map((item) => (
                   <tr key={item.id}>
+                    <td>
+                      {item.photo_url ? (
+                        <img src={item.photo_url} alt='' style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4 }} />
+                      ) : (
+                        <input
+                          type='file'
+                          accept='image/*'
+                          disabled={busy === item.id}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) uploadPhoto(item.id, file)
+                          }}
+                        />
+                      )}
+                    </td>
                     <td>{item.name_ar || item.name_en}</td>
                     <td>{item.item_type}</td>
                     <td>{shekel(item.price_agorot)}</td>

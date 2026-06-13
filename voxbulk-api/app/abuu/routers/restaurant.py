@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -132,7 +132,14 @@ def patch_menu_item(
     cat = db.get(RestaurantMenuCategory, row.category_id)
     if cat is None or cat.restaurant_id != principal.restaurant_id:
         raise HTTPException(status_code=404, detail="Item not found")
-    AbuuMenuService.patch_item(db, row, payload)
+    AbuuMenuService.patch_item(
+        db,
+        row,
+        payload,
+        restaurant_id=principal.restaurant_id,
+        actor_type="restaurant",
+        actor_id=principal.restaurant_id,
+    )
     db.commit()
     db.refresh(row)
     return menu_item_to_dict(row)
@@ -150,7 +157,13 @@ def delete_menu_item(
     cat = db.get(RestaurantMenuCategory, row.category_id)
     if cat is None or cat.restaurant_id != principal.restaurant_id:
         raise HTTPException(status_code=404, detail="Item not found")
-    AbuuMenuService.delete_item(db, row)
+    AbuuMenuService.delete_item(
+        db,
+        row,
+        restaurant_id=principal.restaurant_id,
+        actor_type="restaurant",
+        actor_id=principal.restaurant_id,
+    )
     db.commit()
     return {"ok": True}
 
@@ -220,6 +233,60 @@ def restaurant_mark_ready(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.patch("/orders/{order_id}/prep-delay")
+def restaurant_prep_delay(
+    order_id: str,
+    payload: dict,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted or order.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        AbuuOrderService.set_prep_delay_note(db, order, str(payload.get("note") or ""))
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.post("/menu/items/{item_id}/photo")
+async def upload_menu_item_photo(
+    item_id: str,
+    file: UploadFile = File(...),
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    from app.abuu.services.abuu_menu_photo_storage_service import (
+        delete_photo_file,
+        save_photo_bytes,
+        storage_key_for,
+        validate_menu_photo_upload,
+    )
+
+    row = db.get(RestaurantMenuItem, item_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Item not found")
+    cat = db.get(RestaurantMenuCategory, row.category_id)
+    if cat is None or cat.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Item not found")
+    content = await file.read()
+    try:
+        ext = validate_menu_photo_upload(filename=file.filename or "photo.jpg", content=content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    delete_photo_file(row.photo_storage_key)
+    key = storage_key_for(restaurant_id=cat.restaurant_id, item_id=row.id, ext=ext)
+    save_photo_bytes(storage_key=key, content=content)
+    row.photo_storage_key = key
+    row.updated_at = datetime.utcnow()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return menu_item_to_dict(row)
 
 
 @router.get("/notifications")

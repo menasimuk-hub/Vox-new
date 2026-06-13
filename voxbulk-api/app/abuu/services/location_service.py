@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,8 +17,14 @@ from app.abuu.models.entities import CustomerAddress, CustomerOrder, CustomerPro
 logger = logging.getLogger(__name__)
 
 EARTH_RADIUS_KM = 6371.0
-NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
+NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
+NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 NOMINATIM_USER_AGENT = "VoxBulk-Abuu/1.0"
+GAZA_VIEWBOX = "34.20,31.20,34.55,31.60"
+
+_ADDRESS_PREFIXES = (
+    r"^(?:عنوان|العنوان|address|addr|delivery\s*to|deliver\s*to)\s*[:\-]?\s*",
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +40,13 @@ class NearestRestaurant:
     distance_km: float
 
 
+@dataclass(frozen=True)
+class GeocodeResult:
+    latitude: float
+    longitude: float
+    display_name: str
+
+
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     lat1_r, lon1_r = math.radians(lat1), math.radians(lon1)
     lat2_r, lon2_r = math.radians(lat2), math.radians(lon2)
@@ -42,12 +56,19 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return EARTH_RADIUS_KM * 2 * math.asin(min(1.0, math.sqrt(a)))
 
 
+def normalize_address_text(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "").strip())
+    for pattern in _ADDRESS_PREFIXES:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+    return cleaned
+
+
 def reverse_geocode(lat: float, lng: float) -> str:
     fallback = f"{lat:.5f}, {lng:.5f}"
     try:
         with httpx.Client(timeout=3.0) as client:
             resp = client.get(
-                NOMINATIM_URL,
+                NOMINATIM_REVERSE_URL,
                 params={"lat": lat, "lon": lng, "format": "json"},
                 headers={"User-Agent": NOMINATIM_USER_AGENT},
             )
@@ -59,6 +80,42 @@ def reverse_geocode(lat: float, lng: float) -> str:
     except Exception:
         logger.warning("abuu_nominatim_failed lat=%s lng=%s", lat, lng, exc_info=True)
     return fallback
+
+
+def forward_geocode(address_text: str) -> GeocodeResult | None:
+    query = normalize_address_text(address_text)
+    if not query:
+        return None
+    try:
+        with httpx.Client(timeout=4.0) as client:
+            resp = client.get(
+                NOMINATIM_SEARCH_URL,
+                params={
+                    "q": query,
+                    "format": "json",
+                    "limit": 1,
+                    "viewbox": GAZA_VIEWBOX,
+                    "bounded": 0,
+                    "countrycodes": "ps,il",
+                },
+                headers={"User-Agent": NOMINATIM_USER_AGENT},
+            )
+            if resp.status_code != 200:
+                logger.warning("abuu_geocode_failed query=%s status=%s", query, resp.status_code)
+                return None
+            results = resp.json()
+            if not results:
+                logger.warning("abuu_geocode_failed query=%s reason=no_results", query)
+                return None
+            hit = results[0]
+            return GeocodeResult(
+                latitude=float(hit["lat"]),
+                longitude=float(hit["lon"]),
+                display_name=str(hit.get("display_name") or query),
+            )
+    except Exception:
+        logger.warning("abuu_geocode_failed query=%s", query, exc_info=True)
+    return None
 
 
 def _active_restaurants(db: Session) -> list[Restaurant]:
@@ -90,6 +147,11 @@ def find_nearest_restaurants(
     return ranked[: max(1, limit)]
 
 
+def nearest_restaurant(db: Session, *, lat: float, lng: float) -> Restaurant | None:
+    ranked = find_nearest_restaurants(db, lat=lat, lng=lng, limit=1)
+    return ranked[0].restaurant if ranked else None
+
+
 def validate_delivery_radius(
     restaurant: Restaurant,
     *,
@@ -114,9 +176,13 @@ def get_default_address(db: Session, customer_id: str) -> CustomerAddress | None
 
 def attach_default_address_if_present(db: Session, order: CustomerOrder, customer: CustomerProfile) -> bool:
     if order.delivery_address_id:
+        order.location_missing = False
+        db.add(order)
         return True
     default_address = get_default_address(db, customer.id)
     if default_address is None:
+        order.location_missing = True
+        db.add(order)
         logger.warning(
             "abuu_missing_delivery_location order_id=%s customer_id=%s",
             order.id,
@@ -124,6 +190,7 @@ def attach_default_address_if_present(db: Session, order: CustomerOrder, custome
         )
         return False
     order.delivery_address_id = default_address.id
+    order.location_missing = False
     db.add(order)
     return True
 
@@ -149,13 +216,22 @@ def save_customer_address(
             row.is_default = False
             db.add(row)
 
-    if latitude is not None and longitude is not None and not address_text.strip():
-        address_text = reverse_geocode(latitude, longitude)
+    normalized = normalize_address_text(address_text)
+    if latitude is None and longitude is None and normalized:
+        geocoded = forward_geocode(normalized)
+        if geocoded is not None:
+            latitude = geocoded.latitude
+            longitude = geocoded.longitude
+            if not normalized:
+                normalized = geocoded.display_name
+
+    if latitude is not None and longitude is not None and not normalized.strip():
+        normalized = reverse_geocode(latitude, longitude)
 
     row = CustomerAddress(
         customer_id=customer_id,
         label=label,
-        address_text=address_text.strip(),
+        address_text=normalized.strip() or address_text.strip(),
         latitude=latitude,
         longitude=longitude,
         source_message_id=source_message_id,
@@ -206,6 +282,6 @@ def parse_whatsapp_location(record: dict[str, Any] | None) -> DeliveryLocation |
         return None
 
     name = str(block.get("name") or "").strip()
-    address = str(block.get("address") or block.get("address_text") or "").strip()
+    address = normalize_address_text(str(block.get("address") or block.get("address_text") or ""))
     address_text = address or name or reverse_geocode(lat, lng)
     return DeliveryLocation(latitude=lat, longitude=lng, address_text=address_text)

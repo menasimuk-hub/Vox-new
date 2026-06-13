@@ -99,6 +99,18 @@ def need_delivery_address_message(lang: str) -> str:
     )
 
 
+def location_clarification_message(lang: str) -> str:
+    if lang == "en":
+        return (
+            "We could not find that address. Please send a WhatsApp location pin "
+            "or a clearer address (area, landmark, or street)."
+        )
+    return (
+        "لم نتمكن من تحديد العنوان. يرجى إرسال موقع واتساب "
+        "أو عنوان أوضح (الحي، معلم، أو الشارع)."
+    )
+
+
 def out_of_delivery_area_message(lang: str, *, distance_km: float, radius_km: float) -> str:
     if lang == "en":
         return (

@@ -16,11 +16,11 @@ from app.core.abuu_database import get_abuu_db
 router = APIRouter(prefix="/abuu/driver", tags=["abuu-driver"])
 
 DRIVER_BOARD_STATUSES = {
-    "assigned": {"assigned", "unassigned"},
+    "assigned": {"assigned", "accepted", "unassigned"},
     "picked_up": {"on_route"},
     "on_route": {"on_route"},
     "delivered": {"delivered"},
-    "failed": {"failed"},
+    "failed": {"failed", "rejected", "timed_out"},
 }
 
 
@@ -89,14 +89,16 @@ def patch_assignment(
         raise HTTPException(status_code=404, detail="Assignment not found")
     new_status = str(payload.get("status") or row.status)
     try:
-        if new_status == "picked_up":
+        if new_status == "accepted":
+            AbuuOrderService.driver_accept_assignment(db, row)
+        elif new_status == "rejected":
+            row = AbuuOrderService.driver_reject_assignment(db, row, reason=str(payload.get("reason") or ""))
+        elif new_status == "picked_up":
             AbuuOrderService.driver_mark_picked_up(db, row)
         elif new_status == "delivered":
             AbuuOrderService.driver_mark_delivered(db, row)
         elif new_status == "failed":
-            row.status = "failed"
-            row.updated_at = datetime.utcnow()
-            db.add(row)
+            row = AbuuOrderService.driver_fail_pickup(db, row, reason=str(payload.get("reason") or ""))
         else:
             row.status = new_status
             row.updated_at = datetime.utcnow()
@@ -104,6 +106,8 @@ def patch_assignment(
         db.commit()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="Assignment not found")
     db.refresh(row)
     return _enriched_assignment(db, row)
 

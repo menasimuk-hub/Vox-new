@@ -2,16 +2,53 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.abuu.models.entities import RestaurantMenuCategory, RestaurantMenuItem
+from app.abuu.models.entities import AbuuMenuAuditLog, RestaurantMenuCategory, RestaurantMenuItem
 from app.abuu.services.abuu_menu_photo_storage_service import delete_photo_file
 
 
 class AbuuMenuService:
+    @staticmethod
+    def _audit(
+        db: Session,
+        *,
+        restaurant_id: str,
+        menu_item_id: str | None,
+        action: str,
+        actor_type: str,
+        actor_id: str | None,
+        before: dict | None,
+        after: dict | None,
+    ) -> None:
+        db.add(
+            AbuuMenuAuditLog(
+                restaurant_id=restaurant_id,
+                menu_item_id=menu_item_id,
+                action=action,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                before_json=json.dumps(before or {}),
+                after_json=json.dumps(after or {}),
+                created_at=datetime.utcnow(),
+            )
+        )
+
+    @staticmethod
+    def _item_snapshot(row: RestaurantMenuItem) -> dict:
+        return {
+            "id": row.id,
+            "name_en": row.name_en,
+            "name_ar": row.name_ar,
+            "item_type": row.item_type,
+            "price_agorot": row.price_agorot,
+            "is_available": row.is_available,
+        }
+
     @staticmethod
     def list_categories(db: Session, restaurant_id: str) -> list[RestaurantMenuCategory]:
         return list(
@@ -82,6 +119,9 @@ class AbuuMenuService:
         description_ar: str | None = None,
         parent_menu_item_id: str | None = None,
         is_available: bool = True,
+        restaurant_id: str | None = None,
+        actor_type: str = "system",
+        actor_id: str | None = None,
     ) -> RestaurantMenuItem:
         row = RestaurantMenuItem(
             category_id=category_id,
@@ -96,10 +136,30 @@ class AbuuMenuService:
         )
         db.add(row)
         db.flush()
+        if restaurant_id:
+            AbuuMenuService._audit(
+                db,
+                restaurant_id=restaurant_id,
+                menu_item_id=row.id,
+                action="create",
+                actor_type=actor_type,
+                actor_id=actor_id,
+                before=None,
+                after=AbuuMenuService._item_snapshot(row),
+            )
         return row
 
     @staticmethod
-    def patch_item(db: Session, row: RestaurantMenuItem, payload: dict) -> RestaurantMenuItem:
+    def patch_item(
+        db: Session,
+        row: RestaurantMenuItem,
+        payload: dict,
+        *,
+        restaurant_id: str | None = None,
+        actor_type: str = "system",
+        actor_id: str | None = None,
+    ) -> RestaurantMenuItem:
+        before = AbuuMenuService._item_snapshot(row)
         for key in ("name_en", "name_ar", "description_en", "description_ar", "item_type"):
             if key in payload:
                 val = payload[key]
@@ -114,15 +174,45 @@ class AbuuMenuService:
             row.category_id = str(payload["category_id"])
         row.updated_at = datetime.utcnow()
         db.add(row)
+        if restaurant_id:
+            AbuuMenuService._audit(
+                db,
+                restaurant_id=restaurant_id,
+                menu_item_id=row.id,
+                action="update",
+                actor_type=actor_type,
+                actor_id=actor_id,
+                before=before,
+                after=AbuuMenuService._item_snapshot(row),
+            )
         return row
 
     @staticmethod
-    def delete_item(db: Session, row: RestaurantMenuItem) -> None:
+    def delete_item(
+        db: Session,
+        row: RestaurantMenuItem,
+        *,
+        restaurant_id: str | None = None,
+        actor_type: str = "system",
+        actor_id: str | None = None,
+    ) -> None:
+        before = AbuuMenuService._item_snapshot(row)
         if row.photo_storage_key:
             delete_photo_file(row.photo_storage_key)
         row.is_deleted = True
         row.deleted_at = datetime.utcnow()
         db.add(row)
+        if restaurant_id:
+            AbuuMenuService._audit(
+                db,
+                restaurant_id=restaurant_id,
+                menu_item_id=row.id,
+                action="delete",
+                actor_type=actor_type,
+                actor_id=actor_id,
+                before=before,
+                after=None,
+            )
 
     @staticmethod
     def nested_menu(db: Session, restaurant_id: str) -> list[dict]:

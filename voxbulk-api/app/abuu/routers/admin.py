@@ -169,6 +169,18 @@ def delete_restaurant(
     return {"ok": True}
 
 
+@router.get("/restaurants/{restaurant_id}/menu")
+def admin_restaurant_menu(
+    restaurant_id: str,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = db.get(Restaurant, restaurant_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    return AbuuMenuService.nested_menu(db, restaurant_id)
+
+
 @router.get("/restaurants/{restaurant_id}/menu-categories")
 def list_menu_categories(
     restaurant_id: str,
@@ -263,12 +275,20 @@ def patch_menu_item(
     item_id: str,
     payload: dict,
     db: Session = Depends(get_abuu_db),
-    _admin: User = Depends(require_cap(CAP_ABUU)),
+    admin: User = Depends(require_cap(CAP_ABUU)),
 ):
     row = db.get(RestaurantMenuItem, item_id)
     if row is None or row.is_deleted:
         raise HTTPException(status_code=404, detail="Item not found")
-    AbuuMenuService.patch_item(db, row, payload)
+    cat = db.get(RestaurantMenuCategory, row.category_id)
+    AbuuMenuService.patch_item(
+        db,
+        row,
+        payload,
+        restaurant_id=cat.restaurant_id if cat else None,
+        actor_type="admin",
+        actor_id=admin.id,
+    )
     db.commit()
     db.refresh(row)
     return menu_item_to_dict(row)
@@ -278,12 +298,19 @@ def patch_menu_item(
 def delete_menu_item(
     item_id: str,
     db: Session = Depends(get_abuu_db),
-    _admin: User = Depends(require_cap(CAP_ABUU)),
+    admin: User = Depends(require_cap(CAP_ABUU)),
 ):
     row = db.get(RestaurantMenuItem, item_id)
     if row is None or row.is_deleted:
         raise HTTPException(status_code=404, detail="Item not found")
-    AbuuMenuService.delete_item(db, row)
+    cat = db.get(RestaurantMenuCategory, row.category_id)
+    AbuuMenuService.delete_item(
+        db,
+        row,
+        restaurant_id=cat.restaurant_id if cat else None,
+        actor_type="admin",
+        actor_id=admin.id,
+    )
     db.commit()
     return {"ok": True}
 
@@ -541,4 +568,109 @@ def create_assignment(
         AbuuOrderService.patch_status(db, order, "assigned_to_driver")
     db.commit()
     db.refresh(row)
+    return assignment_to_dict(row)
+
+
+@router.get("/events")
+def list_external_events(
+    status: str | None = None,
+    event_type: str | None = None,
+    order_id: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    from app.abuu.services.event_idempotency_service import AbuuEventIdempotencyService
+    from app.abuu.services.serializers import external_event_to_dict
+
+    rows = AbuuEventIdempotencyService.list_events(
+        db,
+        status=status,
+        event_type=event_type,
+        order_id=order_id,
+        limit=limit,
+        offset=offset,
+    )
+    return [external_event_to_dict(r) for r in rows]
+
+
+@router.post("/orders/{order_id}/cancel-paid")
+def cancel_paid_order(
+    order_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        AbuuOrderService.cancel_paid_order(
+            db,
+            order,
+            reason=str(payload.get("reason") or ""),
+            actor=admin.email or admin.id,
+        )
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.post("/orders/{order_id}/refund-processed")
+def mark_refund_processed(
+    order_id: str,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        AbuuOrderService.mark_refund_processed(db, order)
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.post("/orders/{order_id}/recover")
+def recover_order(
+    order_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        AbuuOrderService.admin_recover(
+            db,
+            order,
+            action=str(payload.get("action") or ""),
+            note=payload.get("note"),
+            actor=admin.email or admin.id,
+        )
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.post("/assignments/{assignment_id}/timeout")
+def timeout_assignment(
+    assignment_id: str,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = db.get(DeliveryAssignment, assignment_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    try:
+        AbuuOrderService.assignment_timeout(db, row)
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return assignment_to_dict(row)

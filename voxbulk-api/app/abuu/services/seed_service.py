@@ -201,6 +201,40 @@ class AbuuSeedService:
         db.flush()
         return {"restaurants": created_restaurants, "drivers": created_drivers}
 
+    @staticmethod
+    def seed_gaza_relocation(db: Session) -> dict:
+        """Re-center seed restaurants and drivers to Gaza Strip coordinates."""
+        updated_restaurants = 0
+        updated_drivers = 0
+        now = datetime.utcnow()
+
+        all_specs = list(_RESTAURANT_SPECS) + list(_EXPANSION_RESTAURANT_SPECS)
+        for idx, spec in enumerate(all_specs):
+            row = db.get(Restaurant, spec["id"])
+            if row is None:
+                continue
+            lat = _BASE_LAT + (idx * 0.002)
+            lng = _BASE_LNG + (idx * 0.0015)
+            row.latitude = lat
+            row.longitude = lng
+            row.address_text = f"Gaza — {spec['name_en']}"
+            row.updated_at = now
+            db.add(row)
+            updated_restaurants += 1
+
+        for idx, spec in enumerate(_DRIVER_SPECS):
+            row = db.get(Driver, spec["id"])
+            if row is None:
+                continue
+            row.latitude = _BASE_LAT + 0.01 + (idx * 0.001)
+            row.longitude = _BASE_LNG + 0.01 + (idx * 0.001)
+            row.updated_at = now
+            db.add(row)
+            updated_drivers += 1
+
+        db.flush()
+        return {"restaurants": updated_restaurants, "drivers": updated_drivers}
+
 
 def _item(iid: str, en: str, ar: str, item_type: str, agorot: int, **kw) -> dict:
     return {
@@ -218,9 +252,9 @@ _RESTAURANT_SPECS: list[dict] = [
         "id": "abuu-rest-vegetarian",
         "name_en": "Al-Akhdar Vegetarian",
         "name_ar": "مطعم الأخضر",
-        "latitude": 32.0853,
-        "longitude": 34.7818,
-        "address_text": "Tel Aviv — vegetarian kitchen",
+        "latitude": 31.3540,
+        "longitude": 34.3080,
+        "address_text": "Gaza — vegetarian kitchen",
         "phone": "+972501000001",
         "categories": [
             {
@@ -269,9 +303,9 @@ _RESTAURANT_SPECS: list[dict] = [
         "id": "abuu-rest-fish",
         "name_en": "Al-Bahr Seafood",
         "name_ar": "مطعم البحر",
-        "latitude": 32.0870,
-        "longitude": 34.7840,
-        "address_text": "Tel Aviv — seafood grill",
+        "latitude": 31.3560,
+        "longitude": 34.3100,
+        "address_text": "Gaza — seafood grill",
         "phone": "+972501000002",
         "categories": [
             {
@@ -318,9 +352,9 @@ _RESTAURANT_SPECS: list[dict] = [
         "id": "abuu-rest-chicken",
         "name_en": "Sham Chicken",
         "name_ar": "دجاج الشام",
-        "latitude": 32.0830,
-        "longitude": 34.7790,
-        "address_text": "Tel Aviv — chicken grill",
+        "latitude": 31.3520,
+        "longitude": 34.3060,
+        "address_text": "Gaza — chicken grill",
         "phone": "+972501000003",
         "categories": [
             {
@@ -367,9 +401,9 @@ _RESTAURANT_SPECS: list[dict] = [
         "id": "abuu-rest-fastfood",
         "name_en": "Wajabat Sari'a Fast Food",
         "name_ar": "وجبات سريعة",
-        "latitude": 32.0890,
-        "longitude": 34.7760,
-        "address_text": "Tel Aviv — fast food counter",
+        "latitude": 31.3580,
+        "longitude": 34.3120,
+        "address_text": "Gaza — fast food counter",
         "phone": "+972501000004",
         "categories": [
             {
@@ -427,7 +461,7 @@ _EXPANSION_NAMES = [
     ("Mixed Grill House", "بيت المشاوي", "meat"),
 ]
 
-_BASE_LAT, _BASE_LNG = 32.0853, 34.7818
+_BASE_LAT, _BASE_LNG = 31.3540, 34.3080
 
 _EXPANSION_RESTAURANT_SPECS: list[dict] = []
 for idx, (name_en, name_ar, focus) in enumerate(_EXPANSION_NAMES, start=5):
@@ -441,7 +475,7 @@ for idx, (name_en, name_ar, focus) in enumerate(_EXPANSION_NAMES, start=5):
             "name_ar": name_ar,
             "latitude": lat,
             "longitude": lng,
-            "address_text": f"Tel Aviv — {name_en}",
+            "address_text": f"Gaza — {name_en}",
             "phone": f"+9725010000{idx:02d}",
             "categories": [
                 {

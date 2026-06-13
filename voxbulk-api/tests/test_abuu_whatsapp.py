@@ -122,7 +122,7 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
         "type": "location",
         "whatsapp_message": {
             "type": "location",
-            "location": {"latitude": 32.08, "longitude": 34.78, "address": "Ramallah"},
+            "location": {"latitude": 31.354, "longitude": 34.308, "address": "Gaza City"},
         },
     }
     with get_sessionmaker()() as db:

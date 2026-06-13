@@ -9,9 +9,12 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.abuu.models.entities import CustomerOrder, Restaurant
+from app.abuu.services.event_idempotency_service import AbuuEventIdempotencyService, payload_hash
 from app.abuu.services.intent_service import detect_intent, is_abuu_start_message
 from app.abuu.services.location_service import (
     attach_default_address_if_present,
+    forward_geocode,
+    normalize_address_text,
     parse_whatsapp_location,
     save_customer_address,
     validate_delivery_radius,
@@ -23,6 +26,7 @@ from app.abuu.services.reply_service import (
     confirm_pending_payment_message,
     item_added_message,
     menu_message,
+    location_clarification_message,
     need_delivery_address_message,
     out_of_delivery_area_message,
     unknown_message,
@@ -67,11 +71,25 @@ class AbuuInboundService:
         with get_abuu_sessionmaker()() as abuu_db:
             session = AbuuOrderDraftService.get_session(abuu_db, phone)
             has_session = bool(session and session.step not in {"", "idle"})
-            if session and message_id and session.last_message_id == message_id:
-                return {"handled": True, "duplicate": True}
-
             if not has_session and not is_abuu_start_message(text):
                 return {"handled": False, "reason": "not_abuu"}
+
+            idem_key = (
+                f"wa:{message_id}"
+                if message_id
+                else f"wa:{phone}:{payload_hash({'body': text, 'record': record or {}})}"
+            )
+            event = AbuuEventIdempotencyService.begin_event(
+                abuu_db,
+                source="whatsapp",
+                event_type="inbound_message",
+                idempotency_key=idem_key,
+                source_message_id=message_id,
+                payload={"body": text},
+            )
+            if event.is_duplicate:
+                abuu_db.commit()
+                return {"handled": True, "duplicate": True}
 
             customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
             lang = customer.preferred_language or "ar"
@@ -153,15 +171,67 @@ class AbuuInboundService:
                     AbuuInboundService._send_reply(main_db, phone, unknown_message(lang), org_id=org_id)
                     abuu_db.commit()
                     return {"handled": True, "action": "no_order"}
+                normalized = normalize_address_text(text)
+                geocoded = forward_geocode(normalized)
+                lat = geocoded.latitude if geocoded else None
+                lng = geocoded.longitude if geocoded else None
+                restaurant = abuu_db.get(Restaurant, order.restaurant_id)
+                if restaurant and lat is not None and lng is not None:
+                    ok, distance = validate_delivery_radius(restaurant, lat=lat, lng=lng)
+                    if not ok:
+                        AbuuInboundService._send_reply(
+                            main_db,
+                            phone,
+                            out_of_delivery_area_message(
+                                lang,
+                                distance_km=distance,
+                                radius_km=float(restaurant.delivery_radius_km or 0),
+                            ),
+                            org_id=org_id,
+                        )
+                        abuu_db.commit()
+                        return {"handled": True, "action": "out_of_delivery_area"}
+                if geocoded is None:
+                    clarification_count = int(context.get("location_clarification_count") or 0)
+                    if clarification_count < 1 and not order.location_clarification_sent:
+                        context["location_clarification_count"] = clarification_count + 1
+                        order.location_clarification_sent = True
+                        order.location_missing = True
+                        abuu_db.add(order)
+                        AbuuOrderDraftService.upsert_session(
+                            abuu_db,
+                            phone=phone,
+                            step="awaiting_delivery",
+                            context=context,
+                            active_order_id=order.id,
+                            message_id=message_id,
+                        )
+                        AbuuInboundService._send_reply(
+                            main_db,
+                            phone,
+                            location_clarification_message(lang),
+                            org_id=org_id,
+                        )
+                        AbuuEventIdempotencyService.begin_event(
+                            abuu_db,
+                            source="system",
+                            event_type="geocode_failed",
+                            idempotency_key=f"order:{order.id}:geocode:{payload_hash({'text': normalized})}",
+                            order_id=order.id,
+                            payload={"address_text": normalized},
+                        )
+                        abuu_db.commit()
+                        return {"handled": True, "action": "geocode_failed"}
                 address = save_customer_address(
                     abuu_db,
                     customer_id=customer.id,
-                    address_text=text,
-                    latitude=None,
-                    longitude=None,
+                    address_text=geocoded.display_name if geocoded else normalized,
+                    latitude=lat,
+                    longitude=lng,
                     source_message_id=message_id,
                 )
                 order.delivery_address_id = address.id
+                order.location_missing = False
                 abuu_db.add(order)
                 if context.get("confirm_after_address"):
                     return AbuuInboundService._finalize_confirm(
@@ -210,6 +280,8 @@ class AbuuInboundService:
                     abuu_db.commit()
                     return {"handled": True, "action": "no_order"}
                 if not attach_default_address_if_present(abuu_db, order, customer):
+                    order.location_missing = True
+                    abuu_db.add(order)
                     context["confirm_after_address"] = True
                     AbuuOrderDraftService.upsert_session(
                         abuu_db,
@@ -317,6 +389,7 @@ class AbuuInboundService:
             source_message_id=message_id,
         )
         order.delivery_address_id = address.id
+        order.location_missing = False
         abuu_db.add(order)
         context = AbuuInboundService._load_context(session)
         if context.get("confirm_after_address"):

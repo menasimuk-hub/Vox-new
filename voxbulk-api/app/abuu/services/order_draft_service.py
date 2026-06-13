@@ -18,6 +18,7 @@ from app.abuu.models.entities import (
     RestaurantMenuCategory,
     RestaurantMenuItem,
 )
+from app.abuu.services.location_service import find_nearest_restaurants
 from app.abuu.services.order_service import AbuuOrderService
 from app.abuu.services.reply_service import localized_name
 
@@ -78,7 +79,11 @@ class AbuuOrderDraftService:
         return row
 
     @staticmethod
-    def default_restaurant(db: Session) -> Restaurant | None:
+    def default_restaurant(db: Session, *, lat: float | None = None, lng: float | None = None) -> Restaurant | None:
+        if lat is not None and lng is not None:
+            ranked = find_nearest_restaurants(db, lat=lat, lng=lng, limit=1)
+            if ranked:
+                return ranked[0].restaurant
         return db.execute(
             select(Restaurant)
             .where(
@@ -165,6 +170,9 @@ class AbuuOrderDraftService:
             CustomerOrderItem(
                 order_id=order.id,
                 menu_item_id=item.id,
+                name_en=item.name_en,
+                name_ar=item.name_ar,
+                item_type=item.item_type,
                 quantity=qty,
                 unit_price_agorot=item.price_agorot,
                 line_total_agorot=line_total,
@@ -215,3 +223,5 @@ class AbuuOrderDraftService:
             order.updated_at = datetime.utcnow()
             db.add(order)
             AbuuOrderService.append_event(db, order.id, "order_cancelled", {})
+        elif order.status in {"sent_to_restaurant", "preparing"}:
+            AbuuOrderService.cancel_paid_order(db, order, reason="customer_cancel")

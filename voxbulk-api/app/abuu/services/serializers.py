@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.abuu.models.entities import (
+    AbuuExternalEvent,
     AbuuNotification,
     CustomerAddress,
     CustomerOrder,
@@ -118,6 +119,11 @@ def order_to_dict(row: CustomerOrder, *, items: list | None = None, events: list
         "delivery_address_id": row.delivery_address_id,
         "notes": row.notes,
         "draft_json": row.draft_json,
+        "location_missing": getattr(row, "location_missing", False),
+        "location_clarification_sent": getattr(row, "location_clarification_sent", False),
+        "refund_ready": getattr(row, "refund_ready", False),
+        "prep_delay_note": getattr(row, "prep_delay_note", None),
+        "cancelled_reason": getattr(row, "cancelled_reason", None),
         "items": items,
         "events": events,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -143,8 +149,12 @@ def assignment_to_dict(row: DeliveryAssignment) -> dict:
         "driver_id": row.driver_id,
         "status": row.status,
         "assigned_at": row.assigned_at.isoformat() if row.assigned_at else None,
+        "accepted_at": row.accepted_at.isoformat() if row.accepted_at else None,
+        "rejected_at": row.rejected_at.isoformat() if row.rejected_at else None,
+        "timed_out_at": row.timed_out_at.isoformat() if row.timed_out_at else None,
         "picked_up_at": row.picked_up_at.isoformat() if row.picked_up_at else None,
         "delivered_at": row.delivered_at.isoformat() if row.delivered_at else None,
+        "failure_reason": row.failure_reason,
     }
 
 
@@ -169,5 +179,21 @@ def notification_to_dict(row: AbuuNotification) -> dict:
         "body": row.body,
         "payload_json": row.payload_json,
         "read_at": row.read_at.isoformat() if row.read_at else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def external_event_to_dict(row: AbuuExternalEvent) -> dict:
+    return {
+        "id": row.id,
+        "source": row.source,
+        "event_type": row.event_type,
+        "idempotency_key": row.idempotency_key,
+        "source_message_id": row.source_message_id,
+        "order_id": row.order_id,
+        "payload_hash": row.payload_hash,
+        "status": row.status,
+        "error_detail": row.error_detail,
+        "processed_at": row.processed_at.isoformat() if row.processed_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }

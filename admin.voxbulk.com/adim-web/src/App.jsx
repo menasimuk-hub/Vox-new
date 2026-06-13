@@ -77,6 +77,7 @@ import RunningSurveys from './pages/RunningSurveys'
 import RunningInterviews from './pages/RunningInterviews'
 import CustomerFeedbackHub from './pages/customer-feedback/CustomerFeedbackHub'
 import AbuuShell from './pages/abuu/AbuuShell'
+import AbuuEventLog from './pages/abuu/AbuuEventLog'
 import AbuuMenu from './pages/abuu/AbuuMenu'
 import AbuuOrders from './pages/abuu/AbuuOrders'
 import AbuuRestaurants from './pages/abuu/AbuuRestaurants'
@@ -257,6 +258,7 @@ export default function App() {
           <Route index element={<Navigate to='orders' replace />} />
           <Route path='orders' element={<AbuuOrders />} />
           <Route path='menus' element={<AbuuMenu />} />
+          <Route path='events' element={<AbuuEventLog />} />
           <Route path='restaurants' element={<AbuuRestaurants />} />
           <Route path='drivers' element={<AbuuDrivers />} />
           <Route path='customers' element={<AbuuCustomers />} />

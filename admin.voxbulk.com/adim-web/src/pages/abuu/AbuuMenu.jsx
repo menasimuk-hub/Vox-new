@@ -2,14 +2,15 @@ import React, { useCallback, useEffect, useState } from 'react'
 import {
   createAbuuMenuCategory,
   createAbuuMenuItem,
-  fetchAbuuMenuCategories,
   fetchAbuuRestaurants,
+  uploadAbuuMenuItemPhoto,
 } from '../../lib/abuuApi'
+import { apiFetch } from '../../lib/api'
 
 export default function AbuuMenu() {
   const [restaurants, setRestaurants] = useState([])
   const [restaurantId, setRestaurantId] = useState('')
-  const [categories, setCategories] = useState([])
+  const [menu, setMenu] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [newCat, setNewCat] = useState({ name_en: '', name_ar: '' })
@@ -20,13 +21,13 @@ export default function AbuuMenu() {
     setRestaurants(Array.isArray(rows) ? rows : [])
   }, [])
 
-  const loadCategories = useCallback(async () => {
+  const loadMenu = useCallback(async () => {
     if (!restaurantId) {
-      setCategories([])
+      setMenu([])
       return
     }
-    const rows = await fetchAbuuMenuCategories(restaurantId)
-    setCategories(Array.isArray(rows) ? rows : [])
+    const rows = await apiFetch(`/admin/abuu/restaurants/${restaurantId}/menu`)
+    setMenu(Array.isArray(rows) ? rows : [])
   }, [restaurantId])
 
   useEffect(() => {
@@ -35,16 +36,16 @@ export default function AbuuMenu() {
 
   useEffect(() => {
     setLoading(true)
-    loadCategories()
+    loadMenu()
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [loadCategories])
+  }, [loadMenu])
 
   const onCreateCategory = async () => {
     try {
       await createAbuuMenuCategory(restaurantId, newCat)
       setNewCat({ name_en: '', name_ar: '' })
-      await loadCategories()
+      await loadMenu()
     } catch (e) {
       setError(e.message)
     }
@@ -53,11 +54,22 @@ export default function AbuuMenu() {
   const onCreateItem = async () => {
     try {
       await createAbuuMenuItem(newItem.category_id, newItem)
-      await loadCategories()
+      await loadMenu()
     } catch (e) {
       setError(e.message)
     }
   }
+
+  const onUploadPhoto = async (itemId, file) => {
+    try {
+      await uploadAbuuMenuItemPhoto(itemId, file)
+      await loadMenu()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  const categories = menu.flatMap((cat) => [cat, ...(cat.subcategories || [])])
 
   return (
     <div className='card'>
@@ -87,9 +99,44 @@ export default function AbuuMenu() {
             {loading ? (
               <p className='muted'>Loading menu…</p>
             ) : (
-              categories.map((cat) => (
+              menu.map((cat) => (
                 <div key={cat.id} style={{ marginTop: 16 }}>
                   <h3>{cat.name_en} / {cat.name_ar}</h3>
+                  <table className='table billingTable'>
+                    <thead>
+                      <tr>
+                        <th>Photo</th>
+                        <th>Item</th>
+                        <th>Price</th>
+                        <th>Upload</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(cat.items || []).map((item) => (
+                        <tr key={item.id}>
+                          <td>
+                            {item.photo_url ? (
+                              <img src={item.photo_url} alt='' style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4 }} />
+                            ) : (
+                              <span className='muted'>—</span>
+                            )}
+                          </td>
+                          <td>{item.name_en}</td>
+                          <td>{(item.price_agorot / 100).toFixed(2)} ₪</td>
+                          <td>
+                            <input
+                              type='file'
+                              accept='image/*'
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) onUploadPhoto(item.id, file)
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               ))
             )}

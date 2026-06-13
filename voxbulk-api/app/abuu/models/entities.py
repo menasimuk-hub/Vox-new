@@ -54,6 +54,20 @@ class RestaurantMenuItem(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
+class AbuuMenuAuditLog(AbuuBase):
+    __tablename__ = "abuu_menu_audit_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    restaurant_id: Mapped[str] = mapped_column(String(36), ForeignKey("abuu_restaurants.id"), nullable=False, index=True)
+    menu_item_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_menu_items.id"), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    before_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class Driver(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     __tablename__ = "abuu_drivers"
 
@@ -108,6 +122,11 @@ class CustomerOrder(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     delivery_address_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_customer_addresses.id"), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    location_missing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    location_clarification_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    refund_ready: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    prep_delay_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancelled_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 class CustomerOrderItem(AbuuBase, AbuuTimestampMixin):
@@ -116,6 +135,9 @@ class CustomerOrderItem(AbuuBase, AbuuTimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     order_id: Mapped[str] = mapped_column(String(36), ForeignKey("abuu_orders.id"), nullable=False, index=True)
     menu_item_id: Mapped[str] = mapped_column(String(36), ForeignKey("abuu_menu_items.id"), nullable=False, index=True)
+    name_en: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    name_ar: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    item_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     unit_price_agorot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     line_total_agorot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -129,8 +151,24 @@ class DeliveryAssignment(AbuuBase, AbuuTimestampMixin):
     driver_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_drivers.id"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="unassigned", index=True)
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    timed_out_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     picked_up_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+
+class AbuuAssignmentAttempt(AbuuBase):
+    __tablename__ = "abuu_assignment_attempts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    order_id: Mapped[str] = mapped_column(String(36), ForeignKey("abuu_orders.id"), nullable=False, index=True)
+    assignment_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_delivery_assignments.id"), nullable=True, index=True)
+    driver_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_drivers.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class OrderEvent(AbuuBase):
@@ -145,6 +183,15 @@ class OrderEvent(AbuuBase):
 
 class AbuuNotification(AbuuBase):
     __tablename__ = "abuu_notifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "order_id",
+            "kind",
+            "target_type",
+            "target_id",
+            name="uq_abuu_notifications_order_kind_target",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     target_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
@@ -155,6 +202,25 @@ class AbuuNotification(AbuuBase):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AbuuExternalEvent(AbuuBase):
+    __tablename__ = "abuu_external_events"
+    __table_args__ = (
+        UniqueConstraint("source", "idempotency_key", name="uq_abuu_external_events_source_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    order_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_orders.id"), nullable=True, index=True)
+    payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="processed", index=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
