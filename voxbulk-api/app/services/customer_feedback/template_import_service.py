@@ -72,7 +72,8 @@ def _infer_step_role(buttons: list[str]) -> str:
 
 
 def _default_md_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "seed-data" / "customer-feedback" / "english-templates.md"
+    # template_import_service.py → app/services/customer_feedback → voxbulk-api root
+    return Path(__file__).resolve().parents[3] / "seed-data" / "customer-feedback" / "english-templates.md"
 
 
 def parse_templates_md(text: str) -> list[dict[str, Any]]:
