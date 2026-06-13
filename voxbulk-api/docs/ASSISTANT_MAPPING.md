@@ -16,6 +16,7 @@ Legacy path `/dashboard/help/chat` delegates to the same orchestrator.
 | `feedback_overview` | "feedback", "QR location" | `FeedbackLocationService`, `FeedbackResultsService` | `feedback_location` | `/feedback/results` |
 | `create_ticket` | "problem", "issue" | — (pending) | — | confirm → `POST /support/tickets` |
 | `create_survey` | "create survey" | — | — | `/surveys/new` |
+| `create_template` | "create custom template", "whatsapp template" | — | `service_order` | `/surveys/new?channel=whatsapp` |
 | `create_feedback` | "create feedback location" | — | — | `/feedback/new` |
 | `product_compare` | "survey vs feedback" | — | — | clarification only |
 | `list_surveys` | "my surveys" | `ServiceOrderService.list_orders(survey)` | `service_order` | `/surveys` |

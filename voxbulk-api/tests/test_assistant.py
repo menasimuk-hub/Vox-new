@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from app.core.dependencies import CurrentPrincipal
 from app.core.security import hash_password
 from app.schemas.assistant import AssistantChatIn
@@ -53,6 +55,21 @@ def test_intent_product_compare():
 def test_intent_launch_check():
     match = classify_intent("Can I launch my survey campaign today?")
     assert match.intent == "launch_check"
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ("create a custom template", "create_template"),
+        ("Why is my wallet so low?", "wallet_low"),
+        ("can I launch", "launch_check"),
+        ("show survey results", "survey_results"),
+        ("create support ticket", "create_ticket"),
+    ],
+)
+def test_intent_routing_prioritizes_explicit_task(message, expected):
+    match = classify_intent(message)
+    assert match.intent == expected
 
 
 def test_policy_blocks_billing_tampering():
@@ -112,3 +129,31 @@ def test_greeting_welcomes_user_by_name(app_client):
 
     assert "Hi Wallet" in out.primary_message
     assert "I can help with billing, usage, survey" not in out.primary_message
+
+
+def test_create_template_not_overridden_by_billing_state(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    principal = CurrentPrincipal(user_id=user.id, org_id=org.id, token_payload={})
+    exhausted_access = {
+        "next_action_label": "Package exhausted — launches can use wallet balance.",
+        "next_action": "top_up_wallet",
+        "block_reason": "",
+    }
+
+    with patch.object(AssistantTools, "billing_access", return_value=exhausted_access):
+        with get_sessionmaker()() as db:
+            out = AssistantOrchestrator.handle_chat(
+                db,
+                principal=principal,
+                payload=AssistantChatIn(message="create a custom template"),
+            )
+
+    assert out.intent == "create_template"
+    assert "billing needs attention" not in out.primary_message
+    assert "Package exhausted" not in out.primary_message
+    assert "template" in out.primary_message.lower()
+    assert any(a.route == "/surveys/new?channel=whatsapp" for a in out.next_actions)

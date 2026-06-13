@@ -10,6 +10,7 @@ from app.core.dependencies import CurrentPrincipal
 from app.models.organisation import Organisation
 from app.schemas.assistant import AssistantChatIn, AssistantChatOut, AssistantContextIn, AssistantPendingAction
 from app.services.assistant.allowlists import customer_may_mutate
+from app.services.assistant.billing_context import billing_note_for_intent, fetch_billing_access
 from app.services.assistant.highlights import build_out, confirm_action, nav_action, plan_subscription_dict
 from app.services.assistant.intent import IntentMatch, classify_intent
 from app.services.assistant.pending_actions import issue_pending_action, verify_pending_action
@@ -300,9 +301,9 @@ def _handle_launch_check(db, *, principal, org, message, intent, context, is_adm
     block = elig.get("block_reason") or elig.get("summary") or access.get("next_action_label")
     title = order_row.title or "Campaign"
     if can:
-        msg = f"“{title}” looks ready to launch. Confirm recipients and payment, then launch from the campaign page."
+        msg = f"✅ “{title}” looks ready to launch! Confirm recipients and payment, then launch from the campaign page 🚀"
     else:
-        msg = f"“{title}” is not ready to launch yet. {block or 'Check billing and campaign setup.'}"
+        msg = f"⏳ “{title}” isn't ready to launch yet. {block or 'Check billing and campaign setup.'}"
     route = f"/surveys/new?order_id={order_id}" if service_code == "survey" else f"/interviews/{order_id}"
     return build_out(
         primary_message=msg,
@@ -429,11 +430,36 @@ def _handle_create_ticket(db, *, principal, org, message, intent, context, is_ad
         preview={"category": category, "subject": subject},
     )
     return build_out(
-        primary_message="I can create a support ticket with your message. Please confirm to proceed.",
+        primary_message="🎫 I can create a support ticket with your message. Please confirm to proceed.",
         confidence=0.84,
         intent=intent.intent,
         pending_action=pending,
         next_actions=[confirm_action("confirm_ticket", "Confirm create ticket", token)],
+    )
+
+
+def _handle_create_template(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
+    name = user_display_name(db, principal)
+    msg = (
+        f"Hey {name}! ✨ Let's build your custom WhatsApp template:\n\n"
+        "1️⃣ Open Create Survey and pick the WhatsApp channel\n"
+        "2️⃣ In Step 3, choose Custom template for each survey type\n"
+        "3️⃣ Write your welcome, questions, and thank-you messages\n"
+        "4️⃣ Save your draft — Meta approval comes before launch 🚀\n\n"
+        "Designing templates is free; launching uses your package or wallet when you're ready."
+    )
+    blocking, _suffix = billing_note_for_intent(fetch_billing_access(db, org), intent.intent)
+    return build_out(
+        primary_message=msg,
+        confidence=0.9,
+        intent=intent.intent,
+        highlight_type="service_order",
+        highlight_label="Custom WA template",
+        next_actions=[
+            nav_action("wizard", "Open template wizard", "/surveys/new?channel=whatsapp"),
+            nav_action("surveys", "View surveys", "/surveys"),
+        ],
+        blocking_reason=blocking,
     )
 
 
@@ -524,7 +550,7 @@ def _handle_general(db, *, principal, org, message, intent, context, is_admin) -
     if is_greeting(message):
         return build_out(
             primary_message=(
-                f"Hi {name} — I'm your VoxBulk assistant. "
+                f"Hi {name}! 👋 I'm your VoxBulk assistant. "
                 "Ask about your wallet, usage, campaigns, customer feedback, or support."
             ),
             confidence=0.9,
@@ -535,22 +561,9 @@ def _handle_general(db, *, principal, org, message, intent, context, is_admin) -
             ],
         )
 
-    access, access_failed = run_tool("billing_access", lambda: AssistantTools.billing_access(db, org), default={})
-    next_label = access.get("next_action_label") or access.get("next_action")
-    if next_label and not access_failed:
-        return build_out(
-            primary_message=f"Hi {name} — billing needs attention: {next_label}.",
-            confidence=0.72,
-            intent=intent.intent,
-            highlight_type="usage",
-            highlight_label="Billing action",
-            next_actions=[nav_action("billing", "Open billing", "/account/billing")],
-            blocking_reason=next_label,
-        )
-
     return build_out(
         primary_message=(
-            f"Hi {name} — I didn't quite match that. "
+            f"Hi {name}! 🤔 I didn't quite match that. "
             "Try “Why is my wallet low?”, “Can I launch?”, or “Show survey results”."
         ),
         confidence=0.45,
@@ -571,6 +584,7 @@ _HANDLERS = {
     "interview_results": _handle_interview_results,
     "feedback_overview": _handle_feedback_overview,
     "create_ticket": _handle_create_ticket,
+    "create_template": _handle_create_template,
     "create_survey": _handle_create_survey,
     "create_feedback": _handle_create_feedback,
     "product_compare": _handle_product_compare,
