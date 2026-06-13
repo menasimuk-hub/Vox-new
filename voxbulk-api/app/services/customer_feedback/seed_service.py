@@ -189,11 +189,9 @@ class FeedbackSeedService:
 
     @staticmethod
     def _sync_wa_sender_phones(db: Session) -> None:
-        """Align feedback_wa_senders with Telnyx whatsapp_from when configured."""
-        from app.services.customer_feedback.location_service import _resolve_wa_phone_e164
+        from app.services.customer_feedback.feedback_wa_phone import sync_feedback_wa_senders_from_telnyx
 
-        for zone in ("gb", "eu", "us", "ca", "au"):
-            _resolve_wa_phone_e164(db, zone)
+        sync_feedback_wa_senders_from_telnyx(db)
 
     @staticmethod
     def _ensure_extra_industries(db: Session) -> None:
@@ -270,16 +268,8 @@ class FeedbackSeedService:
 
     @staticmethod
     def _seed_wa_sender_if_needed(db: Session) -> None:
-        sender = db.execute(select(FeedbackWaSender).where(FeedbackWaSender.country_code == "gb")).scalar_one_or_none()
-        if sender is None:
-            db.add(
-                FeedbackWaSender(
-                    id=str(uuid.uuid4()),
-                    country_code="gb",
-                    phone_e164="+447700900000",
-                    created_at=datetime.utcnow(),
-                )
-            )
+        """WhatsApp number is read from Telnyx integration (whatsapp_from), not seeded here."""
+        return
 
     @staticmethod
     def _ensure_packages(db: Session) -> None:

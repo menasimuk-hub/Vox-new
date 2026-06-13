@@ -39,7 +39,9 @@ QR scan → visitor sends trigger → charge 1 unit (per inbound) → selected t
 → optional open question → optional marketing opt-in → thank-you → English results in dashboard
 ```
 
-- **No welcome message** — the QR trigger starts the survey.
+- QR codes use **Admin → Integrations → Telnyx → WhatsApp From** (same number as survey/interview WhatsApp).
+- On seed/API boot, that number is copied into `feedback_wa_senders` for QR generation.
+- Admin sync: `POST /admin/customer-feedback/wa-senders/sync-from-telnyx`
 - **Survey language** — detected from visitor phone country code (English templates for now).
 - **Results** — stored with `answer_text_en` for dashboard display.
 - **Billing** — 1 WA unit per inbound QR trigger (not per completed survey).

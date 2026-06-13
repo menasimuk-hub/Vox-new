@@ -311,14 +311,23 @@ def admin_results(
 
 @router.post("/wa-senders/sync-from-telnyx")
 def sync_wa_senders_from_telnyx(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.customer_feedback.location_service import _resolve_wa_phone_e164
-    from app.services.customer_feedback.seed_service import FeedbackSeedService
+    from app.services.customer_feedback.feedback_wa_phone import (
+        get_telnyx_whatsapp_from_e164,
+        sync_feedback_wa_senders_from_telnyx,
+    )
 
-    FeedbackSeedService._sync_wa_sender_phones(db)
+    telnyx_phone = get_telnyx_whatsapp_from_e164(db)
+    if not telnyx_phone:
+        raise HTTPException(
+            status_code=400,
+            detail="Telnyx WhatsApp From is not set. Open Admin → Integrations → Telnyx and save your WhatsApp number.",
+        )
+    sync_feedback_wa_senders_from_telnyx(db)
     db.commit()
     rows = list(db.execute(select(FeedbackWaSender)).scalars().all())
     return {
         "ok": True,
+        "telnyx_whatsapp_from": telnyx_phone,
         "items": [
             {"country_code": r.country_code, "phone_e164": r.phone_e164, "is_active": r.is_active}
             for r in rows

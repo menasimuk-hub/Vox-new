@@ -13,9 +13,10 @@ from urllib.parse import quote
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType, FeedbackWaSender
+from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType
 from app.models.organisation import Organisation
 from app.services.customer_feedback.billing_service import FeedbackBillingService
+from app.services.customer_feedback.feedback_wa_phone import resolve_feedback_wa_phone_for_qr
 from app.services.customer_feedback.survey_config_service import (
     build_survey_config,
     parse_selected_type_ids,
@@ -39,60 +40,14 @@ def _build_qr_urls(*, phone: str, trigger_text: str) -> tuple[str, str]:
     return wa_url, qr_image_url
 
 
-def _resolve_wa_phone_e164(db: Session, country_code: str) -> str:
-    """Feedback QR + inbound replies use this WhatsApp business number."""
-    zone = country_to_zone(country_code) or str(country_code or "gb").strip().lower() or "gb"
-    sender = db.execute(
-        select(FeedbackWaSender).where(FeedbackWaSender.country_code == zone)
-    ).scalar_one_or_none()
-    placeholder = "+447700900000"
-    if sender and sender.phone_e164 and sender.phone_e164 != placeholder:
-        return sender.phone_e164
-
-    telnyx_phone: str | None = None
-    try:
-        from app.services.telnyx_api_key import normalize_telnyx_e164
-        from app.services.telnyx_voice_service import _telnyx_config
-
-        config = _telnyx_config(db)
-        raw = str(config.get("whatsapp_from") or config.get("whatsapp_number") or "").strip()
-        if raw:
-            telnyx_phone = normalize_telnyx_e164(raw)
-    except Exception:
-        telnyx_phone = None
-
-    if telnyx_phone:
-        if sender is None:
-            sender = FeedbackWaSender(
-                id=str(uuid.uuid4()),
-                country_code=zone,
-                phone_e164=telnyx_phone,
-                created_at=datetime.utcnow(),
-            )
-            db.add(sender)
-        elif sender.phone_e164 != telnyx_phone:
-            sender.phone_e164 = telnyx_phone
-            sender.updated_at = datetime.utcnow()
-            db.add(sender)
-        db.flush()
-        return telnyx_phone
-
-    if sender and sender.phone_e164:
-        return sender.phone_e164
-    return placeholder
-
-
 def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
     org = db.get(Organisation, row.org_id)
     industry = db.get(FeedbackIndustry, row.industry_id)
     survey_type = db.get(FeedbackSurveyType, row.survey_type_id)
-    sender = db.execute(
-        select(FeedbackWaSender).where(FeedbackWaSender.country_code == row.wa_sender_country)
-    ).scalar_one_or_none()
     company = org.name if org else "Your business"
     branch_label = row.name or row.branch_code or row.id[:8]
     trigger_text = TRIGGER_TEMPLATE.format(company=company, branch=branch_label, token=row.qr_token)
-    phone = _resolve_wa_phone_e164(db, row.wa_sender_country)
+    phone = resolve_feedback_wa_phone_for_qr(db, row.wa_sender_country)
     wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text)
     selected_ids: list[str] = []
     if row.selected_survey_type_ids_json:
@@ -119,6 +74,7 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
         "status": row.status,
         "scan_count": row.scan_count,
         "trigger_text": trigger_text,
+        "wa_sender_phone": phone,
         "wa_url": wa_url,
         "qr_image_url": qr_image_url,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -160,7 +116,7 @@ class FeedbackLocationService:
         if not selected_ids:
             raise ValueError("At least one survey topic is required")
         zone = country_to_zone(getattr(org, "country", None))
-        phone = _resolve_wa_phone_e164(db, zone)
+        phone = resolve_feedback_wa_phone_for_qr(db, zone)
         branch = str(payload.get("name") or "Main branch").strip()
         token = secrets.token_urlsafe(12)
         trigger_text = TRIGGER_TEMPLATE.format(company=org.name, branch=branch, token=token)
@@ -168,6 +124,7 @@ class FeedbackLocationService:
         return {
             "preview": True,
             "trigger_text": trigger_text,
+            "wa_sender_phone": phone,
             "wa_url": wa_url,
             "qr_image_url": qr_image_url,
             "selected_survey_type_ids": selected_ids,
