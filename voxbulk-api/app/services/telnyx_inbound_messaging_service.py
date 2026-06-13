@@ -420,9 +420,31 @@ class TelnyxInboundMessagingService:
             )
 
             handled_feedback = False
+            handled_abuu = False
             from app.services.customer_feedback.location_service import FeedbackLocationService
 
-            if FeedbackLocationService.parse_trigger_ref(inbound_text):
+            try:
+                from app.core.config import get_settings
+                from app.abuu.services.inbound_service import AbuuInboundService
+
+                if get_settings().abuu_enabled:
+                    abuu_result = AbuuInboundService.try_handle(
+                        db,
+                        from_phone=from_norm or from_number or "",
+                        body=inbound_text,
+                        message_id=message_id,
+                        record=record,
+                        org_id=org_id,
+                    )
+                    handled_abuu = bool(abuu_result.get("handled"))
+            except Exception:
+                logger.exception(
+                    "abuu_wa_inbound_handler_failed from=%r body=%r",
+                    from_norm or from_number,
+                    inbound_text[:120],
+                )
+
+            if not handled_abuu and FeedbackLocationService.parse_trigger_ref(inbound_text):
                 try:
                     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -441,7 +463,7 @@ class TelnyxInboundMessagingService:
                     )
 
             # Survey WA is isolated from interview booking: route survey first when applicable.
-            if not handled_feedback:
+            if not handled_feedback and not handled_abuu:
                 try:
                     from app.services.survey_whatsapp_conversation_service import (
                         try_handle_survey_whatsapp_inbound,
@@ -499,7 +521,7 @@ class TelnyxInboundMessagingService:
                         (body or "")[:120],
                     )
 
-            if not handled_feedback and not handled_survey:
+            if not handled_feedback and not handled_survey and not handled_abuu:
                 try:
                     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -600,7 +622,7 @@ class TelnyxInboundMessagingService:
                             (body or "")[:120],
                             from_norm or from_number,
                         )
-            if not handled_interview and not handled_survey and not survey_session_bug and not handled_feedback:
+            if not handled_interview and not handled_survey and not survey_session_bug and not handled_feedback and not handled_abuu:
                 logger.warning(
                     "inbound_fallback_after_survey_miss org=%s from=%r body=%r — "
                     "no active survey session; routing to sales/generic handlers",

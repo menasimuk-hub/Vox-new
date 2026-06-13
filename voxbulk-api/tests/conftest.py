@@ -46,6 +46,34 @@ def _cleanup_db():
         pass
 
 
+def reset_abuu_test_db() -> None:
+    import os
+    import time
+
+    from app.core.abuu_database import get_abuu_engine, get_abuu_sessionmaker, run_abuu_migrations
+
+    try:
+        get_abuu_engine().dispose()
+    except Exception:
+        pass
+    get_abuu_sessionmaker.cache_clear()
+    get_abuu_engine.cache_clear()
+
+    db_path = ".pytest_abuu.db"
+    for _ in range(3):
+        try:
+            os.remove(db_path)
+            break
+        except FileNotFoundError:
+            break
+        except PermissionError:
+            time.sleep(0.05)
+
+    get_abuu_sessionmaker.cache_clear()
+    get_abuu_engine.cache_clear()
+    run_abuu_migrations()
+
+
 @pytest.fixture()
 def app_client():
     from app.core.database import Base, get_engine
@@ -54,6 +82,7 @@ def app_client():
     engine = get_engine()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    reset_abuu_test_db()
 
     # Force Celery to run tasks synchronously in tests.
     from app.workers.celery_app import celery_app
