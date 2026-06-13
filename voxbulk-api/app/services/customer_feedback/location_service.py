@@ -24,8 +24,34 @@ from app.services.customer_feedback.survey_config_service import (
 from app.services.market_zone import country_to_zone
 
 
-TRIGGER_TEMPLATE = '✨ I want to start the survey for "{company}" — "{branch}" ✍️📋 [ref:{token}]'
-REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
+TRIGGER_TEMPLATE = (
+    "Hello, I would like to share feedback for {company} at {branch}. Ref: {ref_display}"
+)
+REF_PATTERN = re.compile(r"\bref:\s*([A-Za-z0-9-]+)", re.IGNORECASE)
+LEGACY_REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
+
+
+def _slug_part(text: str, *, max_len: int = 24) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", str(text or "").lower()).strip("-")
+    return (base or "location")[:max_len]
+
+
+def build_location_qr_token(*, company: str, branch: str) -> str:
+    """Human-readable token stored in DB, e.g. acme-cafe-marylebone-a3f2."""
+    suffix = secrets.token_hex(2)
+    return f"{_slug_part(company, max_len=18)}-{_slug_part(branch, max_len=18)}-{suffix}"
+
+
+def format_ref_display(token: str) -> str:
+    return str(token or "").strip().upper()
+
+
+def build_trigger_text(*, company: str, branch: str, token: str) -> str:
+    return TRIGGER_TEMPLATE.format(
+        company=str(company or "Your business").strip(),
+        branch=str(branch or "Main branch").strip(),
+        ref_display=format_ref_display(token),
+    )
 
 
 def _build_qr_urls(*, phone: str, trigger_text: str) -> tuple[str, str]:
@@ -46,7 +72,7 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
     survey_type = db.get(FeedbackSurveyType, row.survey_type_id)
     company = org.name if org else "Your business"
     branch_label = row.name or row.branch_code or row.id[:8]
-    trigger_text = TRIGGER_TEMPLATE.format(company=company, branch=branch_label, token=row.qr_token)
+    trigger_text = build_trigger_text(company=company, branch=branch_label, token=row.qr_token)
     phone = resolve_feedback_wa_phone_for_qr(db, row.wa_sender_country)
     wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text)
     selected_ids: list[str] = []
@@ -118,8 +144,8 @@ class FeedbackLocationService:
         zone = country_to_zone(getattr(org, "country", None))
         phone = resolve_feedback_wa_phone_for_qr(db, zone)
         branch = str(payload.get("name") or "Main branch").strip()
-        token = secrets.token_urlsafe(12)
-        trigger_text = TRIGGER_TEMPLATE.format(company=org.name, branch=branch, token=token)
+        token = build_location_qr_token(company=org.name, branch=branch)
+        trigger_text = build_trigger_text(company=org.name, branch=branch, token=token)
         wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text)
         return {
             "preview": True,
@@ -160,15 +186,20 @@ class FeedbackLocationService:
             open_question_enabled=open_question,
             marketing_opt_in_enabled=marketing_opt_in,
         )
+        location_name = str(payload.get("name") or "Location").strip()
+        company_name = org.name if org else "Your business"
+        qr_token = build_location_qr_token(company=company_name, branch=location_name)
+        while db.execute(select(FeedbackLocation.qr_token).where(FeedbackLocation.qr_token == qr_token)).scalar_one_or_none():
+            qr_token = build_location_qr_token(company=company_name, branch=location_name)
         now = datetime.utcnow()
         row = FeedbackLocation(
             id=str(uuid.uuid4()),
             org_id=org_id,
             industry_id=industry_id,
             survey_type_id=primary_type_id,
-            name=str(payload.get("name") or "Location").strip(),
+            name=location_name,
             branch_code=(str(payload.get("branch_code")).strip() if payload.get("branch_code") else None),
-            qr_token=secrets.token_urlsafe(12),
+            qr_token=qr_token,
             wa_sender_country=zone,
             status=str(payload.get("status") or "active"),
             selected_survey_type_ids_json=json.dumps(selected_ids),
@@ -217,8 +248,11 @@ class FeedbackLocationService:
 
     @staticmethod
     def parse_trigger_ref(body: str) -> str | None:
-        match = REF_PATTERN.search(str(body or ""))
-        return match.group(1) if match else None
+        text = str(body or "")
+        match = REF_PATTERN.search(text) or LEGACY_REF_PATTERN.search(text)
+        if not match:
+            return None
+        return str(match.group(1)).strip().lower()
 
     @staticmethod
     def record_scan(db: Session, location: FeedbackLocation) -> None:

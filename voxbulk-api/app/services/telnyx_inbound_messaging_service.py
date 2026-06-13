@@ -420,7 +420,9 @@ class TelnyxInboundMessagingService:
             )
 
             handled_feedback = False
-            if "[ref:" in inbound_text.lower():
+            from app.services.customer_feedback.location_service import FeedbackLocationService
+
+            if FeedbackLocationService.parse_trigger_ref(inbound_text):
                 try:
                     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
