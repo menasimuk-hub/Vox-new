@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.abuu.agent.agent import AbuuAgentLoop
 from app.abuu.services.abuu_voice_service import AbuuVoiceService
-from app.abuu.services.reply_service import voice_low_confidence_message, voice_fallback_message
+from app.abuu.services.reply_service import voice_low_confidence_message, voice_unclear_transcript_message, voice_fallback_message
+from app.abuu.services.abuu_voice_service import is_low_quality_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,12 @@ def transcribe_and_run_agent(
             if voice.confidence is not None and voice.confidence < 0.45
             else voice_fallback_message(lang, active_order=has_active_order),
         }
+    if is_low_quality_transcript(voice.transcript):
+        return {
+            "handled": True,
+            "action": "voice_failed",
+            "reply": voice_unclear_transcript_message(lang),
+        }
     return AbuuAgentLoop.run(
         abuu_db,
         main_db,
@@ -46,4 +53,5 @@ def transcribe_and_run_agent(
         text=voice.transcript.strip(),
         message_id=message_id,
         org_id=org_id,
+        input_source="voice",
     )

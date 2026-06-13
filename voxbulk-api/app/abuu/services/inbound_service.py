@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.abuu.models.entities import CustomerOrder, Restaurant
-from app.abuu.services.abuu_voice_service import AbuuVoiceService
+from app.abuu.services.abuu_voice_service import AbuuVoiceService, is_low_quality_transcript
 from app.abuu.services.customer_memory_service import (
     apply_saved_address_to_order,
     first_name,
@@ -50,6 +50,7 @@ from app.abuu.services.reply_service import (
     preference_menu_message,
     unknown_message,
     voice_low_confidence_message,
+    voice_unclear_transcript_message,
 )
 from app.core.abuu_database import get_abuu_sessionmaker
 from app.core.config import get_settings
@@ -170,6 +171,22 @@ class AbuuInboundService:
                         abuu_db.add(session)
                     abuu_db.commit()
                     return {"handled": True, "reason": "voice_low_confidence", "confidence": voice.confidence}
+                if is_low_quality_transcript(voice.transcript):
+                    AbuuInboundService._send_reply(
+                        main_db,
+                        phone,
+                        voice_unclear_transcript_message(lang),
+                        org_id=org_id,
+                    )
+                    if session:
+                        session.last_message_id = message_id
+                        abuu_db.add(session)
+                    abuu_db.commit()
+                    return {
+                        "handled": True,
+                        "reason": "voice_unclear_transcript",
+                        "transcript": voice.transcript,
+                    }
                 text = voice.transcript
             else:
                 AbuuInboundMessageService.save(
@@ -195,6 +212,7 @@ class AbuuInboundService:
                     text=text,
                     message_id=message_id,
                     org_id=org_id,
+                    input_source="voice",
                 )
                 reply = result.get("reply")
                 if reply:

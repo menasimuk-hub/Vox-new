@@ -226,7 +226,7 @@ def test_abuu_voice_note_low_confidence(mock_transcribe, mock_send, app_client):
         )
     assert result.get("reason") == "voice_low_confidence"
     reply = mock_send.call_args.kwargs.get("body") or mock_send.call_args.args[2]
-    assert "كتابة" in reply or "type" in reply.lower()
+    assert "اكتب" in reply or "كتابة" in reply or "type" in reply.lower()
 
 
 @patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")

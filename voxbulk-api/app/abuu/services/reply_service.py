@@ -43,7 +43,7 @@ def personalized_greeting_message(
         if saved_address:
             lines.append(f"We'll deliver to your saved address: {saved_address}")
         return "\n".join(lines)
-    lines = [f"مرحباً {name}، ماذا تحب أن تأكل اليوم؟"]
+    lines = [f"مرحباً {name}، شو حابب تاكل اليوم؟"]
     lines.append("اكتب: دجاج، سمك، لحم، سلطة، مشروبات، حلويات، أو نباتي.")
     if saved_address:
         lines.append(f"سنوصل إلى عنوانك المحفوظ: {saved_address}")
@@ -53,7 +53,7 @@ def personalized_greeting_message(
 def ask_name_message(lang: str) -> str:
     if lang == "en":
         return "Welcome! What is your first name?"
-    return "أهلاً بك! ما اسمك؟"
+    return "أهلاً! شو اسمك؟"
 
 
 def ask_preference_message(*, first_name: str | None, lang: str) -> str:
@@ -79,7 +79,13 @@ def already_confirmed_message(lang: str) -> str:
 def voice_low_confidence_message(lang: str) -> str:
     if lang == "en":
         return "I couldn't understand the voice note clearly. Please type your message."
-    return "لم أفهم الرسالة الصوتية بوضوح. يرجى كتابة رسالتك."
+    return "ما فهمت الرسالة الصوتية منيح. اكتب طلبك أو أعد إرسال مقطع أوضح."
+
+
+def voice_unclear_transcript_message(lang: str) -> str:
+    if lang == "en":
+        return "I couldn't make out your voice note. What would you like to order? You can type it or send a clearer voice note."
+    return "ما قدرت أفهم الرسالة الصوتية. شو حابب تطلب؟ اكتب طلبك أو ابعت رسالة صوتية أوضح."
 
 
 def preference_menu_message(

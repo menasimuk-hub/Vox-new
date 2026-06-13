@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -19,6 +20,39 @@ logger = logging.getLogger(__name__)
 
 MIN_CONFIDENCE = 0.45
 MIN_TRANSCRIPT_CHARS = 2
+DEFAULT_STT_LANGUAGE = "ar"
+
+_LAUGHTER_PATTERN = re.compile(
+    r"^(?:ha+|he+|hi+|ho+|hu+|ah+|eh+|oh+|uh+|lol+|haha+|hehe+|hihi+|"
+    r"هه+|ح+$|ه+$|م+$|😂+|🤣+)+$",
+    re.IGNORECASE,
+)
+_REPEATED_CHAR_PATTERN = re.compile(r"(.)\1{4,}")
+
+
+def _stt_language(language: str | None) -> str:
+    raw = str(language or DEFAULT_STT_LANGUAGE).strip().lower()
+    if raw.startswith("ar"):
+        return "ar"
+    if raw.startswith("en"):
+        return "en"
+    return DEFAULT_STT_LANGUAGE
+
+
+def is_low_quality_transcript(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return True
+    if len(cleaned) < MIN_TRANSCRIPT_CHARS:
+        return True
+    if _LAUGHTER_PATTERN.match(cleaned):
+        return True
+    if _REPEATED_CHAR_PATTERN.search(cleaned) and len(cleaned.split()) <= 2:
+        return True
+    alpha = re.sub(r"[\W_]+", "", cleaned, flags=re.UNICODE)
+    if alpha and len(set(alpha.lower())) <= 2 and len(alpha) >= 4:
+        return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -36,6 +70,8 @@ def _estimate_confidence(text: str) -> float:
     cleaned = str(text or "").strip()
     if not cleaned:
         return 0.0
+    if is_low_quality_transcript(cleaned):
+        return 0.1
     if len(cleaned) < MIN_TRANSCRIPT_CHARS:
         return 0.2
     if len(cleaned.split()) >= 2:
@@ -83,7 +119,11 @@ class AbuuVoiceService:
                 max_bytes=16 * 1024 * 1024,
                 timeout_seconds=30,
             )
-            transcript = AbuuVoiceService._transcribe_file(main_db, path, language=language)
+            transcript = AbuuVoiceService._transcribe_file(
+                main_db,
+                path,
+                language=_stt_language(language),
+            )
             confidence = _estimate_confidence(transcript)
             ok = bool(transcript.strip()) and confidence >= MIN_CONFIDENCE
             return AbuuVoiceTranscription(
@@ -108,11 +148,12 @@ class AbuuVoiceService:
 
     @staticmethod
     def _transcribe_file(main_db: Session, audio_path: Path, *, language: str | None) -> str:
+        stt_lang = _stt_language(language)
         if DeepInfraProviderService.is_configured(main_db):
             result = DeepInfraProviderService.transcribe_audio_file(
                 main_db,
                 audio_path=audio_path,
-                language=language,
+                language=stt_lang,
             )
             return str(result.get("text") or "").strip()
 
@@ -135,6 +176,7 @@ class AbuuVoiceService:
                 audio=tmp_path.read_bytes(),
                 filename=tmp_path.name,
                 content_type="audio/ogg",
+                language=stt_lang,
             )
             return str(payload.get("text") or "").strip()
         finally:

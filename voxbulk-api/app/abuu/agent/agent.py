@@ -49,6 +49,15 @@ def _deepseek_platform_ready(main_db: Session) -> bool:
     return bool(enabled and cfg and str(cfg.get("api_key") or "").strip())
 
 
+def _format_user_turn(text: str, *, input_source: str, lang: str) -> str:
+    cleaned = str(text or "").strip()
+    if input_source != "voice":
+        return cleaned
+    if lang == "en":
+        return f"[Voice note transcript — interpret food order intent]: {cleaned}"
+    return f"[رسالة صوتية — فهم نية الطلب]: {cleaned}"
+
+
 class AbuuAgentLoop:
     @staticmethod
     def run(
@@ -59,11 +68,13 @@ class AbuuAgentLoop:
         text: str,
         message_id: str | None = None,
         org_id: str | None = None,
+        input_source: str = "text",
     ) -> dict[str, Any]:
         settings = get_settings()
         customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
         session = load_session(abuu_db, phone)
-        session.messages.append({"role": "user", "content": text})
+        user_turn = _format_user_turn(text, input_source=input_source, lang=session.language or "ar")
+        session.messages.append({"role": "user", "content": user_turn})
 
         if not _deepseek_platform_ready(main_db):
             logger.error("abuu_agent_deepseek_not_configured phone=%s", phone)

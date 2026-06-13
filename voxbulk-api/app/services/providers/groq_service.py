@@ -70,13 +70,21 @@ class GroqProviderService:
         }
 
     @staticmethod
-    def transcribe_audio_result(db: Session, *, audio: bytes, filename: str = "audio.webm", content_type: str = "audio/webm") -> dict[str, Any]:
+    def transcribe_audio_result(
+        db: Session,
+        *,
+        audio: bytes,
+        filename: str = "audio.webm",
+        content_type: str = "audio/webm",
+        language: str | None = None,
+    ) -> dict[str, Any]:
         start = time.perf_counter()
         config = GroqProviderService._config(db)
         files = {"file": (filename, audio, content_type)}
+        stt_lang = str(language or "ar").strip().lower() or "ar"
         data = {
             "model": config["stt_model"] or GROQ_DEFAULT_STT_MODEL,
-            "language": "en",
+            "language": stt_lang,
             "response_format": "json",
         }
         headers = {"Authorization": f"Bearer {config['api_key']}"}
@@ -91,7 +99,7 @@ class GroqProviderService:
                 body = response.text
             return {"ok": False, "status_code": response.status_code, "error": body, "timings": {"groq_stt_total_ms": elapsed}}
         body = response.json()
-        return {"ok": True, "text": str(body.get("text") or "").strip(), "model": data["model"], "language": "en", "timings": {"groq_stt_total_ms": elapsed}}
+        return {"ok": True, "text": str(body.get("text") or "").strip(), "model": data["model"], "language": stt_lang, "timings": {"groq_stt_total_ms": elapsed}}
 
     @staticmethod
     def synthesize_orpheus_result(db: Session, *, text: str, voice: str | None = None) -> dict[str, Any]:
