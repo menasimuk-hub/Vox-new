@@ -222,6 +222,41 @@ def test_map_arabic_button_to_english_for_branching():
         )
 
 
+def test_feedback_meta_name_shared_for_arabic_and_english():
+    import uuid
+    from datetime import datetime
+
+    from app.models.customer_feedback import FeedbackWaTemplate
+    from app.services.customer_feedback.feedback_telnyx_push_service import feedback_meta_template_name
+
+    en_id = str(uuid.uuid4())
+    ar_id = str(uuid.uuid4())
+    en = FeedbackWaTemplate(
+        id=en_id,
+        template_key="overall-experience",
+        body_text="Hello",
+        language="en_GB",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    ar = FeedbackWaTemplate(
+        id=ar_id,
+        template_key="overall-experience",
+        body_text="مرحبا",
+        language="ar",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    en_name = feedback_meta_template_name(
+        en, industry_slug="fitness", survey_type_slug="overall-experience", name_anchor_id=en_id
+    )
+    ar_name = feedback_meta_template_name(
+        ar, industry_slug="fitness", survey_type_slug="overall-experience", name_anchor_id=en_id
+    )
+    assert en_name == ar_name
+    assert en_id.replace("-", "")[:8] in en_name.replace("_", "")
+
+
 def test_finalize_translated_body_keeps_leading_emoji():
     from app.services.customer_feedback.feedback_template_translation_service import finalize_translated_body
 

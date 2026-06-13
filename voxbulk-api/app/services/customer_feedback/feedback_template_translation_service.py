@@ -351,8 +351,11 @@ def translate_templates_to_arabic(
 
         if push_telnyx:
             try:
-                push_feedback_template_to_telnyx(db, row, dry_run=False)
-                pushed += 1
+                result = push_feedback_template_to_telnyx(db, row, dry_run=False)
+                if result.get("skipped_push") or result.get("linked"):
+                    pushed += 1
+                else:
+                    pushed += 1
             except FeedbackTelnyxPushError as exc:
                 push_failed += 1
                 errors.append({"template_key": label, "stage": "push", "error": str(exc)})

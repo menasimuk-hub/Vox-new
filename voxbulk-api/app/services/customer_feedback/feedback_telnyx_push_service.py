@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
 from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
+from app.services.customer_feedback.survey_config_service import ENGLISH_TEMPLATE_LANGUAGES
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     normalize_wa_template_category,
@@ -21,12 +22,14 @@ from app.services.survey_whatsapp_template_service import (
 )
 from app.services.telnyx_api_key import normalize_telnyx_api_key, require_telnyx_api_key
 from app.services.telnyx_voice_service import _telnyx_config, _telnyx_headers, resolve_telnyx_whatsapp_waba_id
-from app.services.telnyx_whatsapp_template_sync_service import TELNYX_WHATSAPP_TEMPLATES_URL
+from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService, TELNYX_WHATSAPP_TEMPLATES_URL
+from app.services.wa_template_meta_sync import META_SUBCODE_CONTENT_ALREADY_EXISTS, parse_meta_error_from_provider_detail
 
 logger = logging.getLogger(__name__)
 
 META_QUICK_REPLY_MAX = 3
 META_BUTTON_MAX_LEN = 20
+META_SUBCODE_CATEGORY_MISMATCH = 2388026
 
 
 class FeedbackTelnyxPushError(Exception):
@@ -81,6 +84,7 @@ def feedback_meta_template_name(
     *,
     industry_slug: str | None = None,
     survey_type_slug: str | None = None,
+    name_anchor_id: str | None = None,
 ) -> str:
     parts = ["voxbulk", "cf"]
     if industry_slug:
@@ -88,8 +92,112 @@ def feedback_meta_template_name(
     if survey_type_slug:
         parts.append(_slug_underscore(survey_type_slug))
     parts.append(_slug_underscore(tpl.template_key or "template"))
-    parts.append(re.sub(r"[^a-z0-9]", "", str(tpl.id or "").lower())[:8])
+    anchor = str(name_anchor_id or tpl.id or "").lower()
+    parts.append(re.sub(r"[^a-z0-9]", "", anchor)[:8])
     return "_".join(p for p in parts if p)[:512]
+
+
+def english_anchor_template(db: Session, tpl: FeedbackWaTemplate) -> FeedbackWaTemplate:
+    """Meta template name is shared across languages — anchor on the English row."""
+    if str(tpl.language or "").strip() in ENGLISH_TEMPLATE_LANGUAGES:
+        return tpl
+    if tpl.survey_type_id:
+        row = db.execute(
+            select(FeedbackWaTemplate)
+            .where(
+                FeedbackWaTemplate.survey_type_id == tpl.survey_type_id,
+                FeedbackWaTemplate.language.in_(ENGLISH_TEMPLATE_LANGUAGES),
+            )
+            .order_by(FeedbackWaTemplate.updated_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is not None:
+            return row
+    if tpl.template_key and tpl.industry_id is None and tpl.survey_type_id is None:
+        row = db.execute(
+            select(FeedbackWaTemplate)
+            .where(
+                FeedbackWaTemplate.template_key == tpl.template_key,
+                FeedbackWaTemplate.industry_id.is_(None),
+                FeedbackWaTemplate.survey_type_id.is_(None),
+                FeedbackWaTemplate.language.in_(ENGLISH_TEMPLATE_LANGUAGES),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is not None:
+            return row
+    return tpl
+
+
+def _remote_language_matches(item: dict[str, Any], language: str) -> bool:
+    item_lang = str(item.get("language") or "").replace("-", "_").lower()
+    target = normalize_feedback_language(language).lower()
+    if item_lang == target:
+        return True
+    if target == "ar" and item_lang.startswith("ar"):
+        return True
+    if target.startswith("en") and item_lang.startswith("en"):
+        return True
+    return False
+
+
+def _remote_templates_for_name(remote_items: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+    target = str(name or "").strip().lower()
+    return [
+        item
+        for item in remote_items
+        if isinstance(item, dict) and str(item.get("name") or "").strip().lower() == target
+    ]
+
+
+def find_remote_feedback_template(
+    remote_items: list[dict[str, Any]],
+    *,
+    name: str,
+    language: str | None = None,
+) -> dict[str, Any] | None:
+    matches = _remote_templates_for_name(remote_items, name)
+    if language:
+        for item in matches:
+            if _remote_language_matches(item, language):
+                return item
+        return None
+    return matches[0] if matches else None
+
+
+def resolve_feedback_push_category(
+    tpl: FeedbackWaTemplate,
+    remote_items: list[dict[str, Any]],
+    *,
+    meta_name: str,
+) -> str:
+    for item in _remote_templates_for_name(remote_items, meta_name):
+        remote_category = normalize_wa_template_category(item.get("category"), required=False)
+        if remote_category:
+            return remote_category
+    return normalize_wa_template_category(tpl.meta_category or "utility", required=True)
+
+
+def _extract_telnyx_error_detail(body: Any) -> str:
+    if isinstance(body, dict):
+        errors = body.get("errors")
+        if isinstance(errors, list) and errors:
+            first = errors[0]
+            if isinstance(first, dict):
+                return str(first.get("detail") or first)
+            return str(first)
+        if body.get("detail"):
+            return str(body.get("detail"))
+    return str(body)
+
+
+def _mark_template_submitted(db: Session, tpl: FeedbackWaTemplate) -> None:
+    now = datetime.utcnow()
+    tpl.telnyx_sync_status = "submitted"
+    tpl.updated_at = now
+    db.add(tpl)
+    db.commit()
+    db.refresh(tpl)
 
 
 def normalize_feedback_language(raw: str | None) -> str:
@@ -107,6 +215,7 @@ def push_feedback_template_to_telnyx(
     tpl: FeedbackWaTemplate,
     *,
     dry_run: bool = False,
+    remote_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     industry_slug: str | None = None
     survey_slug: str | None = None
@@ -117,15 +226,31 @@ def push_feedback_template_to_telnyx(
         st = db.get(FeedbackSurveyType, tpl.survey_type_id)
         survey_slug = st.slug if st else None
 
+    anchor = english_anchor_template(db, tpl)
+    name = feedback_meta_template_name(
+        tpl,
+        industry_slug=industry_slug,
+        survey_type_slug=survey_slug,
+        name_anchor_id=anchor.id,
+    )
+
     raw_components = build_feedback_components(tpl)
     try:
         components = prepare_components_for_telnyx_push(raw_components, row=None)
     except SurveyWhatsappTemplateError as exc:
         raise FeedbackTelnyxPushError(str(exc)) from exc
 
-    category = normalize_wa_template_category(tpl.meta_category or "utility", required=True)
     language = normalize_feedback_language(tpl.language)
-    name = feedback_meta_template_name(tpl, industry_slug=industry_slug, survey_type_slug=survey_slug)
+
+    prefetched = remote_items
+    if prefetched is None and not dry_run:
+        try:
+            prefetched = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+        except Exception as exc:
+            logger.warning("feedback_telnyx_prefetch_failed: %s", str(exc)[:200])
+            prefetched = []
+
+    category = resolve_feedback_push_category(tpl, prefetched or [], meta_name=name)
 
     if dry_run:
         payload = {
@@ -145,6 +270,23 @@ def push_feedback_template_to_telnyx(
             "language": language,
             "payload": payload,
             "message": "Dry run — payload validated, not sent to Telnyx.",
+        }
+
+    existing_remote = find_remote_feedback_template(prefetched or [], name=name, language=language)
+    if existing_remote:
+        _mark_template_submitted(db, tpl)
+        return {
+            "ok": True,
+            "linked": True,
+            "skipped_push": True,
+            "template_id": tpl.id,
+            "template_key": tpl.template_key,
+            "meta_name": name,
+            "category": category,
+            "language": language,
+            "telnyx_record_id": existing_remote.get("id"),
+            "telnyx_sync_status": tpl.telnyx_sync_status,
+            "message": "Already on Telnyx/Meta for this language — linked, not re-created.",
         }
 
     config = _telnyx_config(db)
@@ -178,6 +320,73 @@ def push_feedback_template_to_telnyx(
         "payload": payload,
     }
 
+    response = _post_feedback_template_to_telnyx(api_key=api_key, payload=payload)
+    status_code = int(response["status_code"])
+    body = response["body"]
+    result["status_code"] = status_code
+    result["telnyx_response"] = body
+
+    if status_code >= 400:
+        detail_text = _extract_telnyx_error_detail(body)
+        meta = parse_meta_error_from_provider_detail(detail_text)
+        subcode = meta.get("subcode")
+
+        if subcode == META_SUBCODE_CONTENT_ALREADY_EXISTS:
+            _mark_template_submitted(db, tpl)
+            result["ok"] = True
+            result["linked"] = True
+            result["skipped_push"] = True
+            result["message"] = "Arabic content already exists on Meta for this template — treated as linked."
+            result["telnyx_sync_status"] = tpl.telnyx_sync_status
+            return result
+
+        if subcode == META_SUBCODE_CATEGORY_MISMATCH:
+            remote_category = resolve_feedback_push_category(tpl, prefetched or [], meta_name=name)
+            local_category = normalize_wa_template_category(tpl.meta_category or "utility", required=True)
+            if remote_category != local_category:
+                payload["category"] = remote_category
+                result["category"] = remote_category
+                retry = _post_feedback_template_to_telnyx(api_key=api_key, payload=payload)
+                status_code = int(retry["status_code"])
+                body = retry["body"]
+                result["status_code"] = status_code
+                result["telnyx_response"] = body
+                if status_code >= 400:
+                    detail_text = _extract_telnyx_error_detail(body)
+                    meta = parse_meta_error_from_provider_detail(detail_text)
+                    if meta.get("subcode") == META_SUBCODE_CONTENT_ALREADY_EXISTS:
+                        _mark_template_submitted(db, tpl)
+                        result["ok"] = True
+                        result["linked"] = True
+                        result["skipped_push"] = True
+                        result["message"] = (
+                            "Category adjusted to match Meta; Arabic content already exists — linked."
+                        )
+                        result["telnyx_sync_status"] = tpl.telnyx_sync_status
+                        return result
+
+    if status_code >= 400:
+        raise FeedbackTelnyxPushError(
+            f"Telnyx rejected template (HTTP {status_code}): {_extract_telnyx_error_detail(body)}",
+            payload=result,
+        )
+
+    _mark_template_submitted(db, tpl)
+
+    record_id = None
+    if isinstance(body, dict):
+        data = body.get("data")
+        if isinstance(data, dict):
+            record_id = data.get("id") or data.get("record_id")
+
+    result["ok"] = True
+    result["message"] = "Template submitted to Telnyx for Meta approval."
+    result["telnyx_record_id"] = record_id
+    result["telnyx_sync_status"] = tpl.telnyx_sync_status
+    return result
+
+
+def _post_feedback_template_to_telnyx(*, api_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         with httpx.Client(timeout=45.0, verify=httpx_ssl_verify()) as client:
             response = client.post(
@@ -192,41 +401,7 @@ def push_feedback_template_to_telnyx(
         body = response.json()
     except ValueError:
         body = {"raw": response.text[:2000]}
-
-    result["status_code"] = response.status_code
-    result["telnyx_response"] = body
-
-    if response.status_code >= 400:
-        detail = body
-        if isinstance(body, dict):
-            errors = body.get("errors")
-            if isinstance(errors, list) and errors:
-                detail = errors[0]
-            elif body.get("detail"):
-                detail = body.get("detail")
-        raise FeedbackTelnyxPushError(
-            f"Telnyx rejected template (HTTP {response.status_code}): {detail}",
-            payload=result,
-        )
-
-    now = datetime.utcnow()
-    tpl.telnyx_sync_status = "submitted"
-    tpl.updated_at = now
-    db.add(tpl)
-    db.commit()
-    db.refresh(tpl)
-
-    record_id = None
-    if isinstance(body, dict):
-        data = body.get("data")
-        if isinstance(data, dict):
-            record_id = data.get("id") or data.get("record_id")
-
-    result["ok"] = True
-    result["message"] = "Template submitted to Telnyx for Meta approval."
-    result["telnyx_record_id"] = record_id
-    result["telnyx_sync_status"] = tpl.telnyx_sync_status
-    return result
+    return {"status_code": response.status_code, "body": body}
 
 
 def load_feedback_template(
@@ -320,15 +495,27 @@ def push_all_feedback_templates_for_industry(
         }
 
     pushed = 0
+    linked = 0
     failed = 0
     errors: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
 
-    for tpl in templates:
-        label = f"{tpl.template_key} ({tpl.id[:8]})"
+    remote_items: list[dict[str, Any]] | None = None
+    if not dry_run:
         try:
-            result = push_feedback_template_to_telnyx(db, tpl, dry_run=dry_run)
+            remote_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+        except Exception as exc:
+            logger.warning("feedback_telnyx_bulk_prefetch_failed: %s", str(exc)[:200])
+            remote_items = []
+
+    for tpl in templates:
+        try:
+            result = push_feedback_template_to_telnyx(
+                db, tpl, dry_run=dry_run, remote_items=remote_items
+            )
             pushed += 1
+            if result.get("skipped_push") or result.get("linked"):
+                linked += 1
             results.append(
                 {
                     "ok": True,
@@ -336,6 +523,7 @@ def push_all_feedback_templates_for_industry(
                     "template_key": tpl.template_key,
                     "meta_name": result.get("meta_name"),
                     "message": result.get("message"),
+                    "linked": bool(result.get("linked")),
                 }
             )
         except FeedbackTelnyxPushError as exc:
@@ -356,6 +544,7 @@ def push_all_feedback_templates_for_industry(
         "industry_name": industry.name,
         "template_count": len(templates),
         "pushed": pushed,
+        "linked": linked,
         "failed": failed,
         "dry_run": dry_run,
         "errors": errors,
@@ -363,6 +552,7 @@ def push_all_feedback_templates_for_industry(
         "message": (
             f"{'Validated' if dry_run else 'Pushed'} {pushed}/{len(templates)} template(s) "
             f"for {industry.name}"
+            + (f" ({linked} already on Meta)" if linked else "")
             + (f", {failed} failed" if failed else "")
         ),
     }

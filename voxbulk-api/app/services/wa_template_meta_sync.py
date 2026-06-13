@@ -266,6 +266,8 @@ def parse_meta_error_from_provider_detail(detail: str | None) -> dict[str, Any]:
         out["kind"] = META_ERROR_MISSING_BODY_EXAMPLE
     elif subcode == META_SUBCODE_CANNOT_UPDATE_CATEGORY:
         out["kind"] = META_ERROR_CANNOT_UPDATE_CATEGORY
+    elif subcode == 2388026:
+        out["kind"] = META_ERROR_CANNOT_UPDATE_CATEGORY
     elif "cannot update an approved template category" in text.lower():
         out["kind"] = META_ERROR_CANNOT_UPDATE_CATEGORY
     elif "missing expected field(s) (example)" in text.lower():
