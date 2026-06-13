@@ -31,6 +31,7 @@ class RestaurantMenuCategory(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     restaurant_id: Mapped[str] = mapped_column(String(36), ForeignKey("abuu_restaurants.id"), nullable=False, index=True)
+    parent_category_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_menu_categories.id"), nullable=True, index=True)
     name_en: Mapped[str] = mapped_column(String(255), nullable=False)
     name_ar: Mapped[str] = mapped_column(String(255), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
@@ -46,9 +47,10 @@ class RestaurantMenuItem(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     name_ar: Mapped[str] = mapped_column(String(255), nullable=False)
     description_en: Mapped[str | None] = mapped_column(Text, nullable=True)
     description_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
-    item_type: Mapped[str] = mapped_column(String(32), nullable=False, default="food", index=True)
+    item_type: Mapped[str] = mapped_column(String(32), nullable=False, default="meat", index=True)
     price_agorot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     parent_menu_item_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_menu_items.id"), nullable=True)
+    photo_storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -89,6 +91,7 @@ class CustomerAddress(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     address_text: Mapped[str] = mapped_column(String(512), nullable=False)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
@@ -137,6 +140,21 @@ class OrderEvent(AbuuBase):
     order_id: Mapped[str] = mapped_column(String(36), ForeignKey("abuu_orders.id"), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AbuuNotification(AbuuBase):
+    __tablename__ = "abuu_notifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    order_id: Mapped[str] = mapped_column(String(36), ForeignKey("abuu_orders.id"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 

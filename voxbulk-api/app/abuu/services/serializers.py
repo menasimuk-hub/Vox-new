@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.abuu.models.entities import (
+    AbuuNotification,
     CustomerAddress,
     CustomerOrder,
     CustomerOrderItem,
@@ -14,6 +15,7 @@ from app.abuu.models.entities import (
     RestaurantMenuCategory,
     RestaurantMenuItem,
 )
+from app.abuu.services.abuu_menu_photo_storage_service import photo_url_for
 
 
 def restaurant_to_dict(row: Restaurant) -> dict:
@@ -39,6 +41,7 @@ def menu_category_to_dict(row: RestaurantMenuCategory) -> dict:
     return {
         "id": row.id,
         "restaurant_id": row.restaurant_id,
+        "parent_category_id": row.parent_category_id,
         "name_en": row.name_en,
         "name_ar": row.name_ar,
         "sort_order": row.sort_order,
@@ -57,6 +60,8 @@ def menu_item_to_dict(row: RestaurantMenuItem) -> dict:
         "item_type": row.item_type,
         "price_agorot": row.price_agorot,
         "parent_menu_item_id": row.parent_menu_item_id,
+        "photo_storage_key": row.photo_storage_key,
+        "photo_url": photo_url_for(row.photo_storage_key),
         "is_available": row.is_available,
     }
 
@@ -96,6 +101,7 @@ def address_to_dict(row: CustomerAddress) -> dict:
         "address_text": row.address_text,
         "latitude": row.latitude,
         "longitude": row.longitude,
+        "source_message_id": row.source_message_id,
         "is_default": row.is_default,
     }
 
@@ -148,5 +154,20 @@ def event_to_dict(row: OrderEvent) -> dict:
         "order_id": row.order_id,
         "event_type": row.event_type,
         "payload_json": row.payload_json,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def notification_to_dict(row: AbuuNotification) -> dict:
+    return {
+        "id": row.id,
+        "target_type": row.target_type,
+        "target_id": row.target_id,
+        "order_id": row.order_id,
+        "kind": row.kind,
+        "title": row.title,
+        "body": row.body,
+        "payload_json": row.payload_json,
+        "read_at": row.read_at.isoformat() if row.read_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }

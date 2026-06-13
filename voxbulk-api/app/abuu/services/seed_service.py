@@ -4,10 +4,23 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, insert, inspect, select
 from sqlalchemy.orm import Session
 
-from app.abuu.models.entities import Restaurant, RestaurantMenuCategory, RestaurantMenuItem
+from app.abuu.models.entities import Driver, Restaurant, RestaurantMenuCategory, RestaurantMenuItem
+
+
+def _table_columns(db: Session, table: str) -> set[str]:
+    try:
+        return {c["name"] for c in inspect(db.bind).get_columns(table)}
+    except Exception:
+        return set()
+
+
+def _insert_row(db: Session, model, values: dict) -> None:
+    cols = _table_columns(db, model.__tablename__)
+    filtered = {k: v for k, v in values.items() if k in cols}
+    db.execute(insert(model.__table__).values(**filtered))
 
 
 class AbuuSeedService:
@@ -19,41 +32,54 @@ class AbuuSeedService:
         now = datetime.utcnow()
         created = 0
         for spec in _RESTAURANT_SPECS:
-            restaurant = Restaurant(
-                id=spec["id"],
-                name_en=spec["name_en"],
-                name_ar=spec["name_ar"],
-                status="active",
-                is_available=True,
-                delivery_radius_km=5.0,
-                latitude=spec["latitude"],
-                longitude=spec["longitude"],
-                address_text=spec["address_text"],
-                phone=spec["phone"],
-                login_email=spec.get("login_email"),
-                password_hash=spec.get("password_hash"),
-                created_at=now,
-                updated_at=now,
-            )
-            db.add(restaurant)
-            created += 1
-            for cat_idx, cat in enumerate(spec["categories"], start=1):
-                category = RestaurantMenuCategory(
-                    id=cat["id"],
-                    restaurant_id=restaurant.id,
-                    name_en=cat["name_en"],
-                    name_ar=cat["name_ar"],
-                    sort_order=cat_idx * 10,
+            _insert_row(
+                db,
+                Restaurant,
+                dict(
+                    id=spec["id"],
+                    name_en=spec["name_en"],
+                    name_ar=spec["name_ar"],
+                    status="active",
                     is_available=True,
+                    delivery_radius_km=5.0,
+                    latitude=spec["latitude"],
+                    longitude=spec["longitude"],
+                    address_text=spec["address_text"],
+                    phone=spec["phone"],
+                    login_email=spec.get("login_email"),
+                    password_hash=spec.get("password_hash"),
                     created_at=now,
                     updated_at=now,
+                    is_deleted=False,
+                    deleted_at=None,
+                ),
+            )
+            created += 1
+            for cat_idx, cat in enumerate(spec["categories"], start=1):
+                _insert_row(
+                    db,
+                    RestaurantMenuCategory,
+                    dict(
+                        id=cat["id"],
+                        restaurant_id=spec["id"],
+                        parent_category_id=cat.get("parent_category_id"),
+                        name_en=cat["name_en"],
+                        name_ar=cat["name_ar"],
+                        sort_order=cat_idx * 10,
+                        is_available=True,
+                        created_at=now,
+                        updated_at=now,
+                        is_deleted=False,
+                        deleted_at=None,
+                    ),
                 )
-                db.add(category)
                 for item in cat["items"]:
-                    db.add(
-                        RestaurantMenuItem(
+                    _insert_row(
+                        db,
+                        RestaurantMenuItem,
+                        dict(
                             id=item["id"],
-                            category_id=category.id,
+                            category_id=cat["id"],
                             name_en=item["name_en"],
                             name_ar=item["name_ar"],
                             description_en=item.get("description_en"),
@@ -61,13 +87,119 @@ class AbuuSeedService:
                             item_type=item["item_type"],
                             price_agorot=item["price_agorot"],
                             parent_menu_item_id=item.get("parent_menu_item_id"),
+                            photo_storage_key=item.get("photo_storage_key"),
                             is_available=True,
                             created_at=now,
                             updated_at=now,
-                        )
+                            is_deleted=False,
+                            deleted_at=None,
+                        ),
                     )
         db.flush()
         return created
+
+    @staticmethod
+    def seed_city_expansion(db: Session) -> dict:
+        """Add restaurants up to 15 and drivers up to 4 for E2E testing."""
+        from app.abuu.models.entities import Driver
+
+        restaurant_count = int(db.execute(select(func.count()).select_from(Restaurant)).scalar_one() or 0)
+        driver_count = int(db.execute(select(func.count()).select_from(Driver)).scalar_one() or 0)
+        created_restaurants = 0
+        created_drivers = 0
+        now = datetime.utcnow()
+
+        for spec in _EXPANSION_RESTAURANT_SPECS:
+            if restaurant_count >= 15:
+                break
+            existing = db.get(Restaurant, spec["id"])
+            if existing is not None:
+                continue
+            _insert_row(
+                db,
+                Restaurant,
+                dict(
+                    id=spec["id"],
+                    name_en=spec["name_en"],
+                    name_ar=spec["name_ar"],
+                    status="active",
+                    is_available=True,
+                    delivery_radius_km=5.0,
+                    latitude=spec["latitude"],
+                    longitude=spec["longitude"],
+                    address_text=spec["address_text"],
+                    phone=spec["phone"],
+                    created_at=now,
+                    updated_at=now,
+                    is_deleted=False,
+                    deleted_at=None,
+                ),
+            )
+            created_restaurants += 1
+            restaurant_count += 1
+            for cat_idx, cat in enumerate(spec["categories"], start=1):
+                _insert_row(
+                    db,
+                    RestaurantMenuCategory,
+                    dict(
+                        id=cat["id"],
+                        restaurant_id=spec["id"],
+                        name_en=cat["name_en"],
+                        name_ar=cat["name_ar"],
+                        sort_order=cat_idx * 10,
+                        is_available=True,
+                        created_at=now,
+                        updated_at=now,
+                        is_deleted=False,
+                        deleted_at=None,
+                    ),
+                )
+                for item in cat["items"]:
+                    _insert_row(
+                        db,
+                        RestaurantMenuItem,
+                        dict(
+                            id=item["id"],
+                            category_id=cat["id"],
+                            name_en=item["name_en"],
+                            name_ar=item["name_ar"],
+                            item_type=item["item_type"],
+                            price_agorot=item["price_agorot"],
+                            is_available=True,
+                            created_at=now,
+                            updated_at=now,
+                            is_deleted=False,
+                            deleted_at=None,
+                        ),
+                    )
+
+        for spec in _DRIVER_SPECS:
+            if driver_count >= 4:
+                break
+            existing = db.get(Driver, spec["id"])
+            if existing is not None:
+                continue
+            _insert_row(
+                db,
+                Driver,
+                dict(
+                    id=spec["id"],
+                    name=spec["name"],
+                    phone=spec["phone"],
+                    status="active",
+                    is_available=True,
+                    vehicle_info=spec.get("vehicle_info"),
+                    created_at=now,
+                    updated_at=now,
+                    is_deleted=False,
+                    deleted_at=None,
+                ),
+            )
+            created_drivers += 1
+            driver_count += 1
+
+        db.flush()
+        return {"restaurants": created_restaurants, "drivers": created_drivers}
 
 
 def _item(iid: str, en: str, ar: str, item_type: str, agorot: int, **kw) -> dict:
@@ -279,4 +411,61 @@ _RESTAURANT_SPECS: list[dict] = [
             },
         ],
     },
+]
+
+_EXPANSION_NAMES = [
+    ("Abu Hassan Grill", "مشاوي أبو حسن", "meat"),
+    ("Salata Fresh", "سلطة فرش", "salad"),
+    ("Juice Corner", "ركن العصائر", "drinks"),
+    ("Side Bites", "إضافات جانبية", "sides"),
+    ("Sweet House", "بيت الحلويات", "desserts"),
+    ("Kebab Express", "كباب إكسبرس", "meat"),
+    ("Garden Salad Bar", "بار السلطات", "salad"),
+    ("Cold Drinks Hub", "محطة المشروبات", "drinks"),
+    ("Crispy Sides", "مقرمشات", "sides"),
+    ("Baklava Palace", "قصر البقلاوة", "desserts"),
+    ("Mixed Grill House", "بيت المشاوي", "meat"),
+]
+
+_BASE_LAT, _BASE_LNG = 32.0853, 34.7818
+
+_EXPANSION_RESTAURANT_SPECS: list[dict] = []
+for idx, (name_en, name_ar, focus) in enumerate(_EXPANSION_NAMES, start=5):
+    rid = f"abuu-rest-exp-{idx:02d}"
+    lat = _BASE_LAT + (idx * 0.0015)
+    lng = _BASE_LNG + (idx * 0.0012)
+    _EXPANSION_RESTAURANT_SPECS.append(
+        {
+            "id": rid,
+            "name_en": name_en,
+            "name_ar": name_ar,
+            "latitude": lat,
+            "longitude": lng,
+            "address_text": f"Tel Aviv — {name_en}",
+            "phone": f"+9725010000{idx:02d}",
+            "categories": [
+                {
+                    "id": f"{rid}-cat-main",
+                    "name_en": "Main",
+                    "name_ar": "رئيسي",
+                    "items": [
+                        _item(f"{rid}-item-1", f"{name_en} Special", f"طبق {name_ar}", focus if focus != "drinks" else "meat", 4500 + idx * 100),
+                        _item(f"{rid}-item-2", f"{name_en} Combo", f"وجبة {name_ar}", "sides", 3800),
+                    ],
+                },
+                {
+                    "id": f"{rid}-cat-drinks",
+                    "name_en": "Drinks",
+                    "name_ar": "مشروبات",
+                    "items": [_item(f"{rid}-item-d1", "Water", "ماء", "drinks", 800)],
+                },
+            ],
+        }
+    )
+
+_DRIVER_SPECS = [
+    {"id": "abuu-driver-01", "name": "Driver One", "phone": "+972508000001", "vehicle_info": "Scooter A"},
+    {"id": "abuu-driver-02", "name": "Driver Two", "phone": "+972508000002", "vehicle_info": "Scooter B"},
+    {"id": "abuu-driver-03", "name": "Driver Three", "phone": "+972508000003", "vehicle_info": "Car C"},
+    {"id": "abuu-driver-04", "name": "Driver Four", "phone": "+972508000004", "vehicle_info": "Car D"},
 ]

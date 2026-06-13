@@ -7,14 +7,17 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.abuu.models.entities import CustomerAddress, Restaurant
+from app.abuu.models.entities import CustomerAddress, CustomerOrder, CustomerProfile, Restaurant
 
 logger = logging.getLogger(__name__)
 
 EARTH_RADIUS_KM = 6371.0
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
+NOMINATIM_USER_AGENT = "VoxBulk-Abuu/1.0"
 
 
 @dataclass(frozen=True)
@@ -40,9 +43,22 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def reverse_geocode(lat: float, lng: float) -> str:
-    """Stub reverse geocoder — swap for Nominatim/Google later."""
-    logger.info("abuu_reverse_geocode_stub lat=%s lng=%s", lat, lng)
-    return f"{lat:.5f}, {lng:.5f}"
+    fallback = f"{lat:.5f}, {lng:.5f}"
+    try:
+        with httpx.Client(timeout=3.0) as client:
+            resp = client.get(
+                NOMINATIM_URL,
+                params={"lat": lat, "lon": lng, "format": "json"},
+                headers={"User-Agent": NOMINATIM_USER_AGENT},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                display = str(data.get("display_name") or "").strip()
+                if display:
+                    return display
+    except Exception:
+        logger.warning("abuu_nominatim_failed lat=%s lng=%s", lat, lng, exc_info=True)
+    return fallback
 
 
 def _active_restaurants(db: Session) -> list[Restaurant]:
@@ -96,6 +112,22 @@ def get_default_address(db: Session, customer_id: str) -> CustomerAddress | None
     ).scalars().first()
 
 
+def attach_default_address_if_present(db: Session, order: CustomerOrder, customer: CustomerProfile) -> bool:
+    if order.delivery_address_id:
+        return True
+    default_address = get_default_address(db, customer.id)
+    if default_address is None:
+        logger.warning(
+            "abuu_missing_delivery_location order_id=%s customer_id=%s",
+            order.id,
+            customer.id,
+        )
+        return False
+    order.delivery_address_id = default_address.id
+    db.add(order)
+    return True
+
+
 def save_customer_address(
     db: Session,
     *,
@@ -105,6 +137,7 @@ def save_customer_address(
     longitude: float | None = None,
     label: str | None = "delivery",
     is_default: bool = True,
+    source_message_id: str | None = None,
 ) -> CustomerAddress:
     if is_default:
         for row in db.execute(
@@ -116,12 +149,16 @@ def save_customer_address(
             row.is_default = False
             db.add(row)
 
+    if latitude is not None and longitude is not None and not address_text.strip():
+        address_text = reverse_geocode(latitude, longitude)
+
     row = CustomerAddress(
         customer_id=customer_id,
         label=label,
         address_text=address_text.strip(),
         latitude=latitude,
         longitude=longitude,
+        source_message_id=source_message_id,
         is_default=is_default,
     )
     db.add(row)

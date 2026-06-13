@@ -64,3 +64,29 @@ export function assignAbuuDriver(orderId, driverId) {
     body: JSON.stringify({ driver_id: driverId }),
   })
 }
+
+export function fetchAbuuMenuCategories(restaurantId) {
+  return apiFetch(`/admin/abuu/restaurants/${restaurantId}/menu-categories`)
+}
+
+export function createAbuuMenuCategory(restaurantId, payload) {
+  return apiFetch(`/admin/abuu/restaurants/${restaurantId}/menu-categories`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function createAbuuMenuItem(categoryId, payload) {
+  return apiFetch(`/admin/abuu/menu-categories/${categoryId}/items`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function patchAbuuMenuItem(itemId, payload) {
+  return apiFetch(`/admin/abuu/menu-items/${itemId}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+export function deleteAbuuMenuItem(itemId) {
+  return apiFetch(`/admin/abuu/menu-items/${itemId}`, { method: 'DELETE' })
+}

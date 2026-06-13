@@ -1,15 +1,28 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.abuu.core.auth import RestaurantPrincipal, require_restaurant_user
 from app.abuu.models.entities import CustomerOrder, Restaurant, RestaurantMenuCategory, RestaurantMenuItem
-from app.abuu.services.serializers import menu_category_to_dict, menu_item_to_dict, order_to_dict, restaurant_to_dict
+from app.abuu.services.menu_service import AbuuMenuService
+from app.abuu.services.notification_service import AbuuNotificationService
+from app.abuu.services.order_service import AbuuOrderService
+from app.abuu.services.serializers import menu_category_to_dict, menu_item_to_dict, notification_to_dict, order_to_dict, restaurant_to_dict
 from app.core.abuu_database import get_abuu_db
 
 router = APIRouter(prefix="/abuu/restaurant", tags=["abuu-restaurant"])
+
+RESTAURANT_BOARD_STATUSES = {
+    "new": {"sent_to_restaurant"},
+    "preparing": {"preparing"},
+    "ready": {"ready"},
+    "cancelled": {"cancelled"},
+    "completed": {"delivered"},
+}
 
 
 @router.get("/me")
@@ -26,28 +39,125 @@ def restaurant_menu(
     principal: RestaurantPrincipal = Depends(require_restaurant_user),
     db: Session = Depends(get_abuu_db),
 ):
-    categories = db.execute(
-        select(RestaurantMenuCategory)
-        .where(
-            RestaurantMenuCategory.restaurant_id == principal.restaurant_id,
-            RestaurantMenuCategory.is_deleted.is_(False),
-        )
-        .order_by(RestaurantMenuCategory.sort_order.asc())
-    ).scalars().all()
-    out = []
-    for cat in categories:
-        items = db.execute(
-            select(RestaurantMenuItem).where(
-                RestaurantMenuItem.category_id == cat.id,
-                RestaurantMenuItem.is_deleted.is_(False),
-            )
-        ).scalars().all()
-        out.append({**menu_category_to_dict(cat), "items": [menu_item_to_dict(i) for i in items]})
-    return out
+    return AbuuMenuService.nested_menu(db, principal.restaurant_id)
+
+
+@router.post("/menu/categories")
+def create_menu_category(
+    payload: dict,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    row = AbuuMenuService.create_category(
+        db,
+        restaurant_id=principal.restaurant_id,
+        name_en=str(payload.get("name_en") or ""),
+        name_ar=str(payload.get("name_ar") or ""),
+        sort_order=int(payload.get("sort_order") or 100),
+        is_available=bool(payload.get("is_available", True)),
+        parent_category_id=payload.get("parent_category_id"),
+    )
+    db.commit()
+    db.refresh(row)
+    return menu_category_to_dict(row)
+
+
+@router.patch("/menu/categories/{category_id}")
+def patch_menu_category(
+    category_id: str,
+    payload: dict,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    row = db.get(RestaurantMenuCategory, category_id)
+    if row is None or row.is_deleted or row.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Category not found")
+    AbuuMenuService.patch_category(db, row, payload)
+    db.commit()
+    db.refresh(row)
+    return menu_category_to_dict(row)
+
+
+@router.delete("/menu/categories/{category_id}")
+def delete_menu_category(
+    category_id: str,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    row = db.get(RestaurantMenuCategory, category_id)
+    if row is None or row.is_deleted or row.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Category not found")
+    AbuuMenuService.delete_category(db, row)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/menu/categories/{category_id}/items")
+def create_menu_item(
+    category_id: str,
+    payload: dict,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    cat = db.get(RestaurantMenuCategory, category_id)
+    if cat is None or cat.is_deleted or cat.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Category not found")
+    row = AbuuMenuService.create_item(
+        db,
+        category_id=category_id,
+        name_en=str(payload.get("name_en") or ""),
+        name_ar=str(payload.get("name_ar") or ""),
+        item_type=str(payload.get("item_type") or "meat"),
+        price_agorot=int(payload.get("price_agorot") or 0),
+        description_en=payload.get("description_en"),
+        description_ar=payload.get("description_ar"),
+        parent_menu_item_id=payload.get("parent_menu_item_id"),
+        is_available=bool(payload.get("is_available", True)),
+    )
+    db.commit()
+    db.refresh(row)
+    return menu_item_to_dict(row)
+
+
+@router.patch("/menu/items/{item_id}")
+def patch_menu_item(
+    item_id: str,
+    payload: dict,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    row = db.get(RestaurantMenuItem, item_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Item not found")
+    cat = db.get(RestaurantMenuCategory, row.category_id)
+    if cat is None or cat.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Item not found")
+    AbuuMenuService.patch_item(db, row, payload)
+    db.commit()
+    db.refresh(row)
+    return menu_item_to_dict(row)
+
+
+@router.delete("/menu/items/{item_id}")
+def delete_menu_item(
+    item_id: str,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    row = db.get(RestaurantMenuItem, item_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Item not found")
+    cat = db.get(RestaurantMenuCategory, row.category_id)
+    if cat is None or cat.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Item not found")
+    AbuuMenuService.delete_item(db, row)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/orders")
 def restaurant_orders(
+    board: str | None = Query(None),
     principal: RestaurantPrincipal = Depends(require_restaurant_user),
     db: Session = Depends(get_abuu_db),
 ):
@@ -59,4 +169,87 @@ def restaurant_orders(
         )
         .order_by(CustomerOrder.created_at.desc())
     ).scalars().all()
+    if board:
+        allowed = RESTAURANT_BOARD_STATUSES.get(board.lower(), set())
+        rows = [r for r in rows if r.status in allowed]
     return [order_to_dict(r) for r in rows]
+
+
+@router.get("/orders/{order_id}")
+def restaurant_order_detail(
+    order_id: str,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted or order.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    detail = AbuuOrderService.get_order_detail(db, order_id)
+    return detail
+
+
+@router.post("/orders/{order_id}/preparing")
+def restaurant_start_preparing(
+    order_id: str,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted or order.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        AbuuOrderService.restaurant_start_preparing(db, order)
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.post("/orders/{order_id}/ready")
+def restaurant_mark_ready(
+    order_id: str,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted or order.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        AbuuOrderService.restaurant_mark_ready(db, order)
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.get("/notifications")
+def restaurant_notifications(
+    unread_only: bool = False,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    rows = AbuuNotificationService.list_for_target(
+        db,
+        target_type="restaurant",
+        target_id=principal.restaurant_id,
+        unread_only=unread_only,
+    )
+    return [notification_to_dict(r) for r in rows]
+
+
+@router.patch("/notifications/{notification_id}/read")
+def restaurant_mark_notification_read(
+    notification_id: str,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    row = AbuuNotificationService.mark_read(
+        db,
+        notification_id,
+        target_type="restaurant",
+        target_id=principal.restaurant_id,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    db.commit()
+    return notification_to_dict(row)

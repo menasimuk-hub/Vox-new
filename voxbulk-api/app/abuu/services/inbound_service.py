@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.abuu.models.entities import CustomerOrder, Restaurant
 from app.abuu.services.intent_service import detect_intent, is_abuu_start_message
 from app.abuu.services.location_service import (
-    get_default_address,
+    attach_default_address_if_present,
     parse_whatsapp_location,
     save_customer_address,
     validate_delivery_radius,
@@ -159,10 +159,14 @@ class AbuuInboundService:
                     address_text=text,
                     latitude=None,
                     longitude=None,
+                    source_message_id=message_id,
                 )
                 order.delivery_address_id = address.id
                 abuu_db.add(order)
-                session.step = "browsing"
+                if context.get("confirm_after_address"):
+                    return AbuuInboundService._finalize_confirm(
+                        abuu_db, main_db, phone=phone, order=order, lang=lang, org_id=org_id
+                    )
                 AbuuOrderDraftService.upsert_session(
                     abuu_db,
                     phone=phone,
@@ -205,39 +209,27 @@ class AbuuInboundService:
                     AbuuInboundService._send_reply(main_db, phone, unknown_message(lang), org_id=org_id)
                     abuu_db.commit()
                     return {"handled": True, "action": "no_order"}
-                if not order.delivery_address_id:
-                    default_address = get_default_address(abuu_db, customer.id)
-                    if default_address is not None:
-                        order.delivery_address_id = default_address.id
-                        abuu_db.add(order)
-                    else:
-                        session.step = "awaiting_delivery"
-                        AbuuOrderDraftService.upsert_session(
-                            abuu_db,
-                            phone=phone,
-                            step="awaiting_delivery",
-                            context=context,
-                            active_order_id=order.id,
-                            message_id=message_id,
-                        )
-                        AbuuInboundService._send_reply(
-                            main_db,
-                            phone,
-                            need_delivery_address_message(lang),
-                            org_id=org_id,
-                        )
-                        abuu_db.commit()
-                        return {"handled": True, "action": "need_delivery_address"}
-                try:
-                    AbuuOrderDraftService.confirm_draft(abuu_db, order)
-                except ValueError as exc:
-                    AbuuInboundService._send_reply(main_db, phone, str(exc), org_id=org_id)
+                if not attach_default_address_if_present(abuu_db, order, customer):
+                    context["confirm_after_address"] = True
+                    AbuuOrderDraftService.upsert_session(
+                        abuu_db,
+                        phone=phone,
+                        step="awaiting_delivery",
+                        context=context,
+                        active_order_id=order.id,
+                        message_id=message_id,
+                    )
+                    AbuuInboundService._send_reply(
+                        main_db,
+                        phone,
+                        need_delivery_address_message(lang),
+                        org_id=org_id,
+                    )
                     abuu_db.commit()
-                    return {"handled": True, "action": "confirm_failed", "detail": str(exc)}
-                AbuuOrderDraftService.clear_session(abuu_db, phone)
-                AbuuInboundService._send_reply(main_db, phone, confirm_pending_payment_message(order, lang), org_id=org_id)
-                abuu_db.commit()
-                return {"handled": True, "action": "confirmed", "order_id": order.id}
+                    return {"handled": True, "action": "need_delivery_address"}
+                return AbuuInboundService._finalize_confirm(
+                    abuu_db, main_db, phone=phone, order=order, lang=lang, org_id=org_id
+                )
 
             if intent.name == "add_item" and order and restaurant_id and intent.item_ref:
                 item = AbuuOrderDraftService.resolve_item_from_ref(
@@ -322,10 +314,15 @@ class AbuuInboundService:
             address_text=location.address_text,
             latitude=location.latitude,
             longitude=location.longitude,
+            source_message_id=message_id,
         )
         order.delivery_address_id = address.id
         abuu_db.add(order)
         context = AbuuInboundService._load_context(session)
+        if context.get("confirm_after_address"):
+            return AbuuInboundService._finalize_confirm(
+                abuu_db, main_db, phone=customer.phone, order=order, lang=lang, org_id=org_id
+            )
         AbuuOrderDraftService.upsert_session(
             abuu_db,
             phone=customer.phone,
@@ -336,6 +333,27 @@ class AbuuInboundService:
         )
         AbuuInboundService._send_reply(main_db, customer.phone, address_saved_message(lang), org_id=org_id)
         return {"handled": True, "action": "address_saved", "order_id": order.id}
+
+    @staticmethod
+    def _finalize_confirm(
+        abuu_db: Session,
+        main_db: Session,
+        *,
+        phone: str,
+        order: CustomerOrder,
+        lang: str,
+        org_id: str | None,
+    ) -> dict[str, Any]:
+        try:
+            AbuuOrderDraftService.confirm_draft(abuu_db, order)
+        except ValueError as exc:
+            AbuuInboundService._send_reply(main_db, phone, str(exc), org_id=org_id)
+            abuu_db.commit()
+            return {"handled": True, "action": "confirm_failed", "detail": str(exc)}
+        AbuuOrderDraftService.clear_session(abuu_db, phone)
+        AbuuInboundService._send_reply(main_db, phone, confirm_pending_payment_message(order, lang), org_id=org_id)
+        abuu_db.commit()
+        return {"handled": True, "action": "confirmed", "order_id": order.id}
 
     @staticmethod
     def _is_voice_inbound(record: dict[str, Any] | None) -> bool:

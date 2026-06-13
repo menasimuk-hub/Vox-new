@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,7 @@ from app.abuu.models.entities import (
     RestaurantMenuCategory,
     RestaurantMenuItem,
 )
+from app.abuu.services.menu_service import AbuuMenuService
 from app.abuu.services.order_service import AbuuOrderService
 from app.abuu.services.location_service import find_nearest_restaurants
 from app.abuu.services.serializers import (
@@ -191,6 +192,7 @@ def create_menu_category(
 ):
     row = RestaurantMenuCategory(
         restaurant_id=restaurant_id,
+        parent_category_id=payload.get("parent_category_id"),
         name_en=str(payload.get("name_en") or "").strip(),
         name_ar=str(payload.get("name_ar") or "").strip(),
         sort_order=int(payload.get("sort_order") or 100),
@@ -200,6 +202,36 @@ def create_menu_category(
     db.commit()
     db.refresh(row)
     return menu_category_to_dict(row)
+
+
+@router.patch("/menu-categories/{category_id}")
+def patch_menu_category(
+    category_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = db.get(RestaurantMenuCategory, category_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Category not found")
+    AbuuMenuService.patch_category(db, row, payload)
+    db.commit()
+    db.refresh(row)
+    return menu_category_to_dict(row)
+
+
+@router.delete("/menu-categories/{category_id}")
+def delete_menu_category(
+    category_id: str,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = db.get(RestaurantMenuCategory, category_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Category not found")
+    AbuuMenuService.delete_category(db, row)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/menu-categories/{category_id}/items")
@@ -215,11 +247,77 @@ def create_menu_item(
         name_ar=str(payload.get("name_ar") or "").strip(),
         description_en=payload.get("description_en"),
         description_ar=payload.get("description_ar"),
-        item_type=str(payload.get("item_type") or "food"),
+        item_type=str(payload.get("item_type") or "meat"),
         price_agorot=int(payload.get("price_agorot") or 0),
         parent_menu_item_id=payload.get("parent_menu_item_id"),
         is_available=bool(payload.get("is_available", True)),
     )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return menu_item_to_dict(row)
+
+
+@router.patch("/menu-items/{item_id}")
+def patch_menu_item(
+    item_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = db.get(RestaurantMenuItem, item_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Item not found")
+    AbuuMenuService.patch_item(db, row, payload)
+    db.commit()
+    db.refresh(row)
+    return menu_item_to_dict(row)
+
+
+@router.delete("/menu-items/{item_id}")
+def delete_menu_item(
+    item_id: str,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = db.get(RestaurantMenuItem, item_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Item not found")
+    AbuuMenuService.delete_item(db, row)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/menu-items/{item_id}/photo")
+async def upload_menu_item_photo(
+    item_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    from app.abuu.services.abuu_menu_photo_storage_service import (
+        delete_photo_file,
+        save_photo_bytes,
+        storage_key_for,
+        validate_menu_photo_upload,
+    )
+
+    row = db.get(RestaurantMenuItem, item_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Item not found")
+    cat = db.get(RestaurantMenuCategory, row.category_id)
+    if cat is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+    content = await file.read()
+    try:
+        ext = validate_menu_photo_upload(filename=file.filename or "photo.jpg", content=content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    delete_photo_file(row.photo_storage_key)
+    key = storage_key_for(restaurant_id=cat.restaurant_id, item_id=row.id, ext=ext)
+    save_photo_bytes(storage_key=key, content=content)
+    row.photo_storage_key = key
+    row.updated_at = datetime.utcnow()
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -425,16 +523,22 @@ def create_assignment(
     db: Session = Depends(get_abuu_db),
     _admin: User = Depends(require_cap(CAP_ABUU)),
 ):
-    existing = db.execute(select(DeliveryAssignment).where(DeliveryAssignment.order_id == order_id)).scalar_one_or_none()
+    existing = db.execute(select(DeliveryAssignment).where(DeliveryAssignment.order_id == order_id)).scalars().first()
     if existing:
         raise HTTPException(status_code=409, detail="Assignment already exists")
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted:
+        raise HTTPException(status_code=404, detail="Order not found")
+    driver_id = payload.get("driver_id")
     row = DeliveryAssignment(
         order_id=order_id,
-        driver_id=payload.get("driver_id"),
-        status="assigned" if payload.get("driver_id") else "unassigned",
-        assigned_at=datetime.utcnow() if payload.get("driver_id") else None,
+        driver_id=driver_id,
+        status="assigned" if driver_id else "unassigned",
+        assigned_at=datetime.utcnow() if driver_id else None,
     )
     db.add(row)
+    if driver_id and order.status == "ready":
+        AbuuOrderService.patch_status(db, order, "assigned_to_driver")
     db.commit()
     db.refresh(row)
     return assignment_to_dict(row)

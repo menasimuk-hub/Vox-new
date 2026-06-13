@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     abuu_enabled: bool = Field(default=True, alias="ABUU_ENABLED")
     abuu_database_url: str = Field(default="sqlite:///./abuu.local.db", alias="ABUU_DATABASE_URL")
     abuu_db_echo: bool = Field(default=False, alias="ABUU_DB_ECHO")
+    abuu_menu_photo_dir: str = Field(default="", alias="ABUU_MENU_PHOTO_DIR")
 
     # CORS / hosts
     cors_allow_origins_raw: str = Field(default="", alias="CORS_ALLOW_ORIGINS")

@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 
 const LINKS = [
   ['Orders', 'orders'],
+  ['Menus', 'menus'],
   ['Restaurants', 'restaurants'],
   ['Drivers', 'drivers'],
   ['Customers', 'customers'],

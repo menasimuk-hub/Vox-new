@@ -1,31 +1,35 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  assignAbuuDriver,
-  fetchAbuuDrivers,
   fetchAbuuOrders,
   markAbuuOrderPaid,
 } from '../../lib/abuuApi'
 import { abuuStatusClass, dateText, shekel } from '../../lib/abuuAdminUtils'
 
-const STATUS_OPTIONS = ['', 'draft', 'pending_payment', 'preparing', 'out_for_delivery', 'delivered', 'cancelled']
+const STATUS_OPTIONS = [
+  '',
+  'draft',
+  'confirmed',
+  'paid',
+  'sent_to_restaurant',
+  'preparing',
+  'ready',
+  'assigned_to_driver',
+  'picked_up',
+  'delivered',
+  'cancelled',
+]
 
 export default function AbuuOrders() {
   const [rows, setRows] = useState([])
-  const [drivers, setDrivers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
-  const [statusFilter, setStatusFilter] = useState('pending_payment')
-  const [assignDriverId, setAssignDriverId] = useState({})
+  const [statusFilter, setStatusFilter] = useState('confirmed')
 
   const load = useCallback(async () => {
     setError('')
-    const [orders, driverRows] = await Promise.all([
-      fetchAbuuOrders({ status: statusFilter || undefined, limit: 200 }),
-      fetchAbuuDrivers({ limit: 100 }),
-    ])
+    const orders = await fetchAbuuOrders({ status: statusFilter || undefined, limit: 200 })
     setRows(Array.isArray(orders) ? orders : [])
-    setDrivers(Array.isArray(driverRows) ? driverRows : [])
   }, [statusFilter])
 
   useEffect(() => {
@@ -58,20 +62,6 @@ export default function AbuuOrders() {
       await load()
     } catch (e) {
       setError(e?.message || 'Mark paid failed')
-    } finally {
-      setBusy('')
-    }
-  }
-
-  const onAssign = async (row) => {
-    const driverId = assignDriverId[row.id]
-    if (!row?.id || !driverId) return
-    setBusy(`assign-${row.id}`)
-    try {
-      await assignAbuuDriver(row.id, driverId)
-      await load()
-    } catch (e) {
-      setError(e?.message || 'Assign failed')
     } finally {
       setBusy('')
     }
@@ -128,7 +118,7 @@ export default function AbuuOrders() {
                     </td>
                     <td>{shekel(row.total_agorot)}</td>
                     <td className='tableActions'>
-                      {row.status === 'pending_payment' ? (
+                      {row.status === 'confirmed' ? (
                         <button
                           type='button'
                           className='btn primary sm'
@@ -137,33 +127,6 @@ export default function AbuuOrders() {
                         >
                           Mark paid
                         </button>
-                      ) : null}
-                      {row.status === 'preparing' ? (
-                        <div className='inlineAssign'>
-                          <select
-                            value={assignDriverId[row.id] || ''}
-                            onChange={(e) =>
-                              setAssignDriverId((prev) => ({ ...prev, [row.id]: e.target.value }))
-                            }
-                          >
-                            <option value=''>Assign driver…</option>
-                            {drivers
-                              .filter((d) => d.is_available)
-                              .map((d) => (
-                                <option key={d.id} value={d.id}>
-                                  {d.name}
-                                </option>
-                              ))}
-                          </select>
-                          <button
-                            type='button'
-                            className='btn sm'
-                            disabled={busy === `assign-${row.id}` || !assignDriverId[row.id]}
-                            onClick={() => onAssign(row)}
-                          >
-                            Assign
-                          </button>
-                        </div>
                       ) : null}
                     </td>
                   </tr>

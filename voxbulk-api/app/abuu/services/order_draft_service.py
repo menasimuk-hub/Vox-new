@@ -110,7 +110,7 @@ class AbuuOrderDraftService:
                     RestaurantMenuItem.category_id.in_(category_ids),
                     RestaurantMenuItem.is_deleted.is_(False),
                     RestaurantMenuItem.is_available.is_(True),
-                    RestaurantMenuItem.item_type.in_(("food", "drink", "salad")),
+                    RestaurantMenuItem.item_type.in_(("meat", "food", "drink", "drinks", "salad", "sides", "desserts")),
                 )
                 .order_by(RestaurantMenuItem.item_type.asc(), RestaurantMenuItem.created_at.asc())
                 .limit(limit)
@@ -185,7 +185,7 @@ class AbuuOrderDraftService:
     def confirm_draft(db: Session, order: CustomerOrder) -> CustomerOrder:
         if order.total_agorot <= 0:
             raise ValueError("Cannot confirm an empty order")
-        AbuuOrderService.patch_status(db, order, "pending_payment")
+        AbuuOrderService.patch_status(db, order, "confirmed")
         payment = db.execute(select(AbuuPayment).where(AbuuPayment.order_id == order.id)).scalar_one_or_none()
         if payment is None:
             payment = AbuuPayment(
@@ -210,7 +210,7 @@ class AbuuOrderDraftService:
     def cancel_draft(db: Session, order: CustomerOrder | None) -> None:
         if order is None:
             return
-        if order.status in {"draft", "pending_payment"}:
+        if order.status in {"draft", "confirmed"}:
             order.status = "cancelled"
             order.updated_at = datetime.utcnow()
             db.add(order)

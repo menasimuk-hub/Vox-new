@@ -135,19 +135,21 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             org_id=org_id,
         )
     assert loc_result.get("handled") is True
-    assert loc_result.get("action") == "address_saved"
+    assert loc_result.get("action") == "confirmed"
 
     with get_sessionmaker()() as db:
-        confirm_result = AbuuInboundService.try_handle(
-            db,
-            from_phone="+972501234567",
-            body="تأكيد",
-            message_id="msg-abuu-5",
-            org_id=org_id,
-        )
-    assert confirm_result.get("handled") is True
-    assert confirm_result.get("action") == "confirmed"
-    assert mock_send.call_count >= 5
+        from app.core.abuu_database import get_abuu_sessionmaker
+        from app.abuu.models.entities import CustomerAddress, CustomerOrder
+
+        with get_abuu_sessionmaker()() as abuu_db:
+            order = abuu_db.execute(
+                __import__("sqlalchemy").select(CustomerOrder).order_by(CustomerOrder.created_at.desc())
+            ).scalars().first()
+            assert order.status == "confirmed"
+            addr = abuu_db.get(CustomerAddress, order.delivery_address_id)
+            assert addr.source_message_id == "msg-abuu-4"
+
+    assert mock_send.call_count >= 4
 
 
 @patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
