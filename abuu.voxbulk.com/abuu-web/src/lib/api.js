@@ -1,10 +1,22 @@
 const TOKEN_KEY = 'abuu_restaurant_token'
 
+const PORTAL_HOSTS = new Set(['abuu.voxbulk.com', 'driver.voxbulk.com'])
+
 export function getApiBase() {
   const explicit = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
   if (explicit) return explicit
   if (import.meta.env.DEV) return ''
+  if (typeof window !== 'undefined' && PORTAL_HOSTS.has(window.location.hostname)) {
+    return ''
+  }
   return 'https://api.voxbulk.com'
+}
+
+function apiUrl(path) {
+  const p = path.startsWith('/') ? path : `/${path}`
+  const base = getApiBase()
+  if (!base) return p
+  return `${base}${p}`
 }
 
 export function getToken() {
@@ -17,14 +29,22 @@ export function setToken(token) {
 }
 
 export async function apiFetch(path, options = {}) {
-  const base = getApiBase()
-  const url = `${base}${path.startsWith('/') ? path : `/${path}`}`
+  const url = apiUrl(path)
   const headers = { ...(options.headers || {}) }
   if (!headers['Content-Type'] && options.body) headers['Content-Type'] = 'application/json'
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
 
-  const res = await fetch(url, { ...options, headers })
+  let res
+  try {
+    res = await fetch(url, { ...options, headers })
+  } catch (err) {
+    throw new Error(
+      err?.message === 'Failed to fetch'
+        ? 'Cannot reach API — check nginx /abuu/ proxy and that FastAPI is running on :8000'
+        : err?.message || 'Network error',
+    )
+  }
   const text = await res.text()
   let data = null
   try {
@@ -41,13 +61,26 @@ export async function apiFetch(path, options = {}) {
 
 export async function loginRestaurant(email, password) {
   const body = new URLSearchParams({ username: email, password })
-  const base = getApiBase()
-  const res = await fetch(`${base}/abuu/auth/restaurant/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  })
-  const data = await res.json()
+  let res
+  try {
+    res = await fetch(apiUrl('/abuu/auth/restaurant/token'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    })
+  } catch (err) {
+    throw new Error(
+      err?.message === 'Failed to fetch'
+        ? 'Cannot reach login API — ensure nginx proxies /abuu/ to 127.0.0.1:8000'
+        : err?.message || 'Network error',
+    )
+  }
+  let data
+  try {
+    data = await res.json()
+  } catch {
+    throw new Error('Invalid response from login API')
+  }
   if (!res.ok) throw new Error(data?.detail || 'Login failed')
   setToken(data.access_token)
   return data
