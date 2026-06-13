@@ -141,21 +141,44 @@ const SUGGESTIONS = [
   "What's my usage this period?",
 ];
 
+function assistantWelcomeName(email?: string | null): string | null {
+  if (!email) return null;
+  const local = email.split("@")[0]?.split(/[.+_-]/)[0];
+  if (!local) return null;
+  return local.charAt(0).toUpperCase() + local.slice(1);
+}
+
+function buildAssistantWelcome(email?: string | null): string {
+  const name = assistantWelcomeName(email);
+  if (name) {
+    return `Hi ${name} — I'm your VoxBulk assistant. Ask about billing, usage, campaigns, feedback, or support.`;
+  }
+  return "Hi — I'm your VoxBulk assistant. Ask about billing, usage, campaigns, feedback, or support.";
+}
+
 type Msg = { role: "user" | "ai"; text: string; response?: AssistantChatResponse };
 
 export function LiveChatFab() {
   const { chatOpen, closeChat } = useConnections();
+  const { session } = useSession();
   const { setHighlight, applyNextAction } = useAssistantHighlight();
   const chatM = useAssistantChat();
   const confirmM = useAssistantConfirm();
+  const welcomeText = React.useMemo(
+    () => buildAssistantWelcome(session?.profile?.email),
+    [session?.profile?.email],
+  );
   const [pos, setPos] = React.useState({ x: 0, y: 0 });
   const dragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
-  const [messages, setMessages] = React.useState<Msg[]>([
-    { role: "ai", text: "Hi — I'm VoxBulk Assistant. Ask about billing, usage, campaigns, feedback, or support." },
-  ]);
+  const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [history, setHistory] = React.useState<Array<{ role: string; text: string }>>([]);
   const endRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    setMessages([{ role: "ai", text: welcomeText }]);
+    setHistory([]);
+  }, [welcomeText]);
 
   React.useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, chatOpen]);
 

@@ -1,21 +1,33 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import CurrentPrincipal
+from app.models.organisation import Organisation
 from app.schemas.assistant import AssistantChatIn, AssistantChatOut, AssistantContextIn, AssistantPendingAction
 from app.services.assistant.allowlists import customer_may_mutate
 from app.services.assistant.highlights import build_out, confirm_action, nav_action, plan_subscription_dict
 from app.services.assistant.intent import IntentMatch, classify_intent
 from app.services.assistant.pending_actions import issue_pending_action, verify_pending_action
 from app.services.assistant.policy_gate import check_policy
+from app.services.assistant.safe_tools import (
+    INVOICE_FALLBACK_HINT,
+    INVOICE_READ_ERROR,
+    is_greeting,
+    run_tool,
+    usage_summary_fragment,
+    user_display_name,
+)
 from app.services.assistant.tools import AssistantTools
 from app.services.gocardless_service import BillingService
 from app.services.platform_catalog_service import PlatformCatalogService as ServiceOrderService
 from app.services.support_ticket_service import SupportTicketService
+
+logger = logging.getLogger(__name__)
 
 
 class AssistantOrchestrator:
@@ -43,7 +55,25 @@ class AssistantOrchestrator:
             return build_out(primary_message="Organisation not found.", confidence=1.0, blocking_reason="org_not_found")
 
         handler = _HANDLERS.get(intent_match.intent, _handle_general)
-        return handler(db, principal=principal, org=org, message=payload.message, intent=intent_match, context=payload.context, is_admin=is_admin)
+        try:
+            return handler(
+                db,
+                principal=principal,
+                org=org,
+                message=payload.message,
+                intent=intent_match,
+                context=payload.context,
+                is_admin=is_admin,
+            )
+        except Exception:
+            logger.exception("assistant handler failed intent=%s org=%s", intent_match.intent, principal.org_id)
+            return _handler_error_response(
+                db,
+                principal=principal,
+                org=org,
+                message=payload.message,
+                intent=intent_match,
+            )
 
     @staticmethod
     def handle_confirm(
@@ -92,6 +122,44 @@ class AssistantOrchestrator:
         return build_out(primary_message="Unknown action type.", confidence=0.5, blocking_reason="unknown_action")
 
 
+def _handler_error_response(
+    db: Session,
+    *,
+    principal: CurrentPrincipal,
+    org: Organisation,
+    message: str,
+    intent: IntentMatch,
+) -> AssistantChatOut:
+    name = user_display_name(db, principal)
+    if intent.intent == "wallet_low":
+        try:
+            return _handle_wallet_low(
+                db,
+                principal=principal,
+                org=org,
+                message=message,
+                intent=intent,
+                context=AssistantContextIn(),
+                is_admin=False,
+            )
+        except Exception:
+            logger.exception("assistant wallet_low recovery failed org=%s", principal.org_id)
+
+    return build_out(
+        primary_message=(
+            f"Sorry {name}, I couldn't load that just now. "
+            "Open Billing or Usage for the latest figures, or try your question again."
+        ),
+        confidence=0.4,
+        intent=intent.intent,
+        blocking_reason="temporary_data_error",
+        next_actions=[
+            nav_action("billing", "Open billing", "/account/billing"),
+            nav_action("usage", "View usage", "/account/usage"),
+        ],
+    )
+
+
 def _resolve_order_id(context: AssistantContextIn, message: str, orders: list[dict[str, Any]]) -> str | None:
     if context.order_id:
         return context.order_id
@@ -108,59 +176,79 @@ def _handle_wallet_low(db, *, principal, org, message, intent, context, is_admin
     wallet = analysis.get("wallet") or {}
     balance = wallet.get("wallet_balance_display") or wallet.get("wallet_balance_gbp") or "£0.00"
     h_type, h_id, h_label, explanation = AssistantTools.pick_charge_explanation(analysis)
-    msg = (
-        f"Your wallet balance is {balance}. {explanation} "
-        "Open Billing to review wallet activity and invoices."
-    )
+    invoice_failed = bool(analysis.get("invoice_lookup_failed"))
+
+    parts = [f"Your wallet balance is {balance}."]
+    if invoice_failed:
+        parts.append(INVOICE_READ_ERROR)
+        parts.append(INVOICE_FALLBACK_HINT)
+    if explanation:
+        parts.append(explanation)
+
+    usage_line = usage_summary_fragment(analysis.get("usage"))
+    if usage_line:
+        parts.append(usage_line)
+
+    msg = " ".join(parts)
     actions = [
         nav_action("billing", "Open billing", "/account/billing"),
         nav_action("usage", "View usage", "/account/usage"),
     ]
-    if h_type == "invoice" and h_id:
+    if h_type == "invoice" and h_id and not invoice_failed:
         actions.insert(0, nav_action("invoice", "View invoice", f"/account/billing?pay={h_id}"))
     elif h_type == "service_order" and h_id:
         actions.insert(0, nav_action("order", "View campaign", f"/surveys/{h_id}"))
+    elif h_type == "wallet_transaction" and h_id:
+        actions.insert(0, nav_action("wallet", "View wallet activity", "/account/billing"))
+
+    blocking = INVOICE_READ_ERROR if invoice_failed else None
     return build_out(
         primary_message=msg,
-        confidence=0.92,
+        confidence=0.92 if not invoice_failed else 0.75,
         intent=intent.intent,
-        highlight_type=h_type,
+        highlight_type=h_type if h_id or h_type == "usage" else "",
         highlight_id=h_id or None,
         highlight_label=h_label,
         next_actions=actions,
+        blocking_reason=blocking,
     )
 
 
 def _handle_billing_overview(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
-    access = AssistantTools.billing_access(db, org)
+    access, access_failed = run_tool("billing_access", lambda: AssistantTools.billing_access(db, org), default={})
     sub = BillingService.get_subscription(db, principal.org_id)
     plan = BillingService.resolve_active_plan(db, principal.org_id)
     sub_data = plan_subscription_dict(sub, plan)
-    invoices = AssistantTools.invoices(db, principal.org_id, limit=5)
+    invoices, invoice_failed = run_tool("invoices", lambda: AssistantTools.invoices(db, principal.org_id, limit=5), default=[])
     outstanding = [i for i in invoices if str(i.get("status") or "").lower() not in {"paid", "void", "cancelled", "refunded"}]
-    wallet = AssistantTools.usage_summary(db, org).get("wallet") or {}
+    wallet_data, _ = run_tool("usage_summary", lambda: AssistantTools.usage_summary(db, org), default={})
+    wallet = (wallet_data or {}).get("wallet") or {}
     balance = wallet.get("wallet_balance_display") or "£0.00"
     next_label = access.get("next_action_label") or access.get("next_action")
     plan_name = (sub_data.get("plan") or {}).get("name") or "No active plan"
     msg = f"Plan: {plan_name}. Wallet: {balance}."
-    if outstanding:
+    if outstanding and not invoice_failed:
         msg += f" You have {len(outstanding)} outstanding invoice(s)."
-    if next_label:
+    elif invoice_failed:
+        msg += f" {INVOICE_READ_ERROR} {INVOICE_FALLBACK_HINT}"
+    if next_label and not access_failed:
         msg += f" Next step: {next_label}."
-    highlight_id = str(outstanding[0].get("id")) if outstanding else None
-    highlight_label = str(outstanding[0].get("invoice_number") or "Billing") if outstanding else "Billing overview"
+    highlight_id = str(outstanding[0].get("id")) if outstanding and not invoice_failed else None
+    highlight_label = str(outstanding[0].get("invoice_number") or "Billing") if outstanding and not invoice_failed else "Billing overview"
+    blocking = INVOICE_READ_ERROR if invoice_failed else (str(access.get("block_reason") or "") or None)
     return build_out(
         primary_message=msg,
-        confidence=0.88,
+        confidence=0.88 if not invoice_failed else 0.72,
         intent=intent.intent,
         highlight_type="invoice" if highlight_id else "usage",
         highlight_id=highlight_id,
         highlight_label=highlight_label,
         next_actions=[
             nav_action("billing", "Open billing", "/account/billing"),
+            nav_action("usage", "View usage", "/account/usage"),
             *( [nav_action("pay", "Pay invoice", f"/account/billing?pay={highlight_id}")] if highlight_id else [] ),
         ],
-        blocking_reason=str(access.get("block_reason") or "") or None,
+        blocking_reason=blocking,
     )
 
 
@@ -243,8 +331,21 @@ def _handle_survey_results(db, *, principal, org, message, intent, context, is_a
         return build_out(primary_message="Survey not found.", confidence=0.9)
     try:
         results = AssistantTools.survey_results(db, order_row)
-    except Exception as e:
-        return build_out(primary_message=f"Results not available: {e}", confidence=0.8)
+    except Exception:
+        logger.exception("assistant survey_results failed order=%s", order_id)
+        return build_out(
+            primary_message="I'm having trouble loading survey results right now. Open the results page directly.",
+            confidence=0.7,
+            intent=intent.intent,
+            highlight_type="service_order",
+            highlight_id=order_id,
+            highlight_label=(order_row.title or "Survey")[:80],
+            blocking_reason="temporary_data_error",
+            next_actions=[
+                nav_action("results", "View results", "/surveys/results"),
+                nav_action("order", "Open campaign", f"/surveys/new?order_id={order_id}"),
+            ],
+        )
     summary = results.get("summary") or {}
     completed = summary.get("completed_count") or results.get("completed_count") or 0
     total = summary.get("total_recipients") or results.get("total_recipients") or 0
@@ -418,14 +519,47 @@ def _handle_list_interviews(db, *, principal, org, message, intent, context, is_
 
 
 def _handle_general(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
-    access = AssistantTools.billing_access(db, org)
-    msg = (
-        "I can help with billing, usage, survey and interview campaigns, customer feedback, and support tickets. "
-        "Try: “Why is my wallet low?”, “Can I launch?”, or “Show survey results”."
+    name = user_display_name(db, principal)
+
+    if is_greeting(message):
+        return build_out(
+            primary_message=(
+                f"Hi {name} — I'm your VoxBulk assistant. "
+                "Ask about your wallet, usage, campaigns, customer feedback, or support."
+            ),
+            confidence=0.9,
+            intent="greeting",
+            next_actions=[
+                nav_action("billing", "Open billing", "/account/billing"),
+                nav_action("usage", "View usage", "/account/usage"),
+            ],
+        )
+
+    access, access_failed = run_tool("billing_access", lambda: AssistantTools.billing_access(db, org), default={})
+    next_label = access.get("next_action_label") or access.get("next_action")
+    if next_label and not access_failed:
+        return build_out(
+            primary_message=f"Hi {name} — billing needs attention: {next_label}.",
+            confidence=0.72,
+            intent=intent.intent,
+            highlight_type="usage",
+            highlight_label="Billing action",
+            next_actions=[nav_action("billing", "Open billing", "/account/billing")],
+            blocking_reason=next_label,
+        )
+
+    return build_out(
+        primary_message=(
+            f"Hi {name} — I didn't quite match that. "
+            "Try “Why is my wallet low?”, “Can I launch?”, or “Show survey results”."
+        ),
+        confidence=0.45,
+        intent=intent.intent,
+        next_actions=[
+            nav_action("billing", "Open billing", "/account/billing"),
+            nav_action("usage", "View usage", "/account/usage"),
+        ],
     )
-    if access.get("next_action_label"):
-        msg += f" Billing note: {access['next_action_label']}."
-    return build_out(primary_message=msg, confidence=0.5, intent=intent.intent, next_actions=[nav_action("billing", "Open billing", "/account/billing")])
 
 
 _HANDLERS = {

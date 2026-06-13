@@ -20,6 +20,7 @@ from app.services.survey_results_service import build_survey_results_payload
 from app.services.support_ticket_service import SupportTicketService, ticket_to_dict
 from app.services.usage_wallet_service import UsageWalletService
 from app.services.wallet_service import WalletService
+from app.services.assistant.safe_tools import run_tool
 
 
 class AssistantTools:
@@ -70,12 +71,12 @@ class AssistantTools:
     @staticmethod
     def invoices(db: Session, org_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
         rows = InvoiceService.list_for_org(db, org_id=org_id, limit=limit)
-        return [InvoiceService.invoice_to_dict(r) for r in rows]
+        return [InvoiceService.invoice_to_dict(db, r) for r in rows]
 
     @staticmethod
     def invoice_detail(db: Session, org_id: str, invoice_id: str) -> dict[str, Any] | None:
         row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=org_id)
-        return InvoiceService.invoice_to_dict(row) if row else None
+        return InvoiceService.invoice_to_dict(db, row) if row else None
 
     @staticmethod
     def list_service_orders(db: Session, org_id: str, *, service_code: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
@@ -132,10 +133,11 @@ class AssistantTools:
 
     @staticmethod
     def wallet_low_analysis(db: Session, org: Organisation) -> dict[str, Any]:
-        wallet = WalletService.wallet_dict(db, org)
-        txns = AssistantTools.wallet_transactions(db, org.id, limit=10)
-        invoices = AssistantTools.invoices(db, org.id, limit=10)
-        orders = AssistantTools.list_service_orders(db, org.id, limit=10)
+        wallet, _ = run_tool("wallet", lambda: WalletService.wallet_dict(db, org), default={})
+        txns, _ = run_tool("wallet_transactions", lambda: AssistantTools.wallet_transactions(db, org.id, limit=10), default=[])
+        invoices, invoice_failed = run_tool("invoices", lambda: AssistantTools.invoices(db, org.id, limit=10), default=[])
+        orders, _ = run_tool("service_orders", lambda: AssistantTools.list_service_orders(db, org.id, limit=10), default=[])
+        usage_data, _ = run_tool("usage_summary", lambda: AssistantTools.usage_summary(db, org), default={})
         debits = [t for t in txns if str(t.get("direction") or "").lower() == "debit"]
         outstanding = [i for i in invoices if str(i.get("status") or "").lower() not in {"paid", "void", "cancelled", "refunded"}]
         paid_orders = [o for o in orders if str(o.get("payment_status") or "").lower() in {"paid", "completed"}]
@@ -144,6 +146,8 @@ class AssistantTools:
             "recent_debits": debits,
             "outstanding_invoices": outstanding,
             "recent_orders": paid_orders,
+            "usage": usage_data.get("usage") if isinstance(usage_data, dict) else None,
+            "invoice_lookup_failed": invoice_failed,
         }
 
     @staticmethod

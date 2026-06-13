@@ -2,8 +2,32 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+from app.core.dependencies import CurrentPrincipal
+from app.core.security import hash_password
+from app.schemas.assistant import AssistantChatIn
 from app.services.assistant.intent import classify_intent
+from app.services.assistant.orchestrator import AssistantOrchestrator
 from app.services.assistant.policy_gate import check_policy
+from app.services.assistant.safe_tools import INVOICE_READ_ERROR
+from app.services.assistant.tools import AssistantTools
+
+
+def _seed_org_user(db):
+    from app.models.membership import OrganisationMembership
+    from app.models.organisation import Organisation
+    from app.models.user import User
+
+    org = Organisation(name="Assistant Test Org")
+    db.add(org)
+    db.flush()
+    user = User(email="wallet.user@test.com", password_hash=hash_password("pass123"), is_active=True)
+    db.add(user)
+    db.flush()
+    db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="owner"))
+    db.commit()
+    return user, org
 
 
 def test_policy_blocks_hard_delete():
@@ -46,3 +70,45 @@ def test_pending_action_token_exceeds_legacy_confirm_limit():
         payload={"category": "technical", "subject": "Test subject", "message": "A" * 200},
     )
     assert len(token) > 128
+
+
+def test_wallet_low_invoice_failure_returns_safe_fallback(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    principal = CurrentPrincipal(user_id=user.id, org_id=org.id, token_payload={})
+    payload = AssistantChatIn(message="Why is my wallet so low?")
+
+    with patch.object(
+        AssistantTools,
+        "invoices",
+        side_effect=TypeError("InvoiceService.invoice_to_dict() missing 1 required positional argument: 'invoice'"),
+    ):
+        with get_sessionmaker()() as db:
+            out = AssistantOrchestrator.handle_chat(db, principal=principal, payload=payload)
+
+    assert out.primary_message
+    assert "invoice_to_dict" not in out.primary_message
+    assert "missing 1 required positional argument" not in out.primary_message
+    assert "Traceback" not in out.primary_message
+    assert INVOICE_READ_ERROR in out.primary_message
+    assert out.blocking_reason == INVOICE_READ_ERROR
+    assert out.highlight_type in {"", "wallet_transaction", "service_order", "usage"}
+    assert any(a.route in {"/account/billing", "/account/usage"} for a in out.next_actions)
+    assert out.confidence > 0
+
+
+def test_greeting_welcomes_user_by_name(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    principal = CurrentPrincipal(user_id=user.id, org_id=org.id, token_payload={})
+    with get_sessionmaker()() as db:
+        out = AssistantOrchestrator.handle_chat(db, principal=principal, payload=AssistantChatIn(message="Hello"))
+
+    assert "Hi Wallet" in out.primary_message
+    assert "I can help with billing, usage, survey" not in out.primary_message
