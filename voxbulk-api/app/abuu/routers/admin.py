@@ -1,0 +1,400 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.abuu.core.auth import (
+    DriverPrincipal,
+    RestaurantPrincipal,
+    authenticate_driver,
+    authenticate_restaurant,
+    create_abuu_token,
+    require_driver_user,
+    require_restaurant_user,
+)
+from app.abuu.models.entities import (
+    CustomerAddress,
+    CustomerOrder,
+    CustomerProfile,
+    DeliveryAssignment,
+    Driver,
+    OrderEvent,
+    Restaurant,
+    RestaurantMenuCategory,
+    RestaurantMenuItem,
+)
+from app.abuu.services.order_service import AbuuOrderService
+from app.abuu.services.serializers import (
+    address_to_dict,
+    assignment_to_dict,
+    customer_to_dict,
+    driver_to_dict,
+    event_to_dict,
+    menu_category_to_dict,
+    menu_item_to_dict,
+    order_to_dict,
+    restaurant_to_dict,
+)
+from app.core.abuu_database import get_abuu_db
+from app.core.admin_rbac import CAP_ABUU, require_cap
+from app.core.security import hash_password
+from app.models.user import User
+
+router = APIRouter(prefix="/admin/abuu", tags=["abuu-admin"])
+
+
+def _not_deleted(model):
+    return model.is_deleted.is_(False)
+
+
+@router.get("/restaurants")
+def list_restaurants(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    is_available: bool | None = None,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    stmt = select(Restaurant).where(_not_deleted(Restaurant)).order_by(Restaurant.created_at.desc())
+    if is_available is not None:
+        stmt = stmt.where(Restaurant.is_available.is_(is_available))
+    rows = db.execute(stmt.offset(offset).limit(limit)).scalars().all()
+    return [restaurant_to_dict(r) for r in rows]
+
+
+@router.post("/restaurants")
+def create_restaurant(payload: dict, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    row = Restaurant(
+        name_en=str(payload.get("name_en") or "").strip(),
+        name_ar=str(payload.get("name_ar") or "").strip(),
+        status=str(payload.get("status") or "active"),
+        is_available=bool(payload.get("is_available", True)),
+        delivery_radius_km=float(payload.get("delivery_radius_km") or 5.0),
+        latitude=payload.get("latitude"),
+        longitude=payload.get("longitude"),
+        address_text=payload.get("address_text"),
+        phone=payload.get("phone"),
+        login_email=(str(payload["login_email"]).strip().lower() if payload.get("login_email") else None),
+    )
+    if payload.get("password"):
+        row.password_hash = hash_password(str(payload["password"]))
+    if not row.name_en or not row.name_ar:
+        raise HTTPException(status_code=400, detail="name_en and name_ar are required")
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return restaurant_to_dict(row)
+
+
+@router.get("/restaurants/{restaurant_id}")
+def get_restaurant(restaurant_id: str, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    row = db.get(Restaurant, restaurant_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    return restaurant_to_dict(row)
+
+
+@router.patch("/restaurants/{restaurant_id}")
+def patch_restaurant(
+    restaurant_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = db.get(Restaurant, restaurant_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    for key in ("name_en", "name_ar", "status", "address_text", "phone", "login_email"):
+        if key in payload:
+            setattr(row, key, str(payload[key]).strip() if payload[key] is not None else None)
+    for key in ("is_available",):
+        if key in payload:
+            setattr(row, key, bool(payload[key]))
+    if "delivery_radius_km" in payload:
+        row.delivery_radius_km = float(payload["delivery_radius_km"])
+    if "latitude" in payload:
+        row.latitude = payload["latitude"]
+    if "longitude" in payload:
+        row.longitude = payload["longitude"]
+    if payload.get("password"):
+        row.password_hash = hash_password(str(payload["password"]))
+    row.updated_at = datetime.utcnow()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return restaurant_to_dict(row)
+
+
+@router.delete("/restaurants/{restaurant_id}")
+def delete_restaurant(
+    restaurant_id: str,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = db.get(Restaurant, restaurant_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    row.is_deleted = True
+    row.deleted_at = datetime.utcnow()
+    db.add(row)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/restaurants/{restaurant_id}/menu-categories")
+def list_menu_categories(
+    restaurant_id: str,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    rows = db.execute(
+        select(RestaurantMenuCategory)
+        .where(RestaurantMenuCategory.restaurant_id == restaurant_id, _not_deleted(RestaurantMenuCategory))
+        .order_by(RestaurantMenuCategory.sort_order.asc())
+    ).scalars().all()
+    return [menu_category_to_dict(r) for r in rows]
+
+
+@router.post("/restaurants/{restaurant_id}/menu-categories")
+def create_menu_category(
+    restaurant_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = RestaurantMenuCategory(
+        restaurant_id=restaurant_id,
+        name_en=str(payload.get("name_en") or "").strip(),
+        name_ar=str(payload.get("name_ar") or "").strip(),
+        sort_order=int(payload.get("sort_order") or 100),
+        is_available=bool(payload.get("is_available", True)),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return menu_category_to_dict(row)
+
+
+@router.post("/menu-categories/{category_id}/items")
+def create_menu_item(
+    category_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = RestaurantMenuItem(
+        category_id=category_id,
+        name_en=str(payload.get("name_en") or "").strip(),
+        name_ar=str(payload.get("name_ar") or "").strip(),
+        description_en=payload.get("description_en"),
+        description_ar=payload.get("description_ar"),
+        item_type=str(payload.get("item_type") or "food"),
+        price_agorot=int(payload.get("price_agorot") or 0),
+        parent_menu_item_id=payload.get("parent_menu_item_id"),
+        is_available=bool(payload.get("is_available", True)),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return menu_item_to_dict(row)
+
+
+@router.get("/drivers")
+def list_drivers(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    rows = db.execute(select(Driver).where(_not_deleted(Driver)).offset(offset).limit(limit)).scalars().all()
+    return [driver_to_dict(r) for r in rows]
+
+
+@router.post("/drivers")
+def create_driver(payload: dict, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    row = Driver(
+        name=str(payload.get("name") or "").strip(),
+        phone=payload.get("phone"),
+        status=str(payload.get("status") or "active"),
+        is_available=bool(payload.get("is_available", True)),
+        latitude=payload.get("latitude"),
+        longitude=payload.get("longitude"),
+        vehicle_info=payload.get("vehicle_info"),
+        login_email=(str(payload["login_email"]).strip().lower() if payload.get("login_email") else None),
+    )
+    if payload.get("password"):
+        row.password_hash = hash_password(str(payload["password"]))
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return driver_to_dict(row)
+
+
+@router.get("/drivers/{driver_id}")
+def get_driver(driver_id: str, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    row = db.get(Driver, driver_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    return driver_to_dict(row)
+
+
+@router.patch("/drivers/{driver_id}")
+def patch_driver(
+    driver_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    row = db.get(Driver, driver_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    for key in ("name", "phone", "status", "vehicle_info", "login_email"):
+        if key in payload:
+            setattr(row, key, payload[key])
+    for key in ("is_available",):
+        if key in payload:
+            setattr(row, key, bool(payload[key]))
+    if "latitude" in payload:
+        row.latitude = payload["latitude"]
+    if "longitude" in payload:
+        row.longitude = payload["longitude"]
+    if payload.get("password"):
+        row.password_hash = hash_password(str(payload["password"]))
+    row.updated_at = datetime.utcnow()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return driver_to_dict(row)
+
+
+@router.get("/customers")
+def list_customers(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    rows = db.execute(select(CustomerProfile).where(_not_deleted(CustomerProfile)).offset(offset).limit(limit)).scalars().all()
+    return [customer_to_dict(r) for r in rows]
+
+
+@router.get("/customers/{customer_id}")
+def get_customer(customer_id: str, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    row = db.get(CustomerProfile, customer_id)
+    if row is None or row.is_deleted:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return customer_to_dict(row)
+
+
+@router.get("/customers/{customer_id}/history")
+def customer_history(customer_id: str, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    customer = db.get(CustomerProfile, customer_id)
+    if customer is None or customer.is_deleted:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    orders = db.execute(
+        select(CustomerOrder).where(CustomerOrder.customer_id == customer_id, _not_deleted(CustomerOrder))
+    ).scalars().all()
+    return {
+        "customer": customer_to_dict(customer),
+        "orders": [AbuuOrderService.get_order_detail(db, o.id) for o in orders],
+    }
+
+
+@router.get("/customers/{customer_id}/addresses")
+def list_addresses(customer_id: str, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    rows = db.execute(
+        select(CustomerAddress).where(CustomerAddress.customer_id == customer_id, _not_deleted(CustomerAddress))
+    ).scalars().all()
+    return [address_to_dict(r) for r in rows]
+
+
+@router.get("/orders")
+def list_orders(
+    restaurant_id: str | None = None,
+    status: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    stmt = select(CustomerOrder).where(_not_deleted(CustomerOrder)).order_by(CustomerOrder.created_at.desc())
+    if restaurant_id:
+        stmt = stmt.where(CustomerOrder.restaurant_id == restaurant_id)
+    if status:
+        stmt = stmt.where(CustomerOrder.status == status)
+    rows = db.execute(stmt.offset(offset).limit(limit)).scalars().all()
+    return [order_to_dict(r) for r in rows]
+
+
+@router.get("/orders/{order_id}")
+def get_order(order_id: str, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    detail = AbuuOrderService.get_order_detail(db, order_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return detail
+
+
+@router.patch("/orders/{order_id}/status")
+def patch_order_status(
+    order_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        AbuuOrderService.patch_status(db, order, str(payload.get("status") or ""))
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.post("/orders/{order_id}/mark-paid")
+def mark_order_paid(
+    order_id: str,
+    db: Session = Depends(get_abuu_db),
+    admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        AbuuOrderService.mark_paid_manual(db, order, confirmed_by=admin.email or admin.id)
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.get("/orders/{order_id}/events")
+def list_order_events(order_id: str, db: Session = Depends(get_abuu_db), _admin: User = Depends(require_cap(CAP_ABUU))):
+    rows = db.execute(select(OrderEvent).where(OrderEvent.order_id == order_id).order_by(OrderEvent.created_at.asc())).scalars().all()
+    return [event_to_dict(r) for r in rows]
+
+
+@router.post("/orders/{order_id}/assignments")
+def create_assignment(
+    order_id: str,
+    payload: dict,
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    existing = db.execute(select(DeliveryAssignment).where(DeliveryAssignment.order_id == order_id)).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Assignment already exists")
+    row = DeliveryAssignment(
+        order_id=order_id,
+        driver_id=payload.get("driver_id"),
+        status="assigned" if payload.get("driver_id") else "unassigned",
+        assigned_at=datetime.utcnow() if payload.get("driver_id") else None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return assignment_to_dict(row)

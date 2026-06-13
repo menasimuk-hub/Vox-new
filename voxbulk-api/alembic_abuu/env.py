@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.abuu_database import AbuuBase
 from app.core.config import get_settings
+import app.abuu.models  # noqa: F401
 
 config = context.config
 

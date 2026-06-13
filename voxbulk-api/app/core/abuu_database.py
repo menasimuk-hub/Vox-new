@@ -81,7 +81,7 @@ def get_abuu_migration_head() -> str | None:
 def abuu_tables_present() -> bool:
     try:
         insp = inspect(get_abuu_engine())
-        return "alembic_version" in insp.get_table_names()
+        return "abuu_restaurants" in insp.get_table_names()
     except Exception:
         return False
 

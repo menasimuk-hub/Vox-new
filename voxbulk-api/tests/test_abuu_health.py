@@ -88,5 +88,5 @@ def test_abuu_health_ok_for_superadmin(app_client):
     assert body["status"] == "ok"
     assert body["database"] == "connected"
     assert body["enabled"] is True
-    assert body["migration_head"] == "0001_abuu_bootstrap"
+    assert body["migration_head"] == "0003_abuu_seed_restaurants"
     assert body["tables_present"] is True
