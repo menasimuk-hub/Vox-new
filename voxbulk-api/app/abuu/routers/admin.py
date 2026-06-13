@@ -27,6 +27,7 @@ from app.abuu.models.entities import (
     RestaurantMenuItem,
 )
 from app.abuu.services.order_service import AbuuOrderService
+from app.abuu.services.location_service import find_nearest_restaurants
 from app.abuu.services.serializers import (
     address_to_dict,
     assignment_to_dict,
@@ -63,6 +64,24 @@ def list_restaurants(
         stmt = stmt.where(Restaurant.is_available.is_(is_available))
     rows = db.execute(stmt.offset(offset).limit(limit)).scalars().all()
     return [restaurant_to_dict(r) for r in rows]
+
+
+@router.get("/restaurants/nearest")
+def nearest_restaurants(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    ranked = find_nearest_restaurants(db, lat=lat, lng=lng, limit=limit)
+    return [
+        {
+            **restaurant_to_dict(row.restaurant),
+            "distance_km": round(row.distance_km, 3),
+        }
+        for row in ranked
+    ]
 
 
 @router.post("/restaurants")

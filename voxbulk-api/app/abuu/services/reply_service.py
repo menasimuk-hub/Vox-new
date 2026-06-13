@@ -81,7 +81,47 @@ def unknown_message(lang: str) -> str:
     return "أرسل رقم الطبق، أو «قائمة»، أو «تأكيد»، أو «إلغاء»."
 
 
-def voice_fallback_message(lang: str) -> str:
+def address_saved_message(lang: str) -> str:
+    if lang == "en":
+        return "Delivery address saved. Send CONFIRM when your order is ready."
+    return "تم حفظ عنوان التوصيل. أرسل «تأكيد» عندما يكون طلبك جاهزاً."
+
+
+def need_delivery_address_message(lang: str) -> str:
+    if lang == "en":
+        return (
+            "Please share your delivery location (WhatsApp location pin) "
+            "or type your address as text, then send CONFIRM."
+        )
+    return (
+        "يرجى إرسال موقع التوصيل (دبوس واتساب) "
+        "أو كتابة عنوانك كنص، ثم أرسل «تأكيد»."
+    )
+
+
+def out_of_delivery_area_message(lang: str, *, distance_km: float, radius_km: float) -> str:
+    if lang == "en":
+        return (
+            f"Sorry, that location is {distance_km:.1f} km away — "
+            f"we deliver within {radius_km:.1f} km only."
+        )
+    return (
+        f"عذراً، الموقع على بعد {distance_km:.1f} كم — "
+        f"نغطي التوصيل ضمن {radius_km:.1f} كم فقط."
+    )
+
+
+def voice_fallback_message(lang: str, *, active_order: bool = False) -> str:
+    if active_order:
+        if lang == "en":
+            return (
+                "Voice notes aren't supported yet. "
+                "Please type a dish number, send MENU, CONFIRM, or CANCEL."
+            )
+        return (
+            "الرسائل الصوتية غير مدعومة حالياً. "
+            "يرجى كتابة رقم الطبق، أو «قائمة»، أو «تأكيد»، أو «إلغاء»."
+        )
     if lang == "en":
         return "Please type your order as text for now (e.g. send ABUU to start)."
     return "يرجى كتابة طلبك كنص الآن (مثلاً: abuu أو طلب)."
