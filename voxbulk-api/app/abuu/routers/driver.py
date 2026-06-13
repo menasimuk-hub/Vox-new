@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.abuu.core.auth import DriverPrincipal, require_driver_user
-from app.abuu.models.entities import DeliveryAssignment, Driver
-from app.abuu.services.serializers import assignment_to_dict, driver_to_dict
+from app.abuu.models.entities import CustomerOrder, DeliveryAssignment, Driver
+from app.abuu.services.serializers import assignment_to_dict, driver_to_dict, order_to_dict
 from app.core.abuu_database import get_abuu_db
 
 router = APIRouter(prefix="/abuu/driver", tags=["abuu-driver"])
@@ -30,7 +30,13 @@ def driver_assignments(
         .where(DeliveryAssignment.driver_id == principal.driver_id)
         .order_by(DeliveryAssignment.created_at.desc())
     ).scalars().all()
-    return [assignment_to_dict(r) for r in rows]
+    out = []
+    for row in rows:
+        payload = assignment_to_dict(row)
+        order = db.get(CustomerOrder, row.order_id)
+        payload["order"] = order_to_dict(order) if order else None
+        out.append(payload)
+    return out
 
 
 @router.patch("/assignments/{assignment_id}")

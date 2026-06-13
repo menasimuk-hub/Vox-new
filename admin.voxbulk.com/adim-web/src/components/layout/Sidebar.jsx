@@ -21,6 +21,7 @@ const GROUP_ICONS = {
   Analytics: 'ti-chart-bar',
   'Team & roles': 'ti-users',
   'Platform Settings': 'ti-settings',
+  Abuu: 'ti-burger',
 }
 
 const GROUP_SECTION = {
@@ -38,6 +39,7 @@ const GROUP_SECTION = {
   Compliance: 'Control',
   Analytics: 'Control',
   'Team & roles': 'Control',
+  Abuu: 'Control',
   'Platform Settings': 'Control',
 }
 
@@ -201,6 +203,15 @@ const NAV = [
     [
       ['Platform KPIs', '/analytics/kpis'],
       ['Cost vs revenue', '/analytics/cost-revenue'],
+    ],
+  ],
+  [
+    'Abuu',
+    [
+      ['Orders', '/abuu/orders'],
+      ['Restaurants', '/abuu/restaurants'],
+      ['Drivers', '/abuu/drivers'],
+      ['Customers', '/abuu/customers'],
     ],
   ],
   [
