@@ -56,7 +56,17 @@ export default function FeedbackIndustryEdit() {
     setError('')
     try {
       const data = await apiFetch(`/admin/customer-feedback/industries/${industryId}/sync-telnyx`, { method: 'POST' })
-      setMsg(`Submitted ${data?.submitted || 0} templates to Telnyx.`)
+      const approved = data?.approved ?? data?.refresh?.approved ?? 0
+      const pending = data?.pending ?? data?.refresh?.pending ?? 0
+      const pushed = data?.pushed ?? data?.push?.pushed ?? 0
+      const linked = data?.linked ?? data?.push?.linked ?? 0
+      const failed = data?.failed ?? data?.push?.failed ?? 0
+      const parts = []
+      if (pushed) parts.push(`${pushed} pushed${linked ? ` (${linked} already on Meta)` : ''}`)
+      if (approved) parts.push(`${approved} approved in DB`)
+      if (pending) parts.push(`${pending} pending Meta review`)
+      if (failed) parts.push(`${failed} failed`)
+      setMsg(parts.length ? parts.join(' · ') : (data?.message || 'Templates synced with Telnyx.'))
       await load()
     } catch (e) {
       setError(e?.message || 'Sync failed')
@@ -102,7 +112,7 @@ export default function FeedbackIndustryEdit() {
           <p className="muted">Edit industry details and linked survey types.</p>
         </div>
         <div className="pageHeadActions">
-          <button type="button" className="btn soft bsm" disabled={busy} onClick={syncTelnyx}>Sync all to Telnyx</button>
+          <button type="button" className="btn soft bsm" disabled={busy} onClick={syncTelnyx}>Sync all templates (Telnyx)</button>
           <button type="button" className="btn primary bsm" disabled={busy} onClick={save}>Save changes</button>
         </div>
       </div>

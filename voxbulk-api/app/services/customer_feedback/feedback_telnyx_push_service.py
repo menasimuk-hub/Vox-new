@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import case, select
+from sqlalchemy import case, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
@@ -198,6 +198,30 @@ def _mark_template_submitted(db: Session, tpl: FeedbackWaTemplate) -> None:
     db.add(tpl)
     db.commit()
     db.refresh(tpl)
+
+
+def map_remote_meta_status_to_local(remote_status: str | None) -> str:
+    status = str(remote_status or "").strip().upper()
+    if status == "APPROVED":
+        return "approved"
+    if status in {"PENDING", "IN_APPEAL"}:
+        return "pending"
+    if status == "REJECTED":
+        return "rejected"
+    if status == "PAUSED":
+        return "paused"
+    if status:
+        return "submitted"
+    return "draft"
+
+
+def _apply_remote_status(db: Session, tpl: FeedbackWaTemplate, remote: dict[str, Any]) -> str:
+    local_status = map_remote_meta_status_to_local(remote.get("status"))
+    now = datetime.utcnow()
+    tpl.telnyx_sync_status = local_status
+    tpl.updated_at = now
+    db.add(tpl)
+    return local_status
 
 
 def normalize_feedback_language(raw: str | None) -> str:
@@ -452,6 +476,7 @@ def resolve_feedback_industry(
 
 
 def list_feedback_templates_for_industry(db: Session, industry_id: str) -> list[FeedbackWaTemplate]:
+    survey_type_ids = select(FeedbackSurveyType.id).where(FeedbackSurveyType.industry_id == industry_id)
     return list(
         db.execute(
             select(FeedbackWaTemplate)
@@ -460,7 +485,12 @@ def list_feedback_templates_for_industry(db: Session, industry_id: str) -> list[
                 FeedbackWaTemplate.survey_type_id == FeedbackSurveyType.id,
                 isouter=True,
             )
-            .where(FeedbackWaTemplate.industry_id == industry_id)
+            .where(
+                or_(
+                    FeedbackWaTemplate.industry_id == industry_id,
+                    FeedbackWaTemplate.survey_type_id.in_(survey_type_ids),
+                )
+            )
             .order_by(
                 case((FeedbackSurveyType.sort_order.is_(None), 1), else_=0),
                 FeedbackSurveyType.sort_order,
@@ -554,5 +584,124 @@ def push_all_feedback_templates_for_industry(
             f"for {industry.name}"
             + (f" ({linked} already on Meta)" if linked else "")
             + (f", {failed} failed" if failed else "")
+        ),
+    }
+
+
+def _feedback_template_meta_context(db: Session, tpl: FeedbackWaTemplate) -> tuple[str | None, str | None]:
+    industry_slug: str | None = None
+    survey_slug: str | None = None
+    if tpl.industry_id:
+        ind = db.get(FeedbackIndustry, tpl.industry_id)
+        industry_slug = ind.slug if ind else None
+    if tpl.survey_type_id:
+        st = db.get(FeedbackSurveyType, tpl.survey_type_id)
+        survey_slug = st.slug if st else None
+        if not industry_slug and st:
+            ind = db.get(FeedbackIndustry, st.industry_id)
+            industry_slug = ind.slug if ind else None
+    return industry_slug, survey_slug
+
+
+def refresh_feedback_template_status_from_telnyx_for_industry(
+    db: Session,
+    *,
+    industry_id: str | None = None,
+    industry_slug: str | None = None,
+) -> dict[str, Any]:
+    """Pull Meta/Telnyx approval status for all templates in an industry."""
+    industry = resolve_feedback_industry(db, industry_id=industry_id, industry_slug=industry_slug)
+    templates = list_feedback_templates_for_industry(db, industry.id)
+    if not templates:
+        return {
+            "ok": True,
+            "industry_id": industry.id,
+            "industry_slug": industry.slug,
+            "industry_name": industry.name,
+            "template_count": 0,
+            "matched": 0,
+            "updated": 0,
+            "approved": 0,
+            "pending": 0,
+            "not_found": 0,
+            "message": f"No templates found for industry {industry.name!r}.",
+        }
+
+    try:
+        remote_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+    except Exception as exc:
+        raise FeedbackTelnyxPushError(f"Could not fetch templates from Telnyx: {exc}") from exc
+
+    matched = 0
+    updated = 0
+    approved = 0
+    pending = 0
+    not_found = 0
+    results: list[dict[str, Any]] = []
+
+    for tpl in templates:
+        industry_slug_ctx, survey_slug_ctx = _feedback_template_meta_context(db, tpl)
+        anchor = english_anchor_template(db, tpl)
+        meta_name = feedback_meta_template_name(
+            tpl,
+            industry_slug=industry_slug_ctx,
+            survey_type_slug=survey_slug_ctx,
+            name_anchor_id=anchor.id,
+        )
+        language = normalize_feedback_language(tpl.language)
+        remote = find_remote_feedback_template(remote_items, name=meta_name, language=language)
+        if remote is None:
+            not_found += 1
+            results.append(
+                {
+                    "template_id": tpl.id,
+                    "template_key": tpl.template_key,
+                    "meta_name": meta_name,
+                    "language": language,
+                    "matched": False,
+                    "telnyx_sync_status": tpl.telnyx_sync_status,
+                }
+            )
+            continue
+
+        matched += 1
+        previous = str(tpl.telnyx_sync_status or "")
+        local_status = _apply_remote_status(db, tpl, remote)
+        if local_status != previous:
+            updated += 1
+        if local_status == "approved":
+            approved += 1
+        elif local_status == "pending":
+            pending += 1
+        results.append(
+            {
+                "template_id": tpl.id,
+                "template_key": tpl.template_key,
+                "meta_name": meta_name,
+                "language": language,
+                "matched": True,
+                "remote_status": str(remote.get("status") or ""),
+                "telnyx_sync_status": local_status,
+            }
+        )
+
+    db.commit()
+    return {
+        "ok": True,
+        "industry_id": industry.id,
+        "industry_slug": industry.slug,
+        "industry_name": industry.name,
+        "template_count": len(templates),
+        "matched": matched,
+        "updated": updated,
+        "approved": approved,
+        "pending": pending,
+        "not_found": not_found,
+        "results": results,
+        "message": (
+            f"Refreshed {matched}/{len(templates)} template(s) from Telnyx for {industry.name}"
+            + (f" — {approved} approved" if approved else "")
+            + (f", {pending} pending" if pending else "")
+            + (f", {not_found} not on Meta yet" if not_found else "")
         ),
     }

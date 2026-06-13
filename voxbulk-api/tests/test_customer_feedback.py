@@ -269,6 +269,18 @@ def test_finalize_translated_body_keeps_leading_emoji():
     assert "كيف" in body
 
 
+def test_map_remote_meta_status_to_local():
+    from app.services.customer_feedback.feedback_telnyx_push_service import map_remote_meta_status_to_local
+
+    assert map_remote_meta_status_to_local("APPROVED") == "approved"
+    assert map_remote_meta_status_to_local("PENDING") == "pending"
+    assert map_remote_meta_status_to_local("IN_APPEAL") == "pending"
+    assert map_remote_meta_status_to_local("REJECTED") == "rejected"
+    assert map_remote_meta_status_to_local("PAUSED") == "paused"
+    assert map_remote_meta_status_to_local("SUBMITTED") == "submitted"
+    assert map_remote_meta_status_to_local(None) == "draft"
+
+
 def test_trigger_template_format():
     from app.services.customer_feedback.location_service import build_trigger_text, build_location_qr_token
 

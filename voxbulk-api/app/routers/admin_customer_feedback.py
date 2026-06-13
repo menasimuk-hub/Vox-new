@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -65,23 +67,47 @@ def sync_industry_templates(industry_id: str, db: Session = Depends(get_db), _ad
     from app.services.customer_feedback.feedback_telnyx_push_service import (
         FeedbackTelnyxPushError,
         push_all_feedback_templates_for_industry,
+        refresh_feedback_template_status_from_telnyx_for_industry,
     )
 
+    push_summary: dict[str, Any] | None = None
     try:
-        summary = push_all_feedback_templates_for_industry(db, industry_id=industry_id)
+        push_summary = push_all_feedback_templates_for_industry(db, industry_id=industry_id)
     except FeedbackTelnyxPushError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if int(summary.get("failed") or 0):
+
+    try:
+        refresh_summary = refresh_feedback_template_status_from_telnyx_for_industry(db, industry_id=industry_id)
+    except FeedbackTelnyxPushError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    failed = int((push_summary or {}).get("failed") or 0)
+    if failed and int(refresh_summary.get("matched") or 0) == 0:
         raise HTTPException(
             status_code=502,
             detail={
-                "message": summary.get("message"),
-                "pushed": summary.get("pushed"),
-                "failed": summary.get("failed"),
-                "errors": summary.get("errors"),
+                "message": push_summary.get("message") if push_summary else "Push failed",
+                "pushed": push_summary.get("pushed") if push_summary else 0,
+                "failed": failed,
+                "errors": push_summary.get("errors") if push_summary else [],
             },
         )
-    return {"ok": True, **summary}
+
+    message_parts = []
+    if push_summary:
+        message_parts.append(str(push_summary.get("message") or "Push complete"))
+    message_parts.append(str(refresh_summary.get("message") or "Status refresh complete"))
+    return {
+        "ok": True,
+        "message": " · ".join(message_parts),
+        "push": push_summary,
+        "refresh": refresh_summary,
+        "approved": refresh_summary.get("approved"),
+        "pending": refresh_summary.get("pending"),
+        "pushed": push_summary.get("pushed") if push_summary else 0,
+        "linked": push_summary.get("linked") if push_summary else 0,
+        "failed": failed,
+    }
 
 
 @router.post("/templates/import-md")

@@ -78,7 +78,7 @@ function previewTrigger(company: string, branch?: string) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "")
       .slice(0, 20) || "location";
-    token = `${slug(company)}-${slug(branchLabel)}-preview`;
+  const token = `${slug(company)}-${slug(branchLabel)}-preview`;
   return `Hi! I'd like to share feedback for ${company} at ${branchLabel}. ${token}`;
 }
 
@@ -403,6 +403,11 @@ function CreateFeedback() {
               <CardDescription>Each branch gets its own QR code and trigger message so results can be tracked per location.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              {previewM.isError && !previewQr ? (
+                <div className="rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm text-warning-foreground">
+                  Live QR preview unavailable — trigger messages below still work. Configure WhatsApp in admin or continue to step 4.
+                </div>
+              ) : null}
               <div className="rounded-xl border border-border bg-muted/30 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
@@ -468,9 +473,13 @@ function CreateFeedback() {
                           <div className="rounded-xl border-2 border-primary/20 bg-white p-2 shadow-sm">
                             {qrSrc ? (
                               <img src={qrSrc} alt={`QR ${b.name}`} className="size-32" />
-                            ) : (
+                            ) : previewM.isPending ? (
                               <div className="grid size-32 place-items-center text-center text-[10px] text-muted-foreground">
                                 Loading QR…
+                              </div>
+                            ) : (
+                              <div className="grid size-32 place-items-center text-center text-[10px] text-muted-foreground px-2">
+                                QR after WhatsApp is configured
                               </div>
                             )}
                           </div>
@@ -510,7 +519,7 @@ function CreateFeedback() {
           </Card>
         )}
 
-        {step === 4 && industry && (
+        {step === 4 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -519,6 +528,16 @@ function CreateFeedback() {
               <CardDescription>Scan the QR → WhatsApp opens with the pre-filled message → survey runs.</CardDescription>
             </CardHeader>
             <CardContent>
+              {previewM.isPending && !previewQr ? (
+                <div className="grid gap-3">
+                  <Skeleton className="h-40 w-full" />
+                  <p className="text-sm text-muted-foreground">Loading QR preview from your WhatsApp number…</p>
+                </div>
+              ) : previewM.isError && !previewQr ? (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                  Could not load live QR preview. Check Telnyx WhatsApp is configured in admin, then go back and try again.
+                </div>
+              ) : (
               <div className="grid gap-6 lg:grid-cols-[auto_1fr_auto]">
                 <div className="flex flex-col items-center gap-2">
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">1 · Scan</p>
@@ -543,13 +562,14 @@ function CreateFeedback() {
                 </div>
                 <div className="flex flex-col gap-2 lg:max-w-xs">
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Summary</p>
-                  <Summary label="Industry" value={industry.name} />
+                  <Summary label="Industry" value={industry?.name || "—"} />
                   <Summary label="Topics" value={selectedTypes.map((t) => t.name).join(", ") || "—"} />
                   <Summary label="Open question" value={openQuestion ? "On" : "Off"} />
                   <Summary label="Promo opt-in" value={marketingOptIn ? "On" : "Off"} />
                   <Summary label="Branches" value={branches.map((b) => b.name).filter(Boolean).join(", ") || "—"} />
                 </div>
               </div>
+              )}
             </CardContent>
           </Card>
         )}
