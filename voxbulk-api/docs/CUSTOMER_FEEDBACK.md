@@ -27,13 +27,25 @@ Feedback subscription invoices use prefix `CF-` and `billing_invoices.service_co
 ## QR trigger format
 
 ```
-👋 Hi! I'd like to share feedback for {company} at {branch}. acme-marylebone-a3f2b1
+Hi! I'd like to share feedback for {company} at {branch}. acme-marylebone-a3f2b1
 ```
 
-- One 👋 emoji at the start (UTF-8 in wa.me link — shows as icon in WhatsApp on phone).
+- Plain text only (no emojis) for reliable WhatsApp pre-fill on all devices.
 - Reference code at the end: `company-branch-xxxxxx` (6-character suffix).
 - Inbound handler parses that code → location → survey flow.
 - Legacy `[ref:token]` messages still work.
+
+## Test push one template to Telnyx (CLI)
+
+After importing templates and configuring Telnyx (API key + WhatsApp Business Account ID):
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+python scripts/push_feedback_template_to_telnyx.py --template-key thank_you --dry-run
+python scripts/push_feedback_template_to_telnyx.py --template-key thank_you
+```
+
+Use `--template-id UUID` for a specific row. Errors from Telnyx/Meta are printed to stderr with full JSON detail.
 
 ## Workflow (QR → results)
 

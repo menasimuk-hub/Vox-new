@@ -24,8 +24,7 @@ from app.services.customer_feedback.survey_config_service import (
 from app.services.market_zone import country_to_zone
 
 
-# One leading emoji — UTF-8 encoded in wa.me links; renders as icon in WhatsApp mobile.
-TRIGGER_TEMPLATE = "👋 Hi! I'd like to share feedback for {company} at {branch}. {token}"
+TRIGGER_TEMPLATE = "Hi! I'd like to share feedback for {company} at {branch}. {token}"
 TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6})\b", re.IGNORECASE)
 REF_PATTERN = re.compile(r"\bref:\s*([A-Za-z0-9-]+)", re.IGNORECASE)
 LEGACY_REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)

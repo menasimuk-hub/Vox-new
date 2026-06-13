@@ -56,7 +56,7 @@ def test_seed_industries_and_survey_types():
 
 def test_parse_trigger_ref():
     token = FeedbackLocationService.parse_trigger_ref(
-        "👋 Hi! I'd like to share feedback for Acme Ltd at Marylebone. acme-marylebone-a3f2b1"
+        "Hi! I'd like to share feedback for Acme Ltd at Marylebone. acme-marylebone-a3f2b1"
     )
     assert token == "acme-marylebone-a3f2b1"
     legacy = FeedbackLocationService.parse_trigger_ref("Hello [ref:abc123-token]")

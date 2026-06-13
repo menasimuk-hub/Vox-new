@@ -78,8 +78,8 @@ function previewTrigger(company: string, branch?: string) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "")
       .slice(0, 20) || "location";
-  const token = `${slug(company)}-${slug(branchLabel)}-preview`;
-  return `👋 Hi! I'd like to share feedback for ${company} at ${branchLabel}. ${token}`;
+    token = `${slug(company)}-${slug(branchLabel)}-preview`;
+  return `Hi! I'd like to share feedback for ${company} at ${branchLabel}. ${token}`;
 }
 
 function buildQrImageUrl(waUrl: string, size = 320) {
