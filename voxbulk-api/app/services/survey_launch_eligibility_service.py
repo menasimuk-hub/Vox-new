@@ -199,6 +199,11 @@ class SurveyLaunchEligibilityService:
 
     @staticmethod
     def _phone_survey_setup_error(db: Session, order: ServiceOrder, config: dict[str, Any]) -> str | None:
+        from app.services.script_moderation_service import script_moderation_blocks_launch
+
+        moderation_block = script_moderation_blocks_launch(config)
+        if moderation_block:
+            return moderation_block
         if not config.get("script_approved") and not str(config.get("approved_script") or "").strip():
             return "Approve your survey script before launch."
         if not order.scheduled_start_at or not order.scheduled_end_at:

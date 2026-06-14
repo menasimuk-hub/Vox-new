@@ -547,6 +547,63 @@ def admin_reject_order_payment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/script-moderation/queue")
+def admin_script_moderation_queue(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.script_moderation_service import list_script_moderation_queue
+
+    return {"items": list_script_moderation_queue(db, limit=limit)}
+
+
+@router.post("/orders/{order_id}/script-moderation/approve")
+def admin_approve_script_moderation(
+    order_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.script_moderation_service import admin_approve_script_moderation
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code not in {"interview", "survey"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an interview or survey order")
+    order = admin_approve_script_moderation(
+        db,
+        order,
+        admin_user_id=str(admin.id),
+        note=str((payload or {}).get("note") or ""),
+    )
+    return ServiceOrderService.order_to_admin_dict(db, order)
+
+
+@router.post("/orders/{order_id}/script-moderation/reject")
+def admin_reject_script_moderation(
+    order_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.script_moderation_service import admin_reject_script_moderation
+
+    order = ServiceOrderService.get_order(db, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code not in {"interview", "survey"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an interview or survey order")
+    order = admin_reject_script_moderation(
+        db,
+        order,
+        admin_user_id=str(admin.id),
+        note=str((payload or {}).get("note") or ""),
+    )
+    return ServiceOrderService.order_to_admin_dict(db, order)
+
+
 @router.post("/integrations/zoom/test")
 def admin_test_zoom(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
     try:

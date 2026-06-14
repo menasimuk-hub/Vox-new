@@ -346,6 +346,25 @@ def test_deepinfra_connection(db: Session = Depends(get_db), _admin=Depends(requ
     return result
 
 
+@router.get("/integrations/deepinfra/moderation-models")
+def list_deepinfra_moderation_models(_admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.moderation import DEEPINFRA_MODERATION_MODELS
+
+    return {"models": DEEPINFRA_MODERATION_MODELS}
+
+
+@router.post("/integrations/deepinfra/test-moderation")
+def test_deepinfra_moderation(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.moderation import moderate_content
+
+    sample = "Hello {first_name}, thank you for taking our short survey today. How was your recent visit?"
+    try:
+        result = moderate_content(sample, db=db)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Moderation test failed: {e}") from e
+    return {"ok": bool(result.get("safe")), "sample": sample, "result": result}
+
+
 @router.post("/integrations/deepgram/test")
 def test_deepgram_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:

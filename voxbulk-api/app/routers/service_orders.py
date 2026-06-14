@@ -369,6 +369,14 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
                 )
             except CvCollectionConfigError as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            from app.services.script_moderation_service import apply_script_moderation_gate
+
+            config_patch = apply_script_moderation_gate(
+                service_code=order.service_code,
+                config_patch=config_patch,
+                previous_cfg=previous,
+                db=db,
+            )
         order = ServiceOrderService.update_order(db, order, {"config": config_patch})
         if order.service_code == "interview":
             from app.services.interview_email_ats_service import retry_deferred_email_ats
@@ -710,6 +718,20 @@ def patch_order(order_id: str, payload: dict, db: Session = Depends(get_db), pri
                 payload["config"] = config_patch
             except CvCollectionConfigError as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        if config_patch and order.service_code in {"interview", "survey"}:
+            from app.services.interview_cv_email_service import _loads_config
+            from app.services.script_moderation_service import apply_script_moderation_gate
+
+            payload = dict(payload)
+            config_patch = dict(payload.get("config") or {})
+            previous_cfg = _loads_config(order)
+            config_patch = apply_script_moderation_gate(
+                service_code=order.service_code,
+                config_patch=config_patch,
+                previous_cfg=previous_cfg,
+                db=db,
+            )
+            payload["config"] = config_patch
         order = ServiceOrderService.update_order(db, order, payload)
         return ServiceOrderService.order_to_dict(order, db=db)
     except ValueError as e:

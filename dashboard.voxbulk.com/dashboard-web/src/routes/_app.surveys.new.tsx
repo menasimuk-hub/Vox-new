@@ -22,7 +22,8 @@ import {
 } from "@/lib/survey-step-labels";
 import { toIsoFromLocal } from "@/lib/datetime";
 import { buildSurveyDraftCreateBody, buildSurveyDraftPatchBody, resolveSurveyNameForSave } from "@/lib/survey-draft-payload";
-import { buildFullSurveyDraftConfig, hydrateSurveyDraftFromOrder } from "@/lib/survey-draft-config";
+import { buildFullSurveyDraftConfig, hydrateSurveyDraftFromOrder, type SurveyDraftWizardSnapshot } from "@/lib/survey-draft-config";
+import { scriptModerationBanner } from "@/lib/script-moderation";
 import {
   pickDefaultSurveyAgent,
   useCreateServiceOrder,
@@ -151,6 +152,7 @@ function CreateSurvey() {
     channel === "whatsapp",
   );
   const [approved, setApproved] = React.useState(false);
+  const [approveScriptPending, setApproveScriptPending] = React.useState(false);
   const [anonymous, setAnonymous] = React.useState(false);
   const [goal, setGoal] = React.useState(
     "Measure satisfaction with our new hygienist team and identify the top improvement.",
@@ -323,11 +325,12 @@ function CreateSurvey() {
     const blockers: string[] = [];
     if (contactsCount <= 0) blockers.push("Upload at least one contact before launch.");
     if (!approved) blockers.push("Approve your survey script before launch.");
+    if (scriptModerationMessage) blockers.push(scriptModerationMessage);
     if (!agentId) blockers.push("Select a survey voice agent.");
     if (!startAt || !endAt) blockers.push("Set calling start and end date/time.");
     else if (new Date(startAt) >= new Date(endAt)) blockers.push("Calling end must be after calling start.");
     return blockers;
-  }, [channel, contactsCount, approved, agentId, startAt, endAt]);
+  }, [channel, contactsCount, approved, agentId, startAt, endAt, scriptModerationMessage]);
 
   const onGeneratePhoneScript = async () => {
     if (!goal.trim()) {
@@ -408,7 +411,8 @@ function CreateSurvey() {
     return String(org?.display_name || org?.name || "").trim();
   }, [orgQ.data]);
 
-  const buildDraftConfig = React.useCallback(() => {
+  const buildDraftConfig = React.useCallback(
+    (overrides?: Partial<SurveyDraftWizardSnapshot>) => {
     const persisted = (orderQ.data?.config || {}) as Record<string, unknown>;
     return buildFullSurveyDraftConfig(
       {
@@ -435,6 +439,7 @@ function CreateSurvey() {
         agentId,
         systemPrompt,
         expectedDurationMinutes,
+        ...overrides,
       },
       persisted,
       { organisationName: businessName || undefined },
@@ -465,6 +470,48 @@ function CreateSurvey() {
     expectedDurationMinutes,
     orderQ.data?.config,
   ]);
+
+  const surveyOrderConfig = (orderQ.data?.config || {}) as Record<string, unknown>;
+  const scriptModerationMessage = React.useMemo(
+    () => scriptModerationBanner(surveyOrderConfig),
+    [surveyOrderConfig],
+  );
+
+  const onApproveSurveyScript = React.useCallback(async () => {
+    if (!script.trim()) {
+      toast.error("Generate or paste a script before approving");
+      return;
+    }
+    setApproveScriptPending(true);
+    try {
+      const id = await ensureOrder();
+      const draftConfig = buildDraftConfig({ approved: true });
+      const patchBody = buildSurveyDraftPatchBody(surveyName, draftConfig, {
+        scheduled_start_at: toIsoFromLocal(startAt),
+        scheduled_end_at: toIsoFromLocal(endAt),
+      });
+      const saved = await patchM.mutateAsync({ orderId: id, body: patchBody });
+      const cfg = (saved.config || {}) as Record<string, unknown>;
+      if (cfg.script_approved === true) {
+        setApproved(true);
+        toast.success("Script approved — save draft or continue to contacts");
+      } else {
+        setApproved(false);
+        const reason = String(cfg.script_moderation_reason || "").trim();
+        toast.error(
+          reason
+            ? `Script blocked: ${reason} Edit the text and approve again, or wait for VoxBulk admin approval.`
+            : "Script could not be approved — please review the content and try again.",
+        );
+      }
+      void orderQ.refetch();
+    } catch (e) {
+      setApproved(false);
+      toast.error(e instanceof Error ? e.message : "Could not approve script");
+    } finally {
+      setApproveScriptPending(false);
+    }
+  }, [buildDraftConfig, ensureOrder, endAt, orderQ, patchM, script, startAt, surveyName]);
 
   const saveSurveyDraft = React.useCallback(
     async (purpose: "save" | "launch") => {
@@ -1372,6 +1419,9 @@ function CreateSurvey() {
           setScript={setScript}
           approved={approved}
           setApproved={setApproved}
+          onApproveScript={onApproveSurveyScript}
+          approvePending={approveScriptPending}
+          scriptModerationMessage={scriptModerationMessage}
           agentId={agentId}
           setAgentId={setAgentId}
           agents={agentsQ.data || []}

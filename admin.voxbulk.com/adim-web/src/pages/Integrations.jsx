@@ -616,6 +616,15 @@ export default function Integrations() {
   const [hubspotTestResult, setHubspotTestResult] = useState('')
   const [groqTestResult, setGroqTestResult] = useState('')
   const [deepinfraTestResult, setDeepinfraTestResult] = useState('')
+  const [deepinfraModerationTestResult, setDeepinfraModerationTestResult] = useState('')
+
+  const DEEPINFRA_MODERATION_MODELS = [
+    { id: 'mistralai/Mistral-Small-3.2-24B-Instruct-2506', label: 'Mistral Small 3.2 24B (recommended)' },
+    { id: 'mistralai/Mistral-Small-24B-Instruct-2501', label: 'Mistral Small 24B 2501 (faster)' },
+    { id: 'mistralai/Mistral-Nemo-Instruct-2407', label: 'Mistral Nemo 2407 (budget, multilingual)' },
+    { id: 'mistralai/Mistral-7B-Instruct-v0.3', label: 'Mistral 7B (lightweight)' },
+    { id: 'mistralai/Mistral-Small-3.1-24B-Instruct-2503', label: 'Mistral Small 3.1 (legacy → 3.2)' },
+  ]
   const [deepgramTestResult, setDeepgramTestResult] = useState('')
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
   const [gocardlessTestResult, setGocardlessTestResult] = useState('')
@@ -817,6 +826,9 @@ export default function Integrations() {
         if (!config.integration_name) config.integration_name = 'DeepInfra API'
         if (!config.model_name) config.model_name = 'openai/whisper-large-v3-turbo'
         if (!config.base_url) config.base_url = 'https://api.deepinfra.com/v1/inference/openai/whisper-large-v3-turbo'
+        if (config.moderation_enabled == null) config.moderation_enabled = true
+        if (!config.moderation_model) config.moderation_model = 'mistralai/Mistral-Small-3.2-24B-Instruct-2506'
+        if (!config.moderation_base_url) config.moderation_base_url = 'https://api.deepinfra.com/v1/openai'
         const token = String(draft.api_key_draft || '').trim()
         if (token) config.api_key = token
       }
@@ -1039,6 +1051,23 @@ export default function Integrations() {
     } catch (e) {
       setDeepinfraTestResult('')
       setProviderError(e?.message || 'DeepInfra test failed')
+    }
+  }
+
+  const testDeepinfraModeration = async () => {
+    setProviderError('')
+    setDeepinfraModerationTestResult('Testing script moderation…')
+    try {
+      const result = await apiFetch('/admin/integrations/deepinfra/test-moderation', { method: 'POST' })
+      const category = result?.result?.category || 'unknown'
+      setDeepinfraModerationTestResult(
+        result.ok
+          ? `Moderation OK · category ${category}`
+          : (result?.result?.reason || 'Moderation test failed'),
+      )
+    } catch (e) {
+      setDeepinfraModerationTestResult('')
+      setProviderError(e?.message || 'Moderation test failed')
     }
   }
 
@@ -1833,6 +1862,32 @@ export default function Integrations() {
                     <input className='input' style={deepinfraStatus.errors.base_url ? invalidInputStyle : undefined} value={String(activeConfig.base_url || 'https://api.deepinfra.com/v1/inference/openai/whisper-large-v3-turbo')} onChange={(e) => setProviderField('deepinfra', 'base_url', e.target.value)} />
                     <label className='label'>Model name</label>
                     <input className='input' style={deepinfraStatus.errors.model_name ? invalidInputStyle : undefined} value={String(activeConfig.model_name || 'openai/whisper-large-v3-turbo')} onChange={(e) => setProviderField('deepinfra', 'model_name', e.target.value)} />
+                    <div className='note' style={{ marginTop: 8 }}>Script content moderation (EU Mistral)</div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input
+                        type='checkbox'
+                        checked={activeConfig.moderation_enabled !== false}
+                        onChange={(e) => setProviderField('deepinfra', 'moderation_enabled', e.target.checked)}
+                      />
+                      <span>Scan interview and survey scripts before approval (DeepInfra chat API)</span>
+                    </label>
+                    <label className='label'>Moderation model</label>
+                    <select
+                      className='input'
+                      value={String(activeConfig.moderation_model || 'mistralai/Mistral-Small-3.2-24B-Instruct-2506')}
+                      onChange={(e) => setProviderField('deepinfra', 'moderation_model', e.target.value)}
+                    >
+                      {DEEPINFRA_MODERATION_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </select>
+                    <label className='label'>Moderation base URL</label>
+                    <input
+                      className='input'
+                      value={String(activeConfig.moderation_base_url || 'https://api.deepinfra.com/v1/openai')}
+                      onChange={(e) => setProviderField('deepinfra', 'moderation_base_url', e.target.value)}
+                    />
+                    {deepinfraModerationTestResult ? <div className='note'>{deepinfraModerationTestResult}</div> : null}
                     {activeConfig.last_tested_at ? (
                       <div className='muted' style={{ fontSize: 12 }}>
                         Last tested {String(activeConfig.last_tested_at)} · {String(activeConfig.last_test_status || '—')}
@@ -1847,6 +1902,9 @@ export default function Integrations() {
                       </button>
                       <button className='btn soft' onClick={testDeepinfra} disabled={providerSaving || !activeSummary.configured}>
                         Test connection
+                      </button>
+                      <button className='btn soft' onClick={testDeepinfraModeration} disabled={providerSaving || !activeSummary.configured}>
+                        Test moderation
                       </button>
                     </div>
                     <div className='note'>Used internally when respondents send voice notes on open-text WA survey questions. No customer billing is applied for DeepInfra usage.</div>

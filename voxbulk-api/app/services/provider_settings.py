@@ -169,6 +169,8 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_cronofy_config(config)
         if provider == "hubspot":
             config = ProviderSettingsService._validate_hubspot_config(config)
+        if provider == "deepinfra":
+            config = ProviderSettingsService._validate_deepinfra_config(config)
 
         payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
         cipher = enc.encrypt_str(payload)
@@ -365,6 +367,29 @@ class ProviderSettingsService:
         cfg["language"] = language
         cfg["endpointing"] = endpointing
         cfg["interim_results"] = ProviderSettingsService._bool_config(cfg.get("interim_results"), default=True)
+        return cfg
+
+    @staticmethod
+    def _validate_deepinfra_config(config: dict[str, Any]) -> dict[str, Any]:
+        from app.services.moderation import normalize_moderation_config
+
+        cfg = normalize_moderation_config(config)
+        errors: dict[str, str] = {}
+        api_key = str(cfg.get("api_key") or "").strip()
+        base_url = str(cfg.get("base_url") or "").strip()
+        model_name = str(cfg.get("model_name") or "").strip()
+        if not api_key:
+            errors["api_key"] = "API key is required"
+        if not base_url:
+            errors["base_url"] = "Base URL is required"
+        if not model_name:
+            errors["model_name"] = "Model name is required"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"DeepInfra settings validation failed: {details}")
+        cfg["api_key"] = api_key
+        cfg["base_url"] = base_url
+        cfg["model_name"] = model_name
         return cfg
 
     @staticmethod

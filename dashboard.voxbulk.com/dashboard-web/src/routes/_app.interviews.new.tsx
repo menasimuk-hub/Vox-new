@@ -18,6 +18,7 @@ import {
   resolveCandidateAtsDisplay,
 } from "@/lib/interview-campaign";
 import { estimateInterviewDurationMinutes, extractQuestionsBlock, mergeQuestionsIntoScript, resolveScriptFromConfig } from "@/lib/interview-script";
+import { scriptModerationBanner } from "@/lib/script-moderation";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -1061,24 +1062,61 @@ function CreateInterview() {
     if (!orderId) return;
     const duration = estimateInterviewDurationMinutes(script);
     try {
-      setScriptApproved(true);
-      setExpectedDurationMinutes(duration);
-      await onSaveDraft(true, {
-        approved_script: script,
-        generated_script_draft: script,
-        script_approved: true,
-        expected_duration_minutes: duration,
-      });
-      toast.success(`Script approved — est. ~${duration} min per call`);
+      const body = buildSaveBody(
+        {
+          approved_script: script,
+          generated_script_draft: script,
+          script_approved: true,
+          expected_duration_minutes: duration,
+        },
+        { markSaved: true },
+      );
+      const locked = ["running", "paused", "scheduled"].includes(String(order?.status || ""));
+      let savedConfig: Record<string, unknown> = body.config as Record<string, unknown>;
+      if (locked) {
+        const patched = await patchOrderM.mutateAsync({
+          orderId,
+          body: {
+            title: body.title,
+            scheduled_start_at: body.scheduled_start_at,
+            scheduled_end_at: body.scheduled_end_at,
+            config: body.config,
+          },
+        });
+        savedConfig = (patched.config || {}) as Record<string, unknown>;
+      } else {
+        const draftPayload = await saveDraftM.mutateAsync(body);
+        savedConfig = ((draftPayload.order?.config || body.config) ?? {}) as Record<string, unknown>;
+      }
+      const approvedOk = Boolean(savedConfig.script_approved);
+      setScriptApproved(approvedOk);
+      if (approvedOk) {
+        setExpectedDurationMinutes(duration);
+        toast.success(`Script approved — est. ~${duration} min per call`);
+      } else {
+        const reason = String(savedConfig.script_moderation_reason || "").trim();
+        toast.error(
+          reason
+            ? `Script blocked: ${reason} Edit the text and approve again, or wait for VoxBulk admin approval.`
+            : "Script could not be approved — please review the content and try again.",
+        );
+      }
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(orderId) });
+      void qc.invalidateQueries({ queryKey: [...queryKeys.interviewDraft, orderId] });
     } catch {
       setScriptApproved(false);
     }
   };
 
   const approvedScriptFromConfig = String(config.approved_script || "");
+  const scriptModerationMessage = React.useMemo(
+    () => scriptModerationBanner(config as Record<string, unknown>),
+    [config],
+  );
   const scriptIsApproved =
-    scriptApproved ||
-    (Boolean(config.script_approved) && approvedScriptFromConfig.trim() === script.trim());
+    !scriptModerationMessage &&
+    (scriptApproved ||
+      (Boolean(config.script_approved) && approvedScriptFromConfig.trim() === script.trim()));
 
   const loadAtsQuote = async (force: boolean) => {
     if (!orderId) return;
@@ -1838,6 +1876,9 @@ function CreateInterview() {
             </p>
             {step1FieldsTouched && missingScript ? <p className="text-[11px] text-destructive">Generate or paste a script, then approve it</p> : null}
             {step1FieldsTouched && !missingScript && missingScriptApproval ? <p className="text-[11px] text-destructive">Click Approve script when you are happy with it</p> : null}
+            {scriptModerationMessage ? (
+              <p className="text-[11px] text-destructive rounded-md border border-destructive/30 bg-destructive/5 p-2">{scriptModerationMessage}</p>
+            ) : null}
           </div>
           <div className="md:col-span-2 flex flex-wrap gap-2">
             <Button variant="outline" className="gap-1.5" onClick={() => void onGenerateScript()} disabled={generateM.isPending}>

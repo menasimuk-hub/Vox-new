@@ -366,6 +366,12 @@ class InterviewCallDispatchService:
         if not assistant_id:
             _log("assistant_missing", order_id=order.id)
             return False
+        from app.services.script_moderation_service import script_moderation_blocks_launch
+
+        moderation_block = script_moderation_blocks_launch(config)
+        if moderation_block:
+            _log("script_moderation_blocked", order_id=order.id, reason=moderation_block)
+            return False
         if not config.get("script_approved") and not str(config.get("approved_script") or "").strip():
             _log("script_not_approved", order_id=order.id)
             return False

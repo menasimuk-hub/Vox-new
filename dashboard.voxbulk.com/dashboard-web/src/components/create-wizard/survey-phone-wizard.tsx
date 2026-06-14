@@ -41,6 +41,9 @@ export type SurveyPhoneWizardProps = {
   setScript: (v: string) => void;
   approved: boolean;
   setApproved: (v: boolean) => void;
+  onApproveScript?: () => void | Promise<void>;
+  approvePending?: boolean;
+  scriptModerationMessage?: string | null;
   agentId: string;
   setAgentId: (v: string) => void;
   agents: SurveyAgent[];
@@ -234,6 +237,12 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 ) : null}
               </Field>
 
+              {props.scriptModerationMessage ? (
+                <p className="text-[11px] text-destructive rounded-md border border-destructive/30 bg-destructive/5 p-2">
+                  {props.scriptModerationMessage}
+                </p>
+              ) : null}
+
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
@@ -246,13 +255,17 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 <Button
                   variant="outline"
                   className="gap-1.5"
-                  disabled={!props.script.trim()}
+                  disabled={!props.script.trim() || props.approvePending}
                   onClick={() => {
+                    if (props.onApproveScript) {
+                      void props.onApproveScript();
+                      return;
+                    }
                     props.setApproved(true);
                     toast.success("Script approved — save draft or continue to contacts");
                   }}
                 >
-                  <Lock className="size-4" /> Approve script
+                  <Lock className="size-4" /> {props.approvePending ? "Checking…" : "Approve script"}
                 </Button>
                 <Button
                   variant="ghost"
