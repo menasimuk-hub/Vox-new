@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import {
   AlertCircle,
@@ -10,14 +10,12 @@ import {
   Clock,
   Circle as XCircle,
   Download,
-  Loader2,
   ListFilter as Filter,
   MessageCircle,
   MessageSquareText,
   Mic,
   PanelRightOpen,
   Phone,
-  RefreshCw,
   Search,
   Sparkles,
   ThumbsDown,
@@ -29,6 +27,11 @@ import {
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import {
+  SurveyHubSpotSyncTab,
+  SurveyRespondentHubSpotPanel,
+  type HubSpotSyncRespondent,
+} from "@/components/survey-results/survey-hubspot-sync-tab";
 import { SurveyResultsRespondentsTab } from "@/components/survey-results/survey-results-respondents-tab";
 import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -50,7 +53,7 @@ import {
 import { downloadAuthenticatedFile } from "@/lib/api";
 import { logLaunchFlow } from "@/lib/launch-flow-log";
 import { orderToCampaign } from "@/lib/mappers/orders";
-import { useHubSpotStatus, usePushSurveyResultToHubSpot, useServiceOrders, useSurveyResults } from "@/lib/queries";
+import { useHubSpotStatus, useServiceOrders, useSurveyResults } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 type BreakdownGroup = { label: string; key: string; count: number; pct: number };
@@ -420,15 +423,22 @@ function SurveyResults() {
   const pendingSelected = campaigns.find((c) => c.id === pendingOrderId);
   const showDisabled = !pendingOrderId || pendingOrderId === activeOrderId;
   const resultsQ = useSurveyResults(activeOrderId || null);
+  const hubspotQ = useHubSpotStatus();
   const payload = resultsQ.data || {};
   const summary = (payload.summary || {}) as Record<string, number | string | null | undefined>;
   const orderInfo = (payload.order || {}) as Record<string, string>;
   const aggregates = (payload.aggregates || []) as AggregateBlock[];
   const recommendations = (payload.recommendations || []) as Recommendation[];
   const respondents = (payload.respondents || []) as Respondent[];
+  const hubspotSyncRespondents = ((payload.hubspot_sync_respondents || []) as HubSpotSyncRespondent[]).length
+    ? ((payload.hubspot_sync_respondents || []) as HubSpotSyncRespondent[])
+    : (respondents as HubSpotSyncRespondent[]);
   const weeklyTrend = (payload.weekly_trend || []) as TrendPoint[];
   const topIssues = (summary.top_issues as string[] | undefined) || [];
   const allowFollowUp = payload.allow_follow_up !== false;
+  const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
+  const hubspotConnected = hubspot.connected === true;
+  const showRespondentDetails = allowFollowUp || hubspotConnected;
   const unhappyCount = Number(summary.unhappy_count || 0);
   const surveyChannel = selected?.surveyChannel || (orderInfo.channel === "whatsapp" ? "whatsapp" : orderInfo.channel === "ai_call" ? "ai_call" : null);
 
@@ -595,11 +605,14 @@ function SurveyResults() {
               <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
               <TabsTrigger value="questions" className="text-xs">Questions</TabsTrigger>
               <TabsTrigger value="responses" className="text-xs">Responses</TabsTrigger>
-              {allowFollowUp ? (
+              <TabsTrigger value="hubspot" className="gap-1 text-xs">
+                HubSpot
+              </TabsTrigger>
+              {showRespondentDetails ? (
                 <TabsTrigger value="details" className="relative gap-1 text-xs">
                   <PanelRightOpen className="size-3.5" />
                   More details
-                  {unhappyCount > 0 ? (
+                  {allowFollowUp && unhappyCount > 0 ? (
                     <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
                       {unhappyCount > 9 ? "9+" : unhappyCount}
                     </span>
@@ -983,7 +996,15 @@ function SurveyResults() {
           )}
         </TabsContent>
 
-        {allowFollowUp ? (
+        <TabsContent value="hubspot" className="space-y-4">
+          {isLoading ? (
+            <Skeleton className="h-48 w-full" />
+          ) : (
+            <SurveyHubSpotSyncTab orderId={activeOrderId} respondents={hubspotSyncRespondents} />
+          )}
+        </TabsContent>
+
+        {showRespondentDetails ? (
           <TabsContent value="details" className="space-y-4">
             {isLoading ? (
               <Skeleton className="h-64 w-full" />
@@ -1040,52 +1061,6 @@ function RespondentDetailSheet({
   const waAnswers = respondent?.wa_answers || [];
   const extracted = respondent?.extracted_answers || [];
   const openFeedback = respondent?.open_feedback || [];
-  const hubspotQ = useHubSpotStatus();
-  const pushM = usePushSurveyResultToHubSpot(orderId);
-  const [pushState, setPushState] = React.useState<"idle" | "success" | "error">("idle");
-  const [pushMessage, setPushMessage] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    setPushState("idle");
-    setPushMessage(null);
-  }, [respondent?.id]);
-
-  const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
-  const hubspotConnected = hubspot.connected === true;
-  const isCompleted =
-    Boolean(respondent?.completed_at) ||
-    String(respondent?.status_label || "").toLowerCase() === "completed";
-
-  const onPushToHubSpot = async () => {
-    if (!respondent?.id || !orderId) return;
-    setPushState("idle");
-    setPushMessage(null);
-    try {
-      const res = await pushM.mutateAsync(respondent.id);
-      if (res.skipped) {
-        setPushState("error");
-        setPushMessage(
-          res.reason === "contact_not_found_in_hubspot"
-            ? "No matching HubSpot contact found for this respondent."
-            : "Could not push this result to HubSpot.",
-        );
-        return;
-      }
-      setPushState("success");
-      const warning = res.properties_warning ? ` Note: ${res.properties_warning}` : "";
-      setPushMessage(
-        res.contact_url
-          ? `Survey result pushed to HubSpot.${warning}`
-          : `Survey result pushed to HubSpot contact ${res.contact_id || ""}.${warning}`,
-      );
-      toast.success("Pushed to HubSpot");
-    } catch (e) {
-      setPushState("error");
-      const msg = e instanceof Error ? e.message : "Failed to push to HubSpot";
-      setPushMessage(msg);
-      toast.error(msg);
-    }
-  };
 
   const unhappyReason =
     waAnswers.find((row) => {
@@ -1116,6 +1091,7 @@ function RespondentDetailSheet({
               </div>
             </SheetHeader>
             <div className="mt-6 space-y-4 text-sm">
+              <SurveyRespondentHubSpotPanel orderId={orderId} respondent={respondent as HubSpotSyncRespondent} />
               {respondent.is_unhappy ? (
                 <Card className="border-destructive/40 bg-destructive/5">
                   <CardContent className="space-y-1 p-4">
@@ -1165,69 +1141,6 @@ function RespondentDetailSheet({
                     </Card>
                   ))
                 : null}
-              <Card className="border-border">
-                <CardContent className="space-y-3 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">HubSpot</p>
-                      <p className="text-xs text-muted-foreground">
-                        {hubspotConnected
-                          ? "Push this survey result to the linked HubSpot contact as contact properties and a timeline note."
-                          : "Connect HubSpot to push survey results to CRM contacts."}
-                      </p>
-                    </div>
-                    {hubspotConnected && isCompleted ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="shrink-0 gap-1.5"
-                        disabled={pushM.isPending || !respondent?.id || !orderId}
-                        onClick={() => void onPushToHubSpot()}
-                      >
-                        {pushM.isPending ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : pushState === "success" ? (
-                          <CheckCircle2 className="size-3.5 text-success" />
-                        ) : (
-                          <RefreshCw className="size-3.5" />
-                        )}
-                        {pushM.isPending ? "Pushing…" : pushState === "success" ? "Pushed" : "Push result to HubSpot"}
-                      </Button>
-                    ) : null}
-                  </div>
-                  {!hubspotConnected ? (
-                    <p className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-                      HubSpot is not connected.{" "}
-                      <Link to="/settings/integrations" className="text-primary underline-offset-2 hover:underline">
-                        Connect HubSpot in Settings → Integrations
-                      </Link>{" "}
-                      to sync survey results manually or automatically when responses complete.
-                    </p>
-                  ) : null}
-                  {hubspotConnected && !isCompleted ? (
-                    <p className="text-xs text-muted-foreground">
-                      Only completed survey responses can be pushed to HubSpot.
-                    </p>
-                  ) : null}
-                  {pushState === "success" && pushMessage ? (
-                    <p className="flex items-start gap-2 text-xs text-success">
-                      <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
-                      {pushMessage}
-                    </p>
-                  ) : null}
-                  {pushState === "error" && pushMessage ? (
-                    <p className="flex items-start gap-2 text-xs text-destructive">
-                      <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-                      {pushMessage}
-                    </p>
-                  ) : null}
-                  {hubspotConnected && isCompleted && pushState === "idle" && !pushMessage ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      Automatic write-back runs when responses complete. Use this button to retry or push again.
-                    </p>
-                  ) : null}
-                </CardContent>
-              </Card>
             </div>
           </>
         ) : null}

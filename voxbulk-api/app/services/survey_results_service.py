@@ -726,6 +726,33 @@ def build_survey_results_pdf(payload: dict[str, Any]) -> bytes:
     return render_html_to_pdf_bytes(html)
 
 
+def build_hubspot_sync_respondents(
+    recipients: list[ServiceOrderRecipient],
+    *,
+    goal: str,
+    order_id: str,
+) -> list[dict[str, Any]]:
+    """Minimal completed-respondent rows for CRM manual sync (even when anonymous UI hides names)."""
+    rows: list[dict[str, Any]] = []
+    for recipient in recipients:
+        if str(recipient.status or "").lower() != "completed":
+            continue
+        summary = recipient_summary_row(recipient, goal=goal, order_id=order_id)
+        rows.append(
+            {
+                "id": summary.get("id"),
+                "name": summary.get("name"),
+                "email": summary.get("email"),
+                "phone": summary.get("phone"),
+                "status_label": summary.get("status_label"),
+                "completed_at": summary.get("completed_at"),
+                "sentiment_label": summary.get("sentiment_label"),
+                "short_summary": summary.get("short_summary"),
+            }
+        )
+    return rows
+
+
 def recipient_summary_row(
     recipient: ServiceOrderRecipient,
     *,
@@ -974,6 +1001,7 @@ def build_whatsapp_survey_results_payload(
         ]
         if include_respondents
         else [],
+        "hubspot_sync_respondents": build_hubspot_sync_respondents(recipients, goal=goal, order_id=order.id),
         "recommendations": recommendations,
     }
 
@@ -1096,6 +1124,7 @@ def build_survey_results_payload(
         ]
         if include_respondents
         else [],
+        "hubspot_sync_respondents": build_hubspot_sync_respondents(recipients, goal=goal, order_id=order.id),
         "recommendations": recommendations,
     }
 
