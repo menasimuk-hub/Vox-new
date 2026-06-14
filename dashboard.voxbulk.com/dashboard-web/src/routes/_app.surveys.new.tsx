@@ -320,6 +320,12 @@ function CreateSurvey() {
     if (defaultAgent?.id) setAgentId(defaultAgent.id);
   }, [channel, agentId, agentsQ.data]);
 
+  const surveyOrderConfig = (orderQ.data?.config || {}) as Record<string, unknown>;
+  const scriptModerationMessage = React.useMemo(
+    () => scriptModerationBanner(surveyOrderConfig),
+    [surveyOrderConfig],
+  );
+
   const phoneLaunchBlockers = React.useMemo(() => {
     if (channel !== "phone") return [] as string[];
     const blockers: string[] = [];
@@ -470,12 +476,6 @@ function CreateSurvey() {
     expectedDurationMinutes,
     orderQ.data?.config,
   ]);
-
-  const surveyOrderConfig = (orderQ.data?.config || {}) as Record<string, unknown>;
-  const scriptModerationMessage = React.useMemo(
-    () => scriptModerationBanner(surveyOrderConfig),
-    [surveyOrderConfig],
-  );
 
   const onApproveSurveyScript = React.useCallback(async () => {
     if (!script.trim()) {
