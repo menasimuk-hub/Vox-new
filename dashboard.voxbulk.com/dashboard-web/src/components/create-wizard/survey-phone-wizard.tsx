@@ -332,6 +332,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 contacts={props.uploadedContacts}
                 loading={props.recipientsLoading || props.uploading}
                 error={props.recipientsError}
+                highlightAllowlist
               />
 
               <SurveyUploadConsent

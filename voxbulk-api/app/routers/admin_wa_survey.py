@@ -205,8 +205,33 @@ def set_industry_status(
     return {
         "ok": True,
         "industry": industry_to_dict(
-            updated,
-            survey_type_count=IndustryService.survey_type_count(db, updated.id),
+            row,
+            survey_type_count=IndustryService.survey_type_count(db, row.id),
+            org_ids=IndustryService.industry_org_ids(db, row.id),
+        ),
+    }
+
+
+@router.post("/industries/{industry_id}/duplicate")
+def duplicate_industry(
+    industry_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    row = IndustryService.get_industry(db, industry_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found")
+    try:
+        copy = IndustryService.duplicate_industry(db, row, payload or {})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {
+        "ok": True,
+        "industry": industry_to_dict(
+            copy,
+            survey_type_count=IndustryService.survey_type_count(db, copy.id),
+            org_ids=IndustryService.industry_org_ids(db, copy.id),
         ),
     }
 

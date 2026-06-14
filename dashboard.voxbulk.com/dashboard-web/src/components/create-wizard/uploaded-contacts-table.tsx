@@ -9,6 +9,8 @@ export type UploadedContactRow = {
   name: string;
   phone: string;
   language?: string;
+  phoneCallAllowed?: boolean;
+  phoneCallBlockReason?: string | null;
 };
 
 type UploadedContactsTableProps = {
@@ -16,6 +18,7 @@ type UploadedContactsTableProps = {
   loading?: boolean;
   error?: string | null;
   pageSize?: number;
+  highlightAllowlist?: boolean;
 };
 
 export function UploadedContactsTable({
@@ -23,6 +26,7 @@ export function UploadedContactsTable({
   loading = false,
   error = null,
   pageSize = 20,
+  highlightAllowlist = false,
 }: UploadedContactsTableProps) {
   const [page, setPage] = React.useState(0);
 
@@ -53,6 +57,10 @@ export function UploadedContactsTable({
     return null;
   }
 
+  const blockedCount = highlightAllowlist
+    ? contacts.filter((c) => c.phoneCallAllowed === false).length
+    : 0;
+
   return (
     <div className="space-y-2 animate-fade-in">
       <div className="flex items-center justify-between gap-2">
@@ -63,6 +71,12 @@ export function UploadedContactsTable({
           </p>
         ) : null}
       </div>
+      {blockedCount > 0 ? (
+        <p className="text-xs text-destructive rounded-md border border-destructive/30 bg-destructive/5 p-2">
+          {blockedCount} number{blockedCount === 1 ? "" : "s"} cannot be called — not on the Telnyx allowlist. Fix or
+          remove them; only allowed numbers will be dialled.
+        </p>
+      ) : null}
       <div className="overflow-hidden rounded-lg border border-border">
         <Table>
           <TableHeader>
@@ -73,13 +87,21 @@ export function UploadedContactsTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((c, i) => (
-              <TableRow key={`${c.phone}-${start + i}`}>
+            {rows.map((c, i) => {
+              const blocked = highlightAllowlist && c.phoneCallAllowed === false;
+              return (
+              <TableRow key={`${c.phone}-${start + i}`} className={blocked ? "bg-destructive/5" : undefined}>
                 <TableCell className="font-medium">{c.name || "—"}</TableCell>
-                <TableCell className="tabular-nums">{c.phone}</TableCell>
+                <TableCell className="tabular-nums">
+                  <span className={blocked ? "text-destructive font-medium" : undefined}>{c.phone}</span>
+                  {blocked && c.phoneCallBlockReason ? (
+                    <p className="text-[10px] text-destructive/90 mt-0.5 max-w-[220px]">{c.phoneCallBlockReason}</p>
+                  ) : null}
+                </TableCell>
                 <TableCell className="text-muted-foreground">{c.language || "—"}</TableCell>
               </TableRow>
-            ))}
+            );
+            })}
           </TableBody>
         </Table>
       </div>

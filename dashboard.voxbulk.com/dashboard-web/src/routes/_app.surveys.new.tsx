@@ -191,9 +191,20 @@ function CreateSurvey() {
       name: String(row.name || "").trim(),
       phone: String(row.phone || "").trim(),
       language: String(row.language || row.locale || "").trim(),
+      phoneCallAllowed:
+        typeof (row as { phone_call_allowed?: boolean }).phone_call_allowed === "boolean"
+          ? (row as { phone_call_allowed?: boolean }).phone_call_allowed
+          : undefined,
+      phoneCallBlockReason: String((row as { phone_call_block_reason?: string }).phone_call_block_reason || "").trim() || null,
     }));
   }, [recipientsQ.data?.recipients]);
   const contactsCount = uploadedContacts.filter((c) => c.phone).length;
+  const dialableContactsCount =
+    channel === "phone"
+      ? uploadedContacts.filter((c) => c.phone && c.phoneCallAllowed !== false).length
+      : contactsCount;
+  const blockedAllowlistCount =
+    channel === "phone" ? uploadedContacts.filter((c) => c.phone && c.phoneCallAllowed === false).length : 0;
   const surveyId = String(orderQ.data?.campaign_id || orderQ.data?.survey_id || "").trim() || null;
   const recipientsLoading = recipientsQ.isFetching || recipientsQ.isLoading;
   const recipientsError =
@@ -329,14 +340,20 @@ function CreateSurvey() {
   const phoneLaunchBlockers = React.useMemo(() => {
     if (channel !== "phone") return [] as string[];
     const blockers: string[] = [];
-    if (contactsCount <= 0) blockers.push("Upload at least one contact before launch.");
+    if (dialableContactsCount <= 0) {
+      blockers.push(
+        blockedAllowlistCount > 0
+          ? "No contacts on the AI call allowlist — fix highlighted numbers or upload allowed prefixes."
+          : "Upload at least one contact before launch.",
+      );
+    }
     if (!approved) blockers.push("Approve your survey script before launch.");
     if (scriptModerationMessage) blockers.push(scriptModerationMessage);
     if (!agentId) blockers.push("Select a survey voice agent.");
     if (!startAt || !endAt) blockers.push("Set calling start and end date/time.");
     else if (new Date(startAt) >= new Date(endAt)) blockers.push("Calling end must be after calling start.");
     return blockers;
-  }, [channel, contactsCount, approved, agentId, startAt, endAt, scriptModerationMessage]);
+  }, [channel, dialableContactsCount, blockedAllowlistCount, approved, agentId, startAt, endAt, scriptModerationMessage]);
 
   const onGeneratePhoneScript = async () => {
     if (!goal.trim()) {

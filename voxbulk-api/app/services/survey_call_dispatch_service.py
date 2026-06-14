@@ -391,6 +391,11 @@ class SurveyCallDispatchService:
                 continue
             if should_wait_for_retry(candidate):
                 continue
+            from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+            phone_check = TelnyxPhoneAllowlistService.validate_phone_db(db, str(candidate.phone or ""))
+            if not phone_check.get("allowed"):
+                continue
             next_recipient = candidate
             break
         if next_recipient is None:

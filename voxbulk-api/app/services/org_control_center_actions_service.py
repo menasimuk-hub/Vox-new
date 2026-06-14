@@ -665,6 +665,9 @@ class OrgControlCenterActionsService:
         if existing is not None:
             return {"invoice": InvoiceService.invoice_to_dict(db, existing), "created": False}
         amount = int(order.quote_total_pence or 0)
+        from app.services.invoice_line_item_service import InvoiceLineItemService
+
+        line_items = InvoiceLineItemService.from_order(order)
         invoice, created, sent = InvoiceService.issue_from_payment(
             db,
             org_id=order.org_id,
@@ -676,7 +679,7 @@ class OrgControlCenterActionsService:
             external_invoice_id=external_id,
             payment_method=order.payment_method or profile.get("payment_method"),
             status="paid",
-            line_items=[
+            line_items=line_items or [
                 {
                     "description": order.title or order.service_code,
                     "quantity": max(1, int(order.recipient_count or 1)),

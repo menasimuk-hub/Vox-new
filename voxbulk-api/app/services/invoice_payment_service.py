@@ -49,7 +49,7 @@ class InvoicePaymentService:
 
     @staticmethod
     def amount_due_minor(invoice: BillingInvoice) -> int:
-        return int(invoice.subtotal_pence if invoice.subtotal_pence is not None else invoice.amount_gbp_pence or 0)
+        return int(invoice.amount_gbp_pence if invoice.amount_gbp_pence is not None else invoice.subtotal_pence or 0)
 
     @staticmethod
     def payment_context(db: Session, org: Organisation, invoice: BillingInvoice) -> dict[str, Any]:

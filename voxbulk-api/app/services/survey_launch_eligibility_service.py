@@ -74,6 +74,7 @@ class SurveyLaunchEligibilityService:
         config = SurveyLaunchEligibilityService._order_config(order)
         channel = PlatformCatalogService.resolve_survey_channel(config)
         recipient_count = max(0, int(order.recipient_count or 0))
+        billable_recipient_count = recipient_count
         estimated_usage = SurveyLaunchEligibilityService.estimated_whatsapp_units(order, channel=channel)
         billing = org_survey_billing_context(db, org)
         currency = resolve_org_currency(db, org)
@@ -119,6 +120,25 @@ class SurveyLaunchEligibilityService:
             "wallet_shortfall_minor": 0,
         }
 
+        if channel == "ai_call":
+            from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+            allowlist_stats = TelnyxPhoneAllowlistService.dialable_recipient_counts(db, order)
+            base["phone_allowlist"] = allowlist_stats
+            billable_recipient_count = max(0, int(allowlist_stats.get("dialable") or 0))
+            blocked = max(0, int(allowlist_stats.get("blocked") or 0))
+            if billable_recipient_count <= 0 and int(allowlist_stats.get("total") or 0) > 0:
+                return SurveyLaunchEligibilityService._set_block(
+                    base,
+                    code="phone_allowlist_blocked",
+                    reason="None of your contacts match the AI call allowlist. Update phone numbers to allowed prefixes or remove blocked rows.",
+                    summary="No dialable contacts — fix allowlist numbers before launch.",
+                )
+            if blocked > 0:
+                base["phone_allowlist_warning"] = (
+                    f"{blocked} number{'s' if blocked != 1 else ''} will not be called — not on the Telnyx allowlist."
+                )
+
         from app.services.billing_access_service import BillingAccessService
 
         access_block = BillingAccessService.launch_block_reason(db, org)
@@ -136,6 +156,14 @@ class SurveyLaunchEligibilityService:
                 code="no_recipients",
                 reason="Upload at least one contact before launch.",
                 summary="No recipients on this survey yet.",
+            )
+
+        if channel == "ai_call" and billable_recipient_count <= 0:
+            return SurveyLaunchEligibilityService._set_block(
+                base,
+                code="phone_allowlist_blocked",
+                reason="No contacts on the AI call allowlist.",
+                summary="No dialable contacts.",
             )
 
         if channel == "ai_call":
@@ -194,7 +222,7 @@ class SurveyLaunchEligibilityService:
             )
 
         return SurveyLaunchEligibilityService._compute_phone(
-            db, order, org, base, billing, recipient_count, config
+            db, order, org, base, billing, billable_recipient_count, config
         )
 
     @staticmethod

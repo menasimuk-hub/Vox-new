@@ -160,6 +160,29 @@ class CountryVatService:
         return int(round(subtotal * rate / 100.0))
 
     @staticmethod
+    def split_gross_pence(gross_pence: int, rate_percent: float) -> tuple[int, int]:
+        """Split a VAT-inclusive gross amount into (net_pence, vat_pence)."""
+        gross = max(0, int(gross_pence or 0))
+        rate = max(0.0, float(rate_percent or 0))
+        if gross <= 0 or rate <= 0:
+            return gross, 0
+        net = int(round(gross / (1.0 + rate / 100.0)))
+        return net, gross - net
+
+    @staticmethod
+    def is_vat_inclusive_pricing(db: Session, country_code: str) -> bool:
+        """UK catalog prices are VAT-inclusive when platform VAT is enabled."""
+        code = str(country_code or "GB").upper()[:2]
+        if code != "GB":
+            return False
+        try:
+            from app.services.billing_settings_service import BillingSettingsService
+
+            return bool(BillingSettingsService.get(db).vat_enabled)
+        except Exception:
+            return False
+
+    @staticmethod
     def to_dict(row: CountryVatRate) -> dict[str, Any]:
         return {
             "country_code": row.country_code,

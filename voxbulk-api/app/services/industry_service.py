@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.industry import Industry
+from app.models.industry_organisation import IndustryOrganisation
 from app.models.industry_deletion_tombstone import IndustryDeletionTombstone
 from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
@@ -45,6 +46,7 @@ def industry_to_dict(
     template_count: int | None = None,
     approved_template_count: int | None = None,
     pending_template_count: int | None = None,
+    org_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "id": row.id,
@@ -53,6 +55,8 @@ def industry_to_dict(
         "description": row.description,
         "is_active": bool(row.is_active),
         "is_hidden": bool(getattr(row, "is_hidden", False)),
+        "visibility_mode": str(getattr(row, "visibility_mode", None) or "all"),
+        "source_industry_id": getattr(row, "source_industry_id", None),
         "sort_order": int(row.sort_order or 100),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -65,6 +69,8 @@ def industry_to_dict(
         payload["approved_template_count"] = int(approved_template_count)
     if pending_template_count is not None:
         payload["pending_template_count"] = int(pending_template_count)
+    if org_ids is not None:
+        payload["org_ids"] = org_ids
     return payload
 
 
@@ -358,9 +364,15 @@ class IndustryService:
             row.sort_order = max(0, min(9999, int(payload.get("sort_order") or row.sort_order or 100)))
         if "is_active" in payload:
             row.is_active = bool(payload["is_active"])
+        if "visibility_mode" in payload:
+            mode = str(payload.get("visibility_mode") or "all").strip().lower()
+            if mode in {"all", "restricted"}:
+                row.visibility_mode = mode
         row.updated_at = datetime.utcnow()
         db.add(row)
         db.commit()
+        if "org_ids" in payload:
+            IndustryService.set_industry_orgs(db, row.id, list(payload.get("org_ids") or []))
         db.refresh(row)
         return row
 
@@ -494,3 +506,192 @@ class IndustryService:
         if warnings:
             result["warnings"] = warnings
         return result
+
+    @staticmethod
+    def industry_org_ids(db: Session, industry_id: str) -> list[str]:
+        return list(
+            db.execute(
+                select(IndustryOrganisation.org_id)
+                .where(IndustryOrganisation.industry_id == industry_id)
+                .order_by(IndustryOrganisation.created_at.asc())
+            ).scalars()
+        )
+
+    @staticmethod
+    def set_industry_orgs(db: Session, industry_id: str, org_ids: list[str]) -> list[str]:
+        cleaned = []
+        seen: set[str] = set()
+        for raw in org_ids or []:
+            oid = str(raw or "").strip()
+            if not oid or oid in seen:
+                continue
+            seen.add(oid)
+            cleaned.append(oid)
+        db.execute(delete(IndustryOrganisation).where(IndustryOrganisation.industry_id == industry_id))
+        now = datetime.utcnow()
+        for oid in cleaned:
+            db.add(IndustryOrganisation(id=str(uuid.uuid4()), industry_id=industry_id, org_id=oid, created_at=now))
+        db.commit()
+        return cleaned
+
+    @staticmethod
+    def _industry_visible_to_org(db: Session, row: Industry, org_id: str | None) -> bool:
+        if not row.is_active or bool(getattr(row, "is_hidden", False)):
+            return False
+        mode = str(getattr(row, "visibility_mode", None) or "all").strip().lower()
+        if mode != "restricted":
+            return True
+        if not org_id:
+            return False
+        linked = db.execute(
+            select(IndustryOrganisation.id).where(
+                IndustryOrganisation.industry_id == row.id,
+                IndustryOrganisation.org_id == org_id,
+            )
+        ).scalar_one_or_none()
+        return linked is not None
+
+    @staticmethod
+    def list_industries_for_org(db: Session, org_id: str) -> list[dict[str, Any]]:
+        rows = IndustryService.list_industries(db, active_only=True, include_inactive=False)
+        visible: list[dict[str, Any]] = []
+        for payload in rows:
+            row = IndustryService.get_industry(db, str(payload.get("id") or ""))
+            if row is None:
+                continue
+            if IndustryService._industry_visible_to_org(db, row, org_id):
+                visible.append(payload)
+        return visible
+
+    @staticmethod
+    def duplicate_industry(db: Session, source: Industry, payload: dict[str, Any]) -> Industry:
+        if bool(getattr(source, "is_hidden", False)):
+            raise ValueError("System industries cannot be duplicated")
+        name = str(payload.get("name") or f"{source.name} (copy)").strip()
+        slug_base = _normalize_slug(str(payload.get("slug") or f"{source.slug}_copy"))
+        slug = slug_base
+        suffix = 1
+        while db.execute(select(Industry).where(Industry.slug == slug)).scalar_one_or_none() is not None:
+            suffix += 1
+            slug = f"{slug_base}_{suffix}"
+        org_ids = [str(x).strip() for x in (payload.get("org_ids") or []) if str(x).strip()]
+        visibility_mode = str(payload.get("visibility_mode") or ("restricted" if org_ids else "all")).strip().lower()
+        if visibility_mode not in {"all", "restricted"}:
+            visibility_mode = "restricted" if org_ids else "all"
+        now = datetime.utcnow()
+        copy = Industry(
+            id=str(uuid.uuid4()),
+            slug=slug,
+            name=name,
+            description=source.description,
+            is_active=False,
+            is_hidden=False,
+            visibility_mode=visibility_mode,
+            source_industry_id=source.id,
+            sort_order=int(source.sort_order or 100),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(copy)
+        db.flush()
+
+        type_map: dict[str, str] = {}
+        source_types = list(db.execute(select(SurveyType).where(SurveyType.industry_id == source.id)).scalars())
+        for st in source_types:
+            new_type = SurveyType(
+                id=str(uuid.uuid4()),
+                industry_id=copy.id,
+                slug=st.slug,
+                name=st.name,
+                description=st.description,
+                is_active=bool(st.is_active),
+                default_length=st.default_length,
+                min_length=int(st.min_length or 4),
+                max_length=int(st.max_length or 6),
+                supports_anonymous=bool(st.supports_anonymous),
+                system_template_kind=st.system_template_kind,
+                sort_order=int(st.sort_order or 100),
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(new_type)
+            db.flush()
+            type_map[st.id] = new_type.id
+
+        template_map: dict[int, int] = {}
+        tpl_stmt = select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.industry_id == source.id)
+        if type_map:
+            tpl_stmt = select(TelnyxWhatsappTemplate).where(
+                or_(
+                    TelnyxWhatsappTemplate.industry_id == source.id,
+                    TelnyxWhatsappTemplate.survey_type_id.in_(list(type_map.keys())),
+                )
+            )
+        source_templates = list(db.execute(tpl_stmt).scalars())
+        for tpl in source_templates:
+            new_type_id = type_map.get(str(tpl.survey_type_id or "")) if tpl.survey_type_id else None
+            local_id = f"local-copy-{uuid.uuid4()}"
+            clone = TelnyxWhatsappTemplate(
+                telnyx_record_id=local_id,
+                template_id=local_id,
+                name=tpl.name,
+                language=tpl.language,
+                category=tpl.category,
+                status="DRAFT",
+                sales_template_key=tpl.sales_template_key,
+                body_preview=tpl.body_preview,
+                components_json=tpl.components_json,
+                waba_id=tpl.waba_id,
+                rejection_reason=None,
+                industry_id=copy.id,
+                survey_type_id=new_type_id,
+                variant_type=tpl.variant_type,
+                step_role=tpl.step_role,
+                outcome_key=tpl.outcome_key,
+                outcome_variables_json=tpl.outcome_variables_json,
+                privacy_mode=tpl.privacy_mode,
+                pack_id=None,
+                parent_template_id=None,
+                display_name=tpl.display_name,
+                customer_description=tpl.customer_description,
+                draft_components_json=tpl.draft_components_json or tpl.components_json,
+                example_values_json=tpl.example_values_json,
+                local_sync_status="draft",
+                active_for_survey=bool(tpl.active_for_survey),
+                active_for_interview=bool(tpl.active_for_interview),
+                synced_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(clone)
+            db.flush()
+            template_map[int(tpl.id)] = int(clone.id)
+
+        for mapping in db.execute(
+            select(SurveyTypeTemplate).where(SurveyTypeTemplate.industry_id == source.id)
+        ).scalars():
+            new_type_id = type_map.get(mapping.survey_type_id)
+            new_template_id = template_map.get(int(mapping.template_id))
+            if not new_type_id or not new_template_id:
+                continue
+            db.add(
+                SurveyTypeTemplate(
+                    industry_id=copy.id,
+                    survey_type_id=new_type_id,
+                    template_id=new_template_id,
+                    usable_as_standard=bool(mapping.usable_as_standard),
+                    usable_as_anonymous=bool(mapping.usable_as_anonymous),
+                    is_default_standard=bool(mapping.is_default_standard),
+                    is_default_anonymous=bool(mapping.is_default_anonymous),
+                    privacy_mode=mapping.privacy_mode,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        if org_ids:
+            IndustryService.set_industry_orgs(db, copy.id, org_ids)
+        else:
+            db.commit()
+        db.refresh(copy)
+        return copy

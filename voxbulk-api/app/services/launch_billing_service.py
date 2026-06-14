@@ -304,25 +304,27 @@ class LaunchBillingService:
         units = int(breakdown.get("units_billable") or 0)
         unit_rate = int(breakdown.get("unit_rate_minor") or 0)
         channel = str(breakdown.get("channel") or "campaign")
+        from app.services.invoice_line_item_service import InvoiceLineItemService
+
+        line_items = InvoiceLineItemService.from_launch_breakdown(breakdown, order_title=str(order.title or ""))
         if channel == "whatsapp":
             desc = f"WhatsApp survey launch — {order.title} ({units} extra recipients)"
-            line = {"description": f"WA survey recipients beyond allowance × {units}", "quantity": units, "unit_pence": unit_rate, "total_pence": amount_minor}
         else:
             desc = f"AI call campaign launch — {order.title} ({units} extra minutes)"
-            line = {"description": f"AI call minutes beyond allowance × {units}", "quantity": units, "unit_pence": unit_rate, "total_pence": amount_minor}
+        charge_amount = InvoiceLineItemService.gross_total_pence(line_items) or amount_minor
 
         invoice = InvoiceService.create_from_payment(
             db,
             org_id=org.id,
             client_email=email,
-            subtotal_pence=amount_minor,
+            subtotal_pence=charge_amount,
             currency=currency,
             description=desc,
             provider="gocardless",
             external_invoice_id=f"launch-{order.id}",
             payment_method="gocardless",
             status="pending",
-            line_items=[line],
+            line_items=line_items,
             kind="campaign",
             order_id=order.id,
         )
@@ -334,7 +336,7 @@ class LaunchBillingService:
             payment = BillingService.collect_mandate_payment(
                 db,
                 org_id=org.id,
-                amount_pence=amount_minor,
+                amount_pence=int(invoice.amount_gbp_pence or charge_amount),
                 description=desc,
                 currency=currency,
                 metadata={"invoice_id": invoice.id, "order_id": order.id},

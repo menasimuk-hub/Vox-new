@@ -15,6 +15,7 @@ from app.services.brand_assets import logo_data_uri
 from app.models.billing_invoice import BillingInvoice
 from app.models.organisation import Organisation
 from app.services.country_vat_service import CountryVatService
+from app.services.invoice_line_item_service import InvoiceLineItemService
 from app.services.email_template_service import EmailTemplateService
 from app.services.transactional_email_service import substitute_placeholders
 
@@ -195,11 +196,20 @@ class InvoiceDocumentService:
             "subtotal": _money(subtotal, currency),
             "tax_amount": _money(tax, currency),
             "tax_rate": f"{rate:g}%",
+            "subtotal_label": "Net amount" if CountryVatService.is_vat_inclusive_pricing(db, country_code) and tax > 0 else "Subtotal",
+            "total_label": "Total (inc. VAT)" if CountryVatService.is_vat_inclusive_pricing(db, country_code) and tax > 0 else "Total due",
+            "vat_note": "All unit prices include VAT where applicable."
+            if CountryVatService.is_vat_inclusive_pricing(db, country_code)
+            else "",
+            "notes": (
+                "All unit prices include VAT where applicable. Thank you for your business. Please retain this invoice for your records."
+                if CountryVatService.is_vat_inclusive_pricing(db, country_code)
+                else "Thank you for your business. Please retain this invoice for your records."
+            ),
             "currency": currency,
             "payment_method": _payment_method_label(invoice),
             "payment_reference": invoice.payment_reference or invoice.external_invoice_id or "—",
             "line_items_html": _line_items_html(line_items, currency),
-            "notes": "Thank you for your business. Please retain this invoice for your records.",
             "first_name": first_name,
             "dashboard_invoice_url": f"{dashboard_origin}/account/billing?pay={invoice.id}",
             "pay_invoice_url": f"{dashboard_origin}/account/billing?pay={invoice.id}",
@@ -316,6 +326,15 @@ class InvoiceService:
             "total_pence": total,
             "total_gbp": _money(total, currency),
         }
+        line_items: list[dict[str, Any]] = []
+        if invoice.line_items_json:
+            try:
+                parsed = json.loads(invoice.line_items_json)
+                if isinstance(parsed, list):
+                    line_items = parsed
+            except json.JSONDecodeError:
+                pass
+        base["line_items"] = line_items
         if enrich_payment:
             org = db.get(Organisation, invoice.org_id)
             if org is not None:
@@ -503,6 +522,28 @@ class InvoiceService:
         return float(row.vat_rate_percent or 0)
 
     @staticmethod
+    def compute_invoice_amounts(
+        db: Session,
+        *,
+        country_code: str,
+        line_items: list[dict[str, Any]] | None,
+        amount_pence: int,
+    ) -> tuple[int, int, int, float, bool]:
+        """Return (net_subtotal_pence, tax_pence, total_due_pence, rate, vat_inclusive)."""
+        code = str(country_code or "GB").upper()[:2]
+        rate = InvoiceService.effective_vat_rate(db, country_code=code)
+        vat_inclusive = CountryVatService.is_vat_inclusive_pricing(db, code)
+        items_total = InvoiceLineItemService.gross_total_pence(line_items) if line_items else 0
+        gross = items_total if items_total > 0 else max(0, int(amount_pence or 0))
+
+        if vat_inclusive and rate > 0:
+            net, tax = CountryVatService.split_gross_pence(gross, rate)
+            return net, tax, gross, rate, True
+        subtotal = gross
+        tax = CountryVatService.compute_tax(subtotal, rate)
+        return subtotal, tax, subtotal + tax, rate, False
+
+    @staticmethod
     def create_from_payment(
         db: Session,
         *,
@@ -523,10 +564,12 @@ class InvoiceService:
     ) -> BillingInvoice:
         org = db.get(Organisation, org_id)
         code = (country_code or CountryVatService.resolve_org_country_code(db, org)).upper()[:2]
-        rate = InvoiceService.effective_vat_rate(db, country_code=code)
-        subtotal = max(0, int(subtotal_pence or 0))
-        tax = CountryVatService.compute_tax(subtotal, rate)
-        total = subtotal + tax
+        net, tax, total, rate, _vat_inclusive = InvoiceService.compute_invoice_amounts(
+            db,
+            country_code=code,
+            line_items=line_items,
+            amount_pence=subtotal_pence,
+        )
         invoice_number = InvoiceService.allocate_invoice_number(db)
         due_days = 7
         try:
@@ -543,7 +586,7 @@ class InvoiceService:
             invoice_number=invoice_number,
             client_email=str(client_email).strip().lower(),
             amount_gbp_pence=total,
-            subtotal_pence=subtotal,
+            subtotal_pence=net,
             tax_pence=tax,
             tax_rate_percent=rate,
             currency=(currency or "GBP").upper(),

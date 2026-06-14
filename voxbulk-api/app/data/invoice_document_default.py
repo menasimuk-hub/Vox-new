@@ -82,10 +82,10 @@ INVOICE_DOCUMENT_BODY = f"""<!DOCTYPE html>
       </td>
       <td style="width:42%;vertical-align:top;">
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
-          <tr><td style="padding:6px 0;color:{INVOICE_MUTED};">Subtotal</td><td style="text-align:right;font-weight:600;">{{{{subtotal}}}}</td></tr>
+          <tr><td style="padding:6px 0;color:{INVOICE_MUTED};">{{{{subtotal_label}}}}</td><td style="text-align:right;font-weight:600;">{{{{subtotal}}}}</td></tr>
           <tr><td style="padding:6px 0;color:{INVOICE_MUTED};">VAT / Tax ({{{{tax_rate}}}})</td><td style="text-align:right;font-weight:600;">{{{{tax_amount}}}}</td></tr>
           <tr style="border-top:2px solid {INVOICE_INK};">
-            <td style="padding:10px 0;font-size:15px;font-weight:800;">Total due</td>
+            <td style="padding:10px 0;font-size:15px;font-weight:800;">{{{{total_label}}}}</td>
             <td style="text-align:right;font-size:15px;font-weight:800;color:{INVOICE_ACCENT};">{{{{amount}}}}</td>
           </tr>
         </table>

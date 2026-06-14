@@ -263,3 +263,50 @@ class TelnyxPhoneAllowlistService:
         if not isinstance(parsed, dict):
             raise ValueError("Allow list must be a JSON object")
         return _merge_allowlist(parsed)
+
+    @staticmethod
+    def order_requires_allowlist(db: Session, order: Any) -> bool:
+        import json
+
+        from app.services.platform_catalog_service import PlatformCatalogService
+
+        if getattr(order, "service_code", None) == "survey":
+            try:
+                cfg = json.loads(getattr(order, "config_json", None) or "{}")
+            except json.JSONDecodeError:
+                cfg = {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+            return PlatformCatalogService.resolve_survey_channel(cfg) == "ai_call"
+        if getattr(order, "service_code", None) == "interview":
+            try:
+                cfg = json.loads(getattr(order, "config_json", None) or "{}")
+            except json.JSONDecodeError:
+                cfg = {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+            delivery = PlatformCatalogService.normalize_interview_delivery(db, str(cfg.get("delivery") or "ai_call"))
+            return delivery == "ai_call"
+        return False
+
+    @staticmethod
+    def dialable_recipient_counts(db: Session, order: Any) -> dict[str, int]:
+        from app.services.platform_catalog_service import ServiceOrderService
+
+        if not TelnyxPhoneAllowlistService.order_requires_allowlist(db, order):
+            total = max(0, int(getattr(order, "recipient_count", 0) or 0))
+            return {"total": total, "dialable": total, "blocked": 0}
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        dialable = 0
+        blocked = 0
+        for recipient in recipients:
+            phone = str(recipient.phone or "").strip()
+            if not phone:
+                blocked += 1
+                continue
+            check = TelnyxPhoneAllowlistService.validate_phone_db(db, phone)
+            if check.get("allowed"):
+                dialable += 1
+            else:
+                blocked += 1
+        return {"total": len(recipients), "dialable": dialable, "blocked": blocked}

@@ -14,6 +14,7 @@ export default function WaSurveyIndustrySection() {
   const [modal, setModal] = useState(null)
   const [deleteModal, setDeleteModal] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [duplicateModal, setDuplicateModal] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -105,6 +106,45 @@ export default function WaSurveyIndustrySection() {
       setError(formatWaSurveyError(err, 'Could not delete industry').message)
     } finally {
       setDeleteBusy(false)
+    }
+  }
+
+  const openDuplicate = (row) => {
+    setDuplicateModal({
+      source: row,
+      name: `${row.name} (copy)`,
+      slug: `${row.slug}_copy`,
+      org_ids: '',
+    })
+  }
+
+  const saveDuplicate = async (e) => {
+    e.preventDefault()
+    if (!duplicateModal?.source) return
+    setSaving(true)
+    setError('')
+    setMsg('')
+    const orgIds = String(duplicateModal.org_ids || '')
+      .split(/[\n,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    try {
+      await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(duplicateModal.source.id)}/duplicate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: duplicateModal.name.trim(),
+          slug: duplicateModal.slug.trim() || undefined,
+          org_ids: orgIds,
+          visibility_mode: orgIds.length ? 'restricted' : 'all',
+        }),
+      })
+      setMsg(`Industry duplicated as “${duplicateModal.name.trim()}” (inactive until you enable it).`)
+      setDuplicateModal(null)
+      await load()
+    } catch (err) {
+      setError(formatWaSurveyError(err, 'Could not duplicate industry').message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -217,6 +257,10 @@ export default function WaSurveyIndustrySection() {
                         {!row.is_hidden ? (
                           <>
                             {' '}
+                            <button type="button" className="btn sm" onClick={() => openDuplicate(row)}>
+                              Duplicate
+                            </button>
+                            {' '}
                             <button
                               type="button"
                               className="btn sm danger"
@@ -305,6 +349,51 @@ export default function WaSurveyIndustrySection() {
               <button type="submit" className="btn primary" disabled={saving}>
                 {saving ? 'Saving…' : 'Create industry'}
               </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {duplicateModal ? (
+        <div className="modalOverlay" role="presentation" onClick={() => !saving && setDuplicateModal(null)}>
+          <form
+            className="leadModal"
+            role="dialog"
+            aria-modal="true"
+            onSubmit={saveDuplicate}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="leadModalHead">
+              <h3>Duplicate industry</h3>
+              <button type="button" className="btn soft" onClick={() => setDuplicateModal(null)} aria-label="Close">×</button>
+            </div>
+            <div className="leadModalBody grid2">
+              <p className="muted" style={{ gridColumn: '1 / -1', marginTop: 0 }}>
+                Copies all survey types and templates from <strong>{duplicateModal.source?.name}</strong>.
+                The copy is <strong>inactive</strong> until you enable it. Push templates to Telnyx after activation.
+              </p>
+              <label className="field">
+                <span>New name</span>
+                <input className="input" value={duplicateModal.name} onChange={(e) => setDuplicateModal({ ...duplicateModal, name: e.target.value })} required />
+              </label>
+              <label className="field">
+                <span>Slug</span>
+                <input className="input" value={duplicateModal.slug} onChange={(e) => setDuplicateModal({ ...duplicateModal, slug: e.target.value })} />
+              </label>
+              <label className="field" style={{ gridColumn: '1 / -1' }}>
+                <span>Organisation IDs (optional — comma or newline separated)</span>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={duplicateModal.org_ids}
+                  onChange={(e) => setDuplicateModal({ ...duplicateModal, org_ids: e.target.value })}
+                  placeholder="Leave empty = all customers when active"
+                />
+              </label>
+            </div>
+            <div className="leadModalFoot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn ghost" onClick={() => setDuplicateModal(null)} disabled={saving}>Cancel</button>
+              <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Duplicating…' : 'Duplicate industry'}</button>
             </div>
           </form>
         </div>

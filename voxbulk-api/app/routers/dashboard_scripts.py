@@ -137,7 +137,7 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
 def list_wa_survey_industries(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.industry_service import IndustryService
 
-    return {"ok": True, "industries": IndustryService.list_industries(db)}
+    return {"ok": True, "industries": IndustryService.list_industries_for_org(db, principal.org_id)}
 
 
 @router.get("/wa-survey/types")
@@ -190,6 +190,7 @@ def validate_wa_survey_builder(
             require_approved=bool(body.get("require_approved")),
             privacy_mode=body.get("privacy_mode"),
             anonymous_responses=bool(body.get("anonymous_responses")),
+            org_id=principal.org_id,
         )
     except SurveyBuilderValidationError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"message": str(e), "errors": e.errors}) from e

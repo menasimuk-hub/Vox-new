@@ -142,11 +142,17 @@ class SurveyBuilderValidationService:
         allow_final_additional_feedback: bool = False,
         privacy_mode: str | None = None,
         anonymous_responses: bool = False,
+        org_id: str | None = None,
     ) -> dict[str, Any]:
         errors: list[str] = []
         industry = db.get(Industry, str(industry_id or "").strip())
         if industry is None or not industry.is_active or bool(getattr(industry, "is_hidden", False)):
             errors.append("Select a valid industry.")
+        elif org_id:
+            from app.services.industry_service import IndustryService
+
+            if not IndustryService._industry_visible_to_org(db, industry, org_id):
+                errors.append("This industry is not available for your organisation.")
         ids = [str(x).strip() for x in (selected_survey_type_ids or []) if str(x).strip()]
         if len(ids) < MIN_SERVICE_TAGS:
             errors.append(f"Select at least {MIN_SERVICE_TAGS} service tag.")
