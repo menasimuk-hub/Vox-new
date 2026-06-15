@@ -188,6 +188,8 @@ class Settings(BaseSettings):
                 "https://dashboard.voxbulk.com",
                 "https://abuu.voxbulk.com",
                 "https://driver.voxbulk.com",
+                "https://restaurant.yallasay.com",
+                "https://driver.yallasay.com",
             ]
         return []
 

@@ -13,7 +13,7 @@ export default function Layout() {
   return (
     <div className='shell'>
       <header className='topbar'>
-        <strong>Abuu Driver</strong>
+        <strong>Yallasay Driver</strong>
         <button type='button' className='btn' onClick={logout}>
           Logout
         </button>

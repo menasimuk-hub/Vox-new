@@ -15,7 +15,7 @@ export default defineConfig({
     host: true,
     port: 5177,
     strictPort: true,
-    allowedHosts: ['driver.voxbulk.com'],
+    allowedHosts: ['driver.voxbulk.com', 'driver.yallasay.com'],
     proxy: {
       '/abuu': { target: 'http://127.0.0.1:8000', changeOrigin: true },
     },
