@@ -113,12 +113,17 @@ class AssistantOrchestrator:
         action_type = str(body.get("action_type") or "")
         data = body.get("payload") or {}
         if action_type == "create_support_ticket" and customer_may_mutate(action_type):
-            import json
+            from app.services.assistant.ticket_diagnostic import (
+                compose_customer_ticket_message,
+                format_assistant_diagnostic_plain_text,
+            )
 
             diagnostic = data.get("diagnostic") or {}
-            body_text = str(data.get("message") or "")
-            if diagnostic:
-                body_text = f"{body_text}\n\n--- Assistant context ---\n{json.dumps(diagnostic, ensure_ascii=False, indent=2, default=str)}"
+            customer_message = compose_customer_ticket_message(
+                user_message=str(data.get("message") or ""),
+                diagnostic=diagnostic if isinstance(diagnostic, dict) else {},
+            )
+            staff_note = format_assistant_diagnostic_plain_text(diagnostic if isinstance(diagnostic, dict) else {})
             try:
                 ticket = SupportTicketService.create_ticket(
                     db,
@@ -126,7 +131,8 @@ class AssistantOrchestrator:
                     user_id=principal.user_id,
                     category=str(data.get("category") or "technical"),
                     subject=str(data.get("subject") or "Support request"),
-                    message=body_text[:8000],
+                    message=customer_message[:8000],
+                    staff_note=staff_note[:8000] if staff_note else None,
                 )
             except ValueError as e:
                 return build_out(primary_message=str(e), confidence=0.9, blocking_reason=str(e))
@@ -436,14 +442,14 @@ def _handle_feedback_overview(db, *, principal, org, message, intent, context, i
 def _handle_create_ticket(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
     from datetime import datetime, timezone
 
-    category = "invoices" if re.search(r"\b(invoice|bill|payment|refund)\b", message, re.I) else "technical"
-    if re.search(r"\b(sales|demo|pricing|plan)\b", message, re.I):
-        category = "pre-sale"
-    subject = message[:200] if len(message) <= 200 else message[:197] + "..."
     from app.models.user import User
+    from app.services.assistant.ticket_diagnostic import derive_ticket_fields
 
+    subject, customer_message, category = derive_ticket_fields(message)
     user_row = db.get(User, principal.user_id)
     user_email = getattr(user_row, "email", None) or principal.user_id
+    ctx_dump = context.model_dump(exclude_none=True)
+    ctx_dump.pop("recent_history", None)
     diagnostic = {
         "user_message": message,
         "intent": intent.intent,
@@ -455,7 +461,7 @@ def _handle_create_ticket(db, *, principal, org, message, intent, context, is_ad
         "user_email": user_email,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "recent_history": [{"role": h.role, "text": h.text} for h in (context.recent_history or [])[-16:]],
-        "context": context.model_dump(exclude_none=True),
+        "context": ctx_dump,
     }
     token = issue_pending_action(
         org_id=principal.org_id,
@@ -464,7 +470,7 @@ def _handle_create_ticket(db, *, principal, org, message, intent, context, is_ad
         payload={
             "category": category,
             "subject": subject,
-            "message": message,
+            "message": customer_message,
             "diagnostic": diagnostic,
         },
     )
@@ -476,7 +482,8 @@ def _handle_create_ticket(db, *, principal, org, message, intent, context, is_ad
     )
     return build_out(
         primary_message=(
-            "I can send this to our support team as a ticket with your message and account context. "
+            f"I can send this to our support team as ticket **{subject[:60]}**. "
+            "Your message will be plain text only — technical details stay internal for our team. "
             "Click **Send ticket to support** below if you're happy to proceed."
         ),
         confidence=0.84,

@@ -74,6 +74,7 @@ class SupportTicketService:
         branch_id: str | None = None,
         priority: str | None = None,
         attachments: list[dict] | None = None,
+        staff_note: str | None = None,
     ) -> SupportTicket:
         cat = normalize_category(category)
         if branch_id:
@@ -109,6 +110,18 @@ class SupportTicketService:
         db.add(m)
         db.flush()
         SupportTicketService._add_attachments(db, ticket_id=t.id, message_id=m.id, attachments=attachments or [])
+        note = (staff_note or "").strip()
+        if note:
+            db.add(
+                SupportTicketMessage(
+                    ticket_id=t.id,
+                    sender_type="system",
+                    sender_user_id=None,
+                    body=note[:8000],
+                    is_internal_note=True,
+                    created_at=now,
+                )
+            )
         SupportTicketService._event(db, t, "created", "customer", actor_user_id=user_id)
         db.commit()
         db.refresh(t)

@@ -31,11 +31,12 @@ _RULES: list[tuple[int, str, float, re.Pattern[str], str | None]] = [
         "survey",
     ),
     (
-        10,
+        12,
         "create_ticket",
-        0.91,
+        0.93,
         re.compile(
-            r"\b(create|open|raise|submit)\b.*\b(support\s+)?ticket\b"
+            r"\b(create|open|raise|submit)\b.*\b(support\s+)?(tickt|ticket|tcket|tikcet)s?\b"
+            r"|\b(tickt|ticket|tcket|tikcet)s?\b.*\b(for me|please|about|to|and ask)\b"
             r"|\b(problem|issue|broken|not working|support ticket|open ticket|complaint)\b",
             re.I,
         ),

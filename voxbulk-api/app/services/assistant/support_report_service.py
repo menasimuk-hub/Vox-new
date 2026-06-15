@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -14,6 +13,7 @@ from app.services.assistant.support_report import (
     mark_report_token_consumed,
     verify_support_report_token,
 )
+from app.services.assistant.ticket_diagnostic import format_assistant_diagnostic_plain_text
 from app.services.support_ticket_service import SupportTicketService
 
 
@@ -47,15 +47,25 @@ def create_diagnostic_support_ticket(
         return AssistantReportSupportOut(ok=False, message="This report link has expired or is invalid.")
 
     payload = body.get("payload") or {}
+    if not isinstance(payload, dict):
+        payload = {}
     subject = f"Assistant error: {payload.get('intent') or 'unknown'}"
-    diagnostic = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
-    message = (
-        f"Automated assistant diagnostic report\n"
-        f"Timestamp: {datetime.now(timezone.utc).isoformat()}\n"
-        f"Org: {org_id}\n"
-        f"User: {user_id}\n\n"
-        f"{diagnostic}"
+    diagnostic = {
+        "user_message": payload.get("user_message"),
+        "intent": payload.get("intent"),
+        "endpoint_label": payload.get("endpoint_label"),
+        "error_code": payload.get("error_code"),
+        "error_detail": payload.get("error_detail"),
+        "org_id": org_id,
+        "user_id": user_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "recent_history": payload.get("history") if isinstance(payload.get("history"), list) else [],
+    }
+    customer_message = (
+        "I ran into a problem while using the dashboard assistant. "
+        "Please investigate the issue and help me continue."
     )
+    staff_note = format_assistant_diagnostic_plain_text(diagnostic)
 
     ticket = SupportTicketService.create_ticket(
         db,
@@ -63,7 +73,8 @@ def create_diagnostic_support_ticket(
         user_id=user_id,
         category="technical",
         subject=subject[:200],
-        message=message[:8000],
+        message=customer_message[:8000],
+        staff_note=staff_note[:8000] if staff_note else None,
     )
     ticket_ref = str(getattr(ticket, "public_ref", None) or ticket.id)
     if token_id:

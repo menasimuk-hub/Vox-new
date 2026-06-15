@@ -335,6 +335,7 @@ def test_general_help_suggested_prompts(app_client):
 def test_create_ticket_includes_diagnostic_context(app_client):
     from app.core.database import get_sessionmaker
     from app.services.assistant.pending_actions import verify_pending_action
+    from app.services.assistant.ticket_diagnostic import format_assistant_diagnostic_plain_text
 
     with get_sessionmaker()() as db:
         user, org = _seed_org_user(db)
@@ -354,8 +355,44 @@ def test_create_ticket_includes_diagnostic_context(app_client):
     assert confirm.label == "Send ticket to support"
     body = verify_pending_action(confirm.action_id, org_id=org.id, user_id=user.id)
     assert body is not None
-    diagnostic = (body.get("payload") or {}).get("diagnostic") or {}
+    pending = body.get("payload") or {}
+    diagnostic = pending.get("diagnostic") or {}
     assert diagnostic.get("current_route") == "/account/billing"
     assert diagnostic.get("user_message")
     assert len(diagnostic.get("recent_history") or []) >= 1
+    assert "{" not in str(pending.get("message") or "")
+    note = format_assistant_diagnostic_plain_text(diagnostic)
+    assert "Customer request:" in note
+    assert "---" not in note
+    assert "user_email" not in note
+
+
+def test_create_ticket_intent_beats_packages_when_opening_ticket():
+    match = classify_intent("can you open a tickt and ask to upgrade my package")
+    assert match.intent == "create_ticket"
+
+
+def test_create_ticket_meta_request_uses_plain_customer_message(app_client):
+    from app.core.database import get_sessionmaker
+    from app.services.assistant.pending_actions import verify_pending_action
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    principal = CurrentPrincipal(user_id=user.id, org_id=org.id, token_payload={})
+    with get_sessionmaker()() as db:
+        out = AssistantOrchestrator.handle_chat(
+            db,
+            principal=principal,
+            payload=AssistantChatIn(message="open a ticket for me"),
+        )
+
+    assert out.intent == "create_ticket"
+    body = verify_pending_action(out.next_actions[0].action_id, org_id=org.id, user_id=user.id)
+    pending = (body or {}).get("payload") or {}
+    message = str(pending.get("message") or "")
+    assert "{" not in message
+    assert "Assistant context" not in message
+    assert "support team" in message.lower()
+
 
