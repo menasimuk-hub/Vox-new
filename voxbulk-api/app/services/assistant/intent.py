@@ -68,6 +68,13 @@ _RULES: list[tuple[int, str, float, re.Pattern[str], str | None]] = [
         "interview",
     ),
     (
+        11,
+        "create_interview",
+        0.87,
+        re.compile(r"\b(create|new|start|set up)\b.*\b(interview)s?\b", re.I),
+        "interview",
+    ),
+    (
         10,
         "create_survey",
         0.86,
@@ -108,6 +115,156 @@ _RULES: list[tuple[int, str, float, re.Pattern[str], str | None]] = [
         0.8,
         re.compile(r"\b(my|list|show)\b.*\b(interview)s?\b", re.I),
         "interview",
+    ),
+    (
+        10,
+        "list_tickets",
+        0.84,
+        re.compile(r"\b(my|list|show|open)\b.*\b(support\s+)?tickets?\b|\bticket\s+status\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "invoice_detail",
+        0.84,
+        re.compile(r"\b(explain|show|this)\b.*\binvoice\b|\binvoice\s+(detail|breakdown)\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "ticket_detail",
+        0.82,
+        re.compile(r"\b(ticket)\b.*\b(detail|status|update|#?\d+)\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "usage_breakdown",
+        0.84,
+        re.compile(r"\b(usage)\b.*\b(breakdown|detail|campaign|per campaign)\b|\bwhich campaigns\b.*\b(charged|used)\b", re.I),
+        None,
+    ),
+    (
+        11,
+        "billing_subscription",
+        0.85,
+        re.compile(
+            r"\b(my|show|what)\b.*\b(subscription|plan)\b|\bwhat plan am i on\b|\bcurrent subscription\b",
+            re.I,
+        ),
+        None,
+    ),
+    (
+        10,
+        "open_packages",
+        0.86,
+        re.compile(r"\b(packages?|pricing|upgrade)\b|\bhow much\b.*\b(cost|plan)\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "open_faq",
+        0.85,
+        re.compile(r"\b(faq|help articles?|documentation|how do i)\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "open_integrations",
+        0.86,
+        re.compile(r"\b(integrations?|hubspot|connect|oauth|calendly|cronofy)\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "open_team",
+        0.85,
+        re.compile(r"\b(team|invite|colleague|member|users?)\b.*\b(settings|invite|access)\b|\binvite\b.*\b(team|user)\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "open_audit",
+        0.84,
+        re.compile(r"\b(audit|activity log|who changed)\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "open_opt_out",
+        0.84,
+        re.compile(r"\b(opt[- ]?out|do not call|dnc|blocklist)\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "recovery_overview",
+        0.86,
+        re.compile(r"\b(recovery|no[- ]?show|recall|missed appointment)\b", re.I),
+        "recovery",
+    ),
+    (
+        10,
+        "followup_overview",
+        0.86,
+        re.compile(r"\b(follow[- ]?up|reminder sequences?|appointment reminders?)\b", re.I),
+        "followup",
+    ),
+    (
+        10,
+        "survey_reports",
+        0.84,
+        re.compile(r"\b(survey).*\b(reports?|export)\b", re.I),
+        "survey",
+    ),
+    (
+        10,
+        "interview_reports",
+        0.84,
+        re.compile(r"\b(interview).*\b(reports?|export)\b", re.I),
+        "interview",
+    ),
+    (
+        10,
+        "campaign_detail",
+        0.82,
+        re.compile(r"\b(campaign|survey|interview)\b.*\b(detail|status|open)\b", re.I),
+        None,
+    ),
+    (
+        10,
+        "feedback_subscription",
+        0.83,
+        re.compile(r"\b(feedback)\b.*\b(subscription|plan|package)\b", re.I),
+        "customer_feedback",
+    ),
+    (
+        10,
+        "manage_services",
+        0.9,
+        re.compile(
+            r"\b(change|manage|update|enable|disable|turn on|turn off|hide|show|toggle)\b.*\b(service|module|modules)s?\b"
+            r"|\bhow\b.*\b(change|manage|update|enable|disable)\b.*\b(service|module)s?\b"
+            r"|\bhow\b.*\b(service|module)s?\b"
+            r"|\bservice\s+settings\b"
+            r"|\b(sidebar|menu)\b.*\b(module|service|survey|interview|feedback)s?\b"
+            r"|\b(module|service|survey|interview|feedback)s?\b.*\b(sidebar|menu)\b"
+            r"|\b(enable|disable|turn on|turn off|hide|show)\b.*\b(survey|interview|feedback)s?\b.*\b(sidebar|menu)\b",
+            re.I,
+        ),
+        None,
+    ),
+    (
+        10,
+        "open_settings",
+        0.86,
+        re.compile(
+            r"\b(account|profile|company)\s+settings\b"
+            r"|\bopen\s+settings\b"
+            r"|\b(change|update)\b.*\b(profile|company name|logo|contact)\b",
+            re.I,
+        ),
+        None,
     ),
     # --- Billing intents (priority 5 — only when the user asks about billing) ---
     (

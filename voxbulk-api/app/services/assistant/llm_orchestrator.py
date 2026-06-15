@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.dependencies import CurrentPrincipal
-from app.models.organisation import Organisation
 from app.schemas.assistant import (
     AssistantChatIn,
     AssistantChatOut,
@@ -19,10 +18,12 @@ from app.schemas.assistant import (
     AssistantUiCommand,
 )
 from app.services.agents.base import AgentMessage
+from app.services.assistant.assistant_llm import assistant_llm_model, assistant_llm_provider, should_delegate_to_handler
 from app.services.assistant.error_monitor import record_assistant_failure
 from app.services.assistant.highlights import build_out, nav_action
 from app.services.assistant.intent import IntentMatch, classify_intent
-from app.services.assistant.orchestrator import AssistantOrchestrator, _HANDLERS, _handle_general
+from app.services.assistant.orchestrator import AssistantOrchestrator, _HANDLERS, _handle_general, _context_with_history
+from app.services.assistant.policy_coach import build_policy_refusal_response
 from app.services.assistant.policy_gate import check_policy
 from app.services.assistant.prompt_builder import build_classify_system_prompt, build_synthesize_system_prompt
 from app.services.assistant.rate_limit import check_assistant_rate_limit
@@ -65,6 +66,21 @@ def _history_block(history: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _llm_complete(db: Session, *, system_prompt: str, user_content: str, max_tokens: int, temperature: float) -> str:
+    provider = assistant_llm_provider(db)
+    model = assistant_llm_model(db)
+    resp = OpenAIProviderService.complete(
+        db,
+        system_prompt=system_prompt,
+        messages=[AgentMessage(role="user", content=user_content)],
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        provider=provider,
+    )
+    return str(resp.assistant_text or "")
+
+
 class LlmAssistantOrchestrator:
     @staticmethod
     def handle_chat(
@@ -84,12 +100,10 @@ class LlmAssistantOrchestrator:
 
         policy = check_policy(payload.message)
         if not policy.allowed:
-            return build_out(
-                primary_message=policy.reason or "That request is not permitted.",
-                confidence=1.0,
-                intent="policy_refused",
-                policy_refused=True,
-                blocking_reason=policy.reason,
+            return build_policy_refusal_response(
+                reason=policy.reason or "That request is not permitted.",
+                suggested_prompts=list(policy.suggested_prompts),
+                nav_route=policy.nav_route,
             )
 
         from app.services.assistant.tools import AssistantTools
@@ -98,26 +112,28 @@ class LlmAssistantOrchestrator:
         if org is None:
             return build_out(primary_message="Organisation not found.", confidence=1.0, blocking_reason="org_not_found")
 
+        enabled = payload.context.enabled_services or []
         history_payload = [{"role": h.role, "text": h.text} for h in payload.history]
+        chat_context = _context_with_history(payload)
         intent_match = LlmAssistantOrchestrator._classify(
             db,
             message=payload.message,
             history=history_payload,
             is_admin=is_admin,
+            enabled_services=enabled,
         )
 
-        if intent_match.intent == "create_ticket":
-            handler = _HANDLERS.get("create_ticket")
-            if handler:
-                return handler(
-                    db,
-                    principal=principal,
-                    org=org,
-                    message=payload.message,
-                    intent=intent_match,
-                    context=payload.context,
-                    is_admin=is_admin,
-                )
+        if should_delegate_to_handler(intent_match.intent):
+            handler = _HANDLERS.get(intent_match.intent) or _handle_general
+            return handler(
+                db,
+                principal=principal,
+                org=org,
+                message=payload.message,
+                intent=intent_match,
+                context=chat_context,
+                is_admin=is_admin,
+            )
 
         if intent_match.intent.startswith("admin_"):
             return AssistantOrchestrator.handle_chat(db, principal=principal, payload=payload, is_admin=is_admin)
@@ -130,7 +146,7 @@ class LlmAssistantOrchestrator:
                 org=org,
                 message=payload.message,
                 intent=intent_match,
-                context=payload.context,
+                context=chat_context,
                 is_admin=is_admin,
             )
 
@@ -160,6 +176,7 @@ class LlmAssistantOrchestrator:
             intent=intent_match.intent,
             tool_result=tool_result,
             history=history_payload,
+            enabled_services=enabled,
         )
 
         next_actions = _ui_commands_to_next_actions(ui_commands)
@@ -181,30 +198,34 @@ class LlmAssistantOrchestrator:
         message: str,
         history: list[dict[str, str]],
         is_admin: bool,
+        enabled_services: list[str],
     ) -> IntentMatch:
         regex_match = classify_intent(message, is_admin=is_admin)
         settings = get_settings()
         if not settings.assistant_llm_enabled:
             return regex_match
 
+        allowed = list(registry_intent_names())
+        if "create_ticket" not in allowed:
+            allowed.append("create_ticket")
+
         user_prompt = json.dumps(
             {
                 "message": message,
                 "history": _trim_history(history),
-                "allowed_intents": registry_intent_names(),
+                "allowed_intents": allowed,
             },
             ensure_ascii=False,
         )
         try:
-            resp = OpenAIProviderService.complete(
+            text = _llm_complete(
                 db,
-                system_prompt=build_classify_system_prompt(),
-                messages=[AgentMessage(role="user", content=user_prompt)],
-                model=settings.assistant_llm_model or None,
+                system_prompt=build_classify_system_prompt(enabled_services=enabled_services or None),
+                user_content=user_prompt,
                 max_tokens=400,
                 temperature=0.1,
             )
-            parsed = _parse_json(str(resp.assistant_text or ""))
+            parsed = _parse_json(text)
             intent = str(parsed.get("intent") or regex_match.intent)
             if intent not in INTENT_REGISTRY and intent != "create_ticket":
                 intent = regex_match.intent
@@ -224,6 +245,7 @@ class LlmAssistantOrchestrator:
         intent: str,
         tool_result: ToolResult,
         history: list[dict[str, str]],
+        enabled_services: list[str],
     ) -> tuple[str, list[AssistantUiCommand], dict[str, str | None]]:
         defaults = default_ui_commands_for_intent(intent, data=tool_result.data, params=tool_result.params_sent)
         fallback_msg = _default_message(intent, tool_result)
@@ -243,15 +265,14 @@ class LlmAssistantOrchestrator:
             ensure_ascii=False,
         )
         try:
-            resp = OpenAIProviderService.complete(
+            text = _llm_complete(
                 db,
-                system_prompt=build_synthesize_system_prompt(),
-                messages=[AgentMessage(role="user", content=user_prompt)],
-                model=settings.assistant_llm_model or None,
+                system_prompt=build_synthesize_system_prompt(enabled_services=enabled_services or None),
+                user_content=user_prompt,
                 max_tokens=700,
                 temperature=0.35,
             )
-            parsed = _parse_json(str(resp.assistant_text or ""))
+            parsed = _parse_json(text)
             primary = str(parsed.get("primary_message") or fallback_msg).strip() or fallback_msg
             ui_commands = _parse_ui_commands(parsed.get("ui_commands"), defaults)
             highlight = _highlight_from_commands(ui_commands)

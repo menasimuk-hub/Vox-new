@@ -38,6 +38,17 @@ export type AssistantPendingAction = {
   preview?: Record<string, unknown>;
 };
 
+export type AssistantChatContext = {
+  order_id?: string | null;
+  invoice_id?: string | null;
+  ticket_id?: string | null;
+  location_id?: string | null;
+  service_code?: string | null;
+  organisation_id?: string | null;
+  current_route?: string | null;
+  enabled_services?: string[];
+};
+
 export type AssistantChatResponse = {
   ok: boolean;
   primary_message: string;
@@ -53,6 +64,7 @@ export type AssistantChatResponse = {
   policy_refused?: boolean;
   error_occurred?: boolean;
   support_report_token?: string | null;
+  suggested_prompts?: string[];
 };
 
 export type AssistantReportSupportResponse = {

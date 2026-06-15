@@ -13,6 +13,7 @@ import { initialsFromName, useSession } from "@/lib/session";
 import { useMarkNotificationRead, useNotificationUnreadCount, useNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport } from "@/lib/queries";
 import { useAssistantHighlight } from "@/lib/assistant-highlight";
 import { executeUiCommands } from "@/lib/assistant-ui-commands";
+import { useServices, type ServiceKey } from "@/lib/services";
 import type { AssistantChatResponse, AssistantNextAction } from "@/lib/types/assistant";
 
 function SidebarToggle() {
@@ -157,12 +158,20 @@ function buildAssistantWelcome(email?: string | null): string {
   return "Hi — I'm your VoxBulk assistant. Ask about billing, usage, campaigns, feedback, or support.";
 }
 
+function enabledServicesForAssistant(visible: Record<ServiceKey, boolean>): string[] {
+  return (Object.entries(visible) as Array<[ServiceKey, boolean]>)
+    .filter(([, on]) => on)
+    .map(([key]) => key);
+}
+
 type Msg = { role: "user" | "ai"; text: string; response?: AssistantChatResponse };
 
 export function LiveChatFab() {
   const { chatOpen, closeChat, openChat } = useConnections();
   const { session } = useSession();
   const navigate = useNavigate();
+  const currentRoute = useRouterState({ select: (s) => s.location.pathname });
+  const { visible: visibleServices } = useServices();
   const { setHighlight, applyNextAction } = useAssistantHighlight();
   const chatM = useAssistantChat();
   const confirmM = useAssistantConfirm();
@@ -240,7 +249,14 @@ export function LiveChatFab() {
     setMessages((m) => [...m, { role: "user", text: t }]);
     setInput("");
     try {
-      const res = await chatM.mutateAsync({ message: t, history });
+      const res = await chatM.mutateAsync({
+        message: t,
+        history,
+        context: {
+          current_route: currentRoute,
+          enabled_services: enabledServicesForAssistant(visibleServices),
+        },
+      });
       applyResponse(res, t);
     } catch {
       setMessages((m) => [...m, { role: "ai", text: "Assistant unavailable. Try again in a moment." }]);
@@ -308,6 +324,20 @@ export function LiveChatFab() {
                         className="rounded-full border border-primary/30 bg-card px-2.5 py-1 text-[11px] font-medium text-primary transition hover:bg-primary/10"
                       >
                         {a.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {m.role === "ai" && m.response?.suggested_prompts?.length ? (
+                  <div className="ml-8 mt-1.5 flex flex-wrap gap-1">
+                    {m.response.suggested_prompts.map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        onClick={() => void send(prompt)}
+                        className="rounded-full border border-border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                      >
+                        {prompt}
                       </button>
                     ))}
                   </div>

@@ -229,6 +229,74 @@ INTENT_REGISTRY: dict[str, AssistantIntentSpec] = {
         description="Open account settings",
         example_phrases=("Account settings", "Open settings", "Profile settings"),
     ),
+    "manage_services": AssistantIntentSpec(
+        intent="manage_services",
+        tool_name=None,
+        endpoint_label="NAV /settings/services",
+        dashboard_section="Settings → Services",
+        description="Turn dashboard modules on or off (surveys, interviews, feedback, etc.)",
+        example_phrases=("Change my services", "Enable surveys", "Hide interviews from sidebar"),
+    ),
+    "usage_breakdown": AssistantIntentSpec(
+        intent="usage_breakdown",
+        tool_name="usage_breakdown",
+        endpoint_label="GET in-process usage_breakdown",
+        dashboard_section="Account → Usage",
+        description="Per-campaign usage and charge breakdown",
+        example_phrases=("Usage breakdown", "Which campaigns used my allowance"),
+    ),
+    "billing_subscription": AssistantIntentSpec(
+        intent="billing_subscription",
+        tool_name="billing_subscription",
+        endpoint_label="GET in-process billing_subscription",
+        dashboard_section="Account → Billing",
+        description="Current subscription and plan details",
+        example_phrases=("What plan am I on?", "Subscription details"),
+    ),
+    "campaign_detail": AssistantIntentSpec(
+        intent="campaign_detail",
+        tool_name="service_order_detail",
+        endpoint_label="GET in-process service_order_detail",
+        dashboard_section="Campaigns",
+        description="Details for a specific survey or interview campaign",
+        example_phrases=("Open this campaign", "Campaign status"),
+        param_keys=("order_id",),
+    ),
+    "ticket_detail": AssistantIntentSpec(
+        intent="ticket_detail",
+        tool_name="ticket_detail",
+        endpoint_label="GET in-process ticket_detail",
+        dashboard_section="Account → Support",
+        description="Status of a specific support ticket",
+        example_phrases=("Ticket status",),
+        param_keys=("ticket_id",),
+    ),
+    "feedback_subscription": AssistantIntentSpec(
+        intent="feedback_subscription",
+        tool_name="feedback_subscription",
+        endpoint_label="GET in-process feedback_subscription",
+        dashboard_section="Account → Feedback plans",
+        description="Customer feedback subscription status",
+        example_phrases=("Feedback subscription", "Feedback plan"),
+    ),
+    "open_packages": AssistantIntentSpec("open_packages", None, "NAV /account/packages", "Account → Packages", "Plans and pricing", ("Pricing", "Upgrade plan")),
+    "open_faq": AssistantIntentSpec("open_faq", None, "NAV /account/support/faq", "Support → FAQ", "Help articles and FAQ", ("FAQ", "Help docs")),
+    "open_integrations": AssistantIntentSpec("open_integrations", None, "NAV /settings/integrations", "Settings → Integrations", "Third-party integrations", ("Integrations",)),
+    "open_team": AssistantIntentSpec("open_team", None, "NAV /settings/team", "Settings → Team", "Team members and invites", ("Invite team",)),
+    "open_audit": AssistantIntentSpec("open_audit", None, "NAV /settings/audit", "Settings → Audit", "Audit log", ("Audit log",)),
+    "open_opt_out": AssistantIntentSpec("open_opt_out", None, "NAV /settings/opt-out", "Settings → Opt-out", "Do-not-contact list", ("Opt out list",)),
+    "recovery_overview": AssistantIntentSpec("recovery_overview", None, "NAV /recovery", "Recovery", "Missed-appointment recovery outreach", ("Recovery queue",)),
+    "followup_overview": AssistantIntentSpec("followup_overview", None, "NAV /follow-up", "Follow up", "WhatsApp reminder sequences", ("Follow up reminders",)),
+    "survey_reports": AssistantIntentSpec("survey_reports", None, "NAV /surveys/reports", "Surveys → Reports", "Survey performance reports", ("Survey reports",)),
+    "interview_reports": AssistantIntentSpec("interview_reports", None, "NAV /interviews/reports", "Interviews → Reports", "Interview performance reports", ("Interview reports",)),
+    "create_ticket": AssistantIntentSpec(
+        intent="create_ticket",
+        tool_name=None,
+        endpoint_label="CONFIRM create_support_ticket",
+        dashboard_section="Account → Support",
+        description="Create a support ticket after user confirms",
+        example_phrases=("Open support ticket", "Report a problem"),
+    ),
 }
 
 
@@ -293,6 +361,35 @@ def default_ui_commands_for_intent(
         return _nav_commands(("create_template", "Create WA survey", "/surveys/new?channel=whatsapp"))
     if intent == "open_settings":
         return _nav_commands(("settings", "Account settings", "/settings/profile"))
+    if intent == "manage_services":
+        return _nav_commands(("services", "Open Services settings", "/settings/services"))
+    _nav_only: dict[str, tuple[str, str]] = {
+        "open_packages": ("Packages", "/account/packages"),
+        "open_faq": ("FAQ", "/account/support/faq"),
+        "open_integrations": ("Integrations", "/settings/integrations"),
+        "open_team": ("Team", "/settings/team"),
+        "open_audit": ("Audit log", "/settings/audit"),
+        "open_opt_out": ("Opt-out list", "/settings/opt-out"),
+        "recovery_overview": ("Recovery", "/recovery"),
+        "followup_overview": ("Follow up", "/follow-up"),
+        "survey_reports": ("Survey reports", "/surveys/reports"),
+        "interview_reports": ("Interview reports", "/interviews/reports"),
+    }
+    if intent in _nav_only:
+        label, route = _nav_only[intent]
+        return _nav_commands((intent, f"Open {label}", route))
+    if intent == "usage_breakdown":
+        return _nav_commands(("usage", "View usage breakdown", "/account/usage"))
+    if intent == "billing_subscription":
+        return _nav_commands(("billing", "View billing", "/account/billing"), ("packages", "View packages", "/account/packages"))
+    if intent == "feedback_subscription":
+        return _nav_commands(("fb_pkg", "Feedback plans", "/account/feedback/packages"))
+    if intent == "campaign_detail":
+        order_id = str(params.get("order_id") or "")
+        route = f"/surveys/new?order_id={order_id}" if order_id else "/surveys"
+        return _nav_commands(("campaign", "Open campaign", route))
+    if intent == "ticket_detail":
+        return _nav_commands(("ticket", "View ticket", "/account/support/tickets"))
     if intent == "launch_check":
         order_id = str(params.get("order_id") or "")
         route = f"/surveys/new?order_id={order_id}" if order_id else "/surveys"
@@ -367,6 +464,34 @@ def execute_intent(
             data, failed = run_tool(
                 spec.tool_name,
                 lambda: AssistantTools.invoice_detail(db, principal.org_id, invoice_id) if invoice_id else None,
+            )
+        elif intent == "usage_breakdown":
+            data, failed = run_tool(spec.tool_name, lambda: AssistantTools.usage_breakdown(db, org, limit=15))
+        elif intent == "billing_subscription":
+            data, failed = run_tool(spec.tool_name, lambda: AssistantTools.billing_subscription(db, principal.org_id))
+        elif intent == "feedback_subscription":
+            data, failed = run_tool(spec.tool_name, lambda: AssistantTools.feedback_subscription(db, principal.org_id))
+        elif intent == "ticket_detail":
+            ticket_id = str(sent.get("ticket_id") or context.ticket_id or "")
+            if not ticket_id and re.search(r"\d+", message or ""):
+                ticket_id = re.search(r"\d+", message).group(0)  # type: ignore[union-attr]
+            sent["ticket_id"] = ticket_id
+            data, failed = run_tool(
+                spec.tool_name,
+                lambda: AssistantTools.ticket_detail(db, principal.org_id, principal.user_id, ticket_id) if ticket_id else None,
+            )
+        elif intent == "campaign_detail":
+            service_code = context.service_code or "survey"
+            orders, _ = run_tool(
+                "list_service_orders",
+                lambda: AssistantTools.list_service_orders(db, principal.org_id, service_code=service_code, limit=10),
+                default=[],
+            )
+            order_id = str(sent.get("order_id") or _resolve_order_id(context, message, orders or []) or "")
+            sent["order_id"] = order_id
+            data, failed = run_tool(
+                spec.tool_name,
+                lambda: AssistantTools.service_order_detail(db, principal.org_id, order_id) if order_id else None,
             )
         elif intent in {"survey_results", "interview_results", "launch_check"}:
             service_code = "survey" if intent != "interview_results" else "interview"

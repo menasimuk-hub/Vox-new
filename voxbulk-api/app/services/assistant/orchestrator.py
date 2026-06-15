@@ -15,7 +15,9 @@ from app.services.assistant.billing_context import billing_note_for_intent, fetc
 from app.services.assistant.highlights import build_out, confirm_action, nav_action, plan_subscription_dict
 from app.services.assistant.intent import IntentMatch, classify_intent
 from app.services.assistant.pending_actions import issue_pending_action, verify_pending_action
+from app.services.assistant.policy_coach import build_policy_refusal_response
 from app.services.assistant.policy_gate import check_policy
+from app.services.assistant.dashboard_catalog import example_questions_for_user
 from app.services.assistant.safe_tools import (
     INVOICE_FALLBACK_HINT,
     INVOICE_READ_ERROR,
@@ -30,6 +32,13 @@ from app.services.platform_catalog_service import PlatformCatalogService as Serv
 from app.services.support_ticket_service import SupportTicketService
 
 logger = logging.getLogger(__name__)
+
+
+def _context_with_history(payload: AssistantChatIn) -> AssistantContextIn:
+    if not payload.history:
+        return payload.context
+    recent = payload.history[-16:]
+    return payload.context.model_copy(update={"recent_history": recent})
 
 
 class AssistantOrchestrator:
@@ -49,12 +58,10 @@ class AssistantOrchestrator:
 
         policy = check_policy(payload.message)
         if not policy.allowed:
-            return build_out(
-                primary_message=policy.reason or "That request is not permitted.",
-                confidence=1.0,
-                intent="policy_refused",
-                policy_refused=True,
-                blocking_reason=policy.reason,
+            return build_policy_refusal_response(
+                reason=policy.reason or "That request is not permitted.",
+                suggested_prompts=list(policy.suggested_prompts),
+                nav_route=policy.nav_route,
             )
 
         intent_match = classify_intent(payload.message, is_admin=is_admin)
@@ -63,6 +70,7 @@ class AssistantOrchestrator:
             return build_out(primary_message="Organisation not found.", confidence=1.0, blocking_reason="org_not_found")
 
         handler = _HANDLERS.get(intent_match.intent, _handle_general)
+        chat_context = _context_with_history(payload)
         try:
             return handler(
                 db,
@@ -70,7 +78,7 @@ class AssistantOrchestrator:
                 org=org,
                 message=payload.message,
                 intent=intent_match,
-                context=payload.context,
+                context=chat_context,
                 is_admin=is_admin,
             )
         except Exception:
@@ -105,6 +113,12 @@ class AssistantOrchestrator:
         action_type = str(body.get("action_type") or "")
         data = body.get("payload") or {}
         if action_type == "create_support_ticket" and customer_may_mutate(action_type):
+            import json
+
+            diagnostic = data.get("diagnostic") or {}
+            body_text = str(data.get("message") or "")
+            if diagnostic:
+                body_text = f"{body_text}\n\n--- Assistant context ---\n{json.dumps(diagnostic, ensure_ascii=False, indent=2, default=str)}"
             try:
                 ticket = SupportTicketService.create_ticket(
                     db,
@@ -112,7 +126,7 @@ class AssistantOrchestrator:
                     user_id=principal.user_id,
                     category=str(data.get("category") or "technical"),
                     subject=str(data.get("subject") or "Support request"),
-                    message=str(data.get("message") or ""),
+                    message=body_text[:8000],
                 )
             except ValueError as e:
                 return build_out(primary_message=str(e), confidence=0.9, blocking_reason=str(e))
@@ -420,28 +434,55 @@ def _handle_feedback_overview(db, *, principal, org, message, intent, context, i
 
 
 def _handle_create_ticket(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
+    from datetime import datetime, timezone
+
     category = "invoices" if re.search(r"\b(invoice|bill|payment|refund)\b", message, re.I) else "technical"
     if re.search(r"\b(sales|demo|pricing|plan)\b", message, re.I):
         category = "pre-sale"
     subject = message[:200] if len(message) <= 200 else message[:197] + "..."
+    from app.models.user import User
+
+    user_row = db.get(User, principal.user_id)
+    user_email = getattr(user_row, "email", None) or principal.user_id
+    diagnostic = {
+        "user_message": message,
+        "intent": intent.intent,
+        "category": category,
+        "current_route": context.current_route,
+        "org_id": principal.org_id,
+        "org_name": getattr(org, "name", None),
+        "user_id": principal.user_id,
+        "user_email": user_email,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "recent_history": [{"role": h.role, "text": h.text} for h in (context.recent_history or [])[-16:]],
+        "context": context.model_dump(exclude_none=True),
+    }
     token = issue_pending_action(
         org_id=principal.org_id,
         user_id=principal.user_id,
         action_type="create_support_ticket",
-        payload={"category": category, "subject": subject, "message": message},
+        payload={
+            "category": category,
+            "subject": subject,
+            "message": message,
+            "diagnostic": diagnostic,
+        },
     )
     pending = AssistantPendingAction(
         action_id=token.split(":", 1)[0],
         action_type="create_support_ticket",
-        summary=f"Create support ticket: {subject[:60]}",
+        summary=f"Support ticket: {subject[:60]}",
         preview={"category": category, "subject": subject},
     )
     return build_out(
-        primary_message="🎫 I can create a support ticket with your message. Please confirm to proceed.",
+        primary_message=(
+            "I can send this to our support team as a ticket with your message and account context. "
+            "Click **Send ticket to support** below if you're happy to proceed."
+        ),
         confidence=0.84,
         intent=intent.intent,
         pending_action=pending,
-        next_actions=[confirm_action("confirm_ticket", "Confirm create ticket", token)],
+        next_actions=[confirm_action("confirm_ticket", "Send ticket to support", token)],
     )
 
 
@@ -551,34 +592,96 @@ def _handle_list_interviews(db, *, principal, org, message, intent, context, is_
     )
 
 
+def _handle_manage_services(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
+    return build_out(
+        primary_message=(
+            "Open Settings → Services to turn modules on or off for your sidebar and dashboard "
+            "(Surveys, Interviews, Customer feedback, and more). "
+            "Hidden modules stay listed there so you can switch them back on anytime. "
+            "Only your account manager can remove a module from your account completely."
+        ),
+        confidence=0.92,
+        intent=intent.intent,
+        next_actions=[nav_action("services", "Open Services settings", "/settings/services")],
+    )
+
+
+def _handle_open_settings(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
+    return build_out(
+        primary_message=(
+            "Open Settings → Profile to update your company name, logo, and contact details. "
+            "Use Settings → Services to show or hide product modules in the sidebar."
+        ),
+        confidence=0.88,
+        intent=intent.intent,
+        next_actions=[
+            nav_action("profile", "Open profile settings", "/settings/profile"),
+            nav_action("services", "Open Services settings", "/settings/services"),
+        ],
+    )
+
+
+def _handle_catalog_nav(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
+    _copy: dict[str, tuple[str, str, str]] = {
+        "open_packages": ("Packages & pricing", "/account/packages", "Open Account → Packages to compare plans and upgrade."),
+        "open_faq": ("FAQ", "/account/support/faq", "Browse FAQ and help articles under Account → Support."),
+        "open_integrations": ("Integrations", "/settings/integrations", "Connect HubSpot, scheduling, and messaging under Settings → Integrations."),
+        "open_team": ("Team", "/settings/team", "Invite colleagues under Settings → Team."),
+        "open_audit": ("Audit log", "/settings/audit", "View account activity under Settings → Audit log."),
+        "open_opt_out": ("Opt-out list", "/settings/opt-out", "Manage do-not-contact numbers under Settings → Opt-out."),
+        "recovery_overview": ("Recovery", "/recovery", "Recovery helps with missed appointments, recalls, and offer campaigns."),
+        "followup_overview": ("Follow up", "/follow-up", "Follow up sends WhatsApp appointment reminder sequences."),
+        "survey_reports": ("Survey reports", "/surveys/reports", "Survey reports provide exports and performance summaries (separate from live Results)."),
+        "interview_reports": ("Interview reports", "/interviews/reports", "Interview reports provide exports and performance summaries."),
+    }
+    label, route, msg = _copy.get(intent.intent, ("Page", "/", "Open the dashboard page below."))
+    enabled = context.enabled_services or []
+    if intent.intent == "recovery_overview" and enabled and "recovery" not in enabled:
+        msg += " Recovery is not enabled on your account — check Settings → Services or contact your account manager."
+    if intent.intent == "followup_overview" and enabled and "followup" not in enabled:
+        msg += " Follow up is not enabled on your account — check Settings → Services."
+    return build_out(
+        primary_message=msg,
+        confidence=0.9,
+        intent=intent.intent,
+        next_actions=[nav_action(intent.intent, f"Open {label}", route)],
+    )
+
+
 def _handle_general(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
     name = user_display_name(db, principal)
+    examples = example_questions_for_user(enabled_services=context.enabled_services or None, limit=5)
 
     if is_greeting(message):
         return build_out(
             primary_message=(
-                f"Hi {name}! 👋 I'm your VoxBulk assistant. "
-                "Ask about your wallet, usage, campaigns, customer feedback, or support."
+                f"Hi {name}! I'm your VoxBulk assistant. I can help with billing, usage, surveys, "
+                "interviews, customer feedback, settings, and support — read-only guidance only."
             ),
             confidence=0.9,
             intent="greeting",
             next_actions=[
                 nav_action("billing", "Open billing", "/account/billing"),
                 nav_action("usage", "View usage", "/account/usage"),
+                nav_action("services", "Services settings", "/settings/services"),
             ],
+            suggested_prompts=examples[:3],
         )
 
+    example_text = "; ".join(f'"{q}"' for q in examples[:3]) if examples else '"Show my billing"; "Change my services"'
     return build_out(
         primary_message=(
-            f"Hi {name}! 🤔 I didn't quite match that. "
-            "Try “Why is my wallet low?”, “Can I launch?”, or “Show survey results”."
+            f"Hi {name}! I'm not sure I matched that exactly. I can guide you anywhere in the dashboard "
+            f"and explain your account data (read-only). Try asking: {example_text}."
         ),
-        confidence=0.45,
+        confidence=0.55,
         intent=intent.intent,
         next_actions=[
             nav_action("billing", "Open billing", "/account/billing"),
             nav_action("usage", "View usage", "/account/usage"),
+            nav_action("support", "Support", "/account/support"),
         ],
+        suggested_prompts=examples[:4],
     )
 
 
@@ -597,6 +700,18 @@ _HANDLERS = {
     "product_compare": _handle_product_compare,
     "list_surveys": _handle_list_surveys,
     "list_interviews": _handle_list_interviews,
+    "manage_services": _handle_manage_services,
+    "open_settings": _handle_open_settings,
+    "open_packages": _handle_catalog_nav,
+    "open_faq": _handle_catalog_nav,
+    "open_integrations": _handle_catalog_nav,
+    "open_team": _handle_catalog_nav,
+    "open_audit": _handle_catalog_nav,
+    "open_opt_out": _handle_catalog_nav,
+    "recovery_overview": _handle_catalog_nav,
+    "followup_overview": _handle_catalog_nav,
+    "survey_reports": _handle_catalog_nav,
+    "interview_reports": _handle_catalog_nav,
     "general_help": _handle_general,
     "unknown": _handle_general,
 }

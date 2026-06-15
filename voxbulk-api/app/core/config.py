@@ -153,6 +153,7 @@ class Settings(BaseSettings):
 
     # Dashboard AI assistant
     assistant_llm_enabled: bool = Field(default=False, alias="ASSISTANT_LLM_ENABLED")
+    assistant_llm_provider: str = Field(default="openai", alias="ASSISTANT_LLM_PROVIDER")
     assistant_llm_model: str = Field(default="", alias="ASSISTANT_LLM_MODEL")
     assistant_error_alert_threshold: int = Field(default=5, alias="ASSISTANT_ERROR_ALERT_THRESHOLD")
     assistant_error_alert_window_sec: int = Field(default=300, alias="ASSISTANT_ERROR_ALERT_WINDOW_SEC")

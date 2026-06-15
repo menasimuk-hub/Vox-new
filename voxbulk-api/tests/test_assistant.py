@@ -57,6 +57,24 @@ def test_intent_launch_check():
     assert match.intent == "launch_check"
 
 
+def test_intent_manage_services():
+    match = classify_intent("how to change my services?")
+    assert match.intent == "manage_services"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "how do I enable surveys in the sidebar",
+        "turn off interviews module",
+        "manage my services",
+    ],
+)
+def test_intent_manage_services_variants(message):
+    match = classify_intent(message)
+    assert match.intent == "manage_services"
+
+
 @pytest.mark.parametrize(
     "message,expected",
     [
@@ -128,7 +146,7 @@ def test_greeting_welcomes_user_by_name(app_client):
         out = AssistantOrchestrator.handle_chat(db, principal=principal, payload=AssistantChatIn(message="Hello"))
 
     assert "Hi Wallet" in out.primary_message
-    assert "I can help with billing, usage, survey" not in out.primary_message
+    assert "read-only" in out.primary_message.lower()
 
 
 def test_create_template_not_overridden_by_billing_state(app_client):
@@ -217,3 +235,127 @@ def _token_for(user, org) -> str:
     from app.core.security import create_access_token
 
     return create_access_token(subject=str(user.id), org_id=str(org.id))
+
+
+def test_policy_coach_includes_suggestions():
+    from app.services.assistant.policy_coach import build_policy_refusal_response
+
+    decision = check_policy("void my invoice without paying")
+    assert decision.allowed is False
+    assert len(decision.suggested_prompts) >= 2
+    assert decision.nav_route == "/account/billing"
+
+    out = build_policy_refusal_response(
+        reason=decision.reason or "",
+        suggested_prompts=list(decision.suggested_prompts),
+        nav_route=decision.nav_route,
+    )
+    assert out.policy_refused is True
+    assert out.suggested_prompts
+    assert any(a.route == "/account/billing" for a in out.next_actions)
+
+
+def test_dashboard_catalog_coverage():
+    from app.services.assistant.dashboard_catalog import CATALOG, catalog_for_prompt
+
+    assert len(CATALOG) >= 25
+    routes = {e.route for e in CATALOG}
+    assert "/recovery" in routes
+    assert "/follow-up" in routes
+    assert "/account/support/faq" in routes
+    assert "/settings/integrations" in routes
+
+    filtered = catalog_for_prompt(enabled_services=["surveys"])
+    titles = {e.title for e in filtered}
+    assert "Surveys" in titles
+    assert "Recovery" not in titles
+
+
+def test_should_delegate_rich_handlers():
+    from app.services.assistant.assistant_llm import should_delegate_to_handler
+
+    assert should_delegate_to_handler("create_survey") is True
+    assert should_delegate_to_handler("create_template") is True
+    assert should_delegate_to_handler("product_compare") is True
+    assert should_delegate_to_handler("create_ticket") is True
+    assert should_delegate_to_handler("general_help") is True
+    assert should_delegate_to_handler("wallet_low") is False
+
+
+def test_assistant_llm_provider_config(app_client, monkeypatch):
+    from app.core.config import get_settings
+    from app.services.assistant.assistant_llm import assistant_llm_provider
+
+    monkeypatch.setenv("ASSISTANT_LLM_PROVIDER", "deepinfra")
+    get_settings.cache_clear()
+
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        assert assistant_llm_provider(db) == "deepinfra"
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ("list my support tickets", "list_tickets"),
+        ("show invoice details", "invoice_detail"),
+        ("create an interview campaign", "create_interview"),
+        ("open FAQ", "open_faq"),
+        ("recovery queue", "recovery_overview"),
+        ("follow up reminders", "followup_overview"),
+        ("survey reports", "survey_reports"),
+        ("usage breakdown by campaign", "usage_breakdown"),
+        ("what is my subscription plan", "billing_subscription"),
+    ],
+)
+def test_expanded_intents(message, expected):
+    match = classify_intent(message)
+    assert match.intent == expected
+
+
+def test_general_help_suggested_prompts(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    principal = CurrentPrincipal(user_id=user.id, org_id=org.id, token_payload={})
+    with get_sessionmaker()() as db:
+        out = AssistantOrchestrator.handle_chat(
+            db,
+            principal=principal,
+            payload=AssistantChatIn(message="something completely random xyz"),
+        )
+
+    assert out.suggested_prompts
+    assert "didn't match" in out.primary_message.lower() or "not sure" in out.primary_message.lower()
+
+
+def test_create_ticket_includes_diagnostic_context(app_client):
+    from app.core.database import get_sessionmaker
+    from app.services.assistant.pending_actions import verify_pending_action
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    principal = CurrentPrincipal(user_id=user.id, org_id=org.id, token_payload={})
+    payload = AssistantChatIn(
+        message="I have a billing problem with my last invoice",
+        history=[{"role": "user", "text": "Hello"}, {"role": "assistant", "text": "Hi!"}],
+        context={"current_route": "/account/billing", "enabled_services": ["surveys"]},
+    )
+    with get_sessionmaker()() as db:
+        out = AssistantOrchestrator.handle_chat(db, principal=principal, payload=payload)
+
+    assert out.intent == "create_ticket"
+    assert out.pending_action is not None
+    confirm = out.next_actions[0]
+    assert confirm.label == "Send ticket to support"
+    body = verify_pending_action(confirm.action_id, org_id=org.id, user_id=user.id)
+    assert body is not None
+    diagnostic = (body.get("payload") or {}).get("diagnostic") or {}
+    assert diagnostic.get("current_route") == "/account/billing"
+    assert diagnostic.get("user_message")
+    assert len(diagnostic.get("recent_history") or []) >= 1
+

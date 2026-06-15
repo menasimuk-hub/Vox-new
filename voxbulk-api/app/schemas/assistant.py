@@ -32,6 +32,9 @@ class AssistantContextIn(BaseModel):
     location_id: str | None = None
     service_code: str | None = None
     organisation_id: str | None = None
+    current_route: str | None = None
+    enabled_services: list[str] = Field(default_factory=list)
+    recent_history: list[AssistantHistoryItem] = Field(default_factory=list)
 
 
 class AssistantChatIn(BaseModel):
@@ -87,6 +90,7 @@ class AssistantChatOut(BaseModel):
     policy_refused: bool = False
     error_occurred: bool = False
     support_report_token: str | None = None
+    suggested_prompts: list[str] = Field(default_factory=list)
 
 
 class AssistantReportSupportIn(BaseModel):

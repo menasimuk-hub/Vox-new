@@ -132,6 +132,28 @@ class AssistantTools:
         return [ticket_to_dict(db, r) for r in rows]
 
     @staticmethod
+    def ticket_detail(db: Session, org_id: str, user_id: str, ticket_id: str) -> dict[str, Any] | None:
+        try:
+            tid = int(str(ticket_id).strip())
+        except (TypeError, ValueError):
+            return None
+        row = SupportTicketService.get_customer_ticket(db, org_id=org_id, user_id=user_id, ticket_id=tid)
+        return ticket_to_dict(db, row) if row else None
+
+    @staticmethod
+    def usage_breakdown(db: Session, org: Organisation, *, limit: int = 15) -> dict[str, Any]:
+        from app.services.billing_usage_breakdown_service import BillingUsageBreakdownService
+
+        return BillingUsageBreakdownService.build(db, org, limit=limit)
+
+    @staticmethod
+    def feedback_subscription(db: Session, org_id: str) -> dict[str, Any]:
+        from app.services.billing_access_service import BillingAccessService
+
+        sub = BillingAccessService.get_feedback_subscription(db, org_id)
+        return {"active": sub is not None, "subscription_id": str(sub.id) if sub else None}
+
+    @staticmethod
     def wallet_low_analysis(db: Session, org: Organisation) -> dict[str, Any]:
         wallet, _ = run_tool("wallet", lambda: WalletService.wallet_dict(db, org), default={})
         txns, _ = run_tool("wallet_transactions", lambda: AssistantTools.wallet_transactions(db, org.id, limit=10), default=[])

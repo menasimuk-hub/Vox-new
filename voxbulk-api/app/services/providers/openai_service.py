@@ -281,8 +281,35 @@ class OpenAIProviderService:
         if selected == "groq":
             config = OpenAIProviderService._groq_config_from_db_or_env(db)
             return {**config, "provider": "groq"}
+        if selected == "deepinfra":
+            config = OpenAIProviderService._deepinfra_config_from_db_or_env(db)
+            return {**config, "provider": "deepinfra"}
         config = OpenAIProviderService._config(db)
         return {**config, "provider": "openai"}
+
+    @staticmethod
+    def _deepinfra_config_from_db_or_env(db: Session) -> dict[str, Any]:
+        from app.services.provider_settings import ProviderSettingsService
+
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="deepinfra")
+        config = cfg if isinstance(cfg, dict) else {}
+        api_key = str(config.get("api_key") or os.getenv("DEEPINFRA_API_KEY") or "").strip()
+        if not api_key:
+            raise ValueError("DeepInfra API key is not configured")
+        base_url = str(
+            config.get("moderation_base_url") or os.getenv("DEEPINFRA_BASE_URL") or "https://api.deepinfra.com/v1/openai"
+        ).strip().rstrip("/")
+        model = str(
+            config.get("moderation_model") or os.getenv("DEEPINFRA_LLM_MODEL") or "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
+        ).strip()
+        return {
+            "api_key": api_key,
+            "default_model": model,
+            "realtime_model": "",
+            "temperature": float(os.getenv("DEEPINFRA_TEMPERATURE") or 0.35),
+            "max_output_tokens": int(os.getenv("DEEPINFRA_MAX_OUTPUT_TOKENS") or 1200),
+            "base_url": OpenAIProviderService._normalize_base_url(base_url),
+        }
 
     @staticmethod
     def complete(

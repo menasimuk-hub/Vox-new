@@ -16,7 +16,7 @@ import type {
   ServiceOrder,
   UsageSummary,
 } from "@/lib/types/api";
-import type { AssistantChatResponse } from "@/lib/types/assistant";
+import type { AssistantChatContext, AssistantChatResponse } from "@/lib/types/assistant";
 export const queryKeys = {
   session: ["session"] as const,
   homeSummary: ["dashboard", "home-summary"] as const,
@@ -1852,7 +1852,11 @@ export function useCreateFeedbackLocation() {
 
 export function useAssistantChat() {
   return useMutation({
-    mutationFn: (body: { message: string; history?: Array<{ role: string; text: string }>; context?: Record<string, string | undefined> }) =>
+    mutationFn: (body: {
+      message: string;
+      history?: Array<{ role: string; text: string }>;
+      context?: AssistantChatContext;
+    }) =>
       apiFetch<AssistantChatResponse>("/assistant/chat", {
         method: "POST",
         body: JSON.stringify({

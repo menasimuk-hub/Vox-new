@@ -39,6 +39,7 @@ def build_out(
     policy_refused: bool = False,
     error_occurred: bool = False,
     support_report_token: str | None = None,
+    suggested_prompts: list[str] | None = None,
 ) -> AssistantChatOut:
     resolved_ui = ui_commands or []
     resolved_next = next_actions or []
@@ -68,6 +69,7 @@ def build_out(
         policy_refused=policy_refused,
         error_occurred=error_occurred,
         support_report_token=support_report_token,
+        suggested_prompts=suggested_prompts or [],
     )
 
 
