@@ -79,7 +79,7 @@ export function formatMoney(amount: number) {
 }
 
 function mapApiStatus(status: string): UiStatus {
-  if (status === 'sent_to_restaurant') return 'new'
+  if (status === 'sent_to_restaurant' || status === 'confirmed' || status === 'paid') return 'new'
   if (status === 'preparing') return 'preparing'
   if (status === 'ready') return 'ready'
   if (['assigned_to_driver', 'picked_up'].includes(status)) return 'with_driver'

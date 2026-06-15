@@ -122,9 +122,8 @@ def test_agent_arabic_reply(mock_complete, abuu_seeded, deepseek_configured):
 
 @patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
 @patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
-def test_inbound_agent_mode(mock_send, mock_complete, abuu_seeded, app_client, deepseek_configured):
+def test_inbound_start_uses_legacy_flow_when_agent_enabled(mock_send, mock_complete, abuu_seeded, app_client, deepseek_configured):
     _db, _restaurant_id, _restaurant = abuu_seeded
-    mock_complete.return_value = _text_completion("Welcome! What would you like today?")
 
     from app.core.database import get_sessionmaker
 
@@ -145,6 +144,54 @@ def test_inbound_agent_mode(mock_send, mock_complete, abuu_seeded, app_client, d
                 from_phone=phone,
                 body="abuu",
                 message_id="agent-msg-1",
+                org_id=org_id,
+            )
+    assert result.get("handled") is True
+    assert result.get("action") == "started"
+    mock_complete.assert_not_called()
+    mock_send.assert_called()
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+@patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
+def test_inbound_agent_mode_for_open_chat(mock_send, mock_complete, abuu_seeded, app_client, deepseek_configured):
+    _db, restaurant_id, _restaurant = abuu_seeded
+    mock_complete.return_value = _text_completion("Try our grilled chicken today.")
+
+    from app.core.abuu_database import get_abuu_sessionmaker
+    from app.core.database import get_sessionmaker
+
+    phone = "+972509990013"
+    with get_abuu_sessionmaker()() as abuu_db:
+        customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone, lang="en")
+        customer.name = "Agent User"
+        abuu_db.add(customer)
+        AbuuOrderDraftService.upsert_session(
+            abuu_db,
+            phone=phone,
+            step="choosing_restaurant",
+            context={"restaurant_id": restaurant_id},
+            active_order_id=None,
+            message_id="setup-1",
+        )
+        abuu_db.commit()
+
+    with get_sessionmaker()() as db:
+        org = __import__("app.models.organisation", fromlist=["Organisation"]).Organisation(name="Agent Org 2")
+        db.add(org)
+        db.commit()
+        org_id = org.id
+
+    with patch.dict(os.environ, {"ABUU_AGENT_ENABLED": "true"}):
+        from app.core.config import get_settings
+
+        get_settings.cache_clear()
+        with get_sessionmaker()() as db:
+            result = AbuuInboundService.try_handle(
+                db,
+                from_phone=phone,
+                body="what do you recommend?",
+                message_id="agent-msg-2",
                 org_id=org_id,
             )
     assert result.get("handled") is True

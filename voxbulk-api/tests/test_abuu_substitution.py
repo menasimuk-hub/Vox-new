@@ -126,3 +126,37 @@ def test_restaurant_mark_item_unavailable_blocks_ready(app_client):
 
     ready = app_client.post(f"/abuu/restaurant/orders/{order_id}/ready", headers=rest_headers, json={})
     assert ready.status_code == 400
+
+
+def test_restaurant_start_preparing_from_confirmed(app_client):
+    run_abuu_migrations()
+
+    with get_abuu_sessionmaker()() as db:
+        restaurant = db.execute(select(Restaurant).limit(1)).scalar_one()
+        restaurant.login_email = f"prep_{uuid.uuid4().hex[:6]}@abuu.test"
+        restaurant.password_hash = hash_password("pass123")
+        customer = CustomerProfile(phone="+972507777779", preferred_language="en", name="Prep Customer")
+        db.add(customer)
+        db.flush()
+        order = CustomerOrder(
+            customer_id=customer.id,
+            restaurant_id=restaurant.id,
+            status="confirmed",
+            payment_status="pending_manual",
+            total_agorot=2500,
+        )
+        db.add(order)
+        db.commit()
+        order_id = order.id
+        rest_email = restaurant.login_email
+
+    rest_tok = app_client.post(
+        "/abuu/auth/restaurant/token",
+        data={"username": rest_email, "password": "pass123"},
+    ).json()["access_token"]
+    rest_headers = {"Authorization": f"Bearer {rest_tok}"}
+
+    prep = app_client.post(f"/abuu/restaurant/orders/{order_id}/preparing", headers=rest_headers, json={})
+    assert prep.status_code == 200
+    assert prep.json()["status"] == "preparing"
+    assert prep.json()["payment_status"] == "paid_manual"

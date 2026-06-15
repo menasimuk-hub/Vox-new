@@ -31,7 +31,37 @@ chmod +x deploy-vps.sh vox.sh
 |-----|--------------|---------|
 | Admin | `admin.voxbulk.com/adim-web/dist/` | `/www/wwwroot/admin.voxbulk.com` |
 | Dashboard | `dashboard.voxbulk.com/dashboard-web/dist/client/` | `/www/wwwroot/dashboard.voxbulk.com` |
+| Yallasay restaurant | `abuu.voxbulk.com/abuu-web/dist/` | `/www/wwwroot/restaurant.yallasay.com` |
+| Yallasay driver | `driver.voxbulk.com/driver-web/dist/` | `/www/wwwroot/driver.yallasay.com` |
 | Public site | vite preview :5173 (not static wwwroot by default) | — |
+
+Override restaurant/driver wwwroots with env vars (defaults in `deploy-vps.sh`):
+
+```bash
+VOX_ABUU_DIST=/www/wwwroot/restaurant.yallasay.com
+VOX_DRIVER_DIST=/www/wwwroot/driver.yallasay.com
+```
+
+## Git pull blocked by local `package-lock.json` (Yallasay portals)
+
+If pull fails after an npm install on the VPS:
+
+```bash
+cd /path/to/Vox
+git checkout -- abuu.voxbulk.com/abuu-web/package-lock.json driver.voxbulk.com/driver-web/package-lock.json
+git pull origin feat/dashboard-ai-assistant-v1   # or main when merged
+./deploy-vps.sh
+```
+
+## Yallasay API env (production)
+
+In `voxbulk-api/.env`:
+
+```bash
+ABUU_ENABLED=true
+YALLASAY_AUTO_SEND_ON_CONFIRM=true
+ABUU_AGENT_ENABLED=false   # use true only when DeepSeek is configured in Admin → Integrations
+```
 
 ## API
 

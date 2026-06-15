@@ -20,7 +20,7 @@ from app.abuu.services.customer_memory_service import (
 )
 from app.abuu.services.event_idempotency_service import AbuuEventIdempotencyService, payload_hash
 from app.abuu.services.inbound_message_service import AbuuInboundMessageService
-from app.abuu.agent.agent import AbuuAgentLoop
+from app.abuu.agent.agent import AbuuAgentLoop, _deepseek_platform_ready
 from app.abuu.services.conversation_ai_service import classify_turn
 from app.abuu.services.intent_service import detect_intent, is_abuu_start_message
 from app.abuu.services.skill_definitions import SKILL_CAPTURE_LOCATION, SKILL_CONFIRM_ORDER
@@ -286,8 +286,7 @@ class AbuuInboundService:
                 abuu_db.add(session)
             if result.get("handled"):
                 return result
-        if get_settings().abuu_agent_enabled:
-            AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
+        if AbuuInboundService._should_use_agent_text_flow(main_db, text, session):
             result = AbuuAgentLoop.run(
                 abuu_db,
                 main_db,
@@ -299,13 +298,13 @@ class AbuuInboundService:
             reply = result.get("reply")
             if reply:
                 AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
-            if session:
-                session.last_message_id = message_id
-                abuu_db.add(session)
-            payload = dict(result)
-            if transcript_confidence is not None:
-                payload["transcript_confidence"] = transcript_confidence
-            return payload
+                if session:
+                    session.last_message_id = message_id
+                    abuu_db.add(session)
+                payload = dict(result)
+                if transcript_confidence is not None:
+                    payload["transcript_confidence"] = transcript_confidence
+                return payload
 
         has_session = bool(session and session.step not in {"", "idle"})
         step = session.step if session else None
@@ -816,6 +815,28 @@ class AbuuInboundService:
         except Exception:
             logger.exception("abuu_voice_detect_failed")
         return False
+
+    @staticmethod
+    def _should_use_legacy_text_flow(text: str, session) -> bool:
+        """Deterministic menu/greeting flow — avoids agent ack with no follow-up."""
+        step = session.step if session else None
+        has_session = bool(session and step not in {"", "idle", None})
+        if is_abuu_start_message(text):
+            return True
+        intent = detect_intent(text, has_active_session=has_session, step=step)
+        if intent.name == "menu":
+            return True
+        if step in {"awaiting_name", "awaiting_preference", "browsing", "awaiting_delivery", "awaiting_substitution"}:
+            return True
+        return False
+
+    @staticmethod
+    def _should_use_agent_text_flow(main_db: Session, text: str, session) -> bool:
+        if not get_settings().abuu_agent_enabled:
+            return False
+        if AbuuInboundService._should_use_legacy_text_flow(text, session):
+            return False
+        return _deepseek_platform_ready(main_db)
 
     @staticmethod
     def _send_agent_ack(main_db: Session, to_phone: str, lang: str, *, org_id: str | None) -> None:

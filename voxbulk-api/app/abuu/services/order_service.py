@@ -123,6 +123,10 @@ class AbuuOrderService:
 
     @staticmethod
     def restaurant_start_preparing(db: Session, order: CustomerOrder) -> CustomerOrder:
+        if order.status == "preparing":
+            return order
+        if order.status in {"confirmed", "paid", "draft"}:
+            AbuuOrderService.mark_paid_manual(db, order, confirmed_by="restaurant_portal")
         if order.status != "sent_to_restaurant":
             raise ValueError("Order is not awaiting preparation")
         return AbuuOrderService.patch_status(db, order, "preparing")

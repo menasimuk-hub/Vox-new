@@ -120,7 +120,7 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             order = abuu_db.execute(
                 __import__("sqlalchemy").select(CustomerOrder).order_by(CustomerOrder.created_at.desc())
             ).scalars().first()
-            assert order.status == "confirmed"
+            assert order.status == "sent_to_restaurant"
             addr = abuu_db.get(CustomerAddress, order.delivery_address_id)
             assert addr.source_message_id == "msg-abuu-4"
 
