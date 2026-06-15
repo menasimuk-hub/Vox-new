@@ -211,19 +211,19 @@ class AbuuInboundService:
                 if AbuuInboundService._should_use_voice_agent(main_db):
                     AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
                     result = AbuuAgentLoop.run(
-                    abuu_db,
-                    main_db,
-                    phone=phone,
-                    text=text,
-                    message_id=message_id,
-                    org_id=org_id,
-                    input_source="voice",
-                )
-                reply = result.get("reply")
-                if reply:
-                    AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
-                abuu_db.commit()
-                return result
+                        abuu_db,
+                        main_db,
+                        phone=phone,
+                        text=text,
+                        message_id=message_id,
+                        org_id=org_id,
+                        input_source="voice",
+                    )
+                    reply = result.get("reply")
+                    if reply:
+                        AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
+                    abuu_db.commit()
+                    return result
 
             location = parse_whatsapp_location(record)
             if session and location is not None:
