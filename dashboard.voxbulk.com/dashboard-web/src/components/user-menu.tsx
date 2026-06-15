@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Building2, Check, ChevronDown, LogOut, Settings, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ function roleLabel(role: string) {
 }
 
 export function UserMenu() {
+  const navigate = useNavigate();
   const { session } = useSession();
   const orgsQ = useMyOrganisations();
   const switchM = useSwitchOrganisation();
@@ -88,18 +89,14 @@ export function UserMenu() {
           ))
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link to="/settings/profile" className="cursor-pointer">
-            <Settings className="mr-2 size-4" />
-            Organisation profile
-          </Link>
+        <DropdownMenuItem onClick={() => void navigate({ to: "/settings/profile" })}>
+          <Settings className="mr-2 size-4" />
+          Organisation profile
         </DropdownMenuItem>
         {showTeam ? (
-          <DropdownMenuItem asChild>
-            <Link to="/settings/team" className="cursor-pointer">
-              <Users className="mr-2 size-4" />
-              Team members
-            </Link>
+          <DropdownMenuItem onClick={() => void navigate({ to: "/settings/team" })}>
+            <Users className="mr-2 size-4" />
+            Team members
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSeparator />
