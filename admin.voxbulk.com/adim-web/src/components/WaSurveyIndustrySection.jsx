@@ -15,6 +15,22 @@ export default function WaSurveyIndustrySection() {
   const [deleteModal, setDeleteModal] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [duplicateModal, setDuplicateModal] = useState(null)
+  const [orgs, setOrgs] = useState([])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await apiFetch('/admin/organisations?limit=500')
+        if (!cancelled) setOrgs(Array.isArray(data) ? data : [])
+      } catch {
+        if (!cancelled) setOrgs([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -45,6 +61,18 @@ export default function WaSurveyIndustrySection() {
       description: '',
       sort_order: 100,
       is_active: true,
+      visibility_mode: 'all',
+      selectedOrgIds: [],
+    })
+  }
+
+  const toggleCreateOrg = (orgId) => {
+    setModal((prev) => {
+      if (!prev) return prev
+      const set = new Set(prev.selectedOrgIds || [])
+      if (set.has(orgId)) set.delete(orgId)
+      else set.add(orgId)
+      return { ...prev, selectedOrgIds: [...set] }
     })
   }
 
@@ -54,12 +82,15 @@ export default function WaSurveyIndustrySection() {
     setSaving(true)
     setError('')
     setMsg('')
+    const orgIds = modal.visibility_mode === 'restricted' ? (modal.selectedOrgIds || []) : []
     const body = {
       name: modal.name.trim(),
       slug: modal.slug.trim() || undefined,
       description: modal.description.trim() || undefined,
       sort_order: Number(modal.sort_order) || 100,
       is_active: Boolean(modal.is_active),
+      visibility_mode: modal.visibility_mode === 'restricted' ? 'restricted' : 'all',
+      org_ids: orgIds,
     }
     try {
       await apiFetch('/admin/wa-survey/industries', {
@@ -343,6 +374,46 @@ export default function WaSurveyIndustrySection() {
                   placeholder="Optional"
                 />
               </label>
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <span>Customer visibility</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="radio"
+                      name="create_visibility"
+                      checked={modal.visibility_mode !== 'restricted'}
+                      onChange={() => setModal({ ...modal, visibility_mode: 'all', selectedOrgIds: [] })}
+                    />
+                    <span>Visible to all customers (default)</span>
+                  </label>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="radio"
+                      name="create_visibility"
+                      checked={modal.visibility_mode === 'restricted'}
+                      onChange={() => setModal({ ...modal, visibility_mode: 'restricted' })}
+                    />
+                    <span>Visible to selected customers only</span>
+                  </label>
+                </div>
+              </div>
+              {modal.visibility_mode === 'restricted' ? (
+                <div className="field" style={{ gridColumn: '1 / -1', maxHeight: 220, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
+                  <span>Select customers</span>
+                  {orgs.length ? orgs.map((org) => (
+                    <label key={org.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 13 }}>
+                      <input
+                        type="checkbox"
+                        checked={(modal.selectedOrgIds || []).includes(org.id)}
+                        onChange={() => toggleCreateOrg(org.id)}
+                      />
+                      <span>{org.name || org.id}</span>
+                    </label>
+                  )) : (
+                    <p className="muted" style={{ margin: '8px 0 0' }}>No organisations loaded.</p>
+                  )}
+                </div>
+              ) : null}
             </div>
             <div className="leadModalFoot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button type="button" className="btn ghost" onClick={() => setModal(null)}>Cancel</button>

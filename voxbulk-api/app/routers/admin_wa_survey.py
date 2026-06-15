@@ -131,6 +131,7 @@ def get_industry(
         "industry": industry_to_dict(
             row,
             survey_type_count=IndustryService.survey_type_count(db, row.id),
+            org_ids=IndustryService.industry_org_ids(db, row.id),
         ),
     }
 

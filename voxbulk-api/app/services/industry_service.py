@@ -328,6 +328,10 @@ class IndustryService:
         if existing is not None:
             raise ValueError(f"An industry with slug “{slug}” already exists")
         now = datetime.utcnow()
+        visibility_mode = str(payload.get("visibility_mode") or "all").strip().lower()
+        if visibility_mode not in {"all", "restricted"}:
+            org_ids_raw = payload.get("org_ids")
+            visibility_mode = "restricted" if org_ids_raw else "all"
         row = Industry(
             id=str(uuid.uuid4()),
             slug=slug,
@@ -335,12 +339,15 @@ class IndustryService:
             description=str(payload.get("description") or "").strip() or None,
             is_active=bool(payload.get("is_active", True)),
             sort_order=max(0, min(9999, int(payload.get("sort_order") or 100))),
+            visibility_mode=visibility_mode,
             created_at=now,
             updated_at=now,
         )
         db.add(row)
         db.commit()
         db.refresh(row)
+        if visibility_mode == "restricted" or payload.get("org_ids"):
+            IndustryService.set_industry_orgs(db, row.id, list(payload.get("org_ids") or []))
         return row
 
     @staticmethod

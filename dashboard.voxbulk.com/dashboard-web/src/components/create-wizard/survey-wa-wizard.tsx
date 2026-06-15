@@ -14,7 +14,7 @@ import {
 import { toast } from "sonner";
 
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
-import { UploadedContactsTable } from "@/components/create-wizard/uploaded-contacts-table";
+import { UploadedContactsTable, type UploadedContactRow } from "@/components/create-wizard/uploaded-contacts-table";
 import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
@@ -113,9 +113,14 @@ export type SurveyWaWizardProps = {
   onSaveDraft: () => void;
   savePending: boolean;
   contactsCount: number;
-  uploadedContacts: Array<{ name: string; phone: string; language?: string }>;
+  uploadedContacts: UploadedContactRow[];
   recipientsLoading?: boolean;
   recipientsError?: string | null;
+  contactsEditable?: boolean;
+  recipientContactValue?: (row: UploadedContactRow, field: "name" | "phone" | "email") => string;
+  onRecipientContactChange?: (row: UploadedContactRow, field: "name" | "phone" | "email", value: string) => void;
+  onRecipientContactBlur?: (row: UploadedContactRow, field: "name" | "phone" | "email") => void;
+  patchRecipientPending?: boolean;
   surveyId?: string | null;
   onEnsureDraft?: () => void | Promise<void>;
   uploadTypeAck: boolean;
@@ -599,6 +604,11 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                 contacts={props.uploadedContacts}
                 loading={props.recipientsLoading || props.uploading}
                 error={props.recipientsError}
+                editable={props.contactsEditable}
+                contactValue={props.recipientContactValue}
+                onContactChange={props.onRecipientContactChange}
+                onContactBlur={props.onRecipientContactBlur}
+                patchPending={props.patchRecipientPending}
               />
 
               {contactsSkipped ? (

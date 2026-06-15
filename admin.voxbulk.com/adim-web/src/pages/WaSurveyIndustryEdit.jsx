@@ -75,8 +75,22 @@ export default function WaSurveyIndustryEdit() {
   const [typeDeleteBusy, setTypeDeleteBusy] = useState(false)
 
   const [syncBusy, setSyncBusy] = useState(false)
+  const [orgs, setOrgs] = useState([])
 
-
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await apiFetch('/admin/organisations?limit=500')
+        if (!cancelled) setOrgs(Array.isArray(data) ? data : [])
+      } catch {
+        if (!cancelled) setOrgs([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const loadSurveyTypes = useCallback(async (id) => {
 
@@ -137,6 +151,10 @@ export default function WaSurveyIndustryEdit() {
         is_active: Boolean(row.is_active),
 
         is_hidden: Boolean(row.is_hidden),
+
+        visibility_mode: row.visibility_mode === 'restricted' ? 'restricted' : 'all',
+
+        selectedOrgIds: Array.isArray(row.org_ids) ? row.org_ids : [],
 
         survey_type_count: row.survey_type_count || 0,
 
@@ -236,6 +254,8 @@ export default function WaSurveyIndustryEdit() {
 
     try {
 
+      const orgIds = industry.visibility_mode === 'restricted' ? (industry.selectedOrgIds || []) : []
+
       await apiFetch(`/admin/wa-survey/industries/${encodeURIComponent(industry.id)}`, {
 
         method: 'PUT',
@@ -251,6 +271,10 @@ export default function WaSurveyIndustryEdit() {
           sort_order: Number(industry.sort_order) || 100,
 
           is_active: Boolean(industry.is_active),
+
+          visibility_mode: industry.visibility_mode === 'restricted' ? 'restricted' : 'all',
+
+          org_ids: orgIds,
 
         }),
 
@@ -647,6 +671,56 @@ export default function WaSurveyIndustryEdit() {
             <input className="input" value={industry.description} onChange={(e) => setIndustry({ ...industry, description: e.target.value })} placeholder="Optional" />
 
           </label>
+
+          {!industry.is_hidden ? (
+            <>
+              <div className="field span-2">
+                <span>Customer visibility</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="radio"
+                      name="edit_visibility"
+                      checked={industry.visibility_mode !== 'restricted'}
+                      onChange={() => setIndustry({ ...industry, visibility_mode: 'all', selectedOrgIds: [] })}
+                    />
+                    <span>Visible to all customers (default)</span>
+                  </label>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="radio"
+                      name="edit_visibility"
+                      checked={industry.visibility_mode === 'restricted'}
+                      onChange={() => setIndustry({ ...industry, visibility_mode: 'restricted' })}
+                    />
+                    <span>Visible to selected customers only</span>
+                  </label>
+                </div>
+              </div>
+              {industry.visibility_mode === 'restricted' ? (
+                <div className="field span-2" style={{ maxHeight: 220, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
+                  <span>Select customers</span>
+                  {orgs.length ? orgs.map((org) => (
+                    <label key={org.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 13 }}>
+                      <input
+                        type="checkbox"
+                        checked={(industry.selectedOrgIds || []).includes(org.id)}
+                        onChange={() => {
+                          const set = new Set(industry.selectedOrgIds || [])
+                          if (set.has(org.id)) set.delete(org.id)
+                          else set.add(org.id)
+                          setIndustry({ ...industry, selectedOrgIds: [...set] })
+                        }}
+                      />
+                      <span>{org.name || org.id}</span>
+                    </label>
+                  )) : (
+                    <p className="muted" style={{ margin: '8px 0 0' }}>No organisations loaded.</p>
+                  )}
+                </div>
+              ) : null}
+            </>
+          ) : null}
 
         </div>
 

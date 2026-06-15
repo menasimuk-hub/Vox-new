@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { SurveyEditActionBar } from "@/components/survey-edit-action-bar";
 import { ChannelPicker } from "@/components/create-wizard";
 import { SurveyPhoneWizard } from "@/components/create-wizard/survey-phone-wizard";
+import type { UploadedContactRow } from "@/components/create-wizard/uploaded-contacts-table";
 import { SurveyWaWizard } from "@/components/create-wizard/survey-wa-wizard";
 import { pageCountFromSelectedTypes } from "@/components/create-wizard/survey-wa-template-step";
 import { SurveyLaunchQuoteModal } from "@/components/modals";
@@ -35,6 +36,7 @@ import {
   useOrderRecipients,
   useOrganisation,
   usePatchServiceOrder,
+  usePatchOrderRecipient,
   useSendWaSurveyTest,
   useServiceOrder,
   useSurveyAgents,
@@ -185,11 +187,17 @@ function CreateSurvey() {
   const qc = useQueryClient();
   const orderQ = useServiceOrder(orderId);
   const recipientsQ = useOrderRecipients(orderId);
-  const uploadedContacts = React.useMemo(() => {
+  const patchRecipientM = usePatchOrderRecipient(orderId);
+  const [recipientContactDraft, setRecipientContactDraft] = React.useState<
+    Record<string, { name: string; phone: string; email: string }>
+  >({});
+  const uploadedContacts = React.useMemo((): UploadedContactRow[] => {
     const rows = recipientsQ.data?.recipients || [];
     return rows.map((row) => ({
+      id: String(row.id || "").trim() || undefined,
       name: String(row.name || "").trim(),
       phone: String(row.phone || "").trim(),
+      email: String(row.email || "").trim(),
       language: String(row.language || row.locale || "").trim(),
       phoneCallAllowed:
         typeof (row as { phone_call_allowed?: boolean }).phone_call_allowed === "boolean"
@@ -198,6 +206,51 @@ function CreateSurvey() {
       phoneCallBlockReason: String((row as { phone_call_block_reason?: string }).phone_call_block_reason || "").trim() || null,
     }));
   }, [recipientsQ.data?.recipients]);
+
+  const recipientContactValue = (c: UploadedContactRow, field: "name" | "phone" | "email") => {
+    if (!c.id) return String(c[field] || "");
+    const draft = recipientContactDraft[c.id];
+    if (draft) return draft[field];
+    return String(c[field] || "");
+  };
+
+  const onRecipientContactChange = (c: UploadedContactRow, field: "name" | "phone" | "email", value: string) => {
+    if (!c.id) return;
+    setRecipientContactDraft((prev) => ({
+      ...prev,
+      [c.id!]: {
+        name: recipientContactValue(c, "name"),
+        phone: recipientContactValue(c, "phone"),
+        email: recipientContactValue(c, "email"),
+        [field]: value,
+      },
+    }));
+  };
+
+  const onRecipientContactBlur = async (c: UploadedContactRow, field: "name" | "phone" | "email") => {
+    if (!orderId || !c.id) return;
+    const nextVal = recipientContactValue(c, field);
+    const currentVal = String(c[field] || "");
+    if (nextVal.trim() === currentVal.trim()) return;
+    try {
+      await patchRecipientM.mutateAsync({ recipientId: c.id, [field]: nextVal.trim() });
+      setRecipientContactDraft((prev) => {
+        const next = { ...prev };
+        delete next[c.id!];
+        return next;
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update contact");
+      setRecipientContactDraft((prev) => ({
+        ...prev,
+        [c.id!]: {
+          name: field === "name" ? currentVal : recipientContactValue(c, "name"),
+          phone: field === "phone" ? currentVal : recipientContactValue(c, "phone"),
+          email: field === "email" ? currentVal : recipientContactValue(c, "email"),
+        },
+      }));
+    }
+  };
   const contactsCount = uploadedContacts.filter((c) => c.phone).length;
   const dialableContactsCount =
     channel === "phone"
@@ -1398,6 +1451,11 @@ function CreateSurvey() {
           uploadedContacts={uploadedContacts}
           recipientsLoading={recipientsLoading}
           recipientsError={recipientsError}
+          contactsEditable={Boolean(orderId)}
+          recipientContactValue={recipientContactValue}
+          onRecipientContactChange={onRecipientContactChange}
+          onRecipientContactBlur={onRecipientContactBlur}
+          patchRecipientPending={patchRecipientM.isPending}
           surveyId={surveyId}
           onEnsureDraft={async () => {
             await ensureOrder();
@@ -1460,6 +1518,11 @@ function CreateSurvey() {
           uploadedContacts={uploadedContacts}
           recipientsLoading={recipientsLoading}
           recipientsError={recipientsError}
+          contactsEditable={Boolean(orderId)}
+          recipientContactValue={recipientContactValue}
+          onRecipientContactChange={onRecipientContactChange}
+          onRecipientContactBlur={onRecipientContactBlur}
+          patchRecipientPending={patchRecipientM.isPending}
           uploadTypeAck={uploadTypeAck}
           setUploadTypeAck={setUploadTypeAck}
           uploadConsent={uploadConsent}

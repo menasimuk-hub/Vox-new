@@ -1134,6 +1134,31 @@ export function usePatchInterviewRecipient(orderId: string | null) {
   });
 }
 
+/** PATCH recipient on any service order (survey, interview, etc.). */
+export function usePatchOrderRecipient(orderId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { recipientId: string; phone?: string; email?: string; name?: string }) =>
+      apiFetch<Record<string, unknown>>(
+        `/service-orders/${encodeURIComponent(orderId!)}/recipients/${encodeURIComponent(args.recipientId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            ...(args.phone !== undefined ? { phone: args.phone } : {}),
+            ...(args.email !== undefined ? { email: args.email } : {}),
+            ...(args.name !== undefined ? { name: args.name } : {}),
+          }),
+        },
+      ),
+    onSuccess: () => {
+      if (orderId) {
+        void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(orderId) });
+        void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(orderId) });
+      }
+    },
+  });
+}
+
 export function useLaunchInterviewCampaign(orderId: string | null) {
   const qc = useQueryClient();
   return useMutation({

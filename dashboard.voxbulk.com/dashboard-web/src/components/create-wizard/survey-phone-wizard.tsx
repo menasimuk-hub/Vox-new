@@ -11,7 +11,7 @@ import {
   SURVEY_LAUNCH_CONSENT_TEXT,
   SurveyUploadConsent,
 } from "@/components/create-wizard/survey-upload-consent";
-import { UploadedContactsTable } from "@/components/create-wizard/uploaded-contacts-table";
+import { UploadedContactsTable, type UploadedContactRow } from "@/components/create-wizard/uploaded-contacts-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -62,9 +62,14 @@ export type SurveyPhoneWizardProps = {
   onSaveDraft: () => void;
   savePending: boolean;
   contactsCount?: number;
-  uploadedContacts: Array<{ name: string; phone: string; language?: string }>;
+  uploadedContacts: UploadedContactRow[];
   recipientsLoading?: boolean;
   recipientsError?: string | null;
+  contactsEditable?: boolean;
+  recipientContactValue?: (row: UploadedContactRow, field: "name" | "phone" | "email") => string;
+  onRecipientContactChange?: (row: UploadedContactRow, field: "name" | "phone" | "email", value: string) => void;
+  onRecipientContactBlur?: (row: UploadedContactRow, field: "name" | "phone" | "email") => void;
+  patchRecipientPending?: boolean;
   uploadTypeAck: boolean;
   setUploadTypeAck: (v: boolean) => void;
   uploadConsent: boolean;
@@ -333,6 +338,11 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 loading={props.recipientsLoading || props.uploading}
                 error={props.recipientsError}
                 highlightAllowlist
+                editable={props.contactsEditable}
+                contactValue={props.recipientContactValue}
+                onContactChange={props.onRecipientContactChange}
+                onContactBlur={props.onRecipientContactBlur}
+                patchPending={props.patchRecipientPending}
               />
 
               <SurveyUploadConsent

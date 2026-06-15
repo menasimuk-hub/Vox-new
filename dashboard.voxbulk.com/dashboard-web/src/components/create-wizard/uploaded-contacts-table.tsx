@@ -2,12 +2,15 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export type UploadedContactRow = {
+  id?: string;
   name: string;
   phone: string;
+  email?: string;
   language?: string;
   phoneCallAllowed?: boolean;
   phoneCallBlockReason?: string | null;
@@ -19,6 +22,12 @@ type UploadedContactsTableProps = {
   error?: string | null;
   pageSize?: number;
   highlightAllowlist?: boolean;
+  editable?: boolean;
+  locked?: boolean;
+  contactValue?: (row: UploadedContactRow, field: "name" | "phone" | "email") => string;
+  onContactChange?: (row: UploadedContactRow, field: "name" | "phone" | "email", value: string) => void;
+  onContactBlur?: (row: UploadedContactRow, field: "name" | "phone" | "email") => void;
+  patchPending?: boolean;
 };
 
 export function UploadedContactsTable({
@@ -27,6 +36,12 @@ export function UploadedContactsTable({
   error = null,
   pageSize = 20,
   highlightAllowlist = false,
+  editable = false,
+  locked = false,
+  contactValue,
+  onContactChange,
+  onContactBlur,
+  patchPending = false,
 }: UploadedContactsTableProps) {
   const [page, setPage] = React.useState(0);
 
@@ -39,6 +54,9 @@ export function UploadedContactsTable({
 
   const start = page * pageSize;
   const rows = contacts.slice(start, start + pageSize);
+
+  const cellValue = (row: UploadedContactRow, field: "name" | "phone" | "email") =>
+    contactValue ? contactValue(row, field) : String(row[field] || "");
 
   if (loading) {
     return (
@@ -61,6 +79,8 @@ export function UploadedContactsTable({
     ? contacts.filter((c) => c.phoneCallAllowed === false).length
     : 0;
 
+  const canEdit = editable && !locked;
+
   return (
     <div className="space-y-2 animate-fade-in">
       <div className="flex items-center justify-between gap-2">
@@ -77,61 +97,91 @@ export function UploadedContactsTable({
           remove them; only allowed numbers will be dialled.
         </p>
       ) : null}
+      {canEdit ? (
+        <p className="text-xs text-muted-foreground">Click a field to edit name, phone, or email — changes save when you leave the field.</p>
+      ) : null}
       <div className="overflow-hidden rounded-lg border border-border">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Phone</TableHead>
+              <TableHead>Email</TableHead>
               <TableHead>Language</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((c, i) => {
               const blocked = highlightAllowlist && c.phoneCallAllowed === false;
+              const rowKey = c.id || `${c.phone}-${start + i}`;
               return (
-              <TableRow key={`${c.phone}-${start + i}`} className={blocked ? "bg-destructive/5" : undefined}>
-                <TableCell className="font-medium">{c.name || "—"}</TableCell>
-                <TableCell className="tabular-nums">
-                  <span className={blocked ? "text-destructive font-medium" : undefined}>{c.phone}</span>
-                  {blocked && c.phoneCallBlockReason ? (
-                    <p className="text-[10px] text-destructive/90 mt-0.5 max-w-[220px]">{c.phoneCallBlockReason}</p>
-                  ) : null}
-                </TableCell>
-                <TableCell className="text-muted-foreground">{c.language || "—"}</TableCell>
-              </TableRow>
-            );
+                <TableRow key={rowKey} className={blocked ? "bg-destructive/5" : undefined}>
+                  <TableCell>
+                    {canEdit && c.id ? (
+                      <Input
+                        value={cellValue(c, "name")}
+                        onChange={(e) => onContactChange?.(c, "name", e.target.value)}
+                        onBlur={() => onContactBlur?.(c, "name")}
+                        disabled={patchPending}
+                        className="h-8 min-w-[120px] text-xs"
+                      />
+                    ) : (
+                      <span className="font-medium">{c.name || "—"}</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="tabular-nums">
+                    {canEdit && c.id ? (
+                      <Input
+                        value={cellValue(c, "phone")}
+                        onChange={(e) => onContactChange?.(c, "phone", e.target.value)}
+                        onBlur={() => onContactBlur?.(c, "phone")}
+                        disabled={patchPending}
+                        className="h-8 min-w-[120px] text-xs"
+                      />
+                    ) : (
+                      <>
+                        <span className={blocked ? "text-destructive font-medium" : undefined}>{c.phone}</span>
+                        {blocked && c.phoneCallBlockReason ? (
+                          <p className="text-[10px] text-destructive/90 mt-0.5 max-w-[220px]">{c.phoneCallBlockReason}</p>
+                        ) : null}
+                      </>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {canEdit && c.id ? (
+                      <Input
+                        type="email"
+                        value={cellValue(c, "email")}
+                        onChange={(e) => onContactChange?.(c, "email", e.target.value)}
+                        onBlur={() => onContactBlur?.(c, "email")}
+                        disabled={patchPending}
+                        className="h-8 min-w-[140px] text-xs"
+                      />
+                    ) : (
+                      <span className="text-muted-foreground">{c.email || "—"}</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{c.language || "—"}</TableCell>
+                </TableRow>
+              );
             })}
           </TableBody>
         </Table>
       </div>
       {pageCount > 1 ? (
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">
-            Showing {start + 1}–{Math.min(start + pageSize, total)} of {total}
-          </p>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1"
-              disabled={page <= 0}
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-            >
-              <ChevronLeft className="size-3.5" /> Previous
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1"
-              disabled={page >= pageCount - 1}
-              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-            >
-              Next <ChevronRight className="size-3.5" />
-            </Button>
-          </div>
+        <div className="flex items-center justify-end gap-2">
+          <Button type="button" size="sm" variant="outline" disabled={page <= 0} onClick={() => setPage((p) => p - 1)}>
+            <ChevronLeft className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page >= pageCount - 1}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            <ChevronRight className="size-4" />
+          </Button>
         </div>
       ) : null}
     </div>
