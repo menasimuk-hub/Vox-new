@@ -43,6 +43,8 @@ def _load_seed_module(name: str):
     if spec is None or spec.loader is None:
         raise SystemExit(f"Could not load seed module: {path}")
     mod = importlib.util.module_from_spec(spec)
+    # Required before exec_module: @dataclass reads sys.modules[cls.__module__]
+    sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
 
