@@ -11,6 +11,7 @@ const GROUP_ICONS = {
   Onboarding: 'ti-clipboard-check',
   Operations: 'ti-activity',
   'Customer feedback': 'ti-message-circle',
+  Campaigns: 'ti-megaphone',
   'AI Marketing': 'ti-speakerphone',
   Integrations: 'ti-plug',
   'Services API': 'ti-api',
@@ -30,6 +31,7 @@ const GROUP_SECTION = {
   Onboarding: 'Main',
   Operations: 'Main',
   'Customer feedback': 'Main',
+  Campaigns: 'Main',
   'AI Marketing': 'Growth & finance',
   Integrations: 'Growth & finance',
   'Services API': 'Growth & finance',
@@ -79,6 +81,13 @@ const NAV = [
       ['Locations', '/customer-feedback/locations'],
       ['Results', '/customer-feedback/results'],
       ['WhatsApp templates', '/customer-feedback/wa-templates'],
+    ],
+  ],
+  [
+    'Campaigns',
+    [
+      ['Overview', '/campaigns'],
+      ['Template library', '/campaigns/templates'],
     ],
   ],
   [

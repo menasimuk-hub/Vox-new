@@ -89,6 +89,8 @@ import FeedbackIndustriesList from './pages/customer-feedback/FeedbackIndustries
 import FeedbackIndustryEdit from './pages/customer-feedback/FeedbackIndustryEdit'
 import FeedbackPackagesPricing from './pages/customer-feedback/FeedbackPackagesPricing'
 import FeedbackSurveyTypeEdit from './pages/customer-feedback/FeedbackSurveyTypeEdit'
+import CampaignsHub from './pages/campaigns/CampaignsHub'
+import CampaignTemplates from './pages/campaigns/CampaignTemplates'
 import { defaultAdminHome } from './lib/adminPaths'
 import { useAdminProfile } from './context/AdminProfileContext'
 
@@ -140,6 +142,9 @@ export default function App() {
         <Route path='/customer-feedback/packages' element={<FeedbackPackagesPricing />} />
         <Route path='/customer-feedback/survey-types/:typeId' element={<FeedbackSurveyTypeEdit />} />
         <Route path='/customer-feedback/:tab' element={<CustomerFeedbackHub />} />
+
+        <Route path='/campaigns' element={<CampaignsHub />} />
+        <Route path='/campaigns/templates' element={<CampaignTemplates />} />
 
         <Route path='/operations/running-surveys' element={<RunningSurveys />} />
         <Route path='/operations/wa-survey-insights' element={<WaSurveyInsights />} />

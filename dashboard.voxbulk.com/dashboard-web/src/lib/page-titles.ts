@@ -25,6 +25,10 @@ const map: Record<string, T> = {
 
   "/follow-up": { title: "Reminder sequences", subtitle: "WhatsApp reminders" },
 
+  "/campaigns": { title: "My templates", subtitle: "Broadcast campaigns" },
+  "/campaigns/new": { title: "Create template", subtitle: "WhatsApp broadcast" },
+  "/campaigns/send": { title: "Send campaign", subtitle: "Broadcast to audience" },
+
   "/settings/services": { title: "Services", subtitle: "Enable / disable modules" },
   "/settings/profile": { title: "Profile settings", subtitle: "Company & revenue" },
   "/settings/system": { title: "System settings", subtitle: "API, WhatsApp, AI calling" },

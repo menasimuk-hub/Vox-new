@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import * as React from "react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -9,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { NewCampaignPicker } from "@/components/new-campaign-picker";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,7 @@ function Dashboard() {
   const { visible } = useServices();
   const { openChat } = useConnections();
   const { session } = useSession();
+  const [pickOpen, setPickOpen] = React.useState(false);
   const summaryQ = useHomeSummary();
   const interviewOrdersQ = useServiceOrders("interview");
   const summary = summaryQ.data;
@@ -44,15 +47,12 @@ function Dashboard() {
         actions={
           <>
             <Button variant="outline" className="gap-1.5" onClick={openChat}><Sparkles className="size-4" /> Ask AI</Button>
-            {visible.interviews && (
-              <Button asChild className="gap-1.5"><Link to="/interviews/new" search={{ new: true }}><Plus className="size-4" /> New campaign</Link></Button>
-            )}
-            {!visible.interviews && visible.surveys && (
-              <Button asChild className="gap-1.5"><Link to="/surveys/new"><Plus className="size-4" /> New survey</Link></Button>
-            )}
+            <Button className="gap-1.5" onClick={() => setPickOpen(true)}><Plus className="size-4" /> New campaign</Button>
           </>
         }
       />
+
+      <NewCampaignPicker open={pickOpen} onOpenChange={setPickOpen} />
 
       {summaryQ.isLoading && <Skeleton className="h-24 w-full rounded-xl" />}
 

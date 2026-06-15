@@ -22,6 +22,7 @@ import { Route as AppSurveysIndexRouteImport } from './routes/_app.surveys.index
 import { Route as AppRecoveryIndexRouteImport } from './routes/_app.recovery.index'
 import { Route as AppInterviewsIndexRouteImport } from './routes/_app.interviews.index'
 import { Route as AppFeedbackIndexRouteImport } from './routes/_app.feedback.index'
+import { Route as AppCampaignsIndexRouteImport } from './routes/_app.campaigns.index'
 import { Route as AppSurveysResultsRouteImport } from './routes/_app.surveys.results'
 import { Route as AppSurveysReportsRouteImport } from './routes/_app.surveys.reports'
 import { Route as AppSurveysNewRouteImport } from './routes/_app.surveys.new'
@@ -43,6 +44,8 @@ import { Route as AppInterviewsNewRouteImport } from './routes/_app.interviews.n
 import { Route as AppInterviewsOrderIdRouteImport } from './routes/_app.interviews.$orderId'
 import { Route as AppFeedbackResultsRouteImport } from './routes/_app.feedback.results'
 import { Route as AppFeedbackNewRouteImport } from './routes/_app.feedback.new'
+import { Route as AppCampaignsSendRouteImport } from './routes/_app.campaigns.send'
+import { Route as AppCampaignsNewRouteImport } from './routes/_app.campaigns.new'
 import { Route as AppAccountUsageRouteImport } from './routes/_app.account.usage'
 import { Route as AppAccountSupportRouteImport } from './routes/_app.account.support'
 import { Route as AppAccountPackagesRouteImport } from './routes/_app.account.packages'
@@ -117,6 +120,11 @@ const AppFeedbackIndexRoute = AppFeedbackIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppFeedbackRoute,
+} as any)
+const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppSurveysResultsRoute = AppSurveysResultsRouteImport.update({
   id: '/results',
@@ -223,6 +231,16 @@ const AppFeedbackNewRoute = AppFeedbackNewRouteImport.update({
   path: '/new',
   getParentRoute: () => AppFeedbackRoute,
 } as any)
+const AppCampaignsSendRoute = AppCampaignsSendRouteImport.update({
+  id: '/campaigns/send',
+  path: '/campaigns/send',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsNewRoute = AppCampaignsNewRouteImport.update({
+  id: '/campaigns/new',
+  path: '/campaigns/new',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAccountUsageRoute = AppAccountUsageRouteImport.update({
   id: '/account/usage',
   path: '/account/usage',
@@ -291,6 +309,8 @@ export interface FileRoutesByFullPath {
   '/account/packages': typeof AppAccountPackagesRoute
   '/account/support': typeof AppAccountSupportRouteWithChildren
   '/account/usage': typeof AppAccountUsageRoute
+  '/campaigns/new': typeof AppCampaignsNewRoute
+  '/campaigns/send': typeof AppCampaignsSendRoute
   '/feedback/new': typeof AppFeedbackNewRoute
   '/feedback/results': typeof AppFeedbackResultsRoute
   '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
@@ -312,6 +332,7 @@ export interface FileRoutesByFullPath {
   '/surveys/new': typeof AppSurveysNewRoute
   '/surveys/reports': typeof AppSurveysReportsRoute
   '/surveys/results': typeof AppSurveysResultsRoute
+  '/campaigns/': typeof AppCampaignsIndexRoute
   '/feedback/': typeof AppFeedbackIndexRoute
   '/interviews/': typeof AppInterviewsIndexRoute
   '/recovery/': typeof AppRecoveryIndexRoute
@@ -331,6 +352,8 @@ export interface FileRoutesByTo {
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
   '/account/usage': typeof AppAccountUsageRoute
+  '/campaigns/new': typeof AppCampaignsNewRoute
+  '/campaigns/send': typeof AppCampaignsSendRoute
   '/feedback/new': typeof AppFeedbackNewRoute
   '/feedback/results': typeof AppFeedbackResultsRoute
   '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
@@ -351,6 +374,7 @@ export interface FileRoutesByTo {
   '/surveys/new': typeof AppSurveysNewRoute
   '/surveys/reports': typeof AppSurveysReportsRoute
   '/surveys/results': typeof AppSurveysResultsRoute
+  '/campaigns': typeof AppCampaignsIndexRoute
   '/feedback': typeof AppFeedbackIndexRoute
   '/interviews': typeof AppInterviewsIndexRoute
   '/recovery': typeof AppRecoveryIndexRoute
@@ -377,6 +401,8 @@ export interface FileRoutesById {
   '/_app/account/packages': typeof AppAccountPackagesRoute
   '/_app/account/support': typeof AppAccountSupportRouteWithChildren
   '/_app/account/usage': typeof AppAccountUsageRoute
+  '/_app/campaigns/new': typeof AppCampaignsNewRoute
+  '/_app/campaigns/send': typeof AppCampaignsSendRoute
   '/_app/feedback/new': typeof AppFeedbackNewRoute
   '/_app/feedback/results': typeof AppFeedbackResultsRoute
   '/_app/interviews/$orderId': typeof AppInterviewsOrderIdRoute
@@ -398,6 +424,7 @@ export interface FileRoutesById {
   '/_app/surveys/new': typeof AppSurveysNewRoute
   '/_app/surveys/reports': typeof AppSurveysReportsRoute
   '/_app/surveys/results': typeof AppSurveysResultsRoute
+  '/_app/campaigns/': typeof AppCampaignsIndexRoute
   '/_app/feedback/': typeof AppFeedbackIndexRoute
   '/_app/interviews/': typeof AppInterviewsIndexRoute
   '/_app/recovery/': typeof AppRecoveryIndexRoute
@@ -424,6 +451,8 @@ export interface FileRouteTypes {
     | '/account/packages'
     | '/account/support'
     | '/account/usage'
+    | '/campaigns/new'
+    | '/campaigns/send'
     | '/feedback/new'
     | '/feedback/results'
     | '/interviews/$orderId'
@@ -445,6 +474,7 @@ export interface FileRouteTypes {
     | '/surveys/new'
     | '/surveys/reports'
     | '/surveys/results'
+    | '/campaigns/'
     | '/feedback/'
     | '/interviews/'
     | '/recovery/'
@@ -464,6 +494,8 @@ export interface FileRouteTypes {
     | '/account/billing'
     | '/account/packages'
     | '/account/usage'
+    | '/campaigns/new'
+    | '/campaigns/send'
     | '/feedback/new'
     | '/feedback/results'
     | '/interviews/$orderId'
@@ -484,6 +516,7 @@ export interface FileRouteTypes {
     | '/surveys/new'
     | '/surveys/reports'
     | '/surveys/results'
+    | '/campaigns'
     | '/feedback'
     | '/interviews'
     | '/recovery'
@@ -509,6 +542,8 @@ export interface FileRouteTypes {
     | '/_app/account/packages'
     | '/_app/account/support'
     | '/_app/account/usage'
+    | '/_app/campaigns/new'
+    | '/_app/campaigns/send'
     | '/_app/feedback/new'
     | '/_app/feedback/results'
     | '/_app/interviews/$orderId'
@@ -530,6 +565,7 @@ export interface FileRouteTypes {
     | '/_app/surveys/new'
     | '/_app/surveys/reports'
     | '/_app/surveys/results'
+    | '/_app/campaigns/'
     | '/_app/feedback/'
     | '/_app/interviews/'
     | '/_app/recovery/'
@@ -639,6 +675,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/feedback/'
       preLoaderRoute: typeof AppFeedbackIndexRouteImport
       parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/campaigns/': {
+      id: '/_app/campaigns/'
+      path: '/campaigns'
+      fullPath: '/campaigns/'
+      preLoaderRoute: typeof AppCampaignsIndexRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/surveys/results': {
       id: '/_app/surveys/results'
@@ -786,6 +829,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/feedback/new'
       preLoaderRoute: typeof AppFeedbackNewRouteImport
       parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/campaigns/send': {
+      id: '/_app/campaigns/send'
+      path: '/campaigns/send'
+      fullPath: '/campaigns/send'
+      preLoaderRoute: typeof AppCampaignsSendRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/campaigns/new': {
+      id: '/_app/campaigns/new'
+      path: '/campaigns/new'
+      fullPath: '/campaigns/new'
+      preLoaderRoute: typeof AppCampaignsNewRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/account/usage': {
       id: '/_app/account/usage'
@@ -976,6 +1033,8 @@ interface AppRouteChildren {
   AppAccountPackagesRoute: typeof AppAccountPackagesRoute
   AppAccountSupportRoute: typeof AppAccountSupportRouteWithChildren
   AppAccountUsageRoute: typeof AppAccountUsageRoute
+  AppCampaignsNewRoute: typeof AppCampaignsNewRoute
+  AppCampaignsSendRoute: typeof AppCampaignsSendRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsOptOutRoute: typeof AppSettingsOptOutRoute
@@ -983,6 +1042,7 @@ interface AppRouteChildren {
   AppSettingsServicesRoute: typeof AppSettingsServicesRoute
   AppSettingsSystemRoute: typeof AppSettingsSystemRoute
   AppSettingsTeamRoute: typeof AppSettingsTeamRoute
+  AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
   AppAccountFeedbackPackagesRoute: typeof AppAccountFeedbackPackagesRoute
 }
 
@@ -998,6 +1058,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountPackagesRoute: AppAccountPackagesRoute,
   AppAccountSupportRoute: AppAccountSupportRouteWithChildren,
   AppAccountUsageRoute: AppAccountUsageRoute,
+  AppCampaignsNewRoute: AppCampaignsNewRoute,
+  AppCampaignsSendRoute: AppCampaignsSendRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsOptOutRoute: AppSettingsOptOutRoute,
@@ -1005,6 +1067,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsServicesRoute: AppSettingsServicesRoute,
   AppSettingsSystemRoute: AppSettingsSystemRoute,
   AppSettingsTeamRoute: AppSettingsTeamRoute,
+  AppCampaignsIndexRoute: AppCampaignsIndexRoute,
   AppAccountFeedbackPackagesRoute: AppAccountFeedbackPackagesRoute,
 }
 

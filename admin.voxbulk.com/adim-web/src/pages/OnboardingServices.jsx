@@ -7,6 +7,7 @@ const SERVICE_ROWS = [
   { key: 'customer_feedback', label: 'Customer feedback', desc: 'WhatsApp QR feedback by location' },
   { key: 'recovery', label: 'Recovery', desc: 'Missed-appointment & recall outreach' },
   { key: 'follow_up', label: 'Follow up', desc: 'WhatsApp appointment reminders' },
+  { key: 'campaigns', label: 'Broadcast campaigns', desc: 'WhatsApp template broadcasts (preview)' },
 ]
 
 const EMPTY_SERVICES = {
@@ -15,6 +16,7 @@ const EMPTY_SERVICES = {
   customer_feedback: false,
   recovery: false,
   follow_up: false,
+  campaigns: false,
 }
 
 function ServiceToggleRows({ services, onToggle, enabledCount, disabled }) {
@@ -106,6 +108,7 @@ export default function OnboardingServices() {
           customer_feedback: Boolean(raw.customer_feedback),
           recovery: Boolean(raw.recovery),
           follow_up: Boolean(raw.follow_up),
+          campaigns: Boolean(raw.campaigns),
         })
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Could not load platform defaults')
@@ -141,6 +144,7 @@ export default function OnboardingServices() {
           customer_feedback: Boolean(data?.allowed_services?.customer_feedback),
           recovery: Boolean(data?.allowed_services?.recovery),
           follow_up: Boolean(data?.allowed_services?.follow_up),
+          campaigns: Boolean(data?.allowed_services?.campaigns),
         })
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Could not load organisation services')

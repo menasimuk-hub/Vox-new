@@ -81,6 +81,11 @@ const groups: Group[] = [
     { title: "Saved QR surveys", url: "/feedback", icon: ListChecks },
     { title: "Feedback results", url: "/feedback/results", icon: BarChart3 },
   ]},
+  { key: "campaigns", label: "Campaigns", items: [
+    { title: "Create template", url: "/campaigns/new", icon: FilePlus2 },
+    { title: "My templates", url: "/campaigns", icon: ListChecks },
+    { title: "Send campaign", url: "/campaigns/send", icon: Megaphone },
+  ]},
   { key: "recovery", label: "Recovery", items: [
     { title: "Recovery queue", url: "/recovery", icon: HeartPulse },
     { title: "No-show follow-up", url: "/recovery/no-show", icon: AlarmClockOff },
@@ -169,8 +174,8 @@ export function AppSidebar() {
 }
 function BrandMark() {
   const { theme } = useTheme();
-  const fullLogo = theme === "dark" ? brandAssets.logoWhite : brandAssets.logoBlack;
-  const iconLogo = theme === "dark" ? brandAssets.iconWhite : brandAssets.iconBlack;
+  const fullLogo = theme === "dark" ? brandAssets.logoLight : brandAssets.logoDark;
+  const iconLogo = theme === "dark" ? brandAssets.iconLight : brandAssets.iconDark;
   return (
     <Link
       to="/"
@@ -180,11 +185,17 @@ function BrandMark() {
         src={fullLogo}
         alt="VoxBulk"
         className="h-8 w-auto object-contain group-data-[collapsible=icon]:hidden"
+        onError={(e) => {
+          (e.target as HTMLImageElement).src = theme === "dark" ? brandAssets.logoWhite : brandAssets.logoBlack;
+        }}
       />
       <img
         src={iconLogo}
         alt="VoxBulk"
         className="hidden h-[30px] w-[30px] object-contain group-data-[collapsible=icon]:block"
+        onError={(e) => {
+          (e.target as HTMLImageElement).src = theme === "dark" ? brandAssets.iconWhite : brandAssets.iconBlack;
+        }}
       />
     </Link>
   );
@@ -261,6 +272,7 @@ function headIcon(key: Group["key"]) {
   switch (key) {
     case "interviews": return PhoneCall;
     case "surveys": return ClipboardList;
+    case "campaigns": return Megaphone;
     case "recovery": return HeartPulse;
     case "followup": return CalendarClock;
     case "settings": return SettingsIcon;

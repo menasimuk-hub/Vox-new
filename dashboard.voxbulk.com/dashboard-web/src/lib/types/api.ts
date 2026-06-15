@@ -4,6 +4,7 @@ export type ApiEnabledServices = {
   customer_feedback?: boolean;
   recovery?: boolean;
   follow_up?: boolean;
+  campaigns?: boolean;
 };
 
 export type Organisation = {

@@ -1,5 +1,5 @@
 import { useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Moon, Search, Sun, Sparkles, Send, X, Bot, User as UserIcon, Menu } from "lucide-react";
+import { Bell, Moon, Search, Sun, Send, X, User as UserIcon, Menu } from "lucide-react";
 import * as React from "react";
 
 import { useSidebar } from "@/components/ui/sidebar";
@@ -15,6 +15,11 @@ import { useAssistantHighlight } from "@/lib/assistant-highlight";
 import { executeUiCommands } from "@/lib/assistant-ui-commands";
 import { useServices, type ServiceKey } from "@/lib/services";
 import type { AssistantChatResponse, AssistantNextAction } from "@/lib/types/assistant";
+import { brandAssets } from "@/lib/brand";
+
+function AiBrandIcon({ className }: { className?: string }) {
+  return <img src={brandAssets.iconDark} alt="" className={className} aria-hidden />;
+}
 
 function SidebarToggle() {
   const { toggleSidebar } = useSidebar();
@@ -64,7 +69,7 @@ export function TopBar() {
           aria-label="Ask AI"
           title="Ask AI"
         >
-          <Sparkles className="size-4 text-amber-300 animate-pulse" />
+          <AiBrandIcon className="size-4" />
           <span className="hidden text-xs font-semibold sm:inline">Ask AI</span>
         </Button>
         <Button size="icon" variant="ghost" className="size-8 sm:size-9" onClick={toggle} aria-label="Toggle theme">
@@ -288,7 +293,7 @@ export function LiveChatFab() {
           aria-label="Open VoxBulk AI assistant"
           className="fixed bottom-4 right-4 z-50 flex size-14 items-center justify-center rounded-full bg-[#0f1b3d] text-white shadow-[0_0_18px_rgba(15,27,61,0.35)] transition hover:scale-105 active:scale-95"
         >
-          <Sparkles className="size-6 text-amber-300 animate-pulse" />
+          <AiBrandIcon className="size-6" />
         </button>
       ) : null}
 
@@ -302,7 +307,7 @@ export function LiveChatFab() {
         >
           <div className="flex cursor-grab items-center justify-between border-b border-border bg-gradient-to-r from-primary to-primary/80 px-3 py-2 text-primary-foreground active:cursor-grabbing">
             <div className="flex items-center gap-2">
-              <Sparkles className="size-4" />
+              <AiBrandIcon className="size-4" />
               <p className="text-sm font-semibold">VoxBulk AI</p>
             </div>
             <div className="flex items-center gap-1">
@@ -363,7 +368,7 @@ export function LiveChatFab() {
             ))}
             {thinking && (
               <div className="flex items-start gap-2">
-                <div className="grid size-6 shrink-0 place-items-center rounded-full bg-primary/15 text-primary"><Bot className="size-3.5" /></div>
+                <div className="grid size-6 shrink-0 place-items-center rounded-full bg-primary/15 p-0.5"><AiBrandIcon className="size-full object-contain" /></div>
                 <div className="rounded-2xl rounded-bl-sm border border-border bg-card px-3 py-2">
                   <div className="flex gap-1">
                     <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:0ms]" />
@@ -410,8 +415,8 @@ function ChatBubble({ role, text }: { role: "user" | "ai"; text: string }) {
   const isAi = role === "ai";
   return (
     <div className={"flex items-start gap-2 " + (isAi ? "" : "flex-row-reverse")}>
-      <div className={"grid size-6 shrink-0 place-items-center rounded-full " + (isAi ? "bg-primary/15 text-primary" : "bg-accent text-accent-foreground")}>
-        {isAi ? <Bot className="size-3.5" /> : <UserIcon className="size-3.5" />}
+      <div className={"grid size-6 shrink-0 place-items-center rounded-full p-0.5 " + (isAi ? "bg-primary/15" : "bg-accent text-accent-foreground")}>
+        {isAi ? <AiBrandIcon className="size-full object-contain" /> : <UserIcon className="size-3.5" />}
       </div>
       <div className={
         "max-w-[80%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed " +

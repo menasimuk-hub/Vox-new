@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { Clock, FileText, MessageCircle, Phone, Wallet } from "lucide-react";
+import { Check, Clock, FileText, MessageCircle, Phone, Wallet, Smile, Megaphone, Sparkles, Briefcase, ClipboardList, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,13 +13,15 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api";
-import { gocardlessAvailable, startGoCardlessSubscription } from "@/lib/billing/gocardless";
+import { gocardlessAvailable, startGoCardlessSubscription, startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
 import { marketLabel } from "@/lib/billing/market";
 import { isSamePlan, planButtonLabel, sortedPlans, type PlanLike } from "@/lib/billing/plans";
-import { useBillingPricing, useBillingWallet, useCreateSupportTicket, useOrganisation } from "@/lib/queries";
+import { changeFeedbackPlan, useBillingPricing, useBillingWallet, useCreateSupportTicket, useFeedbackPackages, useFeedbackSubscription, useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
+import type { FeedbackPackage } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/account/packages")({
   head: () => ({ meta: [{ title: "Packages & pricing — VoxBulk" }] }),
@@ -26,6 +29,27 @@ export const Route = createFileRoute("/_app/account/packages")({
 });
 
 type PlanRow = Record<string, unknown>;
+type ServiceTab = "core" | "feedback" | "campaigns";
+
+const CURRENCY_SYMBOL: Record<string, string> = {
+  GBP: "£",
+  EUR: "€",
+  USD: "$",
+  CAD: "CA$",
+  AUD: "A$",
+};
+
+const SERVICE_TABS: Record<ServiceTab, { label: string; icon: React.ComponentType<{ className?: string }>; tint: string; ring: string; bg: string; chip: string; blurb: string; billing: string }> = {
+  core: { label: "Core platform", icon: Sparkles, tint: "text-primary", ring: "ring-primary/30", bg: "from-primary/10", chip: "bg-primary/15 text-primary", blurb: "Subscription includes Surveys and Interviews — pay by AI minutes, top up anytime.", billing: "Subscription + top-up" },
+  feedback: { label: "Customer Feedback", icon: Smile, tint: "text-success", ring: "ring-success/30", bg: "from-success/10", chip: "bg-success/15 text-success", blurb: "QR-driven WhatsApp feedback. Flat monthly subscription — no top-ups.", billing: "Subscription only" },
+  campaigns: { label: "Campaigns", icon: Megaphone, tint: "text-amber-500", ring: "ring-amber-500/30", bg: "from-amber-500/10", chip: "bg-amber-500/15 text-amber-500", blurb: "WhatsApp broadcast templates — buy credit packs when you need to send.", billing: "Top-up credits" },
+};
+
+const CAMPAIGN_CREDIT_PACKS = [
+  { name: "Campaign 1k", sends: 1000, featured: false },
+  { name: "Campaign 5k", sends: 5000, featured: true },
+  { name: "Campaign 25k", sends: 25000, featured: false },
+];
 
 function isPaygPlan(plan: PlanRow) {
   return String(plan.code || "").toLowerCase() === "payg" || Boolean(plan.is_payg);
@@ -49,9 +73,12 @@ function PackagesPage() {
   const orgCountry = String(orgQ.data?.country || "").trim();
   const pricingQ = useBillingPricing("auto", orgCountry);
   const walletQ = useBillingWallet();
+  const feedbackPackagesQ = useFeedbackPackages();
+  const feedbackSubQ = useFeedbackSubscription();
   const createTicketM = useCreateSupportTicket();
   const [topupOpen, setTopupOpen] = React.useState(false);
-  const [packagesTab, setPackagesTab] = React.useState<"plans" | "services" | "wallet">("plans");
+  const [packagesTab, setPackagesTab] = React.useState<ServiceTab>("core");
+  const [busyFeedbackPlanId, setBusyFeedbackPlanId] = React.useState<string | null>(null);
   const [enterpriseOpen, setEnterpriseOpen] = React.useState(false);
   const [enterpriseScreenings, setEnterpriseScreenings] = React.useState("");
   const [enterpriseWaSurveys, setEnterpriseWaSurveys] = React.useState("");
@@ -163,19 +190,54 @@ function PackagesPage() {
   };
 
   const walletBalance = walletQ.data?.wallet_balance_gbp || walletQ.data?.wallet_balance_display || "—";
+  const feedbackPackages = (feedbackPackagesQ.data || []).slice().sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+  const feedbackSub = feedbackSubQ.data;
+  const orgCurrency = String(orgQ.data?.billing_currency || orgQ.data?.currency || "GBP").toUpperCase();
+  const currentFeedbackPlanId = feedbackSub?.active ? feedbackSub.plan_id : null;
+
+  const formatFeedbackPrice = (pkg: FeedbackPackage) => {
+    const prices = pkg.prices || [];
+    const match = prices.find((p) => p.currency.toUpperCase() === orgCurrency) || prices[0];
+    if (!match) return "—";
+    const sym = CURRENCY_SYMBOL[match.currency.toUpperCase()] || `${match.currency} `;
+    return `${sym}${(match.monthly_price_minor / 100).toFixed(0)}/mo`;
+  };
+
+  const onFeedbackSubscribe = async (pkg: FeedbackPackage) => {
+    if (!pkg.plan_id || currentFeedbackPlanId === pkg.plan_id) return;
+    setBusyFeedbackPlanId(pkg.plan_id);
+    try {
+      if (feedbackSub?.active) {
+        await changeFeedbackPlan(pkg.plan_id);
+        toast.success("Feedback plan updated");
+        setBusyFeedbackPlanId(null);
+        return;
+      }
+      await startFeedbackGoCardlessSubscription(pkg.plan_id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update feedback plan");
+      setBusyFeedbackPlanId(null);
+    }
+  };
+
+  const campaignPackPrice = (sends: number) => {
+    const perMsg = sends >= 25000 ? 0.03 : sends >= 5000 ? 0.036 : 0.04;
+    const total = (sends * perMsg).toFixed(0);
+    return { total: `${sym(data)}${total}`, per: `${sym(data)}${perMsg.toFixed(3)} / msg` };
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-16">
       <PageHeader
         eyebrow="Account"
         title="Packages & pricing"
-        description="Subscription plans, service costs, and wallet top-up."
+        description="Each service is billed separately — pick a tab to see its plans."
         actions={
           walletQ.data ? (
             <button
               type="button"
               className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-sm"
-              onClick={() => setPackagesTab("wallet")}
+              onClick={() => setPackagesTab("core")}
             >
               <Wallet className="size-4 text-primary" />
               <span className="text-muted-foreground">Wallet</span>
@@ -185,7 +247,43 @@ function PackagesPage() {
         }
       />
 
-      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
+      <Tabs value={packagesTab} onValueChange={(v) => setPackagesTab(v as ServiceTab)} className="w-full">
+        <TabsList className="grid h-auto w-full grid-cols-3 gap-1 p-1">
+          {(Object.keys(SERVICE_TABS) as ServiceTab[]).map((key) => {
+            const s = SERVICE_TABS[key];
+            const Icon = s.icon;
+            return (
+              <TabsTrigger key={key} value={key} className="flex flex-col items-center gap-1 py-2 data-[state=active]:shadow-sm">
+                <Icon className={`size-4 ${s.tint}`} />
+                <span className="text-[11px] font-medium">{s.label}</span>
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+
+        {(Object.keys(SERVICE_TABS) as ServiceTab[]).map((key) => {
+          const s = SERVICE_TABS[key];
+          const Icon = s.icon;
+          return (
+            <TabsContent key={key} value={key} className="mt-4 space-y-6">
+              <div className={`rounded-2xl border border-border bg-gradient-to-br ${s.bg} to-transparent p-4 ring-1 ${s.ring}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className={`grid size-10 place-items-center rounded-xl bg-background shadow-sm ${s.tint}`}>
+                      <Icon className="size-5" />
+                    </div>
+                    <div>
+                      <p className="text-base font-semibold">{s.label}</p>
+                      <p className="text-xs text-muted-foreground">{s.blurb}</p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className={`${s.chip} border-transparent`}>{s.billing}</Badge>
+                </div>
+
+                <div className="mt-5 space-y-6">
+                  {key === "core" ? (
+                    <>
+      <div className="rounded-lg border border-border bg-background/60 px-4 py-3 text-sm">
         <p className="font-medium">{pricingLabel}</p>
         <p className="text-xs text-muted-foreground">
           Profile country: <span className="font-medium text-foreground">{countryLabel}</span>
@@ -204,22 +302,15 @@ function PackagesPage() {
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-1 rounded-lg border border-border p-1">
-        <Button size="sm" variant={packagesTab === "plans" ? "secondary" : "ghost"} onClick={() => setPackagesTab("plans")}>
-          Plans
-        </Button>
-        <Button size="sm" variant={packagesTab === "services" ? "secondary" : "ghost"} onClick={() => setPackagesTab("services")}>
-          Service costs
-        </Button>
-        <Button size="sm" variant={packagesTab === "wallet" ? "secondary" : "ghost"} onClick={() => setPackagesTab("wallet")} className="gap-1.5">
-          Wallet
-          {walletQ.data ? <span className="text-xs text-muted-foreground">· {walletBalance}</span> : null}
-        </Button>
-      </div>
-
       <WalletTopupDialog open={topupOpen} onOpenChange={setTopupOpen} initialAmountMinor={topupPence} />
 
-      {packagesTab === "plans" ? (
+      <p className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <span className="inline-flex items-center gap-1"><ClipboardList className="size-3.5" /> Surveys</span>
+        <span>+</span>
+        <span className="inline-flex items-center gap-1"><Briefcase className="size-3.5" /> Interviews</span>
+        <span className="text-foreground">included in every plan</span>
+      </p>
+
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subscription plans</h2>
         {pricingQ.isLoading ? (
@@ -290,10 +381,7 @@ function PackagesPage() {
           </div>
         )}
       </section>
-      ) : null}
 
-      {packagesTab === "services" ? (
-      <>
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -358,10 +446,7 @@ function PackagesPage() {
           <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><FileText className="size-4 text-amber-600" /><span className="font-medium">ATS CV scan</span></div><p className="text-xl font-semibold">{String(services.ats_cv_scan_display)}</p><p className="text-xs text-muted-foreground">Per CV screened · Interview WhatsApp included</p></CardContent></Card>
         </div>
       </section>
-      </>
-      ) : null}
 
-      {packagesTab === "wallet" ? (
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -404,7 +489,102 @@ function PackagesPage() {
           </div>
         </CardContent>
       </Card>
-      ) : null}
+                    </>
+                  ) : null}
+
+                  {key === "feedback" ? (
+                    <>
+                      {feedbackPackagesQ.isLoading ? (
+                        <div className="grid gap-3 md:grid-cols-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-56" />)}</div>
+                      ) : feedbackPackages.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          No feedback plans in your market yet.{" "}
+                          <Link to="/account/feedback/packages" className="text-primary underline-offset-4 hover:underline">Open feedback plans</Link>
+                        </p>
+                      ) : (
+                        <div className="grid gap-3 md:grid-cols-3">
+                          {feedbackPackages.map((pkg) => {
+                            const featured = Boolean(pkg.is_featured);
+                            const isCurrent = currentFeedbackPlanId === pkg.plan_id;
+                            return (
+                              <Card key={pkg.id} className={featured ? "border-success shadow-md" : ""}>
+                                <CardHeader className="pb-2">
+                                  <div className="flex items-center justify-between">
+                                    <CardTitle className="text-base">{pkg.plan_name || pkg.plan_code || "Feedback plan"}</CardTitle>
+                                    {featured ? <Badge className="bg-success text-success-foreground hover:bg-success">Best value</Badge> : null}
+                                  </div>
+                                  <CardDescription>
+                                    <span className="text-2xl font-semibold tracking-tight text-foreground">{formatFeedbackPrice(pkg)}</span>
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-2 text-sm">
+                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {pkg.wa_units_included.toLocaleString()} responses / month</p>
+                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {pkg.max_locations} location{pkg.max_locations === 1 ? "" : "s"} & QR codes</p>
+                                  {(pkg.features || []).slice(0, 2).map((f) => (
+                                    <p key={f} className="flex items-center gap-2"><Check className="size-4 text-success" /> {f}</p>
+                                  ))}
+                                  <Button
+                                    className="mt-3 w-full"
+                                    variant={featured && !isCurrent ? "default" : "outline"}
+                                    disabled={isCurrent || busyFeedbackPlanId === pkg.plan_id}
+                                    onClick={() => void onFeedbackSubscribe(pkg)}
+                                  >
+                                    {isCurrent ? "Current plan" : busyFeedbackPlanId === pkg.plan_id ? <Loader2 className="size-4 animate-spin" /> : "Choose plan"}
+                                  </Button>
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Subscription only — no top-ups.{" "}
+                        <Link to="/account/feedback/packages" className="text-primary underline-offset-4 hover:underline">Manage feedback subscription</Link>
+                      </p>
+                    </>
+                  ) : null}
+
+                  {key === "campaigns" ? (
+                    <>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        {CAMPAIGN_CREDIT_PACKS.map((pack) => {
+                          const price = campaignPackPrice(pack.sends);
+                          return (
+                            <Card key={pack.name} className={pack.featured ? "border-amber-500 shadow-md" : ""}>
+                              <CardContent className="p-4">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-medium">{pack.name}</p>
+                                  {pack.featured ? <Badge className="bg-amber-500 text-white hover:bg-amber-500">Popular</Badge> : null}
+                                </div>
+                                <p className="mt-1 text-2xl font-semibold text-amber-600 dark:text-amber-500">{price.total}</p>
+                                <p className="text-xs text-muted-foreground">{pack.sends.toLocaleString()} WhatsApp template sends</p>
+                                <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-500">{price.per}</p>
+                                <Button
+                                  size="sm"
+                                  className="mt-3 w-full"
+                                  variant={pack.featured ? "default" : "outline"}
+                                  onClick={() => toast.info("Campaign credit packs API coming soon.")}
+                                >
+                                  Top up
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Pure top-up — credits never expire. Broadcast send connects when the campaigns module API is live.</p>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </TabsContent>
+          );
+        })}
+      </Tabs>
+
+      <Card><CardContent className="p-4 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Heads up:</span> Core platform, Customer Feedback and Campaigns are billed separately. Campaign credits are preview pricing until the broadcast API launches.
+      </CardContent></Card>
 
       <Dialog open={enterpriseOpen} onOpenChange={setEnterpriseOpen}>
         <DialogContent className="sm:max-w-md">

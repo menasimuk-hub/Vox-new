@@ -11,6 +11,7 @@ DEFAULT_ENABLED_SERVICES: dict[str, bool] = {
     "customer_feedback": False,
     "recovery": False,
     "follow_up": False,
+    "campaigns": False,
 }
 
 SERVICE_KEYS = tuple(DEFAULT_ENABLED_SERVICES.keys())
@@ -63,7 +64,7 @@ class ServiceNotAllowedError(ValueError):
 def validate_at_least_one_enabled(services: dict[str, bool]) -> None:
     if not any_service_enabled(services):
         raise AtLeastOneServiceRequiredError(
-            "At least one dashboard service must remain enabled (interview, survey, customer feedback, recovery, or follow up)."
+            "At least one dashboard service must remain enabled (interview, survey, customer feedback, recovery, follow up, or campaigns)."
         )
 
 
@@ -146,6 +147,7 @@ def service_code_to_enabled_key(service_code: str) -> str | None:
         "follow_up": "follow_up",
         "follow-up": "follow_up",
         "followup": "follow_up",
+        "campaigns": "campaigns",
     }
     return mapping.get(code)
 
