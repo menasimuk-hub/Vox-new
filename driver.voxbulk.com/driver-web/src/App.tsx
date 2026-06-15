@@ -1,8 +1,7 @@
 import React from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import Layout from './components/Layout'
-import Assignments from './pages/Assignments'
 import Login from './pages/Login'
+import DriverConsole from './pages/DriverConsole'
 import { getToken } from './lib/api'
 
 function RequireAuth({ children }) {
@@ -15,15 +14,13 @@ export default function App() {
     <Routes>
       <Route path='/login' element={<Login />} />
       <Route
+        path='/*'
         element={
           <RequireAuth>
-            <Layout />
+            <DriverConsole />
           </RequireAuth>
         }
-      >
-        <Route index element={<Navigate to='/assignments' replace />} />
-        <Route path='/assignments' element={<Assignments />} />
-      </Route>
+      />
     </Routes>
   )
 }

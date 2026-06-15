@@ -1,10 +1,7 @@
 import React from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import Layout from './components/Layout'
 import Login from './pages/Login'
-import Menu from './pages/Menu'
-import Offers from './pages/Offers'
-import Orders from './pages/Orders'
+import RestaurantConsole from './pages/RestaurantConsole'
 import { getToken } from './lib/api'
 
 function RequireAuth({ children }) {
@@ -17,17 +14,13 @@ export default function App() {
     <Routes>
       <Route path='/login' element={<Login />} />
       <Route
+        path='/*'
         element={
           <RequireAuth>
-            <Layout />
+            <RestaurantConsole />
           </RequireAuth>
         }
-      >
-        <Route index element={<Navigate to='/orders' replace />} />
-        <Route path='/orders' element={<Orders />} />
-        <Route path='/menu' element={<Menu />} />
-        <Route path='/offers' element={<Offers />} />
-      </Route>
+      />
     </Routes>
   )
 }
