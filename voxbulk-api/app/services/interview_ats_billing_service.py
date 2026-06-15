@@ -159,6 +159,81 @@ def deposit_ats_wallet(db: Session, order: ServiceOrder, *, amount_pence: int) -
     return _save_order_config(db, order, cfg)
 
 
+def _ats_charges_list(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = cfg.get("ats_charges")
+    return [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
+
+
+def record_ats_charge(
+    db: Session,
+    order: ServiceOrder,
+    org: Organisation,
+    recipient: ServiceOrderRecipient,
+    *,
+    source: str,
+    created_by_user_id: str | None = None,
+) -> dict[str, Any]:
+    """Charge one ATS scan (manual or auto): plan allowance first, then org wallet."""
+    cfg = _order_config(order)
+    charges = _ats_charges_list(cfg)
+    if any(str(row.get("recipient_id") or "") == recipient.id for row in charges):
+        return {"ok": True, "skipped": True, "reason": "already_charged"}
+
+    unit = ats_unit_price_pence(db)
+    wallet_tx_id: str | None = None
+    billing_kind = "wallet"
+    billable_pence = unit
+
+    from app.services.usage_wallet_service import UsageWalletService
+    from app.services.wallet_service import InsufficientWalletBalance, WalletService
+
+    row = UsageWalletService.get_current(db, org.id)
+    included = int(getattr(row, "cv_scans_included", 0) or 0) if row else 0
+    used = int(getattr(row, "cv_scans_used", 0) or 0) if row else 0
+    if row is not None and included > 0 and used < included:
+        UsageWalletService.record_cv_scan_usage(db, org_id=org.id, units=1, commit=False)
+        billing_kind = "plan_included"
+        billable_pence = 0
+    else:
+        tx = WalletService.debit(
+            db,
+            org,
+            amount_minor=unit,
+            kind="ats_debit",
+            description=f"ATS CV screening — {recipient.name or 'Candidate'}"[:500],
+            order_id=order.id,
+            created_by_user_id=created_by_user_id,
+            metadata={"recipient_id": recipient.id, "source": source},
+            commit=False,
+        )
+        wallet_tx_id = tx.id
+        UsageWalletService.record_cv_scan_usage(db, org_id=org.id, units=1, commit=False)
+
+    charges.append(
+        {
+            "recipient_id": recipient.id,
+            "source": str(source or "manual").strip().lower()[:16],
+            "catalog_unit_pence": unit,
+            "amount_pence": billable_pence,
+            "billing_kind": billing_kind,
+            "wallet_tx_id": wallet_tx_id,
+            "at": datetime.utcnow().isoformat(),
+        }
+    )
+    cfg["ats_charges"] = charges[-500:]
+    cfg["ats_last_charge_at"] = datetime.utcnow().isoformat()
+    cfg["ats_last_charge_count"] = len(charges)
+    cfg["ats_last_unit_pence"] = unit
+    _save_order_config(db, order, cfg)
+    return {
+        "ok": True,
+        "catalog_unit_pence": unit,
+        "amount_pence": billable_pence,
+        "billing_kind": billing_kind,
+        "wallet_tx_id": wallet_tx_id,
+    }
+
+
 def charge_and_queue_ats(
     db: Session,
     order: ServiceOrder,
@@ -177,36 +252,55 @@ def charge_and_queue_ats(
     quote = quote_ats_run(db, order, force=force, recipient_ids=recipient_ids)
     count = int(quote["candidate_count"] or 0)
     cfg = _order_config(order)
-    if require_script:
-        cfg["ats_manual_run_at"] = datetime.utcnow().isoformat()
     if count <= 0:
         order = _save_order_config(db, order, cfg)
         return {"ok": True, "queued": 0, "message": "No CVs need ATS scoring", **quote}
 
-    total = int(quote["total_pence"] or 0)
-    wallet = ats_wallet_pence(order)
-    if total > wallet and not confirm_charge:
+    ids = [str(rid).strip() for rid in (recipient_ids or quote.get("recipient_ids") or []) if str(rid).strip()]
+    pending_recipients = list(
+        db.execute(
+            select(ServiceOrderRecipient).where(
+                ServiceOrderRecipient.order_id == order.id,
+                ServiceOrderRecipient.id.in_(ids),
+            )
+        ).scalars()
+    ) if ids else []
+
+    if require_script:
+        cfg["ats_manual_run_at"] = datetime.utcnow().isoformat()
+        _save_order_config(db, order, cfg)
+
+    unit = int(quote["unit_price_pence"] or 0)
+    from app.services.usage_wallet_service import UsageWalletService
+    from app.services.wallet_service import InsufficientWalletBalance, WalletService
+
+    usage_row = UsageWalletService.get_current(db, org.id)
+    included = int(getattr(usage_row, "cv_scans_included", 0) or 0) if usage_row else 0
+    used = int(getattr(usage_row, "cv_scans_used", 0) or 0) if usage_row else 0
+    plan_remaining = max(0, included - used)
+    wallet_units = max(0, count - plan_remaining)
+    wallet_needed = wallet_units * unit
+    if wallet_needed > 0 and WalletService.balance_minor(org) < wallet_needed and not confirm_charge:
         raise InterviewAtsBillingError(
             f"ATS costs {quote['total_gbp']} ({count} × {quote['unit_price_gbp']}). "
             "Confirm payment to continue."
         )
 
-    if total > wallet:
-        cfg["ats_pending_charge_pence"] = total
-        cfg["ats_last_charge_at"] = datetime.utcnow().isoformat()
-        cfg["ats_last_charge_count"] = count
-    elif total > 0:
-        cfg["ats_last_charge_at"] = datetime.utcnow().isoformat()
-        cfg["ats_last_charge_count"] = count
-        cfg["ats_wallet_pence"] = wallet - total
-        ledger = cfg.get("ats_wallet_ledger")
-        if not isinstance(ledger, list):
-            ledger = []
-        ledger.append({"amount_pence": -total, "at": datetime.utcnow().isoformat(), "kind": "ats_run"})
-        cfg["ats_wallet_ledger"] = ledger[-50:]
+    charged_pence = 0
+    for recipient in pending_recipients:
+        try:
+            result = record_ats_charge(
+                db,
+                order,
+                org,
+                recipient,
+                source="manual",
+            )
+            charged_pence += int(result.get("amount_pence") or 0)
+        except InsufficientWalletBalance as exc:
+            raise InterviewAtsBillingError(str(exc)) from exc
+    db.refresh(order)
 
-    order = _save_order_config(db, order, cfg)
-    ids = [str(rid).strip() for rid in (recipient_ids or quote.get("recipient_ids") or []) if str(rid).strip()]
     queued = queue_ats_for_order(db, order, recipient_ids=ids or None, force=force)
     processed = 0
     if queued > 0 and process_inline:
@@ -229,22 +323,9 @@ def charge_and_queue_ats(
             if maybe_reject_recipient_by_ats_threshold(db, order, recipient):
                 continue
             accepted += 1
-        if accepted > 0:
-            try:
-                from app.services.usage_wallet_service import UsageWalletService
 
-                UsageWalletService.record_cv_scan_usage(db, org_id=org.id, units=accepted)
-            except Exception:
-                pass
-    elif queued > 0 and org is not None:
-        try:
-            from app.services.usage_wallet_service import UsageWalletService
-
-            UsageWalletService.record_cv_scan_usage(db, org_id=org.id, units=int(queued))
-        except Exception:
-            pass
-
-    return {"ok": True, "queued": queued, "processed": processed, "accepted": accepted, "charged_pence": total, **quote}
+    db.commit()
+    return {"ok": True, "queued": queued, "processed": processed, "accepted": accepted, "charged_pence": charged_pence, **quote}
 
 
 def background_process_ats_scans(*, limit: int = 8) -> None:

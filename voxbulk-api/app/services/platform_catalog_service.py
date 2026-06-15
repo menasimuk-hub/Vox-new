@@ -970,7 +970,26 @@ class ServiceOrderService:
         return new_order
 
     @staticmethod
+    def _order_config_dict(order: ServiceOrder) -> dict[str, Any]:
+        try:
+            data = json.loads(order.config_json or "{}")
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _purge_recipient_dependencies(db: Session, recipient_ids: list[str]) -> None:
+        if not recipient_ids:
+            return
+        from app.models.survey_voice_note_job import SurveyVoiceNoteJob
+        from app.models.survey_session import SurveySession
+
+        db.execute(delete(SurveyVoiceNoteJob).where(SurveyVoiceNoteJob.recipient_id.in_(recipient_ids)))
+        db.execute(delete(SurveySession).where(SurveySession.recipient_id.in_(recipient_ids)))
+
+    @staticmethod
     def delete_order(db: Session, order: ServiceOrder, *, confirm_running_delete: bool = False) -> None:
+        """Soft-delete: archive order and keep recipients/results for reference."""
         if order.status in {"running", "paused", "scheduled"}:
             if not confirm_running_delete:
                 raise ValueError("Stop the survey before deleting")
@@ -994,8 +1013,13 @@ class ServiceOrderService:
                 logging.getLogger(__name__).exception(
                     "interview_campaign_cancel_notify_failed order_id=%s", order.id
                 )
-        db.execute(delete(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id))
-        db.delete(order)
+        cfg = ServiceOrderService._order_config_dict(order)
+        cfg["deleted_at"] = datetime.utcnow().isoformat()
+        cfg["user_deleted"] = True
+        order.config_json = json.dumps(cfg, ensure_ascii=False)
+        order.status = "archived"
+        order.updated_at = datetime.utcnow()
+        db.add(order)
         db.commit()
 
     @staticmethod
@@ -1211,6 +1235,13 @@ class ServiceOrderService:
     def replace_recipients(db: Session, order: ServiceOrder, rows: list[dict[str, str]]) -> ServiceOrder:
         if order.payment_status == "approved":
             raise ValueError("Cannot change recipients after payment is approved")
+        old_ids = list(
+            db.execute(
+                select(ServiceOrderRecipient.id).where(ServiceOrderRecipient.order_id == order.id)
+            ).scalars()
+        )
+        if old_ids:
+            ServiceOrderService._purge_recipient_dependencies(db, old_ids)
         db.execute(delete(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id))
         for i, row in enumerate(rows, start=1):
             result_json = None

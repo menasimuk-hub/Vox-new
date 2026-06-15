@@ -66,8 +66,8 @@ INVOICE_DOCUMENT_BODY = f"""<!DOCTYPE html>
       <tr style="background:{INVOICE_ACCENT};color:#ffffff;">
         <th style="text-align:left;padding:10px 12px;border-radius:8px 0 0 0;">Description</th>
         <th style="text-align:center;padding:10px 8px;width:56px;">Qty</th>
-        <th style="text-align:right;padding:10px 12px;width:96px;">Unit</th>
-        <th style="text-align:right;padding:10px 12px;border-radius:0 8px 0 0;width:96px;">Total</th>
+        <th style="text-align:right;padding:10px 12px;width:96px;">Unit (ex VAT)</th>
+        <th style="text-align:right;padding:10px 12px;border-radius:0 8px 0 0;width:96px;">Total (inc VAT)</th>
       </tr>
     </thead>
     <tbody>

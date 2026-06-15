@@ -102,7 +102,7 @@ export function SurveyEditActionBar({
     try {
       if (runningLike) await stopM.mutateAsync(order.id);
       await deleteM.mutateAsync({ orderId: order.id, confirmRunningDelete: runningLike });
-      toast.success("Survey deleted");
+      toast.success("Survey removed — recipient data kept for reference");
       setDeleteOpen(false);
       void navigate({ to: "/surveys" });
     } catch (e) {

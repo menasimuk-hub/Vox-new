@@ -131,6 +131,8 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   const isLive = isLiveOrder(rawOrder, current?.status || "quoted");
 
   const resultsQ = useInterviewResults(orderId);
+  const schedulingQ = useSchedulingStatus();
+  const calendarReady = (schedulingQ.data as Record<string, unknown> | undefined)?.human_scheduling_ready === true;
   const stopM = useStopInterviewCampaign();
   const [stopOpen, setStopOpen] = React.useState(false);
   const [stopConfirmText, setStopConfirmText] = React.useState("");
@@ -324,8 +326,9 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
           ) : (
             <>
               <ResultKpi label="Campaign ID" value={campaignId} sub="tracking reference" />
-              <ResultKpi label="Completed calls" value={String(kpis.reached ?? 0)} sub={`${kpis.reach_rate_pct ?? 0}% reached`} />
-              <ResultKpi label="Awaiting interview" value={String(kpis.awaiting_interview ?? 0)} sub="Not called yet" />
+              <ResultKpi label="Calls attempted" value={String(kpis.attempted ?? kpis.called ?? 0)} sub={`${kpis.reach_rate_pct ?? 0}% completed`} />
+              <ResultKpi label="Completed calls" value={String(kpis.reached ?? 0)} sub="Answered & screened" />
+              <ResultKpi label="No answer / failed" value={String((kpis.no_answer ?? 0) + (kpis.failed ?? 0))} sub="Attempted but not completed" />
               <ResultKpi label="Recommended advance" value={String(kpis.recommended_advance ?? 0)} sub="After AI interview" />
               <ResultKpi label="Avg duration" value={String(kpis.avg_duration_label ?? "—")} sub="per call" />
             </>
@@ -343,7 +346,19 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
             <div className="relative w-full min-w-0 sm:w-44"><Search className="absolute left-2 top-2 size-4 text-muted-foreground" /><Input placeholder="Search candidate" className="h-8 w-full pl-8 text-xs" /></div>
             <Button size="sm" variant="outline" className="gap-1.5"><Filter className="size-3.5" /> Filter</Button>
             {!isLive && (
-              <Button size="sm" className="gap-1.5" disabled={selectedCount === 0} onClick={() => setSendOpen(true)}>
+              <Button
+                size="sm"
+                className="gap-1.5"
+                disabled={selectedCount === 0 || !calendarReady}
+                title={
+                  selectedCount === 0
+                    ? "Select candidates first"
+                    : !calendarReady
+                      ? "Connect Calendly or Cronofy and choose an event type in Settings → Integrations"
+                      : undefined
+                }
+                onClick={() => setSendOpen(true)}
+              >
                 <Send className="size-3.5" /> Send booking link {selectedCount > 0 && `(${selectedCount})`}
               </Button>
             )}

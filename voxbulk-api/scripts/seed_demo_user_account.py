@@ -372,12 +372,13 @@ def seed_consolidated_interview(
             recipient.status = "completed"
             recipient.result_json = json.dumps(payload, ensure_ascii=False)
         else:
-            recipient.status = rng.choice(["completed", "no_answer", "queued"])
-            if recipient.status == "completed":
+            terminal = rng.choice(["completed", "no_answer", "failed"])
+            recipient.status = terminal
+            if terminal == "completed":
                 payload = _recipient_analysis(recipient.row_number or 1, recipient.name or "Candidate")
                 recipient.result_json = json.dumps(payload, ensure_ascii=False)
             else:
-                recipient.result_json = json.dumps({"terminal_status": recipient.status}, ensure_ascii=False)
+                recipient.result_json = json.dumps({"terminal_status": terminal}, ensure_ascii=False)
         db.add(recipient)
     db.commit()
 
@@ -491,6 +492,20 @@ def ensure_wallet_balance(db, org: Organisation, *, needed_minor: int, auto_top_
     return WalletService.balance_minor(org)
 
 
+def issue_demo_payment_invoice(db, order: ServiceOrder, *, user_id: str) -> None:
+    from app.services.service_order_payment_workflow_service import ServiceOrderPaymentWorkflowService
+
+    try:
+        ServiceOrderPaymentWorkflowService.confirm_payment_and_issue_invoice(
+            db,
+            order,
+            actor_user_id=user_id,
+            commit_payment=False,
+        )
+    except Exception as exc:
+        print(f"  Warning: invoice not issued for {order.id}: {exc}")
+
+
 def charge_survey_from_wallet(db, order: ServiceOrder, org: Organisation, *, user_id: str, auto_top_up: bool) -> ServiceOrder:
     if order.payment_status == "approved":
         return order
@@ -507,6 +522,7 @@ def charge_survey_from_wallet(db, order: ServiceOrder, org: Organisation, *, use
     except SurveyLaunchEligibilityError as exc:
         raise SystemExit(f"Survey wallet charge failed for {order.id}: {exc}") from exc
     db.refresh(order)
+    issue_demo_payment_invoice(db, order, user_id=user_id)
     return order
 
 
@@ -535,6 +551,7 @@ def charge_interview_from_wallet(db, order: ServiceOrder, org: Organisation, *, 
     db.add(order)
     db.commit()
     db.refresh(order)
+    issue_demo_payment_invoice(db, order, user_id=user_id)
     return order
 
 

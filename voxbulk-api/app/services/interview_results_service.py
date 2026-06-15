@@ -227,6 +227,12 @@ class InterviewResultsService:
             if str(r.status or "").lower() not in {"", "pending", "queued", "skipped", "cancelled"}
         )
         reached = sum(1 for r in recipients if str(r.status or "").lower() in VOICE_COMPLETED)
+        no_answer = sum(1 for r in recipients if str(r.status or "").lower() in {"no_answer", "busy"})
+        failed = sum(
+            1
+            for r in recipients
+            if str(r.status or "").lower() in {"failed", "error", "cancelled"}
+        )
         recommended = sum(
             1 for c in scored if c.get("recommendation") == "Advance" and c.get("has_interview_report")
         )
@@ -260,7 +266,10 @@ class InterviewResultsService:
             },
             "kpis": {
                 "called": called,
+                "attempted": called,
                 "reached": reached,
+                "no_answer": no_answer,
+                "failed": failed,
                 "reach_rate_pct": reach_rate,
                 "recommended_advance": recommended,
                 "awaiting_interview": len(awaiting),

@@ -186,14 +186,15 @@ def auto_ats_for_cv_recipient(
         }
 
     try:
-        from app.services.usage_wallet_service import UsageWalletService
+        from app.services.interview_ats_billing_service import record_ats_charge
 
-        UsageWalletService.record_cv_scan_usage(db, org_id=org.id, units=1)
+        record_ats_charge(db, order, org, recipient, source="auto")
     except Exception:
         logger.exception(
-            "email_cv_usage_record_failed",
+            "email_cv_ats_charge_failed",
             extra={"order_id": order.id, "recipient_id": recipient.id},
         )
+        return {"ok": False, "reason": "charge_failed"}
 
     return {"ok": True, "min_score": min_score, "actual_score": actual_score}
 

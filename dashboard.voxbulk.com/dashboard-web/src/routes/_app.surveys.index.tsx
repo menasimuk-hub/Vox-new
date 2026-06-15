@@ -93,7 +93,7 @@ function SavedSurveys() {
         await stopM.mutateAsync(deleteTarget.id);
       }
       await deleteM.mutateAsync({ orderId: deleteTarget.id, confirmRunningDelete: runningLike });
-      toast.success("Survey deleted");
+      toast.success("Survey removed — recipient data kept for reference");
       setDeleteTarget(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Delete failed");

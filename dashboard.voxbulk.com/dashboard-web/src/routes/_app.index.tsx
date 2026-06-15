@@ -456,9 +456,9 @@ function InterviewsSection({
 }) {
   const int = summary?.interview;
   const kpis = [
-    { label: "Live campaigns", value: String(int?.live ?? 0) },
-    { label: "Running calls", value: String(int?.running ?? 0) },
-    { label: "Finished this month", value: String(int?.finished ?? 0) },
+    { label: "Calls attempted", value: String(int?.calls_attempted ?? 0) },
+    { label: "Completed calls", value: String(int?.calls_completed ?? 0) },
+    { label: "Recommended advance", value: String(int?.recommended_advance ?? 0) },
     { label: "Candidates screened", value: String(int?.candidates ?? 0) },
   ];
 

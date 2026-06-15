@@ -72,6 +72,9 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     cron_connected = connected and provider == "cronofy"
     cal_platform = platform_oauth_configured(db, "calendly")
     cron_platform = platform_oauth_configured(db, "cronofy")
+    event_type_uri = str(cfg.get("event_type_uri") or "").strip()
+    event_type_configured = bool(event_type_uri) if cal_connected else bool(cron_connected)
+    human_ready = connected and event_type_configured
     return {
         "connected": connected,
         "provider": provider or None,
@@ -81,8 +84,9 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         "cronofy_platform_configured": cron_platform,
         "interview_booking_ready": True,
         "interview_booking_mode": "voxbulk_native",
-        "human_scheduling_ready": connected,
-        "human_scheduling_mode": provider if connected else None,
+        "event_type_configured": event_type_configured,
+        "human_scheduling_ready": human_ready,
+        "human_scheduling_mode": provider if human_ready else None,
         "providers_available": ["calendly", "cronofy"],
         "event_type_uri": cfg.get("event_type_uri"),
         "owner_name": cfg.get("owner_name"),

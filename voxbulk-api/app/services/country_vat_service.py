@@ -170,17 +170,49 @@ class CountryVatService:
         return net, gross - net
 
     @staticmethod
-    def is_vat_inclusive_pricing(db: Session, country_code: str) -> bool:
-        """UK catalog prices are VAT-inclusive when platform VAT is enabled."""
+    def is_gb_gbp_customer(country_code: str, currency: str) -> bool:
+        """VAT-inclusive catalog extraction applies only to GB customers billed in GBP."""
         code = str(country_code or "GB").upper()[:2]
-        if code != "GB":
-            return False
-        try:
-            from app.services.billing_settings_service import BillingSettingsService
+        cur = str(currency or "GBP").upper()
+        return code == "GB" and cur == "GBP"
 
-            return bool(BillingSettingsService.get(db).vat_enabled)
-        except Exception:
-            return False
+    @staticmethod
+    def is_vat_inclusive_pricing(
+        db: Session,
+        country_code: str,
+        currency: str = "GBP",
+    ) -> bool:
+        """GB customers invoiced in GBP: stored prices are VAT-inclusive (20% extracted, not added)."""
+        return CountryVatService.is_gb_gbp_customer(country_code, currency)
+
+    @staticmethod
+    def gb_vat_rate_percent() -> float:
+        return 20.0
+
+    @staticmethod
+    def display_line_items_ex_vat(
+        items: list[dict[str, Any]],
+        *,
+        country_code: str,
+        currency: str,
+    ) -> list[dict[str, Any]]:
+        """Return line items with unit_pence ex-VAT for invoice display (GB + GBP only)."""
+        if not CountryVatService.is_gb_gbp_customer(country_code, currency):
+            return items
+        rate = CountryVatService.gb_vat_rate_percent()
+        out: list[dict[str, Any]] = []
+        for raw in items:
+            row = dict(raw)
+            gross_unit = int(row.get("unit_pence") or row.get("total_pence") or 0)
+            qty = max(1, int(row.get("quantity") or 1))
+            gross_total = int(row.get("total_pence") or gross_unit * qty)
+            net_unit, _ = CountryVatService.split_gross_pence(gross_unit, rate)
+            row["unit_pence"] = net_unit
+            row["total_pence"] = gross_total
+            row["gross_unit_pence"] = gross_unit
+            row["gross_total_pence"] = gross_total
+            out.append(row)
+        return out
 
     @staticmethod
     def to_dict(row: CountryVatRate) -> dict[str, Any]:

@@ -67,6 +67,26 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
     int_archived = sum(1 for r in interviews if ServiceOrderService.is_archived_order(r))
     int_running = sum(1 for r in interviews if r.status == "running")
     int_candidates = sum(int(r.recipient_count or 0) for r in interviews if r.status in {"running", "completed"})
+    int_calls_attempted = 0
+    int_calls_completed = 0
+    int_recommended_advance = 0
+    for r in interviews:
+        if r.status not in {"running", "completed"}:
+            continue
+        recipients = ServiceOrderService.get_recipients(db, r.id)
+        for rec in recipients:
+            st = str(rec.status or "").lower()
+            if st not in {"", "pending", "queued", "skipped", "cancelled"}:
+                int_calls_attempted += 1
+            if st in {"completed", "done", "answered", "success"}:
+                int_calls_completed += 1
+            try:
+                parsed = json.loads(rec.result_json or "{}")
+            except Exception:
+                parsed = {}
+            analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
+            if analysis.get("recommendation") == "Advance" and st in {"completed", "done", "answered", "success"}:
+                int_recommended_advance += 1
 
     sur_live = sum(1 for r in surveys if ServiceOrderService.is_live_survey(r))
     sur_finished = sum(1 for r in surveys if ServiceOrderService.is_finished_survey(r))
@@ -225,6 +245,9 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
             "archived": int_archived,
             "running": int_running,
             "candidates": int_candidates,
+            "calls_attempted": int_calls_attempted,
+            "calls_completed": int_calls_completed,
+            "recommended_advance": int_recommended_advance,
         },
         "survey": {
             "live": sur_live,

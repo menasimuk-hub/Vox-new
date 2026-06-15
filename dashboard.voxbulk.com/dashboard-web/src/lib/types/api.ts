@@ -91,6 +91,9 @@ export type HomeSummary = {
     archived?: number;
     running?: number;
     candidates?: number;
+    calls_attempted?: number;
+    calls_completed?: number;
+    recommended_advance?: number;
   };
   survey?: {
     live?: number;

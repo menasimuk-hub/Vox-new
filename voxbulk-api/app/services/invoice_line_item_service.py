@@ -177,7 +177,51 @@ class InvoiceLineItemService:
         return lines
 
     @staticmethod
+    def _ats_lines_from_order(order: ServiceOrder) -> list[dict[str, Any]]:
+        try:
+            cfg = json.loads(order.config_json or "{}")
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(cfg, dict):
+            return []
+        charges = cfg.get("ats_charges")
+        if not isinstance(charges, list) or not charges:
+            legacy_count = int(cfg.get("ats_last_charge_count") or 0)
+            legacy_unit = int(cfg.get("ats_last_unit_pence") or 0)
+            if legacy_count > 0 and legacy_unit > 0:
+                return [
+                    InvoiceLineItemService._line(
+                        description="ATS CV screening",
+                        quantity=legacy_count,
+                        unit_pence=legacy_unit,
+                        total_pence=legacy_count * legacy_unit,
+                        kind="ats_cv_scan",
+                    )
+                ]
+            return []
+        unit = 0
+        for row in charges:
+            if not isinstance(row, dict):
+                continue
+            unit = max(unit, int(row.get("catalog_unit_pence") or row.get("amount_pence") or 0))
+        if unit <= 0:
+            return []
+        count = len([r for r in charges if isinstance(r, dict)])
+        if count <= 0:
+            return []
+        return [
+            InvoiceLineItemService._line(
+                description="ATS CV screening",
+                quantity=count,
+                unit_pence=unit,
+                total_pence=count * unit,
+                kind="ats_cv_scan",
+            )
+        ]
+
+    @staticmethod
     def from_order(order: ServiceOrder) -> list[dict[str, Any]]:
+        lines: list[dict[str, Any]] = []
         for raw in (order.quote_breakdown_json, order.launch_billing_json):
             if not raw:
                 continue
@@ -188,23 +232,29 @@ class InvoiceLineItemService:
             if not isinstance(parsed, dict):
                 continue
             if parsed.get("lines"):
-                return InvoiceLineItemService.from_quote_payload(parsed)
+                lines = InvoiceLineItemService.from_quote_payload(parsed)
+                break
             if parsed.get("channel"):
-                return InvoiceLineItemService.from_launch_breakdown(
+                lines = InvoiceLineItemService.from_launch_breakdown(
                     parsed,
                     order_title=str(order.title or order.survey_name or ""),
                 )
-        total = max(0, int(order.quote_total_pence or 0))
-        if total <= 0:
-            return []
-        return [
-            InvoiceLineItemService._line(
-                description=str(order.title or order.service_code or "Service order"),
-                quantity=max(1, int(order.recipient_count or 1)),
-                unit_pence=total,
-                total_pence=total,
-            )
-        ]
+                break
+        if not lines:
+            total = max(0, int(order.quote_total_pence or 0))
+            if total > 0:
+                lines = [
+                    InvoiceLineItemService._line(
+                        description=str(order.title or order.service_code or "Service order"),
+                        quantity=max(1, int(order.recipient_count or 1)),
+                        unit_pence=total,
+                        total_pence=total,
+                    )
+                ]
+        ats_lines = InvoiceLineItemService._ats_lines_from_order(order)
+        if ats_lines:
+            lines = [*lines, *ats_lines]
+        return lines
 
     @staticmethod
     def gross_total_pence(line_items: list[dict[str, Any]] | None) -> int:

@@ -99,7 +99,9 @@ def test_delete_order_does_not_notify_unlaunched_draft(monkeypatch):
 
         ServiceOrderService.delete_order(db, order)
         notify.assert_not_called()
-        assert db.get(ServiceOrderRecipient, recipient.id) is None
+        db.refresh(order)
+        assert order.status == "archived"
+        assert db.get(ServiceOrderRecipient, recipient.id) is not None
 
 
 def test_recipient_received_booking_outreach_requires_invite_or_booking():

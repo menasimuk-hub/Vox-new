@@ -49,6 +49,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const scheduling = (schedulingQ.data || {}) as Record<string, unknown>;
   const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
   const humanReady = scheduling.human_scheduling_ready === true;
+  const eventTypeReady = scheduling.event_type_configured === true;
   const calPlatformReady = scheduling.calendly_platform_configured === true;
   const cronPlatformReady = scheduling.cronofy_platform_configured === true;
   const hubspotConnected = hubspot.connected === true;
@@ -151,7 +152,9 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
               <span className={"size-2 rounded-full " + (humanReady ? "bg-success" : "bg-warning")} />
               {humanReady
                 ? `Ready — ${String(scheduling.human_scheduling_mode || scheduling.provider || "calendar")} connected for Results → Send`
-                : "Connect Calendly or Cronofy below before sending human interview links from Results"}
+                : scheduling.calendly_connected && !eventTypeReady
+                  ? "Calendly connected — pick an active event type in Calendly (or reconnect) before sending links"
+                  : "Connect Calendly or Cronofy below before sending human interview links from Results"}
             </div>
           )}
         </CardContent>
