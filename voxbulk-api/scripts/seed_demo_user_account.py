@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """Seed a rich demo account for any dashboard user — wallet debits included.
 
-Creates mixed-result campaigns:
+Creates mixed-result campaigns (default demo profile):
   • 20 AI call surveys
-  • 20 interviews with ATS scores
-  • 40 WhatsApp surveys
+  • 20 interviews with ATS scores (incl. one success candidate email)
+  • 100 WhatsApp surveys (fitness & gyms theme)
 
 Usage:
   cd voxbulk-api && source .venv/bin/activate
-  python scripts/seed_demo_user_account.py --email user@example.com
-  python scripts/seed_demo_user_account.py --email user@example.com --clear
-  python scripts/seed_demo_user_account.py --email user@example.com --auto-top-up
-  python scripts/seed_demo_user_account.py --email user@example.com --ai 10 --interviews 5 --wa 20
+  python scripts/seed_demo_user_account.py --email user@example.com --clear --auto-top-up
+  python scripts/seed_demo_user_account.py --email user@example.com --ai 20 --interviews 20 --wa 100 --success-email skipdaq@gmail.com
 """
 
 from __future__ import annotations
@@ -60,6 +58,7 @@ from app.models.survey_voice_note_job import SurveyVoiceNoteJob
 from app.models.user import User
 from app.services.billing_currency import money_display, resolve_org_currency
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
+from app.services.interview_analysis_service import refresh_order_interview_report
 from app.services.survey_launch_eligibility_service import (
     SurveyLaunchEligibilityError,
     SurveyLaunchEligibilityService,
@@ -78,7 +77,6 @@ _create_voice_jobs = mixed_seed._create_voice_jobs
 
 ROLE = interview_seed.ROLE
 _demo_config = interview_seed._demo_config
-_enrich_cv_data = interview_seed._enrich_cv_data
 _mark_interview_finished = interview_seed._mark_order_finished
 _recipient_analysis = interview_seed._recipient_analysis
 _try_quote = interview_seed._try_quote
@@ -87,7 +85,119 @@ intake_contacts_merge = interview_seed.intake_contacts_merge
 DEMO_ACCOUNT_PACK = "user_account_demo_v1"
 DEFAULT_AI_COUNT = 20
 DEFAULT_INTERVIEW_COUNT = 20
-DEFAULT_WA_COUNT = 40
+DEFAULT_WA_COUNT = 100
+DEFAULT_SUCCESS_EMAIL = "skipdaq@gmail.com"
+
+GYM_BRANDS = (
+    "PureGym",
+    "David Lloyd",
+    "The Gym Group",
+    "Nuffield Health",
+    "Fitness First",
+    "Anytime Fitness",
+    "Virgin Active",
+    "Snap Fitness",
+)
+
+
+def _demo_wa_fitness_config() -> dict:
+    cfg = dict(_demo_wa_config())
+    cfg.update(
+        {
+            "goal": "Member feedback — fitness & gyms",
+            "organisation_name": "FitLife Gyms",
+            "survey_organiser_name": "Gym Member Experience",
+            "industry": "fitness",
+            "vertical": "gyms",
+            "survey_topic": "gym_member_experience",
+        }
+    )
+    return cfg
+
+
+def _demo_ai_call_fitness_config() -> dict:
+    cfg = dict(_demo_call_config())
+    cfg.update(
+        {
+            "goal": "Member feedback — fitness & gyms (AI phone survey)",
+            "organisation_name": "FitLife Gyms",
+            "survey_organiser_name": "Gym Member Experience",
+            "industry": "fitness",
+            "vertical": "gyms",
+        }
+    )
+    return cfg
+
+
+def _fitness_wa_contact(index: int) -> dict[str, str]:
+    brand = GYM_BRANDS[(index - 1) % len(GYM_BRANDS)]
+    return {
+        "name": f"{brand} · Member {index:03d}",
+        "phone": f"+4477009{10000 + index:05d}",
+        "email": f"gym.member.{index:03d}@example.invalid",
+    }
+
+
+def _enrich_all_ats(db, order: ServiceOrder, *, highlight_email: str | None = None) -> None:
+    """Run ATS on every candidate with a phone number."""
+    skills_pool = [
+        ["Python", "FastAPI", "PostgreSQL", "Docker"],
+        ["Python", "Django", "Redis", "AWS"],
+        ["Java", "Spring", "Kafka"],
+        ["TypeScript", "Node.js", "React"],
+        ["Leadership", "Agile", "System design"],
+    ]
+    recipients = ServiceOrderService.get_recipients(db, order.id)
+    for idx, recipient in enumerate(recipients):
+        if not recipient.phone:
+            continue
+        skills = skills_pool[idx % len(skills_pool)]
+        recipient.cv_quality = "excellent" if highlight_email and recipient.email == highlight_email else "good"
+        recipient.cv_filename = f"{(recipient.name or 'candidate').replace(' ', '_').lower()}_cv.pdf"
+        recipient.cv_text = (
+            f"{recipient.name} — {ROLE} candidate. "
+            f"Experience with {', '.join(skills)}. "
+            "Led backend migrations and on-call rotations."
+        )
+        recipient.cv_parsed_json = json.dumps(
+            {
+                "skills": skills,
+                "job_titles": ["Software Engineer", "Backend Developer"],
+                "years_experience": 4 + (idx % 6),
+            },
+            ensure_ascii=False,
+        )
+        recipient.intake_source = "merged"
+        recipient.ats_score = 94 if highlight_email and recipient.email == highlight_email else 62 + (idx * 7) % 35
+        recipient.ats_status = "complete"
+        recipient.intake_errors_json = json.dumps([], ensure_ascii=False)
+        db.add(recipient)
+    db.commit()
+
+
+def _interview_contacts(
+    index: int,
+    seed: int,
+    *,
+    success_email: str | None = None,
+) -> list[dict[str, str]]:
+    rng = random.Random(seed + index * 3)
+    count = rng.randint(4, 7)
+    contacts = [
+        {
+            "name": f"Demo Candidate {index:02d}-{i:02d}",
+            "phone": f"+4477009{30000 + index * 10 + i:05d}",
+            "email": f"demo.interview.{index:02d}.{i:02d}@example.invalid",
+        }
+        for i in range(1, count + 1)
+    ]
+    if index == 1 and success_email:
+        contacts[0] = {
+            "name": "Skip Daq",
+            "phone": "+447700933001",
+            "email": success_email.strip().lower(),
+        }
+    return contacts
 
 
 def _tag_config(config: dict, *, channel: str | None = None) -> dict:
@@ -280,12 +390,12 @@ def seed_one_survey(
     rng = random.Random(seed + index)
     contact_count = rng.randint(4, 8)
     if channel == "wa":
-        config = _tag_config(_demo_wa_config(), channel="survey")
-        title = f"Demo WA · Batch {index:02d} · {contact_count} contacts"
+        config = _tag_config(_demo_wa_fitness_config(), channel="survey")
+        title = f"Fitness & Gyms · WA · Batch {index:03d} · {contact_count} members"
         ch_key = "wa"
     else:
-        config = _tag_config(_demo_call_config(), channel="survey")
-        title = f"Demo AI Call · Batch {index:02d} · {contact_count} contacts"
+        config = _tag_config(_demo_ai_call_fitness_config(), channel="survey")
+        title = f"Fitness & Gyms · AI Call · Batch {index:02d} · {contact_count} members"
         ch_key = "ai_call"
 
     order = ServiceOrderService.create_order(
@@ -296,7 +406,11 @@ def seed_one_survey(
         title=title,
         config=config,
     )
-    ServiceOrderService.replace_recipients(db, order, _contacts_for_batch(index, channel=ch_key, size=contact_count))
+    if ch_key == "wa":
+        contacts = [_fitness_wa_contact(index * 100 + i) for i in range(1, contact_count + 1)]
+    else:
+        contacts = _contacts_for_batch(index, channel=ch_key, size=contact_count)
+    ServiceOrderService.replace_recipients(db, order, contacts)
     db.refresh(order)
     if ch_key == "ai_call":
         order = _prepare_ai_call_survey_for_launch(db, order, config)
@@ -368,19 +482,15 @@ def seed_one_interview(
     seed: int,
     org: Organisation,
     auto_top_up: bool,
+    success_email: str | None = None,
 ) -> ServiceOrder:
     rng = random.Random(seed + index * 3)
-    contacts = [
-        {
-            "name": f"Demo Candidate {index:02d}-{i:02d}",
-            "phone": f"+4477009{30000 + index * 10 + i:05d}",
-            "email": f"demo.interview.{index:02d}.{i:02d}@example.invalid",
-        }
-        for i in range(1, rng.randint(4, 7))
-    ]
+    contacts = _interview_contacts(index, seed, success_email=success_email if index == 1 else None)
     config = _tag_config(_demo_config(org_name))
     config["ats_skipped"] = False
     config["cv_min_ats_score"] = 65
+    config["cv_email_enabled"] = True
+    config["delivery"] = "ai_call"
 
     order = ServiceOrderService.create_order(
         db,
@@ -392,16 +502,26 @@ def seed_one_interview(
     )
     intake_contacts_merge(db, order, contacts)
     db.refresh(order)
-    _enrich_cv_data(db, order)
+    highlight = success_email.strip().lower() if index == 1 and success_email else None
+    _enrich_all_ats(db, order, highlight_email=highlight)
     db.refresh(order)
     order = charge_interview_from_wallet(db, order, org, user_id=user_id, auto_top_up=auto_top_up)
 
     completed_target = rng.randint(2, max(2, len(contacts) - 1))
     recipients = ServiceOrderService.get_recipients(db, order.id)
     done = 0
+    highlight_norm = highlight
     for recipient in recipients:
         if recipient.phone and done < completed_target:
             payload = _recipient_analysis(recipient.row_number or done + 1, recipient.name or "Candidate")
+            if highlight_norm and str(recipient.email or "").strip().lower() == highlight_norm:
+                payload["analysis"]["score"] = 94
+                payload["analysis"]["recommendation"] = "Advance"
+                payload["analysis"]["sentiment"] = "Enthusiastic"
+                payload["analysis"]["short_summary"] = (
+                    f"{recipient.name} completed screening with score 94 — strong hire."
+                )
+                payload["call_summary"] = "Screening completed — Advance (demo success candidate)."
             recipient.status = "completed"
             recipient.result_json = json.dumps(payload, ensure_ascii=False)
             done += 1
@@ -421,6 +541,7 @@ def seed_one_interview(
         db.add(order)
         db.commit()
         db.refresh(order)
+        refresh_order_interview_report(db, order)
         return order
 
     order = _mark_interview_finished(db, order)
@@ -437,7 +558,13 @@ def main() -> None:
     parser.add_argument("--ai", type=int, default=DEFAULT_AI_COUNT, help="Number of AI call survey campaigns")
     parser.add_argument("--interviews", type=int, default=DEFAULT_INTERVIEW_COUNT, help="Number of interview campaigns")
     parser.add_argument("--wa", type=int, default=DEFAULT_WA_COUNT, help="Number of WhatsApp survey campaigns")
+    parser.add_argument(
+        "--success-email",
+        default=DEFAULT_SUCCESS_EMAIL,
+        help="Email for the demo success interview candidate (batch 1)",
+    )
     args = parser.parse_args()
+    success_email = str(args.success_email or "").strip().lower() or None
 
     with get_sessionmaker()() as db:
         PlatformCatalogService.ensure_defaults(db)
@@ -469,7 +596,25 @@ def main() -> None:
 
         created: list[tuple[str, ServiceOrder]] = []
 
-        print(f"\nSeeding {args.ai} AI call surveys…")
+        print(f"\nSeeding {args.interviews} interviews with ATS…")
+        if success_email:
+            print(f"  Success candidate email (batch 1): {success_email}")
+        for i in range(1, args.interviews + 1):
+            order = seed_one_interview(
+                db,
+                org_id=membership.org_id,
+                user_id=user.id,
+                org_name=org_name,
+                index=i,
+                seed=args.seed,
+                org=org,
+                auto_top_up=args.auto_top_up,
+                success_email=success_email,
+            )
+            created.append(("Interview", order))
+            print(f"  [{i}/{args.interviews}] {order.title} · {order.id} · £{order.quote_total_pence / 100:.2f}")
+
+        print(f"\nSeeding {args.ai} AI call surveys (fitness & gyms)…")
         for i in range(1, args.ai + 1):
             order = seed_one_survey(
                 db,
@@ -484,22 +629,7 @@ def main() -> None:
             created.append(("AI Call", order))
             print(f"  [{i}/{args.ai}] {order.title} · {order.id} · £{order.quote_total_pence / 100:.2f}")
 
-        print(f"\nSeeding {args.interviews} interviews with ATS…")
-        for i in range(1, args.interviews + 1):
-            order = seed_one_interview(
-                db,
-                org_id=membership.org_id,
-                user_id=user.id,
-                org_name=org_name,
-                index=i,
-                seed=args.seed,
-                org=org,
-                auto_top_up=args.auto_top_up,
-            )
-            created.append(("Interview", order))
-            print(f"  [{i}/{args.interviews}] {order.title} · {order.id} · £{order.quote_total_pence / 100:.2f}")
-
-        print(f"\nSeeding {args.wa} WhatsApp surveys…")
+        print(f"\nSeeding {args.wa} WhatsApp surveys (fitness & gyms)…")
         for i in range(1, args.wa + 1):
             order = seed_one_survey(
                 db,
@@ -512,7 +642,12 @@ def main() -> None:
                 auto_top_up=args.auto_top_up,
             )
             created.append(("WhatsApp", order))
-            print(f"  [{i}/{args.wa}] {order.title} · {order.id} · £{order.quote_total_pence / 100:.2f}")
+            if i <= 5 or i == args.wa or i % 25 == 0:
+                print(f"  [{i}/{args.wa}] {order.title} · {order.id} · £{order.quote_total_pence / 100:.2f}")
+
+        by_type: dict[str, int] = {}
+        for label, _ in created:
+            by_type[label] = by_type.get(label, 0) + 1
 
         db.refresh(org)
         end_balance = WalletService.balance_minor(org)
@@ -520,6 +655,9 @@ def main() -> None:
         print(f"\nWallet after:  {money_display(end_balance, currency)}")
         print(f"Total debited: {money_display(max(0, debited), currency)}")
         print(f"\nCreated {len(created)} campaigns — open Dashboard to review.")
+        print(f"  Interviews: {by_type.get('Interview', 0)}  ·  AI call surveys: {by_type.get('AI Call', 0)}  ·  WhatsApp: {by_type.get('WhatsApp', 0)}")
+        if success_email:
+            print(f"  Demo success candidate: {success_email} (Interview batch 1 · ATS 94 · Advance)")
         print("  Surveys  → /surveys")
         print("  Interviews → /interviews")
 
